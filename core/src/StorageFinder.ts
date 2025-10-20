@@ -59,7 +59,7 @@ export class StorageFinder {
     }
     let maxBlockNumberForExistence = currentBlock.number.toNumber();
     oldestBlockNumber ??= Math.max(0, maxBlockNumberForExistence - MiningFrames.ticksPerFrame * 365); // default to one year
-    oldestBlockNumber -= 1; // go one before to ensure we find the first block without storage
+    if (oldestBlockNumber > 0) oldestBlockNumber -= 1; // go one before to ensure we find the first block without storage
     // make sure it doesn't exist at the oldest block
     const existsAtOldest = await this.checkIfStorageExists({
       client,

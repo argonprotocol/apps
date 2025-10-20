@@ -198,7 +198,7 @@ async function connect(): Promise<IConfigServerCreationCustomServer> {
 
   const serverMeta = await (async () => {
     try {
-      return await SSH.tryConnection(newServerDetails, config.security.sshPrivateKeyPath);
+      return await SSH.tryConnection(newServerDetails);
     } catch {
       throw new Error('A SSH connection could not be established to your server.');
     }

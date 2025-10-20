@@ -20,3 +20,4 @@ export const BITCOIN_BLOCK_MILLIS: number = networkConfig.bitcoinBlockMillis;
 export const DEPLOY_ENV_FILE = `.env.${NETWORK_NAME}`;
 export const SECURITY = __COMMANDER_SECURITY__ as ISecurity;
 export const IS_TEST = __IS_TEST__ ?? false;
+delete (globalThis as any).__COMMANDER_SECURITY__; // remove from global scope

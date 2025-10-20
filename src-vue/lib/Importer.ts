@@ -6,6 +6,7 @@ import { invokeWithTimeout } from './tauriApi';
 import { ITryServerData, SSH } from './SSH';
 import { IConfigServerDetails } from '../interfaces/IConfig';
 import { IRecoveryFile } from '../interfaces/IRecoveryFile.ts';
+import { SECURITY } from './Env.ts';
 
 export default class Importer {
   private onFinished?: () => void;
@@ -34,7 +35,12 @@ export default class Importer {
 
     const restarter = new Restarter(this.dbPromise, this.config);
     await restarter.recreateLocalDatabase();
-    await invokeWithTimeout('overwrite_security', { ...this.data.security }, 10_000);
+    const security = await invokeWithTimeout(
+      'overwrite_mnemonic',
+      { mnemonic: this.data.security.masterMnemonic },
+      10_000,
+    );
+    Object.assign(SECURITY, security);
     await this.config.load(true);
 
     this.config.oldestFrameIdToSync = this.data.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
@@ -46,7 +52,7 @@ export default class Importer {
     }
     if (this.data.serverDetails?.ipAddress) {
       this.config.serverDetails = this.data.serverDetails;
-      const serverData = await this.fetchServerData(this.data.serverDetails, this.data.security.sshPrivateKeyPath);
+      const serverData = await this.fetchServerData(this.data.serverDetails);
 
       if (serverData?.walletAddress !== this.config.miningAccount.address) {
         throw new Error('Wallet address mismatch');
@@ -65,7 +71,8 @@ export default class Importer {
 
   async importFromMnemonic(mnemonic: string) {
     const restarter = new Restarter(this.dbPromise, this.config);
-    await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
+    const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
+    Object.assign(SECURITY, security);
     await restarter.recreateLocalDatabase(true);
     this.onFinished?.();
   }
@@ -79,7 +86,7 @@ export default class Importer {
       port: this.config.serverDetails.port,
     };
 
-    const serverData = await this.fetchServerData(serverDetails, this.config.security.sshPrivateKeyPath);
+    const serverData = await this.fetchServerData(serverDetails);
 
     if (!serverData) {
       throw new Error('Failed to fetch server data');
@@ -98,13 +105,10 @@ export default class Importer {
     this.onFinished?.();
   }
 
-  private async fetchServerData(
-    serverDetails: IConfigServerDetails,
-    sshPrivateKeyPath: string,
-  ): Promise<ITryServerData | undefined> {
-    if (!serverDetails.ipAddress || !sshPrivateKeyPath) return;
+  private async fetchServerData(serverDetails: IConfigServerDetails): Promise<ITryServerData | undefined> {
+    if (!serverDetails.ipAddress) return;
 
-    const serverData = await SSH.tryConnection(serverDetails, sshPrivateKeyPath);
+    const serverData = await SSH.tryConnection(serverDetails);
     return serverData;
   }
 }

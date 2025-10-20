@@ -24,13 +24,16 @@ struct NoSleepState {
 
 #[tauri::command]
 async fn open_ssh_connection(
+    app: AppHandle,
     address: &str,
     host: &str,
     port: u16,
     username: String,
-    private_key_path: String,
 ) -> Result<String, String> {
     log::info!("ensure_ssh_connection");
+    let private_key_path = security::Security::get_private_key_path(&app)
+        .to_string_lossy()
+        .to_string();
     ssh_pool::open_connection(address, host, port, username, private_key_path)
         .await
         .map_err(|e| {
@@ -39,6 +42,14 @@ async fn open_ssh_connection(
         })?;
 
     Ok("success".to_string())
+}
+
+#[tauri::command]
+async fn get_ssh_private_key(app: AppHandle) -> Result<String, String> {
+    log::info!("get_ssh_private_key");
+    let private_key =
+        security::Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
+    Ok(private_key)
 }
 
 #[tauri::command]
@@ -136,31 +147,16 @@ async fn read_embedded_file(app: AppHandle, local_relative_path: String) -> Resu
 }
 
 #[tauri::command]
-async fn overwrite_security(
+async fn overwrite_mnemonic(
     app: AppHandle,
-    master_mnemonic: String,
-    ssh_public_key: String,
-    ssh_private_key_path: String,
-) -> Result<String, String> {
-    log::info!("overwrite_security");
-    let new_security = security::Security {
-        master_mnemonic,
-        ssh_public_key,
-        ssh_private_key_path,
-    };
-    new_security.save(&app).map_err(|e| e.to_string())?;
-
-    Ok("success".to_string())
-}
-
-#[tauri::command]
-async fn overwrite_mnemonic(app: AppHandle, mnemonic: String) -> Result<String, String> {
+    mnemonic: String,
+) -> Result<security::Security, String> {
     log::info!("overwrite_mnemonic");
-    let mut security = security::Security::load(&app).map_err(|e| e.to_string())?;
-    security.master_mnemonic = mnemonic;
-    security.save(&app).map_err(|e| e.to_string())?;
-    Ok("success".to_string())
+    let security =
+        security::Security::save_with_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
+    Ok(security)
 }
+
 #[tauri::command]
 async fn run_db_migrations(app: AppHandle) -> Result<(), String> {
     log::info!("run_db_migrations");
@@ -402,7 +398,7 @@ pub fn run() {
             ssh_download_file,
             ssh_upload_embedded_file,
             read_embedded_file,
-            overwrite_security,
+            get_ssh_private_key,
             overwrite_mnemonic,
             run_db_migrations,
             create_zip,

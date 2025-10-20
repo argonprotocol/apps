@@ -8,6 +8,5 @@ globalThis.__SERVER_ENV_VARS__ = {} as any;
 globalThis.__IS_TEST__ = true;
 globalThis.__COMMANDER_SECURITY__ = {
   masterMnemonic: mnemonicGenerate(),
-  sshPrivateKeyPath: '',
   sshPublicKey: '',
 } as ISecurity;
