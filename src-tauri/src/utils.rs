@@ -94,7 +94,7 @@ impl Utils {
             Ok(k) => k,
             Err(_) => {
                 let mut key = [0u8; 32]; // 256-bit key
-                rand::thread_rng().fill_bytes(&mut key);
+                rand::rng().fill_bytes(&mut key);
                 let new_key = hex::encode(key);
 
                 key_entry.set_password(&new_key)?;

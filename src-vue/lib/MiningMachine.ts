@@ -245,7 +245,7 @@ export class MiningMachine {
 
     const serverMeta = await (async () => {
       try {
-        return await SSH.tryConnection(newServerDetails, config.security.sshPrivateKeyPath);
+        return await SSH.tryConnection(newServerDetails);
       } catch {
         throw new MiningMachineError('A SSH connection could not be established to your server.');
       }

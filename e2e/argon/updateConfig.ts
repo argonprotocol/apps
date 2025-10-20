@@ -27,3 +27,12 @@ const networkJson = readFileSync(configPath, 'utf-8');
 const networkConfig = JSON.parse(networkJson);
 networkConfig[networkName].esploraHost = `http://localhost:${esploraPort}`;
 writeFileSync(configPath, JSON.stringify(networkConfig, null, 2) + '\n', 'utf-8');
+
+if (networkName === 'dev-docker') {
+  // this is because it needs to be on the same network right now to sync properly. we could fix this by
+  // modifying the bitcoin-regtest.conf to use an `addnode` with a host-accessible docker port
+  console.log('------------ NOTE!!! USING DEV-DOCKER CONFIG ------------');
+  console.log('Bitcoin can only sync right now if you set:');
+  console.log(' COMMANDER_INSTANCE=e2e ARGON_NETWORK_NAME=dev-docker');
+  console.log('---------------------------------------------------------');
+}

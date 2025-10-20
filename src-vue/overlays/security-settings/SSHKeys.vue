@@ -93,7 +93,7 @@ import * as Vue from 'vue';
 import { useConfig } from '../../stores/config';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import CopyIcon from '../../assets/copy.svg?component';
-import { readTextFile } from '@tauri-apps/plugin-fs';
+import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 
 const config = useConfig();
 const copyToClipboard = Vue.ref<typeof CopyToClipboard>();
@@ -129,7 +129,7 @@ const sshPrivateKey = Vue.ref('');
 Vue.onMounted(async () => {
   console.log('onMounted');
   await config.load();
-  sshPrivateKey.value = await readTextFile(config.security.sshPrivateKeyPath);
+  sshPrivateKey.value = await invokeWithTimeout<string>('get_ssh_private_key', {}, 5000);
   adjustTextareaHeight();
   setTimeout(() => {
     adjustTextareaHeight();
