@@ -686,7 +686,7 @@ function allocateMicrogons() {
 }
 
 function allocateMicronots() {
-  config.biddingRules.baseMicronotCommitment += wallets.miningWallet.availableMicronots;
+  config.biddingRules.baseMicronotCommitment += unallocatedMicronots.value;
   config.save();
 }
 

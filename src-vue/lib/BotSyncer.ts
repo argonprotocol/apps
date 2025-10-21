@@ -120,7 +120,6 @@ export class BotSyncer {
   }
 
   private async syncCurrentBids() {
-    console.log('syncCurrentBids');
     const activeBidsFile = await BotFetch.fetchBidsFile();
 
     await this.db.frameBidsTable.insertOrUpdate(

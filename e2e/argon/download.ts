@@ -22,5 +22,6 @@ if (
     .then(() => true)
     .catch(() => false))
 ) {
+  await Fs.mkdir(`/tmp/oracle/data`, { recursive: true });
   await Fs.copyFile(`${__dirname}/oracle_state.json`, '/tmp/oracle/data/US_CPI_State.json');
 }

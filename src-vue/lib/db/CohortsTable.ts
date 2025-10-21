@@ -26,9 +26,9 @@ export class CohortsTable extends BaseTable {
     const rawRecords = await this.db.select<any[]>(
       `SELECT Cohorts.*, Frames.firstTick as firstTick, Frames.lastBlockNumber as lastBlockNumber FROM Cohorts
       LEFT JOIN Frames ON Cohorts.id = Frames.id
-      WHERE Cohorts.id in (?)
+      WHERE Cohorts.id in (${ids.map(() => '?').join(',')})
       ORDER BY Cohorts.id DESC LIMIT 1`,
-      [ids],
+      [...ids],
     );
 
     const results = {} as Awaited<ReturnType<CohortsTable['fetchById']>>;

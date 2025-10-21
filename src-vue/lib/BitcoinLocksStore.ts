@@ -759,17 +759,15 @@ export default class BitcoinLocksStore {
     if (lock.txid) return;
 
     const table = await this.getTable();
-    const latest = await this.#bitcoinLocksApi.getBitcoinLock(lock.utxoId);
-    if (!latest) {
+    const utxo = await this.#bitcoinLocksApi.getBitcoinLock(lock.utxoId);
+    if (!utxo) {
       console.warn(`Lock with ID ${lock.utxoId} not found`);
       await table.setLockVerificationExpired(lock);
       return;
     }
-    if (!latest?.isVerified) {
+    if (!utxo?.isVerified) {
       return;
     }
-    const utxo = await this.#bitcoinLocksApi.getBitcoinLock(lock.utxoId);
-    if (!utxo || !utxo.isVerified) return;
 
     const utxoRef = await this.#bitcoinLocksApi.getUtxoRef(lock.utxoId);
     if (!utxoRef) {

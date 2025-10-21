@@ -191,7 +191,7 @@
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
                       <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
                               :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
-                              @click="allocate" :disabled="!isAllocating">
+                              @click="allocate" :disabled="isAllocating">
                         {{!isAllocating ? 'Allocate These' : 'Allocating'}} {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons to Vault
                         <div :class="{active:isAllocating}" spinner class="ml-2 inline-block -mt-2" />
                       </button>
@@ -790,6 +790,7 @@ const nextCollectDueDate = Vue.computed(() => {
 
 const personalUtxo = Vue.computed(() => {
   const utxoId = vault.metadata?.personalUtxoId;
+  console.log('personalUtxoId:', utxoId);
   return utxoId ? bitcoinLocks.data.locksById[utxoId] : null;
 });
 
