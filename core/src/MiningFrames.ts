@@ -22,7 +22,7 @@ export class MiningFrames {
     return this.getConfig().ticksBetweenFrames;
   }
 
-  private static networkName: keyof typeof NetworkConfig | undefined = undefined;
+  public static networkName: keyof typeof NetworkConfig | undefined = undefined;
 
   public static canFrameBeZero() {
     return this.networkName === 'localnet' || this.networkName === 'dev-docker';
@@ -99,6 +99,14 @@ export class MiningFrames {
     }
 
     return config;
+  }
+
+  public static async updateConfig(client: ArgonClient): Promise<void> {
+    if (!this.networkName) {
+      throw new Error(`Network name must be defined prior to loading configs`);
+    }
+    const updates = await this.loadConfigs(client);
+    Object.assign(NetworkConfig[this.networkName], updates);
   }
 
   /**

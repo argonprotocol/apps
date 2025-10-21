@@ -103,12 +103,14 @@ export async function accountsetFromCli(program: Command, proxyForAddress?: stri
       seedAddress: proxyForAddress,
       txSubmitter: keypair,
       sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
+      subaccountRange: opts.subaccounts,
     });
   } else {
     return new Accountset({
       seedAccount: keypair,
       client,
       sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
+      subaccountRange: opts.subaccounts,
     });
   }
 }

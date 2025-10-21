@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import { type ApiDecoration, MICROGONS_PER_ARGON, PriceIndex as PriceIndexModel } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt } from './utils.js';
 import type { MainchainClients } from './MainchainClients.js';
+import { MiningFrames } from './MiningFrames.js';
 
 export class PriceIndex {
   current: PriceIndexModel;
@@ -25,9 +26,13 @@ export class PriceIndex {
     const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
     const priceIndex = await this.current.load(api as any);
     if (priceIndex.argonUsdPrice === undefined) {
+      let ARGNOT = microgonsForArgon;
+      if (MiningFrames.networkName === 'dev-docker' || MiningFrames.networkName === 'localnet') {
+        ARGNOT = microgonsForArgon / 10n;
+      }
       return {
         USD: microgonsForArgon,
-        ARGNOT: microgonsForArgon,
+        ARGNOT,
         ARGN: microgonsForArgon,
         BTC: microgonsForArgon,
       };

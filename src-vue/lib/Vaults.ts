@@ -69,30 +69,46 @@ export class Vaults {
       const frameId = frameRevenue.frameId.toNumber();
       const existing = frameChanges.find(x => frameId === x.frameId);
 
-      const oldFrameRevenue = frameRevenue as unknown as {
-        liquidityPoolTotalEarnings: u128;
-        liquidityPoolVaultEarnings: u128;
-        liquidityPoolExternalCapital: u128;
-        liquidityPoolVaultCapital: u128;
+      const revenue = frameRevenue as PalletVaultsVaultFrameRevenue & {
+        // renamed to treasury in 133
+        liquidityPoolTotalEarnings?: u128;
+        liquidityPoolVaultEarnings?: u128;
+        liquidityPoolExternalCapital?: u128;
+        liquidityPoolVaultCapital?: u128;
+        // <= 133
+        bitcoinLocksMarketValue?: u128; // renamed to bitcoin_locks_new_liquidity_promised
+        bitcoinLocksTotalSatoshis?: u128; // renamed to bitcoin_locks_added_satoshis
+        satoshisReleased?: u128; // renamed to bitcoin_locks_released_satoshis
+        // new version 134
+        securitizationRelockable?: u128;
+        bitcoinLocksNewLiquidityPromised?: u128;
+        bitcoinLocksAddedSatoshis?: u128;
+        bitcoinLocksReleasedSatoshis?: u128;
+        bitcoinLocksReleasedLiquidity?: u128;
       };
 
+      const microgonsAdded =
+        (revenue.bitcoinLocksNewLiquidityPromised ?? revenue.bitcoinLocksMarketValue)?.toBigInt() ?? 0n;
+      const microgonsRemoved = revenue.bitcoinLocksReleasedLiquidity?.toBigInt() ?? 0n;
+      const newSatoshis = (revenue.bitcoinLocksAddedSatoshis ?? revenue.bitcoinLocksTotalSatoshis)?.toBigInt() ?? 0n;
+      const releasedSatoshis = (revenue.bitcoinLocksReleasedSatoshis ?? revenue.satoshisReleased)?.toBigInt() ?? 0n;
+
       const entry = {
-        satoshisAdded: frameRevenue.bitcoinLocksTotalSatoshis.toBigInt() - frameRevenue.satoshisReleased.toBigInt(),
+        satoshisAdded: newSatoshis - releasedSatoshis,
         frameId,
-        microgonLiquidityAdded: frameRevenue.bitcoinLocksMarketValue.toBigInt(),
-        bitcoinFeeRevenue: frameRevenue.bitcoinLockFeeRevenue.toBigInt(),
-        bitcoinLocksCreated: frameRevenue.bitcoinLocksCreated.toNumber(),
+        microgonLiquidityAdded: microgonsAdded - microgonsRemoved,
+        bitcoinFeeRevenue: revenue.bitcoinLockFeeRevenue.toBigInt(),
+        bitcoinLocksCreated: revenue.bitcoinLocksCreated.toNumber(),
         treasuryPool: {
-          totalEarnings: (oldFrameRevenue.liquidityPoolTotalEarnings ?? frameRevenue.treasuryTotalEarnings).toBigInt(),
-          vaultEarnings: (oldFrameRevenue.liquidityPoolVaultEarnings ?? frameRevenue.treasuryVaultEarnings).toBigInt(),
-          externalCapital: (
-            oldFrameRevenue.liquidityPoolExternalCapital ?? frameRevenue.treasuryExternalCapital
-          ).toBigInt(),
-          vaultCapital: (oldFrameRevenue.liquidityPoolVaultCapital ?? frameRevenue.treasuryVaultCapital).toBigInt(),
+          totalEarnings: (revenue.liquidityPoolTotalEarnings ?? revenue.treasuryTotalEarnings).toBigInt(),
+          vaultEarnings: (revenue.liquidityPoolVaultEarnings ?? revenue.treasuryVaultEarnings).toBigInt(),
+          externalCapital: (revenue.liquidityPoolExternalCapital ?? revenue.treasuryExternalCapital).toBigInt(),
+          vaultCapital: (revenue.liquidityPoolVaultCapital ?? revenue.treasuryVaultCapital).toBigInt(),
         },
-        securitization: frameRevenue.securitization.toBigInt(),
-        securitizationActivated: frameRevenue.securitizationActivated.toBigInt(),
-        uncollectedEarnings: frameRevenue.uncollectedRevenue.toBigInt(),
+        securitization: revenue.securitization.toBigInt(),
+        securitizationActivated: revenue.securitizationActivated.toBigInt(),
+        securitizationRelockable: revenue.securitizationRelockable?.toBigInt() ?? 0n,
+        uncollectedEarnings: revenue.uncollectedRevenue.toBigInt(),
       } as IVaultFrameStats;
       if (existing) {
         Object.assign(existing, entry);
@@ -344,6 +360,7 @@ export class Vaults {
               microgonLiquidityAdded: convertBigIntStringToNumber(change.microgonLiquidityAdded as any) ?? 0n,
               bitcoinFeeRevenue: convertBigIntStringToNumber(change.bitcoinFeeRevenue as any) ?? 0n,
               securitization: convertBigIntStringToNumber(change.securitization as any) ?? 0n,
+              securitizationRelockable: convertBigIntStringToNumber((change as any).securitizationRelockable) ?? 0n,
               securitizationActivated: convertBigIntStringToNumber(change.securitizationActivated as any) ?? 0n,
               treasuryPool: {
                 externalCapital: convertBigIntStringToNumber(change.treasuryPool.externalCapital as any) ?? 0n,

@@ -14,6 +14,7 @@ import { MiningFrames } from './MiningFrames.js';
 
 interface IBidDetail {
   address: string;
+  micronotsStaked: bigint;
   bidMicrogons: bigint;
   bidAtTick: number;
 }
@@ -22,6 +23,7 @@ export interface ICohortBidderOptions {
   minBid: bigint;
   maxBid: bigint;
   maxBudget: bigint;
+  maxMicronotsToStake?: bigint;
   bidIncrement: bigint;
   bidDelay: number;
   tipPerTransaction?: bigint;
@@ -57,6 +59,7 @@ export class CohortBidder {
   private minIncrement = 10_000n;
 
   private nextCohortSize?: number;
+  private micronotsPerSeat!: bigint;
 
   private lastBidTick: number = 0;
   private latestBlockNumber: number = 0;
@@ -65,7 +68,7 @@ export class CohortBidder {
   private hasStartedCheckingBids = false;
   private lastBidsHash: string | undefined;
   private bidsForNextSlotCohortKey!: string;
-  private name: string;
+  private readonly name: string;
 
   constructor(
     public accountset: Accountset,
@@ -86,6 +89,7 @@ export class CohortBidder {
         winningBidCount: number;
         reason: 'max-bid-too-low' | 'insufficient-balance' | 'max-budget-too-low';
         availableBalanceForBids: bigint;
+        availableMicronots: bigint;
       }): void;
       onBidsSubmitted?(args: {
         tick: number;
@@ -142,11 +146,15 @@ export class CohortBidder {
       minBid: formatArgons(this.options.minBid),
       bidIncrement: formatArgons(this.options.bidIncrement),
       maxBudget: formatArgons(this.options.maxBudget),
+      maxMicronotsToStake: this.options.maxMicronotsToStake
+        ? formatArgons(this.options.maxMicronotsToStake)
+        : '<Unbounded>',
       bidDelay: this.options.bidDelay,
       subaccounts: this.subaccounts,
     });
 
     this.nextCohortSize = await client.query.miningSlot.nextCohortSize().then(x => x.toNumber());
+    this.micronotsPerSeat = await client.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
     if (this.subaccounts.length > this.nextCohortSize) {
       this.info(`Cohort size ${this.nextCohortSize} is less than provided subaccounts ${this.subaccounts.length}.`);
       this.subaccounts.length = this.nextCohortSize;
@@ -288,6 +296,7 @@ export class CohortBidder {
     beatableBids.sort((a, b) => Number(a - b));
 
     const accountBalance = await this.accountset.submitterBalance();
+    const accountMicronots = await this.accountset.submitterMicronots();
 
     const tip = this.options.tipPerTransaction ?? 0n;
 
@@ -311,6 +320,7 @@ export class CohortBidder {
         winningBidCount: myWinningBids.length,
         reason: 'max-bid-too-low',
         availableBalanceForBids: accountBalance - 50_000n - tip,
+        availableMicronots: accountMicronots,
       });
       return;
     }
@@ -331,10 +341,10 @@ export class CohortBidder {
         const feeEstimate = await this.estimateFee(bidPrice, tip);
         const estimatedFeePlusTip = feeEstimate + tip;
 
-        let availableBalanceForBids = this.options.maxBudget - estimatedFeePlusTip;
-        if (availableBalanceForBids > accountBalance + estimatedFeePlusTip) {
-          availableBalanceForBids = accountBalance - estimatedFeePlusTip;
-        }
+        let availableBalanceForBids = accountBalance - estimatedFeePlusTip;
+        let alreadySpentMicrogons = 0n;
+        let availableMicronots = accountMicronots;
+        let alreadySpentMicronots = 0n;
 
         let accountStayingWinner = 0;
         const accountsToBidWith = this.subaccounts.filter(y => {
@@ -342,13 +352,26 @@ export class CohortBidder {
           if (!bid) return true;
           if (bid.bidMicrogons >= bidPrice) {
             accountStayingWinner += 1;
+            alreadySpentMicrogons += bid.bidMicrogons;
+            alreadySpentMicronots += bid.micronotsStaked;
             return false;
           } else {
             // rebid this account
             availableBalanceForBids += bid.bidMicrogons;
+            availableMicronots += bid.micronotsStaked;
             return true;
           }
         });
+
+        if (availableBalanceForBids + alreadySpentMicrogons + estimatedFeePlusTip > this.options.maxBudget) {
+          availableBalanceForBids = this.options.maxBudget - estimatedFeePlusTip - alreadySpentMicrogons;
+        }
+        if (
+          this.options.maxMicronotsToStake &&
+          availableMicronots + alreadySpentMicronots > this.options.maxMicronotsToStake
+        ) {
+          availableMicronots = this.options.maxMicronotsToStake - alreadySpentMicronots;
+        }
 
         const bidsToReplace = bids.filter(x => x.bidMicrogons < bidPrice).length;
         const emptyBids = this.nextCohortSize! - bids.length;
@@ -356,8 +379,22 @@ export class CohortBidder {
         if (accountsToBidWith.length > availableBidsToReplace) {
           accountsToBidWith.length = availableBidsToReplace;
         }
+        // shrink to affordable micronots
+        const totalMicronotsNeeded = BigInt(accountsToBidWith.length) * this.micronotsPerSeat;
+        if (totalMicronotsNeeded > availableMicronots) {
+          const maxSeats = Math.floor(Number(availableMicronots / this.micronotsPerSeat));
+          console.log('reducing bids for micronots', {
+            maxSeats,
+            availableMicronots,
+            accountsToBidWith: accountsToBidWith.length,
+          });
+          if (accountsToBidWith.length > maxSeats) {
+            accountsToBidWith.length = maxSeats;
+          }
+        }
+        // shrink to affordable bids
         if (bidPrice > 0n) {
-          const maxBids = Number(availableBalanceForBids / bidPrice);
+          const maxBids = Math.floor(Number(availableBalanceForBids / bidPrice));
           if (accountsToBidWith.length > maxBids) {
             accountsToBidWith.length = maxBids;
           }
@@ -365,15 +402,16 @@ export class CohortBidder {
         return {
           bidAmount: bidPrice,
           accountsToBidWith,
-          seatsInBudget: accountStayingWinner + accountsToBidWith.length,
+          totalSeatsAfterBid: accountStayingWinner + accountsToBidWith.length,
           availableBalanceForBids,
+          availableMicronots,
           estimatedFeePlusTip,
         };
       }),
     );
     bidsets.sort((a, b) => {
       // prioritize more seats, then lower bid
-      const seatDiff = b.seatsInBudget - a.seatsInBudget;
+      const seatDiff = b.totalSeatsAfterBid - a.totalSeatsAfterBid;
       if (seatDiff !== 0) return seatDiff;
       return Number(a.bidAmount - b.bidAmount);
     });
@@ -381,29 +419,32 @@ export class CohortBidder {
     const {
       bidAmount: nextBid,
       accountsToBidWith,
-      seatsInBudget,
+      totalSeatsAfterBid,
       availableBalanceForBids,
+      availableMicronots,
       estimatedFeePlusTip,
     } = bidsets[0];
     // 3. if we have more seats than we can afford, we need to remove some
-    if (seatsInBudget < myWinningBids.length || seatsInBudget < this.lastLoggedSeatsInBudget) {
-      this.lastLoggedSeatsInBudget = seatsInBudget;
+    if (totalSeatsAfterBid < myWinningBids.length || totalSeatsAfterBid < this.lastLoggedSeatsInBudget) {
+      this.lastLoggedSeatsInBudget = totalSeatsAfterBid;
       this.log(
-        `Can only afford ${seatsInBudget} seats with next bid of ${formatArgons(nextBid)} at block #${blockNumber}`,
+        `Can only afford ${totalSeatsAfterBid} seats with next bid of ${formatArgons(nextBid)} at block #${blockNumber}`,
       );
       this.safeRecordParamsAdjusted({
         tick: bidsAtTick,
         blockNumber,
-        maxSeats: seatsInBudget,
+        maxSeats: totalSeatsAfterBid,
         winningBidCount: myWinningBids.length,
         reason:
           availableBalanceForBids + estimatedFeePlusTip < nextBid * BigInt(accountsToBidWith.length)
             ? 'insufficient-balance'
             : 'max-budget-too-low',
         availableBalanceForBids,
+        availableMicronots,
       });
     }
-    if (accountsToBidWith.length > myWinningBids.length) {
+
+    if (totalSeatsAfterBid > myWinningBids.length && accountsToBidWith.length > 0) {
       this.log(`Beatable bid price point found.`, {
         ...bidsets[0],
         accountsToBidWith: accountsToBidWith.map(x => x.index),
@@ -527,6 +568,7 @@ export class CohortBidder {
         mostRecentBidTick = Math.max(bidAtTick, mostRecentBidTick);
         return {
           address: rawBid.accountId.toHuman(),
+          micronotsStaked: rawBid.argonots.toBigInt(),
           bidMicrogons: rawBid.bid.toBigInt(),
           bidAtTick,
         };
@@ -558,6 +600,7 @@ export class CohortBidder {
     maxSeats: number;
     reason: 'max-bid-too-low' | 'insufficient-balance' | 'max-budget-too-low';
     availableBalanceForBids: bigint;
+    availableMicronots: bigint;
   }) {
     try {
       this.callbacks?.onBidParamsAdjusted?.(args);

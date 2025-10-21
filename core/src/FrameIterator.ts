@@ -74,7 +74,9 @@ export class FrameIterator {
         };
         await callback(frameId, meta, api, abortController);
         if (abortController.signal.aborted || frameId <= 1) {
-          console.log(`[${this.name}] Aborting iteration as requested or reached frame 1`);
+          let message = `[${this.name}] Aborting iteration as requested at frame ${frameId}`;
+          if (frameId <= 1) message = `[${this.name}] Aborting iteration at frame 1`;
+          console.log(message);
           break; // Stop processing if the abort signal is triggered
         }
       }
@@ -117,7 +119,9 @@ export class FrameIterator {
         const result = await callback(frameId, firstBlockMeta, api, abortController);
         results.push(result);
         if (abortController.signal.aborted || frameId <= 1) {
-          console.log(`[${this.name}] Aborting iteration as requested or reached frame 1`);
+          let message = `[${this.name}] Aborting iteration as requested at frame ${frameId}`;
+          if (frameId <= 1) message = `[${this.name}] Aborting iteration at frame 1`;
+          console.log(message);
           break; // Stop processing if the abort signal is triggered
         }
       }

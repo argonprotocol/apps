@@ -42,6 +42,7 @@ export interface IBotStateFile {
   syncProgress: number;
   hasMiningBids: boolean;
   hasMiningSeats: boolean;
+  currentTick: number;
   currentFrameId: number;
   currentFrameTickRange: [number, number];
   lastBlockNumberByFrameId: {

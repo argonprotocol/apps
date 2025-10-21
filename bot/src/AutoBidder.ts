@@ -62,13 +62,17 @@ export class AutoBidder {
     if (this.isStopped) return;
     const latestAccruedMicrogonProfits =
       (await this.storage.earningsFile(cohortActivationFrameId - 1).get())?.accruedMicrogonProfits ??
-      (await this.storage.earningsFile(cohortActivationFrameId - 2).get())?.accruedMicrogonProfits;
-    const params = await createBidderParams(
-      cohortActivationFrameId,
-      this.mainchainClients,
-      this.biddingRules,
-      latestAccruedMicrogonProfits ?? 0n,
-    );
+      (await this.storage.earningsFile(cohortActivationFrameId - 2).get())?.accruedMicrogonProfits ??
+      0n;
+    const latestAccruedMicronotProfits =
+      (await this.storage.earningsFile(cohortActivationFrameId - 1).get())?.accruedMicronotProfits ??
+      (await this.storage.earningsFile(cohortActivationFrameId - 2).get())?.accruedMicronotProfits ??
+      0n;
+
+    const params = await createBidderParams(cohortActivationFrameId, this.mainchainClients, this.biddingRules, {
+      microgons: latestAccruedMicrogonProfits,
+      micronots: latestAccruedMicronotProfits,
+    });
     if (params.maxSeats === 0) return;
 
     const cohortBiddingFrameId = cohortActivationFrameId - 1;
@@ -102,7 +106,8 @@ export class AutoBidder {
 
     const cohortBidder = new CohortBidder(this.accountset, cohortActivationFrameId, subaccounts, params, {
       onBidParamsAdjusted: args => {
-        const { availableBalanceForBids, blockNumber, reason, tick, maxSeats, winningBidCount } = args;
+        const { availableBalanceForBids, availableMicronots, blockNumber, reason, tick, maxSeats, winningBidCount } =
+          args;
         const seatsInPlay = Math.max(maxSeats, winningBidCount);
         const translatedReason =
           reason === 'max-bid-too-low'
@@ -117,6 +122,7 @@ export class AutoBidder {
           newMaxSeats: seatsInPlay,
           reason: translatedReason,
           availableMicrogons: availableBalanceForBids,
+          availableMicronots,
           frameId: cohortActivationFrameId,
         });
       },

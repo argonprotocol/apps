@@ -99,7 +99,7 @@
           :calculateWidth="() => calculateElementWidth(btcLockingFeesParent)"
           side="top"
           :content="
-            rules.personalBtcPct === 100
+            rules.personalBtcPct === 100 && !isEditingSettings
               ? 'You have committed 100% of the bitcoin needed to fill your vault, so no locking fees are possible.'
               : 'Each bitcoin transaction that locks in your vault must pay this flat fee for doing so.'
           ">
@@ -109,7 +109,7 @@
             class="flex h-full w-full flex-col items-center justify-center px-8">
             <div StatHeader>Bitcoin Locking Fee</div>
             <div MainRule class="flex w-full flex-row items-center justify-center">
-              <span v-if="rules.personalBtcPct === 100" class="opacity-40">N/A</span>
+              <span v-if="rules.personalBtcPct === 100 && !isEditingSettings" class="opacity-40">N/A</span>
               <span v-else>
                 {{ currency.symbol }}{{ microgonToMoneyNm(rules.btcFlatFee).format('0,0.00') }} +
                 {{ numeral(rules.btcPctFee).format('0.[00]') }}%
@@ -213,6 +213,7 @@ import Tooltip from '../components/Tooltip.vue';
 
 const props = defineProps<{
   includeProjections?: boolean;
+  isEditingSettings?: boolean;
 }>();
 
 const emit = defineEmits<{

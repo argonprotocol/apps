@@ -118,7 +118,7 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.bids = [
       ...createBids(6, Argons(4.1)),
       ...cohortBidder.subaccounts.slice(0, 4).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
     ];
     cohortBidder.currentBids.atTick = 10;
@@ -138,7 +138,7 @@ describe('CohortBidder unit tests', () => {
     });
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 4).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(6, Argons(3.5)),
     ];
@@ -177,11 +177,12 @@ describe('CohortBidder unit tests', () => {
       minBid: Argons(3),
       maxBid: Argons(5.5),
       accountBalance: Argons(40 + 0.06 - 3 * 3.53),
+      maxBudget: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(1, Argons(4.1)),
       ...cohortBidder.subaccounts.slice(0, 3).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(3.53), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(3.53), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(4, Argons(3.51)),
       ...createBids(2, Argons(3.5)),
@@ -203,7 +204,7 @@ describe('CohortBidder unit tests', () => {
     });
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 1).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address, micronotsStaked: 10_000n };
       }),
     ];
     cohortBidder.currentBids.atTick = 10;
@@ -223,7 +224,7 @@ describe('CohortBidder unit tests', () => {
     });
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 1).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(5, Argons(1)),
       ...createBids(4, Argons(0.5)),
@@ -243,11 +244,12 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(8),
       bidIncrement: Argons(1),
       accountBalance: Argons(40 + 0.06 - 4),
+      maxBudget: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(2, Argons(10)),
       ...cohortBidder.subaccounts.slice(0, 1).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(3, Argons(4)),
       ...createBids(2, Argons(4)),
@@ -272,7 +274,7 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.bids = [
       ...createBids(3, Argons(10)),
       ...cohortBidder.subaccounts.slice(0, 7).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
     ];
     cohortBidder.currentBids.atTick = 10;
@@ -286,6 +288,64 @@ describe('CohortBidder unit tests', () => {
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
     expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-budget-too-low');
   });
+
+  it('should be not exceed available argonots', async () => {
+    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 20_000n, // max of 2 seats worth
+      maxBudget: Argons(5),
+    });
+    cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
+    cohortBidder.currentBids.atTick = 10;
+    const onBidParamsAdjusted = vi.fn();
+    cohortBidder.callbacks = {
+      onBidParamsAdjusted,
+    };
+
+    // @ts-expect-error - private var
+    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
+    expect(submitBids).toHaveBeenCalledTimes(1);
+    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
+    expect(microgonsPerSeat).toBe(Argons(0.51));
+    expect(accountsToBidWith.length).toBe(2);
+  });
+
+  it('should be able to set a max argonot budget', async () => {
+    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 100_000n, // max of 2 seats worth
+      maxBudget: Argons(5),
+    });
+    cohortBidder.options.maxMicronotsToStake = 30_000n; // max of 3 seats worth
+    cohortBidder.currentBids.bids = [
+      ...cohortBidder.subaccounts.slice(0, 2).map(x => {
+        return { bidAtTick: 10, bidMicrogons: Argons(1), address: x.address, micronotsStaked: 10_000n };
+      }),
+      ...createBids(8, Argons(0.5)),
+    ];
+    // @ts-expect-error - private var
+    cohortBidder.lastLoggedSeatsInBudget = 4;
+    cohortBidder.currentBids.atTick = 10;
+    const onBidParamsAdjusted = vi.fn();
+    cohortBidder.callbacks = {
+      onBidParamsAdjusted,
+    };
+
+    // @ts-expect-error - private var
+    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
+    expect(submitBids).toHaveBeenCalledTimes(1);
+    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
+    expect(microgonsPerSeat).toBe(Argons(0.51));
+    expect(accountsToBidWith.length).toBe(1);
+
+    expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
+    expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-budget-too-low');
+    expect(onBidParamsAdjusted.mock.calls[0][0].availableMicronots).toBe(10_000n);
+  });
 });
 
 function Argons(amount: number): bigint {
@@ -296,14 +356,14 @@ function createBids(count: number, bidMicrogons: bigint, atTick: number = 100) {
   return Array(count)
     .fill(0)
     .map((_, i) => {
-      return { bidAtTick: atTick, bidMicrogons: bidMicrogons, address: `5EANERnc__${i}` };
+      return { bidAtTick: atTick, bidMicrogons: bidMicrogons, address: `5EANERnc__${i}`, micronotsStaked: 10_000n };
     });
 }
 
 async function createBidderWithMocks(
   accountset: Accountset,
   subaccountRange: [number, number],
-  options: Partial<ICohortBidderOptions> & { accountBalance: bigint },
+  options: Partial<ICohortBidderOptions> & { accountBalance: bigint; accountMicronots?: bigint },
 ) {
   const range = Array.from({ length: subaccountRange[1] - subaccountRange[0] + 1 }, (_, i) => i + subaccountRange[0]);
   const subaccounts = accountset.getAccountsInRange(range).map(account => {
@@ -322,11 +382,16 @@ async function createBidderWithMocks(
   const cohortBidder = new CohortBidder(accountset, 10, subaccounts, options as ICohortBidderOptions);
   // @ts-expect-error - private var
   cohortBidder.nextCohortSize = 10;
+  // @ts-expect-error - private var
+  cohortBidder.micronotsPerSeat = 10_000n;
   vi.spyOn(cohortBidder, 'estimateFee' as any).mockImplementation(() => {
     return 60_000n;
   });
   vi.spyOn(accountset, 'submitterBalance').mockImplementation(() => {
     return Promise.resolve(options.accountBalance);
+  });
+  vi.spyOn(accountset, 'submitterMicronots').mockImplementation(() => {
+    return Promise.resolve(options.accountMicronots ?? 100_000n);
   });
 
   const submitBids = vi.fn().mockImplementation(() => Promise.resolve());

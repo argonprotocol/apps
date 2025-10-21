@@ -1,5 +1,5 @@
 ALTER TABLE BitcoinLocks ADD COLUMN status2 TEXT NOT NULL CHECK(status2 IN (
-  'LockInitialized', 'LockReceivedWrongAmount', 'LockProcessingOnBitcoin', 'LockedAndMinting', 'LockedAndMinted', 'ReleaseSubmittingToArgon', 'ReleaseWaitingForVault', 'ReleaseSubmittingToBitcoin', 'ReleaseProcessingOnBitcoin', 'ReleaseComplete'
+  'LockInitialized', 'LockVerificationExpired', 'LockReceivedWrongAmount', 'LockProcessingOnBitcoin', 'LockedAndMinting', 'LockedAndMinted', 'ReleaseSubmittingToArgon', 'ReleaseWaitingForVault', 'ReleaseSubmittingToBitcoin', 'ReleaseProcessingOnBitcoin', 'ReleaseComplete'
   )
 ) DEFAULT 'LockInitialized';
 UPDATE BitcoinLocks SET status2 = status;

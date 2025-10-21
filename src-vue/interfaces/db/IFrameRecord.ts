@@ -17,6 +17,7 @@ export interface IFrameRecord {
   microgonsMintedTotal: bigint;
   microgonFeesCollectedTotal: bigint;
   accruedMicrogonProfits: bigint;
+  accruedMicronotProfits: bigint;
   isProcessed: boolean;
   createdAt: string;
   updatedAt: string;

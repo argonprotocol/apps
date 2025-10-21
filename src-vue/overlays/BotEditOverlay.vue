@@ -20,7 +20,7 @@
           <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
           <div class="flex flex-col h-full w-full grow">
             <h2
-              @mousedown="draggable.onMouseDown($event)" 
+              @mousedown="draggable.onMouseDown($event)"
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
               class="relative text-3xl font-bold text-left border-b border-slate-300 pt-5 pb-4 pl-3 mx-4 text-[#672D73]"
@@ -41,6 +41,9 @@
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
             <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
+              <div v-if="savingError" class="text-red-700 font-bold grow flex items-center my-2">
+                {{ savingError }}
+              </div>
               <div :class="{ 'opacity-50': isSaving || hasEditBoxOverlay }" class="flex flex-row space-x-4 justify-center items-center">
                 <button @click="cancelOverlay" class="border border-argon-button/50 text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
                   <span>Cancel</span>
@@ -73,12 +76,14 @@ import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
+import { useBot } from '../stores/bot.ts';
 
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
 const config = useConfig();
+const bot = useBot();
 
 const draggable = Vue.reactive(new Draggable());
 
@@ -92,6 +97,7 @@ const calculator = getVaultCalculator();
 
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
+const savingError = Vue.ref<string | null>(null);
 const hasEditBoxOverlay = Vue.ref(false);
 
 const botSettings = Vue.ref<typeof BotSettings | null>(null);
@@ -119,13 +125,22 @@ function closeEditBoxOverlay() {
 
 async function saveRules() {
   if (isSaving.value || hasEditBoxOverlay.value) return;
-  isSaving.value = true;
 
   if (rules.value) {
-    await config.saveVaultingRules();
+    try {
+      savingError.value = null;
+      isSaving.value = true;
+      await bot.resyncBiddingRules();
+      await config.saveVaultingRules();
+    } catch (error) {
+      console.error('Failed to reload server bidding rules:', error);
+      savingError.value = 'Failed to save bidding rules. Please try again.';
+      return;
+    } finally {
+      isSaving.value = false;
+    }
   }
 
-  isSaving.value = false;
   emit('close');
 }
 

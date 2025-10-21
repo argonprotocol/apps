@@ -1,5 +1,5 @@
 import BigNumber from 'bignumber.js';
-import { type IBidsFile, IBotActivity, type IWinningBid } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, type IBidsFile, IBotActivity, type IWinningBid } from '@argonprotocol/commander-core';
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
 import { Config } from './Config';
@@ -9,12 +9,10 @@ import { botEmitter } from './Bot';
 import { createDeferred, ensureOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
 import { MiningFrames } from '@argonprotocol/commander-core/src/MiningFrames';
-import { bigNumberToBigInt } from '@argonprotocol/commander-core';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 
 interface IMyMiningSeats {
   seatCount: number;
-  transactionFeesTotal: bigint;
   microgonsBidTotal: bigint;
   micronotsStakedTotal: bigint;
   microgonsMinedTotal: bigint;
@@ -29,6 +27,7 @@ interface IMyMiningSeats {
 interface IMyMiningBids {
   bidCount: number;
   microgonsBidTotal: bigint;
+  micronotsStakedTotal: bigint;
 }
 
 export class Stats {
@@ -39,7 +38,7 @@ export class Stats {
   public myMiningSeats: IMyMiningSeats;
   public myMiningBids: IMyMiningBids;
 
-  public allWinningBids: IWinningBid[];
+  public allWinningBids: (IWinningBid & { micronotsStakedPerSeat: bigint })[];
 
   public global: IDashboardGlobalStats;
   public frames: IDashboardFrameStats[];
@@ -48,6 +47,7 @@ export class Stats {
   public biddingActivity: IBotActivity[];
 
   public accruedMicrogonProfits: bigint;
+  public accruedMicronotProfits: bigint;
 
   public isLoaded: boolean;
   public isLoadedPromise: Promise<void>;
@@ -78,7 +78,6 @@ export class Stats {
 
     this.myMiningSeats = {
       seatCount: 0,
-      transactionFeesTotal: 0n,
       microgonsBidTotal: 0n,
       micronotsStakedTotal: 0n,
       microgonsMinedTotal: 0n,
@@ -93,6 +92,7 @@ export class Stats {
     this.myMiningBids = {
       bidCount: 0,
       microgonsBidTotal: 0n,
+      micronotsStakedTotal: 0n,
     };
 
     this.global = {
@@ -113,6 +113,7 @@ export class Stats {
     this.biddingActivity = [];
 
     this.accruedMicrogonProfits = 0n;
+    this.accruedMicronotProfits = 0n;
 
     this.dbPromise = dbPromise;
     this.config = config;
@@ -158,7 +159,7 @@ export class Stats {
       if (!isOnLatestFrame) return;
 
       this.selectFrameId(frameId, true);
-      await this.updateAccruedMicrogonProfits();
+      await this.updateAccruedProfits();
 
       if (this.isSubscribedToDashboard) {
         await this.updateDashboard();
@@ -190,7 +191,7 @@ export class Stats {
 
     await this.updateMiningSeats();
     await this.updateMiningBids();
-    await this.updateAccruedMicrogonProfits();
+    await this.updateAccruedProfits();
 
     this.isLoaded = true;
     this.isLoading = false;
@@ -244,8 +245,10 @@ export class Stats {
     this.frames = await this.fetchFramesFromDb();
   }
 
-  private async updateAccruedMicrogonProfits(): Promise<void> {
-    this.accruedMicrogonProfits = await this.db.framesTable.fetchAccruedMicrogonProfits();
+  private async updateAccruedProfits(): Promise<void> {
+    const { accruedMicrogonProfits, accruedMicronotProfits } = await this.db.framesTable.fetchAccruedProfits();
+    this.accruedMicrogonProfits = accruedMicrogonProfits;
+    this.accruedMicronotProfits = accruedMicronotProfits;
   }
 
   private async updateMiningSeats(): Promise<void> {
@@ -261,7 +264,7 @@ export class Stats {
   }
 
   private async updateMiningBids(): Promise<void> {
-    const frameBids = await this.db.frameBidsTable.fetchForFrameId(this.latestFrameId, 10);
+    const frameBids = await this.db.frameBidsTable.fetchForFrameId(this.latestFrameId);
     this.allWinningBids = frameBids.map(x => {
       return {
         address: x.address,
@@ -269,17 +272,22 @@ export class Stats {
         lastBidAtTick: x.lastBidAtTick,
         bidPosition: x.bidPosition,
         microgonsPerSeat: x.microgonsPerSeat,
+        micronotsStakedPerSeat: x.micronotsStakedPerSeat,
       };
     });
+    console.log('updated bids', this.allWinningBids.length, this.latestFrameId);
 
     const myWinningBids = this.allWinningBids.filter(bid => typeof bid.subAccountIndex === 'number');
     this.myMiningBids.bidCount = myWinningBids.length;
     this.myMiningBids.microgonsBidTotal = myWinningBids.reduce((acc, bid) => acc + (bid.microgonsPerSeat || 0n), 0n);
+    this.myMiningBids.micronotsStakedTotal = myWinningBids.reduce(
+      (acc, bid) => acc + (bid.micronotsStakedPerSeat ?? 0n),
+      0n,
+    );
   }
 
   private async fetchActiveMiningSeatsFromDb(): Promise<IMyMiningSeats> {
     let seatCount = 0;
-    let transactionFeesTotal = 0n;
     let microgonsBidTotal = 0n;
     let micronotsStakedTotal = 0n;
     let microgonsMinedTotal = 0n;
@@ -299,7 +307,6 @@ export class Stats {
       seatCount += cohort.seatCountWon;
       const seatCost = cohort.microgonsBidPerSeat * BigInt(cohort.seatCountWon);
       microgonsBidTotal += seatCost;
-      transactionFeesTotal += cohort.transactionFeesTotal * BigInt(cohort.seatCountWon);
       micronotsStakedTotal += cohort.micronotsStakedPerSeat * BigInt(cohort.seatCountWon);
       microgonsToBeMined += remainingRewardsPerSeat.microgonsToBeMined * BigInt(cohort.seatCountWon);
       microgonsToBeMinted += remainingRewardsPerSeat.microgonsToBeMinted * BigInt(cohort.seatCountWon);
@@ -324,7 +331,6 @@ export class Stats {
 
     return {
       seatCount,
-      transactionFeesTotal,
       microgonsBidTotal,
       micronotsStakedTotal,
       microgonsMinedTotal,
@@ -367,6 +373,8 @@ export class Stats {
 
   private async fetchFramesFromDb(): Promise<IDashboardFrameStats[]> {
     const lastYear = await this.db.framesTable.fetchLastYear().then(x => x as IDashboardFrameStats[]);
+
+    const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(lastYear.at(-1)?.id ?? 0);
     for (const frame of lastYear) {
       if (frame.id === 0) continue;
       frame.expected = {
@@ -375,10 +383,9 @@ export class Stats {
         microgonsMinedTotal: 0n,
         microgonsMintedTotal: 0n,
       };
-      const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(frame.id);
 
-      for (const cohort of activeCohorts) {
-        if (!cohort.seatCountWon) continue;
+      const cohort = activeCohorts.find(c => c.id === frame.id);
+      if (cohort?.seatCountWon) {
         const expectedCohortReturns = this.calculateExpectedBlockRewardsPerSeat(
           cohort,
           // Get one frame (1/10th) of the cohort rewards, times the frame progress
@@ -386,7 +393,9 @@ export class Stats {
         );
         const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
         const percentOfMiners = cohort.seatCountWon / frame.allMinersCount;
-        frame.expected.blocksMinedTotal += Math.floor(percentOfMiners * 1440 * (frame.progress / 100));
+        frame.expected.blocksMinedTotal += Math.floor(
+          percentOfMiners * MiningFrames.ticksPerFrame * (frame.progress / 100),
+        );
         const seatsN = BigInt(cohort.seatCountWon);
         frame.expected.micronotsMinedTotal += micronotsToBeMined * seatsN;
         frame.expected.microgonsMinedTotal += microgonsToBeMined * seatsN;
@@ -408,8 +417,7 @@ export class Stats {
   }
 
   private async fetchGlobalFromDb(): Promise<IDashboardGlobalStats> {
-    const currentFrameId = await this.db.framesTable.latestId();
-    const globalStats1 = await this.db.cohortsTable.fetchGlobalStats(currentFrameId);
+    const globalStats1 = await this.db.cohortsTable.fetchGlobalStats();
     const globalStats2 = await this.db.cohortFramesTable.fetchGlobalStats();
 
     return {

@@ -60,12 +60,14 @@ export interface IBotActivitySeatReduction extends IBotActivityBasic {
   maxSeatsInPlay: number;
   prevSeatsInPlay: number;
   availableMicrogons: bigint;
+  availableMicronots: bigint;
 }
 export interface IBotActivitySeatExpansion extends IBotActivityBasic {
   reason: string;
   maxSeatsInPlay: number;
   prevSeatsInPlay: number;
   availableMicrogons: bigint;
+  availableMicronots: bigint;
 }
 
 // Mapping BotActivityType to their corresponding data interfaces

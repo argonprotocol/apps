@@ -106,8 +106,41 @@ export class TreasuryPool {
     this.printDebounce();
   }
 
-  public async getAuctionRevenue(): Promise<bigint> {
-    const client = this.client;
+  public static async getActiveCapital(
+    client: ArgonClient,
+    vaultId: number,
+  ): Promise<{
+    totalCapital: bigint;
+    vaultCapital: bigint;
+    vaultPercentTake: number;
+  }> {
+    let totalCapitalRaised = 0n;
+    let vaultCapital = 0n;
+
+    for (const entrant of await client.query.treasury.capitalActive()) {
+      totalCapitalRaised += entrant.activatedCapital.toBigInt();
+      if (entrant.vaultId.toNumber() === vaultId) {
+        vaultCapital += entrant.activatedCapital.toBigInt();
+      }
+    }
+    const vaultPercentTake = BigNumber(vaultCapital)
+      .dividedBy(totalCapitalRaised || 1n)
+      .multipliedBy(100)
+      .toNumber();
+    return {
+      totalCapital: totalCapitalRaised,
+      vaultCapital,
+      vaultPercentTake,
+    };
+  }
+
+  public static async getTreasuryPayoutPotential(client: ArgonClient): Promise<bigint> {
+    const revenue = await TreasuryPool.getAuctionRevenue(client);
+    const treasuryTake = client.consts.treasury.bidPoolBurnPercent.toBigInt();
+    return (revenue * treasuryTake) / 100n;
+  }
+
+  public static async getAuctionRevenue(client: ArgonClient): Promise<bigint> {
     const balanceBytes = await client.rpc.state.call('MiningSlotApi_bid_pool', '');
     const balance = client.createType('U128', balanceBytes);
     return balance.toBigInt();
@@ -119,7 +152,7 @@ export class TreasuryPool {
     const api = await client.at(blockHash);
     const rawVaultIds = await api.query.vaults.vaultsById.keys();
     const vaultIds = rawVaultIds.map(x => x.args[0].toNumber());
-    this.miningAuctionAmount = await this.getAuctionRevenue();
+    this.miningAuctionAmount = await TreasuryPool.getAuctionRevenue(this.client);
     this.nextFrameId = (await api.query.miningSlot.nextFrameId()).toNumber();
 
     const contributors = await api.query.treasury.vaultPoolsByFrame.entries();
@@ -150,7 +183,7 @@ export class TreasuryPool {
       if (api.events.treasury.BidPoolDistributed.is(event)) {
         const { frameId: rawFrameId } = event.data;
         this.lastDistributedFrameId = rawFrameId.toNumber();
-        this.miningAuctionAmount = await this.getAuctionRevenue();
+        this.miningAuctionAmount = await TreasuryPool.getAuctionRevenue(this.client);
 
         this.FrameSubscriptions[rawFrameId.toNumber()]?.();
         const entrant = await api.query.treasury.vaultPoolsByFrame(rawFrameId);
@@ -185,7 +218,7 @@ export class TreasuryPool {
         api.query.treasury.capitalRaising as any,
       ],
       async ([_bids, nextFrameId, activePoolCapital, raisingPoolCapital]) => {
-        this.miningAuctionAmount = await this.getAuctionRevenue();
+        this.miningAuctionAmount = await TreasuryPool.getAuctionRevenue(this.client);
         this.nextFrameId = nextFrameId.toNumber();
         for (const entrant of [...activePoolCapital, ...raisingPoolCapital]) {
           this.setVaultFrameData(entrant.frameId.toNumber(), entrant.vaultId.toNumber(), {

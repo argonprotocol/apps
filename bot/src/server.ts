@@ -1,5 +1,5 @@
 import 'source-map-support/register';
-import { Keyring, type KeyringPair, waitForLoad } from '@argonprotocol/mainchain';
+import { getClient, Keyring, type KeyringPair, waitForLoad } from '@argonprotocol/mainchain';
 import { jsonExt, onExit, requireAll, requireEnv } from './utils.ts';
 import Bot from './Bot.ts';
 import express from 'express';
@@ -33,13 +33,21 @@ let pair: KeyringPair;
   pair.decodePkcs8(process.env.KEYPAIR_PASSPHRASE);
 }
 
-let networkName = process.env.ARGON_CHAIN ?? 'mainnet';
-if (networkName === 'local') {
+let networkName: keyof typeof NetworkConfig & string = (process.env.ARGON_CHAIN as any) ?? 'mainnet';
+if ((networkName as any) === 'local') {
   networkName = 'localnet';
 }
+if (!(networkName in NetworkConfig)) {
+  throw new Error(`${networkName} is not a valid Network chain name`);
+}
 // set archive url from env since we might be in docker and can't use localhost
-NetworkConfig[networkName as keyof typeof NetworkConfig].archiveUrl = requireEnv('ARCHIVE_NODE_URL');
-MiningFrames.setNetwork(networkName as any);
+NetworkConfig[networkName].archiveUrl = requireEnv('ARCHIVE_NODE_URL');
+MiningFrames.setNetwork(networkName);
+if (networkName === 'localnet' || networkName === 'dev-docker') {
+  const client = await getClient(NetworkConfig[networkName].archiveUrl);
+  await MiningFrames.updateConfig(client);
+  await client.disconnect();
+}
 
 const bot = new Bot({
   oldestFrameIdToSync: oldestFrameIdToSync,
@@ -61,7 +69,23 @@ app.get('/state', async (_req, res) => {
   if (await hasError(res)) return;
   if (await isStarting(res)) return;
   const botState = await bot.blockSync.state();
-  jsonExt(botState, res);
+  let lastBlockNumberByFrameId = botState.lastBlockNumberByFrameId;
+  // only keep the last 10 frames
+  if (lastBlockNumberByFrameId) {
+    const frameIds = Object.keys(lastBlockNumberByFrameId)
+      .map(x => Number(x))
+      .sort((a, b) => b - a)
+      .slice(0, 10);
+    lastBlockNumberByFrameId = frameIds.reduce(
+      (acc, frameId) => {
+        acc[frameId] = lastBlockNumberByFrameId[frameId];
+        return acc;
+      },
+      {} as Record<number, number>,
+    );
+  }
+
+  jsonExt({ ...botState, lastBlockNumberByFrameId }, res);
 });
 
 app.get('/last-modified', async (_req, res) => {

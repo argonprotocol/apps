@@ -96,7 +96,7 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{microgonToArgonNm(wallets.miningWallet.availableMicrogons).format('0,0.[00]')}} Needs Allocation
+                    {{microgonToArgonNm(unallocatedMicrogons).format('0,0.[00]')}} Needs Allocation
                   </HoverCardTrigger>
                   <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
@@ -104,8 +104,8 @@
                       bot to use them to win more mining seats.
                     </p>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer">
-                        Allocate These {{ numeral(wallets.miningWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons to Mining
+                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer" @click="allocateMicrogons()">
+                        Allocate These {{ microgonToArgonNm(unallocatedMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons to Mining
                       </button>
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
@@ -114,7 +114,7 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    0 Waiting for Usage
+                    {{microgonToArgonNm(unusedMicrogons).format('0,0.[00]')}} Waiting for Usage
                   </HoverCardTrigger>
                   <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
@@ -132,7 +132,7 @@
                   <div class="grow">Available Argonots</div>
                   <div class="pr-1">
                     {{ currency.symbol
-                    }}{{ micronotToMoneyNm(wallets.miningWallet.availableMicronots).format('0,0.00') }}
+                    }}{{ micronotToArgonotNm(wallets.miningWallet.availableMicronots).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
                 <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
@@ -146,7 +146,7 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{microgonToArgonNm(wallets.miningWallet.availableMicronots).format('0,0.[00]')}} Needs Allocation
+                    {{micronotToArgonotNm(unallocatedMicronots).format('0,0.[00]')}} Needs Allocation
                   </HoverCardTrigger>
                   <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
@@ -154,8 +154,8 @@
                       bot to use them to win more mining seats.
                     </p>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer">
-                        Allocate These {{ numeral(wallets.miningWallet.availableMicronots).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argonots to Mining
+                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer" @click="allocateMicronots">
+                        Allocate These {{ micronotToArgonotNm(unallocatedMicronots).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argonots to Mining
                       </button>
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
@@ -164,7 +164,7 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    0 Waiting for Usage
+                    {{micronotToArgonotNm(unusedMicronots).format('0,0.[00]')}} Waiting for Usage
                   </HoverCardTrigger>
                   <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
@@ -239,7 +239,7 @@
                     a combination of argons and argonots. They have an currently estimated value of {{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningSeatValue).format('0,0.00') }}.
                   </p>
                   <p class="break-words whitespace-normal mt-3">
-                    These mining seats have {{ numeral(stats.myMiningSeats.micronotsStakedTotal).format('0,0') }} argonots 
+                    These mining seats have {{ numeral(stats.myMiningSeats.micronotsStakedTotal).format('0,0') }} argonots
                     which will be released back into your wallet once the associated mining cycle completes.
                   </p>
                   <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
@@ -252,7 +252,7 @@
                   <div class="grow pl-1"><span class="hidden 2xl:inline">Operational</span> Expenses</div>
                   <div class="pr-1">
                     -{{ currency.symbol
-                    }}{{ microgonToMoneyNm(stats.myMiningSeats.transactionFeesTotal).format('0,0.00') }}
+                    }}{{ microgonToMoneyNm(stats.global.transactionFeesTotal).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
                 <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
@@ -640,9 +640,11 @@ import { IChartItem } from '../../components/FrameSlider.vue';
 import BotEditOverlay from '../../overlays/BotEditOverlay.vue';
 import { HoverCardRoot, HoverCardTrigger, HoverCardContent, HoverCardArrow } from 'reka-ui';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
+import { useConfig } from '../../stores/config.ts';
 
 const stats = useStats();
 const currency = useCurrency();
+const config = useConfig();
 
 const wallets = useWallets();
 
@@ -657,6 +659,36 @@ function getPercent(value: bigint | number, total: bigint | number): number {
 }
 
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+
+const unallocatedMicrogons = Vue.computed(() => {
+  const extra = wallets.miningWallet.availableMicrogons - unusedMicrogons.value;
+  return extra > 0n ? extra : 0n;
+});
+
+const unusedMicrogons = Vue.computed(() => {
+  const unused = wallets.microgonsCommittedToMiningBot - wallets.miningSeatMicrogons - wallets.miningBidMicrogons;
+  return unused > 0n ? unused : 0n;
+});
+
+const unallocatedMicronots = Vue.computed(() => {
+  const extra = wallets.miningWallet.availableMicronots - unusedMicronots.value;
+  return extra > 0n ? extra : 0n;
+});
+
+const unusedMicronots = Vue.computed(() => {
+  const unused = wallets.micronotsCommittedToMiningBot - wallets.miningSeatMicronots - wallets.miningBidMicronots;
+  return unused > 0n ? unused : 0n;
+});
+
+function allocateMicrogons() {
+  config.biddingRules.baseMicrogonCommitment += unallocatedMicrogons.value;
+  config.save();
+}
+
+function allocateMicronots() {
+  config.biddingRules.baseMicronotCommitment += unallocatedMicronots.value;
+  config.save();
+}
 
 const globalMicrogonsEarned = Vue.computed(() => {
   const {
@@ -763,7 +795,7 @@ function openBotEditOverlay() {
 
 function loadChartData() {
   let isFiller = true;
-  const items: any[] = [];
+  const items: IChartItem[] = [];
   for (const [index, frame] of stats.frames.entries()) {
     if (isFiller && frame.seatCountActive > 0) {
       const previousItem = items[index - 1];

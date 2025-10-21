@@ -24,6 +24,7 @@ export interface IChartItem {
 import * as Vue from 'vue';
 import Chart from './Chart.vue';
 import NibSlider from './NibSlider.vue';
+import { useDebounceFn } from '@vueuse/core';
 
 const props = defineProps<{
   chartItems: IChartItem[];
@@ -125,11 +126,18 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 }
 
+function doResize() {
+  chartRef.value?.doResize();
+  updateFrameSliderPos(sliderFrameIndex.value, false);
+}
+
+const handleResize = useDebounceFn(doResize, 100, { maxWait: 250 });
+
 Vue.watch(
   () => props.chartItems,
   (newItems, oldItems) => {
     chartRef.value?.reloadData(newItems);
-    if (newItems.length && !oldItems.length) {
+    if (newItems.at(-1)?.date !== oldItems.at(-1)?.date) {
       updateFrameSliderPos(newItems.length - 1, false);
     }
   },
@@ -137,9 +145,11 @@ Vue.watch(
 
 Vue.onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('resize', handleResize);
 
   Vue.onUnmounted(() => {
     window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('resize', handleResize);
   });
 });
 

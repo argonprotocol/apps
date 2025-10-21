@@ -18,8 +18,9 @@ RUN yarn install
 COPY cli/ ./cli/
 COPY bot/ ./bot/
 COPY core/ ./core/
+COPY scripts/ ./scripts/
 
-RUN yarn build:workspace
+RUN yarn workspace @argonprotocol/cli build
 
 ENTRYPOINT ["node", "cli/lib/cli.js"]
 CMD []
