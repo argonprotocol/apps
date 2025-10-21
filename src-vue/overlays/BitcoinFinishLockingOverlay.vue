@@ -21,20 +21,63 @@
               transform: 'translate(-50%, -50%)',
               cursor: draggable.isDragging ? 'grabbing' : 'default',
             }"
-            class="text-md absolute z-50 w-200 overflow-scroll rounded-lg border border-black/40 bg-white px-4 pt-2 pb-4 shadow-xl focus:outline-none">
+            :class="[isProcessing ? 'w-168' : 'w-200']"
+            class="text-md absolute z-50 overflow-scroll rounded-lg border border-black/40 bg-white px-4 pt-2 pb-4 shadow-xl focus:outline-none">
             <h2
               @mousedown="draggable.onMouseDown($event)"
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
               class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold">
-              <DialogTitle class="grow text-2xl font-bold">Finish Locking Your Bitcoin</DialogTitle>
+              <DialogTitle class="grow text-2xl font-bold whitespace-nowrap">
+                <div v-if="hasProcessingFailure" class="text-red-600">
+                  <ExclamationTriangleIcon class="w-10 h-10 inline-block mr-2" />
+                  Your Bitcoin Locking Failed
+                </div>
+                <template v-else-if="isProcessing" >
+                  Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Lock Is Being Processed
+                </template>
+                <template v-else>
+                  Finish Locking Your Bitcoin
+                </template>
+              </DialogTitle>
               <div
                 @click="closeOverlay"
-                class="z-10 mr-1 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none">
+                class="z-10 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none">
                 <XMarkIcon class="h-5 w-5 stroke-4 text-[#B74CBA]" />
               </div>
             </h2>
 
-            <div class="px-3">
+            <div v-if="hasProcessingFailure" class="px-3">
+              <div class="flex flex-row items-center justify-center w-full text-red-600 mb-10">
+                <p class="opacity-80 pt-3">
+                  It seems you sent an incorrect amount of bitcoin. Your transaction did not match what Argon was expecting, 
+                  and therefore could not be accepted.
+                </p>
+              </div>
+              <button
+                @click="$emit('close')"
+                class="mb-2 w-full cursor-pointer rounded-lg px-6 py-2 bg-argon-600/5 border border-argon-600/30 text-argon-600 text-lg font-bold focus:outline-none">
+                Close
+              </button>
+            </div>
+
+            <div v-else-if="isProcessing" class="px-3">
+              <p class="opacity-80 pt-2">
+                Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC has been 
+                submitted to the Bitcoin network. We are actively monitoring the network for block confirmations. This process usually
+                takes an hour.
+              </p>
+
+              <ProgressBar :progress="50" class="my-5" />
+
+              <p class="opacity-80 mb-7">You can close this dialog and continue using the app.</p>
+
+              <button
+                @click="$emit('close')"
+                class="mb-2 w-full cursor-pointer rounded-lg px-6 py-2 bg-argon-600 text-white text-lg font-bold hover:bg-argon-700 focus:outline-none">
+                Close
+              </button>
+            </div>
+            <div v-else class="px-3">
               <p class="mt-5 mb-4 text-gray-600 select-text">
                 You must send exactly
                 <strong>
@@ -83,7 +126,8 @@
 
               <button
                 @click="$emit('close')"
-                class="mb-2 w-full cursor-pointer rounded-lg bg-gray-200 px-6 py-2 hover:bg-gray-300">
+                class="mb-2 w-full cursor-pointer rounded-lg px-6 py-2 bg-argon-600 text-white text-lg font-bold hover:bg-argon-700 focus:outline-none"
+              >
                 Close
               </button>
             </div>
@@ -100,7 +144,7 @@ import { abbreviateAddress } from '../lib/Utils';
 import { useCurrency } from '../stores/currency.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { useBitcoinLocks } from '../stores/bitcoin.ts';
-import { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import { BitcoinLockStatus, IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import CopyToClipboard from '../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../components/BitcoinQrCode.vue';
 import CopyIcon from '../assets/copy.svg?component';
@@ -110,6 +154,9 @@ import Draggable from './helpers/Draggable';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { AnimatePresence, Motion } from 'motion-v';
+import { useMyVault } from '../stores/vaults.ts';
+import ProgressBar from '../components/ProgressBar.vue';
+import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 
 const emit = defineEmits<{
   close: [];
@@ -121,11 +168,27 @@ const props = defineProps<{
 
 const bitcoinLocks = useBitcoinLocks();
 const currency = useCurrency();
+const vault = useMyVault();
 
 const draggable = Vue.reactive(new Draggable());
 
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');
+
+const personalUtxo = Vue.computed(() => {
+  const utxoId = vault.metadata?.personalUtxoId;
+  return utxoId ? bitcoinLocks.data.locksById[utxoId] : null;
+});
+
+const isProcessing = Vue.computed(() => {
+  return [BitcoinLockStatus.LockProcessingOnBitcoin, BitcoinLockStatus.LockReceivedWrongAmount].includes(
+    props.lock.status,
+  );
+});
+
+const hasProcessingFailure = Vue.computed(() => {
+  return props.lock.status === BitcoinLockStatus.LockReceivedWrongAmount;
+});
 
 function closeOverlay() {
   emit('close');

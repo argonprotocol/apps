@@ -42,11 +42,11 @@
               </p>
 
               <div class="mt-5 flex flex-row gap-x-5">
-                <div class="flex grow flex-col">
+                <div class="flex w-1/2 grow flex-col">
                   <label>Bitcoin Amount</label>
                   <InputNumber v-model="bitcoinAmount" :maxDecimals="0" :min="0" :dragBy="0.1" :dragByMin="0.01" />
                 </div>
-                <div class="flex grow flex-col">
+                <div class="flex w-1/2 grow flex-col">
                   <label>Argons to Receive</label>
                   <InputArgon
                     v-model="argonAmount"
@@ -59,13 +59,13 @@
 
               <div class="mt-10 flex flex-row items-center justify-end gap-x-3 border-t border-black/20 pt-4">
                 <button
-                  class="cursor-pointer rounded-lg bg-gray-200 px-10 py-2 font-bold text-black hover:bg-gray-300"
+                  class="cursor-pointer rounded-lg bg-gray-200 px-10 py-2 text-lg font-bold text-black hover:bg-gray-300"
                   @click="closeOverlay">
                   Cancel
                 </button>
                 <button
-                  class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-lg px-10 py-2 font-bold text-white">
-                  Liquid Lock Bitcoin
+                  class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white">
+                  Liquid Lock Your Bitcoin
                 </button>
               </div>
             </div>
