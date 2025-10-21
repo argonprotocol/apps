@@ -550,20 +550,27 @@ function handleBeforeInput(event: InputEvent) {
   }
 }
 
+let updateInputValueTimer: ReturnType<typeof setTimeout> | null = null;
+
 function handleInput() {
   const currentText = inputElem.value?.textContent || '';
   const inputValue = Number(currentText.replace(/,/g, ''));
-  if (isNaN(inputValue)) return;
+  if (!inputValue || isNaN(inputValue)) return;
 
   const boundedInputValue = calculateBoundedInputValue(inputValue);
   currentInputValue = boundedInputValue;
-  currentInputValueFormatted.value = formatFn(currentInputValue);
+  currentInputValueFormatted.value = formatFn(inputValue);
 
   if (inputValue === boundedInputValue) {
-    updateInputValue(boundedInputValue, true);
-  } else {
-    inputValueInserted.value = currentText;
+    if (updateInputValueTimer) {
+      clearTimeout(updateInputValueTimer);
+    }
+    updateInputValueTimer = setTimeout(() => {
+      updateInputValue(boundedInputValue, true);
+    }, 1e3);
   }
+
+  inputValueInserted.value = currentText;
 }
 
 function getCaretPosition(): { start: number; end: number } {

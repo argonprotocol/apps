@@ -22,12 +22,15 @@
               transform: 'translate(-50%, -50%)',
               cursor: draggable.isDragging ? 'grabbing' : 'default',
             }"
-            class="absolute z-50 w-200 overflow-scroll rounded-lg border border-black/40 bg-white px-4 pt-2 pb-4 shadow-xl focus:outline-none">
+            class="absolute z-50 w-200 overflow-scroll rounded-lg border border-black/40 bg-white px-4 pt-2 pb-4 shadow-xl focus:outline-none"
+          >
             <h2
               @mousedown="draggable.onMouseDown($event)"
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
-              class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold">
-              <DialogTitle class="grow text-2xl font-bold">Unlock Your Bitcoin</DialogTitle>
+              class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold"
+            >
+              <DialogTitle v-if="isWaitingToRelease" class="grow text-2xl font-bold">Unlock Your Bitcoin</DialogTitle>
+              <DialogTitle v-else class="grow text-2xl font-bold">Unlocking Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC...</DialogTitle>
               <div
                 @click="closeOverlay"
                 class="z-10 mr-1 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none">
@@ -36,9 +39,7 @@
             </h2>
 
             <div class="mb-6 px-3 text-red-700" v-if="errorMessage">{{ errorMessage }}</div>
-            <div
-              v-if="[BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(props.lock.status)"
-              class="flex flex-col space-y-6 px-3 pt-3">
+            <div v-if="isWaitingToRelease" class="flex flex-col space-y-6 px-3 pt-3">
               <template v-if="canAfford">
                 <div class="mb-6">
                   <p class="mb-4 text-gray-700">
@@ -106,26 +107,49 @@
                 </button>
               </template>
             </div>
-            <div
-              v-else-if="props.lock.status === BitcoinLockStatus.ReleaseApprovedByVault"
-              class="flex flex-col space-y-6 px-3 pt-3">
-              <button
-                @click="submitToBitcoinNetwork"
-                :disabled="isLoading || isFinalizing"
-                class="w-full rounded-lg py-3 font-medium transition-all"
-                :class="
-                  !isLoading ? 'bg-red-500 text-white hover:bg-red-600' : 'cursor-not-allowed bg-gray-200 text-gray-400'
-                ">
-                <span v-if="isLoading || isFinalizing">Submitting to Bitcoin Network...</span>
-                <span v-else>Submit to Bitcoin Network</span>
-              </button>
-            </div>
-            <div
-              v-else-if="props.lock.status === BitcoinLockStatus.ReleaseSubmmittedToBitcoin"
-              class="flex flex-col space-y-6 px-3 pt-3">
-              <div class="mb-6">
-                <p class="mb-4 text-gray-700">Your Bitcoin is being processed by Bitcoin's network.</p>
+            <div v-else class="flex flex-col space-y-5 px-3.5 py-3">
+              <p class="text-gray-700">
+                Argon and Bitcoin networks are currently in the process of unlocking your 
+                {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC. This
+                requires a series of four steps...
+              </p>
+
+              <div class="flex flex-row items-center justify-start w-full border-t border-gray-200 pt-5">
+                <div v-if="stepByStatus[props.lock.status] === 1" spinner class="h-6 min-h-6 w-6 min-w-6 mr-3" />
+                <Checkbox v-else :isChecked="stepByStatus[props.lock.status] > 1" class="mr-3" />
+                <template v-if="stepByStatus[props.lock.status] === 1">Requesting</template>
+                <template v-else>Requested</template>
+                Release from Argon Network
               </div>
+
+              <div class="flex flex-row items-center justify-start w-full border-t border-gray-200 pt-5">
+                <div v-if="stepByStatus[props.lock.status] === 2" spinner class="h-6 min-h-6 w-6 min-w-6 mr-3" />
+                <Checkbox v-else :isChecked="stepByStatus[props.lock.status] > 2" class="mr-3" />
+                <template v-if="stepByStatus[props.lock.status] < 2">Await Approval from</template>
+                <template v-else-if="stepByStatus[props.lock.status] === 2">Awaiting Approval from</template>
+                <template v-else>Approved by</template>
+                Argon Vault
+              </div>
+
+              <div class="flex flex-row items-center justify-start w-full border-t border-gray-200 pt-5">
+                <div v-if="stepByStatus[props.lock.status] === 3" spinner class="h-6 min-h-6 w-6 min-w-6 mr-3" />
+                <Checkbox v-else :isChecked="stepByStatus[props.lock.status] > 3" class="mr-3" />
+                <template v-if="stepByStatus[props.lock.status] < 3">Submit</template>
+                <template v-else-if="stepByStatus[props.lock.status] === 3">Submitting</template>
+                <template v-else>Submitted</template>
+                Transfer to Bitcoin Network.
+              </div>
+
+              <div class="flex flex-row items-center justify-start w-full border-y border-gray-200 py-5">
+                <div v-if="stepByStatus[props.lock.status] === 4" spinner class="h-6 min-h-6 w-6 min-w-6 mr-3" />
+                <Checkbox v-else :isChecked="stepByStatus[props.lock.status] > 4" class="mr-3" />
+                <template v-if="stepByStatus[props.lock.status] < 4">Await</template>
+                <template v-else-if="stepByStatus[props.lock.status] === 4">Waiting for</template>
+                <template v-else>Completed</template>
+                Bitcoin Finalization
+              </div>
+
+              <p class="text-gray-400 mb-2 font-bold">NOTE: You can close this overlay without it disrupting the process.</p>
             </div>
           </Motion>
         </DialogContent>
@@ -152,6 +176,7 @@ import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } f
 import InputMenu from '../components/InputMenu.vue';
 import { AnimatePresence, Motion } from 'motion-v';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
+import Checkbox from '../components/Checkbox.vue';
 
 const vaults = useVaults();
 const myVault = useMyVault();
@@ -171,6 +196,19 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const stepByStatus: Record<any, number> = {
+  [BitcoinLockStatus.ReleaseSubmittingToArgon]: 1,
+  [BitcoinLockStatus.ReleaseWaitingForVault]: 2,
+  [BitcoinLockStatus.ReleaseSubmittingToBitcoin]: 3,
+  [BitcoinLockStatus.ReleaseProcessingOnBitcoin]: 4,
+  [BitcoinLockStatus.ReleaseComplete]: 5,
+};
+
+const personalUtxo = Vue.computed(() => {
+  const utxoId = myVault.metadata?.personalUtxoId;
+  return utxoId ? bitcoinLocks.data.locksById[utxoId] : null;
+});
+
 const feeRatesByKey = Vue.ref<Record<string, { key: string; label: string; time: string; value: bigint }>>({
   fast: { key: 'fast', label: 'Fast', time: '~10 min', value: 10n },
   medium: { key: 'medium', label: 'Medium', time: '~30 min', value: 5n },
@@ -180,13 +218,17 @@ const feeRatesByKey = Vue.ref<Record<string, { key: string; label: string; time:
 const selectedFeeRate = Vue.ref('medium');
 const destinationAddress = Vue.ref('');
 const isLoading = Vue.ref(false);
+
+const waitForReleasedUtxoId = Vue.ref<string | null>(null);
 const isFinalizing = Vue.computed(() => waitForReleasedUtxoId.value !== null);
 const errorMessage = Vue.ref('');
 
 const releasePrice = Vue.ref(0n);
 const releaseProgress = Vue.ref(0);
 
-const waitForReleasedUtxoId = Vue.ref<string | null>(null);
+const isWaitingToRelease = Vue.computed(() => {
+  return [BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(props.lock.status);
+});
 
 const canAfford = Vue.computed(() => {
   return neededMicrogons.value <= 0n;
@@ -217,34 +259,6 @@ function closeOverlay() {
   emit('close');
 }
 
-Vue.onMounted(async () => {
-  await myVault.load();
-  await bitcoinLocks.load();
-  if (
-    props.lock.status !== BitcoinLockStatus.ReleaseApprovedByVault &&
-    props.lock.status !== BitcoinLockStatus.ReleaseSubmittedToArgon
-  ) {
-    releasePrice.value = await vaults.getRedemptionRate(props.lock);
-    const latestFeeRates = await BitcoinLocksStore.getFeeRates();
-    feeRatesByKey.value = Object.entries(latestFeeRates).reduce(
-      (acc, [key, rate]) => {
-        acc[key] = {
-          key,
-          label: key.charAt(0).toUpperCase() + key.slice(1),
-          time: `~${rate.estimatedMinutes} min`,
-          value: rate.feeRate,
-        };
-        return acc;
-      },
-      {} as Record<string, { key: string; label: string; time: string; value: bigint }>,
-    );
-  }
-});
-
-Vue.onUnmounted(() => {
-  waitForReleasedUtxoId.value = null;
-});
-
 async function sendReleaseRequest() {
   if (!canSendRequest.value) return;
 
@@ -261,7 +275,8 @@ async function sendReleaseRequest() {
       toScriptPubkey,
       argonKeyring: config.vaultingAccount,
       txProgressCallback(progress: number) {
-        if (props.lock.status === BitcoinLockStatus.ReleaseSubmittedToArgon) {
+        // I don't think this is ever run
+        if (props.lock.status === BitcoinLockStatus.ReleaseWaitingForVault) {
           releaseProgress.value = progress * 0.5; // 0-50% for request, 50-100% for cosign
         }
       },
@@ -278,30 +293,26 @@ async function sendReleaseRequest() {
 }
 
 async function cosignRelease() {
+  if (props.lock.status !== BitcoinLockStatus.ReleaseWaitingForVault) return;
+
   releaseProgress.value = 50;
   try {
-    if (props.lock.status === BitcoinLockStatus.ReleaseSubmittedToArgon) {
-      isLoading.value = true;
-      errorMessage.value = '';
-      console.log('Cosigning release for lock:', props.lock);
-      const vaultXpriv = await myVault.getVaultXpub(config.bitcoinXprivSeed);
-      const result = await myVault.cosignRelease({
-        argonKeyring: config.vaultingAccount,
-        vaultXpriv,
-        utxoId: props.lock.utxoId,
-        toScriptPubkey: props.lock.releaseToDestinationAddress!,
-        bitcoinNetworkFee: props.lock.releaseBitcoinNetworkFee!,
-        progressCallback(progress: number) {
-          if (props.lock.status === BitcoinLockStatus.ReleaseSubmittedToArgon) {
-            releaseProgress.value = 50 + progress * 0.25;
-          }
-        },
-      });
-      if (result) {
-        console.log('Cosigned release successfully:', result);
-        await bitcoinLocks.updateVaultSignature(props.lock);
-      }
-    }
+    isLoading.value = true;
+    errorMessage.value = '';
+    console.log('Cosigning release for lock:', props.lock);
+    // Why MyVault versus BitcoinLocksStore (and why the store)?
+    const vaultXpriv = await myVault.getVaultXpub(config.bitcoinXprivSeed);
+    // could be moved to BitcoinLocksStore
+    const result = await myVault.cosignRelease({
+      argonKeyring: config.vaultingAccount,
+      vaultXpriv,
+      utxoId: props.lock.utxoId,
+      toScriptPubkey: props.lock.releaseToDestinationAddress!,
+      bitcoinNetworkFee: props.lock.releaseBitcoinNetworkFee!,
+      progressCallback(progress: number) {
+        releaseProgress.value = 50 + progress * 0.25;
+      },
+    });
   } catch (error) {
     console.error('Failed to cosign release:', error);
     errorMessage.value = `Failed to cosign release. ${error}`;
@@ -314,7 +325,7 @@ async function cosignRelease() {
 
 async function submitToBitcoinNetwork() {
   try {
-    if (props.lock.status === BitcoinLockStatus.ReleaseApprovedByVault) {
+    if (props.lock.status === BitcoinLockStatus.ReleaseSubmittingToBitcoin) {
       isLoading.value = true;
       errorMessage.value = '';
 
@@ -332,4 +343,59 @@ async function submitToBitcoinNetwork() {
 
   releaseProgress.value = 90;
 }
+
+async function updateFeeRates() {
+  const isLocked = [BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(props.lock.status);
+  if (!isLocked) return;
+
+  releasePrice.value = await vaults.getRedemptionRate(props.lock);
+  const latestFeeRates = await BitcoinLocksStore.getFeeRates();
+  feeRatesByKey.value = Object.entries(latestFeeRates).reduce(
+    (acc, [key, rate]) => {
+      acc[key] = {
+        key,
+        label: key.charAt(0).toUpperCase() + key.slice(1),
+        time: `~${rate.estimatedMinutes} min`,
+        value: rate.feeRate,
+      };
+      return acc;
+    },
+    {} as Record<string, { key: string; label: string; time: string; value: bigint }>,
+  );
+}
+
+Vue.onMounted(async () => {
+  await myVault.load();
+  await bitcoinLocks.load();
+  void updateFeeRates();
+});
+
+Vue.onUnmounted(() => {
+  waitForReleasedUtxoId.value = null;
+});
 </script>
+
+<style scoped>
+@reference "../main.css";
+
+[spinner] {
+  @apply relative -left-0.5 hidden h-8 min-h-8 w-8 min-w-8 border;
+}
+
+[spinner] {
+  border-radius: 50%;
+  display: block;
+  border: 10px solid;
+  border-color: rgba(166, 0, 212, 0.15) rgba(166, 0, 212, 0.25) rgba(166, 0, 212, 0.35) rgba(166, 0, 212, 0.5);
+  animation: rotation 1s linear infinite;
+}
+
+@keyframes rotation {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+</style>
