@@ -20,7 +20,7 @@
           <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
           <div class="flex flex-col h-full w-full grow">
             <h2
-              @mousedown="draggable.onMouseDown($event)" 
+              @mousedown="draggable.onMouseDown($event)"
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
               class="relative text-3xl font-bold text-left border-b border-slate-300 pt-5 pb-4 pl-3 mx-4 text-[#672D73]"
@@ -36,17 +36,20 @@
                 The following settings control how your vault operates, allocates capital, and earns revenue.
               </DialogDescription>
 
-              <VaultSettings ref="vaultSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="false" />
+              <VaultSettings ref="vaultSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="false" :isEditingSettings="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
             <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
+              <div v-if="savingError" class="text-red-700 font-bold grow flex items-center my-2">
+                {{ savingError }}
+              </div>
               <div :class="{ 'opacity-50': isSaving || hasEditBoxOverlay }" class="flex flex-row space-x-4 justify-center items-center">
                 <button @click="cancelOverlay" class="border border-argon-button/50 text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
                   <span>Cancel</span>
                 </button>
                 <Tooltip asChild :calculateWidth="() => calculateElementWidth(saveButtonElement)" side="top" content="Clicking this button does not commit you to anything.">
-                  <button @click="saveRules" ref="saveButtonElement" class="bg-argon-button text-xl font-bold text-white px-7 py-1 rounded-md cursor-pointer">
+                  <button @click="saveRules" ref="saveButtonElement" :disabled="isSaving" class="bg-argon-button text-xl font-bold text-white px-7 py-1 rounded-md cursor-pointer">
                     <span v-if="!isSaving">Save Rules</span>
                     <span v-else>Save Rules...</span>
                   </button>
@@ -73,12 +76,14 @@ import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import VaultSettings from '../components/VaultSettings.vue';
 import Draggable from './helpers/Draggable.ts';
+import { useMyVault } from '../stores/vaults.ts';
 
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
 const config = useConfig();
+const myVault = useMyVault();
 
 const draggable = Vue.reactive(new Draggable());
 
@@ -92,6 +97,7 @@ const calculator = getVaultCalculator();
 
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
+const savingError = Vue.ref<string | null>(null);
 const hasEditBoxOverlay = Vue.ref(false);
 
 const vaultSettings = Vue.ref<typeof VaultSettings | null>(null);
@@ -119,18 +125,36 @@ function closeEditBoxOverlay() {
 
 async function saveRules() {
   if (isSaving.value || hasEditBoxOverlay.value) return;
-  isSaving.value = true;
 
   if (rules.value) {
-    await config.saveVaultingRules();
+    try {
+      savingError.value = null;
+      isSaving.value = true;
+
+      await myVault.updateSettings({
+        argonKeyring: Vue.toRaw(config.vaultingAccount),
+        rules: Vue.toRaw(rules.value),
+        previousRules: JsonExt.parse<IVaultingRules>(previousVaultingRules!),
+        txProgressCallback(progress: number) {
+          console.log(`Vault settings update progress: ${progress}%`);
+        },
+      });
+      await config.saveVaultingRules();
+    } catch (error: any) {
+      console.error('Error saving vault rules:', error);
+      savingError.value = error.message || 'Unknown error occurred while saving vault rules.';
+      return;
+    } finally {
+      isSaving.value = false;
+    }
   }
 
-  isSaving.value = false;
   emit('close');
 }
 
 Vue.onMounted(async () => {
   isLoaded.value = false;
+  await myVault.load();
 
   await calculator.load(rules.value);
   previousVaultingRules = JsonExt.stringify(config.vaultingRules);

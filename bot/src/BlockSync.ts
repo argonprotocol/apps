@@ -11,13 +11,13 @@ import {
 import {
   AccountMiners,
   type Accountset,
+  type IBlock,
+  type IBlockSyncFile,
   type IBotState,
   type IBotStateFile,
   type IBotSyncStatus,
-  type IWinningBid,
-  type IBlock,
-  type IBlockSyncFile,
   type IEarningsFile,
+  type IWinningBid,
   MainchainClients,
   Mining,
   MiningFrames,
@@ -429,9 +429,11 @@ export class BlockSync {
         delete x.earningsByBlock[blockNumber];
       }
 
-      const calculatedProfits = await this.calculateAccruedMicrogonProfits(x);
+      const calculatedProfits = await this.calculateAccruedProfits(x);
       x.accruedMicrogonProfits = calculatedProfits.accruedMicrogonProfits;
       x.previousFrameAccruedMicrogonProfits = calculatedProfits.previousFrameAccruedMicrogonProfits;
+      x.accruedMicronotProfits = calculatedProfits.accruedMicronotProfits;
+      x.previousFrameAccruedMicronotProfits = calculatedProfits.previousFrameAccruedMicronotProfits;
     });
 
     this.lastSynchedTick = tick;
@@ -452,6 +454,7 @@ export class BlockSync {
       if (hasMiningSeats) x.hasMiningSeats = true;
       x.earningsLastModifiedAt = new Date();
       x.currentFrameId = currentFrameId;
+      x.currentTick = tick;
       x.currentFrameTickRange = this.currentFrameTickRange;
       x.syncProgress = this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
       x.lastBlockNumberByFrameId[currentFrameId] = blockNumber;
@@ -575,9 +578,11 @@ export class BlockSync {
     });
     await this.storage.earningsFile(cohortBiddingFrameId).mutate(async x => {
       x.transactionFeesTotal = transactionFeesTotal;
-      const calculatedProfits = await this.calculateAccruedMicrogonProfits(x);
+      const calculatedProfits = await this.calculateAccruedProfits(x);
       x.accruedMicrogonProfits = calculatedProfits.accruedMicrogonProfits;
       x.previousFrameAccruedMicrogonProfits = calculatedProfits.previousFrameAccruedMicrogonProfits;
+      x.accruedMicronotProfits = calculatedProfits.accruedMicronotProfits;
+      x.previousFrameAccruedMicronotProfits = calculatedProfits.previousFrameAccruedMicronotProfits;
     });
     return { hasMiningBids, hasMiningSeats };
   }
@@ -596,24 +601,35 @@ export class BlockSync {
     return this.localClient;
   }
 
-  private async calculateAccruedMicrogonProfits(x: IEarningsFile): Promise<{
+  private async calculateAccruedProfits(x: IEarningsFile): Promise<{
     accruedMicrogonProfits: bigint;
     previousFrameAccruedMicrogonProfits: bigint | null;
+    accruedMicronotProfits: bigint;
+    previousFrameAccruedMicronotProfits: bigint | null;
   }> {
-    if (x.previousFrameAccruedMicrogonProfits === null) {
+    if (x.previousFrameAccruedMicrogonProfits === null || x.previousFrameAccruedMicronotProfits === null) {
       const previousFrameId = x.frameId - 1;
       const previousFrame = await this.storage.earningsFile(previousFrameId).get();
       x.previousFrameAccruedMicrogonProfits = previousFrame?.accruedMicrogonProfits || 0n;
+      x.previousFrameAccruedMicronotProfits = previousFrame?.accruedMicronotProfits || 0n;
     }
-    const microgonRevenue = Object.values(x.earningsByBlock).reduce((acc, curr) => {
-      return acc + curr.microgonsMinted + curr.microgonsMined;
-    }, 0n);
+    let microgonRevenue = 0n;
+    let micronotRevenue = 0n;
+    for (const blockEarnings of Object.values(x.earningsByBlock)) {
+      microgonRevenue += blockEarnings.microgonsMinted + blockEarnings.microgonsMined;
+      micronotRevenue += blockEarnings.micronotsMined;
+    }
+
     const microgonProfits = microgonRevenue - x.transactionFeesTotal;
     const accruedMicrogonProfits = x.previousFrameAccruedMicrogonProfits + microgonProfits;
+
+    const accruedMicronotProfits = x.previousFrameAccruedMicronotProfits + micronotRevenue;
 
     return {
       accruedMicrogonProfits,
       previousFrameAccruedMicrogonProfits: x.previousFrameAccruedMicrogonProfits,
+      accruedMicronotProfits,
+      previousFrameAccruedMicronotProfits: x.previousFrameAccruedMicronotProfits,
     };
   }
 

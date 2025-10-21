@@ -101,6 +101,7 @@ export default class Bot implements IBotSyncStatus {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
+    this.errorMessage = null;
 
     this.biddingRules = this.loadBiddingRules();
     this.accountset = new Accountset({

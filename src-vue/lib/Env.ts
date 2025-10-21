@@ -1,5 +1,5 @@
 import { NetworkConfig, MiningFrames } from '@argonprotocol/commander-core';
-import ISecurity from '../interfaces/ISecurity.ts';
+import type ISecurity from '../interfaces/ISecurity.ts';
 
 console.log('__ARGON_NETWORK_NAME__', __ARGON_NETWORK_NAME__);
 console.log('__COMMANDER_INSTANCE__', __COMMANDER_INSTANCE__);

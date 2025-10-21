@@ -11,7 +11,9 @@ export interface IEarningsFile extends ILastModifiedAt {
 
   transactionFeesTotal: bigint;
   accruedMicrogonProfits: bigint;
+  accruedMicronotProfits: bigint;
   previousFrameAccruedMicrogonProfits: bigint | null;
+  previousFrameAccruedMicronotProfits: bigint | null;
 
   earningsByBlock: {
     [blockNumber: number]: IBlockEarningsSummary;

@@ -11,7 +11,8 @@
   ],
   "scripts": {
     "tsup": "tsup",
-    "build": "tsup"
+    "build": "tsup",
+    "cli": "tsx ./src/cli.ts"
   },
   "dependencies": {
     "@argonprotocol/commander-core": "workspace:*",

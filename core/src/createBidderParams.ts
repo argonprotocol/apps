@@ -8,7 +8,7 @@ export default async function createBidderParams(
   _cohortId: number,
   mainchainClients: MainchainClients,
   biddingRules: IBiddingRules,
-  accruedEarnings: bigint,
+  accruedEarnings: { microgons: bigint; micronots: bigint },
 ): Promise<IBidderParams> {
   const mining = new Mining(mainchainClients);
 
@@ -22,7 +22,8 @@ export default async function createBidderParams(
   const maxBid = calculator.maximumBidAmount;
 
   const maxSeats = await helper.getMaxSeats();
-  const maxBudget = biddingRules.baseMicrogonCommitment + accruedEarnings;
+  const maxBudget = biddingRules.baseMicrogonCommitment + accruedEarnings.microgons;
+  const maxMicronotBudget = biddingRules.baseMicronotCommitment + accruedEarnings.micronots;
 
   const bidDelay = biddingRules.rebiddingDelay || 0;
   const bidIncrement = biddingRules.rebiddingIncrementBy || 1n;
@@ -33,6 +34,7 @@ export default async function createBidderParams(
     maxSeats,
     bidDelay,
     bidIncrement,
+    maxMicronotsToStake: maxMicronotBudget,
   };
   console.log('Bidder params', bidderParams);
   return bidderParams;

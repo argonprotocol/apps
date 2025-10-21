@@ -16,6 +16,7 @@ export interface IRatchet {
 
 export enum BitcoinLockStatus {
   LockInitialized = 'LockInitialized', // Submitted to the Argon chain & vault's securitization has been locked
+  LockVerificationExpired = 'LockVerificationExpired', // The lock expired before it could be verified in argon
   LockProcessingOnBitcoin = 'LockProcessingOnBitcoin', // Found on bitcoin mempool but not in blocks or requires more confirmations
   LockReceivedWrongAmount = 'LockReceivedWrongAmount', // Submitted to bitcoin network with wrong amount
   LockedAndMinting = 'LockedAndMinting', // Is fully locked but has been promised more argon minting
@@ -206,6 +207,14 @@ export class BitcoinLocksTable extends BaseTable {
 
   async setLockReceivedWrongAmount(lock: IBitcoinLockRecord) {
     lock.status = BitcoinLockStatus.LockReceivedWrongAmount;
+    await this.db.execute(
+      'UPDATE BitcoinLocks SET status = $1 WHERE utxoId = $2',
+      toSqlParams([lock.status, lock.utxoId]),
+    );
+  }
+
+  async setLockVerificationExpired(lock: IBitcoinLockRecord) {
+    lock.status = BitcoinLockStatus.LockVerificationExpired;
     await this.db.execute(
       'UPDATE BitcoinLocks SET status = $1 WHERE utxoId = $2',
       toSqlParams([lock.status, lock.utxoId]),

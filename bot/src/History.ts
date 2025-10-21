@@ -170,9 +170,10 @@ export class History {
     newMaxSeats: number;
     reason: SeatReductionReason;
     availableMicrogons: bigint;
+    availableMicronots: bigint;
     frameId: number;
   }) {
-    const { tick, blockNumber, newMaxSeats, reason, availableMicrogons, frameId } = args;
+    const { tick, blockNumber, newMaxSeats, reason, availableMicrogons, availableMicronots, frameId } = args;
     if (newMaxSeats < this.maxSeatsInPlay) {
       this.appendActivities({
         tick,
@@ -183,7 +184,8 @@ export class History {
           reason,
           maxSeatsInPlay: newMaxSeats,
           prevSeatsInPlay: this.maxSeatsInPlay,
-          availableMicrogons: availableMicrogons,
+          availableMicrogons,
+          availableMicronots,
         },
       });
     } else if (newMaxSeats > this.maxSeatsInPlay) {
@@ -196,7 +198,8 @@ export class History {
           reason,
           maxSeatsInPlay: newMaxSeats,
           prevSeatsInPlay: this.maxSeatsInPlay,
-          availableMicrogons: availableMicrogons,
+          availableMicrogons,
+          availableMicronots,
         },
       });
     }

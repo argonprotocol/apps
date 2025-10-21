@@ -44,30 +44,75 @@ export const useWallets = defineStore('wallets', () => {
     reservedMicronots: 0n,
   });
 
-  const miningSeatValue = Vue.computed(() => {
-    let previousHistoryValue = 0n;
+  const microgonsCommittedToMiningBot = Vue.computed(() => {
+    return config.biddingRules.baseMicrogonCommitment + stats.accruedMicrogonProfits;
+  });
 
-    for (const item of config.miningAccountPreviousHistory || []) {
-      previousHistoryValue += item.seats.reduce((acc, seat) => {
-        const { microgonsBid } = seat;
-        const remainingPercent = new BigNumber(1).minus(MiningFrames.calculateCohortProgress(item.frameId));
-        const remainingValue = Math.floor(remainingPercent.times(microgonsBid.toString()).toNumber());
-        return acc + BigInt(remainingValue);
-      }, 0n);
+  const micronotsCommittedToMiningBot = Vue.computed(() => {
+    return config.vaultingRules.baseMicronotCommitment + stats.accruedMicronotProfits;
+  });
+
+  const previousHistoryValue = Vue.computed(() => {
+    if (!config.miningAccountPreviousHistory) return;
+    const bids = { microgons: 0n, micronots: 0n };
+    const seats = { microgons: 0n, micronots: 0n };
+
+    for (const item of config.miningAccountPreviousHistory) {
+      for (const seat of item.seats) {
+        seats.microgons += seat.microgonsBid;
+        seats.micronots += seat.micronotsStaked;
+      }
+      for (const bid of item.bids) {
+        bids.microgons += bid.microgonsBid;
+        bids.micronots += bid.micronotsStaked;
+      }
     }
-    return stats.myMiningSeats.microgonValueRemaining + previousHistoryValue;
+
+    return { bids, seats };
+  });
+
+  const miningSeatMicrogons = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.seats.microgons;
+    }
+    return stats.myMiningSeats.microgonValueRemaining;
+  });
+
+  const miningSeatMicronots = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.seats.micronots;
+    }
+    return stats.myMiningSeats.micronotsStakedTotal;
+  });
+
+  const miningBidMicrogons = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.bids.microgons;
+    }
+    return stats.myMiningBids.microgonsBidTotal;
+  });
+
+  const miningBidMicronots = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.bids.micronots;
+    }
+    return stats.myMiningBids.micronotsStakedTotal;
+  });
+
+  const miningSeatValue = Vue.computed(() => {
+    return miningSeatMicrogons.value + currency.micronotToMicrogon(miningSeatMicronots.value);
   });
 
   const miningBidValue = Vue.computed(() => {
-    let previousHistoryValue = 0n;
-    for (const item of config.miningAccountPreviousHistory || []) {
-      previousHistoryValue += item.bids.reduce((acc, bid) => acc + bid.microgonsBid, 0n);
-    }
-    return stats.myMiningBids.microgonsBidTotal + previousHistoryValue;
+    return miningBidMicrogons.value + currency.micronotToMicrogon(miningBidMicronots.value);
   });
 
   const totalMiningMicrogons = Vue.computed(() => {
-    return miningWallet.availableMicrogons + miningSeatValue.value + miningBidValue.value;
+    return miningWallet.availableMicrogons + miningSeatMicrogons.value + miningBidMicrogons.value;
   });
 
   const totalVaultingMicrogons = Vue.computed(() => {
@@ -79,7 +124,6 @@ export const useWallets = defineStore('wallets', () => {
     return (
       miningWallet.availableMicrogons +
       currency.micronotToMicrogon(miningWallet.availableMicronots) +
-      currency.micronotToMicrogon(miningWallet.reservedMicronots) +
       miningSeatValue.value +
       miningBidValue.value
     );
@@ -169,10 +213,16 @@ export const useWallets = defineStore('wallets', () => {
     totalWalletMicronots,
     miningSeatValue,
     miningBidValue,
+    miningSeatMicrogons,
+    miningSeatMicronots,
+    miningBidMicrogons,
+    miningBidMicronots,
     totalMiningMicrogons,
     totalVaultingMicrogons,
     totalMiningResources,
     totalVaultingResources,
     totalNetWorth,
+    microgonsCommittedToMiningBot,
+    micronotsCommittedToMiningBot,
   };
 });

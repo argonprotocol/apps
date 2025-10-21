@@ -44,12 +44,10 @@ it('can create bidder params', async () => {
   MiningFrames.setNetwork('localnet');
   const cohortActivationFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
   const accruedEarnings = 10_000_253n;
-  const bidderParams = await createBidderParams(
-    cohortActivationFrameId,
-    mainchainClients,
-    biddingRules,
-    accruedEarnings,
-  );
+  const bidderParams = await createBidderParams(cohortActivationFrameId, mainchainClients, biddingRules, {
+    microgons: accruedEarnings,
+    micronots: 0n,
+  });
 
   expect(bidderParams.minBid).toBe(0n);
   // BAB: not sure how to test this - it's based on live data from the chain

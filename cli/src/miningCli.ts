@@ -126,18 +126,18 @@ export default function miningCli() {
       async ({ maxSeats, runContinuous, maxBid, minBid, maxBalance, bidDelay, bidIncrement, proxyForAddress }) => {
         const accountset = await accountsetFromCli(program, proxyForAddress);
 
-        let cohortBidder: CohortBidder | undefined;
         const miningBids = new MiningBids(accountset.client, false);
-        const maxCohortSize = await miningBids.maxCohortSize();
+        const biddersByFrames: { [frameId: number]: CohortBidder } = {};
 
-        const stopBidder = async (unsubscribe: () => void) => {
+        const stopBidder = async (cohortStartingFrameId: number, unsubscribe: () => void) => {
+          const cohortBidder = biddersByFrames[cohortStartingFrameId];
+          delete biddersByFrames[cohortStartingFrameId];
           if (cohortBidder) {
             const stats = await cohortBidder.stop();
             console.log('Final bidding result', {
-              cohortStartingFrameId: cohortBidder.cohortStartingFrameId,
+              cohortStartingFrameId,
               ...stats,
             });
-            cohortBidder = undefined;
             if (!runContinuous) {
               unsubscribe();
               process.exit();
@@ -146,12 +146,10 @@ export default function miningCli() {
         };
         const { unsubscribe } = await miningBids.onCohortChange({
           async onBiddingEnd(cohortStartingFrameId) {
-            if (cohortBidder?.cohortStartingFrameId === cohortStartingFrameId) {
-              await stopBidder(unsubscribe);
-            }
+            await stopBidder(cohortStartingFrameId, unsubscribe);
           },
           async onBiddingStart(cohortStartingFrameId) {
-            const seatsToWin = maxSeats ?? maxCohortSize;
+            const seatsToWin = maxSeats ?? (await miningBids.maxCohortSize());
             const balance = await accountset.balance();
             const feeWiggleRoom = BigInt(25e3);
             const amountAvailable = balance - feeWiggleRoom;
@@ -180,16 +178,15 @@ export default function miningCli() {
             }
             const subaccountRange = await accountset.getAvailableMinerAccounts(seatsToWin);
 
-            if (cohortBidder && cohortBidder?.cohortStartingFrameId !== cohortStartingFrameId) {
-              await stopBidder(unsubscribe);
-            }
-            cohortBidder = new CohortBidder(accountset, cohortStartingFrameId, subaccountRange, {
+            await stopBidder(cohortStartingFrameId - 1, unsubscribe);
+            const cohortBidder = new CohortBidder(accountset, cohortStartingFrameId, subaccountRange, {
               maxBid: maxBidAmount,
               minBid: BigInt((minBid ?? 0) * MICROGONS_PER_ARGON),
               bidIncrement: BigInt(Math.floor(bidIncrement * MICROGONS_PER_ARGON)),
               maxBudget: maxBalanceToUse,
               bidDelay,
             });
+            biddersByFrames[cohortStartingFrameId] = cohortBidder;
             await cohortBidder.start();
           },
         });

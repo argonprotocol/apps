@@ -1,0 +1,27 @@
+{
+  "schedule": [
+    { "ref_month": "2024-10-01T00:00:00Z", "release_date": "2024-11-13T00:00:00Z" },
+    { "ref_month": "2024-11-01T00:00:00Z", "release_date": "2024-12-11T00:00:00Z" },
+    { "ref_month": "2024-12-01T00:00:00Z", "release_date": "2025-01-15T00:00:00Z" },
+    { "ref_month": "2025-01-01T00:00:00Z", "release_date": "2025-02-12T00:00:00Z" },
+    { "ref_month": "2025-02-01T00:00:00Z", "release_date": "2025-03-12T00:00:00Z" },
+    { "ref_month": "2025-03-01T00:00:00Z", "release_date": "2025-04-10T00:00:00Z" },
+    { "ref_month": "2025-04-01T00:00:00Z", "release_date": "2025-05-13T00:00:00Z" },
+    { "ref_month": "2025-05-01T00:00:00Z", "release_date": "2025-06-11T00:00:00Z" },
+    { "ref_month": "2025-06-01T00:00:00Z", "release_date": "2025-07-15T00:00:00Z" },
+    { "ref_month": "2025-07-01T00:00:00Z", "release_date": "2025-08-12T00:00:00Z" },
+    { "ref_month": "2025-08-01T00:00:00Z", "release_date": "2025-09-11T00:00:00Z" },
+    { "ref_month": "2025-09-01T00:00:00Z", "release_date": "2025-10-15T00:00:00Z" },
+    { "ref_month": "2025-10-01T00:00:00Z", "release_date": "2025-11-13T00:00:00Z" },
+    { "ref_month": "2025-11-01T00:00:00Z", "release_date": "2025-12-10T00:00:00Z" }
+  ],
+  "current_cpi_release_tick": 29292480,
+  "current_cpi_duration_ticks": 48960,
+  "current_cpi_end_value": "323976000000000000000",
+  "current_cpi_ref_month": "2025-08-01T00:00:00Z",
+  "previous_us_cpi": "323048000000000000000",
+  "cpi_change_per_tick": "18954248366013",
+  "last_schedule_check": "2025-10-01T16:27:53.088323382Z",
+  "cpi_backoff": "2025-10-01T16:55:52.540119566Z",
+  "last_cpi_check": "2025-09-11T22:58:52.895581284Z"
+}

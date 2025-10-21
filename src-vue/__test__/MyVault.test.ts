@@ -158,7 +158,7 @@ describeIntegration.sequential('My Vault tests', () => {
       expect(prebond).toMatchObject(
         expect.objectContaining({
           prebondedMicrogons:
-            (MyVault.getMicrogoonSplit(vaultRules, vaultCreationFees).microgonsForTreasury / 10n) * 10n,
+            (MyVault.getMicrogonSplit(vaultRules, vaultCreationFees).microgonsForTreasury / 10n) * 10n,
           tick: tick.toNumber(),
           txFee: vaultSave!.txResult.finalFee,
         }),

@@ -10,12 +10,15 @@ import {
 } from '@argonprotocol/bitcoin';
 import {
   BitcoinLocks,
+  formatArgons,
   Header,
   IBitcoinLock,
   type IBitcoinLockConfig,
   ITxProgressCallback,
   KeyringPair,
+  PriceIndex as PriceIndexModel,
   TxResult,
+  TxSubmitter,
   u8aToHex,
   Vault,
 } from '@argonprotocol/mainchain';
@@ -62,6 +65,8 @@ export default class BitcoinLocksStore {
       0n,
     );
   }
+
+  public onBlockCallbackFn?: () => void;
 
   #config!: IBitcoinLockConfig;
   #lockTicksPerDay!: number;
@@ -210,6 +215,7 @@ export default class BitcoinLocksStore {
         }
       }
     }
+    this.onBlockCallbackFn?.();
   }
 
   async getNextUtxoPubkey(args: { vault: Vault; bip39Seed: Uint8Array }) {
@@ -225,6 +231,73 @@ export default class BitcoinLocksStore {
     return { ownerBitcoinPubkey, hdPath };
   }
 
+  async satoshisForArgonLiquidity(microgonLiquidity: bigint): Promise<bigint> {
+    return this.#bitcoinLocksApi.requiredSatoshisForArgonLiquidity(this.#priceIndex.current, microgonLiquidity);
+  }
+
+  async canPayMinimumFee(args: {
+    vault: Vault;
+    argonKeyring: KeyringPair;
+    tip?: bigint;
+    bip39Seed: Uint8Array;
+  }): Promise<{ canAfford: boolean; txFeePlusTip: bigint; securityFee: bigint }> {
+    const { vault, argonKeyring, tip = 0n, bip39Seed } = args;
+    const ownerBitcoinXpriv = getChildXpriv(bip39Seed, `m/1018'/0'/${vault.vaultId}'/0/1`, this.bitcoinNetwork);
+    const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
+
+    // explode on purpose if we can't afford even the minimum
+    return await this.apiCreateInitializeLockTx({
+      vault,
+      priceIndex: this.#priceIndex.current,
+      ownerBitcoinPubkey,
+      argonKeyring,
+      satoshis: await this.minimumSatoshiPerLock(),
+      tip,
+    });
+  }
+
+  async minimumSatoshiPerLock(): Promise<bigint> {
+    const client = await getMainchainClient(false);
+    return await client.query.bitcoinLocks.minimumSatoshis().then(x => x.toBigInt());
+  }
+
+  // TEMP COPY FROM MAINCHAIN
+  // TODO: remove
+  private async apiCreateInitializeLockTx(args: {
+    vault: Vault;
+    priceIndex: PriceIndexModel;
+    ownerBitcoinPubkey: Uint8Array;
+    satoshis: bigint;
+    argonKeyring: KeyringPair;
+    reducedBalanceBy?: bigint;
+    tip?: bigint;
+  }) {
+    const { vault, priceIndex, argonKeyring, satoshis, tip = 0n, ownerBitcoinPubkey } = args;
+    const client = await getMainchainClient(false);
+    if (ownerBitcoinPubkey.length !== 33) {
+      throw new Error(
+        `Invalid Bitcoin key length: ${ownerBitcoinPubkey.length}. Must be a compressed pukey (33 bytes).`,
+      );
+    }
+
+    const tx = client.tx.bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey);
+    const submitter = new TxSubmitter(
+      client,
+      client.tx.bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey),
+      argonKeyring,
+    );
+    const marketPrice = await this.#bitcoinLocksApi.getMarketRate(priceIndex, satoshis);
+    const isVaultOwner = argonKeyring.address === vault.operatorAccountId;
+    const securityFee = isVaultOwner ? 0n : vault.calculateBitcoinFee(marketPrice);
+
+    const { canAfford, availableBalance, txFee } = await submitter.canAfford({
+      tip,
+      unavailableBalance: securityFee + (args.reducedBalanceBy ?? 0n),
+      includeExistentialDeposit: true,
+    });
+    return { tx, securityFee, txFee, canAfford, availableBalance, txFeePlusTip: txFee + tip };
+  }
+
   async createInitializeTx(args: {
     vault: Vault;
     bip39Seed: Uint8Array;
@@ -238,9 +311,7 @@ export default class BitcoinLocksStore {
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey(args);
     const { vault, argonKeyring, maxMicrogonSpend, tip = 0n, addingVaultSpace = 0n } = args;
 
-    const client = await getMainchainClient(false);
-
-    const minimumSatoshis = await client.query.bitcoinLocks.minimumSatoshis().then(x => x.toBigInt());
+    const minimumSatoshis = await this.minimumSatoshiPerLock();
     let microgonLiquidity = args.microgonLiquidity;
     const availableBtcSpace = vault.availableBitcoinSpace() + addingVaultSpace;
     if (availableBtcSpace < microgonLiquidity) {
@@ -250,25 +321,33 @@ export default class BitcoinLocksStore {
       });
       microgonLiquidity = availableBtcSpace;
     }
-    let satoshis = await this.#bitcoinLocksApi.requiredSatoshisForArgonLiquidity(
-      this.#priceIndex.current,
-      microgonLiquidity,
-    );
-    while (satoshis >= minimumSatoshis) {
-      try {
-        const { txFee } = await this.#bitcoinLocksApi.createInitializeLockTx({
-          vault,
-          priceIndex: this.#priceIndex.current,
-          ownerBitcoinPubkey,
-          argonKeyring,
-          satoshis,
-          tip,
-        });
 
-        if (maxMicrogonSpend === undefined || maxMicrogonSpend >= txFee) {
-          break;
-        }
-      } catch (e) {}
+    if (!this.#priceIndex.current.btcUsdPrice) {
+      throw new Error('Network bitcoin pricing is currently unavailable. Please try again later.');
+    }
+
+    const basicFeeCapability = await this.canPayMinimumFee(args);
+    if (!basicFeeCapability.canAfford) {
+      const { txFeePlusTip, securityFee } = basicFeeCapability;
+      throw new Error(
+        `You cannot afford the basic transaction fees of this transaction (Tx Fees: ${formatArgons(txFeePlusTip)}, Security Fee: ${formatArgons(securityFee)})`,
+      );
+    }
+
+    let satoshis = await this.satoshisForArgonLiquidity(microgonLiquidity);
+    while (satoshis >= minimumSatoshis) {
+      const { txFee, canAfford } = await this.apiCreateInitializeLockTx({
+        vault,
+        priceIndex: this.#priceIndex.current,
+        ownerBitcoinPubkey,
+        argonKeyring,
+        satoshis,
+        tip,
+      });
+
+      if (canAfford && (maxMicrogonSpend === undefined || maxMicrogonSpend >= txFee)) {
+        break;
+      }
       console.log(`Failed to create affordable bitcoin lock with ${satoshis} satoshis, trying with less...`);
       // If the transaction creation fails, reduce the satoshis by 10 and try again
       satoshis -= 10n;
@@ -365,6 +444,34 @@ export default class BitcoinLocksStore {
       throw new Error(`Lock with ID ${lock.utxoId} is not in the initialized state.`);
     }
     return new CosignScript(lock.lockDetails, this.bitcoinNetwork).getFundingPsbt();
+  }
+
+  async estimatedReleaseArgonTxFee(args: {
+    lock: IBitcoinLockRecord;
+    argonKeyring: KeyringPair;
+    tip?: bigint;
+    toScriptPubkey?: string;
+    bitcoinFeeRatePerVb?: bigint;
+  }): Promise<bigint> {
+    const {
+      lock,
+      argonKeyring,
+      toScriptPubkey = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
+      bitcoinFeeRatePerVb = 5n,
+    } = args;
+    const client = this.#bitcoinLocksApi.client;
+
+    const bitcoinNetworkFee = await this.calculateBitcoinNetworkFee(lock, bitcoinFeeRatePerVb, toScriptPubkey);
+    const submitter = new TxSubmitter(
+      client,
+      client.tx.bitcoinLocks.requestRelease(
+        lock.utxoId,
+        addressBytesHex(toScriptPubkey, this.bitcoinNetwork),
+        bitcoinNetworkFee,
+      ),
+      argonKeyring,
+    );
+    return submitter.feeEstimate();
   }
 
   async requestRelease(args: {
@@ -651,6 +758,16 @@ export default class BitcoinLocksStore {
   private async updateLockingStatus(lock: IBitcoinLockRecord): Promise<void> {
     if (lock.txid) return;
 
+    const table = await this.getTable();
+    const latest = await this.#bitcoinLocksApi.getBitcoinLock(lock.utxoId);
+    if (!latest) {
+      console.warn(`Lock with ID ${lock.utxoId} not found`);
+      await table.setLockVerificationExpired(lock);
+      return;
+    }
+    if (!latest?.isVerified) {
+      return;
+    }
     const utxo = await this.#bitcoinLocksApi.getBitcoinLock(lock.utxoId);
     if (!utxo || !utxo.isVerified) return;
 
@@ -659,8 +776,6 @@ export default class BitcoinLocksStore {
       console.warn(`Utxo with ID ${lock.utxoId} not found`);
       return;
     }
-
-    const table = await this.getTable();
 
     if (utxo.isVerified) {
       lock.txid = utxoRef.txid;

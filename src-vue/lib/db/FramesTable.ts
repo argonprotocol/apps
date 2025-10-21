@@ -21,6 +21,7 @@ export class FramesTable extends BaseTable {
       'micronotsMinedTotal',
       'microgonFeesCollectedTotal',
       'accruedMicrogonProfits',
+      'accruedMicronotProfits',
     ],
   };
 
@@ -85,6 +86,7 @@ export class FramesTable extends BaseTable {
     microgonsMintedTotal: bigint;
     microgonFeesCollectedTotal: bigint;
     accruedMicrogonProfits: bigint;
+    accruedMicronotProfits: bigint;
     progress: number;
     isProcessed: boolean;
   }): Promise<void> {
@@ -106,6 +108,7 @@ export class FramesTable extends BaseTable {
       microgonsMintedTotal,
       microgonFeesCollectedTotal,
       accruedMicrogonProfits,
+      accruedMicronotProfits,
       progress,
       isProcessed,
     } = args;
@@ -127,6 +130,7 @@ export class FramesTable extends BaseTable {
         microgonsMintedTotal = ?,
         microgonFeesCollectedTotal = ?,
         accruedMicrogonProfits = ?,
+        accruedMicronotProfits = ?,
         progress = ?, 
         isProcessed = ? 
       WHERE id = ?`,
@@ -147,6 +151,7 @@ export class FramesTable extends BaseTable {
         microgonsMintedTotal,
         microgonFeesCollectedTotal,
         accruedMicrogonProfits,
+        accruedMicronotProfits,
         progress,
         isProcessed,
         id,
@@ -258,11 +263,17 @@ export class FramesTable extends BaseTable {
     return rawRecord.maxId;
   }
 
-  async fetchAccruedMicrogonProfits(): Promise<bigint> {
-    const [rawRecord] = await this.db.select<[{ accruedMicrogonProfits: number }]>(
-      'SELECT accruedMicrogonProfits FROM Frames ORDER BY id DESC LIMIT 1',
+  async fetchAccruedProfits(): Promise<{ accruedMicrogonProfits: bigint; accruedMicronotProfits: bigint }> {
+    const rawRecord = await this.db.select<{ accruedMicrogonProfits: number; accruedMicronotProfits: number }[]>(
+      'SELECT accruedMicrogonProfits, accruedMicronotProfits FROM Frames ORDER BY id DESC LIMIT 1',
       [],
     );
-    return fromSqliteBigInt(rawRecord?.accruedMicrogonProfits ?? 0);
+    if (!rawRecord || rawRecord.length === 0) {
+      return {
+        accruedMicrogonProfits: 0n,
+        accruedMicronotProfits: 0n,
+      };
+    }
+    return convertFromSqliteFields(rawRecord[0], this.fieldTypes);
   }
 }

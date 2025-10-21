@@ -20,33 +20,37 @@ export class CohortsTable extends BaseTable {
     return result.length > 0 ? result[0].id : null;
   }
 
-  public async fetchById(
-    id: number,
-  ): Promise<(ICohortRecord & { firstTick: number; lastTick: number; lastBlockNumber: number }) | null> {
+  public async fetchById(...ids: number[]): Promise<{
+    [id: number]: (ICohortRecord & { firstTick: number; lastTick: number; lastBlockNumber: number }) | null;
+  }> {
     const rawRecords = await this.db.select<any[]>(
       `SELECT Cohorts.*, Frames.firstTick as firstTick, Frames.lastBlockNumber as lastBlockNumber FROM Cohorts
       LEFT JOIN Frames ON Cohorts.id = Frames.id
-      WHERE Cohorts.id = ?
+      WHERE Cohorts.id in (?)
       ORDER BY Cohorts.id DESC LIMIT 1`,
-      [id],
+      [ids],
     );
 
-    if (rawRecords.length === 0) {
-      return null;
+    const results = {} as Awaited<ReturnType<CohortsTable['fetchById']>>;
+    for (const id of ids) {
+      results[id] = null;
     }
 
-    const record = convertSqliteBigInts<
-      ICohortRecord & { firstTick: number; lastBlockNumber: number; lastTick: number }
-    >(rawRecords[0], this.bigIntFields);
-    const lastTick = record.firstTick + MiningFrames.ticksPerCohort;
+    for (const rawRecord of rawRecords) {
+      const record = convertSqliteBigInts<
+        ICohortRecord & { firstTick: number; lastBlockNumber: number; lastTick: number }
+      >(rawRecord, this.bigIntFields);
+      const lastTick = record.firstTick + MiningFrames.ticksPerCohort;
 
-    return {
-      ...record,
-      lastTick,
-    };
+      results[record.id] = {
+        ...record,
+        lastTick,
+      };
+    }
+    return results;
   }
 
-  public async fetchGlobalStats(currentFrameId: number): Promise<{
+  public async fetchGlobalStats(): Promise<{
     seatsTotal: number;
     framesCompleted: number;
     framesRemaining: number;

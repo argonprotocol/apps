@@ -4,6 +4,7 @@ export interface IFrameBidRecord {
   address: string;
   subAccountIndex?: number;
   microgonsPerSeat: bigint;
+  micronotsStakedPerSeat: bigint;
   bidPosition: number;
   lastBidAtTick?: number;
   createdAt: string;

@@ -52,6 +52,7 @@ export class Storage {
           oldestFrameIdToSync: 0,
           currentFrameId: 0,
           currentFrameTickRange: [0, 0],
+          currentTick: 0,
           syncProgress: 0,
           maxSeatsPossible: 10, // TODO: instead of hardcoded 10, fetch from chain
           maxSeatsReductionReason: '',
@@ -84,7 +85,9 @@ export class Storage {
 
           transactionFeesTotal: 0n,
           accruedMicrogonProfits: 0n,
+          accruedMicronotProfits: 0n,
           previousFrameAccruedMicrogonProfits: null,
+          previousFrameAccruedMicronotProfits: null,
         };
       });
       this.lruCache.set(key, entry);
