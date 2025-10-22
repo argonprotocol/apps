@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { ask as askDialog } from '@tauri-apps/plugin-dialog';
 import { getMainchainClients } from './mainchain.ts';
-import handleUnknownFatalError from './helpers/handleUnknownFatalError.ts';
+import handleFatalError from './helpers/handleFatalError.ts';
 import { useConfig } from './config.ts';
 import { createDeferred } from '../lib/Utils.ts';
 import { useStats } from './stats.ts';
@@ -191,7 +191,7 @@ export const useWallets = defineStore('wallets', () => {
 
   load().catch(error => {
     console.log('Error loading wallets:', error);
-    void handleUnknownFatalError();
+    void handleFatalError.bind('useWallets')(error);
     isLoadedReject();
   });
 

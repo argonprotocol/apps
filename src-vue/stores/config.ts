@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { NETWORK_NAME } from '../lib/Env.ts';
 import { Config } from '../lib/Config.ts';
 import { getDbPromise } from './helpers/dbPromise';
-import handleUnknownFatalError from './helpers/handleUnknownFatalError';
+import handleFatalError from './helpers/handleFatalError';
 import { SSH } from '../lib/SSH';
 import { useMyVault } from './vaults.ts';
 import { useBitcoinLocks } from './bitcoin.ts';
@@ -34,7 +34,7 @@ export function useConfig(): Vue.Reactive<Config> {
           await config.save();
         });
       })
-      .catch(handleUnknownFatalError);
+      .catch(handleFatalError.bind('useConfig'));
     SSH.setConfig(config as Config);
   }
 

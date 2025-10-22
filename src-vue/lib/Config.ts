@@ -885,5 +885,20 @@ const defaults: IConfigDefaults = {
     };
   },
   defaultCurrencyKey: () => CurrencyKey.ARGN,
-  userJurisdiction: getUserJurisdiction,
+  userJurisdiction: async () => {
+    try {
+      return await getUserJurisdiction();
+    } catch (error) {
+      console.error('Error getting user jurisdiction:', error);
+      return {
+        ipAddress: '',
+        city: '',
+        region: '',
+        countryName: '',
+        countryCode: '',
+        latitude: '',
+        longitude: '',
+      };
+    }
+  },
 };
