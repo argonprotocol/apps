@@ -709,6 +709,7 @@ export class Config {
       this.vaultingRules = vaultingRules;
       this.isVaultReadyToCreate = true;
       this.isPreparingVaultSetup = true;
+      this.isVaultActivated = true;
       this.hasReadVaultingInstructions = true;
 
       this._tryFieldsToSave(dbFields.vaultingRules, vaultingRules);

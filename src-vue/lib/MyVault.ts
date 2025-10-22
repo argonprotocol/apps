@@ -27,9 +27,9 @@ import { Vaults } from './Vaults.ts';
 import { IVaultStats } from '../interfaces/IVaultStats.ts';
 import { toRaw } from 'vue';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
+import { bigIntMax, bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
-import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 
 export const FEE_ESTIMATE = 75_000n;
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
@@ -45,6 +45,8 @@ export class MyVault {
     pendingCollectRevenue: bigint;
     pendingCosignUtxoIds: Set<number>;
     nextCollectDueDate: number;
+    finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
+    currentFrameId: number;
   };
 
   public get createdVault(): Vault | null {
@@ -81,6 +83,7 @@ export class MyVault {
       pendingCollectRevenue: 0n,
       pendingCosignUtxoIds: new Set(),
       nextCollectDueDate: 0,
+      currentFrameId: 0,
     };
     this.vaults = vaults;
   }
@@ -95,7 +98,7 @@ export class MyVault {
     return this.#bitcoinNetwork;
   }
 
-  public async getVaultXpub(bip39Seed: Uint8Array, masterXpubPath?: string): Promise<HDKey> {
+  public async getVaultXpriv(bip39Seed: Uint8Array, masterXpubPath?: string): Promise<HDKey> {
     masterXpubPath ??= this.metadata!.hdPath;
     if (!masterXpubPath) {
       throw new Error('No master xpub path defined in metadata');
@@ -164,22 +167,76 @@ export class MyVault {
       this.updateCollectDueDate(x.isSome ? x.unwrap().toNumber() : undefined),
     );
 
-    await this.updateCollectDueDate();
+    const sub5 = await client.query.miningSlot.nextFrameId(frameId => {
+      this.data.currentFrameId = frameId.toNumber() - 1;
+      void this.updateCollectDueDate();
+    });
 
-    this.#subscriptions.push(sub, sub2, sub3, sub4);
+    this.#subscriptions.push(sub, sub2, sub3, sub4, sub5);
   }
 
   private async updateCollectDueDate(lastCollectFrameId?: number) {
-    lastCollectFrameId ??= await getMining().getCurrentFrameId();
+    const framesToCollect = this.#configs!.timeToCollectFrames;
+    let nextCollectFrame;
+    if (lastCollectFrameId) {
+      nextCollectFrame = lastCollectFrameId + framesToCollect;
+    } else {
+      nextCollectFrame = this.data.currentFrameId + framesToCollect;
+      const oldestToCollectFrame = this.data.currentFrameId - framesToCollect;
+      for (const frameChange of this.data.stats?.changesByFrame ?? []) {
+        if (frameChange.frameId >= oldestToCollectFrame && frameChange.uncollectedEarnings > 0n) {
+          nextCollectFrame = frameChange.frameId + framesToCollect;
+        }
+      }
+    }
 
-    const nextCollectDue = lastCollectFrameId + this.#configs!.timeToCollectFrames;
-    this.data.nextCollectDueDate = MiningFrames.frameToDateRange(nextCollectDue)[0].getTime();
+    this.data.nextCollectDueDate = MiningFrames.frameToDateRange(nextCollectFrame)[0].getTime();
   }
 
   private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>) {
     this.data.pendingCosignUtxoIds.clear();
     for (const utxoId of rawUtxoIds) {
       this.data.pendingCosignUtxoIds.add(utxoId.toNumber());
+    }
+  }
+
+  public async finalizeMyBitcoinUnlock(args: {
+    argonKeyring: KeyringPair;
+    lock: IBitcoinLockRecord;
+    bitcoinXprivSeed: Uint8Array;
+    bitcoinLocks: BitcoinLocksStore;
+  }): Promise<void> {
+    const { lock, bitcoinLocks, argonKeyring, bitcoinXprivSeed } = args;
+    if (lock.vaultId !== this.createdVault?.vaultId) {
+      // this api is only to unlock our own vault's bitcoin locks
+      return;
+    }
+    try {
+      this.data.finalizeMyBitcoinError = undefined;
+      // could be moved to BitcoinLocksStore
+      if (lock.status === BitcoinLockStatus.ReleaseWaitingForVault) {
+        const result = await this.cosignRelease({
+          argonKeyring: argonKeyring,
+          vaultXpriv: await this.getVaultXpriv(bitcoinXprivSeed),
+          utxoId: lock.utxoId,
+          toScriptPubkey: lock.releaseToDestinationAddress!,
+          bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
+        });
+        if (!result) {
+          throw new Error("Failed to add the vault's co-signature.");
+        }
+        if (!lock.releaseCosignVaultSignature) {
+          await bitcoinLocks.updateVaultSignature(lock, {
+            signature: result.vaultSignature,
+            blockHeight: result.blockNumber,
+          });
+        }
+      }
+      if (lock.status === BitcoinLockStatus.LockProcessingOnBitcoin) {
+        await bitcoinLocks.ownerCosignAndSendToBitcoin(lock, bitcoinXprivSeed);
+      }
+    } catch (error) {
+      this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId, error: String(error) };
     }
   }
 
@@ -190,7 +247,9 @@ export class MyVault {
     bitcoinNetworkFee: bigint;
     toScriptPubkey: string;
     progressCallback?: ITxProgressCallback;
-  }): Promise<{ blockNumber: number; blockHash: Uint8Array; txResult: TxResult } | undefined> {
+  }): Promise<
+    { blockNumber: number; blockHash: Uint8Array; txResult: TxResult; vaultSignature: Uint8Array } | undefined
+  > {
     const { argonKeyring, vaultXpriv, utxoId, progressCallback, bitcoinNetworkFee, toScriptPubkey } = args;
 
     const lock = await this.#bitcoinLocks!.getBitcoinLock(utxoId);
@@ -228,6 +287,7 @@ export class MyVault {
       utxoId,
       vaultSignature,
       argonKeyring,
+      txProgressCallback: progressCallback,
     });
     await this.trackTxResultFee(txResult, true);
     const client = await getMainchainClient(false);
@@ -236,7 +296,7 @@ export class MyVault {
     const txResultBlockNumber = await api.query.system.number();
 
     console.log(`Cosigned and submitted transaction for utxoId ${utxoId} at ${u8aToHex(blockHash)}`);
-    return { blockNumber: txResultBlockNumber.toNumber(), blockHash, txResult };
+    return { blockNumber: txResultBlockNumber.toNumber(), blockHash, txResult, vaultSignature };
   }
 
   public async collect(
@@ -253,7 +313,7 @@ export class MyVault {
     const toCollect = this.data.pendingCosignUtxoIds;
 
     const steps = toCollect.size + 1; // +1 for the final collect transaction
-    const vaultXpriv = await this.getVaultXpub(xprivSeed, this.metadata.hdPath);
+    const vaultXpriv = await this.getVaultXpriv(xprivSeed, this.metadata.hdPath);
     let completed = 0;
     const client = await getMainchainClient(false);
     for (const utxoId of toCollect) {
@@ -311,7 +371,7 @@ export class MyVault {
     try {
       const { argonKeyring, xprivSeed, masterXpubPath, rules } = args;
 
-      const vaultXpriv = await this.getVaultXpub(xprivSeed, masterXpubPath);
+      const vaultXpriv = await this.getVaultXpriv(xprivSeed, masterXpubPath);
       const masterXpub = vaultXpriv.publicExtendedKey;
       const client = await getMainchainClient(false);
       const table = await this.getTable();
@@ -407,7 +467,7 @@ export class MyVault {
     const mainchainClients = getMainchainClients();
     const client = await mainchainClients.archiveClientPromise;
     onProgress(0);
-    console.log('find vault operator');
+
     const foundVault = await MyVaultRecovery.findOperatorVault(
       mainchainClients,
       bitcoinLocksStore.bitcoinNetwork,

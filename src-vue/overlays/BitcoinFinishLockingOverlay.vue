@@ -49,7 +49,7 @@
             <div v-if="hasProcessingFailure" class="px-3">
               <div class="flex flex-row items-center justify-center w-full text-red-600 mb-10">
                 <p class="opacity-80 pt-3">
-                  It seems you sent an incorrect amount of bitcoin. Your transaction did not match what Argon was expecting, 
+                  It seems you sent an incorrect amount of bitcoin. Your transaction did not match what Argon was expecting,
                   and therefore could not be accepted.
                 </p>
               </div>
@@ -62,12 +62,12 @@
 
             <div v-else-if="isProcessing" class="px-3">
               <p class="opacity-80 pt-2">
-                Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC has been 
+                Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC has been
                 submitted to the Bitcoin network. We are actively monitoring the network for block confirmations. This process usually
                 takes an hour.
               </p>
 
-              <ProgressBar :progress="50" class="my-5" />
+              <ProgressBar :progress="lockProcessingPercent" class="my-5" />
 
               <p class="opacity-80 mb-7">You can close this dialog and continue using the app.</p>
 
@@ -184,6 +184,10 @@ const isProcessing = Vue.computed(() => {
   return [BitcoinLockStatus.LockProcessingOnBitcoin, BitcoinLockStatus.LockReceivedWrongAmount].includes(
     props.lock.status,
   );
+});
+
+const lockProcessingPercent = Vue.computed(() => {
+  return bitcoinLocks.getLockProcessingPercent(props.lock);
 });
 
 const hasProcessingFailure = Vue.computed(() => {

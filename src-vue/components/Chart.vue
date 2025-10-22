@@ -27,21 +27,19 @@ import * as Vue from 'vue';
 import dayjs, { Dayjs } from 'dayjs';
 import dayjsUtc from 'dayjs/plugin/utc';
 import {
+  CategoryScale,
   Chart,
+  LinearScale,
   LineController,
   LineElement,
   PointElement,
-  LinearScale,
-  CategoryScale,
   TimeScale,
   Tooltip,
   TooltipModel,
 } from 'chart.js';
 import 'chartjs-adapter-dayjs-4/dist/chartjs-adapter-dayjs-4.esm';
-// import Charttip from '../overlays/Charttip.vue';
-import { createChartOptions, createFillerPoints } from '../lib/ChartOptions';
+import { createChartOptions } from '../lib/ChartOptions';
 import XAxis from './XAxis.vue';
-import { debounce } from 'chart.js/helpers';
 
 dayjs.extend(dayjsUtc);
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, TimeScale, Tooltip);

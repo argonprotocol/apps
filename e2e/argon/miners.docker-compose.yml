@@ -10,10 +10,6 @@ x-cli-config: &cli
     - MAINCHAIN_URL=${MAINCHAIN_URL:-ws://archive-node:9944}
 
 services:
-  miner-help:
-    <<: *cli
-    command: accounts create --help
-    restart: no
   miner-1-setup:
     <<: *cli
     command: accounts create --path=/accounts/bob.json --register-keys-to=http://miner-1:9944 --account-suri=//Bob -s 0-99

@@ -81,18 +81,18 @@
 
                 <button
                   @click="sendReleaseRequest"
-                  :disabled="!canSendRequest || isLoading || isFinalizing"
+                  :disabled="!canSendRequest || isSubmittingReleaseRequest"
                   class="w-full rounded-lg py-3 font-medium transition-all"
                   :class="
-                    canSendRequest && !isLoading
+                    canSendRequest && !isSubmittingReleaseRequest
                       ? 'bg-red-500 text-white hover:bg-red-600'
                       : 'cursor-not-allowed bg-gray-200 text-gray-400'
                   ">
-                  <span v-if="isLoading || isFinalizing">Releasing...</span>
+                  <span v-if="isSubmittingReleaseRequest">Releasing...</span>
                   <span v-else>Initiate Release</span>
                 </button>
                 <ProgressBar
-                  v-if="isLoading || isFinalizing"
+                  v-if="isSubmittingReleaseRequest"
                   :progress="releaseProgress"
                   :has-error="errorMessage != ''"
                   class="mr-2 inline-block h-4 w-24" />
@@ -109,7 +109,7 @@
             </div>
             <div v-else class="flex flex-col space-y-5 px-3.5 py-3">
               <p class="text-gray-700">
-                Argon and Bitcoin networks are currently in the process of unlocking your 
+                Argon and Bitcoin networks are currently in the process of unlocking your
                 {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC. This
                 requires a series of four steps...
               </p>
@@ -199,7 +199,7 @@ const emit = defineEmits<{
 const stepByStatus: Record<any, number> = {
   [BitcoinLockStatus.ReleaseSubmittingToArgon]: 1,
   [BitcoinLockStatus.ReleaseWaitingForVault]: 2,
-  [BitcoinLockStatus.ReleaseSubmittingToBitcoin]: 3,
+  [BitcoinLockStatus.ReleasedByVault]: 3,
   [BitcoinLockStatus.ReleaseProcessingOnBitcoin]: 4,
   [BitcoinLockStatus.ReleaseComplete]: 5,
 };
@@ -217,11 +217,12 @@ const feeRatesByKey = Vue.ref<Record<string, { key: string; label: string; time:
 
 const selectedFeeRate = Vue.ref('medium');
 const destinationAddress = Vue.ref('');
-const isLoading = Vue.ref(false);
+const isSubmittingReleaseRequest = Vue.ref(false);
+const requestReleaseError = Vue.ref('');
 
-const waitForReleasedUtxoId = Vue.ref<string | null>(null);
-const isFinalizing = Vue.computed(() => waitForReleasedUtxoId.value !== null);
-const errorMessage = Vue.ref('');
+const errorMessage = Vue.computed(() => {
+  return myVault.data.finalizeMyBitcoinError?.error ?? requestReleaseError.value;
+});
 
 const releasePrice = Vue.ref(0n);
 const releaseProgress = Vue.ref(0);
@@ -243,7 +244,7 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 const canSendRequest = Vue.computed(() => {
-  return destinationAddress.value.trim().length > 0 && !isLoading.value;
+  return destinationAddress.value.trim().length > 0 && !isSubmittingReleaseRequest.value;
 });
 
 const feeRates = Vue.computed(() => {
@@ -264,84 +265,39 @@ async function sendReleaseRequest() {
 
   releaseProgress.value = 0;
   try {
-    isLoading.value = true;
-    errorMessage.value = '';
+    isSubmittingReleaseRequest.value = true;
+    requestReleaseError.value = '';
     const toScriptPubkey = destinationAddress.value.trim();
     const feeRate = Object.values(feeRatesByKey.value).find(rate => rate.key === selectedFeeRate.value);
     const networkFee = await bitcoinLocks.calculateBitcoinNetworkFee(props.lock, feeRate?.value ?? 5n, toScriptPubkey);
+
+    let done = false;
     await bitcoinLocks.requestRelease({
       lock: props.lock,
       bitcoinNetworkFee: networkFee,
       toScriptPubkey,
       argonKeyring: config.vaultingAccount,
       txProgressCallback(progress: number) {
-        // I don't think this is ever run
-        if (props.lock.status === BitcoinLockStatus.ReleaseWaitingForVault) {
-          releaseProgress.value = progress * 0.5; // 0-50% for request, 50-100% for cosign
-        }
+        // this callback will keep reporting until finalized, so we should stop updating once done
+        if (done) return;
+        releaseProgress.value = progress;
       },
+    });
+    done = true;
+    // don't wait for this
+    void myVault.finalizeMyBitcoinUnlock({
+      argonKeyring: config.vaultingAccount,
+      lock: props.lock,
+      bitcoinXprivSeed: config.bitcoinXprivSeed,
+      bitcoinLocks,
     });
   } catch (error) {
     console.error('Failed to send release request:', error);
-    errorMessage.value = `Failed to send release request. ${error}`;
+    requestReleaseError.value = `Failed to send release request. ${error}`;
   } finally {
-    isLoading.value = false;
+    isSubmittingReleaseRequest.value = false;
   }
-  releaseProgress.value = 50;
-
-  await cosignRelease();
-}
-
-async function cosignRelease() {
-  if (props.lock.status !== BitcoinLockStatus.ReleaseWaitingForVault) return;
-
-  releaseProgress.value = 50;
-  try {
-    isLoading.value = true;
-    errorMessage.value = '';
-    console.log('Cosigning release for lock:', props.lock);
-    // Why MyVault versus BitcoinLocksStore (and why the store)?
-    const vaultXpriv = await myVault.getVaultXpub(config.bitcoinXprivSeed);
-    // could be moved to BitcoinLocksStore
-    const result = await myVault.cosignRelease({
-      argonKeyring: config.vaultingAccount,
-      vaultXpriv,
-      utxoId: props.lock.utxoId,
-      toScriptPubkey: props.lock.releaseToDestinationAddress!,
-      bitcoinNetworkFee: props.lock.releaseBitcoinNetworkFee!,
-      progressCallback(progress: number) {
-        releaseProgress.value = 50 + progress * 0.25;
-      },
-    });
-  } catch (error) {
-    console.error('Failed to cosign release:', error);
-    errorMessage.value = `Failed to cosign release. ${error}`;
-  } finally {
-    isLoading.value = false;
-  }
-  releaseProgress.value = 75;
-  await submitToBitcoinNetwork();
-}
-
-async function submitToBitcoinNetwork() {
-  try {
-    if (props.lock.status === BitcoinLockStatus.ReleaseSubmittingToBitcoin) {
-      isLoading.value = true;
-      errorMessage.value = '';
-
-      const { txid, bytes } = await bitcoinLocks.cosignAndGenerateTxBytes(props.lock, config.bitcoinXprivSeed);
-      waitForReleasedUtxoId.value = txid;
-      await bitcoinLocks.broadcastReleaseTransaction(bytes, props.lock);
-      closeOverlay();
-    }
-  } catch (error) {
-    console.error('Failed to cosign and generate transaction:', error);
-    errorMessage.value = `Failed to finalize bitcoin transaction. ${error}`;
-  } finally {
-    isLoading.value = false;
-  }
-
-  releaseProgress.value = 90;
+  releaseProgress.value = 100;
 }
 
 async function updateFeeRates() {
@@ -368,10 +324,6 @@ Vue.onMounted(async () => {
   await myVault.load();
   await bitcoinLocks.load();
   void updateFeeRates();
-});
-
-Vue.onUnmounted(() => {
-  waitForReleasedUtxoId.value = null;
 });
 </script>
 

@@ -1,6 +1,7 @@
-import { JsonExt } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, JsonExt } from '@argonprotocol/commander-core';
 import { IFieldTypes } from './db/BaseTable.ts';
 import { IS_TEST } from './Env.ts';
+import BigNumber from 'bignumber.js';
 
 export function isInt(n: any) {
   if (typeof n === 'string') return !n.includes('.');
@@ -9,6 +10,15 @@ export function isInt(n: any) {
 
 export function abbreviateAddress(address: string, length = 4) {
   return address.slice(0, 6) + '...' + address.slice(-length);
+}
+
+export function getPercent(value: bigint | number, total: bigint | number): number {
+  if (total === 0n || total === 0 || value === 0n || value === 0) return 0;
+  return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
+}
+
+export function percentOf(value: bigint | number, percentOf100: number): bigint {
+  return bigNumberToBigInt(BigNumber(value).multipliedBy(percentOf100).dividedBy(100));
 }
 
 export function calculateProfitPct(costs: bigint, rewards: bigint): number {

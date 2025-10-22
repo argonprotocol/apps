@@ -110,9 +110,8 @@ export class TreasuryPool {
     client: ArgonClient,
     vaultId: number,
   ): Promise<{
-    totalCapital: bigint;
-    vaultCapital: bigint;
-    vaultPercentTake: number;
+    totalActivatedCapital: bigint;
+    vaultActivatedCapital: bigint;
   }> {
     let totalCapitalRaised = 0n;
     let vaultCapital = 0n;
@@ -123,14 +122,9 @@ export class TreasuryPool {
         vaultCapital += entrant.activatedCapital.toBigInt();
       }
     }
-    const vaultPercentTake = BigNumber(vaultCapital)
-      .dividedBy(totalCapitalRaised || 1n)
-      .multipliedBy(100)
-      .toNumber();
     return {
-      totalCapital: totalCapitalRaised,
-      vaultCapital,
-      vaultPercentTake,
+      totalActivatedCapital: totalCapitalRaised,
+      vaultActivatedCapital: vaultCapital,
     };
   }
 
