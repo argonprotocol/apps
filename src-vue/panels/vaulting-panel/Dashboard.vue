@@ -7,14 +7,19 @@
           <div v-if="vault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
-              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;(expires in&nbsp;
-              <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
-                <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
-                <template v-else>
-                  <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
-                  <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
+              <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
+                <template v-if="hours || minutes || days">
+                  (expires in&nbsp;
+                  <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
+                  <template v-else-if="hours || minutes">
+                    <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
+                    <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                  </template>
+                  )
                 </template>
-              </CountdownClock>)
+                <template v-else-if="seconds">(expires in {{ seconds }} second{{ seconds === 1 ? '' : 's' }})</template>
+              </CountdownClock>
             </div>
             <div class="grow flex flex-row items-center pl-2 pr-3">
               <div class="h-4 w-full bg-gradient-to-r from-transparent to-argon-700/10"></div>
@@ -623,7 +628,6 @@ const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumera
 
 // For the Vault UI countdown clock
 const nextCollectDueDate = Vue.computed(() => {
-  console.log('nextCollectDueDate', toRaw(vault.data.nextCollectDueDate));
   return dayjs.utc(vault.data.nextCollectDueDate);
 });
 

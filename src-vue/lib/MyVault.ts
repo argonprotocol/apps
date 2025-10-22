@@ -189,8 +189,7 @@ export class MyVault {
         }
       }
     }
-
-    this.data.nextCollectDueDate = MiningFrames.frameToDateRange(nextCollectFrame)[0].getTime();
+    this.data.nextCollectDueDate = MiningFrames.frameToDateRange(nextCollectFrame)[1].getTime();
   }
 
   private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>) {
