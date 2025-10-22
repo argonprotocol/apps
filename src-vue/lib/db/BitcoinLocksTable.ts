@@ -23,7 +23,7 @@ export enum BitcoinLockStatus {
   LockedAndMinted = 'LockedAndMinted', // Is fully locked and fully minted
   ReleaseSubmittingToArgon = 'ReleaseSubmittedToArgon', // Has submitted transaction to network but not yet confirmed in block
   ReleaseWaitingForVault = 'ReleaseWaitingForVault', // Is waiting for vault to approve release
-  ReleaseSubmittingToBitcoin = 'ReleaseSubmittingToBitcoin', // Has submitted transaction to bitcoin network but not yet confirmed in mempool
+  ReleasedByVault = 'ReleasedByVault', // Has retrieved the vault signature
   ReleaseProcessingOnBitcoin = 'ReleaseProcessingOnBitcoin', // Release was found in mempool and is being processed
   ReleaseComplete = 'ReleaseComplete',
 }
@@ -39,13 +39,16 @@ export interface IBitcoinLockRecord {
   ratchets: IRatchet[]; // array of ratchets
   cosignVersion: string;
   lockDetails: IBitcoinLock;
-  requestedReleaseAtHeight?: number;
+  lockProcessingOnBitcoinAtBitcoinHeight?: number;
+  lockProcessingOnBitcoinAtOracleBitcoinHeight?: number;
+  requestedReleaseAtTick?: number;
   releaseBitcoinNetworkFee?: bigint;
   releaseToDestinationAddress?: string;
-  releaseCosignSignature?: Uint8Array;
+  releaseCosignVaultSignature?: Uint8Array;
   releaseCosignHeight?: number;
-  releasedAtHeight?: number;
+  releasedAtBitcoinHeight?: number;
   releasedTxId?: string;
+  releaseError?: string;
   network: string;
   hdPath: string;
   vaultId: number;
@@ -107,30 +110,46 @@ export class BitcoinLocksTable extends BaseTable {
   async setReleaseWaitingForVault(lock: IBitcoinLockRecord): Promise<void> {
     lock.status = BitcoinLockStatus.ReleaseWaitingForVault;
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = $2, requestedReleaseAtHeight=$3, releaseToDestinationAddress=$4, releaseBitcoinNetworkFee=$5 WHERE utxoId = $1`,
+      `UPDATE BitcoinLocks SET status = $2, requestedReleaseAtTick=$3, releaseToDestinationAddress=$4, releaseBitcoinNetworkFee=$5 WHERE utxoId = $1`,
       toSqlParams([
         lock.utxoId,
         lock.status,
-        lock.requestedReleaseAtHeight,
+        lock.requestedReleaseAtTick,
         lock.releaseToDestinationAddress,
         lock.releaseBitcoinNetworkFee,
       ]),
     );
   }
 
-  async setReleaseProcessingOnBitcoin(lock: IBitcoinLockRecord): Promise<void> {
+  async setReleaseProcessingOnBitcoin(lock: IBitcoinLockRecord, txid: string): Promise<void> {
     lock.status = BitcoinLockStatus.ReleaseProcessingOnBitcoin;
+    lock.releasedTxId = txid;
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = $2 WHERE utxoId = $1`,
-      toSqlParams([lock.utxoId, lock.status]),
+      `UPDATE BitcoinLocks SET status = $2, releasedTxId = $3  WHERE utxoId = $1`,
+      toSqlParams([lock.utxoId, lock.status, lock.releasedTxId]),
     );
   }
 
-  async setLockProcessingOnBitcoin(lock: IBitcoinLockRecord): Promise<void> {
+  async setLockProcessingOnBitcoin(
+    lock: IBitcoinLockRecord,
+    data: { bitcoinBlockHeight: number; oracleBitcoinBlockHeight: number },
+  ): Promise<void> {
+    const { bitcoinBlockHeight, oracleBitcoinBlockHeight } = data;
     lock.status = BitcoinLockStatus.LockProcessingOnBitcoin;
+    lock.lockProcessingOnBitcoinAtBitcoinHeight = bitcoinBlockHeight;
+    lock.lockProcessingOnBitcoinAtOracleBitcoinHeight = oracleBitcoinBlockHeight;
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = $2 WHERE utxoId = $1`,
-      toSqlParams([lock.utxoId, lock.status]),
+      `UPDATE BitcoinLocks SET 
+                status = $4, 
+                lockProcessingOnBitcoinAtBitcoinHeight = $2, 
+                lockProcessingOnBitcoinAtOracleBitcoinHeight = $3 
+             WHERE utxoId = $1`,
+      toSqlParams([
+        lock.utxoId,
+        lock.lockProcessingOnBitcoinAtBitcoinHeight,
+        lock.lockProcessingOnBitcoinAtOracleBitcoinHeight,
+        lock.status,
+      ]),
     );
   }
 
@@ -175,17 +194,13 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setReleaseSubmittingToBitcoin(
-    lock: IBitcoinLockRecord,
-    signature: Uint8Array,
-    atHeight: number,
-  ): Promise<void> {
-    lock.status = BitcoinLockStatus.ReleaseSubmittingToBitcoin;
-    lock.releaseCosignSignature = signature;
+  async setReleasedByVault(lock: IBitcoinLockRecord, signature: Uint8Array, atHeight: number): Promise<void> {
+    lock.status = BitcoinLockStatus.ReleasedByVault;
+    lock.releaseCosignVaultSignature = signature;
     lock.releaseCosignHeight = atHeight;
     await this.db.execute(
-      'UPDATE BitcoinLocks SET status = $1, releaseCosignSignature = $2, releaseCosignHeight = $3 WHERE utxoId = $4',
-      toSqlParams([lock.status, lock.releaseCosignSignature, lock.releaseCosignHeight, lock.utxoId]),
+      'UPDATE BitcoinLocks SET status = $1, releaseCosignVaultSignature = $2, releaseCosignHeight = $3 WHERE utxoId = $4',
+      toSqlParams([lock.status, lock.releaseCosignVaultSignature, lock.releaseCosignHeight, lock.utxoId]),
     );
   }
 
@@ -221,11 +236,17 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setReleaseComplete(lock: IBitcoinLockRecord): Promise<void> {
+  async setReleaseComplete(
+    lock: IBitcoinLockRecord,
+    data: {
+      releasedAtBitcoinHeight: number;
+    },
+  ): Promise<void> {
     lock.status = BitcoinLockStatus.ReleaseComplete;
+    lock.releasedAtBitcoinHeight = data.releasedAtBitcoinHeight;
     await this.db.execute(
-      'UPDATE BitcoinLocks SET status = $1, releasedAtHeight = $2, releasedTxId = $3 WHERE utxoId = $4',
-      toSqlParams([lock.status, lock.releasedAtHeight, lock.releasedTxId, lock.utxoId]),
+      'UPDATE BitcoinLocks SET status = $1, releasedAtBitcoinHeight = $2, WHERE utxoId = $3',
+      toSqlParams([lock.status, lock.releasedAtBitcoinHeight, lock.utxoId]),
     );
   }
 }

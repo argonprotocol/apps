@@ -5,6 +5,7 @@ import {
   type BlockHash,
   getTickFromHeader,
   type Header as BlockHeader,
+  type u64,
 } from '@argonprotocol/mainchain';
 import { LRU } from 'tiny-lru';
 import { MiningFrames } from './MiningFrames.js';
@@ -82,7 +83,11 @@ export class FrameIterator {
       }
 
       const startBlockNumbers = await this.getFrameStartBlockNumbers(blockNumber);
-      blockNumber = startBlockNumbers.at(-1) ?? 0;
+      const next = startBlockNumbers.at(-1) ?? 0;
+      if (next === blockNumber) {
+        break;
+      }
+      blockNumber = next;
     }
   }
 
@@ -380,8 +385,14 @@ export class FrameIterator {
       const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
       const api = await client.at(blockHash);
       const tick = await api.query.ticks.currentTick().then(x => x.toNumber());
-      const frameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
       const specVersion = api.runtimeVersion.specVersion.toNumber();
+      let frameId = -1;
+      if (specVersion >= 124) {
+        frameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
+      } else if (specVersion >= 123) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        frameId = await (api.query.miningSlot as any).nextCohortFrameId().then((x: u64) => x.toNumber() - 1);
+      }
       blockAndApi = { blockHash, api, tick, frameId, specVersion };
       FrameIterator.cachedApiByBlockNumber.set(blockNumber, blockAndApi);
     }
