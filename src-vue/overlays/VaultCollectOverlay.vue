@@ -49,12 +49,15 @@
                       }}
                     </strong>
                     in uncollected revenue. You must collect this within
-                    <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
-                      <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
-                      <template v-else>
-                        <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
-                        <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                    <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
+                      <template v-if="hours || minutes || days">
+                        <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+                        <template v-else-if="hours || minutes">
+                          <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+                          <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                        </template>
                       </template>
+                      <template v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</template>
                     </CountdownClock>
                     ; otherwise, it will expire and be lost forever.
                   </span>

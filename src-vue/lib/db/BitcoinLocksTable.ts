@@ -186,8 +186,19 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async updateLockedAndMinting(lock: IBitcoinLockRecord): Promise<void> {
-    lock.status = BitcoinLockStatus.LockedAndMinting;
+  async updateMintState(lock: IBitcoinLockRecord): Promise<void> {
+    const remainingMint = lock.ratchets.reduce((acc, ratchet) => acc + ratchet.mintPending, 0n);
+
+    if (
+      remainingMint === 0n &&
+      (lock.status === BitcoinLockStatus.LockInitialized ||
+        lock.status === BitcoinLockStatus.LockedAndMinting ||
+        lock.status === BitcoinLockStatus.ReleaseProcessingOnBitcoin)
+    ) {
+      lock.status = BitcoinLockStatus.LockedAndMinted;
+    } else if (lock.status === BitcoinLockStatus.LockInitialized) {
+      lock.status = BitcoinLockStatus.LockedAndMinting;
+    }
     const ratchets = JsonExt.stringify(lock.ratchets);
     await this.db.execute(
       `UPDATE BitcoinLocks SET ratchets = $2, status = $3 WHERE utxoId = $1`,
@@ -206,18 +217,15 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   async setLockedAndMinting(lock: IBitcoinLockRecord) {
-    lock.status = BitcoinLockStatus.LockedAndMinting;
+    if (
+      lock.status === BitcoinLockStatus.LockInitialized ||
+      lock.status === BitcoinLockStatus.LockProcessingOnBitcoin
+    ) {
+      lock.status = BitcoinLockStatus.LockedAndMinting;
+    }
     await this.db.execute(
       'UPDATE BitcoinLocks SET status = $1, txid = $2, vout = $3 WHERE utxoId = $4',
       toSqlParams([lock.status, lock.txid, lock.vout, lock.utxoId]),
-    );
-  }
-
-  async setLockedAndMinted(lock: IBitcoinLockRecord) {
-    lock.status = BitcoinLockStatus.LockedAndMinted;
-    await this.db.execute(
-      'UPDATE BitcoinLocks SET status = $1 WHERE utxoId = $2',
-      toSqlParams([lock.status, lock.utxoId]),
     );
   }
 
