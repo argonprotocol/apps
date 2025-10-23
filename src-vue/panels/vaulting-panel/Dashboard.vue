@@ -847,6 +847,9 @@ async function loadChartData(currentFrameId?: number) {
   );
 
   const trailingTreasuryCapitalAmounts: [capital: bigint, frameId: number][] = [];
+
+  let treasuryPercentActivated = 0;
+  let bitcoinPercentUsed = 0;
   for (const frameId of frameIds) {
     const treasuryAtFrame = treasuryPoolCapitalByFrame[frameId];
     const tickRange = MiningFrames.getTickRangeForFrame(frameId);
@@ -870,10 +873,10 @@ async function loadChartData(currentFrameId?: number) {
       profitMaximizationPercent: 0,
     };
     records.push(record);
-    const trailingTreasuryCapitalTotal = trailingTreasuryCapitalAmounts.slice(0, 8).reduce((acc, [capital]) => {
+    const trailingTreasuryCapitalTotal = trailingTreasuryCapitalAmounts.slice(0, 9).reduce((acc, [capital]) => {
       return acc + capital;
     }, 0n);
-    const previousTreasuryCapital = trailingTreasuryCapitalAmounts[0]?.[0];
+    const rollingTreasuryCapital = trailingTreasuryCapitalTotal + (trailingTreasuryCapitalAmounts[9]?.[0] ?? 0n);
     if (frameId === currentFrameId && vault.createdVault) {
       record.progress = Math.min(((currentTick - tickRange[0]) / ticksPerFrame) * 100, 100);
       const client = await getMainchainClient(false);
@@ -887,22 +890,19 @@ async function loadChartData(currentFrameId?: number) {
       record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, totalActivatedCapital);
       record.myTreasuryPayout = percentOf(record.totalTreasuryPayout, record.myTreasuryPercentTake);
 
-      const bitcoinPercentUsed =
+      bitcoinPercentUsed =
         activatedSecuritization > 0n
           ? getPercent(activatedSecuritization - vault.createdVault.getRelockCapacity(), securitization)
           : 0;
-      const treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
+      treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
       record.frameProfitPercent = getPercent(
         record.myTreasuryPayout + (myFrameRevenue?.bitcoinFeeRevenue ?? 0n),
         securitization + vaultActivatedCapital,
       );
-      record.bitcoinPercentUsed = bitcoinPercentUsed;
-      record.treasuryPercentActivated = treasuryPercentActivated;
-      record.profitMaximizationPercent = getPercent(bitcoinPercentUsed * treasuryPercentActivated, 100 * 100);
 
       record.bitcoinChangeMicrogons = myFrameRevenue?.microgonLiquidityAdded ?? 0n;
-      if (previousTreasuryCapital !== undefined) {
-        record.treasuryChangeMicrogons = previousTreasuryCapital - vaultActivatedCapital;
+      if (rollingTreasuryCapital !== undefined) {
+        record.treasuryChangeMicrogons = trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
       }
       // NOTE: don't add to trailing capital since this is still being updated
     } else if (myFrameRevenue) {
@@ -920,28 +920,29 @@ async function loadChartData(currentFrameId?: number) {
         },
       } = myFrameRevenue;
       const vaultActivatedCapital = poolExternalCapital + poolVaultCapital;
-      const bitcoinPercentUsed = getPercent(securitizationActivated - (securitizationRelockable ?? 0n), securitization);
-      const treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
+      bitcoinPercentUsed = getPercent(securitizationActivated - (securitizationRelockable ?? 0n), securitization);
+      treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
 
       record.myTreasuryPayout = poolTotalEarnings;
       record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, treasuryAtFrame.capitalRaised);
       record.bitcoinChangeMicrogons = microgonLiquidityAdded;
-      if (previousTreasuryCapital !== undefined) {
-        record.treasuryChangeMicrogons = previousTreasuryCapital - vaultActivatedCapital;
+      if (rollingTreasuryCapital !== undefined) {
+        record.treasuryChangeMicrogons = trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
       }
       record.frameProfitPercent = getPercent(
         poolVaultEarnings + bitcoinFeeRevenue,
         securitization + vaultActivatedCapital,
       );
-      record.bitcoinPercentUsed = bitcoinPercentUsed;
-      record.treasuryPercentActivated = treasuryPercentActivated;
-      record.profitMaximizationPercent = getPercent(bitcoinPercentUsed * treasuryPercentActivated, 100 * 100);
 
       trailingTreasuryCapitalAmounts.unshift([vaultActivatedCapital, frameId]);
       if (trailingTreasuryCapitalAmounts.length > 10) {
         trailingTreasuryCapitalAmounts.length = 10;
       }
     }
+    // Always update the percents. If there's no frame entry, it means 0 activity that frame
+    record.treasuryPercentActivated = treasuryPercentActivated;
+    record.bitcoinPercentUsed = bitcoinPercentUsed;
+    record.profitMaximizationPercent = getPercent(bitcoinPercentUsed * treasuryPercentActivated, 100 * 100);
   }
 
   const items: IChartItem[] = [];
