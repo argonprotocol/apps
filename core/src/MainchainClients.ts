@@ -85,7 +85,7 @@ export class MainchainClients {
         apiError = undefined;
         this.events.emit('working', path, clientType);
         if (this.enableApiLogging) {
-          const resultJson = getJson(result);
+          const resultJson = path.endsWith('.system.events') ? `${(result as any).length} events` : getJson(result);
           const argsJson = args.map(getJson);
           console.log(`[${name}] ${path}(${JSON.stringify(argsJson)})`, resultJson);
         }
