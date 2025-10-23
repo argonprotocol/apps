@@ -67,7 +67,7 @@ import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import { useConfig } from '../stores/config';
 import Draggable from './helpers/Draggable.ts';
-import { ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
+import { ConfigServerCreationSchema, ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
 import { SSH } from '../lib/SSH.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 
@@ -89,14 +89,21 @@ async function applyRestoredServer(details: string) {
       if (key === 'version') {
         continue;
       }
+      if (key === 'serverCreation') {
+        continue; // handled below
+      }
       if (key === 'serverDetails') {
         const parseResult = ConfigServerDetailsSchema.safeParse(JsonExt.parse(value));
         if (!parseResult.success) return;
+        const serverCreation = ConfigServerCreationSchema.safeParse(JsonExt.parse(value));
+        if (!serverCreation.success) return;
 
         value = parseResult.data;
         try {
           await SSH.tryConnection(parseResult.data);
           config.isMinerUpToDate = false;
+          config.serverCreation = serverCreation.data;
+          config.isMiningMachineCreated = true;
         } catch (err) {
           console.error(
             `Couldn't reconnect to stored server at ${parseResult.data.ipAddress}:${parseResult.data.port}`,

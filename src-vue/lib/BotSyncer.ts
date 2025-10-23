@@ -190,6 +190,7 @@ export class BotSyncer {
       latestFrameIdProcessed,
       currentFrameId,
       framesToSync,
+      currentTick,
     });
 
     const promise = new Promise<void>(async resolve => {

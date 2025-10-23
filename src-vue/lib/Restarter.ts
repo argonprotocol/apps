@@ -8,6 +8,7 @@ import { toRaw } from 'vue';
 import Installer from './Installer.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
+import { JsonExt } from '@argonprotocol/commander-core';
 
 export default class Restarter {
   private dbPromise: Promise<Db>;
@@ -82,7 +83,6 @@ export default class Restarter {
   public async recreateLocalDatabase(restartAfter: boolean = true) {
     const db = await this.dbPromise;
     const config = this._config;
-    const serverDetails = toRaw(config.serverDetails);
     await db.close();
 
     const dbPath = Db.relativePath;
@@ -95,7 +95,8 @@ export default class Restarter {
     localStorage.setItem(
       'ConfigRestore',
       JSON.stringify({
-        serverDetails: JSON.stringify(serverDetails),
+        serverDetails: JsonExt.stringify(toRaw(config.serverDetails)),
+        serverCreation: JsonExt.stringify(toRaw(config.serverCreation)),
         hasReadMiningInstructions: config.hasReadMiningInstructions,
         hasReadVaultingInstructions: config.hasReadVaultingInstructions,
         oldestFrameIdToSync: config.oldestFrameIdToSync,
