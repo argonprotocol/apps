@@ -573,7 +573,6 @@ import { useCurrency } from '../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { useMyVault, useVaults } from '../../stores/vaults.ts';
 import { useConfig } from '../../stores/config.ts';
-import { MyVault } from '../../lib/MyVault.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ArgonIcon from '../../assets/resources/argon.svg?component';
 import ArgonotIcon from '../../assets/resources/argonot.svg?component';
