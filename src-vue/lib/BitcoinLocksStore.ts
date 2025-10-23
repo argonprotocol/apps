@@ -202,7 +202,7 @@ export default class BitcoinLocksStore {
 
       if (lock.status === BitcoinLockStatus.ReleaseProcessingOnBitcoin) {
         try {
-          await this.checkTxidStatus(lock);
+          await this.checkReleaseFinalizeStatus(lock);
           lock.releaseError = undefined;
         } catch (e) {
           lock.releaseError = String(e);
@@ -629,6 +629,12 @@ export default class BitcoinLocksStore {
         throw new Error(`Utxo with ID ${lock.utxoId} not found.`);
       }
     }
+    // NOTE: using api because the locally stored signature is encoded without the sighash byte. Should be fixed to
+    // record correctly locally later.
+    const cosignature = await this.#bitcoinLocksApi.findVaultCosignSignature(lock.utxoId);
+    if (!cosignature) {
+      throw new Error(`Lock with ID ${lock.utxoId} has not been cosigned yet.`);
+    }
 
     const cosign = new CosignScript(lock.lockDetails, this.bitcoinNetwork);
     const tx = cosign.cosignAndGenerateTx({
@@ -636,7 +642,7 @@ export default class BitcoinLocksStore {
         toScriptPubkey: lock.releaseToDestinationAddress,
         bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
       },
-      vaultCosignature: lock.releaseCosignVaultSignature,
+      vaultCosignature: cosignature.signature,
       utxoRef: { txid: lock.txid, vout: lock.vout! },
       ownerXpriv: getChildXpriv(bip39Seed, lock.hdPath, this.bitcoinNetwork),
       addTx,
@@ -662,21 +668,27 @@ export default class BitcoinLocksStore {
     return `${ESPLORA_HOST ?? 'https://mempool.space/api'}/`;
   }
 
-  async checkTxidStatus(lock: IBitcoinLockRecord): Promise<{
-    isConfirmed: boolean;
-    blockHeight: number;
-  }> {
+  async checkReleaseFinalizeStatus(lock: IBitcoinLockRecord): Promise<
+    | {
+        isConfirmed: boolean;
+        blockHeight: number;
+      }
+    | undefined
+  > {
     const api = this.getMempoolApi();
-    const txid = lock.releasedTxId;
+    const txid = lock.releasedTxid;
+    console.log('Checking release finalize status for lock', { utxoId: lock.utxoId, txid });
     if (!txid) {
       throw new Error(`Lock with ID ${lock.utxoId} does not have a released txid saved to the db.`);
     }
     const response = await fetch(`${api}tx/${txid}/status`);
     const status = (await response.json()) as TxStatus;
     if (!status) {
-      throw new Error(`Transaction with ID ${txid} not found.`);
+      console.warn(`Transaction status for txid ${txid} not found.`);
+      return;
     }
 
+    console.info('Bitcoin status for released tx', { txid, status });
     if (status.confirmed) {
       const table = await this.getTable();
       await table.setReleaseComplete(lock, {

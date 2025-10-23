@@ -148,6 +148,8 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
         obj[fieldName] = JsonExt.parse(value);
       } else if (type === 'date') {
         obj[fieldName] = new Date(value);
+      } else if (type === 'uint8array') {
+        obj[fieldName] = Uint8Array.from(value);
       } else {
         throw new Error(`${fieldName} has unknown type: ${type}`);
       }

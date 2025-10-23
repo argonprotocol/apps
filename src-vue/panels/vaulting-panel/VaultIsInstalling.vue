@@ -32,10 +32,12 @@ import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import VaultIcon from '../../assets/vault.svg?component';
 import { abbreviateAddress } from '../../lib/Utils.ts';
+import { useCurrency } from '../../stores/currency.ts';
 
 const config = useConfig();
 const vault = useMyVault();
 const bitcoinLocks = useBitcoinLocks();
+const currency = useCurrency();
 
 const setupProgressPct = Vue.ref(0);
 const errorMessage = Vue.ref('');
@@ -75,6 +77,7 @@ async function activateVault() {
   if (errorMessage.value) return;
 
   try {
+    await currency.load();
     await vault.initialActivate({
       argonKeyring: config.vaultingAccount,
       bitcoinLocksStore: bitcoinLocks,

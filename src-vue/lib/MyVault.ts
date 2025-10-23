@@ -231,10 +231,11 @@ export class MyVault {
           });
         }
       }
-      if (lock.status === BitcoinLockStatus.LockProcessingOnBitcoin) {
+      if (lock.status === BitcoinLockStatus.ReleasedByVault) {
         await bitcoinLocks.ownerCosignAndSendToBitcoin(lock, bitcoinXprivSeed);
       }
     } catch (error) {
+      console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
       this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId, error: String(error) };
     }
   }
