@@ -58,6 +58,11 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
         if (data.lastModifiedAt) {
           data.lastModifiedAt = new Date(data.lastModifiedAt);
         }
+        for (const [key, value] of Object.entries(this.defaults)) {
+          if (value instanceof Date && data[key]) {
+            (data as any)[key] = new Date(value);
+          }
+        }
         this.data = data;
       } catch {}
     }

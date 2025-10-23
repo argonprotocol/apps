@@ -13,55 +13,42 @@ import { JsonStore } from './JsonStore.ts';
 
 export class Storage {
   private lruCache = new LRU<JsonStore<any>>(100);
+  private readonly botState: JsonStore<IBotStateFile>;
+  private readonly blockSync: JsonStore<IBlockSyncFile>;
 
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'bot-bids'), { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'bot-earnings'), { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'bot-history'), { recursive: true });
+    this.botState = new JsonStore<IBotStateFile>(Path.join(this.basedir, 'bot-state.json'), () => {
+      return {
+        hasMiningBids: false,
+        hasMiningSeats: false,
+        bidsLastModifiedAt: new Date(),
+        earningsLastModifiedAt: new Date(),
+        oldestFrameIdToSync: 0,
+        currentFrameId: 0,
+        currentFrameTickRange: [0, 0],
+        currentTick: 0,
+        syncProgress: 0,
+        lastBlockNumberByFrameId: {},
+      };
+    });
+    this.blockSync = new JsonStore<IBlockSyncFile>(Path.join(this.basedir, 'bot-blocks.json'), () => ({
+      blocksByNumber: {},
+      syncedToBlockNumber: 0,
+      finalizedBlockNumber: 0,
+      bestBlockNumber: 0,
+    }));
   }
 
   public botBlockSyncFile(): JsonStore<IBlockSyncFile> {
-    const key = `bot-blocks.json`;
-    let entry = this.lruCache.get(key) as JsonStore<IBlockSyncFile> | undefined;
-    if (!entry) {
-      entry = new JsonStore<IBlockSyncFile>(Path.join(this.basedir, key), () => ({
-        blocksByNumber: {},
-        syncedToBlockNumber: 0,
-        finalizedBlockNumber: 0,
-        bestBlockNumber: 0,
-      }));
-      this.lruCache.set(key, entry);
-    }
-    return entry;
+    return this.blockSync;
   }
 
   public botStateFile(): JsonStore<IBotStateFile> {
-    const key = `bot-state.json`;
-    let entry = this.lruCache.get(key) as JsonStore<IBotStateFile> | undefined;
-    if (!entry) {
-      entry = new JsonStore<IBotStateFile>(Path.join(this.basedir, key), () => {
-        return {
-          isReady: false,
-          hasMiningBids: false,
-          hasMiningSeats: false,
-          argonBlockNumbers: { localNode: 0, mainNode: 0 },
-          bitcoinBlockNumbers: { localNode: 0, mainNode: 0 },
-          bidsLastModifiedAt: new Date(),
-          earningsLastModifiedAt: new Date(),
-          oldestFrameIdToSync: 0,
-          currentFrameId: 0,
-          currentFrameTickRange: [0, 0],
-          currentTick: 0,
-          syncProgress: 0,
-          maxSeatsPossible: 10, // TODO: instead of hardcoded 10, fetch from chain
-          maxSeatsReductionReason: '',
-          lastBlockNumberByFrameId: {},
-        };
-      });
-      this.lruCache.set(key, entry);
-    }
-    return entry;
+    return this.botState;
   }
 
   /**
@@ -82,7 +69,6 @@ export class Storage {
           microgonToBtc: [],
           microgonToArgonot: [],
           earningsByBlock: {},
-
           transactionFeesTotal: 0n,
           accruedMicrogonProfits: 0n,
           accruedMicronotProfits: 0n,

@@ -38,8 +38,12 @@ export class BlockSync {
   accountMiners!: AccountMiners;
   latestFinalizedBlockNumber!: number;
   scheduleTimer?: NodeJS.Timeout;
-  botStateFile: JsonStore<IBotStateFile>;
-  blockSyncFile: JsonStore<IBlockSyncFile>;
+  get botStateFile(): JsonStore<IBotStateFile> {
+    return this.storage.botStateFile();
+  }
+  get blockSyncFile(): JsonStore<IBlockSyncFile> {
+    return this.storage.botBlockSyncFile();
+  }
   inProcessSync?: ReturnType<BlockSync['processNext']>;
 
   currentFrameTickRange: [number, number] = [0, 0];
@@ -70,8 +74,6 @@ export class BlockSync {
     private oldestFrameIdToSync?: number,
   ) {
     this.scheduleNext = this.scheduleNext.bind(this);
-    this.botStateFile = this.storage.botStateFile();
-    this.blockSyncFile = this.storage.botBlockSyncFile();
     this.mining = new Mining(this.mainchainClients);
     this.priceIndex = new PriceIndex(this.mainchainClients);
   }
@@ -258,7 +260,7 @@ export class BlockSync {
       unsub2();
     };
 
-    await this.scheduleNext();
+    await this.scheduleNext(500, true);
   }
 
   async stop() {
@@ -300,7 +302,7 @@ export class BlockSync {
       bitcoinBlockNumbers,
       queueDepth: bestBlockNumber - syncedToBlockNumber,
       maxSeatsPossible: this.bot.maxSeatsInPlay ?? 10, // TODO: instead of hardcoded 10, fetch from chain
-      maxSeatsReductionReason: this.bot.maxSeatsReductionReason ?? '',
+      maxSeatsReductionReason: this.bot.maxSeatsReductionReason,
     };
   }
 
@@ -331,7 +333,7 @@ export class BlockSync {
     console.log('Synched to latest');
   }
 
-  async scheduleNext(waitTime: number = 500): Promise<void> {
+  async scheduleNext(waitTime: number = 500, throwIfFails = false): Promise<void> {
     if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
     if (this.isStopping) return;
 
@@ -349,9 +351,10 @@ export class BlockSync {
     } catch (e) {
       console.error(`Error processing next header`, e);
       if (this.isStopping) return;
-      throw e;
+      if (throwIfFails) throw e;
     }
-    this.scheduleTimer = setTimeout(() => void this.scheduleNext(), waitTime);
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    this.scheduleTimer = setTimeout(this.scheduleNext, waitTime);
   }
 
   async processNext(): Promise<{ processed: IBlock; remaining: number } | undefined> {
@@ -449,14 +452,21 @@ export class BlockSync {
       x.syncedToBlockNumber = blockNumber;
     });
 
+    const syncProgress = this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
+    const currentFrameTickRange = [...this.currentFrameTickRange] as any;
     await this.botStateFile.mutate(x => {
-      if (hasMiningBids) x.bidsLastModifiedAt = new Date();
-      if (hasMiningSeats) x.hasMiningSeats = true;
+      x.hasMiningBids ||= hasMiningBids || hasMiningSeats;
+      if (hasMiningBids) {
+        x.bidsLastModifiedAt = new Date();
+      }
+      if (hasMiningSeats) {
+        x.hasMiningSeats = true;
+      }
       x.earningsLastModifiedAt = new Date();
-      x.currentFrameId = currentFrameId;
       x.currentTick = tick;
-      x.currentFrameTickRange = this.currentFrameTickRange;
-      x.syncProgress = this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
+      x.currentFrameId = currentFrameId;
+      x.currentFrameTickRange = currentFrameTickRange;
+      x.syncProgress = syncProgress;
       x.lastBlockNumberByFrameId[currentFrameId] = blockNumber;
     });
 
