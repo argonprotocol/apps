@@ -186,6 +186,7 @@ export default class BitcoinLocksStore {
         [
           BitcoinLockStatus.LockInitialized,
           BitcoinLockStatus.LockedAndMinted,
+          BitcoinLockStatus.LockedAndMinting,
           BitcoinLockStatus.LockProcessingOnBitcoin,
         ].includes(lock.status)
       ) {
@@ -209,33 +210,31 @@ export default class BitcoinLocksStore {
         }
       }
 
-      if (lock.status === BitcoinLockStatus.LockedAndMinting) {
-        await this.updateLockingStatus(lock);
+      const localPendingMint = lock.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n);
+      if (localPendingMint > 0n) {
         const chainPending = await this.#bitcoinLocksApi.findPendingMints(lock.utxoId);
-        const localPending = lock.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n);
         const chainStillPending = chainPending.reduce((sum, x) => sum + x, 0n);
-        if (chainStillPending === 0n) {
-          for (const ratchet of lock.ratchets) {
+
+        let amountFulfilled = localPendingMint - chainStillPending;
+        // account for the pending amount by allocating to the last entrants in the ratchet list
+        for (const ratchet of lock.ratchets) {
+          if (chainStillPending === 0n) {
             ratchet.mintPending = 0n;
+            continue;
           }
-          await table.setLockedAndMinted(lock);
-        } else {
-          let amountFulfilled = localPending - chainStillPending;
-          // account for the pending amount by allocating to the last entrants in the ratchet list
-          for (const ratchet of lock.ratchets) {
-            if (amountFulfilled === 0n) break;
-            if (ratchet.mintPending > 0) {
-              if (amountFulfilled >= ratchet.mintPending) {
-                amountFulfilled -= ratchet.mintPending;
-                ratchet.mintPending = 0n;
-              } else {
-                ratchet.mintPending -= amountFulfilled;
-                amountFulfilled = 0n;
-              }
+          if (amountFulfilled === 0n) break;
+          if (ratchet.mintPending > 0) {
+            if (amountFulfilled >= ratchet.mintPending) {
+              amountFulfilled -= ratchet.mintPending;
+              ratchet.mintPending = 0n;
+            } else {
+              ratchet.mintPending -= amountFulfilled;
+              amountFulfilled = 0n;
             }
           }
-          await table.updateLockedAndMinting(lock);
         }
+
+        await table.updateMintState(lock);
       }
     }
     this.onBlockCallbackFn?.();

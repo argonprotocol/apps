@@ -164,7 +164,7 @@
               </HoverCardRoot>
               <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
                 <HoverCardRoot :openDelay="200" :closeDelay="100"
-                               v-if="[BitcoinLockStatus.LockedAndMinting].includes(personalUtxo?.status as any)">
+                               v-if="pendingMintingValue > 0n">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     {{ microgonToArgonNm(pendingMintingValue).format('0,0.[00]') }} Pending Mints

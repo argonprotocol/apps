@@ -251,7 +251,13 @@ async function loadPersonalUtxo() {
 async function updateBitcoinUnlockPrices() {
   const utxo = personalUtxo.value;
   if (!utxo) return;
+
   btcMarketRate.value = await vaults.getMarketRate(utxo.satoshis).catch(() => 0n);
+
+  if (utxo.status !== BitcoinLockStatus.LockedAndMinting && utxo.status !== BitcoinLockStatus.LockedAndMinted) {
+    unlockPrice.value = 0n;
+    return;
+  }
   const unlockFee = await bitcoinLocks
     .estimatedReleaseArgonTxFee({ lock: utxo, argonKeyring: config.vaultingAccount })
     .catch(() => 0n);
