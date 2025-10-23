@@ -7,6 +7,7 @@ use russh::keys::ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
 use russh::keys::*;
 use russh::*;
 use sp_core::ed25519;
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::path::Path;
 use std::sync::Arc;
@@ -85,9 +86,16 @@ impl SSH {
     }
 
     async fn authenticate(ssh_config: &SSHConfig) -> Result<client::Handle<ClientHandler>> {
-        let config = client::Config {
+        let mut config = client::Config {
             inactivity_timeout: None,
             ..<_>::default()
+        };
+        config.preferred = Preferred {
+            kex: Cow::Borrowed(&[
+                kex::CURVE25519,              // "curve25519-sha256"
+                kex::CURVE25519_PRE_RFC_8731, // "curve25519-sha256@libssh.org"
+            ]),
+            ..Preferred::DEFAULT
         };
         let config = Arc::new(config);
         let handler = ClientHandler {};

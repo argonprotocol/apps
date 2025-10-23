@@ -33,7 +33,7 @@ export class SSH {
   public static async getOrCreateConnection(retries = 3): Promise<SSHConnection> {
     await this.config.isLoadedPromise;
     console.log('Getting or creating SSH connection to', { ...this.config.serverDetails });
-    this.connection ??= new SSHConnection(this.config.serverDetails);
+    this.connection ??= new SSHConnection({ ...this.config.serverDetails });
     try {
       await this.connection.connect(retries);
     } catch (e) {
@@ -45,7 +45,7 @@ export class SSH {
   }
 
   public static async tryConnection(serverDetails: IConfigServerDetails): Promise<ITryServerData> {
-    const connection = new SSHConnection(serverDetails);
+    const connection = new SSHConnection({ ...serverDetails });
     await connection.connect(0);
     const server = new Server(connection, serverDetails);
     const walletAddress = await server.downloadAccountAddress();
