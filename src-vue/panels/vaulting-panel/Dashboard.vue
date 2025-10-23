@@ -198,8 +198,8 @@
                               :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
                               @click="allocate" :disabled="isAllocating">
                         {{!isAllocating ? 'Allocate These' : 'Allocating'}} {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons to Vault
-                        <div :class="{active:isAllocating}" spinner class="ml-2 inline-block -mt-2" />
                       </button>
+                      <span :class="{active:isAllocating}" spinner class="ml-2 inline-block mt-1" />
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </HoverCardContent>
@@ -643,8 +643,8 @@ const pendingSecuritization = Vue.computed(() => {
 });
 
 const waitingSecuritization = Vue.computed(() => {
-  const { microgonsForSecuritization } = MyVault.getMicrogonSplit(config.vaultingRules);
-  return microgonsForSecuritization - (activatedSecuritization.value + pendingSecuritization.value);
+  const securitization = vault.createdVault?.securitization ?? 0n;
+  return securitization - (activatedSecuritization.value + pendingSecuritization.value);
 });
 
 const totalTreasuryPoolBonds = Vue.computed(() => {
@@ -664,8 +664,7 @@ const activatedTreasuryPoolInvestment = Vue.computed(() => {
 });
 
 const pendingTreasuryPoolInvestment = Vue.computed(() => {
-  const { microgonsForTreasury } = MyVault.getMicrogonSplit(config.vaultingRules);
-  return bigIntMax(0n, microgonsForTreasury - activatedTreasuryPoolInvestment.value);
+  return vault.data.prebondedMicrogons ?? 0n;
 });
 
 const externalTreasuryBonds = Vue.computed(() => {
@@ -696,19 +695,16 @@ async function allocate() {
   let fallbackRules = JsonExt.stringify(toRaw(config.vaultingRules));
   try {
     isAllocating.value = true;
-    const toAllocate = wallets.vaultingWallet.availableMicrogons;
-    const { amountUsed } = await vault.increaseVaultAllocations({
-      newAllocation: toAllocate,
-      rules: {
-        ...config.vaultingRules,
-        baseMicrogonCommitment: config.vaultingRules.baseMicrogonCommitment + toAllocate,
-      },
+    const availableMicrogons = wallets.vaultingWallet.availableMicrogons;
+    const { newlyAllocated } = await vault.increaseVaultAllocations({
+      freeBalance: availableMicrogons,
+      rules: config.vaultingRules,
       argonKeyring: config.vaultingAccount,
     });
-    config.vaultingRules.baseMicrogonCommitment += amountUsed;
-    await config.save();
+    config.vaultingRules.baseMicrogonCommitment += newlyAllocated;
+    await config.saveVaultingRules();
   } catch (err) {
-    console.error('Error during vault allocation:', err);
+    console.error('Error during vault allocation: %o', err);
     allocationError.value = 'Allocation failed. Please try again.';
     config.vaultingRules = JsonExt.parse(fallbackRules);
   } finally {
@@ -1012,9 +1008,11 @@ Vue.onMounted(async () => {
 
 [spinner] {
   @apply h-6 min-h-6 w-6 min-w-6;
+  &.w-2 {
+    @apply h-2 min-h-2 w-2 min-w-2;
+  }
   &.active {
     border-radius: 50%;
-    display: block;
     border: 10px solid;
     border-color: rgba(166, 0, 212, 0.15) rgba(166, 0, 212, 0.25) rgba(166, 0, 212, 0.35) rgba(166, 0, 212, 0.5);
     animation: rotation 1s linear infinite;

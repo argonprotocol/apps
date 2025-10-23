@@ -18,8 +18,8 @@ import {
 } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, getChildXpriv, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
-import { getMainchainClient, getMainchainClients, getMining } from '../stores/mainchain.ts';
-import { createDeferred, IDeferred } from './Utils.ts';
+import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
+import { createDeferred, getPercent, IDeferred, percentOf } from './Utils.ts';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
@@ -27,7 +27,7 @@ import { Vaults } from './Vaults.ts';
 import { IVaultStats } from '../interfaces/IVaultStats.ts';
 import { toRaw } from 'vue';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { bigIntMax, bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 
@@ -47,6 +47,7 @@ export class MyVault {
     nextCollectDueDate: number;
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
     currentFrameId: number;
+    prebondedMicrogons: bigint;
   };
 
   public get createdVault(): Vault | null {
@@ -84,6 +85,7 @@ export class MyVault {
       pendingCosignUtxoIds: new Set(),
       nextCollectDueDate: 0,
       currentFrameId: 0,
+      prebondedMicrogons: 0n,
     };
     this.vaults = vaults;
   }
@@ -170,6 +172,10 @@ export class MyVault {
     const sub5 = await client.query.miningSlot.nextFrameId(frameId => {
       this.data.currentFrameId = frameId.toNumber() - 1;
       void this.updateCollectDueDate();
+    });
+
+    const sub6 = await client.query.treasury.prebondedByVaultId(vaultId, prebonded => {
+      this.data.prebondedMicrogons = prebonded.isSome ? prebonded.unwrap().amountUnbonded.toBigInt() : 0n;
     });
 
     this.#subscriptions.push(sub, sub2, sub3, sub4, sub5);
@@ -695,14 +701,18 @@ export class MyVault {
   }
 
   public async increaseVaultAllocations(args: {
-    newAllocation: bigint;
+    freeBalance: bigint;
     rules: IVaultingRules;
     argonKeyring: KeyringPair;
     tip?: bigint;
-  }): Promise<{ txResult: TxResult; amountUsed: bigint }> {
-    const { argonKeyring, tip = 0n, newAllocation } = args;
+  }): Promise<{ txResult?: TxResult; newlyAllocated: bigint }> {
+    const { argonKeyring, tip = 0n, rules, freeBalance } = args;
+
     const { microgonsForSecuritization, microgonsForTreasury } = MyVault.getMicrogonSplit(
-      args.rules,
+      {
+        ...rules,
+        baseMicrogonCommitment: rules.baseMicrogonCommitment + freeBalance,
+      },
       this.metadata?.operationalFeeMicrogons ?? 0n,
     );
     const vault = this.createdVault;
@@ -716,17 +726,20 @@ export class MyVault {
       ? activeTreasuryFunds.maxAmountPerFrame * 10n
       : activeTreasuryFunds.active;
 
-    const securitizationChange = bigIntMax(0n, microgonsForSecuritization - vault.securitization);
-    const treasuryChange = bigIntMax(microgonsForTreasury - amountAllocatedToTreasury);
-    const toAllocate = securitizationChange + treasuryChange;
+    const securitizationShortage = bigIntMax(0n, microgonsForSecuritization - vault.securitization);
+    const treasuryShortage = bigIntMax(0n, microgonsForTreasury - amountAllocatedToTreasury);
+    const totalFundsToAllocate = securitizationShortage + treasuryShortage;
 
-    const securitizationToAllocate = bigNumberToBigInt(
-      BigNumber(securitizationChange).dividedBy(toAllocate).times(newAllocation),
-    );
-    let treasuryToAllocate = bigNumberToBigInt(BigNumber(treasuryChange).dividedBy(toAllocate).times(newAllocation));
-    if (treasuryToAllocate + securitizationToAllocate > newAllocation) {
-      treasuryToAllocate = newAllocation - securitizationToAllocate;
+    // if this is less than a minimum fee amount, skip allocation
+    if (totalFundsToAllocate <= 25_000n) {
+      return { newlyAllocated: 0n };
     }
+
+    const securitizationPercent = getPercent(securitizationShortage, totalFundsToAllocate);
+
+    const availableFunds = bigIntMin(freeBalance, totalFundsToAllocate);
+    const securitizationToAllocate = percentOf(availableFunds, securitizationPercent);
+    const treasuryToAllocate = availableFunds - securitizationToAllocate;
 
     const txs = [];
 
@@ -739,9 +752,17 @@ export class MyVault {
       txs.push(tx);
     }
     if (treasuryToAllocate > 0n) {
-      const tx = client.tx.treasury.vaultOperatorPrebond(vault.vaultId, amountAllocatedToTreasury + treasuryToAllocate);
+      const tx = client.tx.treasury.vaultOperatorPrebond(
+        vault.vaultId,
+        (amountAllocatedToTreasury + treasuryToAllocate) / 10n,
+      );
       txs.push(tx);
     }
+
+    console.log(
+      'Allocating additional vault funds',
+      txs.map(x => x.toHuman()),
+    );
 
     const txResult = await this.submitOneOrMoreTx(txs, {
       client,
@@ -752,7 +773,7 @@ export class MyVault {
         metadata.prebondedMicrogonsAtTick = tick;
       },
     });
-    return { txResult, amountUsed: treasuryToAllocate + securitizationToAllocate };
+    return { txResult, newlyAllocated: treasuryToAllocate + securitizationToAllocate };
   }
 
   private async submitOneOrMoreTx(
@@ -817,13 +838,17 @@ export class MyVault {
 
   public static getMicrogonSplit(rules: IVaultingRules, existingFees: bigint = 0n) {
     const estimatedOperationalFees = existingFees + FEE_ESTIMATE;
-    const microgonsForVaulting = rules.baseMicrogonCommitment - estimatedOperationalFees;
-    const microgonsForSecuritization = BigInt(
-      BigNumber(rules.capitalForSecuritizationPct).div(100).times(microgonsForVaulting).toFixed(),
+    const operationalReserves = 200_000n;
+    const microgonsForVaulting = bigIntMax(
+      rules.baseMicrogonCommitment - estimatedOperationalFees - operationalReserves,
+      0n,
+    );
+    const microgonsForSecuritization = bigNumberToBigInt(
+      BigNumber(rules.capitalForSecuritizationPct).div(100).times(microgonsForVaulting),
     );
 
-    const microgonsForTreasury = BigInt(
-      BigNumber(rules.capitalForTreasuryPct).div(100).times(microgonsForVaulting).toFixed(),
+    const microgonsForTreasury = bigNumberToBigInt(
+      BigNumber(rules.capitalForTreasuryPct).div(100).times(microgonsForVaulting),
     );
     return {
       microgonsForVaulting,
