@@ -1,8 +1,8 @@
 {
-  "name": "@argonprotocol/commander-core",
+  "name": "@argonprotocol/apps-core",
   "private": true,
   "version": "0.0.1",
-  "description": "An api for integration with commander",
+  "description": "A core library used by both the mining bot and src-vue",
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {

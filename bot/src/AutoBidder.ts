@@ -5,7 +5,7 @@ import {
   type IBiddingRules,
   MainchainClients,
   MiningBids,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { type Storage } from './Storage.ts';
 import { type History, SeatReductionReason } from './History.ts';
 

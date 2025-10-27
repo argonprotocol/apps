@@ -10,7 +10,7 @@ import { useCurrency } from './currency.ts';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
 import { IWallet as IWalletBasic, WalletBalances } from '../lib/WalletBalances.ts';
-import { MiningFrames } from '@argonprotocol/commander-core';
+import { MiningFrames } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 
 const config = useConfig();

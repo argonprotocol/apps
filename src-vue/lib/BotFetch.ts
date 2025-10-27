@@ -8,7 +8,7 @@ import {
   type IHistoryFile,
   type IBitcoinBlockMeta,
   JsonExt,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { BotServerError, BotServerIsLoading, BotServerIsSyncing } from '../interfaces/BotErrors.ts';
 import { SSH } from './SSH.ts';
 import { fetch } from '@tauri-apps/plugin-http';

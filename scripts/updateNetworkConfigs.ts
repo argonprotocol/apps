@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as Path from 'path';
 import NetworkConfig from '../core/network.config.json';
 import { ArgonClient, getClient } from '@argonprotocol/mainchain';
-import { MiningFrames } from '@argonprotocol/commander-core';
+import { MiningFrames } from '@argonprotocol/apps-core';
 
 const ARGON_NETWORK_NAME = process.env.ARGON_NETWORK_NAME;
 const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;

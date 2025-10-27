@@ -2,7 +2,7 @@ import { ArgonClient, ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { MainchainClients, StorageFinder, TransactionFees } from '@argonprotocol/commander-core';
+import { MainchainClients, StorageFinder, TransactionFees } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';

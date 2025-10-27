@@ -106,7 +106,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import CopyIcon from '../../assets/copy.svg?component';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import { createNumeralHelpers } from '../../lib/numeral';
-import { bigIntMax } from '@argonprotocol/commander-core/src/utils';
+import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 
 const props = defineProps({
   walletId: {

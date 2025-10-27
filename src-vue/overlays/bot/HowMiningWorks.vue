@@ -251,7 +251,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { getMining } from '../../stores/mainchain';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { useCurrency } from '../../stores/currency';
-import { type IWinningBid } from '@argonprotocol/commander-core';
+import { type IWinningBid } from '@argonprotocol/apps-core';
 import { ArrowRightCircleIcon } from '@heroicons/vue/24/outline';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 

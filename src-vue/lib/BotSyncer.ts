@@ -7,7 +7,7 @@ import {
   type IBotStateStarting,
   type IFrameEarningsRollup,
   MiningFrames,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { getMining } from '../stores/mainchain';
 import { BotServerIsLoading, BotServerIsSyncing } from '../interfaces/BotErrors';
 import { IBotEmitter } from './Bot';

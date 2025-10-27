@@ -48,7 +48,7 @@ rsync -av --delete \
   --exclude .git \
   --exclude target \
   -e "ssh -F $HOME/.lima/tauri-webdriver/ssh.config" \
-  ../ lima-tauri-webdriver:./commander/
+  ../ lima-tauri-webdriver:./apps/
 
 SYNC_ONLY=${SYNC_ONLY:-0}
 if [ "$SYNC_ONLY" -eq 1 ]; then
@@ -56,11 +56,11 @@ if [ "$SYNC_ONLY" -eq 1 ]; then
   exit 0
 fi
 
-limactl shell tauri-webdriver -- bash -lc "sudo rm -rf ~/.config/com.argon.commander"
+limactl shell tauri-webdriver -- bash -lc "sudo rm -rf ~/.config/com.argon.apps"
 echo "Running tests inside Lima VM..."
 # Install deps + run tests
 limactl shell tauri-webdriver -- bash -lc "
-  cd ./commander &&
+  cd ./apps &&
   yarn install &&
   cd ./e2e &&
   yarn install && yarn test

@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { JsonExt, type ILastModifiedAt } from '@argonprotocol/commander-core';
+import { JsonExt, type ILastModifiedAt } from '@argonprotocol/apps-core';
 import Queue from 'p-queue';
 
 export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {

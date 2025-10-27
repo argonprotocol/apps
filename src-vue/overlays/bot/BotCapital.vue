@@ -89,7 +89,7 @@ import { createNumeralHelpers } from '../../lib/numeral';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
 import { useConfig } from '../../stores/config';
-import { IBiddingRules, SeatGoalInterval, SeatGoalType } from '@argonprotocol/commander-core';
+import { IBiddingRules, SeatGoalInterval, SeatGoalType } from '@argonprotocol/apps-core';
 
 const props = defineProps<{
   align?: 'start' | 'end' | 'center';

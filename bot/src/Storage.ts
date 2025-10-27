@@ -8,7 +8,7 @@ import {
   type IEarningsFile,
   type IHistoryFile,
   MiningFrames,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { JsonStore } from './JsonStore.ts';
 
 export class Storage {

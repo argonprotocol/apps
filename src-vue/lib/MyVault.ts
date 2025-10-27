@@ -27,7 +27,7 @@ import { Vaults } from './Vaults.ts';
 import { IVaultStats } from '../interfaces/IVaultStats.ts';
 import { toRaw } from 'vue';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 

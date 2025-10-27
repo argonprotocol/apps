@@ -1,5 +1,5 @@
 import { Command } from '@commander-js/extra-typings';
-import { filterUndefined, miniSecretFromUri, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { filterUndefined, miniSecretFromUri, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { mnemonicGenerate, waitForLoad } from '@argonprotocol/mainchain';
 import { printTable } from 'console-table-printer';
 import { writeFileSync } from 'node:fs';

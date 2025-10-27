@@ -6,7 +6,7 @@ import {
   TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { describeIntegration, sudo, teardown } from '@argonprotocol/testing';
-import { Accountset, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { Accountset, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 

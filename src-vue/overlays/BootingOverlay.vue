@@ -69,7 +69,7 @@ import { useConfig } from '../stores/config';
 import Draggable from './helpers/Draggable.ts';
 import { ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
 import { SSH } from '../lib/SSH.ts';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);

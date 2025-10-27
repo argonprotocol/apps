@@ -2,7 +2,7 @@ import { Config } from './Config';
 import { IConfigServerDetails } from '../interfaces/IConfig';
 import { InvokeTimeout } from './tauriApi';
 import { SSHConnection } from './SSHConnection';
-import { IBiddingRules } from '@argonprotocol/commander-core';
+import { IBiddingRules } from '@argonprotocol/apps-core';
 import { Server } from './Server';
 
 export interface ITryServerData {

@@ -69,7 +69,7 @@ import {
   BiddingCalculatorData,
   BiddingParamsHelper,
   MiningFrames,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter';
 import { getMining } from '../../stores/mainchain';
 import { useCurrency } from '../../stores/currency';

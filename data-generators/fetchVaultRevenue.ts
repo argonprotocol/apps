@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'path';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { JsonExt, MainchainClients, NetworkConfig, PriceIndex } from '@argonprotocol/commander-core';
+import { JsonExt, MainchainClients, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
 import { Vaults } from '../src-vue/lib/Vaults.ts';
 import { setMainchainClients } from '../src-vue/stores/mainchain.ts';
 

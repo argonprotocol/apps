@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Investor Console - Experimental",
-  "identifier": "com.argon.commander.experimental",
+  "identifier": "com.argon.apps.experimental",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ2NjE2QzAzOTJGMDQ4MzgKUldRNFNQQ1NBMnhoMW9IWDIrWDREOVpDZnpqYjhUdGM5RW01eDdsM3phYmRtQWVleCtFaXlJOWoK",
       "endpoints": [
-        "https://github.com/argonprotocol/commander/releases/download/channel-experimental/latest-experimental.json"
+        "https://github.com/argonprotocol/apps/releases/download/channel-experimental/latest-experimental.json"
       ]
     }
   },

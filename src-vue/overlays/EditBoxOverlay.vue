@@ -82,8 +82,8 @@ import VaultPoolRevenueShare from './edit-box/VaultPoolRevenueShare.vue';
 import VaultSecuritizationRatio from './edit-box/VaultSecuritizationRatio.vue';
 import VaultPersonalBtc from './edit-box/VaultPersonalBtc.vue';
 import { useConfig } from '../stores/config';
-import { JsonExt } from '@argonprotocol/commander-core';
-import { IBiddingRules } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
+import { IBiddingRules } from '@argonprotocol/apps-core';
 import VaultTreasuryFunding from './edit-box/VaultTreasuryFunding.vue';
 
 const props = defineProps<{

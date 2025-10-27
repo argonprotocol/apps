@@ -44,7 +44,7 @@ import * as Vue from 'vue';
 import { useConfig } from '../../stores/config';
 import { save as saveFileOverlay } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import { IRecoveryFile } from '../../interfaces/IRecoveryFile.ts';
 
 const config = useConfig();
@@ -55,7 +55,7 @@ const emit = defineEmits(['close', 'goTo']);
 
 async function exportAccount() {
   const filePath = await saveFileOverlay({
-    defaultPath: 'argon-commander-recovery.json',
+    defaultPath: 'argon-apps-recovery.json',
     filters: [{ name: 'JSON', extensions: ['json'] }],
   });
   if (!filePath) return; // user cancelled

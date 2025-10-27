@@ -71,7 +71,7 @@ import { useConfig } from '../stores/config';
 import { getVaultCalculator } from '../stores/mainchain';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import VaultSettings from '../components/VaultSettings.vue';

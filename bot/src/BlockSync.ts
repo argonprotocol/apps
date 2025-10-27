@@ -22,7 +22,7 @@ import {
   Mining,
   MiningFrames,
   PriceIndex,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { type Storage } from './Storage.ts';
 import { JsonStore } from './JsonStore.ts';
 import { Dockers } from './Dockers.ts';

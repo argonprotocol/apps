@@ -84,8 +84,8 @@ import {
   BiddingCalculatorData,
   BiddingParamsHelper,
   MiningFrames,
-} from '@argonprotocol/commander-core';
-import { type IWinningBid } from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
+import { type IWinningBid } from '@argonprotocol/apps-core';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
@@ -94,7 +94,7 @@ import { getMining } from '../../stores/mainchain';
 import { useStats } from '../../stores/stats';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { useWallets } from '../../stores/wallets';
-import { bigIntMin } from '@argonprotocol/commander-core/src/utils';
+import { bigIntMin } from '@argonprotocol/apps-core/src/utils';
 
 dayjs.extend(utc);
 

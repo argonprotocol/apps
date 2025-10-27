@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import dayjs, { extend as dayJsExtend, Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { type ArgonClient } from '@argonprotocol/commander-core';
+import { type ArgonClient } from '@argonprotocol/apps-core';
 import { getMining, getMainchainClient } from './mainchain.ts';
 import { getAuthorFromHeader, Header } from '@argonprotocol/mainchain';
 

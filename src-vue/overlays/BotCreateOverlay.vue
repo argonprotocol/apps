@@ -183,9 +183,9 @@ import {
   JsonExt,
   SeatGoalInterval,
   SeatGoalType,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
-import { bigIntCeil, bigNumberToInteger, ceilTo } from '@argonprotocol/commander-core/src/utils';
+import { bigIntCeil, bigNumberToInteger, ceilTo } from '@argonprotocol/apps-core/src/utils';
 import InputArgon from '../components/InputArgon.vue';
 import NeedMoreCapitalHover from './bot/NeedMoreCapitalHover.vue';
 import ReturnsOverlay from './bot/BotReturns.vue';

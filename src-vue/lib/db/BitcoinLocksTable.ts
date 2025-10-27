@@ -1,6 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { IBitcoinLock } from '@argonprotocol/mainchain';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { IMempoolFundingStatus, IMempoolReleaseStatus } from '../BitcoinLocksStore.ts';
 

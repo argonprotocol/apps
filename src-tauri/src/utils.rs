@@ -14,7 +14,7 @@ pub struct Utils;
 
 impl Utils {
     pub fn get_instance_name() -> String {
-        if let Ok(instance) = std::env::var("COMMANDER_INSTANCE") {
+        if let Ok(instance) = std::env::var("ARGON_APP_INSTANCE") {
             if let Some(name) = instance.split(':').next() {
                 return name.to_string();
             }
@@ -89,7 +89,7 @@ impl Utils {
 
     #[allow(unused)]
     pub fn get_key_from_keychain() -> Result<String> {
-        let key_entry = keyring::Entry::new("argon-commander", "db_key")?;
+        let key_entry = keyring::Entry::new("argon-apps", "db_key")?;
         let key = match key_entry.get_password() {
             Ok(k) => k,
             Err(_) => {

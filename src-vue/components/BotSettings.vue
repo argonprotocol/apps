@@ -275,10 +275,10 @@ import {
   BidAmountFormulaType,
   SeatGoalType,
   type IBiddingRules,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../overlays/EditBoxOverlay.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
-import { bigIntAbs } from '@argonprotocol/commander-core/src/utils';
+import { bigIntAbs } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain';
 import Tooltip from '../components/Tooltip.vue';
 

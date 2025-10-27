@@ -138,7 +138,7 @@ async function relaunchApp() {
 }
 
 function openReleaseNotes() {
-  tauriOpenUrl('https://github.com/argonprotocol/commander/tree/main/RELEASE_NOTES.md')
+  tauriOpenUrl('https://github.com/argonprotocol/apps/tree/main/RELEASE_NOTES.md')
     .then(() => console.log('Release notes opened'))
     .catch(e => console.error('Error opening release notes', e));
 }

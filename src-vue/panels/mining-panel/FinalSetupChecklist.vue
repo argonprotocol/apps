@@ -178,7 +178,7 @@ import { useCurrency } from '../../stores/currency';
 import Checkbox from '../../components/Checkbox.vue';
 import { useInstaller } from '../../stores/installer';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
-import { bigIntMax } from '@argonprotocol/commander-core/src/utils';
+import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
 import BotReturns from '../../overlays/bot/BotReturns.vue';

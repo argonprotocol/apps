@@ -1,4 +1,4 @@
-import { TreasuryPool, VaultMonitor } from '@argonprotocol/commander-core';
+import { TreasuryPool, VaultMonitor } from '@argonprotocol/apps-core';
 import { accountsetFromCli } from './index.js';
 import { formatArgons, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { Command } from '@commander-js/extra-typings';

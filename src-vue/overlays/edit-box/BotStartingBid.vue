@@ -52,7 +52,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/commander-core';
+import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/apps-core';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputNumber from '../../components/InputNumber.vue';

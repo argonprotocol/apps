@@ -65,7 +65,7 @@
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     class="py-2"
-                    @click="() => void openLink('https://github.com/argonprotocol/commander/issues')">
+                    @click="() => void openLink('https://github.com/argonprotocol/apps/issues')">
                     <header>GitHub Developer Community</header>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />

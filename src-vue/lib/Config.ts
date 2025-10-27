@@ -18,7 +18,7 @@ import {
   miniSecretFromUri,
   SeatGoalInterval,
   SeatGoalType,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { createDeferred, ensureOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';

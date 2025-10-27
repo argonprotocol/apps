@@ -1,4 +1,4 @@
-import { Accountset, ArgonClient, MainchainClients, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { Accountset, ArgonClient, MainchainClients, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { FrameSystemAccountInfo, KeyringPair, PalletBalancesAccountData } from '@argonprotocol/mainchain';
 import { createDeferred } from './Utils';
 import {
@@ -6,7 +6,7 @@ import {
   IMiningAccountPreviousHistoryRecord,
   IMiningAccountPreviousHistorySeat,
 } from '../interfaces/IConfig';
-import { FrameIterator } from '@argonprotocol/commander-core/src/FrameIterator.ts';
+import { FrameIterator } from '@argonprotocol/apps-core/src/FrameIterator.ts';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import { VaultRecoveryFn } from './MyVaultRecovery.ts';
 
