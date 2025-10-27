@@ -6,7 +6,7 @@ import vaultCli from './vaultCli.js';
 import miningCli from './miningCli.js';
 import treasuryCli from './treasuryCli.js';
 import bitcoinCli from './bitcoinCli.js';
-import { Accountset, MiningFrames, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { Accountset, MiningFrames, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { getClient, keyringFromSuri, type KeyringPair } from '@argonprotocol/mainchain';
 import { keyringFromFile, saveKeyringPair } from './keyringStore.js';
 

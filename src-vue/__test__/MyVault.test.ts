@@ -1,8 +1,8 @@
 import { Keyring, mnemonicGenerate, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { describeIntegration, teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, PriceIndex } from '@argonprotocol/commander-core';
+import { MainchainClients, MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { startArgonTestNetwork } from '@argonprotocol/commander-core/__test__/startArgonTestNetwork.js';
+import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';

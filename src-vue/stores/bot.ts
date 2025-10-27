@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import { getDbPromise } from './helpers/dbPromise';
-import handleUnknownFatalError from './helpers/handleUnknownFatalError';
+import handleFatalError from './helpers/handleFatalError';
 import { Bot } from '../lib/Bot';
 import { useConfig, Config } from './config';
 import { useInstaller, Installer } from './installer';
@@ -16,7 +16,7 @@ export function useBot(): Vue.Reactive<Bot> {
     const installer = useInstaller();
     const dbPromise = getDbPromise();
     bot = Vue.reactive(new Bot(config as Config, dbPromise));
-    bot.load(installer as Installer).catch(handleUnknownFatalError);
+    bot.load(installer as Installer).catch(handleFatalError.bind('useBot'));
   }
 
   return bot;

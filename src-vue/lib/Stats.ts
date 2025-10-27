@@ -1,14 +1,14 @@
 import BigNumber from 'bignumber.js';
-import { bigNumberToBigInt, type IBidsFile, IBotActivity, type IWinningBid } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, type IBidsFile, IBotActivity, type IWinningBid } from '@argonprotocol/apps-core';
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
 import { Config } from './Config';
-import { bigIntMax } from '@argonprotocol/commander-core/src/utils';
+import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import { botEmitter } from './Bot';
 import { createDeferred, ensureOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
-import { MiningFrames } from '@argonprotocol/commander-core/src/MiningFrames';
+import { MiningFrames } from '@argonprotocol/apps-core/src/MiningFrames';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 
 interface IMyMiningSeats {

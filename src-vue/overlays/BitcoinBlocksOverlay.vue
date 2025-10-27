@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { type IBitcoinBlockMeta } from '@argonprotocol/commander-core';
+import { type IBitcoinBlockMeta } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { useCurrency } from '../stores/currency.ts';
 import numeral from 'numeral';

@@ -57,10 +57,10 @@ import { useCurrency } from '../stores/currency';
 import { getMining, getMainchainClient } from '../stores/mainchain';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { useStats } from '../stores/stats';
-import { type IBidsFile } from '@argonprotocol/commander-core';
+import { type IBidsFile } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral';
 import { TICK_MILLIS } from '../lib/Env.ts';
-import { Accountset } from '@argonprotocol/commander-core';
+import { Accountset } from '@argonprotocol/apps-core';
 import { useConfig } from '../stores/config.ts';
 
 dayjs.extend(utc);

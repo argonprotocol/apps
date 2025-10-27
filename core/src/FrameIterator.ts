@@ -5,7 +5,6 @@ import {
   type BlockHash,
   getTickFromHeader,
   type Header as BlockHeader,
-  type u64,
 } from '@argonprotocol/mainchain';
 import { LRU } from 'tiny-lru';
 import { MiningFrames } from './MiningFrames.js';
@@ -91,7 +90,10 @@ export class FrameIterator {
     }
   }
 
-  public async forEachFrame<T>(callback: ICallbackForFrame<T>, performBlockStartFidelityCheck = false): Promise<T[]> {
+  public async iterateFramesLimited<T>(
+    callback: ICallbackForFrame<T>,
+    performBlockStartFidelityCheck = false,
+  ): Promise<T[]> {
     const archiveClient = await this.clients.archiveClientPromise;
     const abortController = new AbortController();
     const seenFrames = new Set<number>();
@@ -143,13 +145,13 @@ export class FrameIterator {
     return results;
   }
 
-  public async forEachFrameAll<T>(callback: ICallbackForFrameAll<T>): Promise<T[]> {
+  public async iterateFramesAll<T>(callback: ICallbackForFrameAll<T>): Promise<T[]> {
     const seenFrameIds = new Set<number>();
 
     let currentBlockNumber = 0;
     let currentFrameId = 0;
 
-    const results: T[] = await this.forEachFrame(
+    const results: T[] = await this.iterateFramesLimited(
       async (
         frameId: number,
         firstBlockMeta: ICallbackFirstBlockMeta,
@@ -389,9 +391,6 @@ export class FrameIterator {
       let frameId = -1;
       if (specVersion >= 124) {
         frameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-      } else if (specVersion >= 123) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        frameId = await (api.query.miningSlot as any).nextCohortFrameId().then((x: u64) => x.toNumber() - 1);
       }
       blockAndApi = { blockHash, api, tick, frameId, specVersion };
       FrameIterator.cachedApiByBlockNumber.set(blockNumber, blockAndApi);

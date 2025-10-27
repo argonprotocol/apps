@@ -11,7 +11,7 @@ import {
   JsonExt,
   FatalError,
   MainchainClients,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { History } from './History.ts';
 
 interface IBotOptions {

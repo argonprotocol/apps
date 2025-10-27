@@ -1,5 +1,5 @@
 [package]
-name = "Commander"
+name = "Argon"
 version = "0.1.0"
 description = "Desktop management app for Argon"
 authors = ["Caleb Clark", "Blake Byrnes"]
@@ -14,9 +14,9 @@ edition = "2024"
 members = []
 
 [workspace.metadata.tauri]
-bundle.identifier = "com.argon.commander"
-bundle.name = "Argon Commander"   # This is used as CFBundleName
-bundle.short_name = "Argon Commander"     # Optional, but can affect UI display
+bundle.identifier = "com.argon.apps"
+bundle.name = "Argon Investor Console"   # This is used as CFBundleName
+bundle.short_name = "Argon Investor Console"     # Optional, but can affect UI display
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,7 +27,7 @@ cargo-clippy = []
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "argon_commander_lib"
+name = "argon_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

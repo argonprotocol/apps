@@ -1,4 +1,4 @@
-import type { IBotStateError, IBotStateStarting } from '@argonprotocol/commander-core';
+import type { IBotStateError, IBotStateStarting } from '@argonprotocol/apps-core';
 
 export class BotServerIsLoading extends Error {
   constructor(public data: IBotStateStarting) {

@@ -21,12 +21,12 @@ export default async function menuStart() {
   const bot = useBot();
   const tour = useTour();
 
-  const commanderMenu = await Submenu.new({
-    text: 'Commander',
+  const mainMenu = await Submenu.new({
+    text: 'Investor Console',
     items: [
       {
         id: 'about',
-        text: 'About Commander',
+        text: 'About Investor Console',
         action: openAboutOverlay,
       },
       {
@@ -48,7 +48,7 @@ export default async function menuStart() {
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'quit',
-        text: 'Quit Commander',
+        text: 'Quit Investor Console',
         accelerator: 'CmdOrCtrl+Q',
         action: () => void tauriExit(),
       },
@@ -189,7 +189,7 @@ export default async function menuStart() {
       {
         id: 'github-community',
         text: 'GitHub Developer Community',
-        action: () => void tauriOpenUrl('https://github.com/argonprotocol/commander/issues'),
+        action: () => void tauriOpenUrl('https://github.com/argonprotocol/apps/issues'),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
@@ -201,7 +201,7 @@ export default async function menuStart() {
   });
 
   const menu = await Menu.new({
-    items: [commanderMenu, editMenu, miningMenu, vaultingMenu, windowMenu, helpMenu],
+    items: [mainMenu, editMenu, miningMenu, vaultingMenu, windowMenu, helpMenu],
   });
 
   function updateMiningMenu() {

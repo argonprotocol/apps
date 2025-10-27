@@ -6,7 +6,7 @@ import {
   type IHistoryFile,
   JsonExt,
   MiningFrames,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import type { Storage } from './Storage.ts';
 import Queue from 'p-queue';
 import { LRU } from 'tiny-lru';

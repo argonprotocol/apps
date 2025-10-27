@@ -5,7 +5,7 @@ import { LocalMachine } from './LocalMachine';
 import { SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
 import { SSHFingerprint } from './SSHFingerprint';
-import { IS_TEST } from './Env';
+import { INSTANCE_NAME, NETWORK_NAME, IS_TEST } from './Env';
 
 export class MiningMachineError extends Error {
   constructor(message: string) {
@@ -76,6 +76,7 @@ export class MiningMachine {
     }
 
     const apiKeyFingerprint = SSHFingerprint.createMD5(sshPublicKey);
+    const dropletName = `Argon-Investor-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
     const createRes = await fetch('https://api.digitalocean.com/v2/droplets', {
       method: 'POST',
       headers: {
@@ -84,7 +85,7 @@ export class MiningMachine {
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        name: 'Argon-Commander',
+        name: dropletName,
         region: 'sfo3',
         size: 's-4vcpu-8gb',
         image: 'ubuntu-25-04-x64',

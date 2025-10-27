@@ -6,7 +6,7 @@ import {
   MainchainClients,
   Mining,
   PriceIndex,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { ApiDecoration } from '@argonprotocol/mainchain';
 import { NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
 import { useConfig } from './config';

@@ -11,7 +11,7 @@ import {
   type IBotStateStarting,
   MiningFrames,
   NetworkConfig,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import os from 'node:os';
 import { promises as Fs } from 'node:fs';
 

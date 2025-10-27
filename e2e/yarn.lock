@@ -5,9 +5,9 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"@argonprotocol/commander-e2e@workspace:.":
+"@argonprotocol/apps-e2e@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@argonprotocol/commander-e2e@workspace:."
+  resolution: "@argonprotocol/apps-e2e@workspace:."
   dependencies:
     "@argonprotocol/mainchain": "npm:^1.3.11"
     "@wdio/cli": "npm:9.19.2"

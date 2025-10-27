@@ -2,7 +2,7 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotSyncer, BotStatus } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { type IBidsFile } from '@argonprotocol/commander-core';
+import { type IBidsFile } from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';

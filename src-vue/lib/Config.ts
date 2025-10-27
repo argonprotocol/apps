@@ -18,7 +18,7 @@ import {
   miniSecretFromUri,
   SeatGoalInterval,
   SeatGoalType,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { createDeferred, ensureOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
@@ -202,6 +202,8 @@ export class Config {
     } catch (e) {
       this._loadedDeferred.reject(e);
     }
+
+    return this._loadedDeferred.promise;
   }
 
   get masterAccount(): KeyringPair {
@@ -885,5 +887,20 @@ const defaults: IConfigDefaults = {
     };
   },
   defaultCurrencyKey: () => CurrencyKey.ARGN,
-  userJurisdiction: getUserJurisdiction,
+  userJurisdiction: async () => {
+    try {
+      return await getUserJurisdiction();
+    } catch (error) {
+      console.error('Error getting user jurisdiction:', error);
+      return {
+        ipAddress: '',
+        city: '',
+        region: '',
+        countryName: '',
+        countryCode: '',
+        latitude: '',
+        longitude: '',
+      };
+    }
+  },
 };

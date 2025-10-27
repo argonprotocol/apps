@@ -1,6 +1,6 @@
 import { type ArgonClient, getClient, Keyring, mnemonicGenerate, Vault } from '@argonprotocol/mainchain';
 import { describeIntegration, teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, StorageFinder, TransactionFees } from '@argonprotocol/commander-core';
+import { MainchainClients, MiningFrames, StorageFinder, TransactionFees } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, it, expect } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';

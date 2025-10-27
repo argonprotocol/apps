@@ -1,6 +1,6 @@
 import { Command } from '@commander-js/extra-typings';
 import { printTable } from 'console-table-printer';
-import { CohortBidder, MiningBids } from '@argonprotocol/commander-core';
+import { CohortBidder, MiningBids } from '@argonprotocol/apps-core';
 import { formatArgons, getClient, type KeyringPair, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
 
 import { accountsetFromCli, globalOptions, saveKeyringPair } from './index.js';

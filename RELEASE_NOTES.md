@@ -21,6 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0-rc1] - 2024-08-19
 
 ### Added
-- Initial release of the commander app
+- Initial release of the investor console app
 - Ability to launch a mining node and bidding bot
 - Earnings dashboard

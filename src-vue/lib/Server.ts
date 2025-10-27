@@ -1,5 +1,5 @@
 import { parse as parseEnv } from 'dotenv';
-import { IBiddingRules, JsonExt } from '@argonprotocol/commander-core';
+import { IBiddingRules, JsonExt } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';

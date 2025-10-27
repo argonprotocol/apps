@@ -1,6 +1,5 @@
 import { Vaults } from '../lib/Vaults';
 import { getDbPromise } from './helpers/dbPromise';
-import handleUnknownFatalError from './helpers/handleUnknownFatalError';
 import { MyVault } from '../lib/MyVault.ts';
 import { reactive } from 'vue';
 import { NETWORK_NAME } from './config.ts';

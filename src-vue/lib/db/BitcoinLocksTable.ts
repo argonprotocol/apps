@@ -1,7 +1,8 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { IBitcoinLock } from '@argonprotocol/mainchain';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
+import { IMempoolFundingStatus, IMempoolReleaseStatus } from '../BitcoinLocksStore.ts';
 
 export interface IRatchet {
   mintAmount: bigint;
@@ -15,6 +16,7 @@ export interface IRatchet {
 }
 
 export enum BitcoinLockStatus {
+  LockInitializing = 'LockInitializing', // Initializing the lock
   LockInitialized = 'LockInitialized', // Submitted to the Argon chain & vault's securitization has been locked
   LockVerificationExpired = 'LockVerificationExpired', // The lock expired before it could be verified in argon
   LockProcessingOnBitcoin = 'LockProcessingOnBitcoin', // Found on bitcoin mempool but not in blocks or requires more confirmations
@@ -39,7 +41,9 @@ export interface IBitcoinLockRecord {
   ratchets: IRatchet[]; // array of ratchets
   cosignVersion: string;
   lockDetails: IBitcoinLock;
+  lockMempool?: IMempoolFundingStatus;
   lockProcessingOnBitcoinAtBitcoinHeight?: number;
+  lockProcessingOnBitcoinAtBitcoinTime?: number;
   lockProcessingOnBitcoinAtOracleBitcoinHeight?: number;
   requestedReleaseAtTick?: number;
   releaseBitcoinNetworkFee?: bigint;
@@ -47,6 +51,10 @@ export interface IBitcoinLockRecord {
   releaseCosignVaultSignature?: Uint8Array;
   releaseCosignHeight?: number;
   releasedAtBitcoinHeight?: number;
+  releaseMempool?: IMempoolReleaseStatus;
+  releaseProcessingOnBitcoinAtBitcoinHeight?: number;
+  releaseProcessingOnBitcoinAtBitcoinTime?: number;
+  releaseProcessingOnBitcoinAtOracleBitcoinHeight?: number;
   releasedTxid?: string;
   releaseError?: string;
   network: string;
@@ -133,22 +141,29 @@ export class BitcoinLocksTable extends BaseTable {
 
   async setLockProcessingOnBitcoin(
     lock: IBitcoinLockRecord,
-    data: { bitcoinBlockHeight: number; oracleBitcoinBlockHeight: number },
+    mempoolStatus: IMempoolFundingStatus,
+    oracleBitcoinBlockHeight: number,
   ): Promise<void> {
-    const { bitcoinBlockHeight, oracleBitcoinBlockHeight } = data;
     lock.status = BitcoinLockStatus.LockProcessingOnBitcoin;
-    lock.lockProcessingOnBitcoinAtBitcoinHeight = bitcoinBlockHeight;
-    lock.lockProcessingOnBitcoinAtOracleBitcoinHeight = oracleBitcoinBlockHeight;
+    lock.lockProcessingOnBitcoinAtBitcoinHeight = mempoolStatus.transactionBlockHeight;
+    lock.lockProcessingOnBitcoinAtBitcoinTime = mempoolStatus.transactionBlockTime;
+    lock.lockProcessingOnBitcoinAtOracleBitcoinHeight =
+      lock.lockProcessingOnBitcoinAtOracleBitcoinHeight ?? oracleBitcoinBlockHeight;
+    lock.lockMempool = mempoolStatus;
     await this.db.execute(
       `UPDATE BitcoinLocks SET 
-                status = $4, 
+                status = $6,
                 lockProcessingOnBitcoinAtBitcoinHeight = $2, 
-                lockProcessingOnBitcoinAtOracleBitcoinHeight = $3 
+                lockProcessingOnBitcoinAtBitcoinTime = $3, 
+                lockProcessingOnBitcoinAtOracleBitcoinHeight = $4,
+                lockMempool = $5
              WHERE utxoId = $1`,
       toSqlParams([
         lock.utxoId,
         lock.lockProcessingOnBitcoinAtBitcoinHeight,
+        lock.lockProcessingOnBitcoinAtBitcoinTime,
         lock.lockProcessingOnBitcoinAtOracleBitcoinHeight,
+        lock.lockMempool,
         lock.status,
       ]),
     );
@@ -257,5 +272,10 @@ export class BitcoinLocksTable extends BaseTable {
       'UPDATE BitcoinLocks SET status = $1, releasedAtBitcoinHeight = $2 WHERE utxoId = $3',
       toSqlParams([lock.status, lock.releasedAtBitcoinHeight, lock.utxoId]),
     );
+  }
+
+  async deleteAll(): Promise<void> {
+    await this.db.execute('DELETE FROM BitcoinLockVaultHdSeq', []);
+    await this.db.execute('DELETE FROM BitcoinLocks', []);
   }
 }

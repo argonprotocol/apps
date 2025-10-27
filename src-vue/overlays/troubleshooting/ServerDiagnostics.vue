@@ -19,7 +19,7 @@
       </success>
       <failure>
         Your app database and the mining machine are using different wallet addresses. Somehow you connected a server
-        that is not compatible with the account associated with this Commander app.
+        that is not compatible with the account associated with this app.
       </failure>
     </DiagnosticStep>
 

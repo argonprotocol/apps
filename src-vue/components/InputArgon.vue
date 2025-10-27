@@ -20,7 +20,7 @@ import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
 import { useCurrency } from '../stores/currency';
 import InputNumber from './InputNumber.vue';
-import { bigNumberToBigInt, MICROGONS_PER_ARGON } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 
 const currency = useCurrency();
 

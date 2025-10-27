@@ -7,12 +7,12 @@ import {
   type IBotSyncStatus,
   MainchainClients,
   MiningFrames,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
 import { Storage } from '../src/Storage.js';
 import { Dockers } from '../src/Dockers.js';
-import { startArgonTestNetwork } from '@argonprotocol/commander-core/__test__/startArgonTestNetwork.js';
+import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 
 afterEach(teardown);
 afterAll(teardown);

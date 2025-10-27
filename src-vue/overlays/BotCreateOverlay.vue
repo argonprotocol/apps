@@ -35,7 +35,7 @@
 
             <div v-if="isLoaded" class="flex flex-col grow relative w-full">
               <DialogDescription class="text-gray-600 font-light py-6 pl-10 pr-[6%]">
-                Commander uses an automated bidding bot to maximize your chance of winning seats, and this screen allows you to
+                Investor Console uses an automated bidding bot to maximize your chance of winning seats, and this screen allows you to
                 configure the rules for how this bot should make decisions on your behalf. Use your mouse to explore the various
                 settings and their impact on your potential profits.
                 <PopoverRoot :open="isSuggestingTour">
@@ -183,9 +183,9 @@ import {
   JsonExt,
   SeatGoalInterval,
   SeatGoalType,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
-import { bigIntCeil, bigNumberToInteger, ceilTo } from '@argonprotocol/commander-core/src/utils';
+import { bigIntCeil, bigNumberToInteger, ceilTo } from '@argonprotocol/apps-core/src/utils';
 import InputArgon from '../components/InputArgon.vue';
 import NeedMoreCapitalHover from './bot/NeedMoreCapitalHover.vue';
 import ReturnsOverlay from './bot/BotReturns.vue';

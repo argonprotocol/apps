@@ -26,7 +26,7 @@ import { useConfig } from '../../stores/config';
 import { useCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 import InputNumber from '../../components/InputNumber.vue';
-import { bigNumberToBigInt } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 
 const config = useConfig();

@@ -32,7 +32,7 @@
           </h2>
 
           <p>
-            You are about to remove your mining machine from Argon Commander. This action will not stop any active
+            You are about to remove your mining machine from Argon Investor Console. This action will not stop any active
             processes that are running on the server nor will it delete the server from your cloud provider.
           </p>
 

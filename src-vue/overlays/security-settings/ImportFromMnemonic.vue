@@ -2,7 +2,7 @@
 <template>
   <div class="flex flex-col px-3">
     <p class="text-md text-slate-500">
-      All your data in this Argon Commander app can be entirely recreated from a single account recovery file. Click
+      All your data in this Argon Investor Console app can be entirely recreated from a single account recovery file. Click
       the button below to download. And keep it safe! It contains your account's private key, so don't share it with anyone.
     </p>
 

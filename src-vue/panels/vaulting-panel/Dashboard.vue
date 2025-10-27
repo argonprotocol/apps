@@ -589,8 +589,8 @@ import SuccessIcon from '../../assets/success.svg?component';
 import VaultIcon from '../../assets/vault.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigNumberToBigInt, JsonExt, MiningFrames, TreasuryPool } from '@argonprotocol/commander-core';
-import { bigIntMin } from '@argonprotocol/commander-core/src/utils.ts';
+import { bigIntMax, bigNumberToBigInt, JsonExt, MiningFrames, TreasuryPool } from '@argonprotocol/apps-core';
+import { bigIntMin } from '@argonprotocol/apps-core/src/utils.ts';
 import { ArrowTurnDownRightIcon } from '@heroicons/vue/24/outline';
 import { HoverCardArrow, HoverCardContent, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
@@ -599,7 +599,7 @@ import { toRaw } from 'vue';
 import { IVaultFrameStats } from '../../interfaces/IVaultStats.ts';
 import { getMainchainClient, getMining } from '../../stores/mainchain.ts';
 import { getPercent, percentOf } from '../../lib/Utils.ts';
-import PersonalBitcoin from './PersonalBitcoin.vue';
+import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 
 dayjs.extend(relativeTime);
@@ -728,6 +728,7 @@ const apy = Vue.computed(() => {
   if (framesRemaining > 0) {
     ytdRevenue += stats.baseline.feeRevenue;
   }
+  ytdRevenue = bigIntMax(0n, ytdRevenue - vault.data.pendingCollectRevenue);
   const averageCapitalDeployed =
     capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
   return (Number(ytdRevenue) * 100) / Number(averageCapitalDeployed);
@@ -741,7 +742,7 @@ const revenueMicrogons = Vue.computed(() => {
     sum += change.bitcoinFeeRevenue ?? 0n;
     sum += change.treasuryPool.vaultEarnings ?? 0n;
   }
-  return sum;
+  return sum - vault.data.pendingCollectRevenue;
 });
 
 const showCollectOverlay = Vue.ref(false);

@@ -33,6 +33,6 @@ if (networkName === 'dev-docker') {
   // modifying the bitcoin-regtest.conf to use an `addnode` with a host-accessible docker port
   console.log('------------ NOTE!!! USING DEV-DOCKER CONFIG ------------');
   console.log('Bitcoin can only sync right now if you set:');
-  console.log(' COMMANDER_INSTANCE=e2e ARGON_NETWORK_NAME=dev-docker');
+  console.log(' ARGON_APP_INSTANCE=e2e ARGON_NETWORK_NAME=dev-docker');
   console.log('---------------------------------------------------------');
 }

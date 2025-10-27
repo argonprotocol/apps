@@ -1,4 +1,4 @@
-import { bigNumberToBigInt, JsonExt } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, JsonExt } from '@argonprotocol/apps-core';
 import { IFieldTypes } from './db/BaseTable.ts';
 import { IS_TEST } from './Env.ts';
 import BigNumber from 'bignumber.js';

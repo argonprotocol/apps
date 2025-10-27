@@ -160,7 +160,7 @@ import { useCurrency } from '../stores/currency';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules';
 import InputArgon from '../components/InputArgon.vue';
 import ExistingNetworkVaultsOverlayButton from './ExistingNetworkVaultsOverlayButton.vue';

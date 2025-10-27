@@ -1,5 +1,5 @@
 {
-  "name": "@argonprotocol/commander-e2e",
+  "name": "@argonprotocol/apps-e2e",
   "private": true,
   "type": "module",
   "scripts": {

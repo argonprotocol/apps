@@ -40,11 +40,11 @@ export default defineConfig(async ({ mode }) => {
   const envFile = loadEnv(mode, process.cwd(), '');
   const host = envFile.TAURI_DEV_HOST;
 
-  const instance = (process.env.COMMANDER_INSTANCE || '').split(':');
+  const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
   const instancePort = parseInt(instance[1] || defaultPortString, 10);
 
-  if (envFile.COMMANDER_INSTANCE && envFile.COMMANDER_INSTANCE !== process.env.COMMANDER_INSTANCE) {
-    throw new Error(`⚠️ COMMANDER_INSTANCE must be set on the command line not from inside a .env file`);
+  if (envFile.ARGON_APP_INSTANCE && envFile.ARGON_APP_INSTANCE !== process.env.ARGON_APP_INSTANCE) {
+    throw new Error(`⚠️ ARGON_APP_INSTANCE must be set on the command line not from inside a .env file`);
   }
 
   // Check if the port is available

@@ -1,5 +1,5 @@
 import { Command } from '@commander-js/extra-typings';
-import { VaultMonitor } from '@argonprotocol/commander-core';
+import { VaultMonitor } from '@argonprotocol/apps-core';
 import { BitcoinLocks, formatArgons, hexToU8a, MICROGONS_PER_ARGON, PriceIndex } from '@argonprotocol/mainchain';
 import { accountsetFromCli } from './index.js';
 

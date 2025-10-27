@@ -37,7 +37,7 @@ services:
 
   bitcoin-data:
     <<: *common-config
-    image: ghcr.io/argonprotocol/commander/${BITCOIN_DATA_SLUG}:latest
+    image: ghcr.io/argonprotocol/apps/${BITCOIN_DATA_SLUG}:latest
     platform: linux/amd64
     build:
       context: bitcoin-data
@@ -48,7 +48,7 @@ services:
         - UTXO_HASH=${UTXO_HASH}
         - COMMIT_SHA=${COMMIT_SHA}
       tags:
-        - ghcr.io/argonprotocol/commander/${BITCOIN_DATA_SLUG}:height-${SNAPSHOT_HEIGHT}
+        - ghcr.io/argonprotocol/apps/${BITCOIN_DATA_SLUG}:height-${SNAPSHOT_HEIGHT}
     volumes:
       - $BITCOIN_DATA_FOLDER:/data
     profiles:

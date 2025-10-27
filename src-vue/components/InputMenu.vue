@@ -106,9 +106,7 @@ const triggerInstance = Vue.ref<any>(null);
 
 const menuWidth = Vue.ref('auto');
 
-const selectedOption: Vue.Ref<IOption | undefined> = Vue.ref(
-  props.options.find(x => x.value === props.modelValue) || (props.selectFirst ? props.options[0] : undefined),
-);
+const selectedOption: Vue.Ref<IOption | undefined> = Vue.ref(undefined);
 
 const value = Vue.computed({
   get: () => props.modelValue,
@@ -133,18 +131,26 @@ function handleUpdateModelValue(option: IOption) {
   }
 }
 
-// function toggleMenu() {
-//   if (props.disabled) {
-//     return;
-//   }
-//   showMenu.value = !showMenu.value;
-// }
-
 function handleToggleOpen(isOpen: boolean) {
   const el = triggerInstance.value.$el as HTMLElement;
   const rect = el.getBoundingClientRect();
   menuWidth.value = `${rect.width}px`;
 }
+
+Vue.watch(
+  () => [props.modelValue, props.selectFirst, props.options],
+  () => {
+    const foundOption = props.options.find(x => x.value === props.modelValue);
+    if (foundOption) {
+      selectedOption.value = foundOption;
+    } else if (props.selectFirst && props.options.length > 0) {
+      selectedOption.value = props.options[0];
+    } else {
+      selectedOption.value = undefined;
+    }
+  },
+  { deep: true, immediate: true },
+);
 </script>
 
 <style scoped>

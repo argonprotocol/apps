@@ -50,7 +50,7 @@
             </button>
           </div>
           <div v-else class="text-slate-900 font-md mb-3">
-            <p>This wallet connected to this app seems to have been previously used. We're looking through the blockchain to see if we can find any mining seats or vaults owned by you.</p>
+            <p>The wallet connected to this app seems to have been previously used. We're looking through the chain to see if we can find any mining seats or vaults owned by you.</p>
           </div>
           <ProgressBar :progress="config.walletPreviousHistoryLoadPct" class="mt-3" />
         </div>
@@ -69,7 +69,7 @@ import { useConfig } from '../stores/config';
 import Draggable from './helpers/Draggable.ts';
 import { ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
 import { SSH } from '../lib/SSH.ts';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
