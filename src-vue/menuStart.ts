@@ -82,12 +82,6 @@ export default async function menuStart() {
         text: 'Open Mining Wallet',
         action: () => basicEmitter.emit('openWalletOverlay', { walletId: 'mining', screen: 'receive' }),
       },
-      await PredefinedMenuItem.new({ item: 'Separator' }),
-      {
-        id: 'configure-mining-bot',
-        text: 'Configure Mining Bot',
-        action: () => basicEmitter.emit('openBotCreateOverlay'),
-      },
     ],
   });
 
@@ -103,12 +97,6 @@ export default async function menuStart() {
         id: 'token-transfer-to-vaulting',
         text: 'Open Vaulting Wallet',
         action: () => basicEmitter.emit('openWalletOverlay', { walletId: 'vaulting', screen: 'receive' }),
-      },
-      await PredefinedMenuItem.new({ item: 'Separator' }),
-      {
-        id: 'configure-vault-settings',
-        text: 'Configure Vault Settings',
-        action: () => basicEmitter.emit('openVaultCreateOverlay'),
       },
     ],
   });

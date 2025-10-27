@@ -12,6 +12,7 @@
 
 <script lang="ts">
 export interface IChartItem {
+  id: number;
   date: string;
   score: number;
   isFiller: boolean;
@@ -137,10 +138,11 @@ Vue.watch(
   () => props.chartItems,
   (newItems, oldItems) => {
     chartRef.value?.reloadData(newItems);
-    if (newItems.at(-1)?.date !== oldItems.at(-1)?.date) {
+    if (newItems.at(-1)?.id !== oldItems.at(-1)?.id) {
       updateFrameSliderPos(newItems.length - 1, false);
     }
   },
+  { deep: true },
 );
 
 Vue.onMounted(() => {

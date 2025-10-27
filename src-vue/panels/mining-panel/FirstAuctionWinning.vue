@@ -141,7 +141,7 @@ function handleAuctionClosingTick(totalSecondsRemaining: number) {
 Vue.onMounted(async () => {
   if (!config.biddingRules) return;
 
-  await calculator.isInitializedPromise;
+  await calculator.load();
 
   if (!startOfAuctionClosing.value || !startOfNextCohort.value) {
     const tickAtStartOfAuctionClosing = await mainchain.getTickAtStartOfAuctionClosing();

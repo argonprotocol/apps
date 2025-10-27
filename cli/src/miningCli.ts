@@ -183,7 +183,7 @@ export default function miningCli() {
               maxBid: maxBidAmount,
               minBid: BigInt((minBid ?? 0) * MICROGONS_PER_ARGON),
               bidIncrement: BigInt(Math.floor(bidIncrement * MICROGONS_PER_ARGON)),
-              maxBudget: maxBalanceToUse,
+              sidelinedWalletMicrogons: maxBalanceToUse,
               bidDelay,
             });
             biddersByFrames[cohortStartingFrameId] = cohortBidder;

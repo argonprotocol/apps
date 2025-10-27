@@ -153,7 +153,7 @@ const showInstallerInBackgroundAlert = Vue.computed(() => {
 });
 
 function openBotCreateOverlay() {
-  basicEmitter.emit('openBotCreateOverlay');
+  basicEmitter.emit('openBotEditOverlay');
 }
 
 async function restartDatabase() {

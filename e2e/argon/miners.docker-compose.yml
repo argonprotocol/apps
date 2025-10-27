@@ -18,7 +18,7 @@ services:
         condition: service_healthy
     volumes:
       - miner1-data:/accounts
-    restart: no
+    restart: on-failure
   miner-1-bidder:
     <<: *cli
     command: mining bid --env=/accounts/bob.json --max-bid=0.5 --run-continuous
@@ -35,7 +35,7 @@ services:
         condition: service_healthy
     volumes:
       - miner2-data:/accounts
-    restart: no
+    restart: on-failure
   miner-2-bidder:
     <<: *cli
     command: mining bid --env=/accounts/dave.json --max-bid=2 --max-seats=6 --bid-delay=2 --run-continuous

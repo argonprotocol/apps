@@ -71,7 +71,7 @@ import {
   MiningFrames,
 } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter';
-import { getMining } from '../../stores/mainchain';
+import { getBiddingCalculator, getMining } from '../../stores/mainchain';
 import { useCurrency } from '../../stores/currency';
 import { useStats } from '../../stores/stats';
 import { createNumeralHelpers } from '../../lib/numeral';
@@ -79,7 +79,6 @@ import { createNumeralHelpers } from '../../lib/numeral';
 dayjs.extend(utc);
 
 const mainchain = getMining();
-const stats = useStats();
 const config = useConfig();
 const currency = useCurrency();
 
@@ -90,8 +89,7 @@ const startOfAuctionClosing: Vue.Ref<dayjs.Dayjs | null> = Vue.ref(null);
 const startOfNextCohort: Vue.Ref<dayjs.Dayjs | null> = Vue.ref(null);
 const maxSeatCount = Vue.ref(0);
 
-const calculatorData = new BiddingCalculatorData(getMining());
-const calculator = new BiddingCalculator(calculatorData, config.biddingRules);
+const calculator = getBiddingCalculator();
 const biddingParamsHelper = new BiddingParamsHelper(config.biddingRules as IBiddingRules, calculator);
 
 const maxBidPerSeat = Vue.ref(0n);
@@ -103,15 +101,15 @@ function handleAuctionClosingTick(totalSecondsRemaining: number) {
 }
 
 function openBiddingBudgetOverlay() {
-  basicEmitter.emit('openBotCreateOverlay');
+  basicEmitter.emit('openBotEditOverlay');
 }
 
 Vue.onMounted(async () => {
   if (!config.biddingRules) return;
 
-  await calculator.isInitializedPromise;
+  await calculator.load();
   maxSeatCount.value = await biddingParamsHelper.getMaxSeats();
-  maxBidPerSeat.value = await calculator.maximumBidAmount;
+  maxBidPerSeat.value = calculator.maximumBidAmount;
 
   if (!startOfAuctionClosing.value || !startOfNextCohort.value) {
     const tickAtStartOfAuctionClosing = await mainchain.getTickAtStartOfAuctionClosing();

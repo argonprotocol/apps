@@ -91,7 +91,7 @@ Vue.watch(
 );
 
 Vue.onBeforeMount(async () => {
-  await calculator.isInitializedPromise;
+  await calculator.load();
   calculator.setPivotPoint('StartingBid');
   bidAmount.value = calculator.data.previousDayLowBid;
   options.value = [

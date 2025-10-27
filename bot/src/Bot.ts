@@ -11,6 +11,7 @@ import {
   JsonExt,
   FatalError,
   MainchainClients,
+  type IBidReductionReason,
 } from '@argonprotocol/apps-core';
 import { History } from './History.ts';
 
@@ -38,7 +39,8 @@ export default class Bot implements IBotSyncStatus {
   public get maxSeatsInPlay(): number {
     return this.history.maxSeatsInPlay;
   }
-  public get maxSeatsReductionReason(): string | undefined {
+
+  public get maxSeatsReductionReason(): IBidReductionReason | undefined {
     return this.history.maxSeatsReductionReason;
   }
 
@@ -69,112 +71,116 @@ export default class Bot implements IBotSyncStatus {
     if (this.isStarting || this.isReady) return;
     this.isStarting = true;
     console.log('STARTING BOT');
-
-    let currentFrameId = await this.currentFrameId.catch(() => 0);
     try {
-      this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl);
-      const client = await this.mainchainClients.archiveClientPromise;
-      currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-    } catch (error) {
-      console.error('Error initializing archive client', error);
-      throw error;
-    }
-
-    this.storage = new Storage(this.options.datadir);
-    this.history = new History(this.storage, currentFrameId);
-    this.history.handleStarting();
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    this.options.shouldSkipDockerSync || (await this.waitForDockerConfirmation());
-    this.history.handleDockersConfirmed();
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    console.log('CONNECTING TO LOCAL RPC');
-    this.errorMessage = null;
-
-    while (!this.localClient) {
+      let currentFrameId = await this.currentFrameId.catch(() => 0);
       try {
-        this.localClient = await this.mainchainClients.setPrunedClient(this.options.localRpcUrl);
+        this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl, () =>
+          Boolean(JSON.parse(process.env.LOG_APIS ?? '0')),
+        );
+        const client = await this.mainchainClients.archiveClientPromise;
+        currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
       } catch (error) {
-        console.error('Error initializing local client, retrying...', error);
-        this.errorMessage = (error as Error).toString();
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.error('Error initializing archive client', error);
+        throw error;
       }
-    }
-    this.errorMessage = null;
 
-    this.biddingRules = this.loadBiddingRules();
-    this.accountset = new Accountset({
-      client: this.localClient,
-      seedAccount: this.options.pair,
-      sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
-      subaccountRange: new Array(99).fill(0).map((_, i) => i),
-    });
-    this.autobidder = new AutoBidder(
-      this.accountset,
-      this.mainchainClients,
-      this.storage,
-      this.history,
-      this.biddingRules || ({} as IBiddingRules),
-    );
-    this.blockSync = new BlockSync(
-      this,
-      this.accountset,
-      this.storage,
-      this.mainchainClients,
-      this.options.oldestFrameIdToSync,
-    );
+      this.storage = new Storage(this.options.datadir);
+      this.history = new History(this.storage, currentFrameId);
+      this.history.handleStarting();
 
-    this.isSyncing = true;
-    this.history.handleStartedSyncing();
-    while (true) {
-      try {
-        await this.blockSync.load();
-        break;
-      } catch (error) {
-        if (error instanceof FatalError) {
-          console.error('Fatal error loading block sync (exiting...)', error);
-          throw error;
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      this.options.shouldSkipDockerSync || (await this.waitForDockerConfirmation());
+      this.history.handleDockersConfirmed();
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      console.log('CONNECTING TO LOCAL RPC');
+      this.errorMessage = null;
+
+      while (!this.localClient) {
+        try {
+          this.localClient = await this.mainchainClients.setPrunedClient(this.options.localRpcUrl);
+        } catch (error) {
+          console.error('Error initializing local client, retrying...', error);
+          this.errorMessage = (error as Error).toString();
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        if (String(error).includes('getHeader(hash?: BlockHash): Header:: 4003')) {
-          error = (error as Error).message;
+      }
+      this.errorMessage = null;
+
+      this.biddingRules = this.loadBiddingRules();
+      this.accountset = new Accountset({
+        client: this.localClient,
+        seedAccount: this.options.pair,
+        sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
+        subaccountRange: new Array(99).fill(0).map((_, i) => i),
+      });
+      this.autobidder = new AutoBidder(
+        this.accountset,
+        this.mainchainClients,
+        this.storage,
+        this.history,
+        this.biddingRules || ({} as IBiddingRules),
+      );
+      this.blockSync = new BlockSync(
+        this,
+        this.accountset,
+        this.storage,
+        this.mainchainClients,
+        this.options.oldestFrameIdToSync,
+      );
+
+      this.isSyncing = true;
+      this.history.handleStartedSyncing();
+      while (true) {
+        try {
+          await this.blockSync.load();
+          break;
+        } catch (error) {
+          if (error instanceof FatalError) {
+            console.error('Fatal error loading block sync (exiting...)', error);
+            throw error;
+          }
+          if (String(error).includes('getHeader(hash?: BlockHash): Header:: 4003')) {
+            error = (error as Error).message;
+          }
+          console.error('Error loading block sync (retrying...)', error);
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        console.error('Error loading block sync (retrying...)', error);
-        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    }
-    this.history.handleFinishedSyncing();
-    this.isSyncing = false;
+      this.history.handleFinishedSyncing();
+      this.isSyncing = false;
 
-    if (!this.biddingRules) {
-      console.log('No bidding rules were found, cannot finish loading');
-      this.isWaitingForBiddingRules = true;
-      return;
-    }
+      if (!this.biddingRules) {
+        console.log('No bidding rules were found, cannot finish loading');
+        this.isWaitingForBiddingRules = true;
+        return;
+      }
 
-    console.log('Starting block sync');
-    while (true) {
+      console.log('Starting block sync');
+      while (true) {
+        try {
+          this.history.handleReady();
+          await this.blockSync.start();
+          break;
+        } catch (error) {
+          console.error('Error starting block sync (retrying...)', error);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      console.log('Starting autobidder');
+
       try {
-        this.history.handleReady();
-        await this.blockSync.start();
-        break;
+        await this.autobidder.start(this.options.localRpcUrl);
       } catch (error) {
-        console.error('Error starting block sync (retrying...)', error);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.error('Error starting autobidder', error);
+        throw error;
       }
+
+      this.isReady = true;
+    } finally {
+      this.isStarting = false;
     }
-
-    console.log('Starting autobidder');
-
-    try {
-      await this.autobidder.start(this.options.localRpcUrl);
-    } catch (error) {
-      console.error('Error starting autobidder', error);
-      throw error;
-    }
-
-    this.isReady = true;
-    this.isStarting = false;
   }
 
   public async shutdown() {

@@ -283,14 +283,22 @@ Vue.onMounted(async () => {
   await bitcoinLocks.load();
   await bitcoinLocks.subscribeToArgonBlocks();
 
-  Vue.watch(currency.priceIndex.current, () => {
-    void updateBitcoinUnlockPrices();
-  });
+  Vue.watch(
+    currency.priceIndex.current,
+    () => {
+      void updateBitcoinUnlockPrices();
+    },
+    { deep: true },
+  );
 
-  Vue.watch(personalLock, () => {
-    void loadPersonalUtxo();
-    void updateBitcoinUnlockPrices();
-  });
+  Vue.watch(
+    personalLock,
+    () => {
+      void loadPersonalUtxo();
+      void updateBitcoinUnlockPrices();
+    },
+    { deep: true },
+  );
 
   await loadPersonalUtxo();
   await updateBitcoinUnlockPrices();

@@ -80,9 +80,14 @@ export class Db {
     this.writesPaused = true;
   }
 
+  public resumeWrites() {
+    this.writesPaused = false;
+  }
+
   public async reconnect() {
-    const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
-    this.sql = sql;
+    this.writesPaused = false;
+
+    this.sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
   }
 
   public static get relativeDir() {

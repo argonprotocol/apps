@@ -174,16 +174,6 @@ function clickOutside(e: PointerDownOutsideEvent) {
   return false;
 }
 
-function openVaultCreateOverlay() {
-  basicEmitter.emit('openVaultCreateOverlay');
-  isOpen.value = false;
-}
-
-function openBotCreateOverlay() {
-  basicEmitter.emit('openBotCreateOverlay');
-  isOpen.value = false;
-}
-
 function openSecuritySettingsOverlay() {
   basicEmitter.emit('openSecuritySettingsOverlay');
   isOpen.value = false;

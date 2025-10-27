@@ -6,7 +6,6 @@
   "scripts": {
     "preinstall": "husky install",
     "precommit": "tsx scripts/checkPrecommit.ts",
-    "dev": "yarn build:config && vite",
     "cli": "yarn workspace @argonprotocol/cli run cli",
     "tsc": "tsc && yarn workspaces foreach --all run tsc",
     "tsc:watch": "tsc --watch",
@@ -15,7 +14,9 @@
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
-    "dev:docker": "rm -rf \"~/Library/Application Support/com.argon.apps/dev-docker\" && yarn docker:up && yarn tauri:dev:docker",
+    "clean:dev:docker": "rm -rf \"$HOME/Library/Application Support/com.argon.apps/dev-docker\"",
+    "dev": "yarn build:config && vite",
+    "dev:docker": "yarn clean:dev:docker && yarn docker:up && yarn tauri:dev:docker",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "sh -c 'TAURI_PORT=${ARGON_APP_INSTANCE##*:}; if [ \"$TAURI_PORT\" = \"$ARGON_APP_INSTANCE\" ]; then unset TAURI_PORT; fi; yarn tauri dev --config=\"{\\\"build\\\":{\\\"devUrl\\\":\\\"http://localhost:${TAURI_PORT:-1420}\\\"}}\"'",

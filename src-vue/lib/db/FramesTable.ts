@@ -159,6 +159,14 @@ export class FramesTable extends BaseTable {
     );
   }
 
+  async fetchExistingSince(frameId: number, limit = 10): Promise<number[]> {
+    const frames = await this.db.select<{ id: number }[]>('SELECT id FROM Frames WHERE id >= ? LIMIT ?', [
+      frameId,
+      limit + 1,
+    ]);
+    return frames.map(frame => frame.id);
+  }
+
   async fetchLastYear(): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
       id, firstTick, lastTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress

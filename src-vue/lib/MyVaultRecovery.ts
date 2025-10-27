@@ -185,10 +185,11 @@ export class MyVaultRecovery {
       if (lockMaybe.value.vaultId.toNumber() !== vaultId) return false;
       return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
     });
-
-    const bitcoinHdPaths = await Promise.all(
-      myBitcoins.map(() => bitcoinLocksStore.getNextUtxoPubkey({ vault, bip39Seed })),
-    );
+    const bitcoinHdPaths: { ownerBitcoinPubkey: Uint8Array; hdPath: string }[] = [];
+    for (const _bitcoin of myBitcoins) {
+      const next = await bitcoinLocksStore.getNextUtxoPubkey({ vault, bip39Seed });
+      bitcoinHdPaths.push(next);
+    }
 
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
     for (const [utxoId, utxoMaybe] of myBitcoins) {

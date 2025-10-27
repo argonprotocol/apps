@@ -1,8 +1,8 @@
 import { Config } from './Config';
 import { Db } from './Db';
-import { BotSyncer, BotStatus } from './BotSyncer';
+import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { type IBidsFile } from '@argonprotocol/apps-core';
+import { IBidReductionReason, type IBidsFile } from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
@@ -20,7 +20,7 @@ export const botEmitter: Emitter<IBotEmitter> = mitt<IBotEmitter>();
 export class Bot {
   public syncProgress: number;
   public maxSeatsPossible: number;
-  public maxSeatsReductionReason: string;
+  public maxSeatsReductionReason: IBidReductionReason | null;
 
   private status: BotStatus | null = null;
   private config: Config;
@@ -33,7 +33,7 @@ export class Bot {
 
     this.syncProgress = 0;
     this.maxSeatsPossible = 10;
-    this.maxSeatsReductionReason = '';
+    this.maxSeatsReductionReason = null;
 
     this.config = config;
     this.dbPromise = dbPromise;
@@ -53,7 +53,7 @@ export class Bot {
       setServerSyncProgress: (x: number) => (this.syncProgress = x * 0.9),
       setDbSyncProgress: (x: number) => (this.syncProgress = 90 + x * 0.1),
       setMaxSeatsPossible: (x: number) => (this.maxSeatsPossible = x),
-      setMaxSeatsReductionReason: (x: string) => (this.maxSeatsReductionReason = x),
+      setMaxSeatsReductionReason: (x: IBidReductionReason | null) => (this.maxSeatsReductionReason = x),
     });
 
     await this.botSyncer.load();

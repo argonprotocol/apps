@@ -4,7 +4,7 @@ import Importer from '../lib/Importer';
 
 type IBasicEmitter = {
   openWalletOverlay: { walletId: string; screen: string };
-  openBotCreateOverlay: void;
+  openBotEditOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: void;
   openVaultCreateOverlay: void;

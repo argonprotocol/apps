@@ -4,11 +4,10 @@ import { AdvancedRestartOption } from '../interfaces/IAdvancedRestartOption';
 import { SSH } from './SSH';
 import { Server } from './Server';
 import { Config } from './Config.ts';
-import { toRaw } from 'vue';
 import Installer from './Installer.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
-import { JsonExt } from '@argonprotocol/commander-core';
+import PluginSql from '@tauri-apps/plugin-sql';
 
 export default class Restarter {
   private dbPromise: Promise<Db>;
@@ -76,7 +75,7 @@ export default class Restarter {
     }
 
     if (toRestart.has(AdvancedRestartOption.ReloadAppUi)) {
-      await this.restart();
+      this.restart();
     }
   }
 
@@ -91,27 +90,20 @@ export default class Restarter {
       db.pauseWrites();
     }
     await invokeWithTimeout('run_db_migrations', {}, 30e3);
-    // stop accepting writes until we reboot
-    localStorage.setItem(
-      'ConfigRestore',
-      JSON.stringify({
-        serverDetails: JsonExt.stringify(toRaw(config.serverDetails)),
-        serverCreation: JsonExt.stringify(toRaw(config.serverCreation)),
-        hasReadMiningInstructions: config.hasReadMiningInstructions,
-        hasReadVaultingInstructions: config.hasReadVaultingInstructions,
-        oldestFrameIdToSync: config.oldestFrameIdToSync,
-        defaultCurrencyKey: config.defaultCurrencyKey,
-        requiresPassword: config.requiresPassword,
-      }),
-    );
+
+    // use a different connection since we're paused to avoid conflicts
+    const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
+    await config.restoreToConnection(sql);
+
     if (restartAfter) {
-      await this.restart();
+      this.restart();
     } else {
       await db.reconnect();
+      await config.load(true);
     }
   }
 
-  public async restart() {
+  public restart() {
     window.location.reload();
   }
 }

@@ -944,6 +944,7 @@ async function loadChartData(currentFrameId?: number) {
   const items: IChartItem[] = [];
   for (const [index, frame] of records.entries()) {
     const item = {
+      id: frame.id,
       date: frame.date,
       score: Number(frame.myTreasuryPayout),
       isFiller: false,
@@ -969,6 +970,7 @@ Vue.onMounted(async () => {
   Vue.watch(
     () => vaults.stats!.vaultsById,
     () => loadChartData(),
+    { deep: true },
   );
 
   const onFrameSubscription = await mining.onFrameId(async frameId => {
@@ -1008,9 +1010,6 @@ Vue.onMounted(async () => {
 
 [spinner] {
   @apply h-6 min-h-6 w-6 min-w-6;
-  &.w-2 {
-    @apply h-2 min-h-2 w-2 min-w-2;
-  }
   &.active {
     border-radius: 50%;
     border: 10px solid;

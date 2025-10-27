@@ -1,6 +1,7 @@
 import { ExtrinsicError } from '@argonprotocol/mainchain';
 import {
   BotActivityType,
+  type IBidReductionReason,
   type IBotActivity,
   type IBotActivityBidReceived,
   type IHistoryFile,
@@ -11,15 +12,9 @@ import type { Storage } from './Storage.ts';
 import Queue from 'p-queue';
 import { LRU } from 'tiny-lru';
 
-export enum SeatReductionReason {
-  InsufficientFunds = 'InsufficientFunds',
-  MaxBidTooLow = 'MaxBidTooLow',
-  MaxBudgetTooLow = 'MaxBudgetTooLow',
-}
-
 export class History {
   public maxSeatsInPlay: number = 0;
-  public maxSeatsReductionReason: SeatReductionReason | undefined;
+  public maxSeatsReductionReason: IBidReductionReason | undefined;
   public lastProcessedBlockNumber: number = 0;
 
   private storage: Storage;
@@ -168,7 +163,7 @@ export class History {
     tick: number;
     blockNumber: number;
     newMaxSeats: number;
-    reason: SeatReductionReason;
+    reason: IBidReductionReason | undefined;
     availableMicrogons: bigint;
     availableMicronots: bigint;
     frameId: number;
@@ -205,6 +200,7 @@ export class History {
     }
 
     this.maxSeatsInPlay = newMaxSeats;
+    this.maxSeatsReductionReason = reason;
   }
 
   public handleIncomingBids(args: {

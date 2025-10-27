@@ -275,7 +275,6 @@ export class Stats {
         micronotsStakedPerSeat: x.micronotsStakedPerSeat,
       };
     });
-    console.log('updated bids', this.allWinningBids.length, this.latestFrameId);
 
     const myWinningBids = this.allWinningBids.filter(bid => typeof bid.subAccountIndex === 'number');
     this.myMiningBids.bidCount = myWinningBids.length;
@@ -375,6 +374,7 @@ export class Stats {
     const lastYear = await this.db.framesTable.fetchLastYear().then(x => x as IDashboardFrameStats[]);
 
     const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(lastYear.at(-1)?.id ?? 0);
+    const framesById = new Map<number, IDashboardFrameStats>();
     for (const frame of lastYear) {
       if (frame.id === 0) continue;
       frame.expected = {
@@ -383,19 +383,23 @@ export class Stats {
         microgonsMinedTotal: 0n,
         microgonsMintedTotal: 0n,
       };
+      framesById.set(frame.id, frame);
+    }
 
-      const cohort = activeCohorts.find(c => c.id === frame.id);
-      if (cohort?.seatCountWon) {
+    for (const cohort of activeCohorts) {
+      for (let id = cohort.id; id < cohort.id + 10; id++) {
+        const frame = framesById.get(id);
+        if (!frame) continue;
         const expectedCohortReturns = this.calculateExpectedBlockRewardsPerSeat(
           cohort,
           // Get one frame (1/10th) of the cohort rewards, times the frame progress
           BigNumber(frame.progress).times(0.1).toNumber(),
         );
         const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
-        const percentOfMiners = cohort.seatCountWon / frame.allMinersCount;
-        frame.expected.blocksMinedTotal += Math.floor(
-          percentOfMiners * MiningFrames.ticksPerFrame * (frame.progress / 100),
-        );
+        const percentOfMiners = frame.seatCountActive / frame.allMinersCount;
+        const frameProgress = frame.progress / 100;
+        frame.expected.blocksMinedTotal +=
+          Math.round(100 * percentOfMiners * MiningFrames.ticksPerFrame * frameProgress) / 100;
         const seatsN = BigInt(cohort.seatCountWon);
         frame.expected.micronotsMinedTotal += micronotsToBeMined * seatsN;
         frame.expected.microgonsMinedTotal += microgonsToBeMined * seatsN;
@@ -404,7 +408,7 @@ export class Stats {
     }
 
     const maxProfitPct = Math.min(Math.max(...lastYear.map(x => x.profitPct)), 1_000);
-    return lastYear.map(x => {
+    return [...framesById.values()].map(x => {
       let score = Math.min(x.profitPct, 1_000);
       if (score > 0) {
         score = (200 * score) / maxProfitPct;

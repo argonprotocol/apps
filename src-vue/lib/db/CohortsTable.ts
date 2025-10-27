@@ -20,34 +20,30 @@ export class CohortsTable extends BaseTable {
     return result.length > 0 ? result[0].id : null;
   }
 
-  public async fetchById(...ids: number[]): Promise<{
-    [id: number]: (ICohortRecord & { firstTick: number; lastTick: number; lastBlockNumber: number }) | null;
-  }> {
-    const rawRecords = await this.db.select<any[]>(
-      `SELECT Cohorts.*, Frames.firstTick as firstTick, Frames.lastBlockNumber as lastBlockNumber FROM Cohorts
-      LEFT JOIN Frames ON Cohorts.id = Frames.id
-      WHERE Cohorts.id in (${ids.map(() => '?').join(',')})
-      ORDER BY Cohorts.id DESC LIMIT 1`,
-      [...ids],
+  public async fetchCohortIdsSince(id: number, limit = 10): Promise<number[]> {
+    const rawRecords = await this.db.select<{ id: number }[]>(`SELECT id from Cohorts WHERE id >= ? LIMIT ?`, [
+      id,
+      limit + 1,
+    ]);
+    return rawRecords.map(record => record.id);
+  }
+
+  public async updateProgress(currentTick: number, cohortTicks: number): Promise<void> {
+    // update the progress percentages of all frames by joining frames
+    await this.db.execute(
+      `
+      UPDATE Cohorts AS c
+      SET progress = COALESCE((
+        SELECT ROUND(
+               MIN(100.0, MAX(0.0, ((CAST(? AS REAL) - f.firstTick) * 100.0) / ?))
+          )
+        FROM Frames f
+        WHERE f.id = c.id
+      ), c.progress, 0)
+      WHERE c.progress < 100
+    `,
+      [currentTick, cohortTicks],
     );
-
-    const results = {} as Awaited<ReturnType<CohortsTable['fetchById']>>;
-    for (const id of ids) {
-      results[id] = null;
-    }
-
-    for (const rawRecord of rawRecords) {
-      const record = convertSqliteBigInts<
-        ICohortRecord & { firstTick: number; lastBlockNumber: number; lastTick: number }
-      >(rawRecord, this.bigIntFields);
-      const lastTick = record.firstTick + MiningFrames.ticksPerCohort;
-
-      results[record.id] = {
-        ...record,
-        lastTick,
-      };
-    }
-    return results;
   }
 
   public async fetchGlobalStats(): Promise<{

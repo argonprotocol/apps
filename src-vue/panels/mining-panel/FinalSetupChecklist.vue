@@ -52,7 +52,7 @@
               <BotCapital align="start" :alignOffset="alignOffsetForBotCapital">
                 <span @mouseenter="alignOffsetForBotCapital = calculateAlignOffset($event, botCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
                   committed
-                  {{ currency.symbol }}{{ microgonToArgonNm(config.biddingRules?.baseMicrogonCommitment || 0n).format('0,0.[00]') }} in capital
+                  {{ currency.symbol }}{{ microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0,0.[00]') }} in capital
                 </span>
               </BotCapital>
               with an
@@ -114,15 +114,15 @@
             </p>
             <p v-else-if="config.hasSavedBiddingRules">
               Your acccount needs a minimum of
-              {{ microgonToArgonNm(config.biddingRules?.baseMicrogonCommitment || 0n).format('0,0.[00000000]') }} argon{{
-                microgonToArgonNm(config.biddingRules?.baseMicrogonCommitment || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
+              {{ microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0,0.[00000000]') }} argon{{
+                microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
               }}
               and
               {{
-                micronotToArgonotNm(config.biddingRules?.baseMicronotCommitment || 0n).format('0,0.[00000000]')
+                micronotToArgonotNm(config.biddingRules?.startingMicronots || 0n).format('0,0.[00000000]')
               }}
               argonot{{
-                  micronotToArgonotNm(config.biddingRules?.baseMicronotCommitment || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
+                  micronotToArgonotNm(config.biddingRules?.startingMicronots || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
                 }}
                 to submit auction bids.
               </p>
@@ -165,6 +165,7 @@
       </button>
     </div>
   </div>
+  <BotCreateOverlay @close="openBotCreate = false" v-if="openBotCreate" />
 </template>
 
 <script setup lang="ts">
@@ -183,6 +184,8 @@ import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
 import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
+import BotCreateOverlay from '../../overlays/BotCreateOverlay.vue';
+import BotEditOverlay from '../../overlays/BotEditOverlay.vue';
 
 dayjs.extend(utc);
 
@@ -192,6 +195,7 @@ const wallets = useWallets();
 const currency = useCurrency();
 const calculator = getBiddingCalculator();
 const calculatorData = getBiddingCalculatorData();
+const openBotCreate = Vue.ref(false);
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -211,11 +215,16 @@ const walletIsPartiallyFunded = Vue.computed(() => {
 });
 
 const additionalMicrogonsNeeded = Vue.computed(() => {
-  return bigIntMax(config.biddingRules.baseMicrogonCommitment - wallets.totalMiningMicrogons, 0n);
+  return bigIntMax(config.biddingRules.startingMicrogons - wallets.totalMiningMicrogons, 0n);
 });
 
 const additionalMicronotsNeeded = Vue.computed(() => {
-  return bigIntMax(config.biddingRules.baseMicronotCommitment - wallets.miningWallet.availableMicronots, 0n);
+  return bigIntMax(
+    config.biddingRules.startingMicronots -
+      wallets.miningWallet.availableMicronots -
+      wallets.miningWallet.reservedMicronots,
+    0n,
+  );
 });
 
 const walletIsFullyFunded = Vue.computed(() => {
@@ -257,7 +266,7 @@ function calculateAlignOffset(event: MouseEvent, parentElement: HTMLElement | nu
 }
 
 function openBotCreateOverlay() {
-  basicEmitter.emit('openBotCreateOverlay');
+  openBotCreate.value = true;
 }
 
 function openFundMiningAccountOverlay() {
@@ -284,6 +293,14 @@ async function launchMiningBot() {
   config.isMinerReadyToInstall = true;
   // in case the entry was skipped
   config.isPreparingMinerSetup = true;
+  const biddingRules = config.biddingRules;
+  if (wallets.miningWallet.availableMicrogons > biddingRules.startingMicrogons) {
+    biddingRules.sidelinedMicrogons = wallets.miningWallet.availableMicrogons - biddingRules.startingMicrogons;
+  }
+  if (wallets.miningWallet.availableMicronots > biddingRules.startingMicronots) {
+    biddingRules.sidelinedMicrogons = wallets.miningWallet.availableMicronots - biddingRules.startingMicronots;
+  }
+  config.biddingRules = biddingRules;
   await config.save();
   await installer.run();
   isLaunchingMiningBot.value = false;
@@ -299,7 +316,7 @@ Vue.watch(
 );
 
 Vue.onMounted(async () => {
-  calculatorData.isInitializedPromise.then(() => {
+  calculatorData.load().then(() => {
     calculator.updateBiddingRules(config.biddingRules);
     calculator.calculateBidAmounts();
     averageAPY.value = calculator.averageAPY;

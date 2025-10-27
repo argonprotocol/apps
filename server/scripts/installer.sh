@@ -122,7 +122,7 @@ if ! (already_ran "UbuntuCheck"); then
     echo "-----------------------------------------------------------------"
     echo "CHECKING UBUNTU VERSION"
 
-    command_output=$(run_command "cat /etc/os-release")
+    command_output=$(run_command "sudo cat /etc/os-release")
     # Extract VERSION_ID from the output
     version=$(echo "$command_output" | grep "^VERSION_ID=" | cut -d'"' -f2)
     if [ -z "$version" ]; then
@@ -145,7 +145,7 @@ if ! (already_ran "UbuntuCheck"); then
 
     run_command "sudo apt install -y ufw curl jq bc"
 
-    command_output=$(run_command "sudo ufw app list | grep -q '^OpenSSH$' && echo 'OpenSSH found' || echo 'OpenSSH not found'")
+    command_output=$(run_command "sudo ufw app list | sudo grep -q '^OpenSSH$' && echo 'OpenSSH found' || echo 'OpenSSH not found'")
     if echo "$command_output" | grep -q 'OpenSSH found'; then
         echo "OpenSSH is already installed, allowing OpenSSH through UFW"
         run_command "sudo ufw allow OpenSSH"
@@ -160,22 +160,22 @@ if ! (already_ran "UbuntuCheck"); then
         echo "INSTALLING auditd and fail2ban"
         run_command "sudo apt install -y auditd fail2ban"
 
-        run_command "cp $SCRIPTS_DIR/conf/auditd_hardening.rules /etc/audit/rules.d/hardening.rules"
+        run_command "sudo cp $SCRIPTS_DIR/conf/auditd_hardening.rules /etc/audit/rules.d/hardening.rules"
         run_command "sudo augenrules --load"
 
-        run_command "sed -i 's/^max_log_file *=.*/max_log_file = 200/' /etc/audit/auditd.conf"
-        run_command "sed -i 's/^max_log_file_action *=.*/max_log_file_action = rotate/' /etc/audit/auditd.conf"
-        run_command "sed -i 's/^space_left_action *=.*/space_left_action = email/' /etc/audit/auditd.conf"
-        run_command "sed -i 's/^admin_space_left_action *=.*/admin_space_left_action = single/' /etc/audit/auditd.conf"
-        run_command "sed -i 's/^disk_full_action *=.*/disk_full_action = ignore/' /etc/audit/auditd.conf"
-        run_command "sed -i 's/^disk_error_action *=.*/disk_error_action = ignore/' /etc/audit/auditd.conf"
-        run_command "sed -i 's/^num_logs *=.*/num_logs = 10/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^max_log_file *=.*/max_log_file = 200/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^max_log_file_action *=.*/max_log_file_action = rotate/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^space_left_action *=.*/space_left_action = email/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^admin_space_left_action *=.*/admin_space_left_action = single/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^disk_full_action *=.*/disk_full_action = ignore/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^disk_error_action *=.*/disk_error_action = ignore/' /etc/audit/auditd.conf"
+        run_command "sudo sed -i 's/^num_logs *=.*/num_logs = 10/' /etc/audit/auditd.conf"
 
         run_command "sudo systemctl restart auditd"
 
-        run_command "mkdir -p /etc/fail2ban/jail.d || true"
-        run_command "cp $SCRIPTS_DIR/conf/fail2ban_sshd.local /etc/fail2ban/jail.d/sshd.local"
-        run_command "cp $SCRIPTS_DIR/conf/fail2ban_recidive.local /etc/fail2ban/jail.d/recidive.local"
+        run_command "sudo mkdir -p /etc/fail2ban/jail.d || true"
+        run_command "sudo cp $SCRIPTS_DIR/conf/fail2ban_sshd.local /etc/fail2ban/jail.d/sshd.local"
+        run_command "sudo cp $SCRIPTS_DIR/conf/fail2ban_recidive.local /etc/fail2ban/jail.d/recidive.local"
         run_command "sudo systemctl enable fail2ban --now"
         run_command "sudo systemctl restart fail2ban"
     fi
@@ -204,7 +204,7 @@ if ! (already_ran "DockerInstall"); then
         lsb-release"
 
     run_command "sudo mkdir -p /etc/apt/keyrings"
-    run_command "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+    run_command "sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
         sudo gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg"
 
     echo \
@@ -228,7 +228,7 @@ if ! (already_ran "DockerInstall"); then
 
     run_command "sudo docker system prune -af --volumes >/dev/null 2>&1 || true"
 
-    command_output=$(run_command "docker --version")
+    command_output=$(run_command "sudo docker --version")
 
     # Extract version numbers from the output - handle both 2 and 3 number versions
     version=$(echo "$command_output" | grep -oE '[0-9]+(\.[0-9]+){1,2}' | head -1)
@@ -245,8 +245,8 @@ if ! (already_ran "DockerInstall"); then
     fi
 
     network_name="${COMPOSE_PROJECT_NAME:-argon}-net"
-    run_compose "docker network inspect ${network_name} >/dev/null 2>&1 || docker network create ${network_name}"
-    run_compose "docker compose up status -d --build"
+    run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || docker network create ${network_name}"
+    run_compose "sudo docker compose up status -d --build"
 
     finish "DockerInstall" "$command_output"
 fi
@@ -259,9 +259,9 @@ if ! (already_ran "BitcoinInstall"); then
     echo "BUILDING BITCOIN FOR $ARGON_CHAIN"
 
     run_command "sudo ufw allow $BITCOIN_P2P_PORT/tcp"
-    run_compose "docker compose build bitcoin-node"
+    run_compose "sudo docker compose build bitcoin-node"
 
-    command_output=$(run_command "docker images")
+    command_output=$(run_command "sudo docker images")
     if ! echo "$command_output" | grep -q "bitcoin-node"; then
         failed "bitcoin image was not found"
     fi
@@ -272,22 +272,22 @@ if ! (already_ran "BitcoinInstall"); then
     # if not regtest and data folder does not exist, run the bitcoin-data container to initialize it
     if [ ! -d "$BITCOIN_DATA_FOLDER" ] && [ "$BITCOIN_CHAIN" != "regtest" ]; then
       echo "Bootstrapping bitcoin-data (first run)"
-      run_compose "docker compose pull bitcoin-data"
-      run_compose "docker compose run --rm --pull=never bitcoin-data"
-      run_compose "docker rmi -f bitcoin-data:latest || true"
+      run_compose "sudo docker compose pull bitcoin-data"
+      run_compose "sudo docker compose run --rm --pull=never bitcoin-data"
+      run_compose "sudo docker rmi -f bitcoin-data:latest || true"
     else
       echo "bitcoin-data already initialized, skipping bootstrap"
     fi
 
     ## TODO: we should keep track of the env vars used to build the image and if they change, we should
     ##  --force-recreate, otherwise this is tearing down the container every time the installer runs
-    run_compose "docker compose up bitcoin-node -d --force-recreate"
+    run_compose "sudo docker compose up bitcoin-node -d --force-recreate"
 
     # Loop until syncstatus is >= 100%
     failures=0
     while true; do
         sleep 1
-        command_output=$(run_command "curl -s http://${LOCALHOST}:${STATUS_PORT}/bitcoin/syncstatus" )
+        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${STATUS_PORT}/bitcoin/syncstatus" )
 
         # Check if command failed
         if [[ -z "$command_output" ]] || \
@@ -323,20 +323,20 @@ if ! (already_ran "ArgonInstall"); then
 
     run_command "sudo ufw allow ${ARGON_P2P_PORT}/tcp"
 
-    run_compose "docker compose build argon-miner"
+    run_compose "sudo docker compose build argon-miner"
 
-    command_output=$(run_command "docker images")
+    command_output=$(run_command "sudo docker images")
     if ! echo "$command_output" | grep -q "argon-miner"; then
         failed "argon-miner image was not found"
     fi
 
-    run_compose "docker compose up argon-miner -d --force-recreate"
+    run_compose "sudo docker compose up argon-miner -d --force-recreate"
 
     # Loop until syncstatus is >= 100%
     failures=0
     while true; do
         sleep 1
-        command_output=$(run_command "curl -s http://${LOCALHOST}:${STATUS_PORT}/argon/syncstatus")
+        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${STATUS_PORT}/argon/syncstatus")
 
         # Check if the response failed
         if [[ -z "$command_output" ]] || \
@@ -369,12 +369,12 @@ start "MiningLaunch"
 echo "-----------------------------------------------------------------"
 echo "STARTING BOT ON $ARGON_CHAIN"
 
-run_compose "docker compose build bot"
-command_output=$(run_command "docker images")
+run_compose "sudo docker compose build bot"
+command_output=$(run_command "sudo docker images")
 if ! echo "$command_output" | grep -q "bot"; then
     failed "bot image was not found:\n$command_output"
 fi
-run_compose "docker compose up bot -d --force-recreate"
+run_compose "sudo docker compose up bot -d --force-recreate"
 
 while true; do
     sleep 1

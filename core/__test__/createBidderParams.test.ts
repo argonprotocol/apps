@@ -37,22 +37,20 @@ it('can create bidder params', async () => {
       seatGoalCount: 3,
       seatGoalPercent: 0,
       seatGoalInterval: 'Epoch',
-      baseMicrogonCommitment: 10000000n,
-      baseMicronotCommitment: 1000000n,
+      startingMicrogons: 10000000n,
+      startingMicronots: 1000000n,
+      sidelinedMicrogons: 0n,
+      sidelinedMicronots: 0n,
     } as IBiddingRules),
   );
   MiningFrames.setNetwork('localnet');
   const cohortActivationFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
-  const accruedEarnings = 10_000_253n;
-  const bidderParams = await createBidderParams(cohortActivationFrameId, mainchainClients, biddingRules, {
-    microgons: accruedEarnings,
-    micronots: 0n,
-  });
+  const bidderParams = await createBidderParams(cohortActivationFrameId, mainchainClients, biddingRules);
 
   expect(bidderParams.minBid).toBe(0n);
   // BAB: not sure how to test this - it's based on live data from the chain
   // expect(bidderParams.maxBid).toBe(66_532_221n);
-  expect(bidderParams.maxBudget).toBe(10_000_000n + accruedEarnings);
+  expect(bidderParams.sidelinedWalletMicrogons).toBe(10_000_000n);
   expect(bidderParams.maxSeats).toBe(10);
   expect(bidderParams.bidDelay).toBe(1);
   expect(bidderParams.bidIncrement).toBe(1_000_000n);

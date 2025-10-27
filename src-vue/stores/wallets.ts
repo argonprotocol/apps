@@ -44,14 +44,6 @@ export const useWallets = defineStore('wallets', () => {
     reservedMicronots: 0n,
   });
 
-  const microgonsCommittedToMiningBot = Vue.computed(() => {
-    return config.biddingRules.baseMicrogonCommitment + stats.accruedMicrogonProfits;
-  });
-
-  const micronotsCommittedToMiningBot = Vue.computed(() => {
-    return config.vaultingRules.baseMicronotCommitment + stats.accruedMicronotProfits;
-  });
-
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningAccountPreviousHistory) return;
     const bids = { microgons: 0n, micronots: 0n };
@@ -112,7 +104,16 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const totalMiningMicrogons = Vue.computed(() => {
-    return miningWallet.availableMicrogons + miningSeatMicrogons.value + miningBidMicrogons.value;
+    return (
+      miningWallet.availableMicrogons +
+      miningSeatMicrogons.value +
+      miningBidMicrogons.value -
+      config.biddingRules.sidelinedMicrogons
+    );
+  });
+
+  const totalMiningMicronots = Vue.computed(() => {
+    return miningWallet.availableMicronots + miningWallet.reservedMicronots - config.biddingRules.sidelinedMicronots;
   });
 
   const totalVaultingMicrogons = Vue.computed(() => {
@@ -218,11 +219,10 @@ export const useWallets = defineStore('wallets', () => {
     miningBidMicrogons,
     miningBidMicronots,
     totalMiningMicrogons,
+    totalMiningMicronots,
     totalVaultingMicrogons,
     totalMiningResources,
     totalVaultingResources,
     totalNetWorth,
-    microgonsCommittedToMiningBot,
-    micronotsCommittedToMiningBot,
   };
 });

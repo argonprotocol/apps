@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <DialogRoot class="absolute inset-0 z-10" :open="true">
+  <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
         <BgOverlay @close="cancelOverlay" />
@@ -71,16 +71,14 @@ import { useConfig } from '../stores/config';
 import { getVaultCalculator } from '../stores/mainchain';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { JsonExt } from '@argonprotocol/apps-core';
+import { BidAmountAdjustmentType, BidAmountFormulaType, JsonExt } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
 import { useBot } from '../stores/bot.ts';
-
-const emit = defineEmits<{
-  (e: 'close'): void;
-}>();
+import { botEmitter } from '../lib/Bot.ts';
+import basicEmitter from '../emitters/basicEmitter.ts';
 
 const config = useConfig();
 const bot = useBot();
@@ -95,6 +93,7 @@ const rules = Vue.computed(() => {
 
 const calculator = getVaultCalculator();
 
+const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const savingError = Vue.ref<string | null>(null);
@@ -116,7 +115,7 @@ function cancelOverlay() {
     config.vaultingRules = JsonExt.parse<IVaultingRules>(previousVaultingRules);
   }
 
-  emit('close');
+  isOpen.value = false;
 }
 
 function closeEditBoxOverlay() {
@@ -141,16 +140,18 @@ async function saveRules() {
     }
   }
 
-  emit('close');
+  isOpen.value = true;
 }
 
-Vue.onMounted(async () => {
+basicEmitter.on('openBotEditOverlay', async () => {
+  if (isOpen.value) return;
   isLoaded.value = false;
 
   await calculator.load(rules.value);
   previousVaultingRules = JsonExt.stringify(config.vaultingRules);
 
   isLoaded.value = true;
+  isOpen.value = true;
 });
 </script>
 

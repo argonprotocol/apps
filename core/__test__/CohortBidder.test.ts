@@ -177,7 +177,7 @@ describe('CohortBidder unit tests', () => {
       minBid: Argons(3),
       maxBid: Argons(5.5),
       accountBalance: Argons(40 + 0.06 - 3 * 3.53),
-      maxBudget: Argons(40 + 0.06),
+      sidelinedWalletMicrogons: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(1, Argons(4.1)),
@@ -244,7 +244,7 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(8),
       bidIncrement: Argons(1),
       accountBalance: Argons(40 + 0.06 - 4),
-      maxBudget: Argons(40 + 0.06),
+      sidelinedWalletMicrogons: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(2, Argons(10)),
@@ -295,7 +295,7 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(5),
       accountBalance: Argons(10),
       accountMicronots: 20_000n, // max of 2 seats worth
-      maxBudget: Argons(5),
+      sidelinedWalletMicrogons: Argons(5),
     });
     cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
     cohortBidder.currentBids.atTick = 10;
@@ -318,9 +318,9 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(5),
       accountBalance: Argons(10),
       accountMicronots: 100_000n, // max of 2 seats worth
-      maxBudget: Argons(5),
+      sidelinedWalletMicrogons: Argons(5),
     });
-    cohortBidder.options.maxMicronotsToStake = 30_000n; // max of 3 seats worth
+    cohortBidder.options.sidelinedWalletMicronots = 30_000n; // max of 3 seats worth
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 2).map(x => {
         return { bidAtTick: 10, bidMicrogons: Argons(1), address: x.address, micronotsStaked: 10_000n };
@@ -375,7 +375,7 @@ async function createBidderWithMocks(
   });
   options.maxBid ??= 1_000_000n;
   options.minBid ??= 500_000n;
-  options.maxBudget ??= options.accountBalance;
+  options.sidelinedWalletMicrogons ??= options.accountBalance;
   options.bidIncrement ??= 10_000n;
   options.bidDelay ??= 1;
 
@@ -474,7 +474,7 @@ describeIntegration('Cohort Integration Bidder tests', () => {
           {
             minBid: 10_000n,
             maxBid: 5_000_000n,
-            maxBudget: 25_000_000n,
+            sidelinedWalletMicrogons: 25_000_000n,
             bidIncrement: 1_000_000n,
             bidDelay: 0,
           },
@@ -488,7 +488,7 @@ describeIntegration('Cohort Integration Bidder tests', () => {
           {
             minBid: 10_000n,
             maxBid: 4_000_000n,
-            maxBudget: 40_000_000n,
+            sidelinedWalletMicrogons: 40_000_000n,
             bidIncrement: 1_000_000n,
             bidDelay: 0,
           },

@@ -32,8 +32,9 @@ import { SECURITY } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import { VaultRecoveryFn } from './MyVaultRecovery.ts';
+import PluginSql from '@tauri-apps/plugin-sql';
 
-export class Config {
+export class Config implements IConfig {
   public readonly version: string = packageJson.version;
 
   public get isLoaded(): boolean {
@@ -120,6 +121,32 @@ export class Config {
         longitude: '',
       },
     };
+  }
+
+  public async restoreToConnection(sql: PluginSql): Promise<void> {
+    const preserveFields: (keyof IConfig)[] = [
+      'serverCreation',
+      'serverDetails',
+      'miningAccountAddress',
+      'hasReadVaultingInstructions',
+      'hasReadVaultingInstructions',
+      'isMiningMachineCreated',
+      'oldestFrameIdToSync',
+      'defaultCurrencyKey',
+      'requiresPassword',
+    ];
+
+    for (const key of Object.keys(defaults) as (keyof IConfig)[]) {
+      this._fieldsToSave.add(key);
+      if (!preserveFields.includes(key)) {
+        const defaultValue = await defaults[key as keyof IConfigDefaults]();
+        this._rawData[key] = JsonExt.stringify(defaultValue, 2);
+        (this._loadedData as any)[key] = defaultValue as any;
+      }
+    }
+    await this._injectFirstTimeAppData(this._loadedData, this._rawData, this._fieldsToSave);
+    const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
+    await this._db.configTable.insertOrReplace(data, sql);
   }
 
   public async load(force = false) {
@@ -243,36 +270,31 @@ export class Config {
   }
 
   get walletAccountsHadPreviousLife(): IConfig['walletAccountsHadPreviousLife'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.walletAccountsHadPreviousLife;
+    return this.getField('walletAccountsHadPreviousLife');
   }
 
   set walletAccountsHadPreviousLife(value: IConfig['walletAccountsHadPreviousLife']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.walletAccountsHadPreviousLife = value;
-    this._tryFieldsToSave(dbFields.walletAccountsHadPreviousLife, value);
+    this.setField('walletAccountsHadPreviousLife', value);
   }
 
   get walletPreviousLifeRecovered(): IConfig['walletPreviousLifeRecovered'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.walletPreviousLifeRecovered;
+    return this.getField('walletPreviousLifeRecovered');
   }
 
   set walletPreviousLifeRecovered(value: IConfig['walletPreviousLifeRecovered']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.walletPreviousLifeRecovered = value;
-    this._tryFieldsToSave(dbFields.walletPreviousLifeRecovered, value);
+    this.setField('walletPreviousLifeRecovered', value);
   }
 
   get miningAccountPreviousHistory(): IConfig['miningAccountPreviousHistory'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.miningAccountPreviousHistory;
+    return this.getField('miningAccountPreviousHistory');
+  }
+
+  get miningAccountAddress(): IConfig['miningAccountAddress'] {
+    return this.getField('miningAccountAddress');
   }
 
   set miningAccountPreviousHistory(value: IConfig['miningAccountPreviousHistory']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.miningAccountPreviousHistory = value;
-    this._tryFieldsToSave(dbFields.miningAccountPreviousHistory, value);
+    this.setField('miningAccountPreviousHistory', value);
   }
 
   get isBootingUpPreviousWalletHistory(): boolean {
@@ -288,39 +310,28 @@ export class Config {
     return bip39.mnemonicToSeedSync(this.security.masterMnemonic);
   }
 
-  //////////////////////////////
-
   get panelKey(): PanelKey {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.panelKey;
+    return this.getField('panelKey');
   }
 
   set panelKey(value: PanelKey) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.panelKey = value;
-    this._tryFieldsToSave(dbFields.panelKey, value);
+    this.setField('panelKey', value);
   }
 
   get requiresPassword(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.requiresPassword;
+    return this.getField('requiresPassword');
   }
 
   set requiresPassword(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.requiresPassword = value;
-    this._tryFieldsToSave(dbFields.requiresPassword, value);
+    this.setField('requiresPassword', value);
   }
 
   get showWelcomeOverlay(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.showWelcomeOverlay;
+    return this.getField('showWelcomeOverlay');
   }
 
   set showWelcomeOverlay(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.showWelcomeOverlay = value;
-    this._tryFieldsToSave(dbFields.showWelcomeOverlay, value);
+    this.setField('showWelcomeOverlay', value);
   }
 
   get security(): ISecurity {
@@ -329,243 +340,179 @@ export class Config {
   }
 
   get serverCreation(): IConfig['serverCreation'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.serverCreation;
+    return this.getField('serverCreation');
   }
 
   set serverCreation(value: IConfig['serverCreation']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.serverCreation = value;
-    this._tryFieldsToSave(dbFields.serverCreation, value);
+    this.setField('serverCreation', value);
   }
 
   get serverDetails(): IConfig['serverDetails'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.serverDetails;
+    return this.getField('serverDetails');
   }
 
   set serverDetails(value: IConfig['serverDetails']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.serverDetails = value;
-    this._tryFieldsToSave(dbFields.serverDetails, value);
+    this.setField('serverDetails', value);
   }
 
   get installDetails(): IConfig['installDetails'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.installDetails;
+    return this.getField('installDetails');
   }
 
   set installDetails(value: IConfig['installDetails']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.installDetails = value;
-    this._tryFieldsToSave(dbFields.installDetails, value);
+    this.setField('installDetails', value);
   }
 
   get oldestFrameIdToSync(): number {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.oldestFrameIdToSync;
+    return this.getField('oldestFrameIdToSync');
   }
 
   set oldestFrameIdToSync(value: number) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.oldestFrameIdToSync = value;
-    this._tryFieldsToSave(dbFields.oldestFrameIdToSync, value);
+    this.setField('oldestFrameIdToSync', value);
   }
 
   get latestFrameIdProcessed(): number {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.latestFrameIdProcessed;
+    return this.getField('latestFrameIdProcessed');
   }
 
   set latestFrameIdProcessed(value: number) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.latestFrameIdProcessed = value;
-    this._tryFieldsToSave(dbFields.latestFrameIdProcessed, value);
+    this.setField('latestFrameIdProcessed', value);
   }
 
   get hasReadMiningInstructions(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasReadMiningInstructions;
+    return this.getField('hasReadMiningInstructions');
   }
 
   set hasReadMiningInstructions(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasReadMiningInstructions = value;
-    this._tryFieldsToSave(dbFields.hasReadMiningInstructions, value);
+    this.setField('hasReadMiningInstructions', value);
   }
 
   get isPreparingMinerSetup(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isPreparingMinerSetup;
+    return this.getField('isPreparingMinerSetup');
   }
 
   set isPreparingMinerSetup(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isPreparingMinerSetup = value;
-    this._tryFieldsToSave(dbFields.isPreparingMinerSetup, value);
+    this.setField('isPreparingMinerSetup', value);
   }
 
   get isMinerReadyToInstall(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerReadyToInstall;
+    return this.getField('isMinerReadyToInstall');
   }
 
   set isMinerReadyToInstall(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerReadyToInstall = value;
-    this._tryFieldsToSave(dbFields.isMinerReadyToInstall, value);
+    this.setField('isMinerReadyToInstall', value);
   }
 
   get isMiningMachineCreated(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMiningMachineCreated;
+    return this.getField('isMiningMachineCreated');
   }
 
   set isMiningMachineCreated(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMiningMachineCreated = value;
-    this._tryFieldsToSave(dbFields.isMiningMachineCreated, value);
+    this.setField('isMiningMachineCreated', value);
   }
 
   get isMinerUpToDate(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerUpToDate;
+    return this.getField('isMinerUpToDate');
   }
 
   set isMinerUpToDate(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerUpToDate = value;
-    this._tryFieldsToSave(dbFields.isMinerUpToDate, value);
+    this.setField('isMinerUpToDate', value);
   }
 
   get isMinerInstalled(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerInstalled;
+    return this.getField('isMinerInstalled');
   }
 
   set isMinerInstalled(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerInstalled = value;
-    this._tryFieldsToSave(dbFields.isMinerInstalled, value);
+    this.setField('isMinerInstalled', value);
   }
 
   get isMinerWaitingForUpgradeApproval(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerWaitingForUpgradeApproval;
+    return this.getField('isMinerWaitingForUpgradeApproval');
   }
 
   set isMinerWaitingForUpgradeApproval(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerWaitingForUpgradeApproval = value;
-    this._tryFieldsToSave(dbFields.isMinerWaitingForUpgradeApproval, value);
+    this.setField('isMinerWaitingForUpgradeApproval', value);
   }
 
   get hasReadVaultingInstructions(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasReadVaultingInstructions;
+    return this.getField('hasReadVaultingInstructions');
   }
 
   set hasReadVaultingInstructions(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasReadVaultingInstructions = value;
-    this._tryFieldsToSave(dbFields.hasReadVaultingInstructions, value);
+    this.setField('hasReadVaultingInstructions', value);
   }
 
   get isPreparingVaultSetup(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isPreparingVaultSetup;
+    return this.getField('isPreparingVaultSetup');
   }
 
   set isPreparingVaultSetup(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isPreparingVaultSetup = value;
-    this._tryFieldsToSave(dbFields.isPreparingVaultSetup, value);
+    this.setField('isPreparingVaultSetup', value);
   }
 
   get isVaultReadyToCreate(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isVaultReadyToCreate;
+    return this.getField('isVaultReadyToCreate');
   }
 
   set isVaultReadyToCreate(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isVaultReadyToCreate = value;
-    this._tryFieldsToSave(dbFields.isVaultReadyToCreate, value);
+    this.setField('isVaultReadyToCreate', value);
   }
 
   get isVaultActivated(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isVaultActivated;
+    return this.getField('isVaultActivated');
   }
 
   set isVaultActivated(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isVaultActivated = value;
-    this._tryFieldsToSave(dbFields.isVaultActivated, value);
+    this.setField('isVaultActivated', value);
   }
 
   get hasMiningSeats(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasMiningSeats;
+    return this.getField('hasMiningSeats');
   }
 
   set hasMiningSeats(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasMiningSeats = value;
-    this._tryFieldsToSave(dbFields.hasMiningSeats, value);
+    this.setField('hasMiningSeats', value);
   }
 
   get hasMiningBids(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasMiningBids;
+    return this.getField('hasMiningBids');
   }
 
   set hasMiningBids(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasMiningBids = value;
-    this._tryFieldsToSave(dbFields.hasMiningBids, value);
+    this.setField('hasMiningBids', value);
   }
 
   get biddingRules(): IConfig['biddingRules'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.biddingRules;
+    return this.getField('biddingRules');
   }
 
   set biddingRules(value: IConfig['biddingRules']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.biddingRules = value;
+    this.setField('biddingRules', value);
   }
 
   get vaultingRules(): IConfig['vaultingRules'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.vaultingRules;
+    return this.getField('vaultingRules');
   }
 
   set vaultingRules(value: IConfig['vaultingRules']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.vaultingRules = value;
+    this.setField('vaultingRules', value);
   }
 
   get defaultCurrencyKey(): CurrencyKey {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.defaultCurrencyKey;
+    return this.getField('defaultCurrencyKey');
   }
 
   set defaultCurrencyKey(value: CurrencyKey) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.defaultCurrencyKey = value;
-    this._tryFieldsToSave(dbFields.defaultCurrencyKey, value);
+    this.setField('defaultCurrencyKey', value);
   }
 
   get userJurisdiction(): IConfig['userJurisdiction'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.userJurisdiction;
+    return this.getField('userJurisdiction');
   }
 
   set userJurisdiction(value: IConfig['userJurisdiction']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.userJurisdiction = value;
-    this._tryFieldsToSave(dbFields.userJurisdiction, value);
+    this.setField('userJurisdiction', value);
   }
 
   get isValidJurisdiction(): boolean {
@@ -584,13 +531,11 @@ export class Config {
   }
 
   public async saveBiddingRules() {
-    this._throwErrorIfNotLoaded();
     this._tryFieldsToSave(dbFields.biddingRules, this.biddingRules);
     await this.save();
   }
 
   public async saveVaultingRules() {
-    this._throwErrorIfNotLoaded();
     this._tryFieldsToSave(dbFields.vaultingRules, this.vaultingRules);
     await this.save();
   }
@@ -608,6 +553,17 @@ export class Config {
     this._throwErrorIfNotLoaded();
     (this as any)[field] = defaults[field]();
     this._fieldsToSave.add(field);
+  }
+
+  private getField<T extends keyof IConfig>(field: T): IConfig[T] {
+    this._throwErrorIfNotLoaded();
+    return this._loadedData[field];
+  }
+
+  private setField<T extends keyof IConfig>(field: T, value: IConfig[T]): void {
+    this._throwErrorIfNotLoaded();
+    this._loadedData[field] = value;
+    this._tryFieldsToSave((dbFields as any)[field], value);
   }
 
   private _throwErrorIfNotLoaded() {
@@ -861,8 +817,13 @@ const defaults: IConfigDefaults = {
       seatGoalPercent: 0,
       seatGoalInterval: SeatGoalInterval.Epoch,
 
-      baseMicrogonCommitment: 1_000n * BigInt(MICROGONS_PER_ARGON),
-      baseMicronotCommitment: 0n,
+      startingMicrogons: 1_000n * BigInt(MICROGONS_PER_ARGON),
+      startingMicronots: 0n,
+
+      reservedMicrogons: 0n,
+      reservedMicronots: 0n,
+      sidelinedMicronots: 0n,
+      sidelinedMicrogons: 0n,
     };
   },
   vaultingRules: () => {

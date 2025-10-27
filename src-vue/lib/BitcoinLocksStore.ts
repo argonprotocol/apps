@@ -258,7 +258,7 @@ export default class BitcoinLocksStore {
 
     // get bitcoin xpriv to generate the pubkey
     const nextIndex = await table.getNextVaultHdKeyIndex(vault.vaultId);
-    const hdPath = `m/1018'/0'/${vault.vaultId}'/0/${nextIndex}`;
+    const hdPath = `m/1018'/0'/${vault.vaultId}'/0/${nextIndex}'`;
     const ownerBitcoinXpriv = getChildXpriv(bip39Seed, hdPath, this.bitcoinNetwork);
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
 
@@ -276,7 +276,7 @@ export default class BitcoinLocksStore {
     bip39Seed: Uint8Array;
   }): Promise<{ canAfford: boolean; txFeePlusTip: bigint; securityFee: bigint }> {
     const { vault, argonKeyring, tip = 0n, bip39Seed } = args;
-    const ownerBitcoinXpriv = getChildXpriv(bip39Seed, `m/1018'/0'/${vault.vaultId}'/0/1`, this.bitcoinNetwork);
+    const ownerBitcoinXpriv = getChildXpriv(bip39Seed, `m/1018'/0'/${vault.vaultId}'/0/0'`, this.bitcoinNetwork);
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
 
     // explode on purpose if we can't afford even the minimum
@@ -315,11 +315,7 @@ export default class BitcoinLocksStore {
     }
 
     const tx = client.tx.bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey);
-    const submitter = new TxSubmitter(
-      client,
-      client.tx.bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey),
-      argonKeyring,
-    );
+    const submitter = new TxSubmitter(client, tx, argonKeyring);
     const marketPrice = await this.#bitcoinLocksApi.getMarketRate(priceIndex, satoshis);
     const isVaultOwner = argonKeyring.address === vault.operatorAccountId;
     const securityFee = isVaultOwner ? 0n : vault.calculateBitcoinFee(marketPrice);

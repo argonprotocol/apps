@@ -5,7 +5,7 @@ import { LocalMachine } from './LocalMachine';
 import { SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
 import { SSHFingerprint } from './SSHFingerprint';
-import { INSTANCE_NAME, NETWORK_NAME, IS_TEST } from './Env';
+import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env';
 
 export class MiningMachineError extends Error {
   constructor(message: string) {
@@ -86,6 +86,7 @@ export class MiningMachine {
       },
       body: JSON.stringify({
         name: dropletName,
+        // TODO: pick closest to user jurisdiction
         region: 'sfo3',
         size: 's-4vcpu-8gb',
         image: 'ubuntu-25-04-x64',
@@ -201,7 +202,7 @@ export class MiningMachine {
       type: ServerType.LocalComputer,
       ipAddress: `127.0.0.1`,
       port: 0,
-      sshUser: 'root',
+      sshUser: 'argon',
       workDir: '/app',
     };
 

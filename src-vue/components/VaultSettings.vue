@@ -291,8 +291,6 @@ function selectPreviousId(id: IEditBoxOverlayTypeForVaulting): IEditBoxOverlayTy
     const item = editBoxItems[nextId];
     if (props.includeProjections || !item.isProjection) {
       return nextId as IEditBoxOverlayTypeForVaulting;
-    } else {
-      continue;
     }
   }
 }
@@ -313,8 +311,6 @@ function selectNextId(id: IEditBoxOverlayTypeForVaulting): IEditBoxOverlayTypeFo
     const item = editBoxItems[nextId];
     if (props.includeProjections || !item.isProjection) {
       return nextId as IEditBoxOverlayTypeForVaulting;
-    } else {
-      continue;
     }
   }
 }

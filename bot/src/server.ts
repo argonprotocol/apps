@@ -96,8 +96,8 @@ app.get('/last-modified', async (_req, res) => {
   }
 
   const state = await bot.blockSync.state();
-  lastModifiedDate = state.bidsLastModifiedAt;
-  if (lastModifiedDate < state.earningsLastModifiedAt) {
+  lastModifiedDate = new Date(state.bidsLastModifiedAt);
+  if (new Date(state.earningsLastModifiedAt) > lastModifiedDate) {
     lastModifiedDate = state.earningsLastModifiedAt;
   }
   jsonExt({ lastModifiedDate }, res);
@@ -126,6 +126,7 @@ app.get('/bids', async (_req, res) => {
   if (await isStarting(res)) return;
   const currentFrameId = await bot.currentFrameId;
   const nextFrameId = currentFrameId + 1;
+  console.log(`Getting bids file for ${currentFrameId}-${nextFrameId}`);
   const data = await bot.storage.bidsFile(currentFrameId, nextFrameId).get();
   jsonExt(data, res);
 });

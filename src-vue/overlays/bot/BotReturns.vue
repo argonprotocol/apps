@@ -135,7 +135,7 @@ function updateAPYs() {
 }
 
 Vue.onMounted(() => {
-  calculatorData.isInitializedPromise.then(() => {
+  calculatorData.load().then(() => {
     updateAPYs();
   });
 });

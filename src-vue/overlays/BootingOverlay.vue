@@ -78,55 +78,7 @@ const config = useConfig();
 const draggable = Vue.reactive(new Draggable());
 
 const syncErrorType = Vue.ref<string | null>(null);
-const toRestore = localStorage.getItem('ConfigRestore');
 
-async function applyRestoredServer(details: string) {
-  try {
-    const restoreData = JSON.parse(details) as Record<keyof IConfig, string>;
-    for (const key of Object.keys(restoreData) as (keyof IConfig)[]) {
-      let value = restoreData[key] as any;
-      // can't set this since it's readonly
-      if (key === 'version') {
-        continue;
-      }
-      if (key === 'serverCreation') {
-        continue; // handled below
-      }
-      if (key === 'serverDetails') {
-        const parseResult = ConfigServerDetailsSchema.safeParse(JsonExt.parse(value));
-        if (!parseResult.success) return;
-        const serverCreation = ConfigServerCreationSchema.safeParse(JsonExt.parse(value));
-        if (!serverCreation.success) return;
-
-        value = parseResult.data;
-        try {
-          await SSH.tryConnection(parseResult.data);
-          config.isMinerUpToDate = false;
-          config.serverCreation = serverCreation.data;
-          config.isMiningMachineCreated = true;
-        } catch (err) {
-          console.error(
-            `Couldn't reconnect to stored server at ${parseResult.data.ipAddress}:${parseResult.data.port}`,
-            err,
-          );
-          continue;
-        }
-      }
-
-      (config as any)[key] = value as any;
-    }
-    await config.save();
-  } catch (err) {
-    console.error('Error restoring config from localStorage:', err);
-  }
-}
-
-if (toRestore) {
-  // only clear out after finished
-  applyRestoredServer(toRestore).finally(() => {
-    localStorage.removeItem('ConfigRestore');
-  });
-}
 async function retry() {
   isRetrying.value = true;
   // stats.retrySync();

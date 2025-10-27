@@ -21,7 +21,7 @@
       <WalletOverlay />
       <ServerRemoveOverlay />
       <SecuritySettingsOverlay />
-      <BotCreateOverlay />
+      <BotEditOverlay />
       <VaultCreateOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
@@ -68,6 +68,7 @@ import HowVaultingWorksOverlay from './overlays/vault/HowVaultingWorks.vue';
 import { PanelKey } from './interfaces/IConfig.ts';
 import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
+import BotEditOverlay from './overlays/BotEditOverlay.vue';
 
 const controller = useController();
 const config = useConfig();

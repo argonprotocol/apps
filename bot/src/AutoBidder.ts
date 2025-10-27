@@ -7,7 +7,7 @@ import {
   MiningBids,
 } from '@argonprotocol/apps-core';
 import { type Storage } from './Storage.ts';
-import { type History, SeatReductionReason } from './History.ts';
+import { type History } from './History.ts';
 
 /**
  * Creates a bidding process. Between each cohort, it will ask the callback for parameters for the next cohort.
@@ -60,19 +60,7 @@ export class AutoBidder {
 
   private async onBiddingStart(cohortActivationFrameId: number) {
     if (this.isStopped) return;
-    const latestAccruedMicrogonProfits =
-      (await this.storage.earningsFile(cohortActivationFrameId - 1).get())?.accruedMicrogonProfits ??
-      (await this.storage.earningsFile(cohortActivationFrameId - 2).get())?.accruedMicrogonProfits ??
-      0n;
-    const latestAccruedMicronotProfits =
-      (await this.storage.earningsFile(cohortActivationFrameId - 1).get())?.accruedMicronotProfits ??
-      (await this.storage.earningsFile(cohortActivationFrameId - 2).get())?.accruedMicronotProfits ??
-      0n;
-
-    const params = await createBidderParams(cohortActivationFrameId, this.mainchainClients, this.biddingRules, {
-      microgons: latestAccruedMicrogonProfits,
-      micronots: latestAccruedMicronotProfits,
-    });
+    const params = await createBidderParams(cohortActivationFrameId, this.mainchainClients, this.biddingRules);
     if (params.maxSeats === 0) return;
 
     const cohortBiddingFrameId = cohortActivationFrameId - 1;
@@ -109,18 +97,12 @@ export class AutoBidder {
         const { availableBalanceForBids, availableMicronots, blockNumber, reason, tick, maxSeats, winningBidCount } =
           args;
         const seatsInPlay = Math.max(maxSeats, winningBidCount);
-        const translatedReason =
-          reason === 'max-bid-too-low'
-            ? SeatReductionReason.MaxBidTooLow
-            : reason === 'max-budget-too-low'
-              ? SeatReductionReason.MaxBudgetTooLow
-              : SeatReductionReason.InsufficientFunds;
 
         this.history.handleSeatFluctuation({
           tick,
           blockNumber,
           newMaxSeats: seatsInPlay,
-          reason: translatedReason,
+          reason,
           availableMicrogons: availableBalanceForBids,
           availableMicronots,
           frameId: cohortActivationFrameId,

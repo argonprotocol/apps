@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
+  <DialogRoot class="absolute inset-0 z-10" :open="true">
     <DialogPortal>
       <DialogOverlay asChild>
         <BgOverlay @close="cancelOverlay" />
@@ -80,10 +80,10 @@
                       </div>
                       <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full mx-auto">
                         This is the <tooltip content="Click the capital amount listed above to directly change your commitment">amount of capital you'll need</tooltip> for acquiring<br/>
-                        {{ micronotToArgonotNm(rules.baseMicronotCommitment).format('0,0') }}
-                        <tooltip content="Argonots are the ownership tokens of the network">argonot{{ micronotToArgonotNm(rules.baseMicronotCommitment).format('0,0') === '1' ? '' : 's' }}</tooltip>
-                        and {{ microgonToArgonNm(rules.baseMicrogonCommitment).format('0,0') }}
-                        <tooltip content="Argons are the stable currency of the network">argon{{ microgonToArgonNm(rules.baseMicrogonCommitment).format('0,0') === '0,0' ? '' : 's' }}</tooltip>
+                        {{ micronotToArgonotNm(rules.startingMicronots).format('0,0') }}
+                        <tooltip content="Argonots are the ownership tokens of the network">argonot{{ micronotToArgonotNm(rules.startingMicronots).format('0,0') === '1' ? '' : 's' }}</tooltip>
+                        and {{ microgonToArgonNm(rules.startingMicrogons).format('0,0') }}
+                        <tooltip content="Argons are the stable currency of the network">argon{{ microgonToArgonNm(rules.startingMicrogons).format('0,0') === '1' ? '' : 's' }}</tooltip>
                         at their <tooltip content="Prices reflect as closely as possible the real-time rates on Uniswap's trading exchange">current market rates</tooltip>.
                       </div>
                     </div>
@@ -169,7 +169,6 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from 'reka-ui';
-import basicEmitter from '../emitters/basicEmitter';
 import { useConfig } from '../stores/config';
 import { useCurrency } from '../stores/currency';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../stores/mainchain';
@@ -199,6 +198,10 @@ import { useController } from '../stores/controller';
 import Draggable from './helpers/Draggable.ts';
 import BotSettings from '../components/BotSettings.vue';
 
+const emit = defineEmits<{
+  (e: 'close'): void;
+}>();
+
 const calculator = getBiddingCalculator();
 const calculatorData = getBiddingCalculatorData();
 
@@ -219,7 +222,6 @@ const rules = Vue.computed(() => {
 const isBrandNew = Vue.ref(true);
 const isSuggestingTour = Vue.ref(false);
 const currentTourStep = Vue.ref<number>(0);
-const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const hasEditBoxOverlay = Vue.ref(false);
@@ -297,23 +299,16 @@ function calculateElementWidth(element: HTMLElement | null) {
 }
 
 function getEpochSeatGoalCount() {
-  if (rules.value.seatGoalType === SeatGoalType.MaxPercent || rules.value.seatGoalType === SeatGoalType.MinPercent) {
-    return Math.floor((rules.value.seatGoalPercent / 100) * calculatorData.maxPossibleMiningSeatCount);
-  }
-  let seats = rules.value.seatGoalCount;
-  if (rules.value.seatGoalInterval === SeatGoalInterval.Frame) {
-    seats *= 10; // 10 frames per epoch
-  }
-  return seats;
+  return calculatorData.getEpochSeatGoalCount(rules.value);
 }
 
 function cancelOverlay() {
   if (hasEditBoxOverlay.value) return;
-  isOpen.value = false;
 
   if (previousBiddingRules) {
     config.biddingRules = JsonExt.parse<IBiddingRules>(previousBiddingRules);
   }
+  emit('close');
 }
 
 async function saveRules() {
@@ -326,7 +321,7 @@ async function saveRules() {
   }
 
   isSaving.value = false;
-  isOpen.value = false;
+  emit('close');
   if (config.isMinerInstalled && didSave) {
     try {
       await bot.resyncBiddingRules();
@@ -358,15 +353,15 @@ function updateAPYs() {
   epochPercentageYield.value =
     (epochMinimumSlowYield + epochMinimumFastYield + epochMaximumSlowYield + epochMaximumFastYield) / 4;
 
-  const maxAffordableSeats = rules.value.baseMicronotCommitment / calculatorData.micronotsRequiredForBid;
+  const maxAffordableSeats = rules.value.startingMicronots / calculatorData.micronotsRequiredForBid;
 
-  const probableMinSeatsBn = BigNumber(rules.value.baseMicrogonCommitment).dividedBy(calculator.maximumBidAmount);
+  const probableMinSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.maximumBidAmount);
   probableMinSeats.value = Math.max(bigNumberToInteger(probableMinSeatsBn), 0);
   if (probableMinSeats.value > maxAffordableSeats) {
     probableMinSeats.value = Number(maxAffordableSeats);
   }
 
-  const probableMaxSeatsBn = BigNumber(rules.value.baseMicrogonCommitment).dividedBy(calculator.startingBidAmount);
+  const probableMaxSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.startingBidAmount);
   probableMaxSeats.value = Math.min(bigNumberToInteger(probableMaxSeatsBn), calculatorData.maxPossibleMiningSeatCount);
   if (probableMaxSeats.value > maxAffordableSeats) {
     probableMaxSeats.value = Number(maxAffordableSeats);
@@ -379,16 +374,13 @@ function updateAPYs() {
 
 Vue.watch(capitalToCommitMicrogons, capital => {
   const seatCount = BigInt(getEpochSeatGoalCount());
-  rules.value.baseMicronotCommitment = seatCount * calculatorData.micronotsRequiredForBid;
-  rules.value.baseMicrogonCommitment = capital - rules.value.baseMicronotCommitment;
+  rules.value.startingMicronots = seatCount * calculatorData.micronotsRequiredForBid;
+  rules.value.startingMicrogons = capital - currency.micronotToMicrogon(rules.value.startingMicronots);
 });
 
 const minimumCapitalCommitment = Vue.computed(() => {
-  const epochSeatGoal = BigInt(getEpochSeatGoalCount());
-  const minimumCapitalNeeded = calculator.maximumBidAmount * epochSeatGoal;
-  const minimumCapitalNeededRoundedUp = ceilTo(minimumCapitalNeeded, 6);
-  const micronotsNeeded = epochSeatGoal * calculatorData.micronotsRequiredForBid;
-  const commitment = currency.micronotToMicrogon(micronotsNeeded) + BigInt(minimumCapitalNeededRoundedUp);
+  const { maxMicrogons, micronots } = calculator.minimumCapitalRequirement(rules.value);
+  const commitment = currency.micronotToMicrogon(micronots) + maxMicrogons;
   return bigIntCeil(commitment, 1_000_000n);
 });
 
@@ -410,24 +402,14 @@ function stopSuggestingTour() {
   isSuggestingTour.value = false;
 }
 
-Vue.watch(
-  rules,
-  () => {
-    if (isOpen.value) {
-      updateAPYs();
-    }
-  },
-  { deep: true },
-);
+Vue.watch(rules, () => updateAPYs(), { deep: true });
 
-basicEmitter.on('openBotCreateOverlay', async () => {
-  if (isOpen.value) return;
+Vue.onMounted(async () => {
   isLoaded.value = false;
-  isOpen.value = true;
 
   isBrandNew.value = !config.hasSavedBiddingRules;
   isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingBotTour;
-  calculatorData.isInitializedPromise.then(() => {
+  calculatorData.load().then(() => {
     previousBiddingRules = JsonExt.stringify(config.biddingRules);
     capitalToCommitMicrogons.value = minimumCapitalCommitment.value;
     updateAPYs();

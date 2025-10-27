@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 import BiddingCalculatorData from './BiddingCalculatorData.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
+import { bigIntAbs, bigIntMax, bigIntMin, bigNumberToBigInt, ceilTo } from './utils.js';
 import { BidAmountAdjustmentType, BidAmountFormulaType, type IBiddingRules } from './interfaces/IBiddingRules.js';
 import { MICROGONS_PER_ARGON } from './index.js';
 
@@ -19,41 +19,46 @@ type IGrowthType = 'slow' | 'medium' | 'fast';
 
 export default class BiddingCalculator {
   public data: BiddingCalculatorData;
-
   public biddingRules: IBiddingRules;
 
   public startingBidAmount!: bigint;
+
   public startingBidAmountAtPivot: null | bigint = null;
   public startingBidAmountFromMaximumBid: null | bigint = null;
   public startingBidAmountFromExpectedGrowth: null | bigint = null;
-
   public maximumBidAmount!: bigint;
+
   public maximumBidAmountAtPivot: null | bigint = null;
   public maximumBidAmountFromStartingBid: null | bigint = null;
   public maximumBidAmountFromExpectedGrowth: null | bigint = null;
-
   public startingBidAtSlowGrowthAPY!: number;
+
   public startingBidAtFastGrowthAPY!: number;
-
   public maximumBidAtSlowGrowthAPY!: number;
-  public maximumBidAtFastGrowthAPY!: number;
 
+  public maximumBidAtFastGrowthAPY!: number;
   public averageAPY!: number;
 
   public pivotPoint: null | 'ExpectedGrowth' | 'StartingBid' | 'MaximumBid' = null;
 
-  public isInitializedPromise: Promise<void>;
+  private readonly onLoadSubscribers = new Set<() => void>();
 
   constructor(calculatorData: BiddingCalculatorData, biddingRules: IBiddingRules) {
     this.data = calculatorData;
     this.biddingRules = biddingRules;
-    this.isInitializedPromise = this.data.isInitializedPromise
-      .then(() => {
-        this.calculateBidAmounts();
-      })
-      .catch(error => {
-        console.error('Error initializing bidding calculator', error);
-      });
+  }
+
+  public onLoad(callbackFn: () => void): { unsubscribe: () => void } {
+    this.onLoadSubscribers.add(callbackFn);
+    return {
+      unsubscribe: () => this.onLoadSubscribers.delete(callbackFn),
+    };
+  }
+
+  public async load() {
+    await this.data.load();
+    this.calculateBidAmounts();
+    for (const s of this.onLoadSubscribers) s();
   }
 
   public get startingBidAmountOverride(): bigint | null {
@@ -76,6 +81,18 @@ export default class BiddingCalculator {
 
   public get fastGrowthRewards(): bigint {
     return this.calculateOptimisticRewardsThisSeat();
+  }
+
+  public minimumCapitalRequirement(rules: IBiddingRules): {
+    micronots: bigint;
+    startingMicrogons: bigint;
+    maxMicrogons: bigint;
+  } {
+    const epochSeatGoal = BigInt(this.data.getEpochSeatGoalCount(rules));
+    const startingMicrogons = ceilTo(this.startingBidAmount * epochSeatGoal, 6);
+    const maxMicrogons = ceilTo(this.maximumBidAmount * epochSeatGoal, 6);
+    const micronots = epochSeatGoal * this.data.micronotsRequiredForBid;
+    return { startingMicrogons: BigInt(startingMicrogons), maxMicrogons: BigInt(maxMicrogons), micronots };
   }
 
   public async updateBiddingRules(biddingRules: IBiddingRules) {
@@ -143,7 +160,7 @@ export default class BiddingCalculator {
     const costOfArgonotBidLossInMicrogons = this.calculateCostOfArgonotBidLossInMicrogons(
       this.biddingRules.argonotPriceChangePctMin,
     );
-    return totalRewards - (this.data.estimatedTransactionFee + costOfArgonotBidLossInMicrogons);
+    return bigIntMax(totalRewards - (this.data.estimatedTransactionFee + costOfArgonotBidLossInMicrogons), 0n);
   }
 
   public get breakevenBidAtFastGrowth(): bigint {
@@ -151,11 +168,11 @@ export default class BiddingCalculator {
     const costOfArgonotBidLossInMicrogons = this.calculateCostOfArgonotBidLossInMicrogons(
       this.biddingRules.argonotPriceChangePctMax,
     );
-    return optimisticRewards - (this.data.estimatedTransactionFee + costOfArgonotBidLossInMicrogons);
+    return bigIntMax(optimisticRewards - (this.data.estimatedTransactionFee + costOfArgonotBidLossInMicrogons), 0n);
   }
 
   public get breakevenBidAtMediumGrowth(): bigint {
-    return (this.breakevenBidAtFastGrowth + this.breakevenBidAtSlowGrowth) / 2n;
+    return bigIntMax((this.breakevenBidAtFastGrowth + this.breakevenBidAtSlowGrowth) / 2n, 0n);
   }
 
   private calculateFormulaPrice(bidDetails: IBidDetails): bigint {
@@ -178,7 +195,7 @@ export default class BiddingCalculator {
       throw new Error(`Invalid price formula type: ${bidDetails.formulaType}`);
     }
 
-    return price;
+    return bigIntMax(price, 0n);
   }
 
   private adjustFormulaPrice(price: bigint, bidDetails: IBidDetails): bigint {
@@ -196,14 +213,18 @@ export default class BiddingCalculator {
       price -= remainder;
     }
 
-    return price;
+    return bigIntMax(price, 0n);
   }
 
   private calculateCostOfArgonotBidLossInMicrogons(argonotPriceChangePct: number): bigint {
-    const lossMultiplierBn = BigNumber(argonotPriceChangePct).dividedBy(100);
-    const lossInMicronotsBn = BigNumber(-this.data.micronotsRequiredForBid).multipliedBy(lossMultiplierBn);
-    const lossInMicrogons = this.micronotToMicrogon(bigNumberToBigInt(lossInMicronotsBn));
-    return bigIntMax(0n, lossInMicrogons);
+    if (argonotPriceChangePct >= 0) return 0n;
+
+    const tenDayPercent = this.convertAnnualToTenDayRate(argonotPriceChangePct);
+    const lossInMicronotsBn = BigNumber(this.data.micronotsRequiredForBid).multipliedBy(tenDayPercent).dividedBy(100);
+
+    // this will multiply times a loss, but we want to return a positive number
+    const negativeLossMicrogons = this.micronotToMicrogon(bigNumberToBigInt(lossInMicronotsBn));
+    return bigIntAbs(negativeLossMicrogons);
   }
 
   public calculateTenDayYield(bidType: IBidType, growthType: IGrowthType): number {
