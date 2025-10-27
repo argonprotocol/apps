@@ -6,6 +6,7 @@ globalThis.__ARGON_APP_INSTANCE__ = 'test-instance';
 globalThis.__ARGON_APP_ENABLE_AUTOUPDATE__ = false;
 globalThis.__SERVER_ENV_VARS__ = {} as any;
 globalThis.__IS_TEST__ = true;
+globalThis.__LOG_DEBUG__ = false;
 globalThis.__ARGON_APP_SECURITY__ = {
   masterMnemonic: mnemonicGenerate(),
   sshPublicKey: '',

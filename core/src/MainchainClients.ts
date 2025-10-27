@@ -19,7 +19,7 @@ export class MainchainClients {
 
   constructor(
     archiveUrl: string,
-    private enableApiLogging = true,
+    private enableApiLogging = () => true,
   ) {
     this.archiveUrl = archiveUrl;
     this.archiveClientPromise = getMainchainClientOrThrow(archiveUrl).then(x => this.wrapClient(x, 'archive'));
@@ -73,10 +73,8 @@ export class MainchainClients {
         apiError = error;
         this.events.emit('degraded', error, clientType);
 
-        if (this.enableApiLogging) {
-          const argsJson = args.map(getJson);
-          console.error(`[${name}] ${path}(${JSON.stringify(argsJson)}) Error:`, error);
-        }
+        const argsJson = args.map(getJson);
+        console.error(`[${name}] ${path}(${JSON.stringify(argsJson)}) Error:`, error);
       },
       onSuccess: (path, result, ...args) => {
         if (!path.includes('query.') && !path.includes('rpc.')) {
@@ -84,7 +82,7 @@ export class MainchainClients {
         }
         apiError = undefined;
         this.events.emit('working', path, clientType);
-        if (this.enableApiLogging) {
+        if (this.enableApiLogging()) {
           const resultJson = path.endsWith('.system.events') ? `${(result as any).length} events` : getJson(result);
           const argsJson = args.map(getJson);
           console.log(`[${name}] ${path}(${JSON.stringify(argsJson)})`, resultJson);

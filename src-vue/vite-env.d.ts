@@ -13,6 +13,7 @@ declare const __ARGON_APP_INSTANCE__: string;
 declare const __ARGON_APP_ENABLE_AUTOUPDATE__: boolean;
 declare const __ARGON_APP_SECURITY__: any;
 declare const __IS_TEST__: boolean;
+declare let __LOG_DEBUG__: boolean;
 declare const __SERVER_ENV_VARS__: {
   STATUS_PORT: string;
   BOT_PORT: string;
