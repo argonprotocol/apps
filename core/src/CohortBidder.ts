@@ -295,8 +295,10 @@ export class CohortBidder {
 
     let accountBalance = await this.accountset.submitterBalance();
     accountBalance -= this.options.sidelinedWalletMicrogons ?? 0n;
+    if (accountBalance <= 0n) accountBalance = 0n;
     let accountMicronots = await this.accountset.submitterMicronots();
     accountMicronots -= this.options.sidelinedWalletMicronots ?? 0n;
+    if (accountMicronots < 0n) accountMicronots = 0n;
 
     const tip = this.options.tipPerTransaction ?? 0n;
 

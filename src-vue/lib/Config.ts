@@ -820,8 +820,6 @@ const defaults: IConfigDefaults = {
       startingMicrogons: 1_000n * BigInt(MICROGONS_PER_ARGON),
       startingMicronots: 0n,
 
-      reservedMicrogons: 0n,
-      reservedMicronots: 0n,
       sidelinedMicronots: 0n,
       sidelinedMicrogons: 0n,
     };

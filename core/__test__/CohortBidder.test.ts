@@ -177,7 +177,6 @@ describe('CohortBidder unit tests', () => {
       minBid: Argons(3),
       maxBid: Argons(5.5),
       accountBalance: Argons(40 + 0.06 - 3 * 3.53),
-      sidelinedWalletMicrogons: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(1, Argons(4.1)),
@@ -244,7 +243,6 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(8),
       bidIncrement: Argons(1),
       accountBalance: Argons(40 + 0.06 - 4),
-      sidelinedWalletMicrogons: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(2, Argons(10)),
@@ -286,7 +284,7 @@ describe('CohortBidder unit tests', () => {
     await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
     expect(submitBids).toHaveBeenCalledTimes(0);
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
-    expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-budget-too-low');
+    expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-bid-too-low');
   });
 
   it('should be not exceed available argonots', async () => {
@@ -294,8 +292,8 @@ describe('CohortBidder unit tests', () => {
       minBid: Argons(0.5),
       maxBid: Argons(5),
       accountBalance: Argons(10),
-      accountMicronots: 20_000n, // max of 2 seats worth
-      sidelinedWalletMicrogons: Argons(5),
+      accountMicronots: 30_000n,
+      sidelinedWalletMicronots: 10_000n, // max of 2 seats worth
     });
     cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
     cohortBidder.currentBids.atTick = 10;
@@ -318,9 +316,8 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(5),
       accountBalance: Argons(10),
       accountMicronots: 100_000n, // max of 2 seats worth
-      sidelinedWalletMicrogons: Argons(5),
     });
-    cohortBidder.options.sidelinedWalletMicronots = 30_000n; // max of 3 seats worth
+    cohortBidder.options.sidelinedWalletMicronots = 90_000n; // max 1 more
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 2).map(x => {
         return { bidAtTick: 10, bidMicrogons: Argons(1), address: x.address, micronotsStaked: 10_000n };
@@ -343,7 +340,7 @@ describe('CohortBidder unit tests', () => {
     expect(accountsToBidWith.length).toBe(1);
 
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
-    expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-budget-too-low');
+    expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('insufficient-argonot-balance');
     expect(onBidParamsAdjusted.mock.calls[0][0].availableMicronots).toBe(10_000n);
   });
 });
@@ -375,7 +372,6 @@ async function createBidderWithMocks(
   });
   options.maxBid ??= 1_000_000n;
   options.minBid ??= 500_000n;
-  options.sidelinedWalletMicrogons ??= options.accountBalance;
   options.bidIncrement ??= 10_000n;
   options.bidDelay ??= 1;
 

@@ -21,5 +21,5 @@ export const DEPLOY_ENV_FILE = `.env.${NETWORK_NAME}`;
 export const SECURITY = __ARGON_APP_SECURITY__ as ISecurity;
 export const IS_TEST = __IS_TEST__ ?? false;
 // eslint-disable-next-line prefer-const
-export let LOG_DEBUG = '__LOG_DEBUG__' in window ? __LOG_DEBUG__ : false;
+export let LOG_DEBUG = __LOG_DEBUG__ ?? false;
 delete (globalThis as any).__ARGON_APP_SECURITY__; // remove from global scope

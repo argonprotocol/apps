@@ -50,7 +50,6 @@ it('can create bidder params', async () => {
   expect(bidderParams.minBid).toBe(0n);
   // BAB: not sure how to test this - it's based on live data from the chain
   // expect(bidderParams.maxBid).toBe(66_532_221n);
-  expect(bidderParams.sidelinedWalletMicrogons).toBe(10_000_000n);
   expect(bidderParams.maxSeats).toBe(10);
   expect(bidderParams.bidDelay).toBe(1);
   expect(bidderParams.bidIncrement).toBe(1_000_000n);
