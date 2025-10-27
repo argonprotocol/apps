@@ -149,11 +149,14 @@ export class Vaults {
 
       const currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
       console.log(`Syncing vault revenue stats from ${oldestFrameToGet}->${currentFrameId}`);
-      await new FrameIterator(clients, 'VaultRevenueStats').forEachFrame(
+      await new FrameIterator(clients, 'VaultHistory').iterateFramesLimited(
         async (frameId, firstBlockMeta, api, abortController) => {
+          console.log(`[VaultHistory] Loading frame ${frameId} (oldest ${oldestFrameToGet})`);
           if (firstBlockMeta.specVersion < 129) {
-            abortController.abort();
-            return;
+            console.log(
+              `[VaultHistory] Aborting iteration at frame ${frameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
+            );
+            return abortController.abort();
           }
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
           for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
@@ -162,8 +165,10 @@ export class Vaults {
           }
 
           if (frameId <= oldestFrameToGet) {
-            console.log(`Synced vault revenue to frame ${frameId}`);
-            abortController.abort();
+            console.log(
+              `[VaultHistory] Aborting iteration at frame ${frameId} as it's older than frame ${oldestFrameToGet}`,
+            );
+            return abortController.abort();
           }
         },
       );

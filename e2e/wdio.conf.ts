@@ -43,7 +43,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
     {
       maxInstances: 1,
       'tauri:options': {
-        application: `${COMMANDER_ROOT}/src-tauri/target/debug/Commander`,
+        application: `${COMMANDER_ROOT}/src-tauri/target/debug/Investor Console`,
       },
     },
   ],

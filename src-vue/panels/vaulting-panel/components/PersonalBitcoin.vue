@@ -1,10 +1,10 @@
 <!-- prettier-ignore -->
 <template>
   <section class="flex flex-col">
-    <div v-if="personalUtxo?.status === BitcoinLockStatus.LockInitialized" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+    <div v-if="personalLock?.status === BitcoinLockStatus.LockInitialized" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px fade-in-out" />
       <div class="flex flex-col items-start justify-center grow">
-        <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Is Being Locked</div>
+        <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">You're Locking {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC</div>
         <div class="relative text-argon-700/80 pt-0.5 font-bold text-md pointer-events-none fade-in-out">Actively Monitoring Network for Incoming Bitcoin</div>
       </div>
       <div class="flex flex-col items-center justify-center">
@@ -24,48 +24,48 @@
         </div>
       </div>
     </div>
-    <div v-else-if="!personalUtxo || [BitcoinLockStatus.LockVerificationExpired, BitcoinLockStatus.ReleaseComplete].includes(personalUtxo.status)" class="grow flex flex-row items-center justify-start px-[3%] py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+    <div v-else-if="!personalLock || [BitcoinLockStatus.LockVerificationExpired, BitcoinLockStatus.ReleaseComplete].includes(personalLock.status)" class="grow flex flex-row items-center justify-start px-[3%] py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <div class="flex flex-col items-start justify-center grow pr-16 text-argon-800/70">
-        <div class="text-xl font-bold opacity-60">No Bitcoin Attached to this Vault</div>
+        <div class="text-xl font-bold opacity-60">No Bitcoin Is Attached to this Vault</div>
         <div class="font-light">
           Vaults require bitcoin in order to function properly and generate revenue<br/>
-          opportunities for their owners. Click the button to add a bitcoin.
+          opportunities for their owners. Click the button to add.
         </div>
       </div>
       <div class="flex flex-col items-center justify-center">
         <button @click="showAddOverlay = true" class="bg-argon-600 text-white whitespace-nowrap text-lg font-bold px-12 py-2 rounded-md cursor-pointer">Add a Bitcoin</button>
       </div>
     </div>
-    <div v-else-if="personalUtxo?.status === BitcoinLockStatus.LockProcessingOnBitcoin" @click="showFinishLockingOverlay = true" class="cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
-      <div class="flex flex-row items-center justify-center w-full fade-in-out">
-        <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px" />
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockProcessingOnBitcoin" @click="showFinishLockingOverlay = true" class="cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+      <div class="flex flex-row items-center justify-center w-full">
+        <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
           <div class="text-xl font-bold opacity-60 pb-1.5">
-            Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Lock Is Being Processed by Bitcoin's Network
+            Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC Is Being Processed by Bitcoin's Network
           </div>
-          <ProgressBar :progress="personalUtxoProcessingOnBitcoinProgress" />
+          <ProgressBar :progress="bitcoinLockProcessingPercent" />
         </div>
       </div>
     </div>
-    <div v-else-if="personalUtxo?.status === BitcoinLockStatus.LockReceivedWrongAmount" @click="showFinishLockingOverlay = true" class="grow text-red-700 flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5 cursor-pointer hover:bg-white/50">
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockReceivedWrongAmount" @click="showFinishLockingOverlay = true" class="grow text-red-700 flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5 cursor-pointer hover:bg-white/50">
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-80 border-b border-argon-600/20 pb-1.5 mb-1.5">
-          Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locking Failed
+          Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locking Failed
         </div>
         <div class="opacity-60">
           The amount of bitcoin you sent was incorrect. It could not be accepted by Argon.
         </div>
       </div>
     </div>
-    <div v-else-if="[BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(personalUtxo?.status!)" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
+    <div v-else-if="[BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(personalLock?.status!)" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
       <BitcoinIcon class="w-22 inline-block mr-5 -rotate-24 opacity-60" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60">
-          {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
+          {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
         </div>
         <div class="opacity-40">
-          {{ currency.symbol}}{{ microgonToMoneyNm(personalUtxo?.liquidityPromised ?? 0n).format('0,0.[00]') }} Liquidity {{ personalUtxo?.status === BitcoinLockStatus.LockedAndMinting ? 'Promised' : 'Received'}}
+          {{ currency.symbol}}{{ microgonToMoneyNm(personalLock?.liquidityPromised ?? 0n).format('0,0.[00]') }} Liquidity {{ personalLock?.status === BitcoinLockStatus.LockedAndMinting ? 'Promised' : 'Received'}}
           /
           {{ currency.symbol }}{{ microgonToMoneyNm(unlockPrice).format('0,0.[00]') }} to Unlock
         </div>
@@ -89,12 +89,12 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalUtxo?.status === BitcoinLockStatus.ReleaseSubmittingToArgon" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseSubmittingToArgon" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
       <div class="flex flex-row items-center justify-center w-full fade-in-out">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 1 of 4)</span>
+            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 1 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-start w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-80 font-bold text-argon-600">Requesting Release from Argon Network</div>
@@ -102,12 +102,12 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalUtxo?.status === BitcoinLockStatus.ReleaseWaitingForVault" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
-      <div class="flex flex-row items-center justify-center w-full fade-in-out">
-        <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 opacity-80 relative top-px" />
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseWaitingForVault" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
+      <div class="flex flex-row items-center justify-center w-full">
+        <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 2 of 4)</span>
+            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 2 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-center w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-60">Waiting for Vault</div>
@@ -116,12 +116,12 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalUtxo?.status === BitcoinLockStatus.ReleasedByVault" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleasedByVault" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
       <div class="flex flex-row items-center justify-center w-full fade-in-out">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 3 of 4)</span>
+            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 3 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-start w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-80 font-bold text-argon-600">Submitting Transfer to Bitcoin Network</div>
@@ -129,12 +129,12 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalUtxo?.status === BitcoinLockStatus.ReleaseProcessingOnBitcoin" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
-      <div class="flex flex-row items-center justify-center w-full fade-in-out">
-        <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseProcessingOnBitcoin" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/70 cursor-pointer">
+      <div class="flex flex-row items-center justify-center w-full">
+        <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 4 of 4)</span>
+            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 4 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-center w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-60">Finalizing On Bitcoin</div>
@@ -144,43 +144,50 @@
       </div>
     </div>
   </section>
+  
   <!-- Overlays -->
+
+  <BitcoinAddOverlay
+    v-if="showAddOverlay"
+    @close="closeAddOverlay"
+  />
+
   <BitcoinFinishLockingOverlay
-    v-if="showFinishLockingOverlay && personalUtxo"
-    :lock="personalUtxo"
+    v-if="showFinishLockingOverlay && personalLock"
+    :lock="personalLock"
     @close="showFinishLockingOverlay = false"
   />
 
   <BitcoinReleaseOverlay
-    v-if="showReleaseOverlay && personalUtxo"
-    :lock="personalUtxo"
+    v-if="showReleaseOverlay && personalLock"
+    :lock="personalLock"
     @close="showReleaseOverlay = false"
-  />
-
-  <BitcoinAddOverlay
-    v-if="showAddOverlay"
-    @close="showAddOverlay = false"
   />
 
 </template>
 
-<script setup lang="ts">
+<script lang="ts">
 import * as Vue from 'vue';
+
+const bitcoinLockProcessingPercent = Vue.ref(0);
+</script>
+
+<script setup lang="ts">
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
-import { useCurrency } from '../../stores/currency';
-import numeral, { createNumeralHelpers } from '../../lib/numeral';
-import { useMyVault, useVaults } from '../../stores/vaults.ts';
-import { useConfig } from '../../stores/config.ts';
-import CountdownClock from '../../components/CountdownClock.vue';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
-import BitcoinFinishLockingOverlay from '../../overlays/BitcoinFinishLockingOverlay.vue';
-import BitcoinReleaseOverlay from '../../overlays/BitcoinReleaseOverlay.vue';
-import BitcoinAddOverlay from '../../overlays/BitcoinAddOverlay.vue';
-import BitcoinIcon from '../../assets/wallets/bitcoin-thin.svg?component';
-import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
-import ProgressBar from '../../components/ProgressBar.vue';
+import { useCurrency } from '../../../stores/currency';
+import numeral, { createNumeralHelpers } from '../../../lib/numeral';
+import { useMyVault, useVaults } from '../../../stores/vaults.ts';
+import { useConfig } from '../../../stores/config.ts';
+import CountdownClock from '../../../components/CountdownClock.vue';
+import { useBitcoinLocks } from '../../../stores/bitcoin.ts';
+import BitcoinFinishLockingOverlay from '../../../overlays/BitcoinFinishLockingOverlay.vue';
+import BitcoinReleaseOverlay from '../../../overlays/BitcoinReleaseOverlay.vue';
+import BitcoinAddOverlay from '../../../overlays/BitcoinAddOverlay.vue';
+import BitcoinIcon from '../../../assets/wallets/bitcoin-thin.svg?component';
+import { BitcoinLockStatus } from '../../../lib/db/BitcoinLocksTable.ts';
+import ProgressBar from '../../../components/ProgressBar.vue';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -193,30 +200,29 @@ const currency = useCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const personalUtxo = Vue.computed(() => {
+const personalLock = Vue.computed(() => {
   const utxoId = vault.metadata?.personalUtxoId;
-  console.log('personalUtxoId:', utxoId);
   return utxoId ? bitcoinLocks.data.locksById[utxoId] : null;
 });
 
 const lockExpirationTime = Vue.ref(dayjs.utc());
 const lockInitializeExpirationTime = Vue.ref(dayjs.utc().add(1, 'day'));
-const personalUtxoProcessingOnBitcoinProgress = Vue.computed(() => {
-  const utxo = personalUtxo.value;
-  if (!utxo) return 0;
-  return bitcoinLocks.getLockProcessingPercent(utxo);
-});
+
+function updateBitcoinLockProcessingPercent() {
+  if (!personalLock.value) return 0;
+  bitcoinLockProcessingPercent.value = bitcoinLocks.getLockProcessingPercent(personalLock.value);
+}
 
 const releasingBitcoinProgress = Vue.computed(() => {
-  const utxo = personalUtxo.value;
-  if (!utxo) return 0;
-  return bitcoinLocks.getReleaseProcessingPercent(utxo);
+  const lock = personalLock.value;
+  if (!lock) return 0;
+  return bitcoinLocks.getReleaseProcessingPercent(lock);
 });
 
 const requestBitcoinReleaseByVaultProgress = Vue.computed(() => {
-  const utxo = personalUtxo.value;
-  if (!utxo) return 0;
-  return bitcoinLocks.getRequestReleaseByVaultPercent(utxo);
+  const lock = personalLock.value;
+  if (!lock) return 0;
+  return bitcoinLocks.getRequestReleaseByVaultPercent(lock);
 });
 
 const btcMarketRate = Vue.ref(0n);
@@ -228,19 +234,19 @@ const showAddOverlay = Vue.ref(false);
 
 let loadedUtxoId = 0;
 async function loadPersonalUtxo() {
-  const utxo = personalUtxo.value;
-  if (!utxo) return;
+  const lock = personalLock.value;
+  if (!lock) return;
 
-  if (loadedUtxoId !== utxo.utxoId) {
-    loadedUtxoId = utxo.utxoId;
-    bitcoinLocks.confirmAddress(utxo);
-    lockInitializeExpirationTime.value = dayjs.utc(bitcoinLocks.verifyExpirationTime(utxo!));
-    const expirationMillis = bitcoinLocks.approximateExpirationTime(utxo);
+  if (loadedUtxoId !== lock.utxoId) {
+    loadedUtxoId = lock.utxoId;
+    bitcoinLocks.confirmAddress(lock);
+    lockInitializeExpirationTime.value = dayjs.utc(bitcoinLocks.verifyExpirationTime(lock!));
+    const expirationMillis = bitcoinLocks.approximateExpirationTime(lock);
     lockExpirationTime.value = dayjs.utc(expirationMillis);
-    if (utxo.status === BitcoinLockStatus.ReleasedByVault) {
+    if (lock.status === BitcoinLockStatus.ReleasedByVault) {
       void vault.finalizeMyBitcoinUnlock({
         argonKeyring: config.vaultingAccount,
-        lock: utxo,
+        lock: lock,
         bitcoinXprivSeed: config.bitcoinXprivSeed,
         bitcoinLocks,
       });
@@ -249,19 +255,26 @@ async function loadPersonalUtxo() {
 }
 
 async function updateBitcoinUnlockPrices() {
-  const utxo = personalUtxo.value;
-  if (!utxo) return;
+  const lock = personalLock.value;
+  if (!lock) return;
 
-  btcMarketRate.value = await vaults.getMarketRate(utxo.satoshis).catch(() => 0n);
+  btcMarketRate.value = await vaults.getMarketRate(lock.satoshis).catch(() => 0n);
 
   if (utxo.status !== BitcoinLockStatus.LockedAndMinting && utxo.status !== BitcoinLockStatus.LockedAndMinted) {
     unlockPrice.value = 0n;
     return;
   }
   const unlockFee = await bitcoinLocks
-    .estimatedReleaseArgonTxFee({ lock: utxo, argonKeyring: config.vaultingAccount })
+    .estimatedReleaseArgonTxFee({ lock: lock, argonKeyring: config.vaultingAccount })
     .catch(() => 0n);
-  unlockPrice.value = (await vaults.getRedemptionRate(utxo).catch(() => 0n)) + unlockFee;
+  unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
+}
+
+function closeAddOverlay(shouldFinishLocking: boolean) {
+  showAddOverlay.value = false;
+  if (shouldFinishLocking) {
+    showFinishLockingOverlay.value = true;
+  }
 }
 
 Vue.onMounted(async () => {
@@ -274,13 +287,16 @@ Vue.onMounted(async () => {
     void updateBitcoinUnlockPrices();
   });
 
-  Vue.watch(personalUtxo, () => {
+  Vue.watch(personalLock, () => {
     void loadPersonalUtxo();
     void updateBitcoinUnlockPrices();
   });
 
   await loadPersonalUtxo();
   await updateBitcoinUnlockPrices();
+
+  const updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
+  Vue.onUnmounted(() => clearInterval(updateBitcoinLockProcessingInterval));
 });
 
 Vue.onUnmounted(() => {
@@ -289,13 +305,13 @@ Vue.onUnmounted(() => {
 });
 
 defineExpose({
-  personalUtxo,
+  personalUtxo: personalLock,
   unlockPrice,
 });
 </script>
 
 <style scoped>
-@reference "../../main.css";
+@reference "../../../main.css";
 
 [box] {
   @apply rounded border-[1px] border-slate-400/30 bg-white py-2 shadow;
@@ -325,6 +341,22 @@ defineExpose({
   }
   50% {
     opacity: 1;
+  }
+}
+
+.bitcoin-spin {
+  animation: bitcoinSpin 5s ease-in-out infinite;
+}
+
+@keyframes bitcoinSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(360deg); /* 2 full rotations = 720 degrees */
+  }
+  100% {
+    transform: rotate(360deg);
   }
 }
 </style>

@@ -59,4 +59,8 @@ export class VaultsTable extends BaseTable {
     const rawRecords = await this.db.select<IVaultRecord[]>('SELECT * FROM Vaults LIMIT 1', []);
     return convertFromSqliteFields<IVaultRecord[]>(rawRecords, this.fieldTypes)[0];
   }
+
+  async deleteAll(): Promise<void> {
+    await this.db.execute('DELETE FROM Vaults', []);
+  }
 }

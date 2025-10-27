@@ -4,14 +4,13 @@
       <AnimatePresence>
         <DialogOverlay asChild>
           <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-            <BgOverlay @close="closeOverlay" />
+            <BgOverlay @close="cancelOverlay" />
           </Motion>
         </DialogOverlay>
 
-        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
+        <DialogContent asChild @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
           <Motion
             :ref="draggable.setModalRef"
-            @mousedown="draggable.onMouseDown($event)"
             :initial="{ opacity: 0 }"
             :animate="{ opacity: 1 }"
             :exit="{ opacity: 0 }"
@@ -24,11 +23,12 @@
             class="text-md absolute z-50 w-200 overflow-scroll rounded-lg border border-black/40 bg-white px-4 pt-2 pb-2 shadow-xl focus:outline-none">
             <h2
               @mousedown="draggable.onMouseDown($event)"
+              :disabled="isSaving"
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
               class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold">
               <DialogTitle class="grow text-2xl font-bold">Liquid Lock Your Bitcoin</DialogTitle>
               <div
-                @click="closeOverlay"
+                @click="cancelOverlay"
                 class="z-10 mr-1 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none">
                 <XMarkIcon class="h-5 w-5 stroke-4 text-[#B74CBA]" />
               </div>
@@ -40,8 +40,8 @@
                 }}{{ microgonToMoneyNm(bitcoinSpaceInMicrogons).format('0,0.00') }} in bitcoin ({{
                   numeral(bitcoinSpaceInBtc).format('0,0.[00000000]')
                 }}
-                btc). As part of Argon's Liquid Locking process, you will be able to receive the full market value of
-                your bitcoin in Argon stablecoins.
+                btc). As part of this Liquid Locking process, you'll be able to receive the full market value of your
+                bitcoin in Argon stablecoins.
               </p>
 
               <div v-if="errorMessage" class="mt-4 rounded-md bg-red-50 p-4">
@@ -59,8 +59,8 @@
               </div>
 
               <div class="mt-5 flex flex-row gap-x-5">
-                <div class="flex w-1/2 grow flex-col">
-                  <label>Bitcoin Amount</label>
+                <div class="flex w-1/2 grow flex-col space-y-1">
+                  <label class="font-bold opacity-40">Bitcoin Amount</label>
                   <InputNumber
                     v-model="bitcoinAmount"
                     @update:modelValue="handleBtcChange"
@@ -68,10 +68,15 @@
                     :min="0"
                     :max="bitcoinSpaceInBtc"
                     :dragBy="0.1"
-                    :dragByMin="0.01" />
+                    :dragByMin="0.01"
+                    class="px-1 py-2 text-xl" />
                 </div>
-                <div class="flex w-1/2 grow flex-col">
-                  <label>Argons to Receive</label>
+                <div class="flex flex-col space-y-1">
+                  <label>&nbsp;</label>
+                  <div class="py-2 text-xl">=</div>
+                </div>
+                <div class="flex w-1/2 grow flex-col space-y-1">
+                  <label class="font-bold opacity-40">Argons to Receive</label>
                   <InputArgon
                     v-model="microgonAmount"
                     @update:modelValue="handleArgonChange"
@@ -79,14 +84,16 @@
                     :min="0n"
                     :max="bitcoinSpaceInMicrogons"
                     :dragBy="1_000_000n"
-                    :dragByMin="1_000_000n" />
+                    :dragByMin="1_000_000n"
+                    class="px-1 py-2 text-xl" />
                 </div>
               </div>
 
               <div class="mt-10 flex flex-row items-center justify-end gap-x-3 border-t border-black/20 pt-4">
                 <button
                   class="cursor-pointer rounded-lg bg-gray-200 px-10 py-2 text-lg font-bold text-black hover:bg-gray-300"
-                  @click="closeOverlay">
+                  @click="cancelOverlay"
+                  :disabled="isSaving">
                   Cancel
                 </button>
                 <button
@@ -132,7 +139,7 @@ dayjs.extend(utc);
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const emit = defineEmits<{
-  close: [];
+  (e: 'close', shouldFinishLocking: boolean): void;
 }>();
 
 const vault = useMyVault();
@@ -175,15 +182,14 @@ async function internalHandleBtcChange(value: number) {
 
 const handleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
 const handleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
-const minimumSatoshis = Vue.ref(0n);
 
 const isSaving = Vue.ref(false);
+
 async function liquidLock() {
   let microgonLiquidity = microgonAmount.value;
   try {
     isSaving.value = true;
     errorMessage.value = null;
-    const minimumSatoshis = await microgonLiquidity;
     if (microgonLiquidity <= 0n) {
       throw new Error('Please enter a valid amount of Argons to receive.');
     }
@@ -200,7 +206,7 @@ async function liquidLock() {
         console.log(`Lock Bitcoin Progress: ${Math.floor(progress * 100)}%`);
       },
     });
-    closeOverlay();
+    emit('close', true);
   } catch (e: any) {
     errorMessage.value = e.message;
   } finally {
@@ -208,23 +214,25 @@ async function liquidLock() {
   }
 }
 
+function cancelOverlay() {
+  emit('close', false);
+}
+
 Vue.onMounted(async () => {
   await vault.load();
   await vault.subscribe();
   await config.load();
 
-  minimumSatoshis.value = await bitcoinLocksStore.minimumSatoshiPerLock();
   bitcoinSpaceInMicrogons.value = vault.createdVault!.availableBitcoinSpace();
   bitcoinSpaceInBtc.value = currency.satsToBtc(
     await bitcoinLocksStore.satoshisForArgonLiquidity(bitcoinSpaceInMicrogons.value),
   );
+
+  microgonAmount.value = bitcoinSpaceInMicrogons.value;
+  bitcoinAmount.value = bitcoinSpaceInBtc.value;
 });
 
 Vue.onUnmounted(async () => {
   vault.unsubscribe();
 });
-
-function closeOverlay() {
-  emit('close');
-}
 </script>

@@ -35,8 +35,8 @@
           </h3>
 
           <p>
-            Commander uses Argon as its default currency, however, you can change it here. This allows you to view your
-            portfolio's value in other currencies, such as the Dollar, Euro, or Rupee.
+            Investor Console uses Argon as its default currency, however, you can change it here. This allows you to
+            view your portfolio's value in other currencies, such as the Dollar, Euro, or Rupee.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

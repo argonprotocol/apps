@@ -202,6 +202,8 @@ export class Config {
     } catch (e) {
       this._loadedDeferred.reject(e);
     }
+
+    return this._loadedDeferred.promise;
   }
 
   get masterAccount(): KeyringPair {

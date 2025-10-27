@@ -18,7 +18,7 @@
       <div class="flex flex-col grow pt-2 text-md">
         <div v-if="config.biddingRules" class="w-11/12">
           <p class="font-light">
-            You can use any polkadot/substrate compatible wallet to add funds to your Commander account. Just scan the
+            You can use any polkadot/substrate compatible wallet to add funds to your account. Just scan the
             QR code shown on the right, or copy and paste the address that's printed below it.
           </p>
           <p v-if="props.walletId === 'mining'" class="mt-2 font-light">

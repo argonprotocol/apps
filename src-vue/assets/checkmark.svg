@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="32px" height="24px" viewBox="0 0 32 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>Path</title>
-    <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
         <g id="Wireframe-Copy" transform="translate(-339.3133, -413.5)" fill="#FFFFFF">
             <g id="checked" transform="translate(334.3133, 403.5)">
                 <polygon id="Path" fill-rule="nonzero" points="16.8418162 33.6677655 5.00259733 21.5459748 9.4827128 16.9588895 17.0491253 24.705962 32.2390845 10.5677655 36.5025973 15.3671097"></polygon>

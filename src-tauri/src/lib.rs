@@ -378,7 +378,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new()
-                .app_name("Argon Commander")
+                .app_name("Argon Investor Console")
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())

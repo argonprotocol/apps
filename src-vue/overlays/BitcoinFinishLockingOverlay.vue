@@ -26,14 +26,14 @@
             <h2
               @mousedown="draggable.onMouseDown($event)"
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
-              class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold">
+              class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 pl-3 pr-1 pt-3 pb-3 text-5xl font-bold">
               <DialogTitle class="grow text-2xl font-bold whitespace-nowrap">
                 <div v-if="hasProcessingFailure" class="text-red-600">
                   <ExclamationTriangleIcon class="w-10 h-10 inline-block mr-2" />
                   Your Bitcoin Locking Failed
                 </div>
                 <template v-else-if="isProcessing" >
-                  Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Lock Is Being Processed
+                  Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC Is Being Processed
                 </template>
                 <template v-else>
                   Finish Locking Your Bitcoin
@@ -62,20 +62,20 @@
 
             <div v-else-if="isProcessing" class="px-3">
               <p class="opacity-80 pt-2">
-                Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC has been
-                submitted to the Bitcoin network. We are actively monitoring the network for block confirmations. This process usually
-                takes an hour.
+                We submitted {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} of BTC to the Bitcoin
+                network. Argon miners are now actively monitoring Bitcoin's network for confirmation. This process usually
+                takes an hour from start to finish.
               </p>
 
-              <ProgressBar :progress="lockProcessingPercent" class="my-5" />
+              <p class="opacity-80 mt-3 italic">You can close this dialog without disrupting the locking process.</p>
 
-              <p class="opacity-80 mb-7">You can close this dialog and continue using the app.</p>
+              <ProgressBar :progress="bitcoinLockProcessingPercent" class="mt-7 mb-5" />
 
-              <button
+              <!-- <button
                 @click="$emit('close')"
                 class="mb-2 w-full cursor-pointer rounded-lg px-6 py-2 bg-argon-600 text-white text-lg font-bold hover:bg-argon-700 focus:outline-none">
                 Close
-              </button>
+              </button> -->
             </div>
             <div v-else class="px-3">
               <p class="mt-5 mb-4 text-gray-600 select-text">
@@ -186,9 +186,7 @@ const isProcessing = Vue.computed(() => {
   );
 });
 
-const lockProcessingPercent = Vue.computed(() => {
-  return bitcoinLocks.getLockProcessingPercent(props.lock);
-});
+const bitcoinLockProcessingPercent = Vue.ref(0);
 
 const hasProcessingFailure = Vue.computed(() => {
   return props.lock.status === BitcoinLockStatus.LockReceivedWrongAmount;
@@ -196,6 +194,10 @@ const hasProcessingFailure = Vue.computed(() => {
 
 function closeOverlay() {
   emit('close');
+}
+
+function updateBitcoinLockProcessingPercent() {
+  bitcoinLockProcessingPercent.value = bitcoinLocks.getLockProcessingPercent(props.lock);
 }
 
 Vue.onMounted(async () => {
@@ -212,5 +214,8 @@ Vue.onMounted(async () => {
     `Personal BTC Funding for Vault #${props.lock.vaultId}, Utxo Id #${props.lock.utxoId}`,
   );
   fundingBip21.value = `bitcoin:${scriptPaytoAddress.value}?amount=${btcAmount}&label=${label}&message=${message}`;
+
+  const updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
+  Vue.onUnmounted(() => clearInterval(updateBitcoinLockProcessingInterval));
 });
 </script>

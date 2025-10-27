@@ -86,6 +86,7 @@ CREATE TABLE Frames (
   microgonsMinedTotal INTEGER NOT NULL DEFAULT 0,
   microgonsMintedTotal INTEGER NOT NULL DEFAULT 0,
   accruedMicrogonProfits INTEGER NOT NULL DEFAULT 0,
+  accruedMicronotProfits INTEGER NOT NULL DEFAULT 0,
   progress REAL NOT NULL,
   isProcessed INTEGER NOT NULL,
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -99,40 +100,48 @@ BEGIN
 END;
 
 CREATE TABLE FrameBids (
-  frameId INTEGER NOT NULL,
+  frameId INTEGER PRIMARY KEY,
   confirmedAtBlockNumber INTEGER NOT NULL,
-  address TEXT NOT NULL,
-  subAccountIndex INTEGER,
-  microgonsPerSeat INTEGER NOT NULL,
-  bidPosition INTEGER NOT NULL,
-  lastBidAtTick INTEGER,
+  bidsJson JSON DEFAULT '[]',
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (frameId, address)
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TRIGGER FrameBidsUpdateTimestamp
 AFTER UPDATE ON FrameBids
 BEGIN
-  UPDATE FrameBids SET updatedAt = CURRENT_TIMESTAMP WHERE frameId = NEW.frameId AND address = NEW.address;
+  UPDATE FrameBids SET updatedAt = CURRENT_TIMESTAMP WHERE frameId = NEW.frameId;
 END;
 
 CREATE TABLE BitcoinLocks (
   utxoId INTEGER NOT NULL PRIMARY KEY,
-  status TEXT NOT NULL CHECK(status IN ('Initialized', 'BitcoinReceivedWrongAmount', 'LockedAndMinting', 'LockedAndMinted', 'ReleaseSubmittedToArgon', 'ReleaseApprovedByVault', 'ReleaseComplete')),
+  status TEXT NOT NULL CHECK(status IN (
+    'LockInitialized', 'LockVerificationExpired', 'LockReceivedWrongAmount', 'LockProcessingOnBitcoin',
+    'LockedAndMinting', 'LockedAndMinted', 'ReleaseSubmittingToArgon', 'ReleaseWaitingForVault', 'ReleasedByVault',
+    'ReleaseProcessingOnBitcoin', 'ReleaseComplete'
+  )) DEFAULT 'LockInitialized',
   txid TEXT,
   vout INTEGER,
   satoshis INTEGER NOT NULL,
-  lockPrice INTEGER NOT NULL,
+  peggedPrice INTEGER NOT NULL,
+  liquidityPromised INTEGER NOT NULL DEFAULT 0,
   ratchets JSON NOT NULL,
   cosignVersion TEXT NOT NULL,
   lockDetails JSON NOT NULL,
-  requestedReleaseAtHeight INTEGER,
+  lockMempool JSON,
+  lockProcessingOnBitcoinAtBitcoinHeight INTEGER,
+  lockProcessingOnBitcoinAtBitcoinTime INTEGER,
+  lockProcessingOnBitcoinAtOracleBitcoinHeight INTEGER,
+  requestedReleaseAtTick INTEGER,
   releaseBitcoinNetworkFee INTEGER,
   releaseToDestinationAddress TEXT,
-  releaseCosignSignature BLOB,
+  releaseCosignVaultSignature BLOB,
   releaseCosignHeight INTEGER,
-  releasedAtHeight INTEGER,
+  releaseMempool JSON,
+  releaseProcessingOnBitcoinAtBitcoinHeight INTEGER,
+  releaseProcessingOnBitcoinAtBitcoinTime INTEGER,
+  releaseProcessingOnBitcoinAtOracleBitcoinHeight INTEGER,
+  releasedAtBitcoinHeight INTEGER,
   releasedTxid TEXT,
   network TEXT NOT NULL,
   hdPath TEXT NOT NULL,

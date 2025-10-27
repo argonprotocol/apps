@@ -22,11 +22,11 @@ export default async function menuStart() {
   const tour = useTour();
 
   const commanderMenu = await Submenu.new({
-    text: 'Commander',
+    text: 'Investor Console',
     items: [
       {
         id: 'about',
-        text: 'About Commander',
+        text: 'About Investor Console',
         action: openAboutOverlay,
       },
       {
@@ -48,7 +48,7 @@ export default async function menuStart() {
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'quit',
-        text: 'Quit Commander',
+        text: 'Quit Investor Console',
         accelerator: 'CmdOrCtrl+Q',
         action: () => void tauriExit(),
       },

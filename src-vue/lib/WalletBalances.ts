@@ -177,20 +177,24 @@ export class WalletBalances {
       this.onLoadHistoryProgress?.(Math.round(100 * ((vaultProgress + miningProgress) / 2)) / 100);
     };
 
-    const liveClient = await this.clients.archiveClientPromise;
-    const miningHistoryPromise = this.loadMiningHistory(liveClient, miningAccount, pct => onProgress('miner', pct));
-    if (hasVaultHistory && !loadVaultHistory) {
-      throw new Error('No vault history loader provided');
+    let miningHistoryPromise: Promise<IMiningAccountPreviousHistoryRecord[] | undefined> = Promise.resolve(undefined);
+    if (hasMiningHistory) {
+      const liveClient = await this.clients.archiveClientPromise;
+      miningHistoryPromise = this.loadMiningHistory(liveClient, miningAccount, pct => onProgress('miner', pct));
     }
-    let vaultingRulesPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
+
+    let vaultingHistoryPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
     if (hasVaultHistory) {
-      vaultingRulesPromise = loadVaultHistory!({
+      if (!loadVaultHistory) {
+        throw new Error('No vault history loader provided');
+      }
+      vaultingHistoryPromise = loadVaultHistory({
         vaultingAddress: this.vaultingWallet.address,
         bitcoinXprivSeed,
         onProgress: pct => onProgress('vault', pct),
       });
     }
-    const [miningHistory, vaultingRules] = await Promise.all([miningHistoryPromise, vaultingRulesPromise]);
+    const [miningHistory, vaultingRules] = await Promise.all([miningHistoryPromise, vaultingHistoryPromise]);
     this.onLoadHistoryProgress?.(100);
     return {
       miningHistory,

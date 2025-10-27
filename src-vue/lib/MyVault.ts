@@ -468,6 +468,7 @@ export class MyVault {
     bitcoinLocksStore: BitcoinLocksStore,
     args: { vaultingAddress: string; bitcoinXprivSeed: Uint8Array; onProgress: (progress: number) => void },
   ): Promise<IVaultingRules | undefined> {
+    await this.deleteAllDbData();
     const { vaultingAddress, bitcoinXprivSeed, onProgress } = args;
     console.log('Recovering vault for address', vaultingAddress);
     const mainchainClients = getMainchainClients();
@@ -515,7 +516,8 @@ export class MyVault {
     onProgress(75);
 
     let bitcoin: IBitcoinLockRecord | undefined;
-    if (vault.activatedSecuritization() > 0n && prebond.blockNumber) {
+    const hasSecuritization = vault.activatedSecuritization() > 0n || vault.argonsPendingActivation > 0n;
+    if (hasSecuritization && prebond.blockNumber) {
       const bitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
         mainchainClients,
         bitcoinLocksStore,
@@ -834,6 +836,12 @@ export class MyVault {
   private async getTable(): Promise<VaultsTable> {
     this.#table ??= await this.dbPromise.then(x => x.vaultsTable);
     return this.#table;
+  }
+
+  private async deleteAllDbData() {
+    const db = await this.dbPromise;
+    await db.vaultsTable.deleteAll();
+    await db.bitcoinLocksTable.deleteAll();
   }
 
   public static getMicrogonSplit(rules: IVaultingRules, existingFees: bigint = 0n) {

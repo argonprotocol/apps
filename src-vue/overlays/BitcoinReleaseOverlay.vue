@@ -30,7 +30,7 @@
               class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold"
             >
               <DialogTitle v-if="isWaitingToRelease" class="grow text-2xl font-bold">Unlock Your Bitcoin</DialogTitle>
-              <DialogTitle v-else class="grow text-2xl font-bold">Unlocking Your {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC...</DialogTitle>
+              <DialogTitle v-else class="grow text-2xl font-bold">Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC...</DialogTitle>
               <div
                 @click="closeOverlay"
                 class="z-10 mr-1 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none">
@@ -110,7 +110,7 @@
             <div v-else class="flex flex-col space-y-5 px-3.5 py-3">
               <p class="text-gray-700">
                 Argon and Bitcoin networks are currently in the process of unlocking your
-                {{ numeral(currency.satsToBtc(personalUtxo?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC. This
+                {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC. This
                 requires a series of four steps...
               </p>
 
@@ -125,10 +125,9 @@
               <div class="flex flex-row items-center justify-start w-full border-t border-gray-200 pt-5">
                 <div v-if="stepByStatus[props.lock.status] === 2" spinner class="h-6 min-h-6 w-6 min-w-6 mr-3" />
                 <Checkbox v-else :isChecked="stepByStatus[props.lock.status] > 2" class="mr-3" />
-                <template v-if="stepByStatus[props.lock.status] < 2">Await Approval from</template>
-                <template v-else-if="stepByStatus[props.lock.status] === 2">Awaiting Approval from</template>
-                <template v-else>Approved by</template>
-                Argon Vault
+                <template v-if="stepByStatus[props.lock.status] < 2">Await Approval from Argon Vault</template>
+                <template v-else-if="stepByStatus[props.lock.status] === 2">Waiting on Argon Vault Approval</template>
+                <template v-else>Approved by Argon Vault</template>
               </div>
 
               <div class="flex flex-row items-center justify-start w-full border-t border-gray-200 pt-5">
@@ -140,13 +139,13 @@
                 Transfer to Bitcoin Network.
               </div>
 
-              <div class="flex flex-row items-center justify-start w-full border-y border-gray-200 py-5">
+              <div class="flex flex-row items-center justify-start w-full border-y border-gray-200 py-5 whitespace-nowrap">
                 <div v-if="stepByStatus[props.lock.status] === 4" spinner class="h-6 min-h-6 w-6 min-w-6 mr-3" />
                 <Checkbox v-else :isChecked="stepByStatus[props.lock.status] > 4" class="mr-3" />
-                <template v-if="stepByStatus[props.lock.status] < 4">Await</template>
-                <template v-else-if="stepByStatus[props.lock.status] === 4">Waiting for</template>
-                <template v-else>Completed</template>
-                Bitcoin Finalization
+                <template v-if="stepByStatus[props.lock.status] < 4">Await Bitcoin Finalization</template>
+                <template v-else-if="stepByStatus[props.lock.status] === 4">Finalizing on Bitcoin</template>
+                <template v-else>Completed Bitcoin Finalization</template>
+                <ProgressBar v-if="stepByStatus[props.lock.status] === 4" :progress="releasingBitcoinProgress" class="!h-6 mt-px ml-3" />
               </div>
 
               <p class="text-gray-400 mb-2 font-bold">NOTE: You can close this overlay without it disrupting the process.</p>
@@ -204,7 +203,7 @@ const stepByStatus: Record<any, number> = {
   [BitcoinLockStatus.ReleaseComplete]: 5,
 };
 
-const personalUtxo = Vue.computed(() => {
+const personalLock = Vue.computed(() => {
   const utxoId = myVault.metadata?.personalUtxoId;
   return utxoId ? bitcoinLocks.data.locksById[utxoId] : null;
 });
@@ -247,6 +246,12 @@ const canSendRequest = Vue.computed(() => {
   return destinationAddress.value.trim().length > 0 && !isSubmittingReleaseRequest.value;
 });
 
+const releasingBitcoinProgress = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return 0;
+  return bitcoinLocks.getReleaseProcessingPercent(lock);
+});
+
 const feeRates = Vue.computed(() => {
   return Object.values(feeRatesByKey.value).map(rate => ({
     name: `${rate.label} = ${rate.time}`,
@@ -256,7 +261,6 @@ const feeRates = Vue.computed(() => {
 });
 
 function closeOverlay() {
-  console.log('Closing overlay');
   emit('close');
 }
 

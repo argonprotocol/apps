@@ -185,23 +185,24 @@ export class MyVaultRecovery {
       if (lockMaybe.value.vaultId.toNumber() !== vaultId) return false;
       return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
     });
+
     const bitcoinHdPaths = await Promise.all(
       myBitcoins.map(() => bitcoinLocksStore.getNextUtxoPubkey({ vault, bip39Seed })),
     );
 
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
-    for (const [utxoId, lockMaybe] of myBitcoins) {
-      const lock = lockMaybe.unwrap();
-      if (lock.ownerAccount.toHuman() === vaultingAddress) {
-        const ownerPubkey = lock.ownerPubkey;
-        const utxo = await bitcoinLocksStore.getFromApi(utxoId.args[0].toNumber());
+    for (const [utxoId, utxoMaybe] of myBitcoins) {
+      const utxo = utxoMaybe.unwrap();
+      if (utxo.ownerAccount.toHuman() === vaultingAddress) {
+        const ownerPubkey = utxo.ownerPubkey;
         const thisHdPath = bitcoinHdPaths.find(x => u8aEq(ownerPubkey, x.ownerBitcoinPubkey));
         if (!thisHdPath) {
           console.warn('Unable to recover the hd path of this personal bitcoin');
           continue;
         }
 
-        const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(utxo.utxoId);
+        const lock = await bitcoinLocksStore.getFromApi(utxoId.args[0].toNumber());
+        const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(lock.utxoId);
         const bitcoinTxAddition = await StorageFinder.binarySearchForStorageAddition(
           mainchainClients,
           bitcoinTxKey,
@@ -219,7 +220,7 @@ export class MyVaultRecovery {
               blockHash: bitcoinTxAddition.blockHash,
               isMatchingEvent: ev => {
                 if (client.events.bitcoinLocks.BitcoinLockCreated.is(ev)) {
-                  return ev.data.utxoId.toNumber() === utxo.utxoId;
+                  return ev.data.utxoId.toNumber() === lock.utxoId;
                 }
                 return false;
               },
@@ -229,11 +230,11 @@ export class MyVaultRecovery {
 
         const record = await bitcoinLocksStore.saveUtxo({
           vaultId,
-          utxo,
+          utxo: lock,
           txFee: bitcoinTxFee,
           hdPath: thisHdPath.hdPath,
           blockNumber: bitcoinBlockNumber,
-          securityFee: utxo.securityFees, // no fee for owner
+          securityFee: lock.securityFees, // no fee for owner
         });
 
         records.push({ ...record, initializedAtBlockNumber: bitcoinBlockNumber });

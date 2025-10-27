@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Argon Commander",
+  "productName": "Argon Investor Console",
   "version": "1.0.0-rc1",
   "identifier": "com.argon.commander",
   "build": {
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Argon Commander",
+        "title": "Argon Investor Console",
         "hiddenTitle": true,
         "width": 1400,
         "height": 1000,
