@@ -44,6 +44,12 @@
                 {{ activity.message }}
               </td>
             </tr>
+            <tr v-for="i in 15 - activities.length" :key="i">
+              <td class="text-left text-gray-300"><div class="w-full h-5 bg-gray-100" /></td>
+              <td class="text-left text-gray-300 pr-2"><div class="w-full h-5 bg-gray-100" /></td>
+              <td class="text-left text-gray-300 pr-2"><div class="w-full h-5 bg-gray-100" /></td>
+              <td class="text-right text-gray-300"><div class="w-full h-5 bg-gray-100" /></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -58,7 +64,7 @@ import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { createNumeralHelpers } from '../lib/numeral';
 import { useStats } from '../stores/stats';
 import { useConfig } from '../stores/config';
-import { Accountset, MiningFrames, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { Accountset, MiningFrames, parseSubaccountRange } from '@argonprotocol/apps-core';
 import ActivityArrowIcon from '../assets/activity-arrow.svg?component';
 import ActivityFailureIcon from '../assets/activity-failure.svg?component';
 import ActivitySuccessIcon from '../assets/activity-success.svg?component';
@@ -69,7 +75,7 @@ import {
   type IBotActivityBidsRejected,
   type IBotActivityBidsSubmitted,
   type IBotActivitySeatReduction,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';

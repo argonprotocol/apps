@@ -60,11 +60,11 @@
       v-if="stepLabel.key === InstallStepKey.ServerConnect"
       class="text-black/70 border-t border-dashed border-slate-400/50 pt-3 mt-3 pr-2.5 relative z-10"
     >
-      Commander could not connect to your server. Click the Configure Mining Machine button to modify settings. You can also retry the connection. If this issue persists, you might need to remove the current server
+      Argon Investor could not connect to your server. Click the Configure Mining Machine button to modify settings. You can also retry the connection. If this issue persists, you might need to remove the current server
       and start afresh with a new one.
     </p>
     <p v-else class="text-black/70 border-t border-dashed border-slate-400/50 pt-3 pb-5 mt-3 pr-2.5 relative z-10">
-      Commander has encountered an unrecoverable error while trying to provision your server. Rerun this step by
+      Argon Investor has encountered an unrecoverable error while trying to provision your server. Rerun this step by
       clicking Retry. If the issue persists, you might need to remove the server and start afresh with a new
       one.
     </p>

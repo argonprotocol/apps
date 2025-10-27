@@ -89,7 +89,7 @@ import { createNumeralHelpers } from '../../lib/numeral';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
 import { useConfig } from '../../stores/config';
-import { IBiddingRules, SeatGoalInterval, SeatGoalType } from '@argonprotocol/commander-core';
+import { IBiddingRules, SeatGoalInterval, SeatGoalType } from '@argonprotocol/apps-core';
 
 const props = defineProps<{
   align?: 'start' | 'end' | 'center';
@@ -132,10 +132,10 @@ function updateAPYs() {
   maximumBidAmount.value = calculator.maximumBidAmount;
   startingBidAmount.value = calculator.startingBidAmount;
 
-  const probableMinSeatsBn = BigNumber(rules.value.baseMicrogonCommitment).dividedBy(calculator.maximumBidAmount);
+  const probableMinSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.maximumBidAmount);
   probableMinSeats.value = Math.max(probableMinSeatsBn.integerValue(BigNumber.ROUND_FLOOR).toNumber(), 0);
 
-  const probableMaxSeatsBn = BigNumber(rules.value.baseMicrogonCommitment).dividedBy(calculator.startingBidAmount);
+  const probableMaxSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.startingBidAmount);
   probableMaxSeats.value = Math.min(
     probableMaxSeatsBn.integerValue(BigNumber.ROUND_FLOOR).toNumber(),
     calculatorData.maxPossibleMiningSeatCount,
@@ -153,7 +153,7 @@ function updateAPYs() {
 }
 
 Vue.onMounted(() => {
-  calculatorData.isInitializedPromise.then(() => {
+  calculatorData.load().then(() => {
     updateAPYs();
   });
 });

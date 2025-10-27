@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Argon Commander** is a desktop application built with Tauri 2 (Rust backend) and Vue 3 (TypeScript frontend) for interacting with the Argon blockchain. It provides mining automation, Bitcoin vault operations, and treasury pool management.
+**Investor Console** is a desktop application built with Tauri 2 (Rust backend) and Vue 3 (TypeScript frontend) for interacting with the Argon blockchain. It provides mining automation, Bitcoin vault operations, and treasury pool management.
 
 ## Architecture
 

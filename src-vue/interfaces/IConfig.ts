@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BiddingRulesSchema } from '@argonprotocol/commander-core';
+import { BiddingRulesSchema } from '@argonprotocol/apps-core';
 import { VaultingRulesSchema } from './IVaultingRules';
 import { CurrencyKey } from '../lib/Currency';
 
@@ -127,7 +127,8 @@ export const ConfigSchema = z.object({
   latestFrameIdProcessed: z.number(),
 
   miningAccountAddress: z.string(),
-  miningAccountHadPreviousLife: z.boolean(),
+  walletAccountsHadPreviousLife: z.boolean(),
+  walletPreviousLifeRecovered: z.boolean(),
   miningAccountPreviousHistory: z.array(MiningAccountPreviousHistoryRecordSchema).nullable(),
 
   hasReadMiningInstructions: z.boolean(),
@@ -141,6 +142,7 @@ export const ConfigSchema = z.object({
   hasReadVaultingInstructions: z.boolean(),
   isPreparingVaultSetup: z.boolean(),
   isVaultReadyToCreate: z.boolean(),
+  isVaultActivated: z.boolean(),
 
   hasMiningSeats: z.boolean(), // hasMiningSeats
   hasMiningBids: z.boolean(), // hasMiningBids
@@ -191,7 +193,8 @@ export interface IConfigDefaults {
   oldestFrameIdToSync: () => IConfig['oldestFrameIdToSync'];
   latestFrameIdProcessed: () => IConfig['latestFrameIdProcessed'];
   miningAccountAddress: () => IConfig['miningAccountAddress'];
-  miningAccountHadPreviousLife: () => IConfig['miningAccountHadPreviousLife'];
+  walletAccountsHadPreviousLife: () => IConfig['walletAccountsHadPreviousLife'];
+  walletPreviousLifeRecovered: () => IConfig['walletPreviousLifeRecovered'];
   miningAccountPreviousHistory: () => IConfig['miningAccountPreviousHistory'];
 
   hasReadMiningInstructions: () => IConfig['hasReadMiningInstructions'];
@@ -205,6 +208,7 @@ export interface IConfigDefaults {
   hasReadVaultingInstructions: () => IConfig['hasReadVaultingInstructions'];
   isPreparingVaultSetup: () => IConfig['isPreparingVaultSetup'];
   isVaultReadyToCreate: () => IConfig['isVaultReadyToCreate'];
+  isVaultActivated: () => IConfig['isVaultActivated'];
 
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];

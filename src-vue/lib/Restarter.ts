@@ -1,13 +1,13 @@
-import { invoke } from '@tauri-apps/api/core';
 import { Db } from './Db';
-import { remove, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { BaseDirectory, remove } from '@tauri-apps/plugin-fs';
 import { AdvancedRestartOption } from '../interfaces/IAdvancedRestartOption';
 import { SSH } from './SSH';
 import { Server } from './Server';
 import { Config } from './Config.ts';
-import { toRaw } from 'vue';
 import Installer from './Installer.ts';
 import { LocalMachine } from './LocalMachine.ts';
+import { invokeWithTimeout } from './tauriApi.ts';
+import PluginSql from '@tauri-apps/plugin-sql';
 
 export default class Restarter {
   private dbPromise: Promise<Db>;
@@ -71,34 +71,39 @@ export default class Restarter {
 
     if (toRestart.has(AdvancedRestartOption.RecreateLocalDatabase)) {
       installer.stop();
-      await this.recreateLocalDatabase();
+      await this.recreateLocalDatabase(toRestart.has(AdvancedRestartOption.ReloadAppUi));
     }
 
     if (toRestart.has(AdvancedRestartOption.ReloadAppUi)) {
-      await this.restart();
+      this.restart();
     }
   }
 
-  public async recreateLocalDatabase() {
+  public async recreateLocalDatabase(restartAfter: boolean = true) {
     const db = await this.dbPromise;
     const config = this._config;
-    const serverDetails = toRaw(config.serverDetails);
     await db.close();
 
     const dbPath = Db.relativePath;
     await remove(dbPath, { baseDir: BaseDirectory.AppConfig });
-    await invoke('run_db_migrations');
-    await db.reconnect();
-    localStorage.setItem(
-      'ConfigRestore',
-      JSON.stringify({
-        serverDetails: JSON.stringify(serverDetails),
-        hasReadMiningInstructions: config.hasReadMiningInstructions,
-      }),
-    );
+    if (restartAfter) {
+      db.pauseWrites();
+    }
+    await invokeWithTimeout('run_db_migrations', {}, 30e3);
+
+    // use a different connection since we're paused to avoid conflicts
+    const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
+    await config.restoreToConnection(sql);
+
+    if (restartAfter) {
+      this.restart();
+    } else {
+      await db.reconnect();
+      await config.load(true);
+    }
   }
 
-  public async restart() {
+  public restart() {
     window.location.reload();
   }
 }

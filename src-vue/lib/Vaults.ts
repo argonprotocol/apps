@@ -1,5 +1,5 @@
-import { BitcoinLocks, type PalletVaultsVaultFrameRevenue, Vault } from '@argonprotocol/mainchain';
-import { bigNumberToBigInt, FrameIterator, JsonExt, MainchainClients } from '@argonprotocol/commander-core';
+import { BitcoinLocks, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
+import { bigNumberToBigInt, FrameIterator, JsonExt, MainchainClients, PriceIndex } from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
@@ -17,10 +17,18 @@ export class Vaults {
   public tickDuration?: number;
   public stats?: IAllVaultStats;
 
-  constructor(public network = NETWORK_NAME) {}
+  constructor(
+    public network = NETWORK_NAME,
+    public priceIndex: PriceIndex,
+  ) {}
 
   private waitForLoad?: IDeferred;
+  private refreshingPromise?: Promise<IAllVaultStats>;
   private isSavingStats: boolean = false;
+
+  private get bitcoinLocks(): Promise<BitcoinLocks> {
+    return getMainchainClient(false).then(x => new BitcoinLocks(x));
+  }
 
   public async load(reload = false): Promise<void> {
     if (this.waitForLoad && !reload) return this.waitForLoad.promise;
@@ -61,21 +69,46 @@ export class Vaults {
       const frameId = frameRevenue.frameId.toNumber();
       const existing = frameChanges.find(x => frameId === x.frameId);
 
+      const revenue = frameRevenue as PalletVaultsVaultFrameRevenue & {
+        // renamed to treasury in 133
+        liquidityPoolTotalEarnings?: u128;
+        liquidityPoolVaultEarnings?: u128;
+        liquidityPoolExternalCapital?: u128;
+        liquidityPoolVaultCapital?: u128;
+        // <= 133
+        bitcoinLocksMarketValue?: u128; // renamed to bitcoin_locks_new_liquidity_promised
+        bitcoinLocksTotalSatoshis?: u128; // renamed to bitcoin_locks_added_satoshis
+        satoshisReleased?: u128; // renamed to bitcoin_locks_released_satoshis
+        // new version 134
+        securitizationRelockable?: u128;
+        bitcoinLocksNewLiquidityPromised?: u128;
+        bitcoinLocksAddedSatoshis?: u128;
+        bitcoinLocksReleasedSatoshis?: u128;
+        bitcoinLocksReleasedLiquidity?: u128;
+      };
+
+      const microgonsAdded =
+        (revenue.bitcoinLocksNewLiquidityPromised ?? revenue.bitcoinLocksMarketValue)?.toBigInt() ?? 0n;
+      const microgonsRemoved = revenue.bitcoinLocksReleasedLiquidity?.toBigInt() ?? 0n;
+      const newSatoshis = (revenue.bitcoinLocksAddedSatoshis ?? revenue.bitcoinLocksTotalSatoshis)?.toBigInt() ?? 0n;
+      const releasedSatoshis = (revenue.bitcoinLocksReleasedSatoshis ?? revenue.satoshisReleased)?.toBigInt() ?? 0n;
+
       const entry = {
-        satoshisAdded: frameRevenue.bitcoinLocksTotalSatoshis.toBigInt() - frameRevenue.satoshisReleased.toBigInt(),
+        satoshisAdded: newSatoshis - releasedSatoshis,
         frameId,
-        microgonLiquidityAdded: frameRevenue.bitcoinLocksMarketValue.toBigInt(),
-        bitcoinFeeRevenue: frameRevenue.bitcoinLockFeeRevenue.toBigInt(),
-        bitcoinLocksCreated: frameRevenue.bitcoinLocksCreated.toNumber(),
+        microgonLiquidityAdded: microgonsAdded - microgonsRemoved,
+        bitcoinFeeRevenue: revenue.bitcoinLockFeeRevenue.toBigInt(),
+        bitcoinLocksCreated: revenue.bitcoinLocksCreated.toNumber(),
         treasuryPool: {
-          totalEarnings: frameRevenue.liquidityPoolTotalEarnings.toBigInt(),
-          vaultEarnings: frameRevenue.liquidityPoolVaultEarnings.toBigInt(),
-          externalCapital: frameRevenue.liquidityPoolExternalCapital.toBigInt(),
-          vaultCapital: frameRevenue.liquidityPoolVaultCapital.toBigInt(),
+          totalEarnings: (revenue.liquidityPoolTotalEarnings ?? revenue.treasuryTotalEarnings).toBigInt(),
+          vaultEarnings: (revenue.liquidityPoolVaultEarnings ?? revenue.treasuryVaultEarnings).toBigInt(),
+          externalCapital: (revenue.liquidityPoolExternalCapital ?? revenue.treasuryExternalCapital).toBigInt(),
+          vaultCapital: (revenue.liquidityPoolVaultCapital ?? revenue.treasuryVaultCapital).toBigInt(),
         },
-        securitization: frameRevenue.securitization.toBigInt(),
-        securitizationActivated: frameRevenue.securitizationActivated.toBigInt(),
-        uncollectedEarnings: frameRevenue.uncollectedRevenue.toBigInt(),
+        securitization: revenue.securitization.toBigInt(),
+        securitizationActivated: revenue.securitizationActivated.toBigInt(),
+        securitizationRelockable: revenue.securitizationRelockable?.toBigInt() ?? 0n,
+        uncollectedEarnings: revenue.uncollectedRevenue.toBigInt(),
       } as IVaultFrameStats;
       if (existing) {
         Object.assign(existing, entry);
@@ -99,36 +132,56 @@ export class Vaults {
     await this.load();
     clients ??= getMainchainClients();
     const client = await clients.prunedClientOrArchivePromise;
+    if (this.refreshingPromise) return this.refreshingPromise;
+    const refreshingDeferred = createDeferred<IAllVaultStats>();
+    this.refreshingPromise = refreshingDeferred.promise;
 
-    const revenue = this.stats ?? { synchedToFrame: 0, vaultsById: {} };
-    const oldestFrameToGet = revenue.synchedToFrame;
-
-    console.log('Synching vault revenue stats back to frame ', oldestFrameToGet);
-
-    const currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-    await new FrameIterator(clients, false, 'VaultRevenueStats').forEachFrame(
-      async (frameId, firstBlockMeta, api, abortController) => {
-        if (firstBlockMeta.specVersion < 129) {
-          abortController.abort();
-          return;
+    const scheduleClearance = () => {
+      setTimeout(() => {
+        if (this.refreshingPromise === refreshingDeferred.promise) {
+          this.refreshingPromise = undefined;
         }
-        const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
-        for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
-          const vaultId = vaultIdRaw.args[0].toNumber();
-          await this.updateVaultRevenue(vaultId, frameRevenues, true);
-        }
+      }, 30e3);
+    };
+    try {
+      const revenue = this.stats ?? { synchedToFrame: 0, vaultsById: {} };
+      const oldestFrameToGet = revenue.synchedToFrame;
 
-        const isDone = frameId <= oldestFrameToGet || firstBlockMeta.specVersion < 123;
+      const currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
+      console.log(`Syncing vault revenue stats from ${oldestFrameToGet}->${currentFrameId}`);
+      await new FrameIterator(clients, 'VaultHistory').iterateFramesLimited(
+        async (frameId, firstBlockMeta, api, abortController) => {
+          console.log(`[VaultHistory] Loading frame ${frameId} (oldest ${oldestFrameToGet})`);
+          if (firstBlockMeta.specVersion < 129) {
+            console.log(
+              `[VaultHistory] Aborting iteration at frame ${frameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
+            );
+            return abortController.abort();
+          }
+          const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
+          for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
+            const vaultId = vaultIdRaw.args[0].toNumber();
+            await this.updateVaultRevenue(vaultId, frameRevenues, true);
+          }
 
-        if (isDone) {
-          console.log(`Synched vault revenue to frame ${frameId}`);
-          abortController.abort();
-        }
-      },
-    );
-    revenue.synchedToFrame = currentFrameId - 1;
-    void this.saveStats();
-    return revenue;
+          if (frameId <= oldestFrameToGet) {
+            console.log(
+              `[VaultHistory] Aborting iteration at frame ${frameId} as it's older than frame ${oldestFrameToGet}`,
+            );
+            return abortController.abort();
+          }
+        },
+      );
+      revenue.synchedToFrame = currentFrameId - 1;
+      void this.saveStats();
+      refreshingDeferred.resolve(revenue);
+      scheduleClearance();
+      return revenue;
+    } catch (error) {
+      refreshingDeferred.reject(error as Error);
+      scheduleClearance();
+      throw error;
+    }
   }
 
   public contributedTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
@@ -206,30 +259,25 @@ export class Vaults {
   ): Promise<{ burnAmount: bigint; ratchetingFee: bigint; marketRate: bigint }> {
     const vault = this.vaultsById[lock.vaultId];
     if (!vault) throw new Error('Vault not found');
-    const ratchetPrice = await new BitcoinLocks(await getMainchainClient(false)).getRatchetPrice(
-      lock.lockDetails,
-      vault,
-    );
+    await this.priceIndex.fetchMicrogonExchangeRatesTo();
+    const bitcoinLocks = await this.bitcoinLocks;
+    const ratchetPrice = await bitcoinLocks.getRatchetPrice(lock.lockDetails, this.priceIndex.current, vault);
 
     return {
       ...ratchetPrice,
     };
   }
 
-  public async getRedemptionRate(satoshis: bigint): Promise<bigint> {
-    return await new BitcoinLocks(await getMainchainClient(false)).getRedemptionRate(satoshis);
+  public async getRedemptionRate(lock: { satoshis: bigint; peggedPrice?: bigint }): Promise<bigint> {
+    await this.priceIndex.fetchMicrogonExchangeRatesTo();
+    const bitcoinLocks = await this.bitcoinLocks;
+    return await bitcoinLocks.getRedemptionRate(this.priceIndex.current, lock);
   }
 
   public async getMarketRate(satoshis: bigint): Promise<bigint> {
-    return await new BitcoinLocks(await getMainchainClient(false)).getMarketRate(satoshis);
-  }
-
-  public async calculateReleasePrice(satoshis: bigint, peggedPrice: bigint): Promise<bigint> {
-    let lowestPrice = await this.getRedemptionRate(satoshis);
-    if (peggedPrice < lowestPrice) {
-      lowestPrice = peggedPrice;
-    }
-    return lowestPrice;
+    await this.priceIndex.fetchMicrogonExchangeRatesTo();
+    const bitcoinLocks = await this.bitcoinLocks;
+    return await bitcoinLocks.getMarketRate(this.priceIndex.current, satoshis);
   }
 
   public getTreasuryFillPct(vaultId: number): number {
@@ -317,6 +365,7 @@ export class Vaults {
               microgonLiquidityAdded: convertBigIntStringToNumber(change.microgonLiquidityAdded as any) ?? 0n,
               bitcoinFeeRevenue: convertBigIntStringToNumber(change.bitcoinFeeRevenue as any) ?? 0n,
               securitization: convertBigIntStringToNumber(change.securitization as any) ?? 0n,
+              securitizationRelockable: convertBigIntStringToNumber((change as any).securitizationRelockable) ?? 0n,
               securitizationActivated: convertBigIntStringToNumber(change.securitizationActivated as any) ?? 0n,
               treasuryPool: {
                 externalCapital: convertBigIntStringToNumber(change.treasuryPool.externalCapital as any) ?? 0n,
@@ -361,7 +410,7 @@ export class Vaults {
     let participatingVaults = 0;
     for (const [_vaultId, revenue] of vaultRevenue) {
       for (const entry of revenue) {
-        const capital = entry.liquidityPoolVaultCapital.toBigInt() + entry.liquidityPoolExternalCapital.toBigInt();
+        const capital = entry.treasuryVaultCapital.toBigInt() + entry.treasuryExternalCapital.toBigInt();
         if (capital > 0n) {
           participatingVaults++;
           totalActivatedCapital += capital;

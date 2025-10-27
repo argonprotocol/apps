@@ -14,7 +14,7 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   skipNodeModulesBundle: true,
-  noExternal: [/@argonprotocol\/commander-core/],
+  noExternal: [/@argonprotocol\/apps-core/],
   esbuildPlugins: [
     wasmLoader({
       mode: 'deferred',

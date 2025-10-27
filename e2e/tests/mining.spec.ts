@@ -12,20 +12,24 @@ it('should be able to start a miner', async () => {
   await waitAndClick('FinalSetupChecklist.openHowMiningWorksOverlay()'); // click for tour
   await waitAndClick('HowMiningWorks.cancelOverlay()');
   // open the bot rules
-  await waitAndClick('FinalSetupChecklist.openBotOverlay()');
+  await waitAndClick('FinalSetupChecklist.openBotCreateOverlay()');
   // cancel the tour
-  await waitAndClick('BotOverlay.isSuggestingTour = false');
+  await waitAndClick('BotCreateOverlay.stopSuggestingTour()');
   // set starting bid to 0
-  await waitAndClick("BotOverlay.openEditBoxOverlay('startingBid')");
+  await waitAndClick("BotSettings.openEditBoxOverlay('startingBid')");
   await waitAndClick('input-menu-trigger');
   await waitAndClick('Custom Amount');
-  const startingBidInput = await waitForVisible('input-number');
+  const startingBidInput = await waitForVisible(
+    `${makeTestidSelector('startingBidCustomAmount')} ${makeTestidSelector('input-number')}`,
+    5e3,
+    false,
+  );
   await browser.keys([Key.Backspace, Key.Backspace, Key.Backspace, '0']);
   const text = await startingBidInput.getText();
   expect(text).toBe('0.00');
   await waitAndClick('EditBoxOverlay.saveOverlay()');
 
-  await waitAndClick('BotOverlay.saveRules()');
+  await waitAndClick('BotCreateOverlay.saveRules()');
   // fund the wallet
   await waitAndClick('FinalSetupChecklist.openFundMiningAccountOverlay()');
   const micronotsNeededElem = await waitForVisible('Receive.micronotsNeeded');
@@ -113,8 +117,11 @@ it('should be able to start a miner', async () => {
   );
 }).timeout(30 * 60e3);
 
+function makeTestidSelector(selector: string) {
+  return `[data-testid="${selector}"]`;
+}
 function withTestid(selector: string) {
-  return $(`[data-testid="${selector}"]`);
+  return $(makeTestidSelector(selector));
 }
 
 async function waitAndClick(selector: string) {
@@ -126,8 +133,8 @@ async function waitAndClick(selector: string) {
   return elem;
 }
 
-async function waitForVisible(selector: string, timeoutMs = 5e3) {
-  const elem = withTestid(selector);
+async function waitForVisible(selector: string, timeoutMs = 5e3, isTestId = true) {
+  const elem = isTestId ? withTestid(selector) : $(selector);
   console.log('Waiting for visible:', selector);
   await elem.waitForDisplayed({ timeout: timeoutMs });
   console.log('Visible:', selector);

@@ -5,10 +5,10 @@
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >
-    <div class="flex flex-row items-center w-1/2 pointer-events-none">
+    <div class="flex flex-row items-center w-1/2 pointer-events-none relative top-px">
       <WindowControls />
-      <div class="text-xl font-bold whitespace-nowrap">
-        Argon Commander
+      <div class="text-[19px] font-bold whitespace-nowrap">
+        Argon Investor Console
         <span class="font-light text-lg">({{ NETWORK_NAME }}<template v-if="INSTANCE_NAME !== 'default'">, {{ INSTANCE_NAME?.slice(0, 5) }}<template v-if="INSTANCE_NAME.length > 5">...</template></template>)</span>
       </div>
     </div>
@@ -50,12 +50,15 @@
   </div>
 </template>
 
+<script lang="ts">
+import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
+</script>
+
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { useController } from '../stores/controller';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import CurrencyMenu from './CurrencyMenu.vue';
-import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import { useWallets } from '../stores/wallets';

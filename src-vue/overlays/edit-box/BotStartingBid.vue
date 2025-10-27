@@ -29,7 +29,7 @@
     <div class="mt-3 font-bold opacity-60 mb-0.5">
       Value
     </div>
-    <InputArgon v-model="config.biddingRules.startingBidCustom" :min="0n" class="min-w-60" />
+    <InputArgon data-testid="startingBidCustomAmount" v-model="config.biddingRules.startingBidCustom" :min="0n" class="min-w-60" />
   </template>
   <div v-else class="mt-3">
     <div class="mt-3 font-bold opacity-60 mb-0.5">
@@ -52,7 +52,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/commander-core';
+import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/apps-core';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputNumber from '../../components/InputNumber.vue';
@@ -91,7 +91,7 @@ Vue.watch(
 );
 
 Vue.onBeforeMount(async () => {
-  await calculator.isInitializedPromise;
+  await calculator.load();
   calculator.setPivotPoint('StartingBid');
   bidAmount.value = calculator.data.previousDayLowBid;
   options.value = [

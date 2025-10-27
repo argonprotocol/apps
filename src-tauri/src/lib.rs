@@ -24,13 +24,16 @@ struct NoSleepState {
 
 #[tauri::command]
 async fn open_ssh_connection(
+    app: AppHandle,
     address: &str,
     host: &str,
     port: u16,
     username: String,
-    private_key_path: String,
 ) -> Result<String, String> {
     log::info!("ensure_ssh_connection");
+    let private_key_path = security::Security::get_private_key_path(&app)
+        .to_string_lossy()
+        .to_string();
     ssh_pool::open_connection(address, host, port, username, private_key_path)
         .await
         .map_err(|e| {
@@ -39,6 +42,14 @@ async fn open_ssh_connection(
         })?;
 
     Ok("success".to_string())
+}
+
+#[tauri::command]
+async fn get_ssh_private_key(app: AppHandle) -> Result<String, String> {
+    log::info!("get_ssh_private_key");
+    let private_key =
+        security::Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
+    Ok(private_key)
 }
 
 #[tauri::command]
@@ -136,31 +147,16 @@ async fn read_embedded_file(app: AppHandle, local_relative_path: String) -> Resu
 }
 
 #[tauri::command]
-async fn overwrite_security(
+async fn overwrite_mnemonic(
     app: AppHandle,
-    master_mnemonic: String,
-    ssh_public_key: String,
-    ssh_private_key_path: String,
-) -> Result<String, String> {
-    log::info!("overwrite_security");
-    let new_security = security::Security {
-        master_mnemonic,
-        ssh_public_key,
-        ssh_private_key_path,
-    };
-    new_security.save(&app).map_err(|e| e.to_string())?;
-
-    Ok("success".to_string())
-}
-
-#[tauri::command]
-async fn overwrite_mnemonic(app: AppHandle, mnemonic: String) -> Result<String, String> {
+    mnemonic: String,
+) -> Result<security::Security, String> {
     log::info!("overwrite_mnemonic");
-    let mut security = security::Security::load(&app).map_err(|e| e.to_string())?;
-    security.master_mnemonic = mnemonic;
-    security.save(&app).map_err(|e| e.to_string())?;
-    Ok("success".to_string())
+    let security =
+        security::Security::save_with_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
+    Ok(security)
 }
+
 #[tauri::command]
 async fn run_db_migrations(app: AppHandle) -> Result<(), String> {
     log::info!("run_db_migrations");
@@ -310,7 +306,7 @@ pub fn run() {
     let network_name = Utils::get_network_name();
     let instance_name = Utils::get_instance_name();
     let enable_auto_update =
-        option_env!("COMMANDER_ENABLE_AUTOUPDATE").map_or(true, |v| v == "true");
+        option_env!("ARGON_APP_ENABLE_AUTOUPDATE").map_or(true, |v| v == "true");
     let is_test = option_env!("CI").map_or(false, |v| v == "true" || v == "1");
     let logger = init_logger(&network_name, &instance_name);
 
@@ -331,9 +327,9 @@ pub fn run() {
             }
             log::info!("Page loaded for instance '{}'", instance_name_clone);
             window.emit("tauri://page-loaded", ()).unwrap();
-            window.eval(format!("window.__COMMANDER_INSTANCE__ = '{}'", instance_name_clone)).expect("Failed to set instance name in window");
+            window.eval(format!("window.__ARGON_APP_INSTANCE__ = '{}'", instance_name_clone)).expect("Failed to set instance name in window");
             window.eval(format!("window.__ARGON_NETWORK_NAME__ = '{}'", network_name_clone)).expect("Failed to set network name in window");
-            window.eval(format!("window.__COMMANDER_ENABLE_AUTOUPDATE__ = {}", enable_auto_update)).expect("Failed to set experimental flag in window");
+            window.eval(format!("window.__ARGON_APP_ENABLE_AUTOUPDATE__ = {}", enable_auto_update)).expect("Failed to set experimental flag in window");
             window.eval(format!("window.__SERVER_ENV_VARS__ = {}", env_vars_json)).expect("Failed to set env vars in window");
             window.eval(format!("window.__IS_TEST__ = {}", is_test)).expect("Failed to set is test flag in window");
           })
@@ -356,7 +352,7 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
 
             app.listen("tauri://page-loaded", move |_event| {
-                window.eval(format!("window.__COMMANDER_SECURITY__ = {}", security_json)).expect("Failed to set security in window");
+                window.eval(format!("window.__ARGON_APP_SECURITY__ = {}", security_json)).expect("Failed to set security in window");
             });
             let app_id = &app.config().identifier;
 
@@ -382,7 +378,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new()
-                .app_name("Argon Commander")
+                .app_name("Argon Investor Console")
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -402,7 +398,7 @@ pub fn run() {
             ssh_download_file,
             ssh_upload_embedded_file,
             read_embedded_file,
-            overwrite_security,
+            get_ssh_private_key,
             overwrite_mnemonic,
             run_db_migrations,
             create_zip,

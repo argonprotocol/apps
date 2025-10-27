@@ -1,4 +1,4 @@
-import { TreasuryPool, VaultMonitor } from '@argonprotocol/commander-core';
+import { TreasuryPool, VaultMonitor } from '@argonprotocol/apps-core';
 import { accountsetFromCli } from './index.js';
 import { formatArgons, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { Command } from '@commander-js/extra-typings';
@@ -54,7 +54,7 @@ export default function treasuryCli() {
 
       vaults.events.on('treasury-pool-space-above', async (vaultId, amount) => {
         const vault = vaults.vaultsById[vaultId];
-        if (vault.terms.liquidityPoolProfitSharing.times(100).toNumber() < minPctSharing) {
+        if (vault.terms.treasuryProfitSharing.times(100).toNumber() < minPctSharing) {
           console.info(`Skipping vault ${vaultId} due to lower profit sharing than ${minPctSharing}%`);
           return;
         }

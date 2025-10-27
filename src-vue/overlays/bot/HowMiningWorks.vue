@@ -24,7 +24,7 @@
 
             <div v-if="isLoaded" class="flex flex-col grow relative w-full overflow-y-auto px-8 py-5">
               <p>
-                The most basic thing to understand about Argon Commander is that there is no third-party company, authority, or server helping to run
+                The most basic thing to understand about Argon Investor Console is that there is no third-party company, authority, or server helping to run
                 this app. It simply exists as code on your computer. In fact, the entire Argon blockchain is fully
                 decentralized and anonymous. It's operated by the community, by people like yourself. That's why this app has no
                 signup screen or login screen -- you simply use it. Instead, a special auction bid system is used to
@@ -206,7 +206,7 @@
                   market for all participants.
                 </li>
                 <li>
-                  <strong>Automated Mining Bots</strong>. Commander was built to serve as an automated mining bot to help handle the bidding processs,
+                  <strong>Automated Mining Bots</strong>. Investor Console was built to serve as an automated mining bot to help handle the bidding processs,
                   manage mining operations, and continually renew your seats every ten days. However, it doesn't dictate your strategy. It is up to you
                   to decide the rules, such as starting bid, maximum bid, rebidding strategy, etc.
                 </li>
@@ -230,7 +230,7 @@
             <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
               <div class="flex flex-row space-x-4 justify-center items-center">
                 <button @click="cancelOverlay" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
-                  <span>Close Window</span>
+                  <span>Finished Reading</span>
                 </button>
               </div>
             </div>
@@ -251,7 +251,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { getMining } from '../../stores/mainchain';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { useCurrency } from '../../stores/currency';
-import { type IWinningBid } from '@argonprotocol/commander-core';
+import { type IWinningBid } from '@argonprotocol/apps-core';
 import { ArrowRightCircleIcon } from '@heroicons/vue/24/outline';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 

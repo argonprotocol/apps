@@ -16,6 +16,7 @@ export const VaultingRulesSchema = z.object({
   poolUtilizationPctMin: z.number().min(0).max(100),
   poolUtilizationPctMax: z.number().min(0).max(100),
 
+  // TODO: rename to committedMicrogons
   baseMicrogonCommitment: z.bigint(),
   baseMicronotCommitment: z.bigint(),
 });

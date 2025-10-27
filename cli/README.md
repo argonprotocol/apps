@@ -106,6 +106,6 @@ npx @argonprotocol/mainchain --env=accounts/.env.bob mining bid --min-bid=1 --ma
 ### Subaccounts
 
 If you want to work with subaccounts during `consolidate` or setup of an account you can use the
-`-s, --subaccounts` flag to specify which subaccount to work with. `-s=0-9` is the default. You can
-also use `-s=0,1,2` to specify a list of subaccounts. You can also use `-s=0-2,4` to specify a range
+`-s, --subaccounts` flag to specify which subaccount to work with. `-s 0-9` is the default. You can
+also use `-s=0,1,2` to specify a list of subaccounts. You can also use `-s 0-2,4` to specify a range
 and a list of subaccounts.

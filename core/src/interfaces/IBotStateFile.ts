@@ -1,5 +1,6 @@
 import type { IBlockNumbers } from './IBlockNumbers.ts';
 import type { ILastModifiedAt } from './ILastModified.ts';
+import type { IBidReductionReason } from '../CohortBidder.js';
 
 export interface IBotStateStarting {
   isReady: boolean;
@@ -21,7 +22,7 @@ export interface IBotSyncStatus {
   isWaitingForBiddingRules?: boolean;
   isSyncing?: boolean;
   maxSeatsInPlay?: number;
-  maxSeatsReductionReason?: string;
+  maxSeatsReductionReason?: IBidReductionReason;
 }
 
 export interface IBotState extends ILastModifiedAt, IBotSyncStatus, IBotStateFile {
@@ -32,7 +33,6 @@ export interface IBotState extends ILastModifiedAt, IBotSyncStatus, IBotStateFil
   lastFinalizedBlockNumber: number;
   queueDepth: number;
   maxSeatsPossible: number;
-  maxSeatsReductionReason: string;
 }
 
 export interface IBotStateFile {
@@ -42,6 +42,7 @@ export interface IBotStateFile {
   syncProgress: number;
   hasMiningBids: boolean;
   hasMiningSeats: boolean;
+  currentTick: number;
   currentFrameId: number;
   currentFrameTickRange: [number, number];
   lastBlockNumberByFrameId: {

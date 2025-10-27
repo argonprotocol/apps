@@ -1,5 +1,5 @@
 {
-  "name": "@argonprotocol/commander-status",
+  "name": "@argonprotocol/apps-status",
   "version": "0.1.0",
   "devDependencies": {
     "@types/bun": "^1.2.22"

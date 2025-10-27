@@ -8,13 +8,12 @@ export default async function createBidderParams(
   _cohortId: number,
   mainchainClients: MainchainClients,
   biddingRules: IBiddingRules,
-  accruedEarnings: bigint,
 ): Promise<IBidderParams> {
   const mining = new Mining(mainchainClients);
 
   const calculatorData = new BiddingCalculatorData(mining);
   const calculator = new BiddingCalculator(calculatorData, biddingRules);
-  await calculator.isInitializedPromise;
+  await calculator.load();
 
   const helper = new Helper(biddingRules, calculator);
 
@@ -22,17 +21,17 @@ export default async function createBidderParams(
   const maxBid = calculator.maximumBidAmount;
 
   const maxSeats = await helper.getMaxSeats();
-  const maxBudget = biddingRules.baseMicrogonCommitment + accruedEarnings;
 
   const bidDelay = biddingRules.rebiddingDelay || 0;
   const bidIncrement = biddingRules.rebiddingIncrementBy || 1n;
   const bidderParams: IBidderParams = {
     minBid,
     maxBid,
-    maxBudget,
     maxSeats,
     bidDelay,
     bidIncrement,
+    sidelinedWalletMicrogons: biddingRules.sidelinedMicrogons,
+    sidelinedWalletMicronots: biddingRules.sidelinedMicronots,
   };
   console.log('Bidder params', bidderParams);
   return bidderParams;
@@ -48,7 +47,7 @@ export class Helper {
   }
 
   public async getMaxSeats() {
-    await this.calculator.data.isInitializedPromise;
+    await this.calculator.load();
 
     const maxSeats = this.calculator.data.nextCohortSize;
 

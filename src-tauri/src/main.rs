@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    argon_commander_lib::run()
+    argon_app_lib::run()
 }

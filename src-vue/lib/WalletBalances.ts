@@ -1,4 +1,4 @@
-import { Accountset, ArgonClient, MainchainClients, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { Accountset, ArgonClient, MainchainClients, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { FrameSystemAccountInfo, KeyringPair, PalletBalancesAccountData } from '@argonprotocol/mainchain';
 import { createDeferred } from './Utils';
 import {
@@ -6,7 +6,9 @@ import {
   IMiningAccountPreviousHistoryRecord,
   IMiningAccountPreviousHistorySeat,
 } from '../interfaces/IConfig';
-import { FrameIterator } from '@argonprotocol/commander-core/src/FrameIterator.ts';
+import { FrameIterator } from '@argonprotocol/apps-core/src/FrameIterator.ts';
+import IVaultingRules from '../interfaces/IVaultingRules.ts';
+import { VaultRecoveryFn } from './MyVaultRecovery.ts';
 
 export interface IWallet {
   address: string;
@@ -47,21 +49,22 @@ export class WalletBalances {
     this.clients = mainchainClients;
   }
 
-  public async load(accountData: { miningAccountAddress?: string; vaultingAccountAddress?: string }) {
+  public async load(accountData: { miningAccountAddress: string; vaultingAccountAddress: string }) {
     if (this.deferredLoading.isRunning || this.deferredLoading.isSettled) {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
 
     const { miningAccountAddress, vaultingAccountAddress } = accountData;
-    if (miningAccountAddress) this.miningWallet.address = miningAccountAddress;
-    if (vaultingAccountAddress) this.vaultingWallet.address = vaultingAccountAddress;
+    this.miningWallet.address = miningAccountAddress;
+    this.vaultingWallet.address = vaultingAccountAddress;
 
+    await this.updateBalances(false);
     this.deferredLoading.resolve();
   }
 
-  public async updateBalances() {
-    await this.deferredLoading.promise;
+  public async updateBalances(waitForLoad = true) {
+    if (waitForLoad) await this.deferredLoading.promise;
 
     const walletsToUpdate = [this.miningWallet, this.vaultingWallet].filter(x => x.address);
 
@@ -96,14 +99,16 @@ export class WalletBalances {
     }
   }
 
-  public async loadHistory(miningAccount: KeyringPair): Promise<IMiningAccountPreviousHistoryRecord[]> {
-    await this.deferredLoading.promise;
+  private async loadMiningHistory(
+    liveClient: ArgonClient,
+    miningAccount: KeyringPair,
+    onProgress: (progressPct: number) => void,
+  ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
+    const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
 
-    const liveClient = await this.clients.prunedClientOrArchivePromise;
     const accountSubaccounts = Accountset.getSubaccounts(miningAccount, parseSubaccountRange('0-99')!);
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
-    const seatsByFrameId: Record<number, IMiningAccountPreviousHistorySeat[]> = {};
     const latestFrameId = await liveClient.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
     const earliestPossibleFrameId = 150; // this is hard coded based on the spec version needing to be > 124. Doesn't need to be exact.
 
@@ -120,31 +125,81 @@ export class WalletBalances {
       });
     }
 
-    await new FrameIterator(this.clients, true, 'WalletHistory').forEachFrame(
+    const framesToProcess = latestFrameId - earliestPossibleFrameId;
+    await new FrameIterator(this.clients, 'MiningHistory').iterateFramesByEpoch(
       async (frameId, _firstBlockMeta, api, _abortController) => {
-        Object.assign(seatsByFrameId, await this.fetchSeatData(api as ArgonClient, accountSubaccounts));
+        console.log(`[MiningHistory] Loading frame ${frameId} (oldest ${earliestPossibleFrameId})`);
+        const seatsByFrameId = await this.fetchSeatData(api as ArgonClient, accountSubaccounts);
+        for (const [frameIdStr, seats] of Object.entries(seatsByFrameId)) {
+          if (!seats.length) continue;
+          dataByFrameId[frameIdStr] = {
+            frameId: Number(frameIdStr),
+            bids: [],
+            seats,
+          };
+        }
         const framesProcessed = latestFrameId - frameId;
-        const framesToProcess = latestFrameId - earliestPossibleFrameId;
-        this.onLoadHistoryProgress?.(Math.max((100 * framesProcessed) / framesToProcess, 0));
+        const progress = Math.max((100 * framesProcessed) / framesToProcess, 0);
+        onProgress(progress);
+        console.log(`[MiningHistory] Progress: ${progress}`);
       },
     );
+    if (currentFrameBids.length) {
+      dataByFrameId[latestFrameId] ??= { frameId: latestFrameId, seats: [], bids: [] };
+      dataByFrameId[latestFrameId].bids = currentFrameBids;
+    }
+    console.log('[MiningHistory] Finished loading history', dataByFrameId);
 
-    this.onLoadHistoryProgress?.(100);
+    onProgress(100);
 
-    const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
-    for (const [frameIdStr, seats] of Object.entries(seatsByFrameId)) {
-      const frameId = Number(frameIdStr);
-      const bids = frameId === latestFrameId ? currentFrameBids : [];
-      if (!bids.length && !seats.length) continue;
+    const miningHistory = Object.values(dataByFrameId);
+    if (miningHistory.length) {
+      return miningHistory;
+    }
+  }
 
-      dataByFrameId[frameIdStr] = {
-        frameId,
-        bids,
-        seats,
-      };
+  public async loadHistory(
+    miningAccount: KeyringPair,
+    bitcoinXprivSeed: Uint8Array,
+    loadVaultHistory?: VaultRecoveryFn,
+  ): Promise<{ miningHistory?: IMiningAccountPreviousHistoryRecord[]; vaultingRules?: IVaultingRules }> {
+    await this.deferredLoading.promise;
+
+    const hasVaultHistory = WalletBalances.doesWalletHaveValue(this.vaultingWallet);
+    const hasMiningHistory = WalletBalances.doesWalletHaveValue(this.miningWallet);
+
+    let vaultProgress = hasVaultHistory ? 0 : 100;
+    let miningProgress = hasMiningHistory ? 0 : 100;
+    this.onLoadHistoryProgress?.(0);
+    const onProgress = (source: 'miner' | 'vault', progressPct: number) => {
+      if (source === 'miner') miningProgress = progressPct;
+      else vaultProgress = progressPct;
+      this.onLoadHistoryProgress?.(Math.round(100 * ((vaultProgress + miningProgress) / 2)) / 100);
+    };
+
+    let miningHistoryPromise: Promise<IMiningAccountPreviousHistoryRecord[] | undefined> = Promise.resolve(undefined);
+    if (hasMiningHistory) {
+      const liveClient = await this.clients.archiveClientPromise;
+      miningHistoryPromise = this.loadMiningHistory(liveClient, miningAccount, pct => onProgress('miner', pct));
     }
 
-    return Object.values(dataByFrameId);
+    let vaultingHistoryPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
+    if (hasVaultHistory) {
+      if (!loadVaultHistory) {
+        throw new Error('No vault history loader provided');
+      }
+      vaultingHistoryPromise = loadVaultHistory({
+        vaultingAddress: this.vaultingWallet.address,
+        bitcoinXprivSeed,
+        onProgress: pct => onProgress('vault', pct),
+      });
+    }
+    const [miningHistory, vaultingRules] = await Promise.all([miningHistoryPromise, vaultingHistoryPromise]);
+    this.onLoadHistoryProgress?.(100);
+    return {
+      miningHistory,
+      vaultingRules,
+    };
   }
 
   private async fetchSeatData(
@@ -152,25 +207,22 @@ export class WalletBalances {
     accountSubaccounts: Record<string, any>,
   ): Promise<Record<number, IMiningAccountPreviousHistorySeat[]>> {
     const minersByCohort = await api.query.miningSlot.minersByCohort.entries();
-    const seatsByFrameId: Record<number, IMiningAccountPreviousHistorySeat[]> = {};
 
+    const seatsByFrameId = {} as Record<number, IMiningAccountPreviousHistorySeat[]>;
     for (const [frameIdRaw, seatsInFrame] of minersByCohort) {
-      const frameId = Number(frameIdRaw.toHuman());
-      const seats: IMiningAccountPreviousHistorySeat[] = [];
+      const frameId = frameIdRaw.args[0].toNumber();
       for (const [seatPosition, seatRaw] of seatsInFrame.entries()) {
         const address = seatRaw.accountId.toHuman();
         const isOurAccount = !!accountSubaccounts[address];
         if (!isOurAccount) continue;
-
-        seats.push({
+        seatsByFrameId[frameId] ??= [];
+        seatsByFrameId[frameId].push({
           seatPosition,
           microgonsBid: seatRaw.bid.toBigInt(),
           micronotsStaked: seatRaw.argonots.toBigInt(),
         });
       }
-      seatsByFrameId[frameId] = seats;
     }
-
     return seatsByFrameId;
   }
 
@@ -210,7 +262,7 @@ export class WalletBalances {
     this.onBalanceChange?.();
   }
 
-  public static doesWalletHasValue(wallet: IWallet): boolean {
+  public static doesWalletHaveValue(wallet: IWallet): boolean {
     if (wallet.availableMicrogons > 0n) return true;
     if (wallet.availableMicronots > 0n) return true;
     if (wallet.reservedMicronots > 0n) return true;

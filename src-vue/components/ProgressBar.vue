@@ -34,16 +34,16 @@ const progressLabel = Vue.computed(() => {
 @reference "../main.css";
 
 .Component.ProgressBar {
-  @apply relative h-8 w-full rounded border bg-[#F2EAF3];
+  @apply relative h-8 w-full overflow-hidden rounded-xl border bg-[#F2EAF3];
   border-color: rgba(0, 0, 0, 0.15);
   box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.15);
   div[Bar] {
-    @apply flex items-center justify-end overflow-hidden rounded border bg-white transition-[width] duration-[1.2s];
+    @apply flex items-center justify-end overflow-hidden rounded-l-xl border-r bg-white transition-[width] duration-[1.2s];
     border-color: rgba(0, 0, 0, 0.3);
-    height: calc(100% + 2px);
+    height: calc(100%);
     position: absolute;
     left: -1px;
-    top: -1px;
+    top: 0px;
     &:after {
       content: '';
       position: absolute;

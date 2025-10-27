@@ -18,7 +18,7 @@ import {
   miniSecretFromUri,
   SeatGoalInterval,
   SeatGoalType,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { createDeferred, ensureOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
@@ -31,8 +31,10 @@ import { WalletBalances } from './WalletBalances';
 import { SECURITY } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
+import { VaultRecoveryFn } from './MyVaultRecovery.ts';
+import PluginSql from '@tauri-apps/plugin-sql';
 
-export class Config {
+export class Config implements IConfig {
   public readonly version: string = packageJson.version;
 
   public get isLoaded(): boolean {
@@ -53,11 +55,14 @@ export class Config {
   private _rawData = {} as IConfigStringified;
   private _masterAccount!: KeyringPair;
   private _miningAccount!: KeyringPair;
-  private _miningAccountPreviousHistoryLoadPct: number = 0;
+  private _walletPreviousHistoryLoadPct: number = 0;
   private _vaultingAccount!: KeyringPair;
   private _miningSessionMiniSecret!: string;
 
-  constructor(dbPromise: Promise<Db>) {
+  constructor(
+    dbPromise: Promise<Db>,
+    private vaultRecoveryFn?: VaultRecoveryFn,
+  ) {
     ensureOnlyOneInstance(this.constructor);
     this._loadedDeferred = createDeferred<void>(false);
     this.hasDbMigrationError = false;
@@ -66,7 +71,6 @@ export class Config {
     this._security = {
       masterMnemonic: '',
       sshPublicKey: '',
-      sshPrivateKeyPath: '',
     };
     this._loadedData = {
       version: packageJson.version,
@@ -83,7 +87,8 @@ export class Config {
       oldestFrameIdToSync: Config.getDefault(dbFields.oldestFrameIdToSync) as number,
       latestFrameIdProcessed: Config.getDefault(dbFields.latestFrameIdProcessed) as number,
       miningAccountAddress: Config.getDefault(dbFields.miningAccountAddress) as string,
-      miningAccountHadPreviousLife: Config.getDefault(dbFields.miningAccountHadPreviousLife) as boolean,
+      walletAccountsHadPreviousLife: Config.getDefault(dbFields.walletAccountsHadPreviousLife) as boolean,
+      walletPreviousLifeRecovered: Config.getDefault(dbFields.walletPreviousLifeRecovered) as boolean,
       miningAccountPreviousHistory: Config.getDefault(
         dbFields.miningAccountPreviousHistory,
       ) as IConfig['miningAccountPreviousHistory'],
@@ -99,6 +104,7 @@ export class Config {
       hasReadVaultingInstructions: Config.getDefault(dbFields.hasReadVaultingInstructions) as boolean,
       isPreparingVaultSetup: Config.getDefault(dbFields.isPreparingVaultSetup) as boolean,
       isVaultReadyToCreate: Config.getDefault(dbFields.isVaultReadyToCreate) as boolean,
+      isVaultActivated: Config.getDefault(dbFields.isVaultActivated) as boolean,
 
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
@@ -117,8 +123,34 @@ export class Config {
     };
   }
 
-  public async load() {
-    if (this._loadedDeferred.isSettled || this._loadedDeferred.isRunning) {
+  public async restoreToConnection(sql: PluginSql): Promise<void> {
+    const preserveFields: (keyof IConfig)[] = [
+      'serverCreation',
+      'serverDetails',
+      'miningAccountAddress',
+      'hasReadVaultingInstructions',
+      'hasReadVaultingInstructions',
+      'isMiningMachineCreated',
+      'oldestFrameIdToSync',
+      'defaultCurrencyKey',
+      'requiresPassword',
+    ];
+
+    for (const key of Object.keys(defaults) as (keyof IConfig)[]) {
+      this._fieldsToSave.add(key);
+      if (!preserveFields.includes(key)) {
+        const defaultValue = await defaults[key as keyof IConfigDefaults]();
+        this._rawData[key] = JsonExt.stringify(defaultValue, 2);
+        (this._loadedData as any)[key] = defaultValue as any;
+      }
+    }
+    await this._injectFirstTimeAppData(this._loadedData, this._rawData, this._fieldsToSave);
+    const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
+    await this._db.configTable.insertOrReplace(data, sql);
+  }
+
+  public async load(force = false) {
+    if (!force && (this._loadedDeferred.isSettled || this._loadedDeferred.isRunning)) {
       return this._loadedDeferred.promise;
     }
     console.log('Config: Loading configuration from database...');
@@ -191,12 +223,14 @@ export class Config {
       this._loadedData = loadedData as IConfig;
       this._rawData = rawData;
       this._loadedDeferred.resolve();
-      if (this.miningAccountHadPreviousLife && !this.miningAccountPreviousHistory) {
-        await this._bootupFromMiningAccountPreviousHistory();
+      if (this.walletAccountsHadPreviousLife && !this.walletPreviousLifeRecovered) {
+        await this._bootupFromAccountPreviousHistory();
       }
     } catch (e) {
       this._loadedDeferred.reject(e);
     }
+
+    return this._loadedDeferred.promise;
   }
 
   get masterAccount(): KeyringPair {
@@ -226,79 +260,78 @@ export class Config {
     return this._miningAccount;
   }
 
-  get miningAccountHadPreviousLife(): IConfig['miningAccountHadPreviousLife'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.miningAccountHadPreviousLife;
+  get vaultingAccount(): KeyringPair {
+    if (this._vaultingAccount) return this._vaultingAccount;
+
+    const vaultingAccount = this.masterAccount.derive(`//vaulting`);
+    if (!this.isLoaded) return vaultingAccount;
+    this._vaultingAccount = vaultingAccount;
+    return this._vaultingAccount;
   }
 
-  set miningAccountHadPreviousLife(value: IConfig['miningAccountHadPreviousLife']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.miningAccountHadPreviousLife = value;
-    this._tryFieldsToSave(dbFields.miningAccountHadPreviousLife, value);
+  get walletAccountsHadPreviousLife(): IConfig['walletAccountsHadPreviousLife'] {
+    return this.getField('walletAccountsHadPreviousLife');
+  }
+
+  set walletAccountsHadPreviousLife(value: IConfig['walletAccountsHadPreviousLife']) {
+    this.setField('walletAccountsHadPreviousLife', value);
+  }
+
+  get walletPreviousLifeRecovered(): IConfig['walletPreviousLifeRecovered'] {
+    return this.getField('walletPreviousLifeRecovered');
+  }
+
+  set walletPreviousLifeRecovered(value: IConfig['walletPreviousLifeRecovered']) {
+    this.setField('walletPreviousLifeRecovered', value);
   }
 
   get miningAccountPreviousHistory(): IConfig['miningAccountPreviousHistory'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.miningAccountPreviousHistory;
+    return this.getField('miningAccountPreviousHistory');
+  }
+
+  get miningAccountAddress(): IConfig['miningAccountAddress'] {
+    return this.getField('miningAccountAddress');
   }
 
   set miningAccountPreviousHistory(value: IConfig['miningAccountPreviousHistory']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.miningAccountPreviousHistory = value;
-    this._tryFieldsToSave(dbFields.miningAccountPreviousHistory, value);
+    this.setField('miningAccountPreviousHistory', value);
   }
 
-  get isBootingUpFromMiningAccountPreviousHistory(): boolean {
-    return this._loadedData.miningAccountHadPreviousLife && !this._loadedData.miningAccountPreviousHistory;
+  get isBootingUpPreviousWalletHistory(): boolean {
+    return this._loadedData.walletAccountsHadPreviousLife && !this._loadedData.walletPreviousLifeRecovered;
   }
 
-  get miningAccountPreviousHistoryLoadPct(): number {
-    if (!this.isBootingUpFromMiningAccountPreviousHistory) return 100;
-    return Math.min(this._miningAccountPreviousHistoryLoadPct, 100);
-  }
-
-  get vaultingAccount(): KeyringPair {
-    this._throwErrorIfNotLoaded();
-    return (this._vaultingAccount ||= this.masterAccount.derive(`//vaulting`));
+  get walletPreviousHistoryLoadPct(): number {
+    if (!this.isBootingUpPreviousWalletHistory) return 100;
+    return Math.min(this._walletPreviousHistoryLoadPct, 100);
   }
 
   get bitcoinXprivSeed(): Uint8Array {
     return bip39.mnemonicToSeedSync(this.security.masterMnemonic);
   }
 
-  //////////////////////////////
-
   get panelKey(): PanelKey {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.panelKey;
+    return this.getField('panelKey');
   }
 
   set panelKey(value: PanelKey) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.panelKey = value;
-    this._tryFieldsToSave(dbFields.panelKey, value);
+    this.setField('panelKey', value);
   }
 
   get requiresPassword(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.requiresPassword;
+    return this.getField('requiresPassword');
   }
 
   set requiresPassword(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.requiresPassword = value;
-    this._tryFieldsToSave(dbFields.requiresPassword, value);
+    this.setField('requiresPassword', value);
   }
 
   get showWelcomeOverlay(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.showWelcomeOverlay;
+    return this.getField('showWelcomeOverlay');
   }
 
   set showWelcomeOverlay(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.showWelcomeOverlay = value;
-    this._tryFieldsToSave(dbFields.showWelcomeOverlay, value);
+    this.setField('showWelcomeOverlay', value);
   }
 
   get security(): ISecurity {
@@ -307,232 +340,179 @@ export class Config {
   }
 
   get serverCreation(): IConfig['serverCreation'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.serverCreation;
+    return this.getField('serverCreation');
   }
 
   set serverCreation(value: IConfig['serverCreation']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.serverCreation = value;
-    this._tryFieldsToSave(dbFields.serverCreation, value);
+    this.setField('serverCreation', value);
   }
 
   get serverDetails(): IConfig['serverDetails'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.serverDetails;
+    return this.getField('serverDetails');
   }
 
   set serverDetails(value: IConfig['serverDetails']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.serverDetails = value;
-    this._tryFieldsToSave(dbFields.serverDetails, value);
+    this.setField('serverDetails', value);
   }
 
   get installDetails(): IConfig['installDetails'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.installDetails;
+    return this.getField('installDetails');
   }
 
   set installDetails(value: IConfig['installDetails']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.installDetails = value;
-    this._tryFieldsToSave(dbFields.installDetails, value);
+    this.setField('installDetails', value);
   }
 
   get oldestFrameIdToSync(): number {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.oldestFrameIdToSync;
+    return this.getField('oldestFrameIdToSync');
   }
 
   set oldestFrameIdToSync(value: number) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.oldestFrameIdToSync = value;
-    this._tryFieldsToSave(dbFields.oldestFrameIdToSync, value);
+    this.setField('oldestFrameIdToSync', value);
   }
 
   get latestFrameIdProcessed(): number {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.latestFrameIdProcessed;
+    return this.getField('latestFrameIdProcessed');
   }
 
   set latestFrameIdProcessed(value: number) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.latestFrameIdProcessed = value;
-    this._tryFieldsToSave(dbFields.latestFrameIdProcessed, value);
+    this.setField('latestFrameIdProcessed', value);
   }
 
   get hasReadMiningInstructions(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasReadMiningInstructions;
+    return this.getField('hasReadMiningInstructions');
   }
 
   set hasReadMiningInstructions(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasReadMiningInstructions = value;
-    this._tryFieldsToSave(dbFields.hasReadMiningInstructions, value);
+    this.setField('hasReadMiningInstructions', value);
   }
 
   get isPreparingMinerSetup(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isPreparingMinerSetup;
+    return this.getField('isPreparingMinerSetup');
   }
 
   set isPreparingMinerSetup(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isPreparingMinerSetup = value;
-    this._tryFieldsToSave(dbFields.isPreparingMinerSetup, value);
+    this.setField('isPreparingMinerSetup', value);
   }
 
   get isMinerReadyToInstall(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerReadyToInstall;
+    return this.getField('isMinerReadyToInstall');
   }
 
   set isMinerReadyToInstall(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerReadyToInstall = value;
-    this._tryFieldsToSave(dbFields.isMinerReadyToInstall, value);
+    this.setField('isMinerReadyToInstall', value);
   }
 
   get isMiningMachineCreated(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMiningMachineCreated;
+    return this.getField('isMiningMachineCreated');
   }
 
   set isMiningMachineCreated(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMiningMachineCreated = value;
-    this._tryFieldsToSave(dbFields.isMiningMachineCreated, value);
+    this.setField('isMiningMachineCreated', value);
   }
 
   get isMinerUpToDate(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerUpToDate;
+    return this.getField('isMinerUpToDate');
   }
 
   set isMinerUpToDate(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerUpToDate = value;
-    this._tryFieldsToSave(dbFields.isMinerUpToDate, value);
+    this.setField('isMinerUpToDate', value);
   }
 
   get isMinerInstalled(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerInstalled;
+    return this.getField('isMinerInstalled');
   }
 
   set isMinerInstalled(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerInstalled = value;
-    this._tryFieldsToSave(dbFields.isMinerInstalled, value);
+    this.setField('isMinerInstalled', value);
   }
 
   get isMinerWaitingForUpgradeApproval(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isMinerWaitingForUpgradeApproval;
+    return this.getField('isMinerWaitingForUpgradeApproval');
   }
 
   set isMinerWaitingForUpgradeApproval(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isMinerWaitingForUpgradeApproval = value;
-    this._tryFieldsToSave(dbFields.isMinerWaitingForUpgradeApproval, value);
+    this.setField('isMinerWaitingForUpgradeApproval', value);
   }
 
   get hasReadVaultingInstructions(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasReadVaultingInstructions;
+    return this.getField('hasReadVaultingInstructions');
   }
 
   set hasReadVaultingInstructions(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasReadVaultingInstructions = value;
-    this._tryFieldsToSave(dbFields.hasReadVaultingInstructions, value);
+    this.setField('hasReadVaultingInstructions', value);
   }
 
   get isPreparingVaultSetup(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isPreparingVaultSetup;
+    return this.getField('isPreparingVaultSetup');
   }
 
   set isPreparingVaultSetup(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isPreparingVaultSetup = value;
-    this._tryFieldsToSave(dbFields.isPreparingVaultSetup, value);
+    this.setField('isPreparingVaultSetup', value);
   }
 
   get isVaultReadyToCreate(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.isVaultReadyToCreate;
+    return this.getField('isVaultReadyToCreate');
   }
 
   set isVaultReadyToCreate(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.isVaultReadyToCreate = value;
-    this._tryFieldsToSave(dbFields.isVaultReadyToCreate, value);
+    this.setField('isVaultReadyToCreate', value);
+  }
+
+  get isVaultActivated(): boolean {
+    return this.getField('isVaultActivated');
+  }
+
+  set isVaultActivated(value: boolean) {
+    this.setField('isVaultActivated', value);
   }
 
   get hasMiningSeats(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasMiningSeats;
+    return this.getField('hasMiningSeats');
   }
 
   set hasMiningSeats(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasMiningSeats = value;
-    this._tryFieldsToSave(dbFields.hasMiningSeats, value);
+    this.setField('hasMiningSeats', value);
   }
 
   get hasMiningBids(): boolean {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.hasMiningBids;
+    return this.getField('hasMiningBids');
   }
 
   set hasMiningBids(value: boolean) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.hasMiningBids = value;
-    this._tryFieldsToSave(dbFields.hasMiningBids, value);
+    this.setField('hasMiningBids', value);
   }
 
   get biddingRules(): IConfig['biddingRules'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.biddingRules;
+    return this.getField('biddingRules');
   }
 
   set biddingRules(value: IConfig['biddingRules']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.biddingRules = value;
+    this.setField('biddingRules', value);
   }
 
   get vaultingRules(): IConfig['vaultingRules'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.vaultingRules;
+    return this.getField('vaultingRules');
   }
 
   set vaultingRules(value: IConfig['vaultingRules']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.vaultingRules = value;
+    this.setField('vaultingRules', value);
   }
 
   get defaultCurrencyKey(): CurrencyKey {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.defaultCurrencyKey;
+    return this.getField('defaultCurrencyKey');
   }
 
   set defaultCurrencyKey(value: CurrencyKey) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.defaultCurrencyKey = value;
-    this._tryFieldsToSave(dbFields.defaultCurrencyKey, value);
+    this.setField('defaultCurrencyKey', value);
   }
 
   get userJurisdiction(): IConfig['userJurisdiction'] {
-    this._throwErrorIfNotLoaded();
-    return this._loadedData.userJurisdiction;
+    return this.getField('userJurisdiction');
   }
 
   set userJurisdiction(value: IConfig['userJurisdiction']) {
-    this._throwErrorIfNotLoaded();
-    this._loadedData.userJurisdiction = value;
-    this._tryFieldsToSave(dbFields.userJurisdiction, value);
+    this.setField('userJurisdiction', value);
   }
 
   get isValidJurisdiction(): boolean {
@@ -551,13 +531,11 @@ export class Config {
   }
 
   public async saveBiddingRules() {
-    this._throwErrorIfNotLoaded();
     this._tryFieldsToSave(dbFields.biddingRules, this.biddingRules);
     await this.save();
   }
 
   public async saveVaultingRules() {
-    this._throwErrorIfNotLoaded();
     this._tryFieldsToSave(dbFields.vaultingRules, this.vaultingRules);
     await this.save();
   }
@@ -575,6 +553,17 @@ export class Config {
     this._throwErrorIfNotLoaded();
     (this as any)[field] = defaults[field]();
     this._fieldsToSave.add(field);
+  }
+
+  private getField<T extends keyof IConfig>(field: T): IConfig[T] {
+    this._throwErrorIfNotLoaded();
+    return this._loadedData[field];
+  }
+
+  private setField<T extends keyof IConfig>(field: T, value: IConfig[T]): void {
+    this._throwErrorIfNotLoaded();
+    this._loadedData[field] = value;
+    this._tryFieldsToSave((dbFields as any)[field], value);
   }
 
   private _throwErrorIfNotLoaded() {
@@ -602,52 +591,89 @@ export class Config {
     stringifiedData[dbFields.miningAccountAddress] = JsonExt.stringify(miningAccountAddress, 2);
     fieldsToSave.add(dbFields.miningAccountAddress);
 
-    const miningAccountHadPreviousLife = await this._didWalletHavePreviousLife(miningAccountAddress);
-    loadedData.miningAccountHadPreviousLife = miningAccountHadPreviousLife;
-    stringifiedData[dbFields.miningAccountHadPreviousLife] = JsonExt.stringify(miningAccountHadPreviousLife, 2);
-    fieldsToSave.add(dbFields.miningAccountHadPreviousLife);
+    const walletHadPreviousLife = await this._didWalletHavePreviousLife({
+      miningAccountAddress,
+      vaultingAccountAddress: this.vaultingAccount.address,
+    });
+    loadedData.walletAccountsHadPreviousLife = walletHadPreviousLife;
+    stringifiedData[dbFields.walletAccountsHadPreviousLife] = JsonExt.stringify(walletHadPreviousLife, 2);
+    fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
 
-    if (miningAccountHadPreviousLife) {
+    if (walletHadPreviousLife) {
       loadedData.showWelcomeOverlay = false;
       stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false, 2);
       fieldsToSave.add(dbFields.showWelcomeOverlay);
     }
   }
 
-  private async _didWalletHavePreviousLife(miningAccountAddress: string) {
+  private async _didWalletHavePreviousLife(addresses: {
+    miningAccountAddress: string;
+    vaultingAccountAddress: string;
+  }) {
     const walletBalances = new WalletBalances(getMainchainClients());
-    await walletBalances.load({ miningAccountAddress });
-    await walletBalances.updateBalances();
+    await walletBalances.load(addresses);
 
-    const miningHasValue = WalletBalances.doesWalletHasValue(walletBalances.miningWallet);
-    const vaultingHasValue = WalletBalances.doesWalletHasValue(walletBalances.vaultingWallet);
+    const miningHasValue = WalletBalances.doesWalletHaveValue(walletBalances.miningWallet);
+    const vaultingHasValue = WalletBalances.doesWalletHaveValue(walletBalances.vaultingWallet);
     return miningHasValue || vaultingHasValue;
   }
 
-  private async _bootupFromMiningAccountPreviousHistory() {
-    console.log('Config: Booting up from mining account previous history...');
+  private async _bootupFromAccountPreviousHistory() {
+    console.log('Config: Booting up from account previous history...', {
+      miningAccountAddress: this.miningAccount.address,
+      vaultingAccountAddress: this.vaultingAccount.address,
+    });
     const walletBalances = new WalletBalances(getMainchainClients());
-    await walletBalances.load({ miningAccountAddress: this.miningAccount.address });
+    await walletBalances.load({
+      miningAccountAddress: this.miningAccount.address,
+      vaultingAccountAddress: this.vaultingAccount.address,
+    });
     walletBalances.onLoadHistoryProgress = (loadPct: number) => {
-      this._miningAccountPreviousHistoryLoadPct = loadPct;
+      this._walletPreviousHistoryLoadPct = loadPct;
     };
-    const historyItems = await walletBalances.loadHistory(this.miningAccount);
-    const frameIdsProcessed = historyItems?.map(x => x.frameId) || [];
-    const oldestFrameIdProcessed = frameIdsProcessed.length ? Math.min(...frameIdsProcessed) : 0;
-    if (historyItems.length === 1 && !historyItems[0].seats.length) {
-      // We only found bids for today, which means today was the start
-      this.oldestFrameIdToSync = oldestFrameIdProcessed;
-      this.hasMiningBids = true;
-    } else if (historyItems.length) {
-      // We found seat history, so we can set the oldestFrameIdToSync to the previous frame of the oldest we have
-      // It must be previous frame because we can't have a seat for today if we didn't bid yesterday
-      this.oldestFrameIdToSync = oldestFrameIdProcessed - 1;
-      this.hasMiningBids = true;
-      this.hasMiningSeats = true;
+
+    const { miningHistory, vaultingRules } = await walletBalances.loadHistory(
+      this.miningAccount,
+      this.bitcoinXprivSeed,
+      this.vaultRecoveryFn,
+    );
+    if (!miningHistory?.length && !vaultingRules) {
+      console.warn('Config: No previous history found');
+      this.walletAccountsHadPreviousLife = false;
+      return;
+    }
+    if (miningHistory) {
+      console.log('Config: Previous mining history found');
+      const frameIdsProcessed = miningHistory.map(x => x.frameId);
+      const oldestFrameIdProcessed = frameIdsProcessed.length ? Math.min(...frameIdsProcessed) : 0;
+      if (miningHistory.length === 1 && !miningHistory[0].seats.length) {
+        // We only found bids for today, which means today was the start
+        this.oldestFrameIdToSync = oldestFrameIdProcessed;
+        this.hasMiningBids = true;
+      } else if (miningHistory.length) {
+        // We found seat history, so we can set the oldestFrameIdToSync to the previous frame of the oldest we have
+        // It must be previous frame because we can't have a seat for today if we didn't bid yesterday
+        this.oldestFrameIdToSync = oldestFrameIdProcessed - 1;
+        this.hasMiningBids = true;
+        this.hasMiningSeats = true;
+      }
+      this.miningAccountPreviousHistory = miningHistory;
+      this.isPreparingMinerSetup = true;
+      this.hasReadMiningInstructions = miningHistory.length > 0;
     }
 
-    this._loadedData.miningAccountPreviousHistory = historyItems;
-    this._tryFieldsToSave(dbFields.miningAccountPreviousHistory, historyItems);
+    if (vaultingRules) {
+      console.log('Config: Previous vaulting rules found');
+      this.vaultingRules = vaultingRules;
+      this.isVaultReadyToCreate = true;
+      this.isPreparingVaultSetup = true;
+      this.isVaultActivated = true;
+      this.hasReadVaultingInstructions = true;
+
+      this._tryFieldsToSave(dbFields.vaultingRules, vaultingRules);
+    }
+
+    this.walletPreviousLifeRecovered = true;
     await this.save();
   }
 
@@ -682,8 +708,9 @@ const dbFields = {
   oldestFrameIdToSync: 'oldestFrameIdToSync',
   latestFrameIdProcessed: 'latestFrameIdProcessed',
   miningAccountAddress: 'miningAccountAddress',
-  miningAccountHadPreviousLife: 'miningAccountHadPreviousLife',
   miningAccountPreviousHistory: 'miningAccountPreviousHistory',
+  walletAccountsHadPreviousLife: 'walletAccountsHadPreviousLife',
+  walletPreviousLifeRecovered: 'walletPreviousLifeRecovered',
 
   hasReadMiningInstructions: 'hasReadMiningInstructions',
   isPreparingMinerSetup: 'isPreparingMinerSetup',
@@ -696,6 +723,7 @@ const dbFields = {
   hasReadVaultingInstructions: 'hasReadVaultingInstructions',
   isPreparingVaultSetup: 'isPreparingVaultSetup',
   isVaultReadyToCreate: 'isVaultReadyToCreate',
+  isVaultActivated: 'isVaultActivated',
 
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
@@ -741,8 +769,9 @@ const defaults: IConfigDefaults = {
   oldestFrameIdToSync: () => 0,
   latestFrameIdProcessed: () => 0,
   miningAccountAddress: () => '',
-  miningAccountHadPreviousLife: () => false,
   miningAccountPreviousHistory: () => null,
+  walletAccountsHadPreviousLife: () => false,
+  walletPreviousLifeRecovered: () => false,
 
   hasReadMiningInstructions: () => false,
   isPreparingMinerSetup: () => false,
@@ -755,6 +784,7 @@ const defaults: IConfigDefaults = {
   hasReadVaultingInstructions: () => false,
   isPreparingVaultSetup: () => false,
   isVaultReadyToCreate: () => false,
+  isVaultActivated: () => false,
 
   hasMiningSeats: () => false,
   hasMiningBids: () => false,
@@ -787,8 +817,13 @@ const defaults: IConfigDefaults = {
       seatGoalPercent: 0,
       seatGoalInterval: SeatGoalInterval.Epoch,
 
-      baseMicrogonCommitment: 1_000n * BigInt(MICROGONS_PER_ARGON),
-      baseMicronotCommitment: 0n,
+      startingMicrogons: 1_000n * BigInt(MICROGONS_PER_ARGON),
+      startingMicronots: 0n,
+
+      reservedMicrogons: 0n,
+      reservedMicronots: 0n,
+      sidelinedMicronots: 0n,
+      sidelinedMicrogons: 0n,
     };
   },
   vaultingRules: () => {
@@ -813,5 +848,20 @@ const defaults: IConfigDefaults = {
     };
   },
   defaultCurrencyKey: () => CurrencyKey.ARGN,
-  userJurisdiction: getUserJurisdiction,
+  userJurisdiction: async () => {
+    try {
+      return await getUserJurisdiction();
+    } catch (error) {
+      console.error('Error getting user jurisdiction:', error);
+      return {
+        ipAddress: '',
+        city: '',
+        region: '',
+        countryName: '',
+        countryCode: '',
+        latitude: '',
+        longitude: '',
+      };
+    }
+  },
 };

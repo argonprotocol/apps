@@ -1,11 +1,12 @@
 import type { MainchainClients } from './MainchainClients.js';
 import {
-  getTickFromHeader,
-  type ArgonClient,
   type ApiDecoration,
+  type ArgonClient,
   type BlockHash,
+  getTickFromHeader,
   type Header as BlockHeader,
 } from '@argonprotocol/mainchain';
+import { LRU } from 'tiny-lru';
 import { MiningFrames } from './MiningFrames.js';
 
 export type { ApiDecoration };
@@ -31,75 +32,126 @@ export type ICallbackForFrameAll<T> = (
   abortController: AbortController,
 ) => Promise<T>;
 
+export interface IBlockAndApi {
+  blockHash: BlockHash;
+  tick: number;
+  frameId: number;
+  specVersion: number;
+  api: ApiDecoration<'promise'>;
+}
+
 export class FrameIterator {
+  static cachedApiByBlockNumber = new LRU<IBlockAndApi>(200);
+  static frameStartBlocksByBlockNumber = new LRU<number[]>(100);
+
   constructor(
     public readonly clients: MainchainClients,
-    readonly iterateByEpoch: boolean = false,
     private name: string = 'FrameIterator',
   ) {}
 
-  public async forEachFrame<T>(callback: ICallbackForFrame<T>): Promise<T[]> {
+  public async iterateFramesByEpoch(callback: ICallbackForFrame<void>): Promise<void> {
+    const archiveClient = await this.clients.archiveClientPromise;
+    const abortController = new AbortController();
+    const seenFrames = new Set<number>();
+
+    const startBlockNumber = await this.getBlockNumber(archiveClient);
+
+    // start with the latest known frame start block
+    let blockNumber = (await this.getFrameStartBlockNumbers(startBlockNumber)).at(0) ?? 0;
+
+    while (blockNumber > 0) {
+      const { blockHash, api, specVersion, tick, frameId } = await this.getApiAtBlockNumber(blockNumber);
+      if (!this.doesApiSupportFrameStartBlocks(api)) break;
+
+      if (!seenFrames.has(frameId)) {
+        seenFrames.add(frameId);
+        console.log(`[${this.name}] Exploring epoch frame ${frameId} (blockNumber = ${blockNumber})`);
+        const meta = {
+          specVersion,
+          blockNumber,
+          blockHash,
+          blockTick: tick,
+        };
+        await callback(frameId, meta, api, abortController);
+        if (abortController.signal.aborted || frameId <= 1) {
+          let message = `[${this.name}] Aborting iteration as requested at frame ${frameId}`;
+          if (frameId <= 1) message = `[${this.name}] Aborting iteration at frame 1`;
+          console.log(message);
+          break; // Stop processing if the abort signal is triggered
+        }
+      }
+
+      const startBlockNumbers = await this.getFrameStartBlockNumbers(blockNumber);
+      const next = startBlockNumbers.at(-1) ?? 0;
+      if (next === blockNumber) {
+        break;
+      }
+      blockNumber = next;
+    }
+  }
+
+  public async iterateFramesLimited<T>(
+    callback: ICallbackForFrame<T>,
+    performBlockStartFidelityCheck = false,
+  ): Promise<T[]> {
     const archiveClient = await this.clients.archiveClientPromise;
     const abortController = new AbortController();
     const seenFrames = new Set<number>();
     const results: T[] = [];
 
-    let api = archiveClient as ApiDecoration<'promise'>;
-    let specVersion = api.runtimeVersion.specVersion.toNumber();
-    let frameStartBlockNumbers = await this.getFrameStartBlockNumbers(api);
+    const startBlockNumber = await this.getBlockNumber(archiveClient);
 
-    let blockNumber: number;
-    let blockHash: BlockHash;
-    let blockTick: number;
+    const queue = await this.getFrameStartBlockNumbers(startBlockNumber);
+    console.log('Starting frame iteration from block numbers:', queue);
+    while (queue.length) {
+      const blockNumber = queue.shift()!;
+      const { blockHash, specVersion, api, tick, frameId } = await this.getApiAtBlockNumber(blockNumber);
+      if (!this.doesApiSupportFrameStartBlocks(api)) break;
 
-    for (let i = 0; i < frameStartBlockNumbers.length; i++) {
-      blockNumber = frameStartBlockNumbers[i];
-      blockHash = await archiveClient.rpc.chain.getBlockHash(blockNumber);
-      const blockHeader = await archiveClient.rpc.chain.getHeader(blockHash);
-      blockTick = getTickFromHeader(archiveClient, blockHeader)!;
-      api = await archiveClient.at(blockHash);
-      specVersion = api.runtimeVersion.specVersion.toNumber();
-      if (specVersion < 124) break;
+      if (!seenFrames.has(frameId)) {
+        seenFrames.add(frameId);
+        if (performBlockStartFidelityCheck) {
+          const isFirstBlockOfFrame = await this.isFirstBlockOfFrame(frameId, blockNumber, archiveClient);
+          if (!isFirstBlockOfFrame) {
+            console.log(
+              `[${this.name}] Stopping iteration at block ${blockNumber} as it is not the first block of frame ${frameId}`,
+            );
+            break;
+          }
+        }
 
-      const currentFrameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-      const isFirstBlockOfFrame = await this.isFirstBlockOfFrame(currentFrameId, blockNumber, archiveClient);
-      if (!isFirstBlockOfFrame) break;
+        console.log(`[${this.name}] Exploring frame ${frameId} (blockNumber = ${blockNumber})`);
 
-      const hasAlreadySeenThisFrame = seenFrames.has(currentFrameId);
-      let shouldIterateThisFrame = !hasAlreadySeenThisFrame;
-      if (this.iterateByEpoch) {
-        shouldIterateThisFrame = i === 0 && !hasAlreadySeenThisFrame;
-      }
-
-      if (shouldIterateThisFrame) {
-        console.log(`[${this.name}] Exploring frame ${currentFrameId} (blockNumber = ${blockNumber})`);
-        const firstBlockMeta = { specVersion, blockNumber, blockHash, blockTick };
-        const result = await callback(currentFrameId, firstBlockMeta, api as any, abortController);
+        const firstBlockMeta = { specVersion, blockNumber, blockHash, blockTick: tick };
+        const result = await callback(frameId, firstBlockMeta, api, abortController);
         results.push(result);
-        if (abortController.signal.aborted || currentFrameId <= 1) {
+        if (abortController.signal.aborted || frameId <= 1) {
+          let message = `[${this.name}] Aborting iteration as requested at frame ${frameId}`;
+          if (frameId <= 1) message = `[${this.name}] Aborting iteration at frame 1`;
+          console.log(message);
           break; // Stop processing if the abort signal is triggered
         }
       }
 
-      seenFrames.add(currentFrameId);
-
-      const isLastFrame = i === frameStartBlockNumbers.length - 1;
-      if (isLastFrame) {
-        frameStartBlockNumbers = await this.getFrameStartBlockNumbers(api);
-        i = -1;
+      if (queue.length === 0) {
+        console.log(
+          `[${this.name}] Reached end of known frame start blocks at ${frameId ?? 'frame'}, retrieving previous list...`,
+        );
+        const frameStartBlockNumbers = await this.getFrameStartBlockNumbers(blockNumber);
+        queue.push(...frameStartBlockNumbers);
       }
     }
 
     return results;
   }
 
-  public async forEachFrameAll<T>(callback: ICallbackForFrameAll<T>): Promise<T[]> {
+  public async iterateFramesAll<T>(callback: ICallbackForFrameAll<T>): Promise<T[]> {
     const seenFrameIds = new Set<number>();
 
     let currentBlockNumber = 0;
     let currentFrameId = 0;
 
-    const results: T[] = await this.forEachFrame(
+    const results: T[] = await this.iterateFramesLimited(
       async (
         frameId: number,
         firstBlockMeta: ICallbackFirstBlockMeta,
@@ -248,7 +300,7 @@ export class FrameIterator {
     if (isFirstJump) {
       // First jump: use tick-based estimation
       const ticksDiff = frameTickStart - currentBlockData.blockTick;
-      const ticksPerFrame = 1_400; // if first jump, we'll jump by a whole frame
+      const ticksPerFrame = MiningFrames.ticksPerFrame; // if first jump, we'll jump by a whole frame
       if (ticksDiff > 0) {
         jumpBy = Math.min(ticksPerFrame, ticksDiff);
       } else if (ticksDiff < 0) {
@@ -313,6 +365,14 @@ export class FrameIterator {
     };
   }
 
+  private doesApiSupportFrameStartBlocks(api: ApiDecoration<'promise'>): boolean {
+    return api.runtimeVersion.specVersion.toNumber() >= 124;
+  }
+
+  private async getBlockNumber(client: ArgonClient): Promise<number> {
+    return await client.query.system.number().then(x => x.toNumber());
+  }
+
   private async isFirstBlockOfFrame(blockFrameId: number, blockNumber: number, client: ArgonClient): Promise<boolean> {
     const previousBlockHash = await client.rpc.chain.getBlockHash(blockNumber - 1);
     const previousBlockHeader = await client.rpc.chain.getHeader(previousBlockHash);
@@ -320,9 +380,29 @@ export class FrameIterator {
     return previousBlockFrameId < blockFrameId;
   }
 
-  private async getFrameStartBlockNumbers(api: ApiDecoration<'promise'>): Promise<number[]> {
-    const frameStartBlockNumbers = await api.query.miningSlot.frameStartBlockNumbers();
-    return frameStartBlockNumbers.map(x => x.toNumber());
+  private async getApiAtBlockNumber(blockNumber: number): Promise<IBlockAndApi> {
+    let blockAndApi = FrameIterator.cachedApiByBlockNumber.get(blockNumber);
+    if (!blockAndApi) {
+      const client = await this.clients.archiveClientPromise;
+      const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
+      const api = await client.at(blockHash);
+      const tick = await api.query.ticks.currentTick().then(x => x.toNumber());
+      const specVersion = api.runtimeVersion.specVersion.toNumber();
+      let frameId = -1;
+      if (specVersion >= 124) {
+        frameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
+      }
+      blockAndApi = { blockHash, api, tick, frameId, specVersion };
+      FrameIterator.cachedApiByBlockNumber.set(blockNumber, blockAndApi);
+    }
+    return blockAndApi;
+  }
+
+  private async getFrameStartBlockNumbers(blockNumber: number): Promise<number[]> {
+    const { api } = await this.getApiAtBlockNumber(blockNumber);
+
+    const rawFrameStartBlocks = await api.query.miningSlot.frameStartBlockNumbers();
+    return rawFrameStartBlocks.map(x => x.toNumber());
   }
 
   private async getGenesisTick(client: ArgonClient): Promise<number> {

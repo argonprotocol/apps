@@ -56,7 +56,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/commander-core';
+import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/apps-core';
 import AlertIcon from '../../assets/alert.svg?component';
 import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputNumber from '../../components/InputNumber.vue';
@@ -122,7 +122,7 @@ Vue.watch(
 );
 
 Vue.onBeforeMount(async () => {
-  await calculator.isInitializedPromise;
+  await calculator.load();
   bidAmount.value = calculator.data.previousDayLowBid;
   options.value = [
     {

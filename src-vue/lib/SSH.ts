@@ -2,7 +2,7 @@ import { Config } from './Config';
 import { IConfigServerDetails } from '../interfaces/IConfig';
 import { InvokeTimeout } from './tauriApi';
 import { SSHConnection } from './SSHConnection';
-import { IBiddingRules } from '@argonprotocol/commander-core';
+import { IBiddingRules } from '@argonprotocol/apps-core';
 import { Server } from './Server';
 
 export interface ITryServerData {
@@ -32,11 +32,7 @@ export class SSH {
 
   public static async getOrCreateConnection(retries = 3): Promise<SSHConnection> {
     await this.config.isLoadedPromise;
-    console.log('Getting or creating SSH connection to', { ...this.config.serverDetails });
-    this.connection ??= new SSHConnection({
-      ...this.config.serverDetails,
-      privateKeyPath: this.config.security.sshPrivateKeyPath,
-    });
+    this.connection ??= new SSHConnection({ ...this.config.serverDetails });
     try {
       await this.connection.connect(retries);
     } catch (e) {
@@ -47,14 +43,8 @@ export class SSH {
     return this.connection;
   }
 
-  public static async tryConnection(
-    serverDetails: IConfigServerDetails,
-    sshPrivateKeyPath: string,
-  ): Promise<ITryServerData> {
-    const connection = new SSHConnection({
-      ...serverDetails,
-      privateKeyPath: sshPrivateKeyPath,
-    });
+  public static async tryConnection(serverDetails: IConfigServerDetails): Promise<ITryServerData> {
+    const connection = new SSHConnection({ ...serverDetails });
     await connection.connect(0);
     const server = new Server(connection, serverDetails);
     const walletAddress = await server.downloadAccountAddress();

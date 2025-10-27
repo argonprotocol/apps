@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 135 134" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>VAULT</title>
-    <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="Vaulting" transform="translate(-48, -937)" stroke="#000000">
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Vaulting" transform="translate(-48, -937)" stroke="currentColor">
             <g id="VAULT" transform="translate(48.5, 936.9999)">
                 <path d="M123,0.5 C125.899495,0.5 128.524495,1.67525253 130.424621,3.5753788 C132.324747,5.47550506 133.5,8.10050506 133.5,11 L133.5,123 C133.5,125.899495 132.324747,128.524495 130.424621,130.424621 C128.524495,132.324747 125.899495,133.5 123,133.5 L11,133.5 C8.10050506,133.5 5.47550506,132.324747 3.5753788,130.424621 C1.67525253,128.524495 0.5,125.899495 0.5,123 L0.5,112.731027 L14.5,112.731797 L14.5,92.7317971 L0.5,92.7310275 L0.5,39.68201 L14.5,39.6822911 L14.5,19.6822911 L0.5,19.68201 L0.5,11 C0.5,8.10050506 1.67525253,5.47550506 3.5753788,3.5753788 C5.47550506,1.67525253 8.10050506,0.5 11,0.5 L123,0.5 Z" id="Combined-Shape"></path>
                 <rect id="Rectangle" stroke-width="2" x="1.129447" y="23.6462863" width="9.5" height="11.4772727"></rect>

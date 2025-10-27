@@ -188,13 +188,13 @@ function updateTimeSinceBlock(runContinuously: boolean = true) {
     secondsSinceBlock.value = totalSecondsSinceBlock % 60;
   }
   if (runContinuously) {
-    timeSinceBlockTimeout = setTimeout(() => updateTimeSinceBlock(), 1000);
+    timeSinceBlockTimeout = setTimeout(updateTimeSinceBlock, 1000);
   }
 }
 
 Vue.onMounted(async () => {
   updateTimeSinceBlock();
-  loadBlocks();
+  await loadBlocks();
 });
 
 Vue.onBeforeUnmount(() => {

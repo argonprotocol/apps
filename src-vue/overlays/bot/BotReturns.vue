@@ -91,7 +91,7 @@ import { useConfig } from '../../stores/config';
 import { useCurrency } from '../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
-import { IBiddingRules } from '@argonprotocol/commander-core';
+import { IBiddingRules } from '@argonprotocol/apps-core';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
 
 const props = defineProps<{
@@ -135,7 +135,7 @@ function updateAPYs() {
 }
 
 Vue.onMounted(() => {
-  calculatorData.isInitializedPromise.then(() => {
+  calculatorData.load().then(() => {
     updateAPYs();
   });
 });

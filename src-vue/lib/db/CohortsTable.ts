@@ -2,7 +2,7 @@ import { ICohortRecord } from '../../interfaces/db/ICohortRecord';
 import { BaseTable } from './BaseTable';
 import { convertSqliteBigInts, fromSqliteBigInt, toSqlParams } from '../Utils';
 import BigNumber from 'bignumber.js';
-import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
 
 export class CohortsTable extends BaseTable {
   private bigIntFields: string[] = [
@@ -20,33 +20,33 @@ export class CohortsTable extends BaseTable {
     return result.length > 0 ? result[0].id : null;
   }
 
-  public async fetchById(
-    id: number,
-  ): Promise<(ICohortRecord & { firstTick: number; lastTick: number; lastBlockNumber: number }) | null> {
-    const rawRecords = await this.db.select<any[]>(
-      `SELECT Cohorts.*, Frames.firstTick as firstTick, Frames.lastBlockNumber as lastBlockNumber FROM Cohorts
-      LEFT JOIN Frames ON Cohorts.id = Frames.id
-      WHERE Cohorts.id = ?
-      ORDER BY Cohorts.id DESC LIMIT 1`,
-      [id],
-    );
-
-    if (rawRecords.length === 0) {
-      return null;
-    }
-
-    const record = convertSqliteBigInts<
-      ICohortRecord & { firstTick: number; lastBlockNumber: number; lastTick: number }
-    >(rawRecords[0], this.bigIntFields);
-    const lastTick = record.firstTick + MiningFrames.ticksPerCohort;
-
-    return {
-      ...record,
-      lastTick,
-    };
+  public async fetchCohortIdsSince(id: number, limit = 10): Promise<number[]> {
+    const rawRecords = await this.db.select<{ id: number }[]>(`SELECT id from Cohorts WHERE id >= ? LIMIT ?`, [
+      id,
+      limit + 1,
+    ]);
+    return rawRecords.map(record => record.id);
   }
 
-  public async fetchGlobalStats(currentFrameId: number): Promise<{
+  public async updateProgress(currentTick: number, cohortTicks: number): Promise<void> {
+    // update the progress percentages of all frames by joining frames
+    await this.db.execute(
+      `
+      UPDATE Cohorts AS c
+      SET progress = COALESCE((
+        SELECT ROUND(
+               MIN(100.0, MAX(0.0, ((CAST(? AS REAL) - f.firstTick) * 100.0) / ?))
+          )
+        FROM Frames f
+        WHERE f.id = c.id
+      ), c.progress, 0)
+      WHERE c.progress < 100
+    `,
+      [currentTick, cohortTicks],
+    );
+  }
+
+  public async fetchGlobalStats(): Promise<{
     seatsTotal: number;
     framesCompleted: number;
     framesRemaining: number;

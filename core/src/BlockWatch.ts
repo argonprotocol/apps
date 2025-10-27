@@ -110,13 +110,13 @@ BLOCK #${header.number.toNumber()}, ${header.hash.toHuman()}`);
 
       let logEvent = false;
 
-      if (event.section === 'liquidityPools') {
-        if (client.events.liquidityPools.BidPoolDistributed.is(event)) {
+      if (event.section === 'treasury') {
+        if (client.events.treasury.BidPoolDistributed.is(event)) {
           const { bidPoolBurned, bidPoolDistributed } = event.data;
           data.burned = formatArgons(bidPoolBurned.toBigInt());
           data.distributed = formatArgons(bidPoolDistributed.toBigInt());
           logEvent = true;
-        } else if (client.events.liquidityPools.NextBidPoolCapitalLocked.is(event)) {
+        } else if (client.events.treasury.NextBidPoolCapitalLocked.is(event)) {
           const { totalActivatedCapital } = event.data;
           data.totalActivatedCapital = formatArgons(totalActivatedCapital.toBigInt());
           logEvent = true;

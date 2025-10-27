@@ -1,14 +1,16 @@
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import { type Config } from './Config';
 import Restarter from './Restarter';
 import { Db } from './Db';
 import { invokeWithTimeout } from './tauriApi';
 import { ITryServerData, SSH } from './SSH';
 import { IConfigServerDetails } from '../interfaces/IConfig';
+import { IRecoveryFile } from '../interfaces/IRecoveryFile.ts';
+import { SECURITY } from './Env.ts';
 
 export default class Importer {
   private onFinished?: () => void;
-  private data: any = {};
+  private data!: IRecoveryFile;
   private config: Config;
   private dbPromise: Promise<Db>;
 
@@ -33,26 +35,35 @@ export default class Importer {
 
     const restarter = new Restarter(this.dbPromise, this.config);
     await restarter.recreateLocalDatabase();
-    await invokeWithTimeout('overwrite_security', { ...this.data.security }, 10_000);
-    await this.config.load();
+    const security = await invokeWithTimeout(
+      'overwrite_mnemonic',
+      { mnemonic: this.data.security.masterMnemonic },
+      10_000,
+    );
+    Object.assign(SECURITY, security);
+    await this.config.load(true);
 
     this.config.oldestFrameIdToSync = this.data.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
     this.config.defaultCurrencyKey = this.data.defaultCurrencyKey ?? this.config.defaultCurrencyKey;
     this.config.requiresPassword = this.data.requiresPassword ?? this.config.requiresPassword;
     this.config.userJurisdiction = this.data.userJurisdiction ?? this.config.userJurisdiction;
-    if (!this.data.serverDetails?.ipAddress) return;
-
-    this.config.serverDetails = this.data.serverDetails;
-    const serverData = await this.fetchServerData(this.data.serverDetails, this.data.security.sshPrivateKey);
-
-    if (serverData?.walletAddress !== this.config.miningAccount.address) {
-      throw new Error('Wallet address mismatch');
+    if (this.data.vaultingRules) {
+      this.config.vaultingRules = this.data.vaultingRules;
     }
+    if (this.data.serverDetails?.ipAddress) {
+      this.config.serverDetails = this.data.serverDetails;
+      const serverData = await this.fetchServerData(this.data.serverDetails);
 
-    if (serverData.biddingRules) {
-      this.config.biddingRules = serverData.biddingRules;
+      if (serverData?.walletAddress !== this.config.miningAccount.address) {
+        throw new Error('Wallet address mismatch');
+      }
+
+      if (serverData.biddingRules) {
+        this.config.biddingRules = serverData.biddingRules;
+      }
+
+      this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
     }
-    this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
     await this.config.save();
 
     this.onFinished?.();
@@ -60,9 +71,9 @@ export default class Importer {
 
   async importFromMnemonic(mnemonic: string) {
     const restarter = new Restarter(this.dbPromise, this.config);
-    await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
-    await restarter.recreateLocalDatabase();
-    await restarter.restart();
+    const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
+    Object.assign(SECURITY, security);
+    await restarter.recreateLocalDatabase(true);
     this.onFinished?.();
   }
 
@@ -72,9 +83,10 @@ export default class Importer {
       sshUser: this.config.serverDetails.sshUser,
       type: this.config.serverDetails.type,
       workDir: this.config.serverDetails.workDir,
+      port: this.config.serverDetails.port,
     };
 
-    const serverData = await this.fetchServerData(serverDetails, this.config.security.sshPrivateKeyPath);
+    const serverData = await this.fetchServerData(serverDetails);
 
     if (!serverData) {
       throw new Error('Failed to fetch server data');
@@ -82,7 +94,7 @@ export default class Importer {
       throw new Error('Wallet address mismatch');
     }
 
-    // TODO: We might want to return this data to the caller (BotOverlay) so they can hold it in case the user
+    // TODO: We might want to return this data to the caller (BotCreateOverlay) so they can hold it in case the user
     // wants to click the Cancel button.
     this.config.biddingRules = serverData.biddingRules!;
     this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync!;
@@ -93,13 +105,10 @@ export default class Importer {
     this.onFinished?.();
   }
 
-  private async fetchServerData(
-    serverDetails: IConfigServerDetails,
-    sshPrivateKeyPath: string,
-  ): Promise<ITryServerData | undefined> {
-    if (!serverDetails.ipAddress || !sshPrivateKeyPath) return;
+  private async fetchServerData(serverDetails: IConfigServerDetails): Promise<ITryServerData | undefined> {
+    if (!serverDetails.ipAddress) return;
 
-    const serverData = await SSH.tryConnection(serverDetails, sshPrivateKeyPath);
+    const serverData = await SSH.tryConnection(serverDetails);
     return serverData;
   }
 }

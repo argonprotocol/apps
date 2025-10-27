@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { Accountset, parseSubaccountRange } from '@argonprotocol/commander-core';
+import { Accountset, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { useConfig } from '../stores/config';
 import * as Vue from 'vue';
 import { IBlock, useBlockchainStore } from '../stores/blockchain';

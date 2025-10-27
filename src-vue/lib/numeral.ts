@@ -18,7 +18,7 @@ type ICondition = boolean | string | ((value: number) => boolean);
 
 export default function numeral(input?: any): Numeral {
   if (typeof input === 'bigint') {
-    input = Number(input) / MICROGONS_PER_ARGON;
+    input = Number(input);
   }
   return numeralOriginal(input);
 }

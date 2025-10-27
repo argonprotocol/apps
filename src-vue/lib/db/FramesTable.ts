@@ -1,7 +1,7 @@
 import { IFrameRecord } from '../../interfaces/db/IFrameRecord';
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, fromSqliteBigInt, toSqlParams } from '../Utils';
-import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -21,6 +21,7 @@ export class FramesTable extends BaseTable {
       'micronotsMinedTotal',
       'microgonFeesCollectedTotal',
       'accruedMicrogonProfits',
+      'accruedMicronotProfits',
     ],
   };
 
@@ -85,6 +86,7 @@ export class FramesTable extends BaseTable {
     microgonsMintedTotal: bigint;
     microgonFeesCollectedTotal: bigint;
     accruedMicrogonProfits: bigint;
+    accruedMicronotProfits: bigint;
     progress: number;
     isProcessed: boolean;
   }): Promise<void> {
@@ -106,6 +108,7 @@ export class FramesTable extends BaseTable {
       microgonsMintedTotal,
       microgonFeesCollectedTotal,
       accruedMicrogonProfits,
+      accruedMicronotProfits,
       progress,
       isProcessed,
     } = args;
@@ -127,6 +130,7 @@ export class FramesTable extends BaseTable {
         microgonsMintedTotal = ?,
         microgonFeesCollectedTotal = ?,
         accruedMicrogonProfits = ?,
+        accruedMicronotProfits = ?,
         progress = ?, 
         isProcessed = ? 
       WHERE id = ?`,
@@ -147,6 +151,7 @@ export class FramesTable extends BaseTable {
         microgonsMintedTotal,
         microgonFeesCollectedTotal,
         accruedMicrogonProfits,
+        accruedMicronotProfits,
         progress,
         isProcessed,
         id,
@@ -154,59 +159,69 @@ export class FramesTable extends BaseTable {
     );
   }
 
+  async fetchExistingSince(frameId: number, limit = 10): Promise<number[]> {
+    const frames = await this.db.select<{ id: number }[]>('SELECT id FROM Frames WHERE id >= ? LIMIT ?', [
+      frameId,
+      limit + 1,
+    ]);
+    return frames.map(frame => frame.id);
+  }
+
   async fetchLastYear(): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
       id, firstTick, lastTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
     FROM Frames ORDER BY id DESC LIMIT 365`);
 
-    const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes).map((x: any) => {
-      const date = dayjs.utc(x.firstTick * TICK_MILLIS).format('YYYY-MM-DD');
+    const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
+      .map((x: any) => {
+        const date = dayjs.utc(x.firstTick * TICK_MILLIS).format('YYYY-MM-DD');
 
-      // TODO: WE need to calculate the microgon value of micronotsMinted
-      const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
-        .plus(x.microgonsMintedTotal)
-        .plus(x.micronotsMinedTotal);
-      const microgonValueOfRewards = bigNumberToBigInt(microgonValueEarnedBn);
-      const profitBn = BigNumber(microgonValueEarnedBn).minus(x.seatCostTotalFramed);
-      const profitPctBn = x.seatCostTotalFramed
-        ? profitBn.dividedBy(x.seatCostTotalFramed).multipliedBy(100)
-        : BigNumber(0);
+        // TODO: WE need to calculate the microgon value of micronotsMinted
+        const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
+          .plus(x.microgonsMintedTotal)
+          .plus(x.micronotsMinedTotal);
+        const microgonValueOfRewards = bigNumberToBigInt(microgonValueEarnedBn);
+        const profitBn = BigNumber(microgonValueEarnedBn).minus(x.seatCostTotalFramed);
+        const profitPctBn = x.seatCostTotalFramed
+          ? profitBn.dividedBy(x.seatCostTotalFramed).multipliedBy(100)
+          : BigNumber(0);
 
-      if (isNaN(profitPctBn.toNumber())) {
-        console.log('profitPctBn', profitPctBn.toNumber(), profitBn.toNumber(), x.seatCostTotalFramed);
-      }
+        if (isNaN(profitPctBn.toNumber())) {
+          console.log('profitPctBn', profitPctBn.toNumber(), profitBn.toNumber(), x.seatCostTotalFramed);
+        }
 
-      const record: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
-        id: x.id,
-        date,
-        firstTick: x.firstTick,
-        lastTick: x.lastTick,
-        allMinersCount: x.allMinersCount,
-        seatCountActive: x.seatCountActive,
-        seatCostTotalFramed: x.seatCostTotalFramed,
-        blocksMinedTotal: x.blocksMinedTotal,
-        microgonToUsd: x.microgonToUsd,
-        microgonToArgonot: x.microgonToArgonot,
-        microgonsMinedTotal: x.microgonsMinedTotal,
-        microgonsMintedTotal: x.microgonsMintedTotal,
-        micronotsMinedTotal: x.micronotsMinedTotal,
-        microgonFeesCollectedTotal: x.microgonFeesCollectedTotal,
+        const record: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
+          id: x.id,
+          date,
+          firstTick: x.firstTick,
+          lastTick: x.lastTick,
+          allMinersCount: x.allMinersCount,
+          seatCountActive: x.seatCountActive,
+          seatCostTotalFramed: x.seatCostTotalFramed,
+          blocksMinedTotal: x.blocksMinedTotal,
+          microgonToUsd: x.microgonToUsd,
+          microgonToArgonot: x.microgonToArgonot,
+          microgonsMinedTotal: x.microgonsMinedTotal,
+          microgonsMintedTotal: x.microgonsMintedTotal,
+          micronotsMinedTotal: x.micronotsMinedTotal,
+          microgonFeesCollectedTotal: x.microgonFeesCollectedTotal,
 
-        microgonValueOfRewards,
-        progress: x.progress,
-        profit: profitBn.toNumber(),
-        profitPct: profitPctBn.toNumber(),
-      };
+          microgonValueOfRewards,
+          progress: x.progress,
+          profit: profitBn.toNumber(),
+          profitPct: profitPctBn.toNumber(),
+        };
 
-      return record;
-    });
+        return record;
+      })
+      .reverse();
 
     const ticksPerFrame = MiningFrames.ticksPerFrame;
 
     while (records.length < 365) {
-      const lastRecord = records[records.length - 1];
-      if (!lastRecord) break;
-      const previousDay = dayjs.utc(lastRecord.date).subtract(1, 'day');
+      const earliestRecord = records[0];
+      if (!earliestRecord) break;
+      const previousDay = dayjs.utc(earliestRecord.date).subtract(1, 'day');
       if (previousDay.isBefore(dayjs.utc('2025-01-01'))) {
         break;
       }
@@ -214,8 +229,8 @@ export class FramesTable extends BaseTable {
       const blankRecord: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
         id: 0,
         date: previousDay.format('YYYY-MM-DD'),
-        firstTick: lastRecord.firstTick - ticksPerFrame,
-        lastTick: lastRecord.lastTick - ticksPerFrame,
+        firstTick: earliestRecord.firstTick - ticksPerFrame,
+        lastTick: earliestRecord.lastTick - ticksPerFrame,
         allMinersCount: 0,
         seatCountActive: 0,
         seatCostTotalFramed: 0n,
@@ -231,7 +246,7 @@ export class FramesTable extends BaseTable {
         profit: 0,
         profitPct: 0,
       };
-      records.push(blankRecord);
+      records.unshift(blankRecord);
     }
 
     return records;
@@ -256,11 +271,17 @@ export class FramesTable extends BaseTable {
     return rawRecord.maxId;
   }
 
-  async fetchAccruedMicrogonProfits(): Promise<bigint> {
-    const [rawRecord] = await this.db.select<[{ accruedMicrogonProfits: number }]>(
-      'SELECT accruedMicrogonProfits FROM Frames ORDER BY id DESC LIMIT 1',
+  async fetchAccruedProfits(): Promise<{ accruedMicrogonProfits: bigint; accruedMicronotProfits: bigint }> {
+    const rawRecord = await this.db.select<{ accruedMicrogonProfits: number; accruedMicronotProfits: number }[]>(
+      'SELECT accruedMicrogonProfits, accruedMicronotProfits FROM Frames ORDER BY id DESC LIMIT 1',
       [],
     );
-    return fromSqliteBigInt(rawRecord?.accruedMicrogonProfits ?? 0);
+    if (!rawRecord || rawRecord.length === 0) {
+      return {
+        accruedMicrogonProfits: 0n,
+        accruedMicronotProfits: 0n,
+      };
+    }
+    return convertFromSqliteFields(rawRecord[0], this.fieldTypes);
   }
 }

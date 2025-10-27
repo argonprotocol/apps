@@ -4,10 +4,10 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
-import * as BiddingCalculator from '@argonprotocol/commander-core';
-import { MiningFrames } from '@argonprotocol/commander-core';
+import * as BiddingCalculator from '@argonprotocol/apps-core';
+import { MiningFrames } from '@argonprotocol/apps-core';
 import { Dockers } from '../src/Dockers.js';
-import { startArgonTestNetwork } from '@argonprotocol/commander-core/__test__/startArgonTestNetwork.js';
+import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 
 afterEach(teardown);
 afterAll(teardown);

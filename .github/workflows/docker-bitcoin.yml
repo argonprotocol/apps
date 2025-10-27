@@ -15,7 +15,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: argonprotocol/commander/bitcoin
+  IMAGE_NAME: argonprotocol/apps/bitcoin
 
 jobs:
   docker:

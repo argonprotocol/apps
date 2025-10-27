@@ -3,12 +3,13 @@
   <div @focus="handleFocus" @blur="handleBlur" ref="$el" :class="[hasFocus ? 'z-90' : '']" class="relative focus-within:relative" tabindex="0">
     <div
       InputFieldWrapper
-      :class="[
+      :class="twMerge(
         props.disabled ? 'border-dashed' : '',
         hasFocus ? 'inner-input-shadow outline-2 -outline-offset-2 outline-argon-button' : '',
         [!hasFocus && !props.disabled ? 'hover:bg-white' : ''],
-      ]"
-      class="min-w-20 font-mono text-sm flex flex-row w-full text-left py-[2px] border border-slate-700/50 rounded-md text-gray-800 cursor-text"
+        'min-w-20 font-mono text-sm flex flex-row w-full text-left py-[2px] border border-slate-700/50 rounded-md text-gray-800 cursor-text',
+        props.class || '',
+      )"
     >
       <span class="select-none pl-[10px] py-[1px]">{{ prefix }}</span>
       <div class="relative inline-block w-auto whitespace-nowrap">
@@ -62,6 +63,7 @@ import BigNumber from 'bignumber.js';
 import NumArrow from '../assets/num-arrow.svg?component';
 import numeral from '../lib/numeral';
 import Tooltip from './Tooltip.vue';
+import { twMerge } from 'tailwind-merge';
 
 const props = withDefaults(
   defineProps<{
@@ -76,6 +78,7 @@ const props = withDefaults(
     minDecimals?: number;
     maxDecimals?: number;
     format?: 'percent' | 'number' | 'minutes';
+    class?: string;
   }>(),
   {
     dragBy: 1,
@@ -550,20 +553,27 @@ function handleBeforeInput(event: InputEvent) {
   }
 }
 
+let updateInputValueTimer: ReturnType<typeof setTimeout> | null = null;
+
 function handleInput() {
   const currentText = inputElem.value?.textContent || '';
   const inputValue = Number(currentText.replace(/,/g, ''));
-  if (isNaN(inputValue)) return;
+  if (!inputValue || isNaN(inputValue)) return;
 
   const boundedInputValue = calculateBoundedInputValue(inputValue);
   currentInputValue = boundedInputValue;
-  currentInputValueFormatted.value = formatFn(currentInputValue);
+  currentInputValueFormatted.value = formatFn(inputValue);
 
   if (inputValue === boundedInputValue) {
-    updateInputValue(boundedInputValue, true);
-  } else {
-    inputValueInserted.value = currentText;
+    if (updateInputValueTimer) {
+      clearTimeout(updateInputValueTimer);
+    }
+    updateInputValueTimer = setTimeout(() => {
+      updateInputValue(boundedInputValue, true);
+    }, 1e3);
   }
+
+  inputValueInserted.value = currentText;
 }
 
 function getCaretPosition(): { start: number; end: number } {

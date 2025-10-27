@@ -1,9 +1,4 @@
-import type {
-  IBitcoinBlockMeta,
-  IBitcoinLatestBlocks,
-  IBlockNumbers,
-  ILatestBlocks,
-} from '@argonprotocol/commander-core';
+import type { IBitcoinBlockMeta, IBitcoinLatestBlocks, IBlockNumbers, ILatestBlocks } from '@argonprotocol/apps-core';
 import { requireEnv } from './utils.js';
 
 const statusApi = requireEnv('STATUS_URL');

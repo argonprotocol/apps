@@ -35,7 +35,7 @@ fn main() {
     for (key, value) in env::vars() {
         if key.starts_with("RUST_LOG")
             || key.starts_with("ARGON_")
-            || key.starts_with("COMMANDER_")
+            || key.starts_with("ARGON_APP_")
             || key == "NODE_ENV"
         {
             println!("cargo:rustc-env={}={}", key, value);

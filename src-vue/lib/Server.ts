@@ -1,5 +1,5 @@
 import { parse as parseEnv } from 'dotenv';
-import { IBiddingRules, JsonExt } from '@argonprotocol/commander-core';
+import { IBiddingRules, JsonExt } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
@@ -86,6 +86,14 @@ export class Server {
     return !!output;
   }
 
+  public async createWorkdir(): Promise<void> {
+    const username = this.connection.username;
+    await this.connection.runCommandWithTimeout(
+      `if [ ! -d "${this.workDir}" ]; then sudo mkdir -p "${this.workDir}" && sudo chown -R "${username}" "${this.workDir}"; fi`,
+      10e3,
+    );
+  }
+
   public async uploadAccountAddress(address: string): Promise<void> {
     await this.connection.uploadFileWithTimeout(address, `${this.workDir}/account`, 10e3);
   }
@@ -94,7 +102,7 @@ export class Server {
     let totalProgress = 5;
     onProgress(totalProgress);
     const [output] = await this.connection.runCommandWithTimeout(
-      `${this.workDir}/server/scripts/create_troubleshooting_gz.sh`,
+      `sudo ${this.workDir}/server/scripts/create_troubleshooting_gz.sh`,
       20e3,
     );
     const file = output.match(/Bundle ready: (.+\.tar\.gz)/);
@@ -170,7 +178,7 @@ export class Server {
       throw new Error('Invalid directory to clean');
     }
     console.info(`Cleaning directory: ${directory}`);
-    await this.connection.runCommandWithTimeout(`set -euo pipefail && rm -rf -- "${directory}"/*`, 10e3);
+    await this.connection.runCommandWithTimeout(`set -euo pipefail && sudo rm -rf -- "${directory}"/*`, 10e3);
   }
 
   public async stopMiningDockers(): Promise<void> {
@@ -386,11 +394,11 @@ export class Server {
   }
 
   public async deleteBotStorageFiles(): Promise<void> {
-    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/data/bot-*`, 10e3);
+    await this.connection.runCommandWithTimeout(`sudo rm -rf ${this.workDir}/data/bot-*`, 10e3);
   }
 
   public async completelyWipeEverything(): Promise<void> {
-    const shellCommand = `${this.workDir}/server/scripts/wipe_server.sh `;
+    const shellCommand = `sudo ${this.workDir}/server/scripts/wipe_server.sh `;
 
     try {
       await this.connection.runCommandWithTimeout(shellCommand, 60e3);
@@ -404,7 +412,7 @@ export class Server {
 
   private async runComposeCommand(command: string, timeoutMs = 60e3): Promise<[string, number]> {
     return await this.connection.runCommandWithTimeout(
-      `cd ${this.workDir}/server && docker compose ${command}`,
+      `cd ${this.workDir}/server && sudo docker compose ${command}`,
       timeoutMs,
     );
   }

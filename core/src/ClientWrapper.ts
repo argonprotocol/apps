@@ -1,12 +1,23 @@
 // util.ts
-import type { ArgonClient } from '@argonprotocol/mainchain';
+import { type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
 
 type AnyFn = (...args: unknown[]) => unknown;
 
-const cbCache = new WeakMap<AnyFn, AnyFn>();
-const fnCache = new WeakMap<AnyFn, AnyFn>();
-const reverseObj = new WeakMap<object, object>();
-const boundMethodCache = new WeakMap<object, WeakMap<AnyFn, AnyFn>>();
+interface IProxyContext {
+  cbCache: WeakMap<AnyFn, AnyFn>;
+  fnCache: WeakMap<AnyFn, AnyFn>;
+  reverseObj: WeakMap<object, object>;
+  boundMethodCache: WeakMap<object, WeakMap<AnyFn, AnyFn>>;
+}
+
+function createProxyContext(): IProxyContext {
+  return {
+    cbCache: new WeakMap(),
+    fnCache: new WeakMap(),
+    reverseObj: new WeakMap(),
+    boundMethodCache: new WeakMap(),
+  };
+}
 
 function captureCallerStack(skip = 2) {
   const s = new Error().stack ?? '';
@@ -42,16 +53,29 @@ function callFunction<T extends AnyFn>(args: {
   path: string;
   logid: string;
   callbacks: ICallbacks;
+  ctx: IProxyContext;
 }): ReturnType<T> {
-  const { target, thisArg, argList, callerStack, path, logid, callbacks } = args;
+  const { target, thisArg, argList, callerStack, path, logid, callbacks, ctx } = args;
   try {
-    const realThis = thisArg && typeof thisArg === 'object' ? (reverseObj.get(thisArg) ?? thisArg) : thisArg;
+    const realThis = thisArg && typeof thisArg === 'object' ? (ctx.reverseObj.get(thisArg) ?? thisArg) : thisArg;
     const out = Reflect.apply(target, realThis, argList);
 
     if (isPromiseLike(out)) {
       return out.then(
         v => {
           callbacks.onSuccess?.(path, v, ...argList);
+          // 👇 Rewrap returned subclients like api.at()
+          if (v && typeof v === 'object' && 'tx' in v && 'query' in v) {
+            let slug = path;
+            if (path.endsWith('at')) {
+              let atArg = argList[0];
+              if (atArg instanceof Uint8Array) {
+                atArg = u8aToHex(atArg);
+              }
+              slug = `at(${String(atArg)})`;
+            }
+            return deepProxy(v, logid, slug, callbacks, ctx);
+          }
           return v;
         },
         e => {
@@ -70,8 +94,14 @@ function callFunction<T extends AnyFn>(args: {
   }
 }
 
-function wrapFunction<T extends AnyFn>(fn: T, logid: string, path: string, callbacks: ICallbacks): T {
-  const existing = fnCache.get(fn);
+function wrapFunction<T extends AnyFn>(
+  fn: T,
+  logid: string,
+  path: string,
+  callbacks: ICallbacks,
+  ctx: IProxyContext,
+): T {
+  const existing = ctx.fnCache.get(fn);
   if (existing) return existing as unknown as T;
 
   const prox = new Proxy(fn, {
@@ -81,7 +111,7 @@ function wrapFunction<T extends AnyFn>(fn: T, logid: string, path: string, callb
       const wrappedArgs = argList.map(a => {
         if (typeof a === 'function') {
           const key = a as AnyFn;
-          let wrapped = cbCache.get(key);
+          let wrapped = ctx.cbCache.get(key);
           if (!wrapped) {
             wrapped = function (this: unknown, ...cbArgs: unknown[]) {
               return callFunction({
@@ -92,9 +122,10 @@ function wrapFunction<T extends AnyFn>(fn: T, logid: string, path: string, callb
                 path,
                 callbacks,
                 logid,
+                ctx,
               });
             } as T;
-            cbCache.set(key, wrapped);
+            ctx.cbCache.set(key, wrapped);
           }
           return wrapped;
         }
@@ -109,11 +140,12 @@ function wrapFunction<T extends AnyFn>(fn: T, logid: string, path: string, callb
         callbacks,
         logid,
         path,
+        ctx,
       });
     },
   });
 
-  fnCache.set(fn, prox as unknown as AnyFn);
+  ctx.fnCache.set(fn, prox as unknown as AnyFn);
   return prox as unknown as T;
 }
 
@@ -122,6 +154,7 @@ function deepProxy<T extends object>(
   logid: string,
   path: string,
   callbacks: ICallbacks,
+  ctx: IProxyContext,
   seen = new WeakMap<object, unknown>(),
 ): T {
   if (seen.has(obj)) return seen.get(obj) as T;
@@ -136,10 +169,10 @@ function deepProxy<T extends object>(
       if (typeof value === 'function') {
         if (prop === 'then' || prop === 'catch' || prop === 'finally') {
           const fn = value as AnyFn;
-          let byMethod = boundMethodCache.get(target as object);
+          let byMethod = ctx.boundMethodCache.get(target as object);
           if (!byMethod) {
             byMethod = new WeakMap<AnyFn, AnyFn>();
-            boundMethodCache.set(target as object, byMethod);
+            ctx.boundMethodCache.set(target as object, byMethod);
           }
           let bound = byMethod.get(fn);
           if (!bound) {
@@ -148,15 +181,15 @@ function deepProxy<T extends object>(
           }
           return bound;
         }
-        return wrapFunction(value as AnyFn, logid, childPath, callbacks);
+        return wrapFunction(value as AnyFn, logid, childPath, callbacks, ctx);
       }
-      if (typeof value === 'object') return deepProxy(value, logid, childPath, callbacks, seen);
+      if (typeof value === 'object') return deepProxy(value, logid, childPath, callbacks, ctx, seen);
 
       return value;
     },
     // (no set trap needed)
   });
-  reverseObj.set(prox as unknown as object, obj as unknown as object);
+  ctx.reverseObj.set(prox as unknown as object, obj as unknown as object);
   seen.set(obj, prox);
   return prox as T;
 }
@@ -172,7 +205,8 @@ export function wrapApi<T extends ArgonClient>(api: T, logid: string, callbacks:
   if (installedSymbol in (api as object)) {
     return api; // Already wrapped
   }
-  const result = deepProxy(api, logid, '', callbacks);
+  const ctx = createProxyContext();
+  const result = deepProxy(api, logid, '', callbacks, ctx);
   Object.defineProperty(api, installedSymbol, {
     value: true,
     enumerable: false,

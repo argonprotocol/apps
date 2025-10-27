@@ -1,7 +1,7 @@
 import BigNumber from 'bignumber.js';
-import { getMining, getPriceIndex } from '../stores/mainchain';
+import { getPriceIndex } from '../stores/mainchain';
 import { MICROGONS_PER_ARGON, SATS_PER_BTC } from '@argonprotocol/mainchain';
-import { bigNumberToBigInt } from '@argonprotocol/commander-core';
+import { bigNumberToBigInt, PriceIndex } from '@argonprotocol/apps-core';
 import IDeferred from '../interfaces/IDeferred';
 import { createDeferred } from './Utils';
 import { Config } from './Config';
@@ -26,6 +26,7 @@ export enum CurrencyKey {
   INR = 'INR',
 }
 
+const EXCHANGE_RATE_CACHE_DURATION = 24 * 60 * 60e3; // 24 hours in milliseconds
 export type ICurrencyKey = CurrencyKey.ARGN | CurrencyKey.USD | CurrencyKey.EUR | CurrencyKey.GBP | CurrencyKey.INR;
 
 export class Currency {
@@ -50,42 +51,73 @@ export class Currency {
 
   public record!: ICurrencyRecord;
   public symbol!: string;
+  public priceIndex: PriceIndex;
 
   public isLoaded: boolean;
   public isLoadedPromise: Promise<void>;
 
   private config: Config;
   private isLoadedDeferred: IDeferred<void>;
+  private nextLoadTimeout?: number;
+  private lastExchangeRateCheckTime?: number;
+  private lastExchangeRate?: {
+    EUR: number;
+    GBP: number;
+    INR: number;
+  };
 
-  constructor(config: Config) {
+  constructor(config: Config, priceIndex: PriceIndex) {
     this.config = config;
 
     this.isLoaded = false;
     this.isLoadedDeferred = createDeferred<void>();
     this.isLoadedPromise = this.isLoadedDeferred.promise;
+    this.priceIndex = priceIndex;
+  }
+
+  private async updateExchangeRates() {
+    // only update exchange rates daily
+    if (this.lastExchangeRateCheckTime && Date.now() - this.lastExchangeRateCheckTime < EXCHANGE_RATE_CACHE_DURATION) {
+      return;
+    }
+    try {
+      const exchangeRate = fetch('https://open.er-api.com/v6/latest/USD');
+      const data = await (await exchangeRate).json();
+      if (data && data.rates) {
+        this.lastExchangeRate = data.rates;
+        this.lastExchangeRateCheckTime = Date.now();
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 
   public async load() {
-    const [otherResponse, microgonExchangeRateTo] = await Promise.all([
-      fetch('https://open.er-api.com/v6/latest/USD'),
-      getPriceIndex().fetchMicrogonExchangeRatesTo(),
-    ]);
+    clearTimeout(this.nextLoadTimeout);
+    try {
+      const [_, microgonExchangeRateTo] = await Promise.all([
+        this.updateExchangeRates(),
+        this.priceIndex.fetchMicrogonExchangeRatesTo(),
+      ]);
 
-    this.microgonExchangeRateTo.USD = microgonExchangeRateTo.USD;
-    this.microgonExchangeRateTo.ARGNOT = microgonExchangeRateTo.ARGNOT;
-    this.microgonExchangeRateTo.BTC = microgonExchangeRateTo.BTC;
+      this.microgonExchangeRateTo.USD = microgonExchangeRateTo.USD;
+      this.microgonExchangeRateTo.ARGNOT = microgonExchangeRateTo.ARGNOT;
+      this.microgonExchangeRateTo.BTC = microgonExchangeRateTo.BTC;
+      if (this.lastExchangeRate) {
+        this.microgonExchangeRateTo.EUR = this.otherExchangeRateToMicrogons(this.lastExchangeRate.EUR);
+        this.microgonExchangeRateTo.GBP = this.otherExchangeRateToMicrogons(this.lastExchangeRate.GBP);
+        this.microgonExchangeRateTo.INR = this.otherExchangeRateToMicrogons(this.lastExchangeRate.INR);
+      }
 
-    const usdExchangeRateFrom = (await otherResponse.json()).rates;
-    if (!usdExchangeRateFrom) return;
-
-    this.microgonExchangeRateTo.EUR = this.otherExchangeRateToMicrogons(usdExchangeRateFrom.EUR);
-    this.microgonExchangeRateTo.GBP = this.otherExchangeRateToMicrogons(usdExchangeRateFrom.GBP);
-    this.microgonExchangeRateTo.INR = this.otherExchangeRateToMicrogons(usdExchangeRateFrom.INR);
-
-    await this.config.isLoadedPromise;
-    this.setCurrencyKey(this.config.defaultCurrencyKey, false);
-    this.isLoaded = true;
-    this.isLoadedDeferred.resolve();
+      if (!this.isLoaded) {
+        await this.config.isLoadedPromise;
+        this.setCurrencyKey(this.config.defaultCurrencyKey, false);
+        this.isLoaded = true;
+        this.isLoadedDeferred.resolve();
+      }
+    } finally {
+      this.nextLoadTimeout = setTimeout(() => this.load(), 10 * 60e3) as unknown as number; // refresh every 10 minutes
+    }
   }
 
   public setCurrencyKey(currencyKey: ICurrencyKey, saveToConfig: boolean = true) {

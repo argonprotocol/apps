@@ -1,15 +1,15 @@
 import BigNumber from 'bignumber.js';
-import {
-  type ApiDecoration,
-  FIXED_U128_DECIMALS,
-  fromFixedNumber,
-  MICROGONS_PER_ARGON,
-} from '@argonprotocol/mainchain';
+import { type ApiDecoration, MICROGONS_PER_ARGON, PriceIndex as PriceIndexModel } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt } from './utils.js';
 import type { MainchainClients } from './MainchainClients.js';
+import { MiningFrames } from './MiningFrames.js';
 
 export class PriceIndex {
-  constructor(public clients: MainchainClients) {}
+  current: PriceIndexModel;
+
+  constructor(public clients: MainchainClients) {
+    this.current = new PriceIndexModel();
+  }
 
   public async fetchMicrogonsInCirculation(): Promise<bigint> {
     const client = await this.clients.prunedClientOrArchivePromise;
@@ -24,25 +24,26 @@ export class PriceIndex {
   }> {
     api ??= await this.clients.prunedClientOrArchivePromise;
     const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
-    const priceIndexRaw = await api.query.priceIndex.current();
-    if (priceIndexRaw.isNone) {
+    const priceIndex = await this.current.load(api as any);
+    if (priceIndex.argonUsdPrice === undefined) {
+      let ARGNOT = microgonsForArgon;
+      if (MiningFrames.networkName === 'dev-docker' || MiningFrames.networkName === 'localnet') {
+        ARGNOT = microgonsForArgon / 10n;
+      }
       return {
         USD: microgonsForArgon,
-        ARGNOT: microgonsForArgon,
+        ARGNOT,
         ARGN: microgonsForArgon,
         BTC: microgonsForArgon,
       };
     }
 
-    const priceIndex = priceIndexRaw.value;
-    const usdForArgon = fromFixedNumber(priceIndex.argonUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
-    const usdForArgnot = fromFixedNumber(priceIndex.argonotUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
-    const usdForBtc = fromFixedNumber(priceIndex.btcUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
+    const usdForArgon = priceIndex.argonUsdPrice;
 
     // These exchange rates should be relative to the argon
     const microgonsForUsd = this.calculateExchangeRateInMicrogons(BigNumber(1), usdForArgon);
-    const microgonsForArgnot = this.calculateExchangeRateInMicrogons(usdForArgnot, usdForArgon);
-    const microgonsForBtc = this.calculateExchangeRateInMicrogons(usdForBtc, usdForArgon);
+    const microgonsForArgnot = this.calculateExchangeRateInMicrogons(priceIndex.argonotUsdPrice!, usdForArgon);
+    const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgon);
 
     return {
       ARGN: microgonsForArgon,

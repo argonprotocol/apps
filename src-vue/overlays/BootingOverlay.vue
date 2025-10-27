@@ -50,9 +50,9 @@
             </button>
           </div>
           <div v-else class="text-slate-900 font-md mb-3">
-            <p>This wallet connected to this app seems to have been previously used. We're looking through the blockchain to see if we can find any mining seats owned by you.</p>
+            <p>The wallet connected to this app seems to have been previously used. We're looking through the chain to see if we can find any mining seats or vaults owned by you.</p>
           </div>
-          <ProgressBar :progress="config.miningAccountPreviousHistoryLoadPct" class="mt-3" />
+          <ProgressBar :progress="config.walletPreviousHistoryLoadPct" class="mt-3" />
         </div>
       </TransitionChild>
     </div>
@@ -67,9 +67,9 @@ import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import { useConfig } from '../stores/config';
 import Draggable from './helpers/Draggable.ts';
-import { ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
+import { ConfigServerCreationSchema, ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
 import { SSH } from '../lib/SSH.ts';
-import { JsonExt } from '@argonprotocol/commander-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
@@ -78,48 +78,7 @@ const config = useConfig();
 const draggable = Vue.reactive(new Draggable());
 
 const syncErrorType = Vue.ref<string | null>(null);
-const toRestore = localStorage.getItem('ConfigRestore');
 
-async function applyRestoredServer(details: string) {
-  try {
-    const restoreData = JSON.parse(details) as Record<keyof IConfig, string>;
-    for (const key of Object.keys(restoreData) as (keyof IConfig)[]) {
-      let value = restoreData[key] as any;
-      // can't set this since it's readonly
-      if (key === 'version') {
-        continue;
-      }
-      if (key === 'serverDetails') {
-        const parseResult = ConfigServerDetailsSchema.safeParse(JsonExt.parse(value));
-        if (!parseResult.success) return;
-
-        value = parseResult.data;
-        try {
-          await SSH.tryConnection(parseResult.data, config.security.sshPrivateKeyPath);
-          config.isMinerUpToDate = false;
-        } catch (err) {
-          console.error(
-            `Couldn't reconnect to stored server at ${parseResult.data.ipAddress}:${parseResult.data.port}`,
-            err,
-          );
-          continue;
-        }
-      }
-
-      (config as any)[key] = value as any;
-    }
-    await config.save();
-  } catch (err) {
-    console.error('Error restoring config from localStorage:', err);
-  }
-}
-
-if (toRestore) {
-  // only clear out after finished
-  applyRestoredServer(toRestore).finally(() => {
-    localStorage.removeItem('ConfigRestore');
-  });
-}
 async function retry() {
   isRetrying.value = true;
   // stats.retrySync();

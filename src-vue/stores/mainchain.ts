@@ -6,9 +6,9 @@ import {
   MainchainClients,
   Mining,
   PriceIndex,
-} from '@argonprotocol/commander-core';
+} from '@argonprotocol/apps-core';
 import { ApiDecoration } from '@argonprotocol/mainchain';
-import { NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
+import { LOG_DEBUG, NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
 import { useConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
@@ -55,7 +55,7 @@ export function setMainchainClients(clients: MainchainClients) {
 
 export function getMainchainClients(): MainchainClients {
   if (!mainchainClients) {
-    mainchainClients = new MainchainClients(NETWORK_URL);
+    mainchainClients = new MainchainClients(NETWORK_URL, () => LOG_DEBUG);
 
     const bot = useBot();
     if (bot.isReady) {
@@ -87,11 +87,11 @@ export function getPriceIndex(): PriceIndex {
 }
 
 export function getBiddingCalculator(): BiddingCalculator {
+  const config = useConfig();
+  if (!config.isLoaded) {
+    throw new Error('Config must be loaded before BiddingCalculator can be initialized');
+  }
   if (!biddingCalculator) {
-    const config = useConfig();
-    if (!config.isLoaded) {
-      throw new Error('Config must be loaded before BiddingCalculator can be initialized');
-    }
     biddingCalculator = new BiddingCalculator(getBiddingCalculatorData(), config.biddingRules as IBiddingRules);
   }
   return biddingCalculator;

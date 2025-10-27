@@ -3,10 +3,10 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelOverlay" />
+        <BgOverlay @close="finishReading" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
+      <DialogContent @escapeKeyDown="finishReading" :aria-describedby="undefined">
         <div
           ref="dialogPanel"
           class="HowVaultingWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
@@ -22,7 +22,7 @@
               </div>
             </h2>
 
-            <div v-if="isLoaded" class="flex flex-col grow relative w-full overflow-y-auto px-8 py-5">
+            <div v-if="isLoaded" ref="dialogPanelContent" class="flex flex-col grow relative w-full overflow-y-auto px-8 py-5">
               <p>
                 In many ways vaulting is the flip side of the mining process.
                 Miners bring new stablecoins into existence, and Vaulters provide services to stabilize those stablecoins. Miners buy mining seats at auction, and vaulters
@@ -174,8 +174,8 @@
 
             <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
               <div class="flex flex-row space-x-4 justify-center items-center">
-                <button @click="cancelOverlay" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
-                  <span>Close Window</span>
+                <button @click="finishReading" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
+                  <span>Finish Reading</span>
                 </button>
               </div>
             </div>
@@ -206,9 +206,7 @@ const { micronotToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 
-function cancelOverlay() {
-  isOpen.value = false;
-}
+const dialogPanelContent = Vue.ref<HTMLDivElement | null>(null);
 
 const vaults = Vue.ref<
   {
@@ -232,6 +230,37 @@ const treasuryPools = Vue.ref<
     earnings: bigint;
   }[]
 >([]);
+
+function finishReading() {
+  const el = dialogPanelContent.value;
+  if (!el) {
+    isOpen.value = false;
+    return;
+  }
+  const start = el.scrollTop;
+  const end = Math.max(0, el.scrollHeight - el.clientHeight);
+  const change = end - start;
+  if (change <= 0 || end === 0) {
+    isOpen.value = false;
+    return;
+  }
+  const remainingFraction = change / end; // 1.0 if at top, 0.5 if halfway, etc.
+  const duration = Math.max(0, 2000 * remainingFraction);
+  let startTime: number | null = null;
+  const step = (ts: number) => {
+    if (startTime === null) startTime = ts;
+    const p = Math.min((ts - startTime) / duration, 1);
+    const eased = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p; // easeInOutQuad
+    el.scrollTop = start + change * eased;
+    if (p < 1) requestAnimationFrame(step);
+    else isOpen.value = false;
+  };
+  requestAnimationFrame(step);
+}
+
+function cancelOverlay() {
+  isOpen.value = false;
+}
 
 async function loadVaults() {
   await vaultStore.load();
@@ -283,7 +312,7 @@ async function loadVaults() {
   }
   treasuryPools.value = Object.values(statsByFrame);
   treasuryPools.value.sort((a, b) => b.frameId - a.frameId);
-  treasuryPools.value.length = 10;
+  if (treasuryPools.value.length > 10) treasuryPools.value.length = 10;
   nextVaults.sort((a, b) => Number(b.activatedSecuritization - a.activatedSecuritization));
   vaults.value = nextVaults;
 }

@@ -35,8 +35,8 @@
         </section>
 
         <section
-          @click="openVaultOverlay"
-          ref="vaultOverlayReferenceElement"
+          @click="openVaultCreateOverlay"
+          ref="VaultCreateOverlayReferenceElement"
           class="flex flex-row cursor-pointer border-t border-[#CCCEDA] py-9 hover:bg-argon-menu-hover"
         >
           <Checkbox :isChecked="config.hasSavedVaultingRules" />
@@ -47,14 +47,14 @@
             </p>
             <p v-else>
               You setup your vaulting rules and <VaultCapital align="start" :alignOffset="alignOffsetForCapital">
-                <span @mouseenter="alignOffsetForCapital = calculateAlignOffset($event, vaultOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
+                <span @mouseenter="alignOffsetForCapital = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
                   committed
                   {{ currency.symbol }}{{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00]') }} in capital
                 </span>
             </VaultCapital>
               with an
               <VaultReturns align="end" :alignOffset="alignOffsetForReturns">
-                <span @mouseenter="alignOffsetForReturns = calculateAlignOffset($event, vaultOverlayReferenceElement, 'end')" class="inline-block underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
+                <span @mouseenter="alignOffsetForReturns = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'end')" class="inline-block underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
                   average expected return of {{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999)
                   }}%
                 </span>
@@ -135,7 +135,7 @@ const calculator = getVaultCalculator();
 const averageAPY = Vue.ref(0);
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
-const vaultOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
+const VaultCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
 const alignOffsetForReturns = Vue.ref(0);
 const alignOffsetForCapital = Vue.ref(0);
 
@@ -182,8 +182,8 @@ function updateApy() {
   averageAPY.value = (lowApy + highApy) / 2;
 }
 
-function openVaultOverlay() {
-  basicEmitter.emit('openVaultOverlay');
+function openVaultCreateOverlay() {
+  basicEmitter.emit('openVaultCreateOverlay');
 }
 
 Vue.watch(

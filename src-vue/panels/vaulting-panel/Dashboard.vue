@@ -1,189 +1,568 @@
 <!-- prettier-ignore -->
 <template>
-  <div data-testid="Dashboard" class="flex flex-col h-full">
-    <div
-      class="flex flex-col h-full px-3.5 py-3 gap-y-2.5 justify-stretch grow"
-    >
-      <div class="flex flex-row">
-        <div class="flex flex-col w-1/2 gap-4 pr-4">
-          <div box class="flex flex-col gap-4 p-5 text-gray-800 font-medium">
-            <div class="flex flex-col col-span-2 text-fuchsia-800 items-center">
-              <span class="text-4xl font-bold">{{ currency.symbol }}{{ microgonToMoneyNm(vaultCapital).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
-              <label>Capital In Vault</label>
+  <TooltipProvider :disableHoverableContent="true" data-testid="Dashboard" class="flex flex-col h-full">
+    <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
+      <section box class="flex flex-row items-center text-slate-900/90 !py-3">
+        <div class="flex flex-row items-center w-full min-h-[6%]">
+          <div v-if="vault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
+            <div class="flex flex-row items-center text-lg relative text-slate-800/90">
+              <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
+              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
+              <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
+                <template v-if="hours || minutes || days">
+                  (expires in&nbsp;
+                  <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
+                  <template v-else-if="hours || minutes">
+                    <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
+                    <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                  </template>
+                  )
+                </template>
+                <template v-else-if="seconds">(expires in {{ seconds }} second{{ seconds === 1 ? '' : 's' }})</template>
+              </CountdownClock>
             </div>
-            <div class="grid grid-cols-2 flex-row border-t-1 pt-2">
-              <label>Capital Waiting for Usage</label>
-              <span class="text-right">{{ currency.symbol }}{{ microgonToMoneyNm(vaultCapital - capitalInUse).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
-            </div>
-            <div class="grid grid-cols-2 flex-row border-t-1 pt-2">
-              <label>As Securitization ({{ numeral(config.vaultingRules.capitalForSecuritizationPct).format('0.[00]') }}%)</label>
-              <span class="text-right" >
-                {{ currency.symbol }}{{ microgonToMoneyNm(vault.createdVault!.activatedSecuritization()).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-                <span class="pl-5 text-gray-500" v-if="pendingSecuritization > 0">({{ currency.symbol }}{{ microgonToMoneyNm(pendingSecuritization).formatIfElse('< 1_000', '0,0.00', '0,0') }} pending)</span>
-              </span>
-            </div>
-            <div class="grid grid-cols-2 flex-row border-t-1 py-2">
-              <label>In Treasury Pool ({{ numeral(config.vaultingRules.capitalForTreasuryPct).format('0.[00]') }}%)</label>
-              <span class="text-right">
-                {{ currency.symbol
-                }}{{ microgonToMoneyNm(ownTreasuryPoolCapitalDeployed).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-                <span class="pl-5 text-gray-500" v-if="pendingTreasuryPool > 0">({{ currency.symbol }}{{ microgonToMoneyNm(pendingTreasuryPool).formatIfElse('< 1_000', '0,0.00', '0,0') }} pending)</span>
-              </span>
-            </div>
-
-            <div v-if="isSavingRules || saveRulesErrorMessage" class="text-md font-thin text-center">
-              <span class="text-red-700 font-bold text-md" v-if="saveRulesErrorMessage">{{ saveRulesErrorMessage }}</span>
-              <div class="mt-4 text-gray-500" v-else>
-                Saving vaulting rules...
+            <div class="grow flex flex-row items-center pl-2 pr-3">
+              <div class="h-4 w-full bg-gradient-to-r from-transparent to-argon-700/10"></div>
+              <div class="flex items-center justify-center">
+                <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 5l5 5-5 5" fill="currentColor" />
+                </svg>
               </div>
-              <ProgressBar
-                :hasError="saveRulesErrorMessage != ''"
-                :progress="saveRulesProgressPct"
-              />
             </div>
+            <button @click="showCollectOverlay = true" class="bg-white border border-argon-600/20 hover:bg-argon-600/10 inner-button-shadow cursor-pointer rounded-md px-8 py-2 font-bold text-argon-600 focus:outline-none">
+              Collect Revenue
+            </button>
           </div>
-
-          <!-- Small metrics -->
-          <div class="grid grid-cols-3 gap-4">
-            <div box stat-box>
-              <span class="text-4xl font-bold">{{ numeral(bitcoinTransactions).format('0,0') }}</span>
-              <label>BTC Tx</label>
-            </div>
-            <div box stat-box>
-              <span class="text-4xl font-bold">
-                {{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-              </span>
-              <label>Revenue TD</label>
-            </div>
-            <div box stat-box>
-              <span class="text-4xl font-bold">{{ numeral(apy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
-              <label>APY</label>
-            </div>
-          </div>
-        </div>
-        <!-- Countdown and collect callout -->
-        <div box class="flex flex-col items-center text-center py-8 space-y-2 w-1/2">
-          <span class="text-red-700 font-thin py-4" v-if="collectError">{{ collectError }}</span>
-          <div :class="{ 'opacity-80': isCollecting }">
-            <span class="text-gray-500 uppercase text-sm">You have</span>
-            <CountdownClock
-              :time="nextCollectDueDate"
-              v-slot="{ hours, minutes, days }"
-            >
-              <div class="text-2xl font-bold text-gray-800">
+          <div v-else-if="vault.data.pendingCosignUtxoIds.size" class="px-6 flex flex-row items-center w-full h-full">
+            <div class="flex flex-row items-center text-lg relative text-slate-800/90">
+              <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
+              <strong>{{vault.data.pendingCosignUtxoIds.size || 2}} bitcoin transaction{{vault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'}} require signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
+              <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
                 <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
                 <template v-else>
                   <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
                   <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
                 </template>
+              </CountdownClock>)
+            </div>
+            <div class="grow flex flex-row items-center pl-2 pr-3">
+              <div class="h-4 w-full bg-gradient-to-r from-transparent to-argon-700/10"></div>
+              <div class="flex items-center justify-center">
+                <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 5l5 5-5 5" fill="currentColor" />
+                </svg>
               </div>
-            </CountdownClock>
-            <div class="text-xl font-semibold px-2">to lock in your <div>{{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}</div></div>
-            <span class="text-gray-500">in compounding profits protecting your {{ currency.symbol }}{{ microgonToMoneyNm(securitization).formatIfElse('< 1_000', '0,0.00', '0,0') }} securitization</span>
-            <br/>
-            <button class="mt-2 px-6 py-2 rounded bg-purple-600 text-white" @click="collect"
-                    :class="[isCollecting?'opacity-80' :'']" :disabled="isCollecting">COLLECT
+            </div>
+            <button @click="showCollectOverlay = true" class="bg-white border border-argon-600/20 hover:bg-argon-600/10 inner-button-shadow cursor-pointer rounded-md px-8 py-2 font-bold text-argon-600 focus:outline-none">
+              Sign Bitcoin Transactions
             </button>
           </div>
-          <ProgressBar v-if="isCollecting" class="my-5"
-                       :hasError="collectError != ''"
-                       :progress="collectProgress"
-          />
-          <span class="text-sm text-gray-400">Will sign {{ vault.data.pendingCosignUtxoIds.size }} vault transactions</span>
+          <div v-else-if="!bitcoinLockedValue" class="flex flex-row px-3 items-center w-full h-full">
+            <SuccessIcon class="w-10 h-10 text-argon-600 mr-4 relative opacity-80" />
+            <div class="opacity-60 relative top-px">Your vault is operational, but it's not earning revenue. You must finish locking your bitcoin!</div>
+          </div>
+          <div v-else class="flex flex-row px-3 items-center w-full h-full">
+            <SuccessIcon class="w-10 h-10 text-argon-600 mr-4 relative opacity-80" />
+            <div class="opacity-60 relative top-px">Your vault is operational and in good order!</div>
+          </div>
         </div>
-      </div>
-      <!-- Operational Efficiency -->
-      <div box class="flex flex-col items-center text-center py-4">
-        <span class="text-4xl font-bold">0%</span>
-        <label>Operational Efficiency</label>
-        <div class="mt-2 text-purple-600">How to Improve Vault: - Attract BTC</div>
-      </div>
+      </section>
 
-      <!-- Personal Bitcoin panel -->
-      <div box class="flex flex-col items-center p-6" :class="[ personalUtxo ? '' : 'border-dashed border-2']">
-        <h2 class="text-3x font-bold text-gray-600 text-left">Personal Bitcoin</h2>
-        <div class="grid grid-cols-5 gap-4 items-center py-4" v-if="personalUtxo">
-          <div stat-box class="flex flex-col text-center">
-            <span
-              class="text-2xl font-bold">{{ numeral(currency.satsToBtc(personalUtxo.satoshis)).format('0,0.[00000000]') }} BTC</span>
-            <div class="text-gray-500 text-sm">Market Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }}
+      <section class="flex flex-row gap-x-2 h-[14%]">
+        <TooltipRoot>
+          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <span>
+              {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+            </span>
+            <label>Total Bitcoin Locked</label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+            The total value of bitcoin currently locked in your vault.
+            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+          </TooltipContent>
+        </TooltipRoot>
+        <TooltipRoot>
+          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <span class="flex flex-row items-center justify-center space-x-3">
+              <span>{{ numeral(rules.securitizationRatio).format('0.[00]') }}</span>
+              <span class="!font-light">to</span>
+              <span>1</span>
+            </span>
+            <label>Securitization Ratio</label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+            The ratio of argon-to-bitcoin that you have committed as securitization collateral.
+            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+          </TooltipContent>
+        </TooltipRoot>
+        <TooltipRoot>
+          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBonds).format('0,0.00') }}</span>
+            <label>External Treasury Bonds</label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+            The amount of external capital invested into your vault's treasury bonds.
+            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+          </TooltipContent>
+        </TooltipRoot>
+        <TooltipRoot>
+          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <span>
+              {{ currency.symbol}}{{ microgonToMoneyNm(totalTreasuryPoolBonds).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+            </span>
+            <label>Total Treasury Bonds</label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+            Your vault's total capital, both internal and external, that is invested in treasury bonds.
+            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+          </TooltipContent>
+        </TooltipRoot>
+        <TooltipRoot>
+          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <span>{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+            <label>Total Earnings</label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+            Your vault's earnings to-date. This includes bitcoin locking fees and treasury bonds.
+            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+          </TooltipContent>
+        </TooltipRoot>
+        <TooltipRoot>
+          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <span>{{ numeral(apy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
+            <label>Current APY</label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+            Your vault's rolling annual percentage yield based on total capital committed.
+            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+          </TooltipContent>
+        </TooltipRoot>
+      </section>
+
+      <section class="flex flex-row gap-x-2.5 grow">
+        <div box class="flex flex-col w-[22.5%] px-2">
+          <header class="text-[18px] font-bold py-2 text-slate-900/80 border-b border-slate-400/30">
+            Asset Breakdown
+          </header>
+          <ul class="relative flex flex-col items-center whitespace-nowrap w-full min-h-6/12 mb-4 text-md">
+            <li class="flex flex-col w-full min-h-[calc(100%/7)] py-2">
+              <HoverCardRoot :openDelay="200" :closeDelay="100">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
+                  <ArgonIcon class="w-7 h-7 text-argon-600/70 mr-2" />
+                  <div class="grow">Unused Argons</div>
+                  <div class="pr-1">
+                    {{ currency.symbol
+                    }}{{ microgonToMoneyNm(wallets.vaultingWallet.availableMicrogons).format('0,0.00') }}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                  <p class="break-words whitespace-normal">
+                     These argons are not currently being used.
+                  </p>
+                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                </HoverCardContent>
+              </HoverCardRoot>
+              <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
+                <HoverCardRoot :openDelay="200" :closeDelay="100"
+                               v-if="pendingMintingValue > 0n">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(pendingMintingValue).format('0,0.[00]') }} Pending Mints
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p v-if="pendingMintingValue" class="break-words whitespace-normal">
+                      These have been earned, but they have not yet been minted. Minting is determined
+                      by supply and demand, which means, although you're guaranteed to get them, the timeframe is unknown.
+                    </p>
+                    <p v-else class="break-words whitespace-normal">
+                      You have no argons that are in the minting queue.
+                    </p>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Needs Allocation
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p class="break-words whitespace-normal">
+                      These argons are available for use. Click the Allocate button, and they will be distributed
+                      between securitization and treasury bonds according to the rules in your config.
+                    </p>
+                    <div v-if="allocationError" class="text-red-700 font-semibold my-2">
+                      {{ allocationError }}
+                    </div>
+                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
+                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
+                              :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
+                              @click="allocate" :disabled="isAllocating">
+                        {{!isAllocating ? 'Allocate These' : 'Allocating'}} {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons to Vault
+                      </button>
+                      <span :class="{active:isAllocating}" spinner class="ml-2 inline-block mt-1" />
+                    </div>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+              </div>
+            </li>
+            <li class="flex flex-col w-full border-t border-gray-600/20 border-dashed py-2">
+              <HoverCardRoot :openDelay="200" :closeDelay="100">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full  hover:text-argon-600">
+                  <ArgonotIcon class="w-7 h-7 text-argon-600/70 mr-2" />
+                  <div class="grow">Bitcoin Security</div>
+                  <div class="pr-1">
+                    {{ currency.symbol
+                    }}{{ micronotToMoneyNm(activatedSecuritization + waitingSecuritization).format('0,0.00') }}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <p class="break-words whitespace-normal">
+                    This is the total capital applied to your vault's bitcoin securitization. It insures that anyone who locks
+                    bitcoin in your vault will be able to claim their bitcoin back in full.
+                  </p>
+                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                </HoverCardContent>
+              </HoverCardRoot>
+              <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(waitingSecuritization).format('0,0.[00]') }} Waiting for Usage
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p class="break-words whitespace-normal">
+                      These argons have not yet been applied to your vault's securitization. They are waiting for bitcoins.
+                    </p>
+                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
+                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer">
+                        Remove These {{ microgonToArgonNm(waitingSecuritization).format('0,0.[00]') }} Argons from Securitization
+                      </button>
+                    </div>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(pendingSecuritization).format('0,0.[00]') }} Pending Activation
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p class="break-words whitespace-normal">
+                      These argons are already committed to bitcoins pending in your vault. However, these bitcoins are still in the process
+                      of locking. Once completed, these argons will move to "Actively In Use".
+                    </p>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(activatedSecuritization).format('0,0.[00]') }} Actively In Use
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p v-if="activatedSecuritization" class="break-words whitespace-normal">
+                      These argons are currently being used to securitize your vault's bitcoin.
+                    </p>
+                    <p v-else class="break-words whitespace-normal">
+                      You have no argons actively being used to securitize bitcoins.
+                    </p>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+              </div>
+            </li>
+            <li class="flex flex-col w-full border-t border-gray-600/20 border-dashed py-2">
+              <HoverCardRoot :openDelay="200" :closeDelay="100">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
+                  <ArgonotIcon class="w-7 h-7 text-argon-600/70 mr-2" />
+                  <div class="grow">Treasury Bonds</div>
+                  <div class="pr-1">
+                    {{ currency.symbol
+                    }}{{ micronotToMoneyNm(activatedTreasuryPoolInvestment + pendingTreasuryPoolInvestment).format('0,0.00') }}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <p class="break-words whitespace-normal">
+                    This is the capital that has been allocated to your vault's treasury bonds.
+                  </p>
+                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                </HoverCardContent>
+              </HoverCardRoot>
+              <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(pendingTreasuryPoolInvestment).format('0,0.[00]') }} Waiting for Usage
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p class="break-words whitespace-normal">
+                      This capital is sitting idle because your vault does not have enough bitcoin. The amount
+                      in treasury bonds cannot exceed the bitcoin value in your vault.
+                    </p>
+                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
+                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer">
+                        Remove These {{ microgonToArgonNm(pendingTreasuryPoolInvestment).format('0,0.[00]') }} Argons from Securitization</button>
+                    </div>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(activatedTreasuryPoolInvestment).format('0,0.[00]') }} Actively In Use
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                    <p v-if="activatedTreasuryPoolInvestment" class="break-words whitespace-normal">
+                      These argons are actively generating yield for your vault through treasury bond investments.
+                    </p>
+                    <p v-else class="break-words whitespace-normal">
+                      You have no argons actively being applied to treasury bond investments.
+                    </p>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+              </div>
+            </li>
+            <li class="flex flex-row items-center w-full border-t border-gray-600/50 py-2 text-red-900/70"
+                v-if="[BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(personalUtxo?.status as any)">
+              <HoverCardRoot :openDelay="200" :closeDelay="100">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
+                  <div class="grow pl-1"><span class="hidden xl:inline">Cost to</span> Unlock Bitcoin</div>
+                  <div class="pr-1">
+                    -{{ currency.symbol
+                    }}{{ microgonToMoneyNm(unlockPrice).format('0,0.[00]') }}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <p class="break-words whitespace-normal">
+                    This is what it will cost to unlock your personal bitcoin.
+                  </p>
+                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                </HoverCardContent>
+              </HoverCardRoot>
+            </li>
+            <li class="flex flex-row items-center w-full border-t border-gray-600/20 border-dashed py-2 text-red-900/70">
+              <HoverCardRoot :openDelay="200" :closeDelay="100">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-red-600">
+                  <div class="grow pl-1"><span class="hidden xl:inline">Operational</span> Expenses</div>
+                  <div class="pr-1">
+                    -{{ currency.symbol
+                    }}{{ microgonToMoneyNm(vault.metadata?.operationalFeeMicrogons ?? 0n).format('0,0.00') }}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <p class="break-words whitespace-normal">
+                    The summation of all operational expenses that have been paid since your vault's inception.
+                  </p>
+                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                </HoverCardContent>
+              </HoverCardRoot>
+            </li>
+            <li class="flex flex-row items-center justify-between w-full border-t border-b border-gray-600/50 py-2 font-bold">
+              <HoverCardRoot :openDelay="200" :closeDelay="100">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
+                  <div class="grow pl-1">Total Value</div>
+                  <div class="pr-1">
+                    {{ currency.symbol }}{{ microgonToMoneyNm(totalVaultValue).format('0,0.00') }}
+                  </div>
+                </HoverCardTrigger>
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                  <p class="break-words whitespace-normal font-normal">
+                    The total value of your vault's assets.
+                  </p>
+                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                </HoverCardContent>
+              </HoverCardRoot>
+            </li>
+          </ul>
+          <div class="grow flex flex-col items-center justify-end">
+            <div @click="openVaultEditOverlay" class="relative text-center mb-5 text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <VaultIcon class="w-20 h-20 mt-5 inline-block mb-3" />
+              <div>Configure Vault Settings</div>
             </div>
           </div>
-          <div stat-box class="flex flex-col text-center">
-            <span class="text-2xl font-bold" :class="[personalUtxo.status === 'initialized'? 'text-gray-500': '']">{{ currency.symbol
-              }}{{ microgonToMoneyNm(personalUtxo.liquidityPromised).format('0,0.[00]') }}</span>
-            <label v-if="personalUtxo.status === 'initialized'">Liquidity Promised</label>
-            <label v-else>Liquidity Unlocked</label>
-            <div v-if="personalUtxo.status === 'initialized' && bitcoinPendingStatus" class="text-sm text-gray-400">({{bitcoinPendingStatus}})</div>
-          </div>
-          <template v-if="personalUtxo.status === 'initialized'">
-            <div stat-box class="text-center flex-flex-col">
-              <CountdownClock :time="lockInitializeExpirationTime" v-slot="{ days, hours, minutes }">
-                <template v-if="days > 0">
-                  <span class="text-2xl font-bold">{{ days }} Days</span>
-                </template>
-                <template v-else>
-                  <span class="text-2xl font-bold">{{ hours }}h {{ minutes }}m</span>
-                </template>
-              </CountdownClock>
-              <label>Bitcoin Funding Due By</label>
-            </div>
-            <div stat-box class="text-center col-span-2 flex-flex-col">
-              <span class="text-2xl font-normal"><button class="px-4 py-2 rounded bg-purple-600 text-white"
-                                                         @click="showCompleteLockOverlay = true">Transfer BTC</button></span>
-              <label>To Unlock your Liquidity</label>
-            </div>
-          </template>
-          <template v-else-if="personalUtxo.status !== 'released'">
-            <div stat-box class="text-center">
-              <span class="text-2xl font-bold">{{ numeral(mintPercent).format('0,0.[0]') }}%</span>
-              <label>Minted</label>
-            </div>
-            <div stat-box class="text-center">
-              <CountdownClock :time="lockExpirationTime" v-slot="{ hours, minutes, days }">
-                <template v-if="days === 0">
-                  <span class="text-2xl font-bold">{{ hours }}h {{ minutes }}m</span>
-                </template>
-                <template v-else>
-                    <span class="text-2xl font-bold">{{ days }} Day{{ days > 1 ? 's' : '' }}</span>
-                </template>
-              </CountdownClock>
+        </div>
 
-              <label>Expires In</label>
+        <div class="flex flex-col grow gap-y-2">
+          <PersonalBitcoin ref="personalBitcoin" />
+
+          <section box class="flex flex-col grow text-center px-2">
+            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30">
+              <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
+                PREV
+              </div>
+              <span class="flex flex-row items-center" :title="'Frame #' + currentFrame?.id">
+                <span :title="`Frame #${currentFrame?.id}`" >{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
+                <span v-if="currentFrame?.id === latestFrameId" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
+              </span>
+              <div @click="goToNextFrame" :class="hasNextFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                NEXT
+                <ChevronRightIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
+              </div>
+            </header>
+
+            <div class="grow flex flex-col items-center justify-center">
+              <div class="pt-5 border-b border-slate-400/20 pb-5 w-full text-slate-800/70">
+                This frame's payout is
+                <TooltipRoot>
+                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono">
+                    {{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.totalTreasuryPayout).format('0,0.00') }}
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                    Total network revenue from mining bids.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+                <template v-if="currentFrame.id === latestFrameId"> (and growing),</template> of which your take is
+                <TooltipRoot>
+                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono">{{ numeral(currentFrame.myTreasuryPercentTake).format('0,[0.0]') }}%</TooltipTrigger>,
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                    The more capital you invest in treasury bonds, the higher your take-home percentage.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+                equaling
+                <TooltipRoot>
+                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.myTreasuryPayout).format('0,0.00') }}</TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                    This is what your vault has earned so far today.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+                <span class="hidden lg:inline"> in earnings</span>
+              </div>
+
+              <div class="flex flex-row w-full grow gap-x-2 mt-2">
+                <TooltipRoot>
+                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full">
+                    <div class="relative size-28">
+                      <svg class="size-full -rotate-90" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-gray-200 dark:text-neutral-700" stroke-width="3"></circle>
+                        <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-argon-600 dark:text-argon-500" stroke-width="3" stroke-dasharray="100" :stroke-dashoffset="100-currentFrame.progress" stroke-linecap="butt"></circle>
+                      </svg>
+
+                      <div class="absolute top-1/2 start-1/2 transform -translate-y-1/2 -translate-x-1/2">
+                        <span class="text-center !text-[30px] font-bold text-argon-600 dark:text-argon-500">{{ Math.round(currentFrame.progress) }}%</span>
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                    This progress of the current frame, which is equivalent to 24 hours.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+
+                <div class="h-full w-[1px] bg-slate-400/30"></div>
+
+                <TooltipRoot>
+                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3">
+                    <span data-testid="TotalBlocksMined">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.bitcoinChangeMicrogons).format('0,0.00') }}</span>
+                    <label class="relative block w-full">
+                      Bitcoin Lock Change
+                      <HealthIndicatorBar :percent="currentFrame.bitcoinPercentUsed" />
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                    The change (+/-) in bitcoin value held by your vault during this frame.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+
+                <div class="h-full w-[1px] bg-slate-400/30"></div>
+
+                <TooltipRoot>
+                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3">
+                    <span data-testid="TotalBlocksMined">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.treasuryChangeMicrogons).format('0,0.00') }}</span>
+                    <label class="relative block w-full">
+                      Treasury Bond Change
+                      <HealthIndicatorBar :percent="currentFrame.treasuryPercentActivated" />
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                    The change (+/-) in treasury bonds held by your vault during this frame.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+
+                <div class="h-full w-[1px] bg-slate-400/30"></div>
+
+                <TooltipRoot>
+                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3">
+                    <span data-testid="TotalBlocksMined">{{ numeral(currentFrame.frameProfitPercent).format('0,0') }}%</span>
+                    <label class="relative block w-full">
+                      Current Frame Profit
+                      <HealthIndicatorBar :percent="currentFrame.profitMaximizationPercent" />
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                    The profit percentage earned by your vault during this frame.
+                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </TooltipContent>
+                </TooltipRoot>
+
+              </div>
             </div>
-            <div stat-box class="text-center">
-              <button class="px-4 py-2 rounded bg-purple-600 text-white" @click="showReleaseOverlay=true">Release
-              </button>
-            </div>
-          </template>
-          <template v-else >
-            <div stat-box class="text-right col-span-3">
-              <span class="text-md text-fuchsia-800 border-2 border-y-fuchsia-800 p-4 border-dashed opacity-40">Released</span>
-            </div>
-          </template>
+          </section>
+
+          <section box class="relative flex flex-col h-[39.1%] !pb-0.5 px-2">
+            <FrameSlider ref="frameSliderRef" :chartItems="chartItems" @changedFrame="updateSliderFrame" />
+          </section>
         </div>
-        <div v-else-if="!vaultingRules.personalBtcPct" class="text-2xl font-bold text-center">
-          Configure a personal bitcoin amount to active your Vault's Treasury Pools
-        </div>
-        <div v-else class="text-md font-bold text-gray-400 text-center">
-          Initializing your personal bitcoin lock...
-        </div>
-      </div>
+      </section>
     </div>
-  </div>
+  </TooltipProvider>
 
   <!-- Overlays -->
-  <BitcoinLockCompleteOverlay
-    v-if="showCompleteLockOverlay && personalUtxo"
-    :lock="personalUtxo"
-    @close="showCompleteLockOverlay = false" />
+  <VaultCollectOverlay
+    v-if="showCollectOverlay"
+    @close="showCollectOverlay = false"
+  />
 
-  <BitcoinReleaseOverlay
-    v-if="showReleaseOverlay && personalUtxo"
-    :lock="personalUtxo"
-    @close="showReleaseOverlay = false"
+  <VaultEditOverlay
+    v-if="showEditOverlay"
+    @close="showEditOverlay = false"
   />
 </template>
+
+<script lang="ts">
+interface IVaultFrameRecord {
+  id: number;
+  date: string;
+  firstTick: number;
+  lastTick: number;
+  progress: number;
+  totalTreasuryPayout: bigint;
+  myTreasuryPayout: bigint;
+  myTreasuryPercentTake: number;
+  bitcoinChangeMicrogons: bigint;
+  treasuryChangeMicrogons: bigint;
+  frameProfitPercent: number;
+  bitcoinPercentUsed: number;
+  treasuryPercentActivated: number;
+  profitMaximizationPercent: number;
+}
+
+const currentFrame = Vue.ref({
+  id: 0,
+  date: '',
+  firstTick: 0,
+  lastTick: 0,
+  progress: 0,
+  bitcoinChangeMicrogons: 0n,
+  treasuryChangeMicrogons: 0n,
+  totalTreasuryPayout: 0n,
+  myTreasuryPercentTake: 0,
+  myTreasuryPayout: 0n,
+  frameProfitPercent: 0,
+  bitcoinPercentUsed: 0,
+  treasuryPercentActivated: 0,
+  profitMaximizationPercent: 0,
+} as IVaultFrameRecord);
+
+const sliderFrameIndex = Vue.ref(0);
+</script>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
@@ -194,95 +573,143 @@ import { useCurrency } from '../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { useMyVault, useVaults } from '../../stores/vaults.ts';
 import { useConfig } from '../../stores/config.ts';
-import { MyVault } from '../../lib/MyVault.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
+import ArgonIcon from '../../assets/resources/argon.svg?component';
+import ArgonotIcon from '../../assets/resources/argonot.svg?component';
+import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
+import { TICK_MILLIS } from '../../lib/Env.ts';
+import VaultCollectOverlay from '../../overlays/VaultCollectOverlay.vue';
+import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
+import SigningIcon from '../../assets/signing.svg?component';
+import MoneyIcon from '../../assets/money.svg?component';
+import { useWallets } from '../../stores/wallets';
+import FrameSlider, { IChartItem } from '../../components/FrameSlider.vue';
+import SuccessIcon from '../../assets/success.svg?component';
+import VaultIcon from '../../assets/vault.svg?component';
+import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
+import BigNumber from 'bignumber.js';
+import { bigIntMax, bigNumberToBigInt, JsonExt, MiningFrames, TreasuryPool } from '@argonprotocol/apps-core';
+import { bigIntMin } from '@argonprotocol/apps-core/src/utils.ts';
+import { ArrowTurnDownRightIcon } from '@heroicons/vue/24/outline';
+import { HoverCardArrow, HoverCardContent, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
+import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
+import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
+import { toRaw } from 'vue';
+import { IVaultFrameStats } from '../../interfaces/IVaultStats.ts';
+import { getMainchainClient, getMining } from '../../stores/mainchain.ts';
+import { getPercent, percentOf } from '../../lib/Utils.ts';
+import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
-import ProgressBar from '../../components/ProgressBar.vue';
-import BitcoinLockCompleteOverlay from '../../overlays/BitcoinLockCompleteOverlay.vue';
-import BitcoinReleaseOverlay from '../../overlays/BitcoinReleaseOverlay.vue';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
 const vault = useMyVault();
 const vaults = useVaults();
+const wallets = useWallets();
 const bitcoinLocks = useBitcoinLocks();
 const config = useConfig();
 const currency = useCurrency();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const rules = config.vaultingRules;
+
+const latestFrameId = Vue.computed(() => {
+  return frameRecords.value.at(-1)?.id ?? 0;
+});
+const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
+const frameRecords = Vue.ref<IVaultFrameRecord[]>([]);
+const chartItems = Vue.ref<IChartItem[]>([]);
+const isAllocating = Vue.ref(false);
+const allocationError = Vue.ref<string | null>(null);
+const personalBitcoin = Vue.ref<InstanceType<typeof PersonalBitcoin> | null>(null);
+
+const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 
 // For the Vault UI countdown clock
 const nextCollectDueDate = Vue.computed(() => {
-  return dayjs(vault.data.nextCollectDueDate);
+  return dayjs.utc(vault.data.nextCollectDueDate);
 });
 
-const personalUtxo = Vue.computed(() => {
-  const utxoId = vault.metadata?.personalUtxoId;
-  if (!utxoId) return null;
-  return bitcoinLocks.data.locksById[utxoId];
-});
+const personalUtxo = Vue.computed(() => personalBitcoin.value?.personalUtxo);
+const unlockPrice = Vue.computed(() => personalBitcoin.value?.unlockPrice ?? 0n);
 
-Vue.watch(personalUtxo, async () => {
-  const utxo = personalUtxo.value;
-  if (!utxo) return;
-  bitcoinLocks.confirmAddress(utxo);
-  bitcoinLocks.load().then(() => {
-    lockInitializeExpirationTime.value = dayjs(bitcoinLocks.verifyExpirationTime(utxo));
-  });
-  btcMarketRate.value = await vaults.getMarketRate(personalUtxo.value.satoshis).catch(() => 0n);
-});
-
-const lockInitializeExpirationTime = Vue.ref(dayjs().add(1, 'day'));
-
-const lockExpirationTime = Vue.ref(dayjs());
-
-function updateLockExpiration() {
-  if (personalUtxo.value) {
-    const utxo = personalUtxo.value;
-    bitcoinLocks.load().then(() => {
-      const expirationMillis = bitcoinLocks.approximateExpirationTime(utxo);
-      lockExpirationTime.value = dayjs(expirationMillis);
-    });
-  }
-}
-
-const btcMarketRate = Vue.ref(0n);
-
-const mintPercent = Vue.computed(() => {
-  const utxo = personalUtxo.value;
-  if (!utxo) return 0n;
-  const { mintAmount, mintPending } = utxo.ratchets[0];
-  if (mintPending === 0n) return 100;
-  return (100 * Number(mintAmount - mintPending)) / Number(mintAmount);
-});
-
-const vaultCapital = Vue.computed(() => {
-  const { microgonsForVaulting } = MyVault.getMicrogoonSplit(config.vaultingRules);
-  return microgonsForVaulting;
+const activatedSecuritization = Vue.computed(() => {
+  return vault.createdVault?.activatedSecuritization() ?? 0n;
 });
 
 const pendingSecuritization = Vue.computed(() => {
-  const { microgonsForSecuritization } = MyVault.getMicrogoonSplit(config.vaultingRules);
-  return microgonsForSecuritization - (vault.createdVault?.activatedSecuritization() ?? 0n);
+  return vault.createdVault?.argonsPendingActivation ?? 0n;
 });
 
-const pendingTreasuryPool = Vue.computed(() => {
-  const { microgonsForTreasury } = MyVault.getMicrogoonSplit(config.vaultingRules);
-  return microgonsForTreasury - ownTreasuryPoolCapitalDeployed.value;
+const waitingSecuritization = Vue.computed(() => {
+  const securitization = vault.createdVault?.securitization ?? 0n;
+  return securitization - (activatedSecuritization.value + pendingSecuritization.value);
 });
 
-const ownTreasuryPoolCapitalDeployed = Vue.computed(() => {
-  const treasuryPool = vault.data.stats;
-  if (!treasuryPool) return 0n;
-  return treasuryPool.changesByFrame
+const totalTreasuryPoolBonds = Vue.computed(() => {
+  return internalTreasuryPoolBonds.value + externalTreasuryBonds.value;
+});
+
+const internalTreasuryPoolBonds = Vue.computed(() => {
+  const revenue = vault.data.stats;
+  if (!revenue) return 0n;
+  return revenue.changesByFrame
     .slice(0, 10)
     .reduce((acc, change) => acc + (change.treasuryPool.vaultCapital ?? 0n), 0n);
 });
-const capitalInUse = Vue.computed(() => {
-  let activatedSecuritization = vault.createdVault?.activatedSecuritization() ?? 0n;
-  return activatedSecuritization + ownTreasuryPoolCapitalDeployed.value;
+
+const activatedTreasuryPoolInvestment = Vue.computed(() => {
+  return internalTreasuryPoolBonds.value;
 });
+
+const pendingTreasuryPoolInvestment = Vue.computed(() => {
+  return vault.data.prebondedMicrogons ?? 0n;
+});
+
+const externalTreasuryBonds = Vue.computed(() => {
+  const revenue = vault.data.stats;
+  if (!revenue) return 0n;
+  return revenue.changesByFrame
+    .slice(0, 10)
+    .reduce((acc, change) => acc + (change.treasuryPool.externalCapital ?? 0n), 0n);
+});
+
+const totalVaultValue = Vue.computed(() => {
+  return (
+    wallets.totalVaultingResources - (unlockPrice.value + vault.data.pendingCollectRevenue + pendingMintingValue.value)
+  );
+});
+
+const bitcoinLockedValue = Vue.computed<bigint>(() => {
+  if (!vault.createdVault) return 0n;
+  return vault.createdVault.activatedSecuritization() - vault.createdVault.getRelockCapacity();
+});
+
+const pendingMintingValue = Vue.computed<bigint>(() => {
+  return bitcoinLocks.totalMintPending;
+});
+
+async function allocate() {
+  if (!vault.createdVault) return;
+  let fallbackRules = JsonExt.stringify(toRaw(config.vaultingRules));
+  try {
+    isAllocating.value = true;
+    const availableMicrogons = wallets.vaultingWallet.availableMicrogons;
+    const { newlyAllocated } = await vault.increaseVaultAllocations({
+      freeBalance: availableMicrogons,
+      rules: config.vaultingRules,
+      argonKeyring: config.vaultingAccount,
+    });
+    config.vaultingRules.baseMicrogonCommitment += newlyAllocated;
+    await config.saveVaultingRules();
+  } catch (err) {
+    console.error('Error during vault allocation: %o', err);
+    allocationError.value = 'Allocation failed. Please try again.';
+    config.vaultingRules = JsonExt.parse(fallbackRules);
+  } finally {
+    isAllocating.value = false;
+  }
+}
 
 const apy = Vue.computed(() => {
   const stats = vault.data.stats;
@@ -297,10 +724,10 @@ const apy = Vue.computed(() => {
     framesRemaining -= 1;
     if (framesRemaining <= 0) break;
   }
-  console.log({ ytdRevenue, capitalDeployed });
   if (framesRemaining > 0) {
     ytdRevenue += stats.baseline.feeRevenue;
   }
+  ytdRevenue = bigIntMax(0n, ytdRevenue - vault.data.pendingCollectRevenue);
   const averageCapitalDeployed =
     capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
   return (Number(ytdRevenue) * 100) / Number(averageCapitalDeployed);
@@ -314,135 +741,253 @@ const revenueMicrogons = Vue.computed(() => {
     sum += change.bitcoinFeeRevenue ?? 0n;
     sum += change.treasuryPool.vaultEarnings ?? 0n;
   }
-  return sum;
+  return sum - vault.data.pendingCollectRevenue;
 });
 
-const bitcoinTransactions = Vue.computed(() => {
-  const stats = vault.data.stats;
-  if (!stats) return 0;
-  let sum = stats.baseline.bitcoinLocks ?? 0;
-  for (const change of stats.changesByFrame) {
-    sum += change.bitcoinLocksCreated ?? 0;
+const showCollectOverlay = Vue.ref(false);
+const showEditOverlay = Vue.ref(false);
+
+const hasNextFrame = Vue.computed(() => {
+  return sliderFrameIndex.value < frameRecords.value.length - 1;
+});
+
+const hasPrevFrame = Vue.computed(() => {
+  return sliderFrameIndex.value > 0;
+});
+
+const currentFrameStartDate = Vue.computed(() => {
+  if (!currentFrame.value.firstTick) {
+    return '-----';
   }
-  return sum;
+  const date = dayjs.utc(currentFrame.value.firstTick * TICK_MILLIS);
+  return date.local().format('MMMM D, h:mm A');
 });
 
-const isCollecting = Vue.ref(false);
-const collectProgress = Vue.ref(0);
-const collectError = Vue.ref('');
+const currentFrameEndDate = Vue.computed(() => {
+  if (!currentFrame.value.lastTick) {
+    return '-----';
+  }
+  const date = dayjs.utc(currentFrame.value.lastTick * TICK_MILLIS);
+  return date.local().add(1, 'minute').format('MMMM D, h:mm A');
+});
 
-const showCompleteLockOverlay = Vue.ref(false);
-const showReleaseOverlay = Vue.ref(false);
+function goToPrevFrame() {
+  frameSliderRef.value?.goToPrevFrame();
+}
 
-async function collect() {
-  isCollecting.value = true;
-  collectProgress.value = 0;
-  try {
-    const { bitcoinXprivSeed, vaultingAccount } = config;
-    await vault.collect(
-      { argonKeyring: vaultingAccount, xprivSeed: bitcoinXprivSeed },
-      (totalComplete, inProgressPctComplete, toComplete) => {
-        collectProgress.value = totalComplete + inProgressPctComplete * (1 / toComplete);
-      },
-    );
-    collectProgress.value = 100;
-  } catch (error) {
-    console.error('Error collecting pending revenue:', error);
-    collectError.value = error instanceof Error ? error.message : `${error}`;
-  } finally {
-    isCollecting.value = false;
+function goToNextFrame() {
+  frameSliderRef.value?.goToNextFrame();
+}
+
+function updateSliderFrame(newFrameIndex: number) {
+  sliderFrameIndex.value = newFrameIndex;
+  currentFrame.value = frameRecords.value[newFrameIndex];
+}
+
+function openVaultEditOverlay() {
+  showEditOverlay.value = true;
+}
+
+function updateLatestFrameProgress() {
+  if (frameRecords.value.length === 0) return;
+  const latestFrame = frameRecords.value.at(-1);
+  if (!latestFrame) return;
+  if (currentFrame.value.id === latestFrame.id) {
+    const ticksPerFrame = MiningFrames.ticksPerFrame;
+    const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
+    const tickRange = MiningFrames.getTickRangeForFrame(latestFrame.id);
+    latestFrame.progress = ((currentTick - tickRange[0]) / ticksPerFrame) * 100;
+    if (latestFrame.progress > 100) {
+      latestFrame.progress = 100;
+    }
   }
 }
 
-const securitization = Vue.computed(() => {
-  return vault.createdVault?.securitization ?? 0n;
-});
+const mining = getMining();
 
-const vaultingRules = config.vaultingRules;
-const isSavingRules = Vue.ref(false);
-const saveRulesErrorMessage = Vue.ref('');
-const saveRulesProgressPct = Vue.ref(0); // 0-100
+let frameIdLoaded: number | undefined = undefined;
+async function loadChartData(currentFrameId?: number) {
+  const revenue = vault.data.stats;
 
-const bitcoinPendingStatus = Vue.ref('');
-let checkUnverifiedStatusInterval: ReturnType<typeof setInterval> | null = null;
-async function checkUnverifiedBitcoinStatus() {
-  if (!personalUtxo.value) return;
-  if (personalUtxo.value.status !== 'initialized') {
-    if (checkUnverifiedStatusInterval) clearInterval(checkUnverifiedStatusInterval);
+  const ticksPerFrame = MiningFrames.ticksPerFrame;
+  const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
+  currentFrameId ??= await mining.getCurrentFrameId();
+  if (frameIdLoaded === currentFrameId) {
     return;
   }
-  try {
-    const utxo = personalUtxo.value;
-    const status = await bitcoinLocks.checkFundingStatus(utxo);
-    if (status?.isConfirmed) {
-      const pendingBlocks = status.blockHeight - bitcoinLocks.data.bitcoinBlockHeight;
-      bitcoinPendingStatus.value =
-        pendingBlocks > 0
-          ? `Waiting for ${pendingBlocks} more bitcoin block${pendingBlocks > 1 ? 's' : ''}`
-          : 'Funding confirmed';
-      showCompleteLockOverlay.value = false;
-    } else if (status) {
-      bitcoinPendingStatus.value = `In bitcoin mempool`;
-      showCompleteLockOverlay.value = false;
-    } else {
-      bitcoinPendingStatus.value = `Waiting for funding...`;
-    }
-    console.log(bitcoinPendingStatus.value, status);
-  } catch (error) {
-    console.error('Error checking UTXO status:', error);
-    bitcoinPendingStatus.value = `Waiting for funding...`;
+  frameIdLoaded = currentFrameId;
+  console.log('Load chart data to frame', currentFrameId);
+
+  const treasuryPoolCapitalByFrame: { [frameId: string]: { capitalRaised: bigint; payout: bigint } } = {};
+  const frameIds: number[] = [];
+  for (let frameId = Math.max(0, currentFrameId - 365); frameId <= currentFrameId; frameId++) {
+    treasuryPoolCapitalByFrame[frameId] = { capitalRaised: 0n, payout: 0n };
+    frameIds.push(frameId);
   }
+
+  for (const vaultStats of Object.values(vaults.stats?.vaultsById || {})) {
+    for (const change of vaultStats.changesByFrame || []) {
+      if (!treasuryPoolCapitalByFrame[change.frameId]) continue;
+      treasuryPoolCapitalByFrame[change.frameId].payout += change.treasuryPool.totalEarnings;
+      treasuryPoolCapitalByFrame[change.frameId].capitalRaised +=
+        change.treasuryPool.externalCapital + change.treasuryPool.vaultCapital;
+    }
+  }
+  const records: IVaultFrameRecord[] = [];
+  const myVaultRevenueByFrame = (revenue?.changesByFrame ?? []).reduce(
+    (acc, frame) => {
+      acc[frame.frameId] = frame;
+      return acc;
+    },
+    {} as { [frameId: number]: IVaultFrameStats },
+  );
+
+  const trailingTreasuryCapitalAmounts: [capital: bigint, frameId: number][] = [];
+
+  let treasuryPercentActivated = 0;
+  let bitcoinPercentUsed = 0;
+  for (const frameId of frameIds) {
+    const treasuryAtFrame = treasuryPoolCapitalByFrame[frameId];
+    const tickRange = MiningFrames.getTickRangeForFrame(frameId);
+    const [startingDate] = MiningFrames.frameToDateRange(frameId);
+
+    const myFrameRevenue = myVaultRevenueByFrame[frameId];
+    const record = {
+      id: frameId,
+      date: dayjs.utc(startingDate).toISOString(),
+      firstTick: tickRange[0],
+      lastTick: tickRange[1],
+      progress: 100,
+      totalTreasuryPayout: treasuryAtFrame.payout,
+      myTreasuryPayout: 0n,
+      myTreasuryPercentTake: 0,
+      bitcoinChangeMicrogons: 0n,
+      treasuryChangeMicrogons: 0n,
+      frameProfitPercent: 0,
+      bitcoinPercentUsed: 0,
+      treasuryPercentActivated: 0,
+      profitMaximizationPercent: 0,
+    };
+    records.push(record);
+    const trailingTreasuryCapitalTotal = trailingTreasuryCapitalAmounts.slice(0, 9).reduce((acc, [capital]) => {
+      return acc + capital;
+    }, 0n);
+    const rollingTreasuryCapital = trailingTreasuryCapitalTotal + (trailingTreasuryCapitalAmounts[9]?.[0] ?? 0n);
+    if (frameId === currentFrameId && vault.createdVault) {
+      record.progress = Math.min(((currentTick - tickRange[0]) / ticksPerFrame) * 100, 100);
+      const client = await getMainchainClient(false);
+      record.totalTreasuryPayout = await TreasuryPool.getTreasuryPayoutPotential(client);
+      const securitization = vault.createdVault.securitization;
+      const activatedSecuritization = vault.createdVault.activatedSecuritization();
+      const { vaultActivatedCapital, totalActivatedCapital } = await TreasuryPool.getActiveCapital(
+        client,
+        vault.createdVault.vaultId ?? 0,
+      );
+      record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, totalActivatedCapital);
+      record.myTreasuryPayout = percentOf(record.totalTreasuryPayout, record.myTreasuryPercentTake);
+
+      bitcoinPercentUsed =
+        activatedSecuritization > 0n
+          ? getPercent(activatedSecuritization - vault.createdVault.getRelockCapacity(), securitization)
+          : 0;
+      treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
+      record.frameProfitPercent = getPercent(
+        record.myTreasuryPayout + (myFrameRevenue?.bitcoinFeeRevenue ?? 0n),
+        securitization + vaultActivatedCapital,
+      );
+
+      record.bitcoinChangeMicrogons = myFrameRevenue?.microgonLiquidityAdded ?? 0n;
+      if (rollingTreasuryCapital !== undefined) {
+        record.treasuryChangeMicrogons = trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
+      }
+      // NOTE: don't add to trailing capital since this is still being updated
+    } else if (myFrameRevenue) {
+      const {
+        securitizationRelockable,
+        securitizationActivated,
+        securitization,
+        bitcoinFeeRevenue,
+        microgonLiquidityAdded,
+        treasuryPool: {
+          externalCapital: poolExternalCapital,
+          vaultCapital: poolVaultCapital,
+          totalEarnings: poolTotalEarnings,
+          vaultEarnings: poolVaultEarnings,
+        },
+      } = myFrameRevenue;
+      const vaultActivatedCapital = poolExternalCapital + poolVaultCapital;
+      bitcoinPercentUsed = getPercent(securitizationActivated - (securitizationRelockable ?? 0n), securitization);
+      treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
+
+      record.myTreasuryPayout = poolTotalEarnings;
+      record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, treasuryAtFrame.capitalRaised);
+      record.bitcoinChangeMicrogons = microgonLiquidityAdded;
+      if (rollingTreasuryCapital !== undefined) {
+        record.treasuryChangeMicrogons = trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
+      }
+      record.frameProfitPercent = getPercent(
+        poolVaultEarnings + bitcoinFeeRevenue,
+        securitization + vaultActivatedCapital,
+      );
+
+      trailingTreasuryCapitalAmounts.unshift([vaultActivatedCapital, frameId]);
+      if (trailingTreasuryCapitalAmounts.length > 10) {
+        trailingTreasuryCapitalAmounts.length = 10;
+      }
+    }
+    // Always update the percents. If there's no frame entry, it means 0 activity that frame
+    record.treasuryPercentActivated = treasuryPercentActivated;
+    record.bitcoinPercentUsed = bitcoinPercentUsed;
+    record.profitMaximizationPercent = getPercent(bitcoinPercentUsed * treasuryPercentActivated, 100 * 100);
+  }
+
+  const items: IChartItem[] = [];
+  for (const [index, frame] of records.entries()) {
+    const item = {
+      id: frame.id,
+      date: frame.date,
+      score: Number(frame.myTreasuryPayout),
+      isFiller: false,
+      previous: items[index - 1],
+      next: undefined,
+    };
+    items.push(item);
+  }
+
+  for (const [index, item] of items.entries()) {
+    item.next = items[index + 1];
+  }
+
+  chartItems.value = items;
+  frameRecords.value = records;
 }
 
 Vue.onMounted(async () => {
   await vault.load();
   await vault.subscribe();
   await bitcoinLocks.load();
-  await bitcoinLocks.subscribe();
-  updateLockExpiration();
 
-  try {
-    saveRulesErrorMessage.value = '';
+  Vue.watch(
+    () => vaults.stats!.vaultsById,
+    () => loadChartData(),
+    { deep: true },
+  );
 
-    await vault.saveVaultRules({
-      argonKeyring: config.vaultingAccount,
-      bitcoinLocksStore: bitcoinLocks,
-      bip39Seed: config.bitcoinXprivSeed,
-      rules: vaultingRules,
-      txProgressCallback(progress: number) {
-        if (progress > 0) {
-          isSavingRules.value = true;
-        }
-        saveRulesProgressPct.value = progress;
-      },
-    });
-    saveRulesProgressPct.value = 100;
-    if (isSavingRules.value) {
-      setTimeout(() => (isSavingRules.value = false), 60000);
-    }
-  } catch (error) {
-    console.error('Error prebonding treasury pool:', error);
-    saveRulesErrorMessage.value = error instanceof Error ? error.message : `${error}`;
-    saveRulesProgressPct.value = 100;
-  }
+  const onFrameSubscription = await mining.onFrameId(async frameId => {
+    await loadChartData(frameId);
+  });
 
-  if (personalUtxo.value) {
-    const utxo = personalUtxo.value;
-    btcMarketRate.value = await vaults.getMarketRate(utxo.satoshis).catch(() => 0n);
-    if (utxo.status === 'releaseRequested' || utxo.status === 'vaultCosigned') {
-      showReleaseOverlay.value = true;
-    }
-    if (utxo.status === 'initialized') {
-      checkUnverifiedStatusInterval = setInterval(checkUnverifiedBitcoinStatus, 1000);
-    }
-    lockInitializeExpirationTime.value = dayjs(bitcoinLocks.verifyExpirationTime(utxo));
-  }
-});
+  const onTickSubscription = await mining.onTick(() => {
+    updateLatestFrameProgress();
+  });
 
-Vue.onUnmounted(() => {
-  vault.unsubscribe();
-  bitcoinLocks.unsubscribe();
-  if (checkUnverifiedStatusInterval) clearInterval(checkUnverifiedStatusInterval);
+  Vue.onUnmounted(() => {
+    onFrameSubscription.unsubscribe();
+    onTickSubscription.unsubscribe();
+    vault.unsubscribe();
+  });
+
+  await loadChartData();
 });
 </script>
 
@@ -450,18 +995,43 @@ Vue.onUnmounted(() => {
 @reference "../../main.css";
 
 [box] {
-  @apply min-h-20 rounded border-[1px] border-slate-400/30 bg-white py-2 shadow;
+  @apply rounded border-[1px] border-slate-400/30 bg-white py-2 shadow;
 }
 
 [stat-box] {
-  @apply flex flex-col items-center justify-center text-[#963EA7];
-
+  @apply text-argon-600 flex flex-col items-center justify-center;
   span {
-    @apply text-4xl font-bold;
+    @apply text-3xl font-bold;
   }
-
   label {
-    @apply mt-1 text-sm text-gray-500;
+    @apply group-hover:text-argon-600/60 mt-1 text-sm text-gray-500;
+  }
+}
+
+[spinner] {
+  @apply h-6 min-h-6 w-6 min-w-6;
+  &.active {
+    border-radius: 50%;
+    border: 10px solid;
+    border-color: rgba(166, 0, 212, 0.15) rgba(166, 0, 212, 0.25) rgba(166, 0, 212, 0.35) rgba(166, 0, 212, 0.5);
+    animation: rotation 1s linear infinite;
+  }
+}
+
+.fade-in-out {
+  animation: fadeInOut 1s ease-in-out infinite;
+  &:hover {
+    animation: none !important;
+  }
+}
+
+@keyframes fadeInOut {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
   }
 }
 </style>

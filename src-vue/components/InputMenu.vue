@@ -4,11 +4,12 @@
     <SelectTrigger
       data-testid="input-menu-trigger"
       ref="triggerInstance"
-      class="inline-flex w-full items-center justify-between rounded-md px-[10px] text-xs leading-none h-[30px] gap-[5px] bg-white hover:bg-stone-50 border border-slate-700/50 data-[placeholder]:text-gray-600 outline-none"
+      :class="triggerClasses"
     >
       <SelectValue class="whitespace-nowrap flex flex-row justify-between w-full font-mono text-sm">
         <span class="grow text-left">{{ selectedOption?.name|| 'Select Option...' }}</span>
         <span v-if="selectedOption?.microgons" class="text-right opacity-50 pl-5">{{ currency.symbol }}{{ microgonToMoneyNm(selectedOption.microgons).format('0,0.00') }}</span>
+        <span v-if="selectedOption?.sats" class="text-right opacity-50 pl-5 pr-2">{{selectedOption.sats}} sat{{selectedOption.sats > 1n ? 's' : ''}}/vbyte</span>
       </SelectValue>
       <div class="relative size-4">
         <ChevronDownIcon v-if="!showMenu" class="size-4 text-gray-400" />
@@ -46,6 +47,7 @@
             <SelectItemText class="whitespace-nowrap flex flex-row justify-between w-full font-mono text-sm">
               <span class="grow text-left">{{ option.name }}</span>
               <span v-if="option.microgons" class="text-right opacity-50 pl-5">{{ currency.symbol }}{{ microgonToMoneyNm(option.microgons).format('0,0.00') }}</span>
+              <span v-if="option.sats" class="text-right opacity-50 pl-5">{{option.sats}} sat{{option.sats > 1n ? 's' : ''}}/vbyte</span>
             </SelectItemText>
           </SelectItem>
         </SelectViewport>
@@ -79,7 +81,7 @@ import {
 const currency = useCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-export type IOption = { name: string; value: string; microgons?: bigint; disabled?: boolean };
+export type IOption = { name: string; value: string; microgons?: bigint; sats?: bigint; disabled?: boolean };
 
 const props = withDefaults(
   defineProps<{
@@ -87,6 +89,7 @@ const props = withDefaults(
     options: IOption[];
     disabled?: boolean;
     selectFirst?: boolean;
+    class?: string;
   }>(),
   {
     disabled: false,
@@ -103,9 +106,7 @@ const triggerInstance = Vue.ref<any>(null);
 
 const menuWidth = Vue.ref('auto');
 
-const selectedOption: Vue.Ref<IOption | undefined> = Vue.ref(
-  props.options.find(x => x.value === props.modelValue) || (props.selectFirst ? props.options[0] : undefined),
-);
+const selectedOption: Vue.Ref<IOption | undefined> = Vue.ref(undefined);
 
 const value = Vue.computed({
   get: () => props.modelValue,
@@ -117,6 +118,12 @@ const value = Vue.computed({
   },
 });
 
+const triggerClasses = Vue.computed(() => {
+  const defaultClasses =
+    'inline-flex w-full items-center justify-between rounded-md px-[10px] text-xs leading-none h-[30px] gap-[5px] bg-white hover:bg-stone-50 border border-slate-700/50 data-[placeholder]:text-gray-600 outline-none';
+  return props.class ? `${defaultClasses} ${props.class}` : defaultClasses;
+});
+
 function handleUpdateModelValue(option: IOption) {
   selectedOption.value = option;
   if (option.value !== undefined) {
@@ -124,18 +131,26 @@ function handleUpdateModelValue(option: IOption) {
   }
 }
 
-// function toggleMenu() {
-//   if (props.disabled) {
-//     return;
-//   }
-//   showMenu.value = !showMenu.value;
-// }
-
 function handleToggleOpen(isOpen: boolean) {
   const el = triggerInstance.value.$el as HTMLElement;
   const rect = el.getBoundingClientRect();
   menuWidth.value = `${rect.width}px`;
 }
+
+Vue.watch(
+  () => [props.modelValue, props.selectFirst, props.options],
+  () => {
+    const foundOption = props.options.find(x => x.value === props.modelValue);
+    if (foundOption) {
+      selectedOption.value = foundOption;
+    } else if (props.selectFirst && props.options.length > 0) {
+      selectedOption.value = props.options[0];
+    } else {
+      selectedOption.value = undefined;
+    }
+  },
+  { deep: true, immediate: true },
+);
 </script>
 
 <style scoped>

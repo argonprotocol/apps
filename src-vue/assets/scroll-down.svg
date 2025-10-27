@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="319px" height="38px" viewBox="0 0 319 38" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>Group</title>
-    <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" opacity="0.5">
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" opacity="0.5">
         <g id="Wireframe" transform="translate(-857.3133, -829.5)" stroke="#979797">
             <g id="Group" transform="translate(858, 830)">
                 <polyline id="Path" transform="translate(159, 22.5) scale(1, -1) translate(-159, -22.5)" points="0 37 159 8 318 37"></polyline>

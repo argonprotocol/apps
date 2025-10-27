@@ -76,7 +76,7 @@ export class VaultMonitor {
       this.updateVault(vaultId, rawVault);
     }
 
-    await client.query.liquidityPools.capitalRaising(x => {
+    await client.query.treasury.capitalRaising(x => {
       this.activatedCapitalByVault = {};
       for (const entry of x) {
         const vaultId = entry.vaultId.toNumber();
@@ -106,7 +106,7 @@ export class VaultMonitor {
         btcDeal: `${formatArgons(vault.terms.bitcoinBaseFee)} + ${formatPercent(vault.terms.bitcoinAnnualPercentRate)}`,
         securitization: `${formatArgons(vault.securitization)} at ${vault.securitizationRatio}x`,
         securActivated: `${formatArgons(vault.activatedSecuritizationPerSlot())}/slot`,
-        treasurySharing: `${formatPercent(vault.terms.liquidityPoolProfitSharing)} sharing`,
+        treasurySharing: `${formatPercent(vault.terms.treasuryProfitSharing)} sharing`,
         operator: `${this.accountset.namedAccounts.has(vault.operatorAccountId) ? ` (${this.accountset.namedAccounts.get(vault.operatorAccountId)})` : vault.operatorAccountId}`,
         state: vault.isClosed ? 'closed' : vault.openedDate < new Date() ? 'open' : 'pending',
       });

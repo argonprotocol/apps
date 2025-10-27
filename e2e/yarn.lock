@@ -5,11 +5,11 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"@argonprotocol/commander-e2e@workspace:.":
+"@argonprotocol/apps-e2e@workspace:.":
   version: 0.0.0-use.local
-  resolution: "@argonprotocol/commander-e2e@workspace:."
+  resolution: "@argonprotocol/apps-e2e@workspace:."
   dependencies:
-    "@argonprotocol/mainchain": "npm:^1.3.8"
+    "@argonprotocol/mainchain": "npm:^1.3.11"
     "@wdio/cli": "npm:9.19.2"
     "@wdio/globals": "npm:^9.17.0"
     "@wdio/local-runner": "npm:^9.19.2"
@@ -26,9 +26,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/mainchain@npm:^1.3.8":
-  version: 1.3.8
-  resolution: "@argonprotocol/mainchain@npm:1.3.8"
+"@argonprotocol/mainchain@npm:^1.3.11":
+  version: 1.3.11
+  resolution: "@argonprotocol/mainchain@npm:1.3.11"
   dependencies:
     "@polkadot/api": "npm:^16.4.4"
     "@polkadot/api-base": "npm:^16.4.4"
@@ -41,7 +41,7 @@ __metadata:
     "@polkadot/util-crypto": "npm:^13.5.5"
     bignumber.js: "npm:^9.3.1"
     bs58check: "npm:^4.0.0"
-  checksum: 10c0/5dd88dc34964973d20391e44dfb2563d6406ec69409c38e01e7b65d85784f18bed60b091f56c584494fd8a5bd29a4203b7475ce0abb6f04528eeb02e8515f1ca
+  checksum: 10c0/f5709b8192e7f547eb355bb446f746b821649c3126fa68987a527c00f743cd9a027a5f2a03cde21177df1e31a2d85088de8a8c980ba618c75c24b2c452da59a7
   languageName: node
   linkType: hard
 

@@ -10,7 +10,7 @@ LABEL snapshot.height=$SNAPSHOT_HEIGHT
 LABEL snapshot.network=$SNAPSHOT_NETWORK
 LABEL snapshot.utxohash=$UTXO_HASH
 LABEL org.opencontainers.image.revision=$COMMIT_SHA
-LABEL org.opencontainers.image.source=https://github.com/argonprotocol/commander
+LABEL org.opencontainers.image.source=https://github.com/argonprotocol/apps
 
 COPY splits/data.tar.aa* /init-data/.
 COPY splits/data.tar.ab* /init-data/.

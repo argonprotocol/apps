@@ -5,7 +5,7 @@ import { LocalMachine } from './LocalMachine';
 import { SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
 import { SSHFingerprint } from './SSHFingerprint';
-import { IS_TEST } from './Env';
+import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env';
 
 export class MiningMachineError extends Error {
   constructor(message: string) {
@@ -76,6 +76,7 @@ export class MiningMachine {
     }
 
     const apiKeyFingerprint = SSHFingerprint.createMD5(sshPublicKey);
+    const dropletName = `Argon-Investor-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
     const createRes = await fetch('https://api.digitalocean.com/v2/droplets', {
       method: 'POST',
       headers: {
@@ -84,7 +85,8 @@ export class MiningMachine {
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        name: 'Argon-Commander',
+        name: dropletName,
+        // TODO: pick closest to user jurisdiction
         region: 'sfo3',
         size: 's-4vcpu-8gb',
         image: 'ubuntu-25-04-x64',
@@ -200,7 +202,7 @@ export class MiningMachine {
       type: ServerType.LocalComputer,
       ipAddress: `127.0.0.1`,
       port: 0,
-      sshUser: 'root',
+      sshUser: 'argon',
       workDir: '/app',
     };
 
@@ -245,7 +247,7 @@ export class MiningMachine {
 
     const serverMeta = await (async () => {
       try {
-        return await SSH.tryConnection(newServerDetails, config.security.sshPrivateKeyPath);
+        return await SSH.tryConnection(newServerDetails);
       } catch {
         throw new MiningMachineError('A SSH connection could not be established to your server.');
       }

@@ -14,19 +14,19 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 let tauriDriver: ChildProcess | undefined;
 let exit = false;
 
-const COMMANDER_ROOT = path.resolve(__dirname, process.env.COMMANDER_ROOT ?? '..');
+const ARGON_APP_ROOT = path.resolve(__dirname, process.env.ARGON_APP_ROOT ?? '..');
 const DOCKER_LOG = Boolean(JSON.parse(process.env.DOCKER_LOG ?? 'true'));
 let ARGON_RPC_URL = 'ws://localhost:9944';
 const ARGON_CHAIN = 'dev-docker';
-const COMMANDER_INSTANCE = `e2e`;
+const ARGON_APP_INSTANCE = `e2e`;
 const DOCKER_ENV = {
   VERSION: 'dev',
   ARGON_CHAIN,
   RPC_PORT: '9944',
   BITCOIN_BLOCK_SECS: '20',
-  COMPOSE_PROJECT_NAME: `${ARGON_CHAIN}-${COMMANDER_INSTANCE}`,
+  COMPOSE_PROJECT_NAME: `${ARGON_CHAIN}-${ARGON_APP_INSTANCE}`,
 };
-const CONFIG_DIR = Path.join(os.homedir(), '.config', 'com.argon.commander', ARGON_CHAIN, COMMANDER_INSTANCE);
+const CONFIG_DIR = Path.join(os.homedir(), '.config', 'com.argon.apps', ARGON_CHAIN, ARGON_APP_INSTANCE);
 
 export function getArchiveUrl() {
   return ARGON_RPC_URL;
@@ -43,7 +43,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
     {
       maxInstances: 1,
       'tauri:options': {
-        application: `${COMMANDER_ROOT}/src-tauri/target/debug/Commander`,
+        application: `${ARGON_APP_ROOT}/src-tauri/target/debug/Investor Console`,
       },
     },
   ],
@@ -80,9 +80,9 @@ export const config: Options.Testrunner & { capabilities: any } = {
       await cleanupBeforeExit();
       process.exit(1);
     }
-    console.log('Building Tauri app...', COMMANDER_ROOT, os.homedir());
+    console.log('Building Tauri app...', ARGON_APP_ROOT, os.homedir());
     const buildResult = spawnSync('yarn', ['tauri', 'build', '--debug', '--no-bundle'], {
-      cwd: COMMANDER_ROOT,
+      cwd: ARGON_APP_ROOT,
       stdio: 'inherit',
       env: {
         PATH: `${os.homedir()}/.yarn/bin:${os.homedir()}/.cargo/bin:${process.env.PATH}:/usr/local/bin`,
@@ -103,7 +103,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
     tauriDriver = spawn(path.resolve(os.homedir(), '.cargo', 'bin', 'tauri-driver'), [], {
       stdio: [null, process.stdout, process.stderr],
       env: {
-        COMMANDER_INSTANCE,
+        ARGON_APP_INSTANCE,
         ARGON_NETWORK_NAME: ARGON_CHAIN,
         ...process.env,
       },

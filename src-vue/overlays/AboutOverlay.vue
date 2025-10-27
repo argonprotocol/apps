@@ -23,9 +23,9 @@
               cursor: draggable.isDragging ? 'grabbing' : 'default',
             }"
             class="absolute z-50 bg-white text-md border border-black/40 px-4 pt-6 pb-4 rounded-lg text-center shadow-xl w-80 overflow-scroll focus:outline-none"
-            >
+          >
             <img src="/app-icon.png" class="w-14 h-14 rounded-lg mx-auto" />
-            <DialogTitle class="font-bold mt-4">Argon Commander</DialogTitle>
+            <DialogTitle class="text-lg font-bold mt-4">Argon Investor Console</DialogTitle>
             <div class="flex flex-col gap-2 border-y border-black/10 py-4 mt-4">
               <div>Version: {{ config.version }}</div>
               <div>OS: {{ platformName }} {{ platformVersion }}</div>
@@ -33,7 +33,7 @@
               <div>Internal Tauri Port: {{ INSTANCE_PORT }}</div>
               <div>Argon Network: {{ NETWORK_NAME }}</div>
             </div>
-            <div class="flex justify-center gap-2 mt-4">
+            <div class="flex justify-center gap-3 mt-4 mx-5">
               <button @click="copyDetails" class="w-1/2 cursor-pointer bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 inner-button-shadow text-slate-900 px-4 py-1 rounded-lg focus:outline-none">
                 {{ wasCopied ? 'Copied!' : 'Copy' }}
               </button>

@@ -49,7 +49,12 @@ export class Db {
     }
   }
 
+  private writesPaused = false;
+
   async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
+    if (this.writesPaused) {
+      return { rowsAffected: 0 };
+    }
     try {
       return await this.sql.execute(query, bindValues);
     } catch (error) {
@@ -71,9 +76,18 @@ export class Db {
     await this.sql.close();
   }
 
+  public pauseWrites() {
+    this.writesPaused = true;
+  }
+
+  public resumeWrites() {
+    this.writesPaused = false;
+  }
+
   public async reconnect() {
-    const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
-    this.sql = sql;
+    this.writesPaused = false;
+
+    this.sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
   }
 
   public static get relativeDir() {

@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { ask as askDialog } from '@tauri-apps/plugin-dialog';
 import { getMainchainClients } from './mainchain.ts';
-import handleUnknownFatalError from './helpers/handleUnknownFatalError.ts';
+import handleFatalError from './helpers/handleFatalError.ts';
 import { useConfig } from './config.ts';
 import { createDeferred } from '../lib/Utils.ts';
 import { useStats } from './stats.ts';
@@ -10,7 +10,7 @@ import { useCurrency } from './currency.ts';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
 import { IWallet as IWalletBasic, WalletBalances } from '../lib/WalletBalances.ts';
-import { MiningFrames } from '@argonprotocol/commander-core';
+import { MiningFrames } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 
 const config = useConfig();
@@ -44,30 +44,76 @@ export const useWallets = defineStore('wallets', () => {
     reservedMicronots: 0n,
   });
 
-  const miningSeatValue = Vue.computed(() => {
-    let previousHistoryValue = 0n;
+  const previousHistoryValue = Vue.computed(() => {
+    if (!config.miningAccountPreviousHistory) return;
+    const bids = { microgons: 0n, micronots: 0n };
+    const seats = { microgons: 0n, micronots: 0n };
 
-    for (const item of config.miningAccountPreviousHistory || []) {
-      previousHistoryValue += item.seats.reduce((acc, seat) => {
-        const { microgonsBid } = seat;
-        const remainingPercent = new BigNumber(1).minus(MiningFrames.calculateCohortProgress(item.frameId));
-        const remainingValue = Math.floor(remainingPercent.times(microgonsBid.toString()).toNumber());
-        return acc + BigInt(remainingValue);
-      }, 0n);
+    for (const item of config.miningAccountPreviousHistory) {
+      for (const seat of item.seats) {
+        seats.microgons += seat.microgonsBid;
+        seats.micronots += seat.micronotsStaked;
+      }
+      for (const bid of item.bids) {
+        bids.microgons += bid.microgonsBid;
+        bids.micronots += bid.micronotsStaked;
+      }
     }
-    return stats.myMiningSeats.microgonValueRemaining + previousHistoryValue;
+
+    return { bids, seats };
+  });
+
+  const miningSeatMicrogons = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.seats.microgons;
+    }
+    return stats.myMiningSeats.microgonValueRemaining;
+  });
+
+  const miningSeatMicronots = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.seats.micronots;
+    }
+    return stats.myMiningSeats.micronotsStakedTotal;
+  });
+
+  const miningBidMicrogons = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.bids.microgons;
+    }
+    return stats.myMiningBids.microgonsBidTotal;
+  });
+
+  const miningBidMicronots = Vue.computed(() => {
+    const previousHistory = previousHistoryValue.value;
+    if (previousHistory) {
+      return previousHistory.bids.micronots;
+    }
+    return stats.myMiningBids.micronotsStakedTotal;
+  });
+
+  const miningSeatValue = Vue.computed(() => {
+    return miningSeatMicrogons.value + currency.micronotToMicrogon(miningSeatMicronots.value);
   });
 
   const miningBidValue = Vue.computed(() => {
-    let previousHistoryValue = 0n;
-    for (const item of config.miningAccountPreviousHistory || []) {
-      previousHistoryValue += item.bids.reduce((acc, bid) => acc + bid.microgonsBid, 0n);
-    }
-    return stats.myMiningBids.microgonsBidTotal + previousHistoryValue;
+    return miningBidMicrogons.value + currency.micronotToMicrogon(miningBidMicronots.value);
   });
 
   const totalMiningMicrogons = Vue.computed(() => {
-    return miningWallet.availableMicrogons + miningSeatValue.value + miningBidValue.value;
+    return (
+      miningWallet.availableMicrogons +
+      miningSeatMicrogons.value +
+      miningBidMicrogons.value -
+      config.biddingRules.sidelinedMicrogons
+    );
+  });
+
+  const totalMiningMicronots = Vue.computed(() => {
+    return miningWallet.availableMicronots + miningWallet.reservedMicronots - config.biddingRules.sidelinedMicronots;
   });
 
   const totalVaultingMicrogons = Vue.computed(() => {
@@ -79,7 +125,6 @@ export const useWallets = defineStore('wallets', () => {
     return (
       miningWallet.availableMicrogons +
       currency.micronotToMicrogon(miningWallet.availableMicronots) +
-      currency.micronotToMicrogon(miningWallet.reservedMicronots) +
       miningSeatValue.value +
       miningBidValue.value
     );
@@ -112,11 +157,13 @@ export const useWallets = defineStore('wallets', () => {
     miningWallet.availableMicrogons = walletBalances.miningWallet.availableMicrogons;
     miningWallet.availableMicronots = walletBalances.miningWallet.availableMicronots;
     miningWallet.reservedMicronots = walletBalances.miningWallet.reservedMicronots;
+    miningWallet.reservedMicrogons = walletBalances.miningWallet.reservedMicrogons;
 
     vaultingWallet.address = walletBalances.vaultingWallet.address;
     vaultingWallet.availableMicrogons = walletBalances.vaultingWallet.availableMicrogons;
     vaultingWallet.availableMicronots = walletBalances.vaultingWallet.availableMicronots;
     vaultingWallet.reservedMicronots = walletBalances.vaultingWallet.reservedMicronots;
+    vaultingWallet.reservedMicrogons = walletBalances.vaultingWallet.reservedMicrogons;
   };
 
   async function load() {
@@ -127,7 +174,6 @@ export const useWallets = defineStore('wallets', () => {
           miningAccountAddress: config.miningAccount.address,
           vaultingAccountAddress: config.vaultingAccount.address,
         });
-        await walletBalances.updateBalances();
         await walletBalances.subscribeToBalanceUpdates();
         await Promise.all([stats.isLoadedPromise, currency.isLoadedPromise]);
         isLoadedResolve();
@@ -146,7 +192,7 @@ export const useWallets = defineStore('wallets', () => {
 
   load().catch(error => {
     console.log('Error loading wallets:', error);
-    void handleUnknownFatalError();
+    void handleFatalError.bind('useWallets')(error);
     isLoadedReject();
   });
 
@@ -168,7 +214,12 @@ export const useWallets = defineStore('wallets', () => {
     totalWalletMicronots,
     miningSeatValue,
     miningBidValue,
+    miningSeatMicrogons,
+    miningSeatMicronots,
+    miningBidMicrogons,
+    miningBidMicronots,
     totalMiningMicrogons,
+    totalMiningMicronots,
     totalVaultingMicrogons,
     totalMiningResources,
     totalVaultingResources,

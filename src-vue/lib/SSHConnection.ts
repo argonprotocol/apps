@@ -1,4 +1,4 @@
-import { invoke, invokeWithTimeout } from './tauriApi';
+import { invokeWithTimeout } from './tauriApi';
 import { listen } from '@tauri-apps/api/event';
 import { IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
 
@@ -48,7 +48,7 @@ export class SSHConnection {
         return;
       }
       try {
-        await invoke('open_ssh_connection', sshConfig);
+        await invokeWithTimeout('open_ssh_connection', sshConfig, 30e3);
         this.isConnected = true;
         resolve();
       } catch (error) {

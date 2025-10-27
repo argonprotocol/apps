@@ -118,7 +118,7 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.bids = [
       ...createBids(6, Argons(4.1)),
       ...cohortBidder.subaccounts.slice(0, 4).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
     ];
     cohortBidder.currentBids.atTick = 10;
@@ -138,7 +138,7 @@ describe('CohortBidder unit tests', () => {
     });
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 4).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(6, Argons(3.5)),
     ];
@@ -177,11 +177,12 @@ describe('CohortBidder unit tests', () => {
       minBid: Argons(3),
       maxBid: Argons(5.5),
       accountBalance: Argons(40 + 0.06 - 3 * 3.53),
+      sidelinedWalletMicrogons: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(1, Argons(4.1)),
       ...cohortBidder.subaccounts.slice(0, 3).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(3.53), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(3.53), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(4, Argons(3.51)),
       ...createBids(2, Argons(3.5)),
@@ -203,7 +204,7 @@ describe('CohortBidder unit tests', () => {
     });
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 1).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address, micronotsStaked: 10_000n };
       }),
     ];
     cohortBidder.currentBids.atTick = 10;
@@ -223,7 +224,7 @@ describe('CohortBidder unit tests', () => {
     });
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 1).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(10), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(5, Argons(1)),
       ...createBids(4, Argons(0.5)),
@@ -243,11 +244,12 @@ describe('CohortBidder unit tests', () => {
       maxBid: Argons(8),
       bidIncrement: Argons(1),
       accountBalance: Argons(40 + 0.06 - 4),
+      sidelinedWalletMicrogons: Argons(40 + 0.06),
     });
     cohortBidder.currentBids.bids = [
       ...createBids(2, Argons(10)),
       ...cohortBidder.subaccounts.slice(0, 1).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
       ...createBids(3, Argons(4)),
       ...createBids(2, Argons(4)),
@@ -272,7 +274,7 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.bids = [
       ...createBids(3, Argons(10)),
       ...cohortBidder.subaccounts.slice(0, 7).map(x => {
-        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address };
+        return { bidAtTick: 10, bidMicrogons: Argons(4), address: x.address, micronotsStaked: 10_000n };
       }),
     ];
     cohortBidder.currentBids.atTick = 10;
@@ -286,6 +288,64 @@ describe('CohortBidder unit tests', () => {
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
     expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-budget-too-low');
   });
+
+  it('should be not exceed available argonots', async () => {
+    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 20_000n, // max of 2 seats worth
+      sidelinedWalletMicrogons: Argons(5),
+    });
+    cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
+    cohortBidder.currentBids.atTick = 10;
+    const onBidParamsAdjusted = vi.fn();
+    cohortBidder.callbacks = {
+      onBidParamsAdjusted,
+    };
+
+    // @ts-expect-error - private var
+    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
+    expect(submitBids).toHaveBeenCalledTimes(1);
+    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
+    expect(microgonsPerSeat).toBe(Argons(0.51));
+    expect(accountsToBidWith.length).toBe(2);
+  });
+
+  it('should be able to set a max argonot budget', async () => {
+    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 100_000n, // max of 2 seats worth
+      sidelinedWalletMicrogons: Argons(5),
+    });
+    cohortBidder.options.sidelinedWalletMicronots = 30_000n; // max of 3 seats worth
+    cohortBidder.currentBids.bids = [
+      ...cohortBidder.subaccounts.slice(0, 2).map(x => {
+        return { bidAtTick: 10, bidMicrogons: Argons(1), address: x.address, micronotsStaked: 10_000n };
+      }),
+      ...createBids(8, Argons(0.5)),
+    ];
+    // @ts-expect-error - private var
+    cohortBidder.lastLoggedSeatsInBudget = 4;
+    cohortBidder.currentBids.atTick = 10;
+    const onBidParamsAdjusted = vi.fn();
+    cohortBidder.callbacks = {
+      onBidParamsAdjusted,
+    };
+
+    // @ts-expect-error - private var
+    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
+    expect(submitBids).toHaveBeenCalledTimes(1);
+    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
+    expect(microgonsPerSeat).toBe(Argons(0.51));
+    expect(accountsToBidWith.length).toBe(1);
+
+    expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
+    expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-budget-too-low');
+    expect(onBidParamsAdjusted.mock.calls[0][0].availableMicronots).toBe(10_000n);
+  });
 });
 
 function Argons(amount: number): bigint {
@@ -296,14 +356,14 @@ function createBids(count: number, bidMicrogons: bigint, atTick: number = 100) {
   return Array(count)
     .fill(0)
     .map((_, i) => {
-      return { bidAtTick: atTick, bidMicrogons: bidMicrogons, address: `5EANERnc__${i}` };
+      return { bidAtTick: atTick, bidMicrogons: bidMicrogons, address: `5EANERnc__${i}`, micronotsStaked: 10_000n };
     });
 }
 
 async function createBidderWithMocks(
   accountset: Accountset,
   subaccountRange: [number, number],
-  options: Partial<ICohortBidderOptions> & { accountBalance: bigint },
+  options: Partial<ICohortBidderOptions> & { accountBalance: bigint; accountMicronots?: bigint },
 ) {
   const range = Array.from({ length: subaccountRange[1] - subaccountRange[0] + 1 }, (_, i) => i + subaccountRange[0]);
   const subaccounts = accountset.getAccountsInRange(range).map(account => {
@@ -315,18 +375,23 @@ async function createBidderWithMocks(
   });
   options.maxBid ??= 1_000_000n;
   options.minBid ??= 500_000n;
-  options.maxBudget ??= options.accountBalance;
+  options.sidelinedWalletMicrogons ??= options.accountBalance;
   options.bidIncrement ??= 10_000n;
   options.bidDelay ??= 1;
 
   const cohortBidder = new CohortBidder(accountset, 10, subaccounts, options as ICohortBidderOptions);
   // @ts-expect-error - private var
   cohortBidder.nextCohortSize = 10;
+  // @ts-expect-error - private var
+  cohortBidder.micronotsPerSeat = 10_000n;
   vi.spyOn(cohortBidder, 'estimateFee' as any).mockImplementation(() => {
     return 60_000n;
   });
   vi.spyOn(accountset, 'submitterBalance').mockImplementation(() => {
     return Promise.resolve(options.accountBalance);
+  });
+  vi.spyOn(accountset, 'submitterMicronots').mockImplementation(() => {
+    return Promise.resolve(options.accountMicronots ?? 100_000n);
   });
 
   const submitBids = vi.fn().mockImplementation(() => Promise.resolve());
@@ -402,27 +467,41 @@ describeIntegration('Cohort Integration Bidder tests', () => {
       async onBiddingStart(cohortStartingFrameId) {
         if (bobBidder) return;
         console.log(`Cohort ${cohortStartingFrameId} started bidding`);
-        bobBidder = new CohortBidder(bob, cohortStartingFrameId, await bob.getAvailableMinerAccounts(10), {
-          minBid: 10_000n,
-          maxBid: 5_000_000n,
-          maxBudget: 25_000_000n,
-          bidIncrement: 1_000_000n,
-          bidDelay: 0,
-        });
-        aliceBidder = new CohortBidder(alice, cohortStartingFrameId, await alice.getAvailableMinerAccounts(10), {
-          minBid: 10_000n,
-          maxBid: 4_000_000n,
-          maxBudget: 40_000_000n,
-          bidIncrement: 1_000_000n,
-          bidDelay: 0,
-        });
+        bobBidder = new CohortBidder(
+          bob,
+          cohortStartingFrameId,
+          await bob.getAvailableMinerAccounts(10),
+          {
+            minBid: 10_000n,
+            maxBid: 5_000_000n,
+            sidelinedWalletMicrogons: 25_000_000n,
+            bidIncrement: 1_000_000n,
+            bidDelay: 0,
+          },
+          undefined,
+          `Bob #${cohortStartingFrameId}`,
+        );
+        aliceBidder = new CohortBidder(
+          alice,
+          cohortStartingFrameId,
+          await alice.getAvailableMinerAccounts(10),
+          {
+            minBid: 10_000n,
+            maxBid: 4_000_000n,
+            sidelinedWalletMicrogons: 40_000_000n,
+            bidIncrement: 1_000_000n,
+            bidDelay: 0,
+          },
+          undefined,
+          `Alice #${cohortStartingFrameId}`,
+        );
         await bobBidder.start();
         await aliceBidder.start();
       },
       async onBiddingEnd(cohortStartingFrameId) {
         console.log(`Cohort ${cohortStartingFrameId} ended bidding`);
-        await aliceBidder.stop();
-        await bobBidder.stop();
+        await aliceBidder.stop(true);
+        await bobBidder.stop(true);
         waitForStopPromise();
       },
     });
@@ -469,8 +548,10 @@ describeIntegration('Cohort Integration Bidder tests', () => {
     };
     console.log({ cohortStartingFrameId, aliceStats, bobStats });
 
-    const bobActive = bobMiners.filter(x => x.seat !== undefined);
-    const aliceActive = aliceMiners.filter(x => x.seat !== undefined);
+    const bobActive = bobMiners.filter(x => x.seat !== undefined && x.seat.startingFrameId === cohortStartingFrameId);
+    const aliceActive = aliceMiners.filter(
+      x => x.seat !== undefined && x.seat.startingFrameId === cohortStartingFrameId,
+    );
 
     expect(bobActive.length).toBe(bobStats.seatsWon);
     expect(bobBidder!.bidsAttempted).toBeGreaterThanOrEqual(4);

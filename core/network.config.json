@@ -2,16 +2,16 @@
   "dev-docker": {
     "archiveUrl": "ws://localhost:9944",
     "tickMillis": 2000,
-    "bitcoinBlockMillis": 2000,
-    "esploraHost": "http://localhost:55200",
+    "bitcoinBlockMillis": 20000,
+    "esploraHost": "http://localhost:55031",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 879927808,
-    "biddingStartTick": 879927808
+    "genesisTick": 880575253,
+    "biddingStartTick": 880575253
   },
   "localnet": {
     "archiveUrl": "ws://localhost:9944",
-    "tickMillis": 2000,
+    "tickMillis": 10000,
     "bitcoinBlockMillis": 100000,
     "esploraHost": "http://localhost:3002",
     "ticksBetweenFrames": 10,

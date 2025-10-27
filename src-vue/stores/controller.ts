@@ -4,7 +4,7 @@ import basicEmitter from '../emitters/basicEmitter';
 import { useConfig, type Config } from './config';
 import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '../lib/Utils';
-import handleUnknownFatalError from './helpers/handleUnknownFatalError';
+import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
 import { PanelKey } from '../interfaces/IConfig';
 
@@ -17,6 +17,8 @@ export const useController = defineStore('controller', () => {
   const panelKey = Vue.ref<PanelKey>('' as PanelKey);
 
   const isImporting = Vue.ref(false);
+  const stopSuggestingBotTour = Vue.ref(false);
+  const stopSuggestingVaultTour = Vue.ref(false);
 
   function setPanelKey(value: PanelKey) {
     if (panelKey.value === value) return;
@@ -47,13 +49,15 @@ export const useController = defineStore('controller', () => {
     isImporting.value = false;
   }
 
-  load().catch(handleUnknownFatalError);
+  load().catch(handleFatalError.bind('useController'));
 
   return {
     panelKey,
     isLoaded,
     isLoadedPromise,
     isImporting,
+    stopSuggestingBotTour,
+    stopSuggestingVaultTour,
     importFromFile,
     importFromMnemonic,
     setPanelKey,

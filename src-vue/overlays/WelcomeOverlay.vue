@@ -25,7 +25,7 @@
                 class="flex flex-row justify-between items-center py-4 px-5 mx-2 text-2xl font-bold text-slate-800/70 border-b border-slate-300 select-none"
                 @mousedown="draggable.onMouseDown($event)"
               >
-                <DialogTitle class="grow pt-1">Welcome to Commander</DialogTitle>
+                <DialogTitle class="grow pt-1">Welcome to Argon Investor Console</DialogTitle>
               </h2>
               <div class="mx-2 pl-5 pr-10 pt-5 space-y-3 font-light leading-6">
                 <p>
@@ -36,7 +36,7 @@
 
                 <p>
                   This app is built for a select group of early insiders who want to participate in running Argon's blockchain -- whether by 
-                  mining new blocks or by vaulting to help stabilize the currency. Commander guides you through setting up operations, handling 
+                  mining new blocks or by vaulting to help stabilize the currency. Argon Investor guides you through setting up operations, handling 
                   governance, and monitoring your capital flows. We recommend starting with the quick tour to get familiar.
                 </p>
               </div>

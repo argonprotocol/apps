@@ -219,6 +219,31 @@ export class Mining {
     return bigNumberToBigInt(amountToMinerPercent.times(totalRewards));
   }
 
+  public async onTick(callback: (tick: number) => Promise<void> | void): Promise<{ unsubscribe: () => void }> {
+    const client = await this.prunedClientOrArchivePromise;
+    const unsubscribe = await client.query.ticks.currentTick(async tick => {
+      try {
+        await callback(tick.toNumber());
+      } catch (err) {
+        console.error(`Error in onTick(${tick.toNumber()}) callback:`, err);
+      }
+    });
+    return { unsubscribe };
+  }
+
+  public async onFrameId(callback: (frameId: number) => Promise<void> | void): Promise<{ unsubscribe: () => void }> {
+    const client = await this.prunedClientOrArchivePromise;
+    const unsubscribe = await client.query.miningSlot.nextFrameId(async frameId => {
+      const currentFrameId = frameId.toNumber() - 1;
+      try {
+        await callback(currentFrameId);
+      } catch (err) {
+        console.error(`Error in onFrameId(${currentFrameId}) callback:`, err);
+      }
+    });
+    return { unsubscribe };
+  }
+
   public async getCurrentFrameId(): Promise<number> {
     const client = await this.prunedClientOrArchivePromise;
     const nextFrameId = await client.query.miningSlot.nextFrameId();

@@ -87,7 +87,7 @@
         <div
           class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
           <div
-            v-if="!config.isMinerInstalled && !hasVault"
+            v-if="!config.isMinerInstalled && installer.isFreshInstall && !hasVault"
             class="flex w-110 flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80">
             <p>This is where you'll be notified of important alerts such as when your mining bot's capital runs low.</p>
             <table class="mt-3 w-full text-left whitespace-nowrap">
@@ -114,7 +114,7 @@
                     {{ micronotToArgonotNm(wallets.vaultingWallet.availableMicronots).format('0,0.[00]') }}
                   </td>
                   <td class="group-hover:text-argon-600 group-hover:bg-argon-100/20 text-right">
-                    {{ micronotToArgonotNm(wallets.totalMiningMicrogons).format('0,0.[00]') }}
+                    {{ micronotToArgonotNm(wallets.totalMiningMicronots).format('0,0.[00]') }}
                   </td>
                 </tr>
               </tbody>
@@ -147,9 +147,15 @@
               </header>
               <p class="mt-px py-1 opacity-80">
                 Your account has
-                {{ micronotToArgonotNm(micronotsTotal).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
+                {{
+                  micronotToArgonotNm(wallets.totalMiningMicronots).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
+                }}
                 argonot{{
-                  micronotToArgonotNm(micronotsTotal).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
+                  micronotToArgonotNm(wallets.totalMiningMicronots).formatIfElse(
+                    '< 100',
+                    '0,0.[000000]',
+                    '0,0.[00]',
+                  ) === '1'
                     ? ''
                     : 's'
                 }}
@@ -162,11 +168,9 @@
                     : 's'
                 }}
                 ({{
-                  microgonToArgonNm(wallets.miningWallet.availableMicrogons).formatIfElse(
-                    '< 100',
-                    '0,0.[000000]',
-                    '0,0.[00]',
-                  )
+                  microgonToArgonNm(
+                    wallets.miningWallet.availableMicrogons - (config.biddingRules.sidelinedMicrogons ?? 0n),
+                  ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
                 }}
                 are currently available to spend), which gives your bot enough capital to fully operate. However, you
                 can always add more capital.
@@ -174,7 +178,7 @@
               <div class="mt-1 flex flex-row items-center gap-x-3">
                 <div class="text-argon-600 cursor-pointer" @click="openFundMiningAccountOverlay">Add More Capital</div>
                 <div class="h-4 w-px bg-slate-400/80"></div>
-                <div class="text-argon-600 cursor-pointer" @click="openBotOverlay">Modify Bidding Rules</div>
+                <div class="text-argon-600 cursor-pointer" @click="openBotCreateOverlay">Modify Bidding Rules</div>
               </div>
               <!-- <table class="w-full text-left mt-3 mb-5 whitespace-nowrap">
                 <thead>
@@ -187,7 +191,7 @@
                 <tbody>
                   <tr>
                     <td>
-                      {{ microgonToArgonNm(config.biddingRules?.baseMicrogonCommitment || 0n).format('0,0.[00000000]') }}
+                      {{ microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0,0.[00000000]') }}
                       ARGNs
                     </td>
                     <td>{{ microgonToArgonNm(reinvestedEarnings || 0n).format('0,0.[00000000]') }} ARGNs</td>
@@ -212,7 +216,21 @@
                 <span>Your Mining Account Is Lacking Funds</span>
               </header>
               <p class="mt-px py-1 opacity-80">
-                Your accounts needs 1,000 ARGNs and 2 ARGNOTs in order to fully operate according to your bidding rules.
+                Your account needs
+                {{ micronotToArgonotNm(miningMicrogonsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
+                argon{{
+                  microgonToArgonNm(miningMicrogonsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
+                    ? ''
+                    : 's'
+                }}
+                and
+                {{ microgonToArgonNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
+                argonot{{
+                  micronotToArgonotNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
+                    ? ''
+                    : 's'
+                }}
+                in order to fully operate according to your bidding rules.
               </p>
               <div class="mt-2 flex flex-row gap-x-2">
                 <button
@@ -228,8 +246,24 @@
                 <span>Your Mining Account Has Excess Funds</span>
               </header>
               <p class="mt-px py-1 opacity-80">
-                Your account has an extra 10 ARGNs sitting unused. This isn't causing harm, but it's also not generating
-                yield on your asset.
+                Your account has an extra
+                {{
+                  microgonToArgonNm(config.biddingRules.sidelinedMicrogons ?? 0n).formatIfElse(
+                    '< 100',
+                    '0,0.[000000]',
+                    '0,0.[00]',
+                  )
+                }}
+                argon{{
+                  microgonToArgonNm(config.biddingRules.sidelinedMicrogons ?? 0n).formatIfElse(
+                    '< 100',
+                    '0,0.[000000]',
+                    '0,0.[00]',
+                  ) === '1'
+                    ? ''
+                    : 's'
+                }}
+                sitting unused. This isn't causing harm, but it's also not generating yield on your asset.
               </p>
               <div class="mt-2 flex flex-row gap-x-2">
                 <button
@@ -268,7 +302,13 @@
                 <span>Your Vaulting Account Is Lacking Funds</span>
               </header>
               <p class="mt-px py-1 opacity-80">
-                Your accounts needs 1,000 ARGNs and 2 ARGNOTs in order to fully operate your vault effeciently.
+                Your accounts needs
+                {{
+                  microgonToArgonNm(
+                    config.vaultingRules.baseMicrogonCommitment - wallets.totalVaultingMicrogons,
+                  ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
+                }}
+                argons in order to fully operate your vault efficiently.
               </p>
               <div class="mt-2 flex flex-row gap-x-2">
                 <button
@@ -278,14 +318,48 @@
                 </button>
               </div>
             </div>
-            <div v-else class="rounded-md bg-yellow-500/10 px-4 py-4">
+            <div v-else-if="vaultingStatus === 'WaitingForFunding'" class="rounded-md bg-yellow-500/10 px-4 py-4">
+              <header class="flex flex-row items-center gap-x-2 text-lg font-bold whitespace-nowrap text-yellow-600">
+                <StatusNeutral class="h-5 w-5" />
+                <span>Your Vaulting is Waiting for Funding</span>
+              </header>
+              <p class="mt-px py-1 opacity-80">
+                Your accounts needs
+                {{
+                  microgonToArgonNm(
+                    config.vaultingRules.baseMicrogonCommitment - wallets.totalVaultingMicrogons,
+                  ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
+                }}
+                argons in order to complete your initial vault setup.
+              </p>
+              <div class="mt-2 flex flex-row gap-x-2">
+                <button
+                  @click="openFundVaultingAccountOverlay"
+                  class="cursor-pointer rounded-md border border-yellow-600 px-4 py-1.5 font-bold text-yellow-700/70 hover:bg-yellow-600/10">
+                  Transfer Tokens Into Account
+                </button>
+              </div>
+            </div>
+            <div v-else-if="vaultingStatus === 'Overfunded'" class="rounded-md bg-yellow-500/10 px-4 py-4">
               <header class="flex flex-row items-center gap-x-2 text-lg font-bold whitespace-nowrap text-yellow-600">
                 <StatusNeutral class="h-5 w-5" />
                 <span>Your Vaulting Account Has Excess Funds</span>
               </header>
               <p class="mt-px py-1 opacity-80">
-                Your account has an extra 10 ARGNs sitting unused. This isn't causing harm, but they're also not
-                generating yield.
+                Your account has an extra
+                {{
+                  microgonToArgonNm(
+                    wallets.vaultingWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
+                  ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
+                }}
+                argon{{
+                  microgonToArgonNm(
+                    wallets.vaultingWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
+                  ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
+                    ? ''
+                    : 's'
+                }}
+                sitting unused. This isn't causing harm, but they're also not generating yield.
               </p>
               <div class="mt-2 flex flex-row gap-x-2">
                 <button
@@ -323,9 +397,10 @@ import CheckboxIcon from '../assets/checkbox.svg';
 import { Motion } from 'motion-v';
 import basicEmitter from '../emitters/basicEmitter';
 import { createNumeralHelpers } from '../lib/numeral';
-import { useStats } from '../stores/stats';
 import { useInstaller } from '../stores/installer';
 import { useMyVault } from '../stores/vaults';
+import { getBiddingCalculator } from '../stores/mainchain.ts';
+import { bigIntMax } from '@argonprotocol/apps-core';
 
 enum Status {
   WaitingForSetup = 'WaitingForSetup',
@@ -348,23 +423,22 @@ const wallets = useWallets();
 const currency = useCurrency();
 const installer = useInstaller();
 const myVault = useMyVault();
-const stats = useStats();
+const calculator = getBiddingCalculator();
+
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 
 const eyeballsElem = Vue.ref<HTMLElement | null>(null);
 
-const reinvestedEarnings = Vue.computed(() => {
-  return stats.accruedMicrogonProfits;
+const minimumBiddingMicrogonsForGoal = Vue.ref(0n);
+const minimumBiddingMicronotsForGoal = Vue.ref(0n);
+const miningMicronotsNeeded = Vue.computed(() => {
+  return bigIntMax(minimumBiddingMicronotsForGoal.value - wallets.totalMiningMicronots, 0n);
 });
 
-const totalBiddingBudget = Vue.computed(() => {
-  return (config.biddingRules?.baseMicrogonCommitment || 0n) + reinvestedEarnings.value;
-});
-
-const micronotsTotal = Vue.computed(() => {
-  return wallets.miningWallet.availableMicronots + wallets.miningWallet.reservedMicronots;
+const miningMicrogonsNeeded = Vue.computed(() => {
+  return bigIntMax(minimumBiddingMicrogonsForGoal.value - wallets.totalMiningMicrogons, 0n);
 });
 
 const hasVault = Vue.computed(() => {
@@ -376,15 +450,9 @@ const miningStatus = Vue.computed<Status>(() => {
     return Status.WaitingForSetup;
   } else if (!config.isMinerReadyToInstall && wallets.miningWallet.availableMicrogons === 0n) {
     return Status.WaitingForFunding;
+  } else if (miningMicrogonsNeeded.value > 0n || miningMicrogonsNeeded.value > 0n) {
+    return Status.Underfunded;
   }
-
-  // const capitalCommited = config.biddingRules.baseMicrogonCommitment + reinvestedEarnings.value;
-  // const capitalFound = wallets.miningWallet.availableMicrogons + stats.myMiningBids.microgonsBid + stats.myMiningSeats.value;
-  // if bot.maxSeatsPossible + stats.myMiningSeats.value > 10
-
-  // if (wallets.miningWallet.microgonsBid < 1_000) {
-  //   return 'underfunded';
-  // }
   return Status.Funded;
 });
 
@@ -420,13 +488,9 @@ function openFundVaultingAccountOverlay() {
   basicEmitter.emit('openWalletOverlay', { walletId: 'vaulting', screen: 'receive' });
 }
 
-function openBotOverlay() {
+function openBotCreateOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openBotOverlay');
-}
-
-function createStabilizationVault() {
-  basicEmitter.emit('openVaultOverlay');
+  basicEmitter.emit('openBotEditOverlay');
 }
 
 const eyeballXPosition = Vue.ref(50);
@@ -478,12 +542,21 @@ function clickOutside(e: PointerDownOutsideEvent) {
 }
 
 // Lifecycle hooks
-Vue.onMounted(() => {
+Vue.onMounted(async () => {
   document.addEventListener('mousemove', handleMouseMove);
-});
+  await config.isLoadedPromise;
 
-Vue.onUnmounted(() => {
-  document.removeEventListener('mousemove', handleMouseMove);
+  const loadSubscription = calculator.onLoad(() => {
+    const minimumCapitalRequirement = calculator.minimumCapitalRequirement(config.biddingRules);
+    minimumBiddingMicrogonsForGoal.value = minimumCapitalRequirement.startingMicrogons;
+    minimumBiddingMicronotsForGoal.value = minimumCapitalRequirement.micronots;
+  });
+  void calculator.load();
+
+  Vue.onMounted(() => {
+    loadSubscription.unsubscribe();
+    document.removeEventListener('mousemove', handleMouseMove);
+  });
 });
 </script>
 

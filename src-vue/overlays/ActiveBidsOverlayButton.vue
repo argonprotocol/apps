@@ -3,7 +3,7 @@
   <Popover as="div" class="relative">
     <PopoverButton class="focus:outline-none">
       <slot>
-        <span class="border border-argon-300 text-center text-lg font-bold mt-10 whitespace-nowrap text-argon-600 px-7 py-2 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+        <span class="cursor-pointer border border-argon-300 text-center text-lg font-bold mt-10 whitespace-nowrap text-argon-600 px-7 py-2 rounded  hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           View Active Bids
         </span>
       </slot>
@@ -54,13 +54,12 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { useCurrency } from '../stores/currency';
-import { getMining, getMainchainClient } from '../stores/mainchain';
+import { getMainchainClient, getMining } from '../stores/mainchain';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { useStats } from '../stores/stats';
-import { type IBidsFile } from '@argonprotocol/commander-core';
+import { Accountset, type IBidsFile } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral';
 import { TICK_MILLIS } from '../lib/Env.ts';
-import { Accountset } from '@argonprotocol/commander-core';
 import { useConfig } from '../stores/config.ts';
 
 dayjs.extend(utc);

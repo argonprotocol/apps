@@ -1,7 +1,7 @@
 import { Command } from '@commander-js/extra-typings';
-import { VaultMonitor } from '@argonprotocol/commander-core';
+import { VaultMonitor } from '@argonprotocol/apps-core';
 import { accountsetFromCli } from './index.js';
-import { hexToU8a, BitcoinLocks, MICROGONS_PER_ARGON, TxSubmitter, Vault } from '@argonprotocol/mainchain';
+import { hexToU8a, BitcoinLocks, MICROGONS_PER_ARGON, TxSubmitter, Vault, PriceIndex } from '@argonprotocol/mainchain';
 
 export default function vaultCli() {
   const program = new Command('vaults').description('Monitor vaults and manage securitization');
@@ -85,6 +85,9 @@ export default function vaultCli() {
       }
       const accountset = await accountsetFromCli(program);
       const client = accountset.client;
+      const priceIndex = new PriceIndex();
+      await priceIndex.load(accountset.client);
+
       const resolvedTip = tip ? BigInt(tip * MICROGONS_PER_ARGON) : 0n;
       const microgons = BigInt(argons * MICROGONS_PER_ARGON);
       const bitcoinLocks = new BitcoinLocks(client);
@@ -105,7 +108,7 @@ export default function vaultCli() {
 
       const account = await client.query.system.account(accountset.seedAddress);
       const freeBalance = account.data.free.toBigInt();
-      let satoshis = await bitcoinLocks.requiredSatoshisForArgonLiquidity(argonsAvailable);
+      let satoshis = await bitcoinLocks.requiredSatoshisForArgonLiquidity(priceIndex, argonsAvailable);
       satoshis -= 20n; // keep some wiggle room since price can change
       const {
         tx: lockTx,
@@ -113,6 +116,7 @@ export default function vaultCli() {
         txFee,
       } = await bitcoinLocks.createInitializeLockTx({
         vault,
+        priceIndex,
         argonKeyring: accountset.txSubmitterPair,
         satoshis,
         ownerBitcoinPubkey: hexToU8a(pubkey),

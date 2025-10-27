@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { JsonExt, type ILastModifiedAt } from '@argonprotocol/commander-core';
+import { JsonExt, type ILastModifiedAt } from '@argonprotocol/apps-core';
 import Queue from 'p-queue';
 
 export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
@@ -20,8 +20,12 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
       if (result === false) return false;
       data.lastModifiedAt = new Date();
       // filter non properties
-      this.data = Object.fromEntries(Object.entries(data).filter(([key]) => key in this.defaults)) as T;
-      await atomicWrite(this.path, JsonExt.stringify(this.data, 2));
+      const newData = {} as any;
+      for (const key of Object.keys(this.defaults)) {
+        newData[key] = data[key];
+      }
+      this.data = newData;
+      await this.atomicWrite(this.path, JsonExt.stringify(this.data, 2));
       return true;
     });
     return result ?? false;
@@ -54,22 +58,27 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
         if (data.lastModifiedAt) {
           data.lastModifiedAt = new Date(data.lastModifiedAt);
         }
+        for (const [key, value] of Object.entries(this.defaults)) {
+          if (value instanceof Date && data[key]) {
+            (data as any)[key] = new Date(value);
+          }
+        }
         this.data = data;
       } catch {}
     }
   }
-}
 
-async function atomicWrite(path: string, contents: string) {
-  const tmp = `${path}.tmp`;
-  await fs.promises.writeFile(tmp, contents);
-  try {
-    await fs.promises.rename(tmp, path);
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-      console.log(`It seems ${tmp} was already saved... nothing to worry about `);
-    } else {
-      throw e;
+  private async atomicWrite(path: string, contents: string) {
+    const tmp = `${path}.tmp`;
+    await fs.promises.writeFile(tmp, contents);
+    try {
+      await fs.promises.rename(tmp, path);
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+        console.log(`It seems ${tmp} was already saved... nothing to worry about `);
+      } else {
+        throw e;
+      }
     }
   }
 }

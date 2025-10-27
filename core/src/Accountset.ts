@@ -111,6 +111,14 @@ export class Accountset {
     return accountData.data.free.toBigInt();
   }
 
+  public async submitterMicronots(blockHash?: Uint8Array): Promise<bigint> {
+    const client = this.client;
+    const api = blockHash ? await client.at(blockHash) : client;
+    const accountData = await api.query.ownership.account(this.txSubmitterPair.address);
+
+    return accountData.free.toBigInt();
+  }
+
   public async balance(blockHash?: Uint8Array): Promise<bigint> {
     const client = this.client;
     const api = blockHash ? await client.at(blockHash) : client;

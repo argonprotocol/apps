@@ -1,6 +1,6 @@
 import { Command } from '@commander-js/extra-typings';
-import { VaultMonitor } from '@argonprotocol/commander-core';
-import { BitcoinLocks, formatArgons, hexToU8a, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { VaultMonitor } from '@argonprotocol/apps-core';
+import { BitcoinLocks, formatArgons, hexToU8a, MICROGONS_PER_ARGON, PriceIndex } from '@argonprotocol/mainchain';
 import { accountsetFromCli } from './index.js';
 
 export default function bitcoinCli() {
@@ -46,6 +46,8 @@ export default function bitcoinCli() {
       const bitcoinXpubBuffer = hexToU8a(bitcoinXpub);
       const maxFeeMicrogons = maxLockFee !== undefined ? BigInt(maxLockFee * MICROGONS_PER_ARGON) : undefined;
       const finalTip = BigInt(tip * MICROGONS_PER_ARGON);
+      const priceIndex = new PriceIndex();
+      await priceIndex.load(accountset.client);
 
       vaults.events.on('bitcoin-space-above', async (vaultId, amount) => {
         const vault = vaults.vaultsById[vaultId];
@@ -60,10 +62,11 @@ export default function bitcoinCli() {
 
         try {
           const bitcoinLock = new BitcoinLocks(accountset.client);
-          let satoshis = await bitcoinLock.requiredSatoshisForArgonLiquidity(amount);
+          let satoshis = await bitcoinLock.requiredSatoshisForArgonLiquidity(priceIndex, amount);
           satoshis -= 500n;
           const { securityFee, txResult } = await bitcoinLock.initializeLock({
             vault,
+            priceIndex,
             satoshis,
             argonKeyring: accountset.txSubmitterPair,
             ownerBitcoinPubkey: bitcoinXpubBuffer,

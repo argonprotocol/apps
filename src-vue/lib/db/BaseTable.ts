@@ -14,4 +14,5 @@ export interface IFieldTypes {
   bigintJson?: string[];
   json?: string[];
   date?: string[];
+  uint8array?: string[];
 }

@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GHCR_PROJECT: ghcr.io/argonprotocol/commander
+  GHCR_PROJECT: ghcr.io/argonprotocol/apps
 
 jobs:
   build:

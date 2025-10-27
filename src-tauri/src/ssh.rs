@@ -1,12 +1,15 @@
 use crate::utils::Utils;
 use anyhow::Result;
 use log::info;
-use rand::rngs::OsRng;
 use russh::client::{AuthResult, Msg};
 use russh::keys::ssh_key::LineEnding;
+use russh::keys::ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
 use russh::keys::*;
 use russh::*;
+use sp_core::ed25519;
+use std::borrow::Cow;
 use std::fmt::Display;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -27,36 +30,32 @@ pub struct SSHConfig {
     addrs: (String, u16),
     username: String,
     private_key_path: String,
-    private_key_last_modified: std::time::SystemTime,
 }
 
 impl SSHConfig {
     pub fn new(host: &str, port: u16, username: String, private_key_path: String) -> Result<Self> {
         let addrs = (host.to_string(), port);
 
-        let last_modified = std::fs::metadata(&private_key_path)
-            .and_then(|meta| meta.modified())
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to get metadata for private key {}: {}",
-                    private_key_path,
-                    e
-                )
-            })?;
-
         Ok(SSHConfig {
             addrs,
             username: username.to_string(),
             private_key_path,
-            private_key_last_modified: last_modified,
         })
     }
 
     pub fn get_private_key(&self) -> Result<PrivateKey> {
-        let private_key_str = std::fs::read_to_string(&self.private_key_path).map_err(|e| {
+        SSHConfig::read_private_key(Path::new(&self.private_key_path))
+    }
+
+    pub fn host(&self) -> String {
+        format!("{}:{}", self.addrs.0, self.addrs.1)
+    }
+
+    pub fn read_private_key(private_key_path: &Path) -> Result<PrivateKey> {
+        let private_key_str = std::fs::read_to_string(private_key_path).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to read private key from {}: {}",
-                self.private_key_path,
+                private_key_path.to_string_lossy(),
                 e
             )
         })?;
@@ -64,8 +63,11 @@ impl SSHConfig {
         Ok(private_key)
     }
 
-    pub fn host(&self) -> String {
-        format!("{}:{}", self.addrs.0, self.addrs.1)
+    pub fn get_pubkey_from_privkey_file(private_key_path: &Path) -> Result<String> {
+        let private_key = SSHConfig::read_private_key(private_key_path)?;
+        let public_key = PublicKey::from(&private_key);
+        let public_key_openssh = public_key.to_openssh()?;
+        Ok(public_key_openssh)
     }
 }
 
@@ -84,9 +86,16 @@ impl SSH {
     }
 
     async fn authenticate(ssh_config: &SSHConfig) -> Result<client::Handle<ClientHandler>> {
-        let config = client::Config {
+        let mut config = client::Config {
             inactivity_timeout: None,
             ..<_>::default()
+        };
+        config.preferred = Preferred {
+            kex: Cow::Borrowed(&[
+                kex::CURVE25519,              // "curve25519-sha256"
+                kex::CURVE25519_PRE_RFC_8731, // "curve25519-sha256@libssh.org"
+            ]),
+            ..Preferred::DEFAULT
         };
         let config = Arc::new(config);
         let handler = ClientHandler {};
@@ -326,10 +335,11 @@ impl SSH {
         }
     }
 
-    pub fn generate_keys() -> Result<(String, String), String> {
+    pub fn format_as_openssh(key: ed25519::Pair) -> Result<(String, String), String> {
         // Generate a new key pair using Ed25519
-        let private_key =
-            PrivateKey::random(&mut OsRng, Algorithm::Ed25519).map_err(|e| e.to_string())?;
+        let bytes = key.seed();
+        let keypair = Ed25519Keypair::from(Ed25519PrivateKey::from_bytes(&bytes));
+        let private_key = PrivateKey::from(keypair);
 
         // Derive the public key from the private key
         let public_key = PublicKey::from(&private_key);
