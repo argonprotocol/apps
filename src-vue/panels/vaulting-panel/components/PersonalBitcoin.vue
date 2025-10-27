@@ -260,7 +260,7 @@ async function updateBitcoinUnlockPrices() {
 
   btcMarketRate.value = await vaults.getMarketRate(lock.satoshis).catch(() => 0n);
 
-  if (utxo.status !== BitcoinLockStatus.LockedAndMinting && utxo.status !== BitcoinLockStatus.LockedAndMinted) {
+  if (lock.status !== BitcoinLockStatus.LockedAndMinting && lock.status !== BitcoinLockStatus.LockedAndMinted) {
     unlockPrice.value = 0n;
     return;
   }
