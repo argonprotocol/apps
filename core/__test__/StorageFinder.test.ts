@@ -1,5 +1,5 @@
 import { type ArgonClient, getClient, Keyring, mnemonicGenerate, Vault } from '@argonprotocol/mainchain';
-import { describeIntegration, teardown } from '@argonprotocol/testing';
+import { teardown } from '@argonprotocol/testing';
 import { MainchainClients, MiningFrames, StorageFinder, TransactionFees } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, it, expect, describe } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
