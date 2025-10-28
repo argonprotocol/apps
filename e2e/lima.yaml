@@ -67,7 +67,12 @@ provision:
         libgtksourceview-3.0-dev \
         webkit2gtk-driver \
         xvfb \
-        xsel # for clipboard support
+        xsel # for clipboard support \
+        xauth \
+        dbus-x11 \
+        dbus-user-session \
+        mesa-utils \
+        x11-apps
   - mode: system
     script: |
       #!/bin/bash

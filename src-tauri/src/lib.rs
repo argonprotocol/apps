@@ -327,6 +327,7 @@ pub fn run() {
             }
             log::info!("Page loaded for instance '{}'", instance_name_clone);
             window.emit("tauri://page-loaded", ()).unwrap();
+            window.eval(format!("window.__LOG_DEBUG__ = false")).expect("Failed to set instance name in window");
             window.eval(format!("window.__ARGON_APP_INSTANCE__ = '{}'", instance_name_clone)).expect("Failed to set instance name in window");
             window.eval(format!("window.__ARGON_NETWORK_NAME__ = '{}'", network_name_clone)).expect("Failed to set network name in window");
             window.eval(format!("window.__ARGON_APP_ENABLE_AUTOUPDATE__ = {}", enable_auto_update)).expect("Failed to set experimental flag in window");

@@ -43,7 +43,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
     {
       maxInstances: 1,
       'tauri:options': {
-        application: `${ARGON_APP_ROOT}/src-tauri/target/debug/Investor Console`,
+        application: `${ARGON_APP_ROOT}/src-tauri/target/debug/Argon`,
       },
     },
   ],
