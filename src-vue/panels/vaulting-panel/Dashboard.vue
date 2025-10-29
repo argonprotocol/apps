@@ -76,8 +76,8 @@
             </span>
             <label>Total Bitcoin Locked</label>
           </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
-            The total value of bitcoin currently locked in your vault.
+          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
+            The total value of bitcoins that are currently locked in your vault.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
@@ -90,7 +90,7 @@
             </span>
             <label>Securitization Ratio</label>
           </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
             The ratio of argon-to-bitcoin that you have committed as securitization collateral.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
@@ -100,7 +100,7 @@
             <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBonds).format('0,0.00') }}</span>
             <label>External Treasury Bonds</label>
           </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
             The amount of external capital invested into your vault's treasury bonds.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
@@ -112,7 +112,7 @@
             </span>
             <label>Total Treasury Bonds</label>
           </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
             Your vault's total capital, both internal and external, that is invested in treasury bonds.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
@@ -122,17 +122,17 @@
             <span>{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
             <label>Total Earnings</label>
           </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
             Your vault's earnings to-date. This includes bitcoin locking fees and treasury bonds.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(apy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
-            <label>Current APY</label>
+            <span>{{ numeral(currentApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
+            <label>Estimated APY</label>
           </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
             Your vault's rolling annual percentage yield based on total capital committed.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
@@ -145,9 +145,9 @@
             Asset Breakdown
           </header>
           <ul class="relative flex flex-col items-center whitespace-nowrap w-full min-h-6/12 mb-4 text-md">
-            <li class="flex flex-col w-full min-h-[calc(100%/7)] py-2">
+            <li class="flex flex-col w-full min-h-[calc(100%/7)] py-1">
               <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
+                <HoverCardTrigger as="div" class="flex flex-row items-center w-full pt-1 hover:text-argon-600 hover:bg-argon-200/10 rounded">
                   <ArgonIcon class="w-7 h-7 text-argon-600/70 mr-2" />
                   <div class="grow">Unused Argons</div>
                   <div class="pr-1">
@@ -155,7 +155,7 @@
                     }}{{ microgonToMoneyNm(wallets.vaultingWallet.availableMicrogons).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                <HoverCardContent align="center" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
                   <p class="break-words whitespace-normal">
                      These argons are not currently being used.
                   </p>
@@ -163,19 +163,18 @@
                 </HoverCardContent>
               </HoverCardRoot>
               <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
-                <HoverCardRoot :openDelay="200" :closeDelay="100"
-                               v-if="pendingMintingValue > 0n">
-                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600 hover:bg-argon-200/10 rounded">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     {{ microgonToArgonNm(pendingMintingValue).format('0,0.[00]') }} Pending Mints
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p v-if="pendingMintingValue" class="break-words whitespace-normal">
                       These have been earned, but they have not yet been minted. Minting is determined
                       by supply and demand, which means, although you're guaranteed to get them, the timeframe is unknown.
                     </p>
                     <p v-else class="break-words whitespace-normal">
-                      You have no argons that are in the minting queue.
+                      This is where you'll see argons that are earned but not yet minted. You currently have zero argons waiting in the minting queue.
                     </p>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </HoverCardContent>
@@ -183,24 +182,41 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Needs Allocation
+                    {{ microgonToArgonNm(sidelinedMicrogons).format('0,0.[00]') }} Needs Activation
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
-                      These argons are available for use. Click the Allocate button, and they will be distributed
-                      between securitization and treasury bonds according to the rules in your config.
+                      These argons are available for use. Click the Activate button to distribute them
+                      between bitcoin securitization and treasury bonds.
                     </p>
                     <div v-if="allocationError" class="text-red-700 font-semibold my-2">
                       {{ allocationError }}
                     </div>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
-                              :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
-                              @click="allocate" :disabled="isAllocating">
-                        {{!isAllocating ? 'Allocate These' : 'Allocating'}} {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons to Vault
+                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer w-full text-base"
+                              :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60', sidelinedMicrogons ? '' : 'opacity-50 pointer-events-none']"
+                              @click="openActivateOverlay" :disabled="isAllocating || !sidelinedMicrogons">
+                        {{!isAllocating ? 'Activate' : 'Allocating'}} Unused Argons
                       </button>
-                      <span :class="{active:isAllocating}" spinner class="ml-2 inline-block mt-1" />
+                      <span :class="{active: isAllocating}" spinner class="ml-2 inline-block mt-1" />
                     </div>
+                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+                  </HoverCardContent>
+                </HoverCardRoot>
+                <HoverCardRoot :openDelay="200" :closeDelay="100">
+                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600 hover:bg-argon-200/10 rounded">
+                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    {{ microgonToArgonNm(operationalMicrogons).format('0,0.[00]') }} Reserved for Operations
+                  </HoverCardTrigger>
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
+                    <p v-if="operationalMicrogons" class="break-words whitespace-normal">
+                      These are reserved for transaction fees required by vault operations. If this drops too low, you will
+                      be unable to perform basic tasks such as collecting revenue or locking/unlocking bitcoins.
+                    </p>
+                    <p v-else class="break-words whitespace-normal">
+                      This is the amount of argons reserved for operations. You need to add an argon to your vault's wallet
+                      so that it can perform basic tasks such as collecting revenue or locking/unlocking bitcoins.
+                    </p>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </HoverCardContent>
                 </HoverCardRoot>
@@ -216,7 +232,7 @@
                     }}{{ micronotToMoneyNm(activatedSecuritization + waitingSecuritization).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                   <p class="break-words whitespace-normal">
                     This is the total capital applied to your vault's bitcoin securitization. It insures that anyone who locks
                     bitcoin in your vault will be able to claim their bitcoin back in full.
@@ -230,13 +246,13 @@
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     {{ microgonToArgonNm(waitingSecuritization).format('0,0.[00]') }} Waiting for Usage
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
-                      These argons have not yet been applied to your vault's securitization. They are waiting for bitcoins.
+                      These argons have not yet been applied to your vault's securitization. They are waiting for new bitcoins to be added to your vault.
                     </p>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer">
-                        Remove These {{ microgonToArgonNm(waitingSecuritization).format('0,0.[00]') }} Argons from Securitization
+                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer w-full text-base">
+                        Deactivate these Argons from Bitcoin Security
                       </button>
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
@@ -245,9 +261,9 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{ microgonToArgonNm(pendingSecuritization).format('0,0.[00]') }} Pending Activation
+                    {{ microgonToArgonNm(pendingSecuritization).format('0,0.[00]') }} Pending Finalization
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
                       These argons are already committed to bitcoins pending in your vault. However, these bitcoins are still in the process
                       of locking. Once completed, these argons will move to "Actively In Use".
@@ -260,7 +276,7 @@
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     {{ microgonToArgonNm(activatedSecuritization).format('0,0.[00]') }} Actively In Use
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p v-if="activatedSecuritization" class="break-words whitespace-normal">
                       These argons are currently being used to securitize your vault's bitcoin.
                     </p>
@@ -282,7 +298,7 @@
                     }}{{ micronotToMoneyNm(activatedTreasuryPoolInvestment + pendingTreasuryPoolInvestment).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                   <p class="break-words whitespace-normal">
                     This is the capital that has been allocated to your vault's treasury bonds.
                   </p>
@@ -295,14 +311,15 @@
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     {{ microgonToArgonNm(pendingTreasuryPoolInvestment).format('0,0.[00]') }} Waiting for Usage
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
                       This capital is sitting idle because your vault does not have enough bitcoin. The amount
                       in treasury bonds cannot exceed the bitcoin value in your vault.
                     </p>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer">
-                        Remove These {{ microgonToArgonNm(pendingTreasuryPoolInvestment).format('0,0.[00]') }} Argons from Securitization</button>
+                      <button class="bg-argon-600 hover:bg-argon-700 text-white font-bold px-5 py-2 rounded-md cursor-pointer text-base">
+                        Deactivate these Argons from Treasury Bonds</button>
+                        <!-- {{ microgonToArgonNm(pendingTreasuryPoolInvestment).format('0,0.[00]') }} -->
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </HoverCardContent>
@@ -312,7 +329,7 @@
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     {{ microgonToArgonNm(activatedTreasuryPoolInvestment).format('0,0.[00]') }} Actively In Use
                   </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p v-if="activatedTreasuryPoolInvestment" class="break-words whitespace-normal">
                       These argons are actively generating yield for your vault through treasury bond investments.
                     </p>
@@ -334,7 +351,7 @@
                     }}{{ microgonToMoneyNm(unlockPrice).format('0,0.[00]') }}
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                   <p class="break-words whitespace-normal">
                     This is what it will cost to unlock your personal bitcoin.
                   </p>
@@ -351,7 +368,7 @@
                     }}{{ microgonToMoneyNm(vault.metadata?.operationalFeeMicrogons ?? 0n).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                   <p class="break-words whitespace-normal">
                     The summation of all operational expenses that have been paid since your vault's inception.
                   </p>
@@ -367,7 +384,7 @@
                     {{ currency.symbol }}{{ microgonToMoneyNm(totalVaultValue).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
                   <p class="break-words whitespace-normal font-normal">
                     The total value of your vault's assets.
                   </p>
@@ -407,36 +424,36 @@
               <div class="pt-5 border-b border-slate-400/20 pb-5 w-full text-slate-800/70">
                 This frame's payout is
                 <TooltipRoot>
-                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono">
+                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">
                     {{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.totalTreasuryPayout).format('0,0.00') }}
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                  <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
                     Total network revenue from mining bids.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
                 </TooltipRoot>
-                <template v-if="currentFrame.id === latestFrameId"> (and growing),</template> of which your take is
+                <template v-if="currentFrame.id === latestFrameId"> (and growing)</template>. You get
                 <TooltipRoot>
-                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono">{{ numeral(currentFrame.myTreasuryPercentTake).format('0,[0.0]') }}%</TooltipTrigger>,
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">{{ numeral(currentFrame.myTreasuryPercentTake).format('0,[0.0]') }}%</TooltipTrigger>,
+                  <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
                     The more capital you invest in treasury bonds, the higher your take-home percentage.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
                 </TooltipRoot>
-                equaling
+                which equals
                 <TooltipRoot>
-                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.myTreasuryPayout).format('0,0.00') }}</TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
+                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.myTreasuryPayout).format('0,0.00') }}</TooltipTrigger>
+                  <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
                     This is what your vault has earned so far today.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
                 </TooltipRoot>
-                <span class="hidden lg:inline"> in earnings</span>
+                <span class="hidden lg:inline"> in earnings</span>.
               </div>
 
               <div class="flex flex-row w-full grow gap-x-2 mt-2">
                 <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full">
+                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full">
                     <div class="relative size-28">
                       <svg class="size-full -rotate-90" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
                         <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-gray-200 dark:text-neutral-700" stroke-width="3"></circle>
@@ -448,7 +465,7 @@
                       </div>
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-left text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
                     This progress of the current frame, which is equivalent to 24 hours.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
@@ -457,14 +474,14 @@
                 <div class="h-full w-[1px] bg-slate-400/30"></div>
 
                 <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3">
+                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full pb-3">
                     <span data-testid="TotalBlocksMined">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.bitcoinChangeMicrogons).format('0,0.00') }}</span>
                     <label class="relative block w-full">
                       Bitcoin Lock Change
                       <HealthIndicatorBar :percent="currentFrame.bitcoinPercentUsed" />
                     </label>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
                     The change (+/-) in bitcoin value held by your vault during this frame.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
@@ -473,14 +490,14 @@
                 <div class="h-full w-[1px] bg-slate-400/30"></div>
 
                 <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3">
+                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full pb-3">
                     <span data-testid="TotalBlocksMined">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.treasuryChangeMicrogons).format('0,0.00') }}</span>
                     <label class="relative block w-full">
                       Treasury Bond Change
                       <HealthIndicatorBar :percent="currentFrame.treasuryPercentActivated" />
                     </label>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
                     The change (+/-) in treasury bonds held by your vault during this frame.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
@@ -489,14 +506,14 @@
                 <div class="h-full w-[1px] bg-slate-400/30"></div>
 
                 <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3">
+                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full pb-3">
                     <span data-testid="TotalBlocksMined">{{ numeral(currentFrame.frameProfitPercent).format('0,0') }}%</span>
                     <label class="relative block w-full">
                       Current Frame Profit
                       <HealthIndicatorBar :percent="currentFrame.profitMaximizationPercent" />
                     </label>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
+                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
                     The profit percentage earned by your vault during this frame.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
@@ -523,6 +540,11 @@
   <VaultEditOverlay
     v-if="showEditOverlay"
     @close="showEditOverlay = false"
+  />
+
+  <VaultActivateOverlay
+    v-if="showActivateOverlay"
+    @close="showActivateOverlay = false"
   />
 </template>
 
@@ -580,6 +602,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultCollectOverlay from '../../overlays/VaultCollectOverlay.vue';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
+import VaultActivateOverlay from '../../overlays/VaultActivateOverlay.vue';
 import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
 import { useWallets } from '../../stores/wallets';
@@ -587,14 +610,11 @@ import FrameSlider, { IChartItem } from '../../components/FrameSlider.vue';
 import SuccessIcon from '../../assets/success.svg?component';
 import VaultIcon from '../../assets/vault.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import BigNumber from 'bignumber.js';
-import { bigIntMax, bigNumberToBigInt, JsonExt, MiningFrames, TreasuryPool } from '@argonprotocol/apps-core';
-import { bigIntMin } from '@argonprotocol/apps-core/src/utils.ts';
+import { bigIntMax, MiningFrames, TreasuryPool } from '@argonprotocol/apps-core';
 import { ArrowTurnDownRightIcon } from '@heroicons/vue/24/outline';
 import { HoverCardArrow, HoverCardContent, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
-import { toRaw } from 'vue';
 import { IVaultFrameStats } from '../../interfaces/IVaultStats.ts';
 import { getMainchainClient, getMining } from '../../stores/mainchain.ts';
 import { getPercent, percentOf } from '../../lib/Utils.ts';
@@ -650,6 +670,15 @@ const totalTreasuryPoolBonds = Vue.computed(() => {
   return internalTreasuryPoolBonds.value + externalTreasuryBonds.value;
 });
 
+const sidelinedMicrogons = Vue.computed(() => {
+  return bigIntMax(wallets.vaultingWallet.availableMicrogons - 1_000_000n, 0n);
+});
+
+const operationalMicrogons = Vue.computed(() => {
+  if (wallets.vaultingWallet.availableMicrogons < 1_000_000n) return wallets.vaultingWallet.availableMicrogons;
+  return 1_000_000n;
+});
+
 const internalTreasuryPoolBonds = Vue.computed(() => {
   const revenue = vault.data.stats;
   if (!revenue) return 0n;
@@ -689,43 +718,25 @@ const pendingMintingValue = Vue.computed<bigint>(() => {
   return bitcoinLocks.totalMintPending;
 });
 
-async function allocate() {
-  if (!vault.createdVault) return;
-  let fallbackRules = JsonExt.stringify(toRaw(config.vaultingRules));
-  try {
-    isAllocating.value = true;
-    const availableMicrogons = wallets.vaultingWallet.availableMicrogons;
-    const { newlyAllocated } = await vault.increaseVaultAllocations({
-      freeBalance: availableMicrogons,
-      rules: config.vaultingRules,
-      argonKeyring: config.vaultingAccount,
-    });
-    config.vaultingRules.baseMicrogonCommitment += newlyAllocated;
-    await config.saveVaultingRules();
-  } catch (err) {
-    console.error('Error during vault allocation: %o', err);
-    allocationError.value = 'Allocation failed. Please try again.';
-    config.vaultingRules = JsonExt.parse(fallbackRules);
-  } finally {
-    isAllocating.value = false;
-  }
+async function openActivateOverlay() {
+  showActivateOverlay.value = true;
 }
 
-const apy = Vue.computed(() => {
+const currentApy = Vue.computed(() => {
   const stats = vault.data.stats;
   if (!stats) return 0;
-  let ytdRevenue = 0n;
+
   const capitalDeployed: bigint[] = [];
+  let ytdRevenue = 0n;
   let framesRemaining = 365; // Assuming 365 frames for a year
+
   for (const change of stats.changesByFrame) {
+    console.log('change', change);
     ytdRevenue += change.bitcoinFeeRevenue;
     ytdRevenue += change.treasuryPool.vaultEarnings;
     capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
     framesRemaining -= 1;
     if (framesRemaining <= 0) break;
-  }
-  if (framesRemaining > 0) {
-    ytdRevenue += stats.baseline.feeRevenue;
   }
   ytdRevenue = bigIntMax(0n, ytdRevenue - vault.data.pendingCollectRevenue);
   const averageCapitalDeployed =
@@ -746,6 +757,7 @@ const revenueMicrogons = Vue.computed(() => {
 
 const showCollectOverlay = Vue.ref(false);
 const showEditOverlay = Vue.ref(false);
+const showActivateOverlay = Vue.ref(false);
 
 const hasNextFrame = Vue.computed(() => {
   return sliderFrameIndex.value < frameRecords.value.length - 1;
@@ -999,7 +1011,14 @@ Vue.onMounted(async () => {
 }
 
 [stat-box] {
-  @apply text-argon-600 flex flex-col items-center justify-center;
+  @apply text-argon-600 relative flex flex-col items-center justify-center;
+  &:hover::before {
+    @apply bg-argon-200/10 absolute top-2 right-2 bottom-2 left-2 rounded;
+    content: '';
+  }
+  &[no-padding]:hover::before {
+    @apply top-0 right-0 bottom-0 left-0;
+  }
   span {
     @apply text-3xl font-bold;
   }

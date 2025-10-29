@@ -85,7 +85,7 @@
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openAboutOverlay()" class="pt-1 pb-2">
-              <header>About Investor Console</header>
+              <header>About this Investor Console</header>
             </DropdownMenuItem>
           </div>
           <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
