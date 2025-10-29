@@ -59,7 +59,7 @@ export default function vaultCli() {
       }
       try {
         const result = await submit.submit({ tip: resolvedTip });
-        await result.finalizedPromise;
+        await result.waitForFinalizedBlock;
         console.log('Vault securitization modified');
         process.exit();
       } catch (error) {
@@ -151,7 +151,7 @@ export default function vaultCli() {
       );
       const result = await txSubmitter.submit({ tip: resolvedTip });
       try {
-        await result.finalizedPromise;
+        await result.waitForFinalizedBlock;
         console.log('Bitcoin space done');
       } catch (error) {
         console.error('Error using bitcoin space', error);

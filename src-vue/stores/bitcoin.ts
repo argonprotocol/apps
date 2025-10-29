@@ -5,7 +5,6 @@ import { getDbPromise } from './helpers/dbPromise';
 import { reactive } from 'vue';
 import handleFatalError from './helpers/handleFatalError.ts';
 import { getPriceIndex } from './mainchain.ts';
-import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { useTransactionTracker } from './transactions.ts';
 
 const bitcoinPrices = new BitcoinPrices();

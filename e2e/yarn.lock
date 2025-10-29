@@ -9,7 +9,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@argonprotocol/apps-e2e@workspace:."
   dependencies:
-    "@argonprotocol/mainchain": "npm:^1.3.12"
+    "@argonprotocol/mainchain": "npm:^1.3.13"
     "@wdio/cli": "npm:9.19.2"
     "@wdio/globals": "npm:^9.17.0"
     "@wdio/local-runner": "npm:^9.19.2"
@@ -26,9 +26,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/mainchain@npm:^1.3.12":
-  version: 1.3.12
-  resolution: "@argonprotocol/mainchain@npm:1.3.12"
+"@argonprotocol/mainchain@npm:^1.3.13":
+  version: 1.3.13
+  resolution: "@argonprotocol/mainchain@npm:1.3.13"
   dependencies:
     "@polkadot/api": "npm:^16.4.4"
     "@polkadot/api-base": "npm:^16.4.4"
@@ -41,7 +41,7 @@ __metadata:
     "@polkadot/util-crypto": "npm:^13.5.5"
     bignumber.js: "npm:^9.3.1"
     bs58check: "npm:^4.0.0"
-  checksum: 10c0/328fcf401a058508c564d0c199ee94851b550c34b2c9f0d47b95337ed50b11a7149eef3f03e5605726d09bf41942a149f537d9d4d4eece0090cace5aec718975
+  checksum: 10c0/d7c2596ff00f8a1613a985ada0cadf8656bb888a7c032e2c9426e4d23615f8f7280ea9a9e61dcad18e7b27e227849c14d134ffc58b0e0abbb5778fefccaf4683
   languageName: node
   linkType: hard
 
@@ -2056,9 +2056,9 @@ __metadata:
   linkType: hard
 
 "chardet@npm:^2.1.0":
-  version: 2.1.0
-  resolution: "chardet@npm:2.1.0"
-  checksum: 10c0/d1b03e47371851ed72741a898281d58f8a9b577aeea6fdfa75a86832898b36c550b3ad057e66d50d774a9cebd9f56c66b6880e4fe75e387794538ba7565b0b6f
+  version: 2.1.1
+  resolution: "chardet@npm:2.1.1"
+  checksum: 10c0/d8391dd412338442b3de0d3a488aa9327f8bcf74b62b8723d6bd0b85c4084d50b731320e0a7c710edb1d44de75969995d2784b80e4c13b004a6c7a0db4c6e793
   languageName: node
   linkType: hard
 
@@ -5039,15 +5039,15 @@ __metadata:
   linkType: hard
 
 "tar@npm:^7.4.3":
-  version: 7.5.1
-  resolution: "tar@npm:7.5.1"
+  version: 7.5.2
+  resolution: "tar@npm:7.5.2"
   dependencies:
     "@isaacs/fs-minipass": "npm:^4.0.0"
     chownr: "npm:^3.0.0"
     minipass: "npm:^7.1.2"
     minizlib: "npm:^3.1.0"
     yallist: "npm:^5.0.0"
-  checksum: 10c0/0dad0596a61586180981133b20c32cfd93c5863c5b7140d646714e6ea8ec84583b879e5dc3928a4d683be6e6109ad7ea3de1cf71986d5194f81b3a016c8858c9
+  checksum: 10c0/a7d8b801139b52f93a7e34830db0de54c5aa45487c7cb551f6f3d44a112c67f1cb8ffdae856b05fd4f17b1749911f1c26f1e3a23bbe0279e17fd96077f13f467
   languageName: node
   linkType: hard
 

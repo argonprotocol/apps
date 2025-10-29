@@ -289,7 +289,7 @@ async function sendReleaseRequest() {
     });
     done = true;
     // don't wait for this
-    void txResult?.finalizedPromise.then(() =>
+    void txResult?.waitForFinalizedBlock.then(() =>
       myVault.finalizeMyBitcoinUnlock({
         argonKeyring: config.vaultingAccount,
         lock: props.lock,

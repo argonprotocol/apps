@@ -27,7 +27,7 @@ export async function startArgonTestNetwork(
     RPC_PORT: '0',
     BITCOIN_BLOCK_SECS: '20',
     PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin`,
-    COMPOSE_PROJECT_NAME: `argon-test-${uniqueTestName.replace(/\W/g, '-').toLowerCase()}`,
+    COMPOSE_PROJECT_NAME: `argon-test-${uniqueTestName.replace('.test.ts', '').replace(/\W+/g, '-').toLowerCase()}`,
     ...(options?.dockerEnv ?? {}),
   };
   runOnTeardown(async () => {

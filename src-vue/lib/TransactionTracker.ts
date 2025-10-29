@@ -2,13 +2,13 @@ import {
   ArgonClient,
   ExtrinsicError,
   GenericEvent,
-  Header,
   hexToU8a,
-  ITxProgressCallback,
+  ISubmittableOptions,
   KeyringPair,
   SignedBlock,
   SubmittableExtrinsic,
   TxResult,
+  TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import { Db } from './Db.ts';
@@ -18,14 +18,17 @@ import { TransactionFees } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 
+export interface ITransactionInfo {
+  tx: ITransactionRecord;
+  txResult: TxResult;
+  isProcessed: IDeferred;
+  statusAtLoad?: TransactionStatus;
+}
+
 const PENDING_STATUSES = [TransactionStatus.Submitted, TransactionStatus.InBlock];
 export class TransactionTracker {
   public data: {
-    transactions: {
-      tx: ITransactionRecord;
-      txResult: TxResultExtension;
-      statusAtLoad?: TransactionStatus;
-    }[];
+    transactions: ITransactionInfo[];
   };
 
   #waitForLoad?: IDeferred;
@@ -39,10 +42,10 @@ export class TransactionTracker {
     };
   }
 
-  public get pendingBlockTransactionsAtLoad(): { tx: ITransactionRecord; txResult: TxResultExtension }[] {
-    return this.data.transactions
-      .filter(x => x.statusAtLoad === TransactionStatus.Submitted)
-      .map(x => ({ tx: x.tx, txResult: x.txResult }));
+  public get pendingBlockTransactionsAtLoad(): ITransactionInfo[] {
+    return this.data.transactions.filter(
+      x => x.statusAtLoad === TransactionStatus.Submitted || x.statusAtLoad === TransactionStatus.InBlock,
+    );
   }
 
   public async load(reload = false): Promise<void> {
@@ -52,32 +55,57 @@ export class TransactionTracker {
     try {
       const table = await this.getTable();
       const txs = await table.fetchAll();
-      const client = await getMainchainClient(false);
+      const client = await getMainchainClient(true);
       this.data.transactions.length = 0;
       for (const tx of txs) {
-        const txResult = new TxResultExtension(client);
-        if (tx.isFinalized) txResult.resolveFinalized(hexToU8a(tx.includedInBlockHash));
-        if (tx.includedInBlockHash) {
-          txResult.includedInBlock = hexToU8a(tx.includedInBlockHash);
-          txResult.finalFee = tx.txFeePlusTip ?? 0n;
-          txResult.finalFeeTip = tx.txTip ?? 0n;
-          if (tx.extrinsicErrorJson) {
-            txResult.rejectInBlock(
-              new ExtrinsicError(
-                tx.extrinsicErrorJson.errorCode ?? 'Unknown Error',
-                tx.extrinsicErrorJson.details ?? tx.extrinsicErrorJson.message,
-                tx.extrinsicErrorJson.batchInterruptedIndex,
-              ),
+        const txResult = new TxResult(client, {
+          accountAddress: tx.accountAddress,
+          method: tx.extrinsicMethodJson,
+          signedHash: tx.extrinsicHash,
+          submittedTime: tx.submittedAtTime,
+          submittedAtBlockNumber: tx.submittedAtBlockHeight,
+        });
+        txResult.isBroadcast = true;
+        if (tx.submissionErrorJson) {
+          txResult.submissionError = new Error(tx.submissionErrorJson.message);
+        }
+        txResult.finalFee = tx.txFeePlusTip ?? 0n;
+        txResult.finalFeeTip = tx.txTip ?? 0n;
+        if (tx.blockExtrinsicErrorJson) {
+          txResult.extrinsicError = new ExtrinsicError(
+            tx.blockExtrinsicErrorJson.errorCode ?? 'Unknown Error',
+            tx.blockExtrinsicErrorJson.details ?? tx.blockExtrinsicErrorJson.message,
+            tx.blockExtrinsicErrorJson.batchInterruptedIndex,
+          );
+        }
+        if (tx.blockHeight) {
+          void txResult.setSeenInBlock({
+            blockHash: hexToU8a(tx.blockHash),
+            blockNumber: tx.blockHeight,
+            extrinsicIndex: tx.blockExtrinsicIndex!,
+            events: [],
+          });
+        }
+        if (tx.blockExtrinsicEventsJson) {
+          try {
+            txResult.events = tx.blockExtrinsicEventsJson.map(({ raw }) =>
+              client.createType('GenericEvent', hexToU8a(raw)),
             );
-          } else {
-            txResult.resolveInBlock(txResult.includedInBlock);
+          } catch (error) {
+            console.error('Error restoring events for transaction', tx.extrinsicHash, error);
           }
         }
-        txResult.submissionError = tx.submissionErrorJson ? new Error(tx.submissionErrorJson.message) : undefined;
+
+        const isProcessed = createDeferred();
+        if (tx.isFinalized || txResult.extrinsicError || txResult.submissionError) {
+          txResult.setFinalized();
+          isProcessed.resolve();
+        }
         this.data.transactions.push({
           tx,
           txResult,
           statusAtLoad: tx.status,
+          isProcessed,
         });
       }
       if (this.data.transactions.some(x => PENDING_STATUSES.includes(x.tx.status))) {
@@ -85,66 +113,64 @@ export class TransactionTracker {
       }
       this.#waitForLoad.resolve();
     } catch (error) {
+      console.error('Error restoring transactions', error);
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;
   }
 
-  public async submitAndWatch(args: {
-    tx: SubmittableExtrinsic;
-    signer: KeyringPair;
-    tip?: bigint;
-    extrinsicType: ExtrinsicType;
-    extrinsicMetadata?: any;
-    useLatestNonce?: boolean;
-    txProgressCallback?: ITxProgressCallback;
-  }): Promise<{ txResult: TxResultExtension; tx: ITransactionRecord }> {
-    await this.load();
-    const { tx, signer, extrinsicType, extrinsicMetadata, txProgressCallback, tip } = args;
+  public async submitAndWatch(
+    args: {
+      tx: SubmittableExtrinsic;
+      signer: KeyringPair;
+      extrinsicType: ExtrinsicType;
+      metadata?: any;
+    } & ISubmittableOptions,
+  ): Promise<ITransactionInfo> {
+    const { tx, signer, extrinsicType, metadata } = args;
     const client = await getMainchainClient(false);
-    const table = await this.getTable();
-    let nonce: number | undefined;
-    if (args.useLatestNonce) {
-      const { nonce: nonceRaw } = await client.query.system.account(args.signer.address);
-      nonce = nonceRaw.toNumber();
-    }
-
-    const signedTx = await tx.signAsync(signer, {
-      nonce,
-      tip,
+    const txSubmitter = new TxSubmitter(client, tx, signer);
+    const txResult = await txSubmitter.submit({
+      ...args,
+      disableAutomaticTxTracking: true,
     });
-    const extrinsicHash = u8aToHex(signedTx.hash);
-    const extrinsicJson = signedTx.method.toHuman();
-    const accountAddress = signer.address;
-    const submittedAtBlockHash = await client.rpc.chain.getBlockHash();
-    const submittedAtHeader = await client.rpc.chain.getHeader(submittedAtBlockHash);
-    const submittedAtBlockHeight = submittedAtHeader.number.toNumber();
-    const submittedAtTime = new Date();
+    return this.trackTxResult({
+      txResult,
+      extrinsicType,
+      metadata,
+    });
+  }
+
+  public async trackTxResult(
+    args: {
+      txResult: TxResult;
+      extrinsicType: ExtrinsicType;
+      metadata?: any;
+    } & ISubmittableOptions,
+  ): Promise<ITransactionInfo> {
+    await this.load();
+    const { txResult, extrinsicType, metadata } = args;
+    const table = await this.getTable();
+
+    const extrinsicHash = txResult.extrinsic.signedHash;
     const record = await table.insert({
       extrinsicHash,
-      extrinsicJson,
-      extrinsicMetadata,
+      extrinsicMethodJson: txResult.extrinsic.method,
+      metadataJson: metadata,
       extrinsicType,
-      accountAddress,
-      submittedAtBlockHeight,
-      submittedAtTime,
+      accountAddress: txResult.extrinsic.accountAddress,
+      submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
+      submittedAtTime: txResult.extrinsic.submittedTime,
     });
     await this.watchForUpdates();
 
-    const txResult = new TxResultExtension(client);
-    txResult.txProgressCallback = txProgressCallback;
-    this.data.transactions.unshift({ tx: record, txResult });
-    try {
-      await tx.send();
-      txResult.isSubmitted = true;
-    } catch (error) {
-      console.error('RPC Error submitting transaction:', error);
-      txResult.submissionError = error as Error;
-      txResult.rejectInBlock(error as Error);
-      await table.recordSubmissionError(record, error as Error);
+    const entry = { tx: record, txResult, isProcessed: createDeferred() };
+    this.data.transactions.unshift(entry);
+    if (txResult.submissionError) {
+      await table.recordSubmissionError(record, txResult.submissionError);
     }
 
-    return { txResult, tx: record };
+    return entry;
   }
 
   private async watchForUpdates() {
@@ -171,9 +197,10 @@ export class TransactionTracker {
     bestBlockHeight: number,
   ): Promise<
     | {
-        blockHeight: number;
+        blockNumber: number;
         blockHash: string;
         extrinsicError?: ExtrinsicError;
+        extrinsicIndex: number;
         txFeePlusTip: bigint;
         tip: bigint;
         transactionEvents: GenericEvent[];
@@ -210,12 +237,13 @@ export class TransactionTracker {
               extrinsicHash,
             });
             return {
-              blockHeight,
+              blockNumber: blockHeight,
               blockHash: u8aToHex(blockHash),
               extrinsicError: result.error,
               txFeePlusTip: result.fee + result.tip,
               tip: result.tip,
               transactionEvents: result.extrinsicEvents,
+              extrinsicIndex: index,
             };
           }
         }
@@ -238,12 +266,12 @@ export class TransactionTracker {
       if (!PENDING_STATUSES.includes(tx.status)) continue;
 
       try {
-        if (tx.includedInBlockHeight && tx.includedInBlockHeight < finalizedHeight) {
+        if (tx.blockHeight && tx.blockHeight <= finalizedHeight) {
           // ensure this block hash is still valid
-          const finalizedHash = await client.rpc.chain.getBlockHash(tx.includedInBlockHeight);
-          if (u8aToHex(finalizedHash) === tx.includedInBlockHash) {
+          const finalizedHash = await client.rpc.chain.getBlockHash(tx.blockHeight);
+          if (u8aToHex(finalizedHash) === tx.blockHash) {
             await table.markFinalized(tx);
-            txResult.resolveFinalized(Uint8Array.from(finalizedHash));
+            txResult.setFinalized();
             continue;
           }
         }
@@ -252,46 +280,44 @@ export class TransactionTracker {
         if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
           // too old, stop checking
           console.log('Skipping transaction too old to check:', tx.extrinsicHash);
-          txResult.rejectInBlock(new Error('Transaction expired waiting for block inclusion'));
+          txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
+          txResult.setFinalized();
           await table.markExpiredWaitingForBlock(tx);
           continue;
         }
 
         const findTransactionResult = await this.findTransaction(tx, client, MAX_BLOCKS_TO_CHECK, bestBlockNumber);
         if (findTransactionResult) {
-          const originalBlockHash = tx.includedInBlockHash;
+          const originalBlockHash = tx.blockHash;
           if (originalBlockHash === findTransactionResult.blockHash) {
             // no change
             continue;
           }
-          const { blockHash, blockHeight, txFeePlusTip, tip, extrinsicError, transactionEvents } =
+          const { blockHash, blockNumber, txFeePlusTip, tip, extrinsicError, transactionEvents, extrinsicIndex } =
             findTransactionResult;
           const api = await client.at(findTransactionResult.blockHash);
           const blockTime = (await api.query.timestamp.now()).toNumber();
           const u8aBlockHash = hexToU8a(blockHash);
           await table.recordInBlock(tx, {
-            blockNumber: blockHeight,
+            blockNumber: blockNumber,
             blockHash,
             blockTime: new Date(blockTime),
             feePlusTip: txFeePlusTip,
             tip: tip,
             extrinsicError,
             transactionEvents,
+            extrinsicIndex,
           });
-          txResult.finalFee = txFeePlusTip - tip;
-          txResult.finalFeeTip = tip;
-          txResult.events.length = 0;
-          txResult.events.push(...transactionEvents);
-          txResult.includedInBlock = u8aBlockHash;
-          if (extrinsicError) {
-            txResult.rejectInBlock(extrinsicError);
-          } else {
-            txResult.resolveInBlock(u8aBlockHash);
-          }
+          await txResult.setSeenInBlock({
+            blockHash: u8aBlockHash,
+            blockNumber: blockNumber,
+            events: transactionEvents,
+            extrinsicIndex,
+          });
 
-          if (findTransactionResult.blockHeight < finalizedHeight) {
+          if (findTransactionResult.blockNumber <= finalizedHeight) {
             await table.markFinalized(tx);
-            txResult.resolveFinalized(u8aBlockHash);
+            txResult.setFinalized();
           }
         }
       } catch (error) {
@@ -317,92 +343,5 @@ export class TransactionTracker {
     const block = await client.rpc.chain.getBlock(blockHash);
     this.#blockCache.set(cacheKey, block);
     return block;
-  }
-}
-
-export class TxResultExtension extends TxResult {
-  #isSubmitted = false;
-  #submissionError?: Error;
-
-  set isSubmitted(value: boolean) {
-    this.#isSubmitted = value;
-    this.updateProgress();
-  }
-
-  get isSubmitted(): boolean {
-    return this.#isSubmitted;
-  }
-
-  set submissionError(value: Error | undefined) {
-    this.#submissionError = value;
-    this.updateProgress();
-  }
-
-  get submissionError(): Error | undefined {
-    return this.#submissionError;
-  }
-
-  resolveInBlock!: (blockHash: Uint8Array) => void;
-  rejectInBlock!: (error: ExtrinsicError | Error) => void;
-  resolveFinalized!: (blockHash: Uint8Array) => void;
-  rejectFinalized!: (error: ExtrinsicError) => void;
-
-  get error(): Promise<Error | ExtrinsicError | undefined> {
-    if (this.submissionError) {
-      return Promise.resolve(this.submissionError);
-    }
-    return this.finalizedPromise
-      .then(() => undefined)
-      .catch(err => {
-        if (err instanceof Error) {
-          return err;
-        }
-      });
-  }
-
-  constructor(client: ArgonClient) {
-    super(client);
-
-    this.inBlockPromise = new Promise((resolve, reject) => {
-      this.resolveInBlock = resolve;
-      this.rejectInBlock = reject;
-    });
-    this.finalizedPromise = new Promise((resolve, reject) => {
-      this.resolveFinalized = resolve;
-      this.rejectFinalized = reject;
-    });
-    // drown unhandled
-    this.inBlockPromise
-      .then(hash => {
-        this.includedInBlock = hash;
-        this.isSubmitted = true;
-        this.updateProgress();
-      })
-      .catch(() => {
-        this.updateProgress();
-      });
-    this.finalizedPromise
-      .then(hash => {
-        this.resolveInBlock(hash);
-        this.updateProgress();
-      })
-      .catch(err => {
-        this.rejectInBlock(err);
-        this.updateProgress();
-      });
-  }
-
-  private updateProgress() {
-    if (this.txProgressCallback) {
-      let percent = 0;
-      if (this.isSubmitted) {
-        percent = 20;
-      }
-      if (this.includedInBlock || this.submissionError) {
-        percent = 100;
-      }
-
-      this.txProgressCallback(percent, this);
-    }
   }
 }

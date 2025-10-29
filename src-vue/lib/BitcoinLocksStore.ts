@@ -14,6 +14,7 @@ import {
   Header,
   IBitcoinLock,
   type IBitcoinLockConfig,
+  ISubmittableOptions,
   ITxProgressCallback,
   KeyringPair,
   TxResult,
@@ -31,7 +32,7 @@ import { type TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transa
 import { MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { TransactionTracker, TxResultExtension } from './TransactionTracker.ts';
+import { ITransactionInfo, TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 
 dayjs.extend(utc);
@@ -156,13 +157,12 @@ export default class BitcoinLocksStore {
       this.#lockTicksPerDay = client.consts.bitcoinLocks.argonTicksPerDay.toNumber();
       this.data.bitcoinNetwork = getBitcoinNetworkFromApi(this.#config.bitcoinNetwork);
       await this.#transactionTracker.load();
-      for (const { tx, txResult } of this.#transactionTracker.pendingBlockTransactionsAtLoad) {
+      for (const txInfo of this.#transactionTracker.pendingBlockTransactionsAtLoad) {
+        const { tx } = txInfo;
         if (tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease) {
-          const { utxoId } = tx.extrinsicMetadata!;
+          const { utxoId } = tx.metadataJson!;
           const lock = this.locksById[utxoId];
-          void txResult.finalizedPromise.then(() =>
-            this.onRequestedReleaseInBlock(lock, txResult, tx.extrinsicMetadata),
-          );
+          void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
         }
       }
 
@@ -426,7 +426,7 @@ export default class BitcoinLocksStore {
     vaultId: number;
     hdPath: string;
     satoshis: bigint;
-    txResult: TxResultExtension;
+    txResult: TxResult;
     securityFee: bigint;
   }): Promise<IBitcoinLockRecord> {
     const { txResult } = args;
@@ -486,41 +486,49 @@ export default class BitcoinLocksStore {
     return submitter.feeEstimate();
   }
 
-  async requestRelease(args: {
-    lock: IBitcoinLockRecord;
-    bitcoinNetworkFee: bigint;
-    toScriptPubkey: string;
-    argonKeyring: KeyringPair;
-    tip?: bigint;
-    txProgressCallback?: ITxProgressCallback;
-  }): Promise<TxResult | undefined> {
-    const { lock, bitcoinNetworkFee, toScriptPubkey, argonKeyring, tip = 0n, txProgressCallback } = args;
+  async requestRelease(
+    args: {
+      lock: IBitcoinLockRecord;
+      bitcoinNetworkFee: bigint;
+      toScriptPubkey: string;
+      argonKeyring: KeyringPair;
+    } & ISubmittableOptions,
+  ): Promise<TxResult | undefined> {
+    const { lock, bitcoinNetworkFee, toScriptPubkey, argonKeyring } = args;
     if (lock.status !== BitcoinLockStatus.LockedAndMinted && lock.status !== BitcoinLockStatus.LockedAndMinting) {
       return;
     }
-    const destinationAddress = addressBytesHex(toScriptPubkey, this.bitcoinNetwork);
-    const client = this.#bitcoinLocksApi.client;
 
-    const { txResult } = await this.#transactionTracker.submitAndWatch({
-      tx: client.tx.bitcoinLocks.requestRelease(lock.utxoId, destinationAddress, bitcoinNetworkFee),
-      signer: argonKeyring,
-      extrinsicType: ExtrinsicType.BitcoinRequestRelease,
-      extrinsicMetadata: { utxoId: lock.utxoId, toScriptPubkey, bitcoinNetworkFee },
-      tip,
-      txProgressCallback,
+    const txResult = await this.#bitcoinLocksApi.requestRelease({
+      ...args,
+      lock: lock.lockDetails,
+      priceIndex: this.#priceIndex.current,
+      releaseRequest: {
+        toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinNetwork),
+        bitcoinNetworkFee,
+      },
+      argonKeyring,
+      disableAutomaticTxTracking: true,
     });
-    void this.onRequestedReleaseInBlock(lock, txResult, { toScriptPubkey, bitcoinNetworkFee });
+
+    const txInfo = await this.#transactionTracker.trackTxResult({
+      txResult,
+      extrinsicType: ExtrinsicType.BitcoinRequestRelease,
+      metadata: { utxoId: lock.utxoId, toScriptPubkey, bitcoinNetworkFee },
+    });
+    void this.onRequestedReleaseInBlock(lock, txInfo, { toScriptPubkey, bitcoinNetworkFee });
     return txResult;
   }
 
   async onRequestedReleaseInBlock(
     lock: IBitcoinLockRecord,
-    txResult: TxResultExtension,
+    txInfo: ITransactionInfo,
     releaseInfo: { toScriptPubkey: string; bitcoinNetworkFee: bigint },
   ): Promise<void> {
-    await txResult.finalizedPromise;
+    const { txResult, isProcessed } = txInfo;
+    await txResult.waitForFinalizedBlock;
     const client = this.#bitcoinLocksApi.client;
-    const blockHash = await txResult.finalizedPromise;
+    const blockHash = await txResult.waitForFinalizedBlock;
 
     const api = await client.at(blockHash);
 
@@ -531,6 +539,7 @@ export default class BitcoinLocksStore {
 
     const table = await this.getTable();
     await table.setReleaseWaitingForVault(lock);
+    isProcessed.resolve();
   }
 
   private async ratchet(lock: IBitcoinLockRecord, argonKeyring: KeyringPair, tip = 0n) {
@@ -549,6 +558,7 @@ export default class BitcoinLocksStore {
       vault: vaults.vaultsById[lock.vaultId],
     });
 
+    const { txResult, getRatchetResult } = result;
     const {
       burned,
       securityFee,
@@ -557,7 +567,7 @@ export default class BitcoinLocksStore {
       newPeggedPrice,
       pendingMint,
       txFee,
-    } = result;
+    } = await getRatchetResult();
 
     const liquidityPromised = (result as any).liquidityPromised ?? pendingMint;
 

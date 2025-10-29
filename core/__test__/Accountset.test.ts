@@ -9,6 +9,7 @@ import { sudo, teardown } from '@argonprotocol/testing';
 import { Accountset, parseSubaccountRange } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
+import Path from 'path';
 
 afterAll(teardown);
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -18,7 +19,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   let mainchainUrl: string;
   const sessionMiniSecretOrMnemonic = mnemonicGenerate();
   beforeAll(async () => {
-    const network = await startArgonTestNetwork('accountset', { profiles: ['bob'] });
+    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
     mainchainUrl = network.archiveUrl;
     client = await getClient(mainchainUrl);
@@ -65,7 +66,8 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
       client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(seedAccount.address, 500_000)),
       seedAccount,
     );
-    await txSubmitter.submit({ waitForBlock: true });
+    const res = await txSubmitter.submit();
+    await res.waitForInFirstBlock;
 
     const nextSeats = await accountset.getAvailableMinerAccounts(5);
     expect(nextSeats).toHaveLength(5);
@@ -112,7 +114,8 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
       ),
       alice,
     );
-    await txSubmitter.submit({ waitForBlock: true });
+    const res = await txSubmitter.submit();
+    await res.waitForInFirstBlock;
     const startingCohortStartingFrameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber());
     await new Promise(resolve =>
       api.query.miningSlot.nextFrameId(x => {

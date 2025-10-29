@@ -15,6 +15,7 @@ import { Db } from '../lib/Db.ts';
 import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { IAllVaultStats } from '../interfaces/IVaultStats.ts';
+import Path from 'path';
 
 afterAll(teardown);
 
@@ -45,7 +46,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
   beforeAll(async () => {
     db = await createTestDb();
-    const network = await startArgonTestNetwork(__filename, { profiles: ['bob'] });
+    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
@@ -70,7 +71,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         blockNumber = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
       }
       const currentTick = await client.query.ticks.currentTick();
-      await new TxSubmitter(
+      const res = await new TxSubmitter(
         client,
         client.tx.priceIndex.submit({
           btcUsdPrice: toFixedNumber(60_000.5, 18),
@@ -81,7 +82,8 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
           tick: currentTick.toBigInt(),
         }),
         new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
-      ).submit({ waitForBlock: true });
+      ).submit();
+      await res.waitForInFirstBlock;
 
       const priceIndex = new PriceIndex(clients);
       await priceIndex.fetchMicrogonExchangeRatesTo();
@@ -104,7 +106,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
       expect(vaultCreation.vault.vaultId).toBe(1);
       vaultCreatedBlockNumber = await client.rpc.chain
-        .getHeader(await vaultCreation.txResult.finalizedPromise)
+        .getHeader(await vaultCreation.txResult.waitForFinalizedBlock)
         .then(x => x.number.toNumber());
 
       const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, alice.address, xprivSeed);
@@ -142,9 +144,13 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const bitcoinLocksStore = myVault.bitcoinLocksStore;
       expect(vaultSave).toBeTruthy();
       const client = await clients.archiveClientPromise;
-      const api = await client.at(await vaultSave!.txResult.finalizedPromise);
+      console.log('wait for finalize');
+      const api = await client.at(await vaultSave!.txResult.waitForFinalizedBlock);
       const rulesSavedBlockNumber = await api.query.system.number().then(x => x.toNumber());
+      console.log('finalized at', rulesSavedBlockNumber);
       const tick = await api.query.ticks.currentTick();
+
+      await vaultSave!.isProcessed.promise;
       expect(Object.keys(bitcoinLocksStore.data.locksById)).toHaveLength(1);
       const bitcoinStored = Object.values(bitcoinLocksStore.data.locksById)[0];
 

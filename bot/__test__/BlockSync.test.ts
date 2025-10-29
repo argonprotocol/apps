@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import { Storage } from '../src/Storage.js';
 import { Dockers } from '../src/Dockers.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import Path from 'path';
 
 afterEach(teardown);
 afterAll(teardown);
@@ -20,7 +21,7 @@ afterAll(teardown);
 let clientAddress: string;
 beforeAll(async () => {
   MiningFrames.setNetwork('dev-docker');
-  const result = await startArgonTestNetwork('block-sync');
+  const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
 

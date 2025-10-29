@@ -26,20 +26,21 @@ export enum TransactionStatus {
 export interface ITransactionRecord {
   id: number; // Auto-incrementing primary key since extrinsic hash isn't implicitly unique and can overlap
   extrinsicHash: string;
-  extrinsicJson: any;
+  extrinsicMethodJson: any;
   extrinsicType: ExtrinsicType;
-  extrinsicMetadata: any;
+  metadataJson: any;
   accountAddress: string;
   submittedAtTime: Date;
   submittedAtBlockHeight: number;
   submissionErrorJson: any;
   txTip: bigint | undefined;
   txFeePlusTip: bigint | undefined;
-  includedInBlockHeight: number | undefined;
-  includedInBlockHash: string | undefined;
-  includedInBlockTime: Date | undefined;
+  blockHeight: number | undefined;
+  blockHash: string | undefined;
+  blockTime: Date | undefined;
+  blockExtrinsicIndex: number | undefined;
   blockExtrinsicEventsJson: any[];
-  extrinsicErrorJson:
+  blockExtrinsicErrorJson:
     | { batchInterruptedIndex?: number; errorCode?: string; details?: string; message: string }
     | undefined;
   isFinalized: boolean;
@@ -51,12 +52,12 @@ export interface ITransactionRecord {
 type ITransactionRecordKey = keyof ITransactionRecord & string;
 export class TransactionsTable extends BaseTable {
   private bigIntFields: ITransactionRecordKey[] = ['txFeePlusTip', 'txTip'];
-  private dateFields: ITransactionRecordKey[] = ['submittedAtTime', 'includedInBlockTime', 'createdAt', 'updatedAt'];
+  private dateFields: ITransactionRecordKey[] = ['submittedAtTime', 'blockTime', 'createdAt', 'updatedAt'];
   private jsonFields: ITransactionRecordKey[] = [
     'submissionErrorJson',
-    'extrinsicJson',
-    'extrinsicMetadata',
-    'extrinsicErrorJson',
+    'extrinsicMethodJson',
+    'metadataJson',
+    'blockExtrinsicErrorJson',
     'blockExtrinsicEventsJson',
   ];
   private booleanFields: ITransactionRecordKey[] = ['isFinalized'];
@@ -84,29 +85,36 @@ export class TransactionsTable extends BaseTable {
       tip: bigint;
       feePlusTip: bigint;
       extrinsicError?: ExtrinsicError;
+      extrinsicIndex: number;
       transactionEvents: GenericEvent[];
     },
   ): Promise<ITransactionRecord> {
     const { blockNumber, blockHash, blockTime, feePlusTip, tip } = block;
-    record.includedInBlockHash = blockHash;
-    record.includedInBlockHeight = blockNumber;
-    record.includedInBlockTime = blockTime;
     record.txFeePlusTip = feePlusTip;
     record.txTip = tip;
     record.status = TransactionStatus.InBlock;
+    record.blockHash = blockHash;
+    record.blockHeight = blockNumber;
+    record.blockTime = blockTime;
+    record.blockExtrinsicIndex = block.extrinsicIndex;
     const { batchInterruptedIndex, errorCode, details, message = 'Unknown Error' } = block.extrinsicError || {};
-    record.extrinsicErrorJson = block.extrinsicError
-      ? { batchInterruptedIndex, errorCode, details, message }
-      : undefined;
-    record.blockExtrinsicEventsJson = block.transactionEvents.map(event => event.toHuman());
+    record.blockExtrinsicErrorJson = message ? { batchInterruptedIndex, errorCode, details, message } : undefined;
+    record.blockExtrinsicEventsJson = block.transactionEvents.map(event => {
+      return {
+        raw: event.toHex(),
+        human: event.toHuman(),
+      };
+    });
+    console.log('Events for extrinsic', record.extrinsicHash, record.blockExtrinsicEventsJson);
     await this.db.execute(
       `UPDATE Transactions SET 
-          includedInBlockHeight = ?, 
-          includedInBlockHash = ?, 
-          includedInBlockTime = ?, 
+          blockHeight = ?,
+          blockHash = ?,
+          blockTime = ?, 
           txFeePlusTip = ?, 
           txTip = ?,
-          extrinsicErrorJson = ?,
+          blockExtrinsicErrorJson = ?,
+          blockExtrinsicIndex = ?,
           blockExtrinsicEventsJson = ?,
           status = ?
         WHERE extrinsicHash = ?
@@ -117,7 +125,8 @@ export class TransactionsTable extends BaseTable {
         blockTime,
         feePlusTip,
         tip,
-        record.extrinsicErrorJson,
+        record.blockExtrinsicErrorJson,
+        record.blockExtrinsicIndex,
         record.blockExtrinsicEventsJson,
         record.status,
         record.extrinsicHash,
@@ -153,8 +162,8 @@ export class TransactionsTable extends BaseTable {
     args: Pick<
       ITransactionRecord,
       | 'extrinsicHash'
-      | 'extrinsicJson'
-      | 'extrinsicMetadata'
+      | 'extrinsicMethodJson'
+      | 'metadataJson'
       | 'extrinsicType'
       | 'accountAddress'
       | 'submittedAtBlockHeight'
@@ -163,8 +172,8 @@ export class TransactionsTable extends BaseTable {
   ): Promise<ITransactionRecord> {
     const {
       extrinsicHash,
-      extrinsicJson,
-      extrinsicMetadata,
+      extrinsicMethodJson,
+      metadataJson,
       extrinsicType,
       accountAddress,
       submittedAtBlockHeight,
@@ -172,14 +181,14 @@ export class TransactionsTable extends BaseTable {
     } = args;
     const record = await this.db.select<ITransactionRecord[]>(
       `INSERT INTO Transactions (
-          extrinsicHash, extrinsicJson, extrinsicMetadata, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, status
+          extrinsicHash, extrinsicMethodJson, metadataJson, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, status
         ) VALUES (
           ?, ?, ?, ?, ?, ?, ?, ?
         ) RETURNING *`,
       toSqlParams([
         extrinsicHash,
-        extrinsicJson,
-        extrinsicMetadata,
+        extrinsicMethodJson,
+        metadataJson,
         extrinsicType,
         accountAddress,
         submittedAtBlockHeight,
