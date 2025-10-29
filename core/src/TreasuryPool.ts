@@ -248,7 +248,7 @@ export class TreasuryPool {
       tip: options?.tip,
       useLatestNonce: true,
     });
-    await result.inBlockPromise;
+    await result.finalizedPromise;
     return result;
   }
 

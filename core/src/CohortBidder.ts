@@ -463,7 +463,7 @@ export class CohortBidder {
         useLatestNonce: true,
       });
 
-      const bidError = await txResult.inBlockPromise.then(() => undefined).catch((x: ExtrinsicError) => x);
+      const bidError = await txResult.finalizedPromise.then(() => undefined).catch((x: ExtrinsicError) => x);
 
       const client = this.client;
       const api = txResult.includedInBlock ? await client.at(txResult.includedInBlock) : client;

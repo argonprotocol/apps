@@ -4,6 +4,8 @@ import { MyVault } from '../lib/MyVault.ts';
 import { reactive } from 'vue';
 import { NETWORK_NAME } from './config.ts';
 import { getPriceIndex } from './mainchain.ts';
+import { useTransactionTracker } from './transactions.ts';
+import { useBitcoinLocks } from './bitcoin.ts';
 
 export type { Vaults };
 
@@ -21,7 +23,9 @@ export function useVaults(): Vaults {
 export function useMyVault(): MyVault {
   if (!myVault) {
     const dbPromise = getDbPromise();
-    myVault = new MyVault(dbPromise, useVaults());
+    const transactionTracker = useTransactionTracker();
+    const bitcoinLocks = useBitcoinLocks();
+    myVault = new MyVault(dbPromise, useVaults(), transactionTracker, bitcoinLocks);
     myVault.data = reactive(myVault.data) as any;
   }
 

@@ -1,0 +1,209 @@
+import { BaseTable, IFieldTypes } from './BaseTable';
+import { convertFromSqliteFields, toSqlParams } from '../Utils';
+import { ExtrinsicError, GenericEvent } from '@argonprotocol/mainchain';
+import { filterUndefined } from '@argonprotocol/apps-core';
+
+export enum ExtrinsicType {
+  VaultCreate = 'VaultCreate',
+  VaultModifySettings = 'VaultModifySettings',
+  VaultInitialAllocate = 'VaultInitialAllocate',
+  VaultIncreaseAllocation = 'VaultIncreaseAllocation',
+  VaultCollect = 'VaultCollect',
+  BitcoinOwnerCosignRelease = 'BitcoinOwnerCosignRelease',
+  BitcoinRequestRelease = 'BitcoinRequestRelease',
+  BitcoinInitializeLock = 'BitcoinInitializeLock',
+  Transfer = 'Transfer',
+}
+
+export enum TransactionStatus {
+  Submitted = 'Submitted',
+  InBlock = 'InBlock',
+  Finalized = 'Finalized',
+  Error = 'Error',
+  TimedOutWaitingForBlock = 'TimedOutWaitingForBlock',
+}
+
+export interface ITransactionRecord {
+  id: number; // Auto-incrementing primary key since extrinsic hash isn't implicitly unique and can overlap
+  extrinsicHash: string;
+  extrinsicJson: any;
+  extrinsicType: ExtrinsicType;
+  extrinsicMetadata: any;
+  accountAddress: string;
+  submittedAtTime: Date;
+  submittedAtBlockHeight: number;
+  submissionErrorJson: any;
+  txTip: bigint | undefined;
+  txFeePlusTip: bigint | undefined;
+  includedInBlockHeight: number | undefined;
+  includedInBlockHash: string | undefined;
+  includedInBlockTime: Date | undefined;
+  blockExtrinsicEventsJson: any[];
+  extrinsicErrorJson:
+    | { batchInterruptedIndex?: number; errorCode?: string; details?: string; message: string }
+    | undefined;
+  isFinalized: boolean;
+  status: TransactionStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+type ITransactionRecordKey = keyof ITransactionRecord & string;
+export class TransactionsTable extends BaseTable {
+  private bigIntFields: ITransactionRecordKey[] = ['txFeePlusTip', 'txTip'];
+  private dateFields: ITransactionRecordKey[] = ['submittedAtTime', 'includedInBlockTime', 'createdAt', 'updatedAt'];
+  private jsonFields: ITransactionRecordKey[] = [
+    'submissionErrorJson',
+    'extrinsicJson',
+    'extrinsicMetadata',
+    'extrinsicErrorJson',
+    'blockExtrinsicEventsJson',
+  ];
+  private booleanFields: ITransactionRecordKey[] = ['isFinalized'];
+
+  private get fields(): IFieldTypes {
+    return {
+      bigint: this.bigIntFields,
+      date: this.dateFields,
+      json: this.jsonFields,
+      boolean: this.booleanFields,
+    };
+  }
+
+  async fetchAll(): Promise<ITransactionRecord[]> {
+    const records = await this.db.select<any[]>('SELECT * FROM Transactions ORDER BY submittedAtBlockHeight DESC');
+    return convertFromSqliteFields(records, this.fields);
+  }
+
+  async recordInBlock(
+    record: ITransactionRecord,
+    block: {
+      blockNumber: number;
+      blockHash: string;
+      blockTime: Date;
+      tip: bigint;
+      feePlusTip: bigint;
+      extrinsicError?: ExtrinsicError;
+      transactionEvents: GenericEvent[];
+    },
+  ): Promise<ITransactionRecord> {
+    const { blockNumber, blockHash, blockTime, feePlusTip, tip } = block;
+    record.includedInBlockHash = blockHash;
+    record.includedInBlockHeight = blockNumber;
+    record.includedInBlockTime = blockTime;
+    record.txFeePlusTip = feePlusTip;
+    record.txTip = tip;
+    record.status = TransactionStatus.InBlock;
+    const { batchInterruptedIndex, errorCode, details, message = 'Unknown Error' } = block.extrinsicError || {};
+    record.extrinsicErrorJson = block.extrinsicError
+      ? { batchInterruptedIndex, errorCode, details, message }
+      : undefined;
+    record.blockExtrinsicEventsJson = block.transactionEvents.map(event => event.toHuman());
+    await this.db.execute(
+      `UPDATE Transactions SET 
+          includedInBlockHeight = ?, 
+          includedInBlockHash = ?, 
+          includedInBlockTime = ?, 
+          txFeePlusTip = ?, 
+          txTip = ?,
+          extrinsicErrorJson = ?,
+          blockExtrinsicEventsJson = ?,
+          status = ?
+        WHERE extrinsicHash = ?
+      `,
+      toSqlParams([
+        blockNumber,
+        blockHash,
+        blockTime,
+        feePlusTip,
+        tip,
+        record.extrinsicErrorJson,
+        record.blockExtrinsicEventsJson,
+        record.status,
+        record.extrinsicHash,
+      ]),
+    );
+    return record;
+  }
+
+  async markFinalized(record: ITransactionRecord): Promise<ITransactionRecord> {
+    record.isFinalized = true;
+    record.status = TransactionStatus.Finalized;
+    await this.db.execute(
+      `UPDATE Transactions SET isFinalized = ?, status = ?
+        WHERE extrinsicHash = ?
+      `,
+      toSqlParams([record.isFinalized, record.status, record.extrinsicHash]),
+    );
+    return record;
+  }
+
+  async markExpiredWaitingForBlock(record: ITransactionRecord): Promise<ITransactionRecord> {
+    record.status = TransactionStatus.TimedOutWaitingForBlock;
+    await this.db.execute(
+      `UPDATE Transactions SET status = ?
+        WHERE extrinsicHash = ?
+      `,
+      toSqlParams([record.status, record.extrinsicHash]),
+    );
+    return record;
+  }
+
+  async insert(
+    args: Pick<
+      ITransactionRecord,
+      | 'extrinsicHash'
+      | 'extrinsicJson'
+      | 'extrinsicMetadata'
+      | 'extrinsicType'
+      | 'accountAddress'
+      | 'submittedAtBlockHeight'
+      | 'submittedAtTime'
+    >,
+  ): Promise<ITransactionRecord> {
+    const {
+      extrinsicHash,
+      extrinsicJson,
+      extrinsicMetadata,
+      extrinsicType,
+      accountAddress,
+      submittedAtBlockHeight,
+      submittedAtTime,
+    } = args;
+    const record = await this.db.select<ITransactionRecord[]>(
+      `INSERT INTO Transactions (
+          extrinsicHash, extrinsicJson, extrinsicMetadata, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, status
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?
+        ) RETURNING *`,
+      toSqlParams([
+        extrinsicHash,
+        extrinsicJson,
+        extrinsicMetadata,
+        extrinsicType,
+        accountAddress,
+        submittedAtBlockHeight,
+        submittedAtTime,
+        TransactionStatus.Submitted,
+      ]),
+    );
+    return convertFromSqliteFields<ITransactionRecord[]>(record, this.fields)[0];
+  }
+
+  async recordSubmissionError(record: ITransactionRecord, submissionError: Error): Promise<ITransactionRecord> {
+    record.submissionErrorJson = submissionError
+      ? filterUndefined({
+          message: submissionError.message,
+          name: submissionError.name,
+          code: (submissionError as any).code,
+          data: (submissionError as any).data,
+        })
+      : undefined;
+    record.status = TransactionStatus.Error;
+    await this.db.execute(
+      `UPDATE Transactions SET submissionErrorJson = ?, status = ? WHERE extrinsicHash = ?`,
+      toSqlParams([record.submissionErrorJson, record.status, record.extrinsicHash]),
+    );
+    return record;
+  }
+}

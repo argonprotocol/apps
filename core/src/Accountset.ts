@@ -497,7 +497,7 @@ export class Accountset {
       useLatestNonce: true,
     });
 
-    const bidError = await txResult.inBlockPromise.then(() => undefined).catch((x: Error) => x);
+    const bidError = await txResult.finalizedPromise.then(() => undefined).catch((x: Error) => x);
     return {
       finalFee: txResult.finalFee,
       bidError,

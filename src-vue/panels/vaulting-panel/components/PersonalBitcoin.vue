@@ -144,7 +144,7 @@
       </div>
     </div>
   </section>
-  
+
   <!-- Overlays -->
 
   <BitcoinAddOverlay
@@ -248,7 +248,6 @@ async function loadPersonalUtxo() {
         argonKeyring: config.vaultingAccount,
         lock: lock,
         bitcoinXprivSeed: config.bitcoinXprivSeed,
-        bitcoinLocks,
       });
     }
   }
