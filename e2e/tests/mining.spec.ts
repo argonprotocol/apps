@@ -58,7 +58,7 @@ it('should be able to start a miner', async () => {
 
   // close the wallet overlay
   await Promise.all([waitForVisible('Received.argons', 10e3), waitForVisible('Received.argonots', 10e3)]);
-  await waitAndClick('Receive.closeOverlay()');
+  await waitAndClick('WalletOverlay.closeOverlay()');
 
   // open server connect
   await waitAndClick('FinalSetupChecklist.openServerConnectOverlay()');
