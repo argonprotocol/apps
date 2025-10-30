@@ -1,7 +1,7 @@
 import { $, $$, browser, expect } from '@wdio/globals';
 import { Key } from 'webdriverio';
 
-import { getClient, TxSubmitter, Keyring } from '@argonprotocol/mainchain';
+import { getClient, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
 import clipboard from 'clipboardy';
 import { getArchiveUrl } from '../wdio.conf';
 
@@ -53,7 +53,8 @@ it('should be able to start a miner', async () => {
     ]),
   );
   const txSubmitter = new TxSubmitter(client, tx, new Keyring({ type: 'sr25519' }).createFromUri('//Alice'));
-  await expect(txSubmitter.submit({ waitForBlock: true })).resolves.not.toThrow();
+  const result = await txSubmitter.submit();
+  await expect(result.waitForInFirstBlock).resolves.not.toThrow();
 
   // close the wallet overlay
   await Promise.all([waitForVisible('Received.argons', 10e3), waitForVisible('Received.argonots', 10e3)]);
@@ -69,7 +70,7 @@ it('should be able to start a miner', async () => {
   await launchButton.waitForClickable({ timeout: 60e3 });
   await launchButton.click();
 
-   public async function didFinishInstall() {
+  async function didFinishInstall() {
     if (await withTestid('Dashboard').isDisplayed()) {
       return true;
     }
@@ -78,7 +79,7 @@ it('should be able to start a miner', async () => {
 
   await $('.InstallProgress').waitForDisplayed();
   await browser.waitUntil(
-     public async () => {
+    async () => {
       const steps = $$('.InstallProgressStep');
       if ((await steps.length) === 0) {
         return didFinishInstall();
@@ -109,7 +110,7 @@ it('should be able to start a miner', async () => {
   await waitForVisible('Dashboard', 60e3);
   // should wait for a block mined?
   await browser.waitUntil(
-     public async () => {
+    async () => {
       const elem = await waitForVisible('TotalBlocksMined');
       return parseInt(await elem.getText(), 10) > 0;
     },
@@ -124,7 +125,7 @@ function withTestid(selector: string) {
   return $(makeTestidSelector(selector));
 }
 
- public async function waitAndClick(selector: string) {
+async function waitAndClick(selector: string) {
   const elem = withTestid(selector);
   console.log('Waiting for clickable:', selector);
   await elem.waitForClickable();
@@ -133,7 +134,7 @@ function withTestid(selector: string) {
   return elem;
 }
 
- public async function waitForVisible(selector: string, timeoutMs = 5e3, isTestId = true) {
+async function waitForVisible(selector: string, timeoutMs = 5e3, isTestId = true) {
   const elem = isTestId ? withTestid(selector) : $(selector);
   console.log('Waiting for visible:', selector);
   await elem.waitForDisplayed({ timeout: timeoutMs });
