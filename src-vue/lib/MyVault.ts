@@ -769,7 +769,7 @@ export class MyVault {
     bip39Seed: Uint8Array;
     txProgressCallback: ITxProgressCallback;
     tip?: bigint;
-  }): Promise<{ txResult: TxResult; utxoId: number }> {
+  }): Promise<ITransactionInfo> {
     const vault = this.createdVault;
     if (!vault) {
       throw new Error('No vault created to lock bitcoin');
@@ -792,8 +792,8 @@ export class MyVault {
       txProgressCallback: args.txProgressCallback,
       tip: args.tip,
     });
-    const utxoId = await this.onLockBitcoin(info);
-    return { ...info, utxoId };
+    void this.onLockBitcoin(info);
+    return info;
   }
 
   private async onLockBitcoin(info: ITransactionInfo): Promise<number> {

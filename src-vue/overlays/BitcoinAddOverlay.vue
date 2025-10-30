@@ -155,7 +155,7 @@ async function liquidLock() {
       microgonLiquidity = bitcoinSpaceInMicrogons.value;
     }
 
-    await vault.lockBitcoin({
+    const txInfo = await vault.lockBitcoin({
       microgonLiquidity: microgonLiquidity,
       argonKeyring: config.vaultingAccount,
       bip39Seed: config.bitcoinXprivSeed,
@@ -163,7 +163,16 @@ async function liquidLock() {
         console.log(`Lock Bitcoin Progress: ${Math.floor(progress * 100)}%`);
       },
     });
-    emit('close', true);
+    txInfo.txResult.waitForInFirstBlock
+      .then(x => {
+        console.log('In first block:', x);
+      })
+      .catch(error => {
+        errorMessage.value = error.message;
+      });
+    txInfo.txResult.waitForFinalizedBlock.then(x => {
+      console.log('Finalized:', x);
+    });
   } catch (e: any) {
     errorMessage.value = e.message;
   } finally {
