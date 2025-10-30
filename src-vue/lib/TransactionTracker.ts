@@ -23,6 +23,13 @@ export interface ITransactionInfo {
   txResult: TxResult;
   isProcessed: IDeferred;
   statusAtLoad?: TransactionStatus;
+  progressCallbacks: ((args: {
+    submittedBlock: number;
+    includedInBlockNumber?: number;
+    bestBlock: number;
+    finalizedBlock: number;
+    progress: number;
+  }) => void)[];
 }
 
 const PENDING_STATUSES = [TransactionStatus.Submitted, TransactionStatus.InBlock];
@@ -106,6 +113,7 @@ export class TransactionTracker {
           txResult,
           statusAtLoad: tx.status,
           isProcessed,
+          progressCallbacks: [],
         });
       }
       if (this.data.transactions.some(x => PENDING_STATUSES.includes(x.tx.status))) {
@@ -164,7 +172,7 @@ export class TransactionTracker {
     });
     await this.watchForUpdates();
 
-    const entry = { tx: record, txResult, isProcessed: createDeferred() };
+    const entry = { tx: record, txResult, isProcessed: createDeferred(), progressCallbacks: [] };
     this.data.transactions.unshift(entry);
     if (txResult.submissionError) {
       await table.recordSubmissionError(record, txResult.submissionError);
@@ -257,14 +265,36 @@ export class TransactionTracker {
     return finalizedHeader.number.toNumber();
   }
 
+  private updateProgress(txInfo: ITransactionInfo, finalizedHeight: number, bestBlockNumber: number): void {
+    const { tx, progressCallbacks } = txInfo;
+    let progress = 10;
+    if (tx.blockHeight && !tx.isFinalized) {
+      const elapsedBlocks = finalizedHeight - tx.blockHeight;
+      const FINALIZATION_BLOCKS = 4;
+      const completedPercent = (100 * elapsedBlocks) / FINALIZATION_BLOCKS;
+      progress = Math.min(99, completedPercent);
+    } else if (tx.submissionErrorJson) {
+      progress = 100;
+    }
+    for (const progressCallback of progressCallbacks) {
+      progressCallback({
+        submittedBlock: tx.submittedAtBlockHeight,
+        includedInBlockNumber: tx.blockHeight,
+        bestBlock: bestBlockNumber,
+        finalizedBlock: finalizedHeight,
+        progress,
+      });
+    }
+  }
+
   private async updatePendingStatuses(bestBlockNumber: number): Promise<void> {
     const table = await this.getTable();
     const client = await getMainchainClient(true);
     const finalizedHeight = await this.getFinalizedBlockNumber(client);
     console.log('Checking for pending transaction statuses', { finalizedHeight, bestBlockNumber });
-    for (const { tx, txResult } of this.data.transactions) {
+    for (const info of this.data.transactions) {
+      const { tx, txResult } = info;
       if (!PENDING_STATUSES.includes(tx.status)) continue;
-
       try {
         if (tx.blockHeight && tx.blockHeight <= finalizedHeight) {
           // ensure this block hash is still valid
@@ -322,6 +352,8 @@ export class TransactionTracker {
         }
       } catch (error) {
         console.error('Error updating pending transaction status:', error);
+      } finally {
+        this.updateProgress(info, finalizedHeight, bestBlockNumber);
       }
     }
     if (this.data.transactions.every(x => !PENDING_STATUSES.includes(x.tx.status))) {

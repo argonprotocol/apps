@@ -307,7 +307,6 @@ export class MyVault {
     if (!vaultSignature) {
       throw new Error('Failed to get vault signature from PSBT for utxoId: ' + utxoId);
     }
-    const client = await getMainchainClient(false);
     const txResult = await this.#bitcoinLocks?.submitVaultSignature({
       utxoId,
       vaultSignature,
