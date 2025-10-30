@@ -13,7 +13,7 @@ export class Mining {
     return this.clients.prunedClientPromise ?? this.clients.archiveClientPromise;
   }
 
-  constructor(readonly clients: MainchainClients) {}
+  constructor(public readonly clients: MainchainClients) {}
 
   public async getRecentSeatSummaries(): Promise<
     { biddingFrameId: number; seats: number; lowestWinningBid: bigint; highestWinningBid: bigint }[]

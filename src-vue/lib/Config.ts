@@ -233,7 +233,7 @@ export class Config implements IConfig {
     return this._loadedDeferred.promise;
   }
 
-  get masterAccount(): KeyringPair {
+  public get masterAccount(): KeyringPair {
     // we will allow this to operate even if not loaded so this._injectFirstTimeAppData can set the miningAccountAddress
     if (this._masterAccount) return this._masterAccount;
 
@@ -244,12 +244,12 @@ export class Config implements IConfig {
     return this._masterAccount;
   }
 
-  get miningSessionMiniSecret(): string {
+  public get miningSessionMiniSecret(): string {
     this._throwErrorIfNotLoaded();
     return (this._miningSessionMiniSecret ||= miniSecretFromUri(`${this.security.masterMnemonic}//mining//sessions`));
   }
 
-  get miningAccount(): KeyringPair {
+  public get miningAccount(): KeyringPair {
     // we will allow this to operate even if not loaded so this._injectFirstTimeAppData can set the miningAccountAddress
     if (this._miningAccount) return this._miningAccount;
 
@@ -260,7 +260,7 @@ export class Config implements IConfig {
     return this._miningAccount;
   }
 
-  get vaultingAccount(): KeyringPair {
+  public get vaultingAccount(): KeyringPair {
     if (this._vaultingAccount) return this._vaultingAccount;
 
     const vaultingAccount = this.masterAccount.derive(`//vaulting`);
@@ -269,263 +269,245 @@ export class Config implements IConfig {
     return this._vaultingAccount;
   }
 
-  get walletAccountsHadPreviousLife(): IConfig['walletAccountsHadPreviousLife'] {
+  public get walletAccountsHadPreviousLife(): IConfig['walletAccountsHadPreviousLife'] {
     return this.getField('walletAccountsHadPreviousLife');
   }
-
-  set walletAccountsHadPreviousLife(value: IConfig['walletAccountsHadPreviousLife']) {
+  public set walletAccountsHadPreviousLife(value: IConfig['walletAccountsHadPreviousLife']) {
     this.setField('walletAccountsHadPreviousLife', value);
   }
 
-  get walletPreviousLifeRecovered(): IConfig['walletPreviousLifeRecovered'] {
+  public get walletPreviousLifeRecovered(): IConfig['walletPreviousLifeRecovered'] {
     return this.getField('walletPreviousLifeRecovered');
   }
-
-  set walletPreviousLifeRecovered(value: IConfig['walletPreviousLifeRecovered']) {
+  public set walletPreviousLifeRecovered(value: IConfig['walletPreviousLifeRecovered']) {
     this.setField('walletPreviousLifeRecovered', value);
   }
 
-  get miningAccountPreviousHistory(): IConfig['miningAccountPreviousHistory'] {
+  public get miningAccountPreviousHistory(): IConfig['miningAccountPreviousHistory'] {
     return this.getField('miningAccountPreviousHistory');
   }
 
-  get miningAccountAddress(): IConfig['miningAccountAddress'] {
+  public get miningAccountAddress(): IConfig['miningAccountAddress'] {
     return this.getField('miningAccountAddress');
   }
-
-  set miningAccountPreviousHistory(value: IConfig['miningAccountPreviousHistory']) {
+  public set miningAccountPreviousHistory(value: IConfig['miningAccountPreviousHistory']) {
     this.setField('miningAccountPreviousHistory', value);
   }
 
-  get isBootingUpPreviousWalletHistory(): boolean {
+  public get isBootingUpPreviousWalletHistory(): boolean {
     return this._loadedData.walletAccountsHadPreviousLife && !this._loadedData.walletPreviousLifeRecovered;
   }
 
-  get walletPreviousHistoryLoadPct(): number {
+  public get walletPreviousHistoryLoadPct(): number {
     if (!this.isBootingUpPreviousWalletHistory) return 100;
     return Math.min(this._walletPreviousHistoryLoadPct, 100);
   }
 
-  get bitcoinXprivSeed(): Uint8Array {
+  public get bitcoinXprivSeed(): Uint8Array {
     return bip39.mnemonicToSeedSync(this.security.masterMnemonic);
   }
 
-  get panelKey(): PanelKey {
+  public get panelKey(): PanelKey {
     return this.getField('panelKey');
   }
-
-  set panelKey(value: PanelKey) {
+  public set panelKey(value: PanelKey) {
     this.setField('panelKey', value);
   }
 
-  get requiresPassword(): boolean {
+  public get requiresPassword(): boolean {
     return this.getField('requiresPassword');
   }
-
-  set requiresPassword(value: boolean) {
+  public set requiresPassword(value: boolean) {
     this.setField('requiresPassword', value);
   }
 
-  get showWelcomeOverlay(): boolean {
+  public get showWelcomeOverlay(): boolean {
     return this.getField('showWelcomeOverlay');
   }
-
-  set showWelcomeOverlay(value: boolean) {
+  public set showWelcomeOverlay(value: boolean) {
     this.setField('showWelcomeOverlay', value);
   }
 
-  get security(): ISecurity {
+  public get security(): ISecurity {
     this._throwErrorIfNotLoaded();
     return this._security;
   }
 
-  get serverCreation(): IConfig['serverCreation'] {
+  public get serverCreation(): IConfig['serverCreation'] {
     return this.getField('serverCreation');
   }
-
-  set serverCreation(value: IConfig['serverCreation']) {
+  public set serverCreation(value: IConfig['serverCreation']) {
     this.setField('serverCreation', value);
   }
 
-  get serverDetails(): IConfig['serverDetails'] {
+  public get serverDetails(): IConfig['serverDetails'] {
     return this.getField('serverDetails');
   }
-
-  set serverDetails(value: IConfig['serverDetails']) {
+  public set serverDetails(value: IConfig['serverDetails']) {
     this.setField('serverDetails', value);
   }
 
-  get installDetails(): IConfig['installDetails'] {
+  public get installDetails(): IConfig['installDetails'] {
     return this.getField('installDetails');
   }
-
-  set installDetails(value: IConfig['installDetails']) {
+  public set installDetails(value: IConfig['installDetails']) {
     this.setField('installDetails', value);
   }
 
-  get oldestFrameIdToSync(): number {
+  public get oldestFrameIdToSync(): number {
     return this.getField('oldestFrameIdToSync');
   }
-
-  set oldestFrameIdToSync(value: number) {
+  public set oldestFrameIdToSync(value: number) {
     this.setField('oldestFrameIdToSync', value);
   }
 
-  get latestFrameIdProcessed(): number {
+  public get latestFrameIdProcessed(): number {
     return this.getField('latestFrameIdProcessed');
   }
-
-  set latestFrameIdProcessed(value: number) {
+  public set latestFrameIdProcessed(value: number) {
     this.setField('latestFrameIdProcessed', value);
   }
 
-  get hasReadMiningInstructions(): boolean {
+  public get hasReadMiningInstructions(): boolean {
     return this.getField('hasReadMiningInstructions');
   }
-
-  set hasReadMiningInstructions(value: boolean) {
+  public set hasReadMiningInstructions(value: boolean) {
     this.setField('hasReadMiningInstructions', value);
   }
 
-  get isPreparingMinerSetup(): boolean {
+  public get isPreparingMinerSetup(): boolean {
     return this.getField('isPreparingMinerSetup');
   }
-
-  set isPreparingMinerSetup(value: boolean) {
+  public set isPreparingMinerSetup(value: boolean) {
     this.setField('isPreparingMinerSetup', value);
   }
 
-  get isMinerReadyToInstall(): boolean {
+  public get isMinerReadyToInstall(): boolean {
     return this.getField('isMinerReadyToInstall');
   }
-
-  set isMinerReadyToInstall(value: boolean) {
+  public set isMinerReadyToInstall(value: boolean) {
     this.setField('isMinerReadyToInstall', value);
   }
 
-  get isMiningMachineCreated(): boolean {
+  public get isMiningMachineCreated(): boolean {
     return this.getField('isMiningMachineCreated');
   }
-
-  set isMiningMachineCreated(value: boolean) {
+  public set isMiningMachineCreated(value: boolean) {
     this.setField('isMiningMachineCreated', value);
   }
 
-  get isMinerUpToDate(): boolean {
+  public get isMinerUpToDate(): boolean {
     return this.getField('isMinerUpToDate');
   }
-
-  set isMinerUpToDate(value: boolean) {
+  public set isMinerUpToDate(value: boolean) {
     this.setField('isMinerUpToDate', value);
   }
 
-  get isMinerInstalled(): boolean {
+  public get isMinerInstalled(): boolean {
     return this.getField('isMinerInstalled');
   }
-
-  set isMinerInstalled(value: boolean) {
+  public set isMinerInstalled(value: boolean) {
     this.setField('isMinerInstalled', value);
   }
 
-  get isMinerWaitingForUpgradeApproval(): boolean {
+  public get isMinerWaitingForUpgradeApproval(): boolean {
     return this.getField('isMinerWaitingForUpgradeApproval');
   }
-
-  set isMinerWaitingForUpgradeApproval(value: boolean) {
+  public set isMinerWaitingForUpgradeApproval(value: boolean) {
     this.setField('isMinerWaitingForUpgradeApproval', value);
   }
 
-  get hasReadVaultingInstructions(): boolean {
+  public get hasReadVaultingInstructions(): boolean {
     return this.getField('hasReadVaultingInstructions');
   }
 
-  set hasReadVaultingInstructions(value: boolean) {
+  public set hasReadVaultingInstructions(value: boolean) {
     this.setField('hasReadVaultingInstructions', value);
   }
 
-  get isPreparingVaultSetup(): boolean {
+  public get isPreparingVaultSetup(): boolean {
     return this.getField('isPreparingVaultSetup');
   }
 
-  set isPreparingVaultSetup(value: boolean) {
+  public set isPreparingVaultSetup(value: boolean) {
     this.setField('isPreparingVaultSetup', value);
   }
 
-  get isVaultReadyToCreate(): boolean {
+  public get isVaultReadyToCreate(): boolean {
     return this.getField('isVaultReadyToCreate');
   }
 
-  set isVaultReadyToCreate(value: boolean) {
+  public set isVaultReadyToCreate(value: boolean) {
     this.setField('isVaultReadyToCreate', value);
   }
 
-  get isVaultActivated(): boolean {
+  public get isVaultActivated(): boolean {
     return this.getField('isVaultActivated');
   }
 
-  set isVaultActivated(value: boolean) {
+  public set isVaultActivated(value: boolean) {
     this.setField('isVaultActivated', value);
   }
 
-  get hasMiningSeats(): boolean {
+  public get hasMiningSeats(): boolean {
     return this.getField('hasMiningSeats');
   }
 
-  set hasMiningSeats(value: boolean) {
+  public set hasMiningSeats(value: boolean) {
     this.setField('hasMiningSeats', value);
   }
 
-  get hasMiningBids(): boolean {
+  public get hasMiningBids(): boolean {
     return this.getField('hasMiningBids');
   }
 
-  set hasMiningBids(value: boolean) {
+  public set hasMiningBids(value: boolean) {
     this.setField('hasMiningBids', value);
   }
 
-  get biddingRules(): IConfig['biddingRules'] {
+  public get biddingRules(): IConfig['biddingRules'] {
     return this.getField('biddingRules');
   }
 
-  set biddingRules(value: IConfig['biddingRules']) {
+  public set biddingRules(value: IConfig['biddingRules']) {
     this.setField('biddingRules', value);
   }
 
-  get vaultingRules(): IConfig['vaultingRules'] {
+  public get vaultingRules(): IConfig['vaultingRules'] {
     return this.getField('vaultingRules');
   }
 
-  set vaultingRules(value: IConfig['vaultingRules']) {
+  public set vaultingRules(value: IConfig['vaultingRules']) {
     this.setField('vaultingRules', value);
   }
 
-  get defaultCurrencyKey(): CurrencyKey {
+  public get defaultCurrencyKey(): CurrencyKey {
     return this.getField('defaultCurrencyKey');
   }
 
-  set defaultCurrencyKey(value: CurrencyKey) {
+  public set defaultCurrencyKey(value: CurrencyKey) {
     this.setField('defaultCurrencyKey', value);
   }
 
-  get userJurisdiction(): IConfig['userJurisdiction'] {
+  public get userJurisdiction(): IConfig['userJurisdiction'] {
     return this.getField('userJurisdiction');
   }
 
-  set userJurisdiction(value: IConfig['userJurisdiction']) {
+  public set userJurisdiction(value: IConfig['userJurisdiction']) {
     this.setField('userJurisdiction', value);
   }
 
-  get isValidJurisdiction(): boolean {
+  public get isValidJurisdiction(): boolean {
     this._throwErrorIfNotLoaded();
     return this.userJurisdiction.countryCode === 'KY';
   }
 
-  get hasSavedBiddingRules(): boolean {
+  public get hasSavedBiddingRules(): boolean {
     this._throwErrorIfNotLoaded();
     return !!this._rawData[dbFields.biddingRules];
   }
 
-  get hasSavedVaultingRules(): boolean {
+  public get hasSavedVaultingRules(): boolean {
     this._throwErrorIfNotLoaded();
     return !!this._rawData[dbFields.vaultingRules];
   }

@@ -34,26 +34,26 @@ export interface ILastProcessed {
 }
 
 export class BlockSync {
-  lastProcessed?: ILastProcessed;
-  accountMiners!: AccountMiners;
-  latestFinalizedBlockNumber!: number;
-  scheduleTimer?: NodeJS.Timeout;
-  get botStateFile(): JsonStore<IBotStateFile> {
+  public lastProcessed?: ILastProcessed;
+  public accountMiners!: AccountMiners;
+  public latestFinalizedBlockNumber!: number;
+  public get botStateFile(): JsonStore<IBotStateFile> {
     return this.storage.botStateFile();
   }
-  get blockSyncFile(): JsonStore<IBlockSyncFile> {
+  public get blockSyncFile(): JsonStore<IBlockSyncFile> {
     return this.storage.botBlockSyncFile();
   }
-  inProcessSync?: ReturnType<BlockSync['processNext']>;
+  public inProcessSync?: ReturnType<BlockSync['processNext']>;
+  public currentFrameTickRange: [number, number] = [0, 0];
 
-  currentFrameTickRange: [number, number] = [0, 0];
+  public oldestTickToSync: number = 0;
 
-  oldestTickToSync: number = 0;
-  latestTick: number = 0;
-  lastSynchedTick: number = 0;
-  earliestQueuedTick?: number;
+  public latestTick: number = 0;
+  public lastSynchedTick: number = 0;
+  public earliestQueuedTick?: number;
+  public didProcessBlock?: (lastProcessed: ILastProcessed) => void;
 
-  didProcessBlock?: (lastProcessed: ILastProcessed) => void;
+  private scheduleTimer?: NodeJS.Timeout;
 
   private unsubscribe?: () => void;
   private isStopping: boolean = false;
@@ -77,8 +77,7 @@ export class BlockSync {
     this.mining = new Mining(this.mainchainClients);
     this.priceIndex = new PriceIndex(this.mainchainClients);
   }
-
-  async load() {
+  public async load() {
     this.isStopping = false;
     const localClient = await this.mainchainClients.prunedClientPromise;
     if (!localClient) {
@@ -157,8 +156,7 @@ export class BlockSync {
     // catchup now
     await this.syncToLatest();
   }
-
-  async backfillBestBlockHeader(header: Header, isFirstLoad = false): Promise<IBlockSyncFile | undefined> {
+  public async backfillBestBlockHeader(header: Header, isFirstLoad = false): Promise<IBlockSyncFile | undefined> {
     if (this.isStopping) return;
     // plug any gaps in the sync state
     let final: IBlockSyncFile | undefined;
@@ -247,8 +245,7 @@ export class BlockSync {
     });
     return final;
   }
-
-  async start() {
+  public async start() {
     const unsub1 = await this.localClient.rpc.chain.subscribeNewHeads(header => {
       this.latestBestBlockHeader = header;
     });
@@ -263,7 +260,7 @@ export class BlockSync {
     await this.scheduleNext(500, true);
   }
 
-  async stop() {
+  public async stop() {
     if (this.isStopping) return;
     console.log('BLOCKSYNC STOPPING');
     this.isStopping = true;
@@ -282,7 +279,7 @@ export class BlockSync {
     // local client is not owned by this service
   }
 
-  async state(): Promise<IBotState> {
+  public async state(): Promise<IBotState> {
     const [argonBlockNumbers, bitcoinBlockNumbers, botStateData, blockSyncData] = await Promise.all([
       Dockers.getArgonBlockNumbers(),
       Dockers.getBitcoinBlockNumbers(),
@@ -306,7 +303,7 @@ export class BlockSync {
     };
   }
 
-  async calculateSyncProgress(): Promise<number> {
+  public async calculateSyncProgress(): Promise<number> {
     const processingProgress = this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
 
     let queueProgress = 100;
@@ -323,7 +320,7 @@ export class BlockSync {
     return Math.round(progress * 100) / 100;
   }
 
-  async syncToLatest() {
+  public async syncToLatest() {
     while (true) {
       const result = await this.processNext();
       if (!result) {
@@ -333,7 +330,7 @@ export class BlockSync {
     console.log('Synched to latest');
   }
 
-  async scheduleNext(waitTime: number = 500, throwIfFails = false): Promise<void> {
+  public async scheduleNext(waitTime: number = 500, throwIfFails = false): Promise<void> {
     if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
     if (this.isStopping) return;
 
@@ -357,7 +354,7 @@ export class BlockSync {
     this.scheduleTimer = setTimeout(this.scheduleNext, waitTime);
   }
 
-  async processNext(): Promise<{ processed: IBlock; remaining: number } | undefined> {
+  public async processNext(): Promise<{ processed: IBlock; remaining: number } | undefined> {
     const blockSyncData = (await this.blockSyncFile.get())!;
     const bestBlockNumber = blockSyncData.bestBlockNumber;
     const syncedToBlockNumber = blockSyncData.syncedToBlockNumber;

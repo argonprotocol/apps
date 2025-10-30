@@ -26,9 +26,9 @@ export class VaultMonitor {
   private shouldLog: boolean = true;
 
   constructor(
-    readonly accountset: Accountset,
-    readonly alerts: WatchAlerts = {},
-    readonly options: {
+    private readonly accountset: Accountset,
+    private readonly alerts: WatchAlerts = {},
+    options: {
       vaultOnlyWatchMode?: boolean;
       shouldLog?: boolean;
     } = {},

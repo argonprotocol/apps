@@ -24,7 +24,7 @@ export default class Importer {
     this.failureToReadData = false;
   }
 
-  async importFromFile(dataRaw: string) {
+  public async importFromFile(dataRaw: string) {
     try {
       this.data = JsonExt.parse(dataRaw);
     } catch (error) {
@@ -69,7 +69,7 @@ export default class Importer {
     this.onFinished?.();
   }
 
-  async importFromMnemonic(mnemonic: string) {
+  public async importFromMnemonic(mnemonic: string) {
     const restarter = new Restarter(this.dbPromise, this.config);
     const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
     Object.assign(SECURITY, security);
@@ -77,7 +77,7 @@ export default class Importer {
     this.onFinished?.();
   }
 
-  async importFromServer(ipAddress: string) {
+  public async importFromServer(ipAddress: string) {
     const serverDetails: IConfigServerDetails = {
       ipAddress,
       sshUser: this.config.serverDetails.sshUser,

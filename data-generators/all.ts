@@ -2,7 +2,7 @@ import fetchBitcoinPrices from './fetchBitcoinPrices.ts';
 import fetchBitcoinFees from './fetchBitcoinFees.ts';
 import fetchVaultRevenue from './fetchVaultRevenue.ts';
 
-async function main() {
+ public async function main() {
   console.log('Starting data fetch process...');
 
   try {

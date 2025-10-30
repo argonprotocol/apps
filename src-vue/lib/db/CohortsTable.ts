@@ -91,7 +91,7 @@ export class CohortsTable extends BaseTable {
     }
   }
 
-  async fetchActiveSeatData(
+  public async fetchActiveSeatData(
     frameId: number,
     frameProgress: number,
   ): Promise<{ seatCountActive: number; seatCostTotalFramed: bigint }> {
@@ -113,14 +113,14 @@ export class CohortsTable extends BaseTable {
     };
   }
 
-  async fetchActiveCohorts(currentFrameId: number): Promise<ICohortRecord[]> {
+  public async fetchActiveCohorts(currentFrameId: number): Promise<ICohortRecord[]> {
     const records = await this.db.select<any[]>('SELECT * FROM Cohorts WHERE seatCountWon > 0 AND id >= ?', [
       currentFrameId - 9,
     ]);
     return convertSqliteBigInts(records, this.bigIntFields);
   }
 
-  async insertOrUpdate(args: {
+  public async insertOrUpdate(args: {
     id: number;
     progress: number;
     transactionFeesTotal: bigint;
@@ -174,7 +174,7 @@ export class CohortsTable extends BaseTable {
     );
   }
 
-  async fetchCount(): Promise<number> {
+  public async fetchCount(): Promise<number> {
     const [result] = await this.db.select<[{ count: number }]>('SELECT COUNT(*) as count FROM Cohorts');
     return result.count;
   }

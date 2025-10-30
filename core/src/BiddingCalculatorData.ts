@@ -29,7 +29,7 @@ export default class BiddingCalculatorData {
 
   constructor(private mining: Mining) {}
 
-  getEpochSeatGoalCount(rules: IBiddingRules): number {
+  public getEpochSeatGoalCount(rules: IBiddingRules): number {
     if (rules.seatGoalType === SeatGoalType.MaxPercent || rules.seatGoalType === SeatGoalType.MinPercent) {
       return Math.floor((rules.seatGoalPercent / 100) * this.maxPossibleMiningSeatCount);
     }

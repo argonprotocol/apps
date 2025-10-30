@@ -40,7 +40,7 @@ export class Db {
     this.bitcoinLocksTable = new BitcoinLocksTable(this);
   }
 
-  static async load(retries: number = 0): Promise<Db> {
+  public static async load(retries: number = 0): Promise<Db> {
     try {
       const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
       return new Db(sql, !!retries);
@@ -54,7 +54,7 @@ export class Db {
 
   private writesPaused = false;
 
-  async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
+  public async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
     if (this.writesPaused) {
       return { rowsAffected: 0 };
     }
@@ -66,7 +66,7 @@ export class Db {
     }
   }
 
-  async select<T>(query: string, bindValues?: unknown[]): Promise<T> {
+  public async select<T>(query: string, bindValues?: unknown[]): Promise<T> {
     try {
       return await this.sql.select<T>(query, bindValues);
     } catch (error) {

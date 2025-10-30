@@ -10,7 +10,7 @@ export class CohortFramesTable extends BaseTable {
     'microgonFeesCollectedTotal',
   ];
 
-  async insertOrUpdate(args: {
+  public async insertOrUpdate(args: {
     frameId: number;
     cohortActivationFrameId: number;
     blocksMinedTotal: number;
@@ -52,7 +52,7 @@ export class CohortFramesTable extends BaseTable {
     );
   }
 
-  async fetchActiveCohortFrames(currentFrameId: number): Promise<ICohortFrameRecord[]> {
+  public async fetchActiveCohortFrames(currentFrameId: number): Promise<ICohortFrameRecord[]> {
     const records = await this.db.select<ICohortFrameRecord[]>('SELECT * FROM CohortFrames WHERE frameId >= ?', [
       currentFrameId - 10,
     ]);

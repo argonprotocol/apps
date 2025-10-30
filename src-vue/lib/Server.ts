@@ -56,7 +56,7 @@ export class Server {
   private readonly connection: SSHConnection;
   private readonly serverDetails: IConfigServerDetails;
 
-  public constructor(connection: SSHConnection, serverDetails: IConfigServerDetails) {
+  constructor(connection: SSHConnection, serverDetails: IConfigServerDetails) {
     this.connection = connection;
     this.serverDetails = serverDetails;
   }

@@ -3,7 +3,7 @@ import { MainchainClients } from './MainchainClients.js';
 import { MiningFrames } from './MiningFrames.js';
 
 export class StorageFinder {
-  static async iterateFindStorageAddition(args: {
+  public static async iterateFindStorageAddition(args: {
     client: ArgonClient;
     startingBlock: number;
     maxBlocksToCheck: number;
@@ -40,7 +40,7 @@ export class StorageFinder {
     throw new Error(`StorageFinder cannot find storage added ${storageKey}`);
   }
 
-  static async binarySearchForStorageAddition(
+  public static async binarySearchForStorageAddition(
     clients: MainchainClients,
     storageKey: string,
     oldestBlockNumber?: number,
@@ -98,7 +98,7 @@ export class StorageFinder {
     };
   }
 
-  static async checkIfStorageExists(args: {
+  public static async checkIfStorageExists(args: {
     client: ArgonClient;
     blockNumber: number;
     storageKey: string;

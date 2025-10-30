@@ -21,7 +21,7 @@ export class ServerStateTable {
     this.db = db;
   }
 
-  async insertOrUpdateBlocks(
+  public async insertOrUpdateBlocks(
     args: Omit<IServerStateRecord, 'id' | 'insertedAt' | 'createdAt'>,
   ): Promise<IServerStateRecord> {
     const {
@@ -72,7 +72,7 @@ export class ServerStateTable {
     return rawRecord;
   }
 
-  async get(): Promise<IServerStateRecord | null> {
+  public async get(): Promise<IServerStateRecord | null> {
     const rawRecords = await this.db.select<IServerStateRecord[]>('SELECT * FROM ServerState LIMIT 1', []);
     return convertFromSqliteFields<IServerStateRecord[]>(rawRecords, this.fieldTypes)[0];
   }

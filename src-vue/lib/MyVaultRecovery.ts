@@ -59,7 +59,7 @@ export class MyVaultRecovery {
     };
   }
 
-  static async findPrebonded(args: {
+  public static async findPrebonded(args: {
     client: ArgonClient;
     vaultId: number;
     vaultCreatedBlockNumber: number;
@@ -110,7 +110,7 @@ export class MyVaultRecovery {
     };
   }
 
-  static async findOperatorVault(
+  public static async findOperatorVault(
     mainchainClients: MainchainClients,
     bitcoinNetwork: BitcoinNetwork,
     vaultingAddress: string,
@@ -169,7 +169,7 @@ export class MyVaultRecovery {
     };
   }
 
-  static async recoverPersonalBitcoin(args: {
+  public static async recoverPersonalBitcoin(args: {
     mainchainClients: MainchainClients;
     bitcoinLocksStore: BitcoinLocksStore;
     vaultSetupBlockNumber: number;

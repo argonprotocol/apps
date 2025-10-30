@@ -17,7 +17,7 @@ export class VaultCalculator {
     this.clients = mainchainClients;
   }
 
-  async load(rules: Config['vaultingRules']) {
+  public async load(rules: Config['vaultingRules']) {
     if (this.isLoaded.isRunning || this.isLoaded.isSettled) {
       return this.isLoaded.promise;
     }

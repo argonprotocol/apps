@@ -71,12 +71,12 @@ export class TransactionsTable extends BaseTable {
     };
   }
 
-  async fetchAll(): Promise<ITransactionRecord[]> {
+  public async fetchAll(): Promise<ITransactionRecord[]> {
     const records = await this.db.select<any[]>('SELECT * FROM Transactions ORDER BY submittedAtBlockHeight DESC');
     return convertFromSqliteFields(records, this.fields);
   }
 
-  async recordInBlock(
+  public async recordInBlock(
     record: ITransactionRecord,
     block: {
       blockNumber: number;
@@ -135,7 +135,7 @@ export class TransactionsTable extends BaseTable {
     return record;
   }
 
-  async markFinalized(record: ITransactionRecord): Promise<ITransactionRecord> {
+  public async markFinalized(record: ITransactionRecord): Promise<ITransactionRecord> {
     record.isFinalized = true;
     record.status = TransactionStatus.Finalized;
     await this.db.execute(
@@ -147,7 +147,7 @@ export class TransactionsTable extends BaseTable {
     return record;
   }
 
-  async markExpiredWaitingForBlock(record: ITransactionRecord): Promise<ITransactionRecord> {
+  public async markExpiredWaitingForBlock(record: ITransactionRecord): Promise<ITransactionRecord> {
     record.status = TransactionStatus.TimedOutWaitingForBlock;
     await this.db.execute(
       `UPDATE Transactions SET status = ?
@@ -158,7 +158,7 @@ export class TransactionsTable extends BaseTable {
     return record;
   }
 
-  async insert(
+  public async insert(
     args: Pick<
       ITransactionRecord,
       | 'extrinsicHash'
@@ -199,7 +199,7 @@ export class TransactionsTable extends BaseTable {
     return convertFromSqliteFields<ITransactionRecord[]>(record, this.fields)[0];
   }
 
-  async recordSubmissionError(record: ITransactionRecord, submissionError: Error): Promise<ITransactionRecord> {
+  public async recordSubmissionError(record: ITransactionRecord, submissionError: Error): Promise<ITransactionRecord> {
     record.submissionErrorJson = submissionError
       ? filterUndefined({
           message: submissionError.message,

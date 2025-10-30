@@ -12,7 +12,7 @@ type IsMatchingEventFn = (
   registryError?: { section: string; method: string; index: number; name: string },
 ) => boolean;
 export class TransactionFees {
-  static async findFromEvents(args: {
+  public static async findFromEvents(args: {
     client: ArgonClient;
     blockHash: Uint8Array;
     accountAddress: string;

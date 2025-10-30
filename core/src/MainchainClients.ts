@@ -25,7 +25,7 @@ export class MainchainClients {
     this.archiveClientPromise = getMainchainClientOrThrow(archiveUrl).then(x => this.wrapClient(x, 'archive'));
   }
 
-  async setArchiveClient(url: string) {
+  public async setArchiveClient(url: string) {
     if (this.archiveUrl === url) {
       try {
         await this.archiveClientPromise;
@@ -40,7 +40,7 @@ export class MainchainClients {
     return this.archiveClientPromise;
   }
 
-  async setPrunedClient(url: string): Promise<ArgonClient> {
+  public async setPrunedClient(url: string): Promise<ArgonClient> {
     if (this.prunedUrl === url && this.prunedClientPromise) {
       return this.prunedClientPromise;
     }
@@ -50,14 +50,14 @@ export class MainchainClients {
     return this.prunedClientPromise;
   }
 
-  get(needsHistoricalBlocks: boolean): Promise<ArgonClient> {
+  public get(needsHistoricalBlocks: boolean): Promise<ArgonClient> {
     if (needsHistoricalBlocks) {
       return this.archiveClientPromise;
     }
     return this.prunedClientPromise ?? this.archiveClientPromise;
   }
 
-  async disconnect() {
+  public async disconnect() {
     await Promise.allSettled([
       this.archiveClientPromise.then(client => client.disconnect()),
       this.prunedClientPromise?.then(client => client.disconnect()),

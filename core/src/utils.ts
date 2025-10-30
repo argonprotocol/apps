@@ -98,14 +98,14 @@ export function createNanoEvents<Events extends EventsMap = DefaultEvents>(): Ty
 export class TypedEmitter<Events extends EventsMap = DefaultEvents> {
   private events: Partial<{ [E in keyof Events]: Events[E][] }> = {};
 
-  emit<K extends keyof Events>(this: this, event: K, ...args: Parameters<Events[K]>): void {
+  public emit<K extends keyof Events>(this: this, event: K, ...args: Parameters<Events[K]>): void {
     for (const cb of this.events[event] || []) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call
       cb(...args);
     }
   }
 
-  on<K extends keyof Events>(this: this, event: K, cb: Events[K]): () => void {
+  public on<K extends keyof Events>(this: this, event: K, cb: Events[K]): () => void {
     (this.events[event] ||= []).push(cb);
     return () => {
       this.events[event] = this.events[event]?.filter(i => cb !== i);

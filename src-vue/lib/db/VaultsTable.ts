@@ -24,7 +24,7 @@ export class VaultsTable extends BaseTable {
     bigint: ['prebondedMicrogons', 'operationalFeeMicrogons'],
   };
 
-  async insert(
+  public async insert(
     vaultId: number,
     hdPath: string,
     updatedAtBlockHeight: number,
@@ -40,7 +40,7 @@ export class VaultsTable extends BaseTable {
     return convertFromSqliteFields<IVaultRecord[]>(result, this.fieldTypes)[0];
   }
 
-  async save(record: IVaultRecord): Promise<void> {
+  public async save(record: IVaultRecord): Promise<void> {
     await this.db.execute(
       'UPDATE Vaults SET operationalFeeMicrogons = ?, prebondedMicrogons = ?, prebondedMicrogonsAtTick = ?, lastTermsUpdateHeight = ?, ' +
         'personalUtxoId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
@@ -55,12 +55,12 @@ export class VaultsTable extends BaseTable {
     );
   }
 
-  async get(): Promise<IVaultRecord | undefined> {
+  public async get(): Promise<IVaultRecord | undefined> {
     const rawRecords = await this.db.select<IVaultRecord[]>('SELECT * FROM Vaults LIMIT 1', []);
     return convertFromSqliteFields<IVaultRecord[]>(rawRecords, this.fieldTypes)[0];
   }
 
-  async deleteAll(): Promise<void> {
+  public async deleteAll(): Promise<void> {
     await this.db.execute('DELETE FROM Vaults', []);
   }
 }

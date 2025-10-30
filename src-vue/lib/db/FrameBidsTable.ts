@@ -5,7 +5,7 @@ import { convertFromSqliteFields, toSqlParams } from '../Utils';
 export class FrameBidsTable extends BaseTable {
   private jsonFields: string[] = ['bidsJson'];
 
-  async insertOrUpdate(frameId: number, confirmedAtBlockNumber: number, bids: IBidEntry[]): Promise<void> {
+  public async insertOrUpdate(frameId: number, confirmedAtBlockNumber: number, bids: IBidEntry[]): Promise<void> {
     await this.db.execute(
       `INSERT INTO FrameBids (
           frameId, confirmedAtBlockNumber, bidsJson
@@ -19,7 +19,7 @@ export class FrameBidsTable extends BaseTable {
     );
   }
 
-  async fetchForFrameId(frameId: number): Promise<IFrameBidRecord[]> {
+  public async fetchForFrameId(frameId: number): Promise<IFrameBidRecord[]> {
     const rawRecords = await this.db.select<IFrameBidRecord[]>('SELECT * FROM FrameBids WHERE frameId = ? LIMIT 1', [
       frameId,
     ]);

@@ -36,7 +36,7 @@ export class TransactionTracker {
   #blockCache = new LRU<SignedBlock>(25);
   #watchUnsubscribe?: () => void;
 
-  constructor(readonly dbPromise: Promise<Db>) {
+  constructor(private readonly dbPromise: Promise<Db>) {
     this.data = {
       transactions: [],
     };

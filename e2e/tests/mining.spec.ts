@@ -69,7 +69,7 @@ it('should be able to start a miner', async () => {
   await launchButton.waitForClickable({ timeout: 60e3 });
   await launchButton.click();
 
-  async function didFinishInstall() {
+   public async function didFinishInstall() {
     if (await withTestid('Dashboard').isDisplayed()) {
       return true;
     }
@@ -78,7 +78,7 @@ it('should be able to start a miner', async () => {
 
   await $('.InstallProgress').waitForDisplayed();
   await browser.waitUntil(
-    async () => {
+     public async () => {
       const steps = $$('.InstallProgressStep');
       if ((await steps.length) === 0) {
         return didFinishInstall();
@@ -109,7 +109,7 @@ it('should be able to start a miner', async () => {
   await waitForVisible('Dashboard', 60e3);
   // should wait for a block mined?
   await browser.waitUntil(
-    async () => {
+     public async () => {
       const elem = await waitForVisible('TotalBlocksMined');
       return parseInt(await elem.getText(), 10) > 0;
     },
@@ -124,7 +124,7 @@ function withTestid(selector: string) {
   return $(makeTestidSelector(selector));
 }
 
-async function waitAndClick(selector: string) {
+ public async function waitAndClick(selector: string) {
   const elem = withTestid(selector);
   console.log('Waiting for clickable:', selector);
   await elem.waitForClickable();
@@ -133,7 +133,7 @@ async function waitAndClick(selector: string) {
   return elem;
 }
 
-async function waitForVisible(selector: string, timeoutMs = 5e3, isTestId = true) {
+ public async function waitForVisible(selector: string, timeoutMs = 5e3, isTestId = true) {
   const elem = isTestId ? withTestid(selector) : $(selector);
   console.log('Waiting for visible:', selector);
   await elem.waitForDisplayed({ timeout: timeoutMs });

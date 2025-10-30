@@ -16,7 +16,7 @@ export class MiningBids {
   }[] = [];
 
   constructor(
-    readonly client: ArgonClient,
+    private readonly client: ArgonClient,
     private shouldLog = true,
   ) {}
 

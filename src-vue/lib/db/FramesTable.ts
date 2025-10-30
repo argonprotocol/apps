@@ -25,7 +25,7 @@ export class FramesTable extends BaseTable {
     ],
   };
 
-  async insertOrUpdate(
+  public async insertOrUpdate(
     id: number,
     firstTick: number,
     lastTick: number,
@@ -68,7 +68,7 @@ export class FramesTable extends BaseTable {
     );
   }
 
-  async update(args: {
+  public async update(args: {
     id: number;
     firstTick: number;
     lastTick: number;
@@ -159,7 +159,7 @@ export class FramesTable extends BaseTable {
     );
   }
 
-  async fetchExistingSince(frameId: number, limit = 10): Promise<number[]> {
+  public async fetchExistingSince(frameId: number, limit = 10): Promise<number[]> {
     const frames = await this.db.select<{ id: number }[]>('SELECT id FROM Frames WHERE id >= ? LIMIT ?', [
       frameId,
       limit + 1,
@@ -167,7 +167,7 @@ export class FramesTable extends BaseTable {
     return frames.map(frame => frame.id);
   }
 
-  async fetchLastYear(): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
+  public async fetchLastYear(): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
       id, firstTick, lastTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
     FROM Frames ORDER BY id DESC LIMIT 365`);
@@ -252,26 +252,26 @@ export class FramesTable extends BaseTable {
     return records;
   }
 
-  async fetchById(id: number): Promise<IFrameRecord> {
+  public async fetchById(id: number): Promise<IFrameRecord> {
     const [rawRecord] = await this.db.select<[any]>('SELECT * FROM Frames WHERE id = ?', [id]);
     if (!rawRecord) throw new Error(`Frame ${id} not found`);
 
     return convertFromSqliteFields(rawRecord, this.fieldTypes);
   }
 
-  async fetchProcessedCount(): Promise<number> {
+  public async fetchProcessedCount(): Promise<number> {
     const [result] = await this.db.select<[{ count: number }]>(
       'SELECT COUNT(*) as count FROM Frames WHERE isProcessed = 1',
     );
     return result.count;
   }
 
-  async latestId(): Promise<number> {
+  public async latestId(): Promise<number> {
     const [rawRecord] = await this.db.select<[{ maxId: number }]>('SELECT COALESCE(MAX(id), 0) as maxId FROM Frames');
     return rawRecord.maxId;
   }
 
-  async fetchAccruedProfits(): Promise<{ accruedMicrogonProfits: bigint; accruedMicronotProfits: bigint }> {
+  public async fetchAccruedProfits(): Promise<{ accruedMicrogonProfits: bigint; accruedMicronotProfits: bigint }> {
     const rawRecord = await this.db.select<{ accruedMicrogonProfits: number; accruedMicronotProfits: number }[]>(
       'SELECT accruedMicrogonProfits, accruedMicronotProfits FROM Frames ORDER BY id DESC LIMIT 1',
       [],

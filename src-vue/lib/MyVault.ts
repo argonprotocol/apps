@@ -71,10 +71,10 @@ export class MyVault {
   };
 
   constructor(
-    readonly dbPromise: Promise<Db>,
-    readonly vaults: Vaults,
+    private readonly dbPromise: Promise<Db>,
+    public readonly vaults: Vaults,
     transactionTracker: TransactionTracker,
-    readonly bitcoinLocksStore: BitcoinLocksStore,
+    public readonly bitcoinLocksStore: BitcoinLocksStore,
   ) {
     this.data = {
       isReady: false,

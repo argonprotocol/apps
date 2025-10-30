@@ -72,7 +72,7 @@ export class BitcoinLocksTable extends BaseTable {
     uint8array: ['releaseCosignVaultSignature'],
   };
 
-  async insert(
+  public async insert(
     lock: Omit<IBitcoinLockRecord, 'createdAt' | 'updatedAt' | 'txid' | 'vout'>,
   ): Promise<IBitcoinLockRecord> {
     const result = await this.db.execute(
@@ -105,7 +105,7 @@ export class BitcoinLocksTable extends BaseTable {
     return record;
   }
 
-  async getNextVaultHdKeyIndex(vaultId: number): Promise<number> {
+  public async getNextVaultHdKeyIndex(vaultId: number): Promise<number> {
     const [{ latestIndex }] = await this.db.select<{ latestIndex: number }[]>(
       `INSERT INTO BitcoinLockVaultHdSeq (vaultId, latestIndex) VALUES ($1, $2)
        ON CONFLICT (vaultId) DO UPDATE SET latestIndex = BitcoinLockVaultHdSeq.latestIndex + 1
@@ -116,7 +116,7 @@ export class BitcoinLocksTable extends BaseTable {
     return latestIndex;
   }
 
-  async setReleaseWaitingForVault(lock: IBitcoinLockRecord): Promise<void> {
+  public async setReleaseWaitingForVault(lock: IBitcoinLockRecord): Promise<void> {
     lock.status = BitcoinLockStatus.ReleaseWaitingForVault;
     await this.db.execute(
       `UPDATE BitcoinLocks SET status = $2, requestedReleaseAtTick=$3, releaseToDestinationAddress=$4, releaseBitcoinNetworkFee=$5 WHERE utxoId = $1`,
@@ -130,7 +130,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setReleaseProcessingOnBitcoin(lock: IBitcoinLockRecord, txid: string): Promise<void> {
+  public async setReleaseProcessingOnBitcoin(lock: IBitcoinLockRecord, txid: string): Promise<void> {
     lock.status = BitcoinLockStatus.ReleaseProcessingOnBitcoin;
     lock.releasedTxid = txid;
     await this.db.execute(
@@ -139,7 +139,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setLockProcessingOnBitcoin(
+  public async setLockProcessingOnBitcoin(
     lock: IBitcoinLockRecord,
     mempoolStatus: IMempoolFundingStatus,
     oracleBitcoinBlockHeight: number,
@@ -169,7 +169,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async get(utxoId: number): Promise<IBitcoinLockRecord | undefined> {
+  public async get(utxoId: number): Promise<IBitcoinLockRecord | undefined> {
     const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
       'SELECT * FROM BitcoinLocks WHERE utxoId = $1',
       toSqlParams([utxoId]),
@@ -178,7 +178,7 @@ export class BitcoinLocksTable extends BaseTable {
     return convertFromSqliteFields(rawRecords[0], this.fieldTypes);
   }
 
-  async fetchAll(): Promise<IBitcoinLockRecord[]> {
+  public async fetchAll(): Promise<IBitcoinLockRecord[]> {
     return await this.db
       .select<IBitcoinLockRecord[]>('SELECT * FROM BitcoinLocks ORDER BY createdAt DESC', [])
       .then(x => {
@@ -186,7 +186,7 @@ export class BitcoinLocksTable extends BaseTable {
       });
   }
 
-  async saveNewRatchet(lock: IBitcoinLockRecord): Promise<void> {
+  public async saveNewRatchet(lock: IBitcoinLockRecord): Promise<void> {
     lock.status = BitcoinLockStatus.LockedAndMinting;
     await this.db.execute(
       `UPDATE BitcoinLocks SET status = $2, peggedPrice = $3, liquidityPromised = $4, lockDetails = $5, ratchets = $6 WHERE utxoId = $1`,
@@ -201,7 +201,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async updateMintState(lock: IBitcoinLockRecord): Promise<void> {
+  public async updateMintState(lock: IBitcoinLockRecord): Promise<void> {
     const remainingMint = lock.ratchets.reduce((acc, ratchet) => acc + ratchet.mintPending, 0n);
 
     if (
@@ -221,7 +221,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setReleasedByVault(lock: IBitcoinLockRecord, signature: Uint8Array, atHeight: number): Promise<void> {
+  public async setReleasedByVault(lock: IBitcoinLockRecord, signature: Uint8Array, atHeight: number): Promise<void> {
     lock.status = BitcoinLockStatus.ReleasedByVault;
     lock.releaseCosignVaultSignature = signature;
     lock.releaseCosignHeight = atHeight;
@@ -231,7 +231,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setLockedAndMinting(lock: IBitcoinLockRecord) {
+  public async setLockedAndMinting(lock: IBitcoinLockRecord) {
     if (
       lock.status === BitcoinLockStatus.LockInitialized ||
       lock.status === BitcoinLockStatus.LockProcessingOnBitcoin
@@ -244,7 +244,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setLockReceivedWrongAmount(lock: IBitcoinLockRecord) {
+  public async setLockReceivedWrongAmount(lock: IBitcoinLockRecord) {
     lock.status = BitcoinLockStatus.LockReceivedWrongAmount;
     await this.db.execute(
       'UPDATE BitcoinLocks SET status = $1 WHERE utxoId = $2',
@@ -252,7 +252,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setLockVerificationExpired(lock: IBitcoinLockRecord) {
+  public async setLockVerificationExpired(lock: IBitcoinLockRecord) {
     lock.status = BitcoinLockStatus.LockVerificationExpired;
     await this.db.execute(
       'UPDATE BitcoinLocks SET status = $1 WHERE utxoId = $2',
@@ -260,7 +260,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async setReleaseComplete(
+  public async setReleaseComplete(
     lock: IBitcoinLockRecord,
     data: {
       releasedAtBitcoinHeight: number;
@@ -274,7 +274,7 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  async deleteAll(): Promise<void> {
+  public async deleteAll(): Promise<void> {
     await this.db.execute('DELETE FROM BitcoinLockVaultHdSeq', []);
     await this.db.execute('DELETE FROM BitcoinLocks', []);
   }

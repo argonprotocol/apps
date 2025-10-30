@@ -65,9 +65,9 @@ export class TreasuryPool {
   private FrameSubscriptions: { [frameId: number]: () => void } = {};
 
   constructor(
-    readonly client: ArgonClient,
-    readonly keypair: KeyringPair,
-    readonly accountRegistry: AccountRegistry = AccountRegistry.factory(),
+    private readonly client: ArgonClient,
+    private readonly keypair: KeyringPair,
+    private readonly accountRegistry: AccountRegistry = AccountRegistry.factory(),
   ) {
     this.blockWatch = new BlockWatch(client, { shouldLog: false });
   }

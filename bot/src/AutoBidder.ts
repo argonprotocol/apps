@@ -22,16 +22,15 @@ export class AutoBidder {
   private unsubscribe?: () => void;
 
   constructor(
-    readonly accountset: Accountset,
-    readonly mainchainClients: MainchainClients,
-    readonly storage: Storage,
-    readonly history: History,
+    private readonly accountset: Accountset,
+    private readonly mainchainClients: MainchainClients,
+    private readonly storage: Storage,
+    private readonly history: History,
     private biddingRules: IBiddingRules,
   ) {
     this.miningBids = new MiningBids(accountset.client);
   }
-
-  async start(localRpcUrl: string): Promise<void> {
+  public async start(localRpcUrl: string): Promise<void> {
     await this.accountset.registerKeys(localRpcUrl);
     const { unsubscribe } = await this.miningBids.onCohortChange({
       onBiddingStart: this.onBiddingStart.bind(this),
@@ -39,8 +38,7 @@ export class AutoBidder {
     });
     this.unsubscribe = unsubscribe;
   }
-
-  async stop() {
+  public async stop() {
     if (this.isStopped) return;
     this.isStopped = true;
     console.log('AUTOBIDDER STOPPING');

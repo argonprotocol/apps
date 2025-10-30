@@ -4,7 +4,7 @@ import { requireEnv } from './utils.js';
 const statusApi = requireEnv('STATUS_URL');
 
 export class Dockers {
-  static async getArgonBlockNumbers(): Promise<IBlockNumbers> {
+  public static async getArgonBlockNumbers(): Promise<IBlockNumbers> {
     try {
       const result = await fetch(`${statusApi}/argon/latestblocks`).then(res => res.json());
       const { localNodeBlockNumber, mainNodeBlockNumber } = result as ILatestBlocks;
@@ -17,7 +17,8 @@ export class Dockers {
       return { localNode: 0, mainNode: 0 };
     }
   }
-  static async isArgonMinerReady(): Promise<boolean> {
+
+  public static async isArgonMinerReady(): Promise<boolean> {
     try {
       const result = await fetch(`${statusApi}/argon/iscomplete`).then(res => res.text());
       return result === 'true';
@@ -27,7 +28,7 @@ export class Dockers {
     }
   }
 
-  static async getBitcoinBlockNumbers(): Promise<IBlockNumbers & { localNodeBlockTime: number }> {
+  public static async getBitcoinBlockNumbers(): Promise<IBlockNumbers & { localNodeBlockTime: number }> {
     try {
       const result = await fetch(`${statusApi}/bitcoin/latestblocks`).then(
         res => res.json() as Promise<IBitcoinLatestBlocks>,
@@ -45,7 +46,7 @@ export class Dockers {
     }
   }
 
-  static async getBitcoinLatestBlocks(): Promise<IBitcoinBlockMeta[]> {
+  public static async getBitcoinLatestBlocks(): Promise<IBitcoinBlockMeta[]> {
     try {
       return await fetch(`${statusApi}/bitcoin/recentblocks?blockCount=10`).then(
         res => res.json() as Promise<IBitcoinBlockMeta[]>,
