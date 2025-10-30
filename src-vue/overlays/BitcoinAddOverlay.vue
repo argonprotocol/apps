@@ -198,7 +198,6 @@ async function liquidLock() {
     }
 
     await vault.lockBitcoin({
-      bitcoinLocksStore,
       microgonLiquidity: microgonLiquidity,
       argonKeyring: config.vaultingAccount,
       bip39Seed: config.bitcoinXprivSeed,

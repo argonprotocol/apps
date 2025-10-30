@@ -1,8 +1,10 @@
 import {
   type ArgonClient,
+  dispatchErrorToExtrinsicError,
+  type ExtrinsicError,
   type FrameSystemEventRecord,
-  type GenericEvent,
   type SpRuntimeDispatchError,
+  type GenericEvent,
 } from '@argonprotocol/mainchain';
 
 type IsMatchingEventFn = (
@@ -15,9 +17,10 @@ export class TransactionFees {
     blockHash: Uint8Array;
     accountAddress: string;
     isMatchingEvent: IsMatchingEventFn;
+    onlyMatchExtrinsicIndex?: number;
     events?: FrameSystemEventRecord[];
-  }): Promise<bigint | undefined> {
-    const { client, blockHash, accountAddress, isMatchingEvent } = args;
+  }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: GenericEvent[] } | undefined> {
+    const { client, blockHash, accountAddress, isMatchingEvent, onlyMatchExtrinsicIndex } = args;
     let events = args.events;
     if (!events) {
       const api = await client.at(blockHash);
@@ -29,8 +32,8 @@ export class TransactionFees {
       if (!client.events.transactionPayment.TransactionFeePaid.is(event)) {
         continue;
       }
-      const [account, fee] = event.data;
-      if (account.toHuman() !== accountAddress) {
+      const { who, actualFee, tip } = event.data;
+      if (who.toHuman() !== accountAddress) {
         continue;
       }
       // now we're filtered to only fees paid by this account
@@ -38,20 +41,34 @@ export class TransactionFees {
       for (const extrinsicEvent of applyExtrinsicEvents) {
         // .. match only on the events for this extrinsic
         if (extrinsicEvent.phase.asApplyExtrinsic.toNumber() !== extrinsicIndex) continue;
+        if (onlyMatchExtrinsicIndex !== undefined && extrinsicIndex !== onlyMatchExtrinsicIndex) continue;
 
         let dispatchError: SpRuntimeDispatchError | undefined;
+        let batchInterruptedIndex: number | undefined;
         if (client.events.utility.BatchInterrupted.is(extrinsicEvent.event)) {
-          const [_index, error] = extrinsicEvent.event.data;
+          const { error, index } = extrinsicEvent.event.data;
           dispatchError = error;
+          batchInterruptedIndex = index.toNumber();
         }
         if (client.events.system.ExtrinsicFailed.is(extrinsicEvent.event)) {
-          dispatchError = extrinsicEvent.event.data[0];
+          ({ dispatchError } = extrinsicEvent.event.data);
         }
+
         const registryError = dispatchError?.isModule
           ? client.registry.findMetaError(dispatchError.asModule)
           : undefined;
         if (isMatchingEvent(extrinsicEvent.event, registryError)) {
-          return fee.toBigInt();
+          const extrinsicError = dispatchError
+            ? dispatchErrorToExtrinsicError(client, dispatchError as any, batchInterruptedIndex)
+            : undefined;
+          return {
+            fee: actualFee.toBigInt(),
+            tip: tip.toBigInt(),
+            error: extrinsicError,
+            extrinsicEvents: applyExtrinsicEvents
+              .filter(x => x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex)
+              .map(event => event.event),
+          };
         }
       }
     }

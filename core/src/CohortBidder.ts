@@ -463,10 +463,10 @@ export class CohortBidder {
         useLatestNonce: true,
       });
 
-      const bidError = await txResult.inBlockPromise.then(() => undefined).catch((x: ExtrinsicError) => x);
+      const bidError = await txResult.waitForFinalizedBlock.then(() => undefined).catch((x: ExtrinsicError) => x);
 
       const client = this.client;
-      const api = txResult.includedInBlock ? await client.at(txResult.includedInBlock) : client;
+      const api = txResult.blockHash ? await client.at(txResult.blockHash) : client;
 
       this.lastBidTick = await api.query.ticks.currentTick().then(x => x.toNumber());
       const blockNumber = await api.query.system.number().then(x => x.toNumber());

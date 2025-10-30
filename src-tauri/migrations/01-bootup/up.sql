@@ -181,3 +181,36 @@ AFTER UPDATE ON Vaults
 BEGIN
   UPDATE Vaults SET updatedAt = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
+
+
+CREATE TABLE Transactions (
+  id INTEGER NOT NULL PRIMARY KEY,
+  status TEXT NOT NULL CHECK(status IN (
+    'Submitted', 'InBlock', 'Finalized', 'Error', 'TimedOutWaitingForBlock'
+  )) DEFAULT 'Submitted',
+  extrinsicHash TEXT NOT NULL,
+  extrinsicMethodJson JSON NOT NULL,
+  extrinsicType TEXT NOT NULL,
+  metadataJson JSON NOT NULL DEFAULT '{}',
+  accountAddress TEXT NOT NULL,
+  txTip INTEGER,
+  txFeePlusTip INTEGER,
+  submittedAtTime DATETIME NOT NULL,
+  submittedAtBlockHeight INTEGER NOT NULL,
+  submissionErrorJson JSON,
+  blockHeight INTEGER,
+  blockHash TEXT,
+  blockTime DATETIME,
+  blockExtrinsicIndex INTEGER,
+  blockExtrinsicEventsJson JSON,
+  blockExtrinsicErrorJson JSON,
+  isFinalized BOOLEAN NOT NULL DEFAULT 0,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER TransactionsUpdateTimestamp
+AFTER UPDATE ON Transactions
+BEGIN
+  UPDATE Transactions SET updatedAt = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;

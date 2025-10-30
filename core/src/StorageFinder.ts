@@ -82,7 +82,6 @@ export class StorageFinder {
         maxBlockNumberForExistence = mid; // found present, move down
       }
     }
-    blocksChecked.push(lowBlockNumberForExistence);
     const blockNumber = lowBlockNumberForExistence;
     const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
     if (!blockHash) {

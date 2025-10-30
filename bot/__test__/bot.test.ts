@@ -15,7 +15,7 @@ afterAll(teardown);
 let clientAddress: string;
 beforeAll(async () => {
   MiningFrames.setNetwork('localnet');
-  const result = await startArgonTestNetwork('bot');
+  const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
 

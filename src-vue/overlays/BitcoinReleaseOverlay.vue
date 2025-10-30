@@ -276,7 +276,7 @@ async function sendReleaseRequest() {
     const networkFee = await bitcoinLocks.calculateBitcoinNetworkFee(props.lock, feeRate?.value ?? 5n, toScriptPubkey);
 
     let done = false;
-    await bitcoinLocks.requestRelease({
+    const txResult = await bitcoinLocks.requestRelease({
       lock: props.lock,
       bitcoinNetworkFee: networkFee,
       toScriptPubkey,
@@ -289,12 +289,13 @@ async function sendReleaseRequest() {
     });
     done = true;
     // don't wait for this
-    void myVault.finalizeMyBitcoinUnlock({
-      argonKeyring: config.vaultingAccount,
-      lock: props.lock,
-      bitcoinXprivSeed: config.bitcoinXprivSeed,
-      bitcoinLocks,
-    });
+    void txResult?.waitForFinalizedBlock.then(() =>
+      myVault.finalizeMyBitcoinUnlock({
+        argonKeyring: config.vaultingAccount,
+        lock: props.lock,
+        bitcoinXprivSeed: config.bitcoinXprivSeed,
+      }),
+    );
   } catch (error) {
     console.error('Failed to send release request:', error);
     requestReleaseError.value = `Failed to send release request. ${error}`;

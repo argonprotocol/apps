@@ -6,7 +6,6 @@ import { getDbPromise } from './helpers/dbPromise';
 import handleFatalError from './helpers/handleFatalError';
 import { SSH } from '../lib/SSH';
 import { useMyVault } from './vaults.ts';
-import { useBitcoinLocks } from './bitcoin.ts';
 
 let config: Vue.Reactive<Config>;
 
@@ -19,10 +18,9 @@ export function useConfig(): Vue.Reactive<Config> {
     const dbPromise = getDbPromise();
     config = Vue.reactive(
       new Config(dbPromise, async args => {
-        const bitcoinLocksStore = useBitcoinLocks();
         const myVault = useMyVault();
         await myVault.load();
-        return myVault.recoverAccountVault(bitcoinLocksStore, args);
+        return myVault.recoverAccountVault(args);
       }),
     );
     config

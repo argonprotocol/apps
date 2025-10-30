@@ -14,9 +14,9 @@ import {
   Header,
   IBitcoinLock,
   type IBitcoinLockConfig,
+  ISubmittableOptions,
   ITxProgressCallback,
   KeyringPair,
-  PriceIndex as PriceIndexModel,
   TxResult,
   TxSubmitter,
   u8aToHex,
@@ -32,6 +32,8 @@ import { type TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transa
 import { MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
+import { ITransactionInfo, TransactionTracker } from './TransactionTracker.ts';
+import { ExtrinsicType } from './db/TransactionsTable.ts';
 
 dayjs.extend(utc);
 
@@ -86,12 +88,15 @@ export default class BitcoinLocksStore {
   #subscription?: () => void;
   #waitForLoad?: IDeferred;
   #priceIndex: PriceIndex;
+  #transactionTracker: TransactionTracker;
 
   constructor(
     readonly dbPromise: Promise<Db>,
     priceIndex: PriceIndex,
+    transactionTracker: TransactionTracker,
   ) {
     this.#priceIndex = priceIndex;
+    this.#transactionTracker = transactionTracker;
     this.data = {
       locksById: {},
       oracleBitcoinBlockHeight: 0,
@@ -151,6 +156,15 @@ export default class BitcoinLocksStore {
       this.#config ??= await this.#bitcoinLocksApi.getConfig();
       this.#lockTicksPerDay = client.consts.bitcoinLocks.argonTicksPerDay.toNumber();
       this.data.bitcoinNetwork = getBitcoinNetworkFromApi(this.#config.bitcoinNetwork);
+      await this.#transactionTracker.load();
+      for (const txInfo of this.#transactionTracker.pendingBlockTransactionsAtLoad) {
+        const { tx } = txInfo;
+        if (tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease) {
+          const { utxoId } = tx.metadataJson!;
+          const lock = this.locksById[utxoId];
+          void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
+        }
+      }
 
       const latestArgonHeader = await client.rpc.chain.getHeader();
       await this.checkIncomingArgonBlock(latestArgonHeader);
@@ -280,7 +294,7 @@ export default class BitcoinLocksStore {
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
 
     // explode on purpose if we can't afford even the minimum
-    return await this.apiCreateInitializeLockTx({
+    return await this.#bitcoinLocksApi.createInitializeLockTx({
       vault,
       priceIndex: this.#priceIndex.current,
       ownerBitcoinPubkey,
@@ -293,39 +307,6 @@ export default class BitcoinLocksStore {
   async minimumSatoshiPerLock(): Promise<bigint> {
     const client = await getMainchainClient(false);
     return await client.query.bitcoinLocks.minimumSatoshis().then(x => x.toBigInt());
-  }
-
-  // TEMP COPY FROM MAINCHAIN
-  // TODO: remove
-  private async apiCreateInitializeLockTx(args: {
-    vault: Vault;
-    priceIndex: PriceIndexModel;
-    ownerBitcoinPubkey: Uint8Array;
-    satoshis: bigint;
-    argonKeyring: KeyringPair;
-    reducedBalanceBy?: bigint;
-    tip?: bigint;
-  }) {
-    const { vault, priceIndex, argonKeyring, satoshis, tip = 0n, ownerBitcoinPubkey } = args;
-    const client = await getMainchainClient(false);
-    if (ownerBitcoinPubkey.length !== 33) {
-      throw new Error(
-        `Invalid Bitcoin key length: ${ownerBitcoinPubkey.length}. Must be a compressed pukey (33 bytes).`,
-      );
-    }
-
-    const tx = client.tx.bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey);
-    const submitter = new TxSubmitter(client, tx, argonKeyring);
-    const marketPrice = await this.#bitcoinLocksApi.getMarketRate(priceIndex, satoshis);
-    const isVaultOwner = argonKeyring.address === vault.operatorAccountId;
-    const securityFee = isVaultOwner ? 0n : vault.calculateBitcoinFee(marketPrice);
-
-    const { canAfford, availableBalance, txFee } = await submitter.canAfford({
-      tip,
-      unavailableBalance: securityFee + (args.reducedBalanceBy ?? 0n),
-      includeExistentialDeposit: true,
-    });
-    return { tx, securityFee, txFee, canAfford, availableBalance, txFeePlusTip: txFee + tip };
   }
 
   async createInitializeTx(args: {
@@ -366,7 +347,7 @@ export default class BitcoinLocksStore {
 
     let satoshis = await this.satoshisForArgonLiquidity(microgonLiquidity);
     while (satoshis >= minimumSatoshis) {
-      const { txFee, canAfford } = await this.apiCreateInitializeLockTx({
+      const { txFee, canAfford } = await this.#bitcoinLocksApi.createInitializeLockTx({
         vault,
         priceIndex: this.#priceIndex.current,
         ownerBitcoinPubkey,
@@ -395,38 +376,38 @@ export default class BitcoinLocksStore {
     return { hdPath, tx, ownerBitcoinPubkey, satoshis, securityFee };
   }
 
-  public async saveUtxo(args: {
+  public async saveLock(args: {
     vaultId: number;
     hdPath: string;
     securityFee: bigint;
     txFee: bigint;
-    utxo: IBitcoinLock;
+    lock: IBitcoinLock;
     blockNumber: number;
   }) {
-    const { utxo, txFee, vaultId, hdPath, blockNumber: createdAtHeight, securityFee } = args;
+    const { lock, txFee, vaultId, hdPath, blockNumber: createdAtHeight, securityFee } = args;
 
     const table = await this.getTable();
 
     const record = await table.insert({
-      utxoId: utxo.utxoId,
+      utxoId: lock.utxoId,
       status: BitcoinLockStatus.LockInitialized,
-      satoshis: utxo.satoshis,
+      satoshis: lock.satoshis,
       ratchets: [
         {
-          mintAmount: utxo.liquidityPromised,
-          mintPending: utxo.liquidityPromised,
-          peggedPrice: utxo.peggedPrice,
+          mintAmount: lock.liquidityPromised,
+          mintPending: lock.liquidityPromised,
+          peggedPrice: lock.peggedPrice,
           blockHeight: createdAtHeight,
           burned: 0n,
           securityFee,
           txFee,
-          oracleBitcoinBlockHeight: utxo.createdAtHeight,
+          oracleBitcoinBlockHeight: lock.createdAtHeight,
         },
       ],
-      liquidityPromised: utxo.liquidityPromised,
-      peggedPrice: utxo.peggedPrice,
+      liquidityPromised: lock.liquidityPromised,
+      peggedPrice: lock.peggedPrice,
       cosignVersion: 'v1',
-      lockDetails: utxo,
+      lockDetails: lock,
       network: this.#config.bitcoinNetwork.toString(),
       hdPath,
       vaultId,
@@ -450,8 +431,8 @@ export default class BitcoinLocksStore {
   }): Promise<IBitcoinLockRecord> {
     const { txResult } = args;
 
-    const { lock: utxo, createdAtHeight } = await this.#bitcoinLocksApi.getBitcoinLockFromTxResult(txResult);
-    return this.saveUtxo({ ...args, utxo, blockNumber: createdAtHeight, txFee: txResult.finalFee ?? 0n });
+    const { lock, createdAtHeight } = await this.#bitcoinLocksApi.getBitcoinLockFromTxResult(txResult);
+    return this.saveLock({ ...args, lock, blockNumber: createdAtHeight, txFee: txResult.finalFee ?? 0n });
   }
 
   async calculateBitcoinNetworkFee(
@@ -486,6 +467,7 @@ export default class BitcoinLocksStore {
     const {
       lock,
       argonKeyring,
+      // NOTE: not submitting, so a default value is ok
       toScriptPubkey = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
       bitcoinFeeRatePerVb = 5n,
     } = args;
@@ -504,19 +486,21 @@ export default class BitcoinLocksStore {
     return submitter.feeEstimate();
   }
 
-  async requestRelease(args: {
-    lock: IBitcoinLockRecord;
-    bitcoinNetworkFee: bigint;
-    toScriptPubkey: string;
-    argonKeyring: KeyringPair;
-    tip?: bigint;
-    txProgressCallback?: ITxProgressCallback;
-  }): Promise<void> {
-    const { lock, bitcoinNetworkFee, toScriptPubkey, argonKeyring, tip = 0n, txProgressCallback } = args;
+  async requestRelease(
+    args: {
+      lock: IBitcoinLockRecord;
+      bitcoinNetworkFee: bigint;
+      toScriptPubkey: string;
+      argonKeyring: KeyringPair;
+    } & ISubmittableOptions,
+  ): Promise<TxResult | undefined> {
+    const { lock, bitcoinNetworkFee, toScriptPubkey, argonKeyring } = args;
     if (lock.status !== BitcoinLockStatus.LockedAndMinted && lock.status !== BitcoinLockStatus.LockedAndMinting) {
       return;
     }
-    const release = await this.#bitcoinLocksApi.requestRelease({
+
+    const txResult = await this.#bitcoinLocksApi.requestRelease({
+      ...args,
       lock: lock.lockDetails,
       priceIndex: this.#priceIndex.current,
       releaseRequest: {
@@ -524,18 +508,38 @@ export default class BitcoinLocksStore {
         bitcoinNetworkFee,
       },
       argonKeyring,
-      tip,
-      txProgressCallback,
+      disableAutomaticTxTracking: true,
     });
 
-    const api = await this.#bitcoinLocksApi.client.at(release.blockHash);
+    const txInfo = await this.#transactionTracker.trackTxResult({
+      txResult,
+      extrinsicType: ExtrinsicType.BitcoinRequestRelease,
+      metadata: { utxoId: lock.utxoId, toScriptPubkey, bitcoinNetworkFee },
+    });
+    void this.onRequestedReleaseInBlock(lock, txInfo, { toScriptPubkey, bitcoinNetworkFee });
+    return txResult;
+  }
+
+  async onRequestedReleaseInBlock(
+    lock: IBitcoinLockRecord,
+    txInfo: ITransactionInfo,
+    releaseInfo: { toScriptPubkey: string; bitcoinNetworkFee: bigint },
+  ): Promise<void> {
+    const { txResult, isProcessed } = txInfo;
+    await txResult.waitForFinalizedBlock;
+    const client = this.#bitcoinLocksApi.client;
+    const blockHash = await txResult.waitForFinalizedBlock;
+
+    const api = await client.at(blockHash);
 
     lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
+    const { toScriptPubkey, bitcoinNetworkFee } = releaseInfo;
     lock.releaseToDestinationAddress = toScriptPubkey;
     lock.releaseBitcoinNetworkFee = bitcoinNetworkFee;
 
     const table = await this.getTable();
     await table.setReleaseWaitingForVault(lock);
+    isProcessed.resolve();
   }
 
   private async ratchet(lock: IBitcoinLockRecord, argonKeyring: KeyringPair, tip = 0n) {
@@ -554,6 +558,7 @@ export default class BitcoinLocksStore {
       vault: vaults.vaultsById[lock.vaultId],
     });
 
+    const { txResult, getRatchetResult } = result;
     const {
       burned,
       securityFee,
@@ -562,7 +567,7 @@ export default class BitcoinLocksStore {
       newPeggedPrice,
       pendingMint,
       txFee,
-    } = result;
+    } = await getRatchetResult();
 
     const liquidityPromised = (result as any).liquidityPromised ?? pendingMint;
 

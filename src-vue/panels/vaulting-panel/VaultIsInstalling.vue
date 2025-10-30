@@ -29,14 +29,12 @@ import { useConfig } from '../../stores/config';
 import { useMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import VaultIcon from '../../assets/vault.svg?component';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { useCurrency } from '../../stores/currency.ts';
 
 const config = useConfig();
 const vault = useMyVault();
-const bitcoinLocks = useBitcoinLocks();
 const currency = useCurrency();
 
 const setupProgressPct = Vue.ref(0);
@@ -73,14 +71,12 @@ async function createVault() {
 }
 
 async function activateVault() {
-  await bitcoinLocks.load();
   if (errorMessage.value) return;
 
   try {
     await currency.load();
     await vault.initialActivate({
       argonKeyring: config.vaultingAccount,
-      bitcoinLocksStore: bitcoinLocks,
       bip39Seed: config.bitcoinXprivSeed,
       rules: vaultingRules,
       txProgressCallback(progress: number) {

@@ -497,11 +497,11 @@ export class Accountset {
       useLatestNonce: true,
     });
 
-    const bidError = await txResult.inBlockPromise.then(() => undefined).catch((x: Error) => x);
+    const bidError = await txResult.waitForFinalizedBlock.then(() => undefined).catch((x: Error) => x);
     return {
       finalFee: txResult.finalFee,
       bidError,
-      blockHash: txResult.includedInBlock,
+      blockHash: txResult.blockHash,
       successfulBids: txResult.batchInterruptedIndex !== undefined ? txResult.batchInterruptedIndex : accounts.length,
     };
   }

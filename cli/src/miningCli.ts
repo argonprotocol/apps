@@ -227,9 +227,8 @@ export default function miningCli() {
         process.exit(0);
       }
       try {
-        await new TxSubmitter(client, tx, keypair).submit({
-          waitForBlock: true,
-        });
+        const res = await new TxSubmitter(client, tx, keypair).submit();
+        await res.waitForInFirstBlock;
 
         console.log('Mining bid proxy added and funded.');
         process.exit();

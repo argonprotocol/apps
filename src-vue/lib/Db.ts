@@ -9,6 +9,7 @@ import { ensureOnlyOneInstance } from './Utils';
 import { FrameBidsTable } from './db/FrameBidsTable';
 import { VaultsTable } from './db/VaultsTable.ts';
 import { BitcoinLocksTable } from './db/BitcoinLocksTable.ts';
+import { TransactionsTable } from './db/TransactionsTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -19,6 +20,7 @@ export class Db {
   public configTable: ConfigTable;
   public framesTable: FramesTable;
   public frameBidsTable: FrameBidsTable;
+  public transactionsTable: TransactionsTable;
   public vaultsTable: VaultsTable;
   public bitcoinLocksTable: BitcoinLocksTable;
 
@@ -34,6 +36,7 @@ export class Db {
     this.framesTable = new FramesTable(this);
     this.frameBidsTable = new FrameBidsTable(this);
     this.vaultsTable = new VaultsTable(this);
+    this.transactionsTable = new TransactionsTable(this);
     this.bitcoinLocksTable = new BitcoinLocksTable(this);
   }
 

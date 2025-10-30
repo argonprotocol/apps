@@ -4,12 +4,13 @@ import createBidderParams from '../src/createBidderParams.js';
 import { type IBiddingRules, MainchainClients, MiningFrames } from '../src/index.js';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import { JsonExt } from '../src/utils.ts';
+import Path from 'path';
 
 afterEach(teardown);
 afterAll(teardown);
 
 it('can create bidder params', async () => {
-  const network = await startArgonTestNetwork('bidder-params');
+  const network = await startArgonTestNetwork(Path.basename(import.meta.filename));
   const mainchainClients = new MainchainClients(network.archiveUrl);
   await mainchainClients.setPrunedClient(network.archiveUrl);
   runOnTeardown(() => mainchainClients.disconnect());

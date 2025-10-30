@@ -1,9 +1,10 @@
 import { Accountset, CohortBidder, type ICohortBidderOptions, MiningBids, parseSubaccountRange } from '../src/index.js';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
-import { describeIntegration, sudo, teardown } from '@argonprotocol/testing';
+import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
 import { getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import Path from 'path';
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;
@@ -396,9 +397,9 @@ async function createBidderWithMocks(
   return { cohortBidder, submitBids };
 }
 
-describeIntegration('Cohort Integration Bidder tests', () => {
+describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
   it('can compete on bids', async () => {
-    const network = await startArgonTestNetwork('cohort-bidder', { profiles: ['bob'] });
+    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
     const aliceClientPromise = getClient(network.archiveUrl);
     const aliceClient = await aliceClientPromise;
