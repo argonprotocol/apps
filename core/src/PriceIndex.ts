@@ -26,23 +26,26 @@ export class PriceIndex {
     const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
     const priceIndex = await this.current.load(api as any);
     if (priceIndex.argonUsdPrice === undefined) {
-      let ARGNOT = microgonsForArgon;
-      if (MiningFrames.networkName === 'dev-docker' || MiningFrames.networkName === 'localnet') {
-        ARGNOT = microgonsForArgon / 10n;
-      }
       return {
         USD: microgonsForArgon,
-        ARGNOT,
+        ARGNOT: microgonsForArgon,
         ARGN: microgonsForArgon,
         BTC: microgonsForArgon,
       };
     }
-
     const usdForArgon = priceIndex.argonUsdPrice;
 
     // These exchange rates should be relative to the argon
+
     const microgonsForUsd = this.calculateExchangeRateInMicrogons(BigNumber(1), usdForArgon);
-    const microgonsForArgnot = this.calculateExchangeRateInMicrogons(priceIndex.argonotUsdPrice!, usdForArgon);
+    let microgonsForArgnot = this.calculateExchangeRateInMicrogons(priceIndex.argonotUsdPrice!, usdForArgon);
+
+    if (
+      priceIndex.argonotUsdPrice! === BigNumber(0) &&
+      (MiningFrames.networkName === 'dev-docker' || MiningFrames.networkName === 'localnet')
+    ) {
+      microgonsForArgnot = microgonsForArgnot / 10n;
+    }
     const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgon);
 
     return {

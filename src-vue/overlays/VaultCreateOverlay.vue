@@ -123,7 +123,7 @@
                 </div>
               </section>
 
-              <VaultSettings ref="configBoxesElement" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
+              <VaultSettings ref="vaultSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -196,7 +196,7 @@ const hasEditBoxOverlay = Vue.ref(false);
 
 const capitalToCommitElement = Vue.ref<HTMLElement | null>(null);
 const returnOnCapitalElement = Vue.ref<HTMLElement | null>(null);
-const configBoxesElement = Vue.ref<HTMLElement | null>(null);
+const vaultSettings = Vue.ref<typeof VaultSettings | null>(null);
 const saveButtonElement = Vue.ref<HTMLElement | null>(null);
 
 const averageAPY = Vue.ref(0);
@@ -237,7 +237,7 @@ function getTourPositionCheck(name: string): ITourPos {
       height: rect.height,
     };
   } else if (name === 'configBoxes') {
-    const rect = configBoxesElement.value?.getBoundingClientRect() as DOMRect;
+    const rect = vaultSettings.value?.getBoundingClientRect() as DOMRect;
     const left = rect.left + 20;
     const width = rect.width - 40;
     return {
@@ -277,6 +277,7 @@ function cancelOverlay() {
 
 function closeEditBoxOverlay() {
   // hasEditBoxOverlay.value = false;
+  vaultSettings.value?.closeEditBoxOverlay();
 }
 
 async function saveRules() {

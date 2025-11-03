@@ -1,14 +1,13 @@
 <!-- prettier-ignore -->
 <template>
-  <div @focus="handleFocus" @blur="handleBlur" ref="$el" :class="[hasFocus ? 'z-90' : '']" class="relative focus-within:relative" tabindex="0">
+  <div @focus="handleFocus" @blur="handleBlur" ref="$el" :class="[[props.class || '', hasFocus ? 'z-90' : ''].join(' ')]" class="relative focus-within:relative" tabindex="0">
     <div
       InputFieldWrapper
       :class="twMerge(
         props.disabled ? 'border-dashed' : '',
         hasFocus ? 'inner-input-shadow outline-2 -outline-offset-2 outline-argon-button' : '',
-        [!hasFocus && !props.disabled ? 'hover:bg-white' : ''],
+        !hasFocus && !props.disabled ? 'hover:bg-white' : '',
         'min-w-20 font-mono text-sm flex flex-row w-full text-left py-[2px] border border-slate-700/50 rounded-md text-gray-800 cursor-text',
-        props.class || '',
       )"
     >
       <span class="select-none pl-[10px] py-[1px]">{{ prefix }}</span>
@@ -558,7 +557,7 @@ let updateInputValueTimer: ReturnType<typeof setTimeout> | null = null;
 function handleInput() {
   const currentText = inputElem.value?.textContent || '';
   const inputValue = Number(currentText.replace(/,/g, ''));
-  if (!inputValue || isNaN(inputValue)) return;
+  if (isNaN(inputValue)) return;
 
   const boundedInputValue = calculateBoundedInputValue(inputValue);
   currentInputValue = boundedInputValue;

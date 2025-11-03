@@ -9,12 +9,12 @@ export function formatPercent(x: BigNumber | undefined): string {
 
 export function bigIntMin(...args: Array<bigint | null>): bigint {
   if (args.length === 0) return 0n;
-  return args.filter(x => x !== null).reduce((min, current) => (current < min ? current : min));
+  return args.filter(x => x !== null).reduce((min, current) => (current < min ? current : min)) ?? 0n;
 }
 
 export function bigIntMax(...args: Array<bigint | null>): bigint {
   if (args.length === 0) return 0n;
-  return args.filter(x => x !== null).reduce((max, current) => (current > max ? current : max));
+  return args.filter(x => x !== null).reduce((max, current) => (current > max ? current : max)) ?? 0n;
 }
 
 export function bigIntCeil(x: bigint, unit: bigint): bigint {

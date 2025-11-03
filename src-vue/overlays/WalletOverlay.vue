@@ -49,7 +49,7 @@
                   }} ARGNOT</td>
                 <td>{{ micronotToArgonotNm(wallet.availableMicronots).format('0,0.[00000000]') }}</td>
                 <td>{{ micronotToArgonotNm(lockedMicronots).format('0,0.[00000000]') }}</td>
-                <td>{{ micronotToArgonotNm(bigIntMax(0n, minimumMicronotsNeeded - wallet.availableMicronots)).format('0,0.[00000000]')
+                <td>{{ micronotToArgonotNm(bigIntMax(0n, minimumMicronotsNeeded - walletAllocatedMicronots)).format('0,0.[00000000]')
                   }}</td>
                 <td v-if="!minimumMicronotsNeeded" class="text-right">--</td>
                 <td v-else-if="walletAllocatedMicronots >= minimumMicronotsNeeded" class="text-right text-green-700 font-bold" data-testid="Received.argonots">success</td>
