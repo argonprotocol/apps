@@ -19,7 +19,7 @@
           class="BotCreateOverlay absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
           style="box-shadow: 0px -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)"
         >
-          <BgOverlay v-if="hasEditBoxOverlay" @close="hasEditBoxOverlay = false" :showWindowControls="false" rounded="md" class="z-100" />
+          <BgOverlay v-if="hasEditBoxOverlay" @close="cancelEditOverlay" :showWindowControls="false" rounded="md" class="z-100" />
           <div v-if="isSuggestingTour" class="absolute inset-0 bg-black/20 z-20 rounded-md"></div>
           <div class="flex flex-col h-full w-full">
             <h2
@@ -126,7 +126,7 @@
                 </div>
               </section>
 
-              <BotSettings ref="configBoxesElement" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
+              <BotSettings ref="botSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -228,7 +228,7 @@ const hasEditBoxOverlay = Vue.ref(false);
 
 const capitalToCommitElement = Vue.ref<HTMLElement | null>(null);
 const returnOnCapitalElement = Vue.ref<HTMLElement | null>(null);
-const configBoxesElement = Vue.ref<HTMLElement | null>(null);
+const botSettings = Vue.ref<typeof BotSettings | null>(null);
 const saveButtonElement = Vue.ref<HTMLElement | null>(null);
 
 const probableMinSeats = Vue.ref(0);
@@ -269,7 +269,7 @@ function getTourPositionCheck(name: string): ITourPos {
       height: rect.height,
     };
   } else if (name === 'configBoxes') {
-    const rect = configBoxesElement.value?.getBoundingClientRect() as DOMRect;
+    const rect = botSettings.value?.getBoundingClientRect() as DOMRect;
     const left = rect.left + 20;
     const width = rect.width - 40;
     return {
@@ -300,6 +300,10 @@ function calculateElementWidth(element: HTMLElement | null) {
 
 function getEpochSeatGoalCount() {
   return calculatorData.getEpochSeatGoalCount(rules.value);
+}
+
+function cancelEditOverlay() {
+  botSettings.value?.closeEditBoxOverlay();
 }
 
 function cancelOverlay() {

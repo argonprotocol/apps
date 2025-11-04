@@ -343,7 +343,7 @@ function openEditBoxOverlay(id: IEditBoxOverlayTypeForMining) {
   const editBoxParentRect = editBoxParent.value?.getBoundingClientRect() as DOMRect;
 
   editBoxOverlayPosition.value = {
-    top: selectedRect.top - editBoxParentRect.top,
+    top: selectedRect.top - editBoxParentRect.top - editBoxParentRect.height / 2,
     left: selectedRect.left - editBoxParentRect.left,
     width: selectedRect.width,
   };
