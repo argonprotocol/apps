@@ -56,7 +56,11 @@ export class InstallerCheck {
     });
   }
 
-  public async activateServer(): Promise<void> {
+  public async activateServer(server?: Server): Promise<void> {
+    if (server) {
+      this.server = server;
+      return;
+    }
     const connection = await SSH.getOrCreateConnection();
     this.server = new Server(connection, this.config.serverDetails);
   }
@@ -82,6 +86,16 @@ export class InstallerCheck {
       this.config.installDetails.ArgonInstall.progress >= 100 &&
       this.config.installDetails.MiningLaunch.progress >= 100
     );
+  }
+
+  public getIncompleteSteps(): InstallStepErrorType[] {
+    const failedSteps: InstallStepErrorType[] = [];
+    for (const [stepKey, status] of Object.entries(this.cachedInstallStepStatuses)) {
+      if (status !== InstallStepStatusType.Finished) {
+        failedSteps.push(stepKey as unknown as InstallStepErrorType);
+      }
+    }
+    return failedSteps;
   }
 
   public async updateInstallStatus(): Promise<void> {

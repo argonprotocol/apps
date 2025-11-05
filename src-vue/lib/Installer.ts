@@ -258,7 +258,7 @@ export default class Installer {
     if (!this.config.serverDetails.ipAddress) return;
     const ipResponse = await fetch('https://api.ipify.org?format=json');
     const { ip: ipAddress } = await ipResponse.json();
-    await SSH.runCommand(`ufw status | grep ${ipAddress} || ufw allow from ${ipAddress}`);
+    await SSH.runCommand(`sudo ufw status | grep ${ipAddress} || sudo ufw allow from ${ipAddress}`);
   }
 
   public async runFailedStep(stepKey: string): Promise<void> {
@@ -340,6 +340,10 @@ export default class Installer {
     if (remoteFilesNeedUpdating) {
       console.info('Clearing step files');
       const stepsToClear = [InstallStepErrorType.FileUpload, InstallStepErrorType.MiningLaunch];
+      if (!this.isRunning) {
+        // clear out any abandoned steps only if we're not currently running
+        stepsToClear.push(...this.installerCheck.getIncompleteSteps());
+      }
       await this.clearStepFiles(stepsToClear, { setFirstStepToWorking: true });
 
       this.installerCheck.clearCachedFilenames();
@@ -359,7 +363,6 @@ export default class Installer {
       return true;
     }
 
-    console.log('this.installerCheck.hasError', this.installerCheck.hasError);
     if (this.installerCheck.hasError) {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
@@ -413,6 +416,7 @@ export default class Installer {
     if (!hasProgress || isComplete) return;
 
     this.isRunning = true;
+    await this.installerCheck.activateServer(await this.getServer());
     this.installerCheck.start();
     this.installerCheck.shouldUseCachedInstallSteps = false;
 
@@ -442,6 +446,8 @@ export default class Installer {
       };
     }
 
+    await this.installerCheck.activateServer(server);
+    this.installerCheck.shouldUseCachedInstallSteps = false;
     await this.installerCheck.updateInstallStatus();
     const isServerInstallComplete = this.installerCheck.isServerInstallComplete;
     const remoteFilesNeedUpdating = !(await this.isRemoteVersionLatest());
@@ -571,7 +577,7 @@ export default class Installer {
     for (const stepKey of stepKeys as InstallStepKey[]) {
       const stepObj = { ...defaultStepObj };
       if (String(stepKey) === stepKeys[0] && options.setFirstStepToWorking) {
-        console.log('SETTING SERVER STEP TO WORKING3', stepKey);
+        console.log('SETTING SERVER STEP TO WORKING', stepKey);
         stepObj.status = InstallStepStatus.Working;
         stepObj.startDate = dayjs.utc().toISOString();
       } else if (stepKey === InstallStepKey.ServerConnect) {

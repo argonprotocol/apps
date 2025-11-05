@@ -223,11 +223,11 @@ function constrainToViewport(x: number, y: number): { x: number; y: number } {
 
   // Constrain the modal to stay within viewport bounds with padding
   const maxX = vw - modalWidth - padding;
-  const maxY = vh - modalHeight - padding;
+  const maxY = vh - modalHeight * 2 - padding;
 
   return {
     x: Math.max(padding, Math.min(maxX, x)),
-    y: Math.max(padding, Math.min(maxY, y)),
+    y: Math.min(maxY, y),
   };
 }
 

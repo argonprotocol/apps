@@ -1,5 +1,5 @@
 {
-  "synchedToFrame": 254,
+  "synchedToFrame": 288,
   "vaultsById": {
     "5": {
       "openedTick": 28996910,
@@ -32,722 +32,988 @@
       "changesByFrame": [
         {
           "satoshisAdded": "0n",
+          "frameId": 268,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "99424865n",
+            "vaultEarnings": "99424865n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "99424865n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 267,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "99424865n",
+            "vaultEarnings": "99424865n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "99424865n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 266,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "99424865n",
+            "vaultEarnings": "99424865n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "99424865n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 265,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "231991352n",
+            "vaultEarnings": "231991352n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "231991352n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 264,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "99424865n",
+            "vaultEarnings": "99424865n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "99424865n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 263,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "99424865n",
+            "vaultEarnings": "99424865n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "99424865n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 262,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "99424865n",
+            "vaultEarnings": "99424865n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "99424865n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 261,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "2090424000n",
+            "vaultEarnings": "2090424000n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "2090424000n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 260,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "2090424000n",
+            "vaultEarnings": "2090424000n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "2090424000n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 259,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 258,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 257,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 256,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n"
+          },
+          "securitization": "49933888n",
+          "securitizationActivated": "49933857n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
           "frameId": 255,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "2787232000n",
             "vaultEarnings": "2787232000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "2787232000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 254,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "2787232000n",
             "vaultEarnings": "2787232000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "2787232000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 253,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "3539736000n",
             "vaultEarnings": "3539736000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "3539736000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 252,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "2843392000n",
             "vaultEarnings": "2843392000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "2843392000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 251,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "2815104000n",
             "vaultEarnings": "2815104000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "2815104000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 250,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "3538648000n",
             "vaultEarnings": "3538648000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "3538648000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 249,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "3510360000n",
             "vaultEarnings": "3510360000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "3510360000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 248,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "2805224000n",
             "vaultEarnings": "2805224000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "2805224000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 247,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "3493672000n",
             "vaultEarnings": "3493672000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "3493672000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 246,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "3486600000n",
             "vaultEarnings": "3486600000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "3486600000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 245,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "6971280000n",
             "vaultEarnings": "6971280000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "6971280000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 244,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
             "totalEarnings": "6953200000n",
             "vaultEarnings": "6953200000n",
             "externalCapital": "0n",
             "vaultCapital": "4993385n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
           "uncollectedEarnings": "6953200000n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 243,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "6948320000n",
-            "vaultEarnings": "6948320000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "6948320000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "6948320000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 242,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "6861600000n",
-            "vaultEarnings": "6861600000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "6861600000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "6861600000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 241,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "2672000000n",
-            "vaultEarnings": "2672000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2672000000n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "2672000000n",
+            "vaultEarnings": "2672000000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 240,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "2672000000n",
-            "vaultEarnings": "2672000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2672000000n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "2672000000n",
+            "vaultEarnings": "2672000000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 239,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "2672000000n",
-            "vaultEarnings": "2672000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "2672000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2672000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 238,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "2404800000n",
-            "vaultEarnings": "2404800000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "2404800000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2404800000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 237,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "2137600000n",
-            "vaultEarnings": "2137600000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "2137600000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2137600000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 236,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "1870400000n",
-            "vaultEarnings": "1870400000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "1870400000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1870400000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 235,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "1603200000n",
-            "vaultEarnings": "1603200000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1603200000n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "1603200000n",
+            "vaultEarnings": "1603200000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 234,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "1603200000n",
-            "vaultEarnings": "1603200000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1603200000n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "1603200000n",
+            "vaultEarnings": "1603200000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 233,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "1603200000n",
-            "vaultEarnings": "1603200000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "1603200000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1603200000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 232,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "1336000000n",
-            "vaultEarnings": "1336000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1336000000n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "1336000000n",
+            "vaultEarnings": "1336000000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 231,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "1336000000n",
-            "vaultEarnings": "1336000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1336000000n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "1336000000n",
+            "vaultEarnings": "1336000000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 230,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "1336000000n",
-            "vaultEarnings": "1336000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "1336000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1336000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 229,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "2780000000n",
-            "vaultEarnings": "2780000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "2780000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2780000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 228,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "2669600000n",
-            "vaultEarnings": "2669600000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "2669600000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2669600000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 227,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "3704000000n",
-            "vaultEarnings": "3704000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "3704000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "3704000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 226,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "3682400000n",
-            "vaultEarnings": "3682400000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "3682400000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "3682400000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 225,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "1956000000n",
-            "vaultEarnings": "1956000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "1956000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1956000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 224,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "3918400000n",
-            "vaultEarnings": "3918400000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "3918400000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "3918400000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 223,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "2198400000n",
-            "vaultEarnings": "2198400000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "2198400000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "2198400000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 222,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "5498400000n",
-            "vaultEarnings": "5498400000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "5498400000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "5498400000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 221,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "5373600000n",
-            "vaultEarnings": "5373600000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "5373600000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "5373600000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 220,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "1718400000n",
-            "vaultEarnings": "1718400000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "1718400000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1718400000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 219,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "592000000n",
-            "vaultEarnings": "592000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "592000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "592000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 218,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "4301600000n",
-            "vaultEarnings": "4301600000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "4301600000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "4301600000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 217,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "5927200000n",
-            "vaultEarnings": "5927200000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "5927200000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "5927200000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 216,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "6288000000n",
-            "vaultEarnings": "6288000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "6288000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "6288000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 215,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "1032000000n",
-            "vaultEarnings": "1032000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "1032000000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "1032000000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 214,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
           "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
             "totalEarnings": "5155360000n",
-            "vaultEarnings": "5155360000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
+            "vaultEarnings": "5155360000n"
           },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "5155360000n"
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 213,
-          "microgonLiquidityAdded": "0n",
-          "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "784000000n",
-            "vaultEarnings": "784000000n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
-          "securitization": "49933888n",
-          "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "784000000n"
-        },
-        {
           "satoshisAdded": "0n",
-          "frameId": 212,
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
-          "treasuryPool": {
-            "totalEarnings": "9641375427n",
-            "vaultEarnings": "9641375427n",
-            "externalCapital": "0n",
-            "vaultCapital": "4993385n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
-          "uncollectedEarnings": "9641375427n"
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "784000000n",
+            "vaultEarnings": "784000000n"
+          },
+          "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "43779n",
+          "frameId": 212,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "securitization": "49933888n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "49933857n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "4993385n",
+            "totalEarnings": "9641375427n",
+            "vaultEarnings": "9641375427n"
+          },
+          "uncollectedEarnings": "0n"
+        },
+        {
           "frameId": 210,
+          "satoshisAdded": "43779n",
+          "bitcoinLocksCreated": 1,
           "microgonLiquidityAdded": "49933857n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 1,
-          "treasuryPool": {
-            "totalEarnings": "0n",
-            "vaultEarnings": "0n",
-            "externalCapital": "0n",
-            "vaultCapital": "0n"
-          },
           "securitization": "49933888n",
+          "securitizationRelockable": "0n",
           "securitizationActivated": "49933857n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "0n",
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n"
+          },
           "uncollectedEarnings": "0n"
         }
       ]
@@ -762,9 +1028,37 @@
       },
       "changesByFrame": [
         {
-          "satoshisAdded": "887034n",
           "frameId": 216,
+          "satoshisAdded": "887034n",
+          "bitcoinLocksCreated": 1,
           "microgonLiquidityAdded": "999933183n",
+          "bitcoinFeeRevenue": "0n",
+          "securitization": "999933893n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "vaultCapital": "0n",
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n"
+          },
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "9": {
+      "openedTick": 29329794,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "821137n",
+          "frameId": 260,
+          "microgonLiquidityAdded": "999933645n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 1,
           "treasuryPool": {
@@ -775,6 +1069,1168 @@
           },
           "securitization": "999933893n",
           "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "10": {
+      "openedTick": 29329834,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "0n",
+          "frameId": 268,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1990999135n",
+            "vaultEarnings": "1990999135n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1990999135n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 267,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1990999135n",
+            "vaultEarnings": "1990999135n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1990999135n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 266,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1990999135n",
+            "vaultEarnings": "1990999135n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1990999135n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 265,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "4645664648n",
+            "vaultEarnings": "4645664648n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "4645664648n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 264,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1990999135n",
+            "vaultEarnings": "1990999135n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1990999135n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 263,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1990999135n",
+            "vaultEarnings": "1990999135n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1990999135n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 262,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1990999135n",
+            "vaultEarnings": "1990999135n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993348n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1990999135n"
+        },
+        {
+          "satoshisAdded": "823266n",
+          "frameId": 260,
+          "microgonLiquidityAdded": "999933487n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933487n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "11": {
+      "openedTick": 29343059,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": []
+    },
+    "12": {
+      "openedTick": 29343772,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "924296n",
+          "frameId": 269,
+          "microgonLiquidityAdded": "998090745n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "13": {
+      "openedTick": 29343776,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "0n",
+          "frameId": 288,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 286,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 285,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 284,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 283,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 282,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610626n",
+            "vaultEarnings": "497610626n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "497610626n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 281,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610626n",
+            "vaultEarnings": "497610626n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "497610626n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 280,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610626n",
+            "vaultEarnings": "497610626n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "497610626n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 279,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610626n",
+            "vaultEarnings": "497610626n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "497610626n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 278,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "746419810n",
+            "vaultEarnings": "746419810n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "746419810n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 277,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "746419810n",
+            "vaultEarnings": "746419810n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "746419810n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 276,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "746419810n",
+            "vaultEarnings": "746419810n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "746419810n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 275,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "1492816000n",
+            "vaultEarnings": "1492816000n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "1492816000n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 274,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 273,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "7464080000n",
+            "vaultEarnings": "7464080000n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "7464080000n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 272,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 271,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "-928211n",
+          "frameId": 270,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "928211n",
+          "frameId": 269,
+          "microgonLiquidityAdded": "999933708n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "14": {
+      "openedTick": 29352575,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": []
+    },
+    "15": {
+      "openedTick": 29352588,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "0n",
+          "frameId": 288,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 286,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 285,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 284,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 283,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 282,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497594877n",
+            "vaultEarnings": "497594877n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "497594877n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 281,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497594877n",
+            "vaultEarnings": "497594877n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "1447123n",
+          "uncollectedEarnings": "497594877n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 280,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497594877n",
+            "vaultEarnings": "497594877n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "497594877n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 279,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497594877n",
+            "vaultEarnings": "497594877n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "497594877n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 278,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "746396190n",
+            "vaultEarnings": "746396190n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "746396190n"
+        },
+        {
+          "satoshisAdded": "931345n",
+          "frameId": 277,
+          "microgonLiquidityAdded": "998454945n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "746396190n",
+            "vaultEarnings": "746396190n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "746396190n"
+        },
+        {
+          "satoshisAdded": "-952480n",
+          "frameId": 276,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "746396190n",
+            "vaultEarnings": "746396190n",
+            "externalCapital": "0n",
+            "vaultCapital": "99990206n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "746396190n"
+        },
+        {
+          "satoshisAdded": "952480n",
+          "frameId": 275,
+          "microgonLiquidityAdded": "999902068n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999902074n",
+          "securitizationActivated": "999902068n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "16": {
+      "openedTick": 29355563,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "0n",
+          "frameId": 288,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 286,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 285,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 284,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 283,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "0n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 282,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610497n",
+            "vaultEarnings": "497610497n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "497610497n"
+        },
+        {
+          "satoshisAdded": "0n",
+          "frameId": 281,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610497n",
+            "vaultEarnings": "497610497n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "202357n",
+          "uncollectedEarnings": "497610497n"
+        },
+        {
+          "satoshisAdded": "893573n",
+          "frameId": 280,
+          "microgonLiquidityAdded": "999731100n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "497610497n",
+            "vaultEarnings": "497610497n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "497610497n"
+        },
+        {
+          "satoshisAdded": "-926855n",
+          "frameId": 279,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "497610497n",
+            "vaultEarnings": "497610497n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993345n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "497610497n"
+        },
+        {
+          "satoshisAdded": "926855n",
+          "frameId": 278,
+          "microgonLiquidityAdded": "999933457n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999933892n",
+          "securitizationActivated": "999933457n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "17": {
+      "openedTick": 29368106,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "926704n",
+          "frameId": 286,
+          "microgonLiquidityAdded": "999833808n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999833892n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "18": {
+      "openedTick": 29368116,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "928224n",
+          "frameId": 286,
+          "microgonLiquidityAdded": "999833366n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999833892n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "19": {
+      "openedTick": 29368136,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "938388n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "999832866n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999833892n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "20": {
+      "openedTick": 29368794,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "928811n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "999833313n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999833892n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "21": {
+      "openedTick": 29368828,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "938045n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "999832950n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999833892n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
+          "uncollectedEarnings": "0n"
+        }
+      ]
+    },
+    "22": {
+      "openedTick": 29368880,
+      "baseline": {
+        "bitcoinLocks": 0,
+        "feeRevenue": "0n",
+        "microgonLiquidityRealized": "0n",
+        "satoshis": "0n"
+      },
+      "changesByFrame": [
+        {
+          "satoshisAdded": "938143n",
+          "frameId": 287,
+          "microgonLiquidityAdded": "999833228n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 1,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "0n"
+          },
+          "securitization": "999833892n",
+          "securitizationActivated": "0n",
+          "securitizationRelockable": "0n",
           "uncollectedEarnings": "0n"
         }
       ]

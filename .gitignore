@@ -38,3 +38,4 @@ resources/SHASUM256
 server/.env
 /data
 /e2e/argon/docker-compose.yml
+./target

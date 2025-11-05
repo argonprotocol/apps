@@ -1,14 +1,14 @@
 <template>
-  <Popover as="div" class="relative">
-    <PopoverButton class="focus:outline-none">
+  <PopoverRoot as="div" class="relative" @update:open="onOpen">
+    <PopoverTrigger as="button" class="focus:outline-none">
       <slot>
         <span
           class="border-argon-300 text-argon-600 hover:bg-argon-50/40 hover:border-argon-600 mt-10 cursor-pointer rounded border px-7 py-2 text-center text-lg font-bold whitespace-nowrap transition-all duration-300">
           View Bitcoin Blocks
         </span>
       </slot>
-    </PopoverButton>
-    <PopoverPanel
+    </PopoverTrigger>
+    <PopoverContent
       as="div"
       :class="panelPositioningClasses"
       class="absolute z-50 mt-10 w-150 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg">
@@ -51,20 +51,21 @@
           </div>
         </div>
       </div>
-    </PopoverPanel>
-  </Popover>
+    </PopoverContent>
+  </PopoverRoot>
 </template>
 
 <script setup lang="ts">
 import { type IBitcoinBlockMeta } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { useCurrency } from '../stores/currency.ts';
 import numeral from 'numeral';
-import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
+import { PopoverRoot, PopoverTrigger, PopoverContent } from 'reka-ui';
 import dayjs from 'dayjs';
 import { BotFetch } from '../lib/BotFetch.ts';
+import { useStats } from '../stores/stats.ts';
+import { WatchHandle } from 'vue';
 
-const currency = useCurrency();
+const stats = useStats();
 
 const blocks = Vue.ref<IBitcoinBlockMeta[]>([]);
 
@@ -78,7 +79,7 @@ const props = withDefaults(
 );
 const panelPositioningClasses = Vue.computed(() => {
   if (props.position === 'right') {
-    return 'top-[-140px] left-[calc(100%+10px)] h-160 ';
+    return 'top-[-140px] left-[calc(100%+24px)] h-160 ';
   } else {
     // props.position === 'top'
     return 'top-[-55px] left-1/2 -translate-x-1/2 -translate-y-full h-140';
@@ -87,14 +88,43 @@ const panelPositioningClasses = Vue.computed(() => {
 
 const arrowPositioningClasses = Vue.computed(() => {
   if (props.position === 'right') {
-    return 'top-[122px] left-0 translate-x-[-22.5px] -translate-y-full rotate-270';
+    return 'top-[94px] left-[15.5px] translate-x-[-37.5px] -translate-y-full rotate-270';
   } else {
     // props.position === 'top'
     return 'top-full left-1/2 -translate-x-1/2 rotate-180';
   }
 });
 
-Vue.onMounted(async () => {
+async function onOpen(open: boolean) {
+  if (open) {
+    await load();
+  } else {
+    unload();
+  }
+}
+
+let lastBlockNumber = 0;
+let watcher: WatchHandle | undefined;
+
+async function load() {
   blocks.value = await BotFetch.fetchLatestBitcoinBlocks();
-});
+  watcher = Vue.watch(
+    stats.serverState,
+    async value => {
+      if (value.bitcoinLocalNodeBlockNumber === lastBlockNumber) {
+        return;
+      }
+      lastBlockNumber = value.bitcoinLocalNodeBlockNumber;
+      blocks.value = await BotFetch.fetchLatestBitcoinBlocks();
+    },
+    { deep: true },
+  );
+}
+
+function unload() {
+  watcher?.stop();
+}
+
+Vue.onMounted(load());
+Vue.onBeforeUnmount(unload);
 </script>

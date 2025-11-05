@@ -2,7 +2,7 @@ import { ArgonClient, ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { MainchainClients, StorageFinder, TransactionFees } from '@argonprotocol/apps-core';
+import { MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';
@@ -85,7 +85,7 @@ export class MyVaultRecovery {
     if (!vaultPrebondBlock) {
       console.warn('No prebond/vault setup transaction found');
     } else {
-      const result = await TransactionFees.findFromEvents({
+      const result = await TransactionEvents.findFromFeePaidEvent({
         client,
         accountAddress: vaultingAddress,
         blockHash: vaultPrebondBlock.blockHash,
@@ -146,7 +146,7 @@ export class MyVaultRecovery {
     const vaultCreateBlockNumber = vaultStartBlock?.blockNumber ?? 0;
     let vaultCreateFee = 0n;
     if (vaultStartBlock) {
-      const result = await TransactionFees.findFromEvents({
+      const result = await TransactionEvents.findFromFeePaidEvent({
         client,
         accountAddress: vaultingAddress,
         blockHash: vaultStartBlock.blockHash,
@@ -216,7 +216,7 @@ export class MyVaultRecovery {
         const bitcoinBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
         let bitcoinTxFee = 0n;
         if (bitcoinTxAddition) {
-          const result = await TransactionFees.findFromEvents({
+          const result = await TransactionEvents.findFromFeePaidEvent({
             client,
             blockHash: bitcoinTxAddition.blockHash,
             isMatchingEvent: ev => {

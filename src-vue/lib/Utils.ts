@@ -1,11 +1,16 @@
 import { bigNumberToBigInt, JsonExt } from '@argonprotocol/apps-core';
 import { IFieldTypes } from './db/BaseTable.ts';
-import { IS_TEST } from './Env.ts';
+import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import BigNumber from 'bignumber.js';
+import { appConfigDir, join } from '@tauri-apps/api/path';
 
 export function isInt(n: any) {
   if (typeof n === 'string') return !n.includes('.');
   return n % 1 === 0;
+}
+
+export async function getInstanceConfigDir(): Promise<string> {
+  return await join(await appConfigDir(), NETWORK_NAME, INSTANCE_NAME);
 }
 
 export function abbreviateAddress(address: string, length = 4) {
@@ -17,7 +22,7 @@ export function getPercent(value: bigint | number, total: bigint | number): numb
   return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
 }
 
-export function percentOf(value: bigint | number, percentOf100: number): bigint {
+export function percentOf(value: bigint | number, percentOf100: number | bigint): bigint {
   return bigNumberToBigInt(BigNumber(value).multipliedBy(percentOf100).dividedBy(100));
 }
 

@@ -196,7 +196,7 @@ SINCE="$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -v -4
 
 # Data folders
 echo "[*] Copying data folders"
-rsync -a --delete "$ROOT_DIR/data/argon/bot*" ./data/ | true
+rsync -a --delete "$ROOT_DIR"/data/argon/bot* "$OUT/data" | true
 
 echo "[*] Creating archive"
 ARCHIVE="${OUTROOT}.tar.gz"

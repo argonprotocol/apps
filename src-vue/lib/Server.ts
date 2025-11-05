@@ -5,9 +5,10 @@ import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from '.
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
 import { SSH } from './SSH';
 import { IConfigServerDetails, InstallStepKey } from '../interfaces/IConfig';
-import { appConfigDir, join, tempDir } from '@tauri-apps/api/path';
+import { join, tempDir } from '@tauri-apps/api/path';
 import { LocalMachine } from './LocalMachine.ts';
 import { fetch } from '@tauri-apps/plugin-http';
+import { getInstanceConfigDir } from './Utils.ts';
 
 export enum InstallStepStatusType {
   Pending = 'Pending',
@@ -70,7 +71,7 @@ export class Server {
   }
 
   public static async virtualMachineFolder(): Promise<string> {
-    let path = await join(await appConfigDir(), NETWORK_NAME, INSTANCE_NAME, 'virtual-machine');
+    let path = await join(await getInstanceConfigDir(), 'virtual-machine');
     // On Windows, convert to Docker-compatible path: replace backslashes, convert drive letter to /c/ form.
     if (typeof process !== 'undefined' && process.platform === 'win32') {
       // Replace backslashes with forward slashes
@@ -306,14 +307,14 @@ export class Server {
   }
 
   public async fetchBitcoinInstallProgress(): Promise<number> {
-    const result = await this.fetchStatus<ISyncStatus>('bitcoin', 'syncstatus', 10e3).catch(() => null);
+    const result = await this.fetchStatus<ISyncStatus>('bitcoin', 'syncstatus', 30e3).catch(() => null);
     return result?.syncPercent ?? 0.0;
   }
 
   public async fetchBitcoinBlockChainInfo(): Promise<IBitcoinBlockChainInfo> {
-    const blocks = await this.fetchStatus<IBitcoinLatestBlocks>('bitcoin', `latestblocks`, 10e3);
+    const blocks = await this.fetchStatus<IBitcoinLatestBlocks>('bitcoin', `latestblocks`, 30e3);
 
-    const output2: any = await this.fetchStatus('bitcoin', 'getblockchaininfo', 10e3);
+    const output2: any = await this.fetchStatus('bitcoin', 'getblockchaininfo', 30e3);
     return {
       chain: output2.chain,
       blocks: output2.blocks,
@@ -351,7 +352,7 @@ export class Server {
   }
 
   public async fetchArgonInstallProgress(): Promise<number> {
-    const result = await this.fetchStatus<ISyncStatus>('argon', 'syncstatus', 10e3);
+    const result = await this.fetchStatus<ISyncStatus>('argon', 'syncstatus', 30e3);
 
     return result?.syncPercent ?? 0.0;
   }

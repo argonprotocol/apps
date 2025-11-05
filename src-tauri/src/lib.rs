@@ -78,7 +78,7 @@ async fn ssh_upload_file(
     contents: String,
     remote_path: String,
 ) -> Result<String, String> {
-    log::info!("ssh_upload_file: {}, {}", contents, remote_path);
+    log::info!("ssh_upload_file: {}", remote_path);
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
