@@ -11,8 +11,9 @@
           ref="dialogPanel"
           class="HowVaultingWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
         >
-          <div class="flex flex-col h-full w-full">
+          <div class="flex flex-col h-full w-full overflow-hidden">
             <h2
+              FadeBorder
               class="relative text-3xl font-bold text-left border-b border-slate-300 pt-5 pb-4 pl-3 mx-4 text-[#672D73]"
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
@@ -172,8 +173,12 @@
             </div>
             <div v-else>Loading...</div>
 
-            <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
-              <div class="flex flex-row space-x-4 justify-center items-center">
+            <div 
+              FadeBorder
+              class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg"
+              style="box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.1)"
+            >
+              <div class="flex flex-row space-x-4 justify-center items-center relative z-10">
                 <button @click="finishReading" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
                   <span>Finish Reading</span>
                 </button>
@@ -245,7 +250,7 @@ function finishReading() {
     return;
   }
   const remainingFraction = change / end; // 1.0 if at top, 0.5 if halfway, etc.
-  const duration = Math.max(0, 2000 * remainingFraction);
+  const duration = Math.max(0, 1500 * remainingFraction);
   let startTime: number | null = null;
   const step = (ts: number) => {
     if (startTime === null) startTime = ts;
@@ -331,7 +336,7 @@ basicEmitter.on('openHowVaultingWorksOverlay', async () => {
 @reference "../../main.css";
 
 .HowVaultingWorksOverlay {
-  h2 {
+  [FadeBorder] {
     position: relative;
     &:before {
       @apply from-argon-menu-bg bg-gradient-to-r to-transparent;
@@ -341,7 +346,7 @@ basicEmitter.on('openHowVaultingWorksOverlay', async () => {
       position: absolute;
       z-index: 1;
       left: -5px;
-      top: 0;
+      top: -5px;
       bottom: -5px;
     }
     &:after {
@@ -352,7 +357,7 @@ basicEmitter.on('openHowVaultingWorksOverlay', async () => {
       position: absolute;
       z-index: 1;
       right: -5px;
-      top: 0;
+      top: -5px;
       bottom: -5px;
     }
   }

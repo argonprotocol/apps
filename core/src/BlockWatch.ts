@@ -37,7 +37,7 @@ export type BlockWatchEvents = {
 
 export class BlockWatch {
   public readonly events = createNanoEvents<BlockWatchEvents>();
-  public readonly locksById: {
+  public readonly locksByUtxoId: {
     [utxoId: number]: {
       vaultId: number;
       peggedPrice: bigint;
@@ -124,7 +124,7 @@ BLOCK #${header.number.toNumber()}, ${header.hash.toHuman()}`);
       } else if (event.section === 'bitcoinLocks') {
         if (client.events.bitcoinLocks.BitcoinLockCreated.is(event)) {
           const { liquidityPromised, peggedPrice, utxoId, accountId, vaultId } = event.data;
-          this.locksById[utxoId.toNumber()] = {
+          this.locksByUtxoId[utxoId.toNumber()] = {
             vaultId: vaultId.toNumber(),
             peggedPrice: peggedPrice.toBigInt(),
             liquidityPromised: liquidityPromised.toBigInt(),
@@ -219,14 +219,14 @@ BLOCK #${header.number.toNumber()}, ${header.hash.toHuman()}`);
   ): Promise<{ vaultId: number; peggedPrice: bigint; liquidityPromised: bigint }> {
     const client = this.mainchain;
     const api = await client.at(blockHash);
-    if (!this.locksById[utxoId]) {
+    if (!this.locksByUtxoId[utxoId]) {
       const lock = await api.query.bitcoinLocks.locksByUtxoId(utxoId);
-      this.locksById[utxoId] = {
+      this.locksByUtxoId[utxoId] = {
         vaultId: lock.value.vaultId.toNumber(),
         peggedPrice: lock.value.peggedPrice.toBigInt(),
         liquidityPromised: lock.value.liquidityPromised.toBigInt(),
       };
     }
-    return this.locksById[utxoId];
+    return this.locksByUtxoId[utxoId];
   }
 }

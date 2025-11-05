@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <Overlay :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="min-w-7/12 max-h-11/12 min-h-60">
-    <template #header>
+    <template #title>
       <div v-if="activeScreen !== 'overview'" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
         <ChevronLeftIcon @click="goTo('overview')" class="w-6 h-6 cursor-pointer relative -top-0.25" />
       </div>

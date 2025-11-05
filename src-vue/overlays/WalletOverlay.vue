@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <Overlay :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-9/12">
-    <template #header>
+    <template #title>
       <div class="text-2xl font-bold grow">Add Funds to Your {{ walletName }} Wallet</div>
     </template>
 

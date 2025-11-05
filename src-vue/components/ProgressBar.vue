@@ -1,9 +1,9 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="Component ProgressBar relative" :hasError="props.hasError">
+  <div class="Component ProgressBar relative" :class="twMerge('h-8', props.class)" :hasError="props.hasError">
     <div Bar :style="{ width: `calc(${progress}% + 2px)` }" :data-progress="progress">
       <span v-if="hasError" class="error">ERROR</span>
-      <span v-else :style="{ opacity: progress / 25 }">{{ progressLabel }}</span>
+      <span v-else-if="props.showLabel" :style="{ opacity: progress / 25 }">{{ progressLabel }}</span>
     </div>
     <span v-if="!hasError" :style="{ opacity: (50 - progress) / 90 }" class="absolute top-1/2 right-0 -translate-y-1/2 !text-black/30">{{ progressLabel }}</span>
   </div>
@@ -11,11 +11,19 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { twMerge } from 'tailwind-merge';
 
-const props = defineProps<{
-  progress: number;
-  hasError?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    progress: number;
+    hasError?: boolean;
+    showLabel?: boolean;
+    class?: string;
+  }>(),
+  {
+    showLabel: true,
+  },
+);
 
 const progressLabel = Vue.computed(() => {
   if (props.progress < 99) {
@@ -34,11 +42,11 @@ const progressLabel = Vue.computed(() => {
 @reference "../main.css";
 
 .Component.ProgressBar {
-  @apply relative h-8 w-full overflow-hidden rounded-xl border bg-[#F2EAF3];
+  @apply relative w-full overflow-hidden rounded-xl border bg-[#F2EAF3];
   border-color: rgba(0, 0, 0, 0.15);
   box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.15);
   div[Bar] {
-    @apply flex items-center justify-end overflow-hidden rounded-l-xl border-r bg-white transition-[width] duration-[1.2s];
+    @apply flex items-center justify-end overflow-hidden rounded-l-xl border-r bg-white transition-[width] duration-100;
     border-color: rgba(0, 0, 0, 0.3);
     height: calc(100%);
     position: absolute;
@@ -68,7 +76,7 @@ const progressLabel = Vue.computed(() => {
     }
   }
   span {
-    @apply pr-2 text-xs text-gray-500 transition-[opacity] duration-[1.2s];
+    @apply pr-2 text-xs text-gray-500 transition-opacity duration-100;
   }
 }
 </style>

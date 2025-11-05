@@ -25,16 +25,16 @@
                 class="flex flex-row justify-between items-center pt-5 pb-3 px-3 mx-2 text-2xl font-bold text-slate-800/70 border-b border-slate-300 select-none"
                 @mousedown="draggable.onMouseDown($event)"
               >
-                <slot name="header">
+                <slot name="title">
                   <DialogTitle class="grow pt-1">{{ title }}</DialogTitle>
                 </slot>
-                <div 
+                <DialogTitle 
                   v-if="props.showCloseIcon"
                   @click="closeOverlay"
                   class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
                 >
                   <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
-                </div>
+                </DialogTitle>
               </h2>              
               <slot />
             </div>

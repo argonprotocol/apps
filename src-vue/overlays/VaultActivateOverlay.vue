@@ -89,7 +89,7 @@ dayjs.extend(utc);
 
 const config = useConfig();
 const currency = useCurrency();
-const vault = useMyVault();
+const myVault = useMyVault();
 const wallets = useWallets();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
@@ -130,15 +130,15 @@ const maxTreasuryAmount = Vue.computed(() => {
 });
 
 const activatedSecuritization = Vue.computed(() => {
-  return vault.createdVault?.activatedSecuritization() ?? 0n;
+  return myVault.createdVault?.activatedSecuritization() ?? 0n;
 });
 
 const pendingSecuritization = Vue.computed(() => {
-  return vault.createdVault?.argonsPendingActivation ?? 0n;
+  return myVault.createdVault?.argonsPendingActivation ?? 0n;
 });
 
 const waitingSecuritization = Vue.computed(() => {
-  const securitization = vault.createdVault?.securitization ?? 0n;
+  const securitization = myVault.createdVault?.securitization ?? 0n;
   return securitization - (activatedSecuritization.value + pendingSecuritization.value);
 });
 

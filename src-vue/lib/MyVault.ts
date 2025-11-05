@@ -13,7 +13,15 @@ import {
   Vault,
   Vec,
 } from '@argonprotocol/mainchain';
-import { BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, getChildXpriv, HDKey } from '@argonprotocol/bitcoin';
+
+import {
+  BitcoinNetwork,
+  CosignScript,
+  getBitcoinNetworkFromApi,
+  getChildXpriv,
+  HDKey,
+  addressBytesHex,
+} from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { createDeferred, getPercent, IDeferred, percentOf } from './Utils.ts';
@@ -26,8 +34,10 @@ import BitcoinLocksStore from './BitcoinLocksStore.ts';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
-import { ITransactionInfo, TransactionTracker } from './TransactionTracker.ts';
+import { TransactionTracker } from './TransactionTracker.ts';
+import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
+import { Config } from './Config.ts';
 
 export const FEE_ESTIMATE = 75_000n;
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
@@ -36,7 +46,6 @@ export class MyVault {
   public data: {
     isReady: boolean;
     createdVault: Vault | null;
-    creatingVaultPromise?: Promise<{ vault: Vault; txResult: TxResult }>;
     metadata: IVaultRecord | null;
     stats: IVaultStats | null;
     ownTreasuryPoolCapitalDeployed: bigint;
@@ -64,7 +73,7 @@ export class MyVault {
   #waitForLoad?: IDeferred;
   #table?: VaultsTable;
   #subscriptions: VoidFunction[] = [];
-  #bitcoinLocks?: BitcoinLocks;
+  #bitcoinLocksApi?: BitcoinLocks;
   #transactionTracker: TransactionTracker;
   #configs?: {
     timeToCollectFrames: number;
@@ -73,6 +82,7 @@ export class MyVault {
   constructor(
     private readonly dbPromise: Promise<Db>,
     public readonly vaults: Vaults,
+    public readonly config: Config,
     transactionTracker: TransactionTracker,
     public readonly bitcoinLocksStore: BitcoinLocksStore,
   ) {
@@ -118,6 +128,7 @@ export class MyVault {
     try {
       console.log('Loading MyVault...');
       await this.vaults.load(reload);
+      await this.config.load();
 
       void this.vaults.refreshRevenue().then(() => {
         const vaultId = this.metadata?.id;
@@ -127,7 +138,7 @@ export class MyVault {
       });
       const table = await this.getTable();
       const client = await getMainchainClient(true);
-      this.#bitcoinLocks ??= new BitcoinLocks(client);
+      this.#bitcoinLocksApi ??= new BitcoinLocks(client);
       this.data.metadata = (await table.get()) ?? null;
       // prefetch the config
       const timeToCollectFrames = client.consts.vaults.revenueCollectionExpirationFrames.toNumber();
@@ -137,20 +148,25 @@ export class MyVault {
 
       await this.#transactionTracker.load();
       await this.bitcoinLocksStore.load();
-      for (const info of this.#transactionTracker.pendingBlockTransactionsAtLoad) {
-        const { tx } = info;
+
+      for (const txInfo of this.#transactionTracker.pendingBlockTxInfos) {
+        const { tx } = txInfo;
         if (tx.extrinsicType === ExtrinsicType.VaultCreate) {
-          void this.onVaultCreated(info);
+          void this.onVaultCreated(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultInitialAllocate) {
-          void this.onInitialVaultAllocate(info);
+          void this.onInitialVaultAllocate(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultModifySettings) {
-          void this.onModifySettings(info);
+          void this.onModifySettings(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation) {
-          void this.onIncreaseVaultAllocations(info);
-        } else if (tx.extrinsicType === ExtrinsicType.BitcoinInitializeLock) {
-          void this.onLockBitcoin(info);
-        } else if (tx.extrinsicType === ExtrinsicType.BitcoinOwnerCosignRelease) {
-          void this.onCosignResult(info);
+          void this.onIncreaseVaultAllocations(txInfo);
+        } else if (tx.extrinsicType === ExtrinsicType.BitcoinRequestLock) {
+          void this.onLockBitcoin(txInfo);
+        } else if (tx.extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
+          void this.onCosignResult(txInfo);
+        } else if (tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease) {
+          const { utxoId } = tx.metadataJson!;
+          const lock = this.bitcoinLocksStore.data.locksByUtxoId[utxoId];
+          void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
         }
       }
 
@@ -166,6 +182,10 @@ export class MyVault {
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;
+  }
+
+  public getTxInfoByType(extrinsicType: ExtrinsicType): TransactionInfo | undefined {
+    return this.#transactionTracker.data.txInfosByType[extrinsicType];
   }
 
   public async subscribe() {
@@ -226,7 +246,71 @@ export class MyVault {
     }
   }
 
-  public async finalizeMyBitcoinUnlock(args: {
+  public async requestBitcoinRelease(args: {
+    lock: IBitcoinLockRecord;
+    bitcoinNetworkFee: bigint;
+    toScriptPubkey: string;
+    argonKeyring: KeyringPair;
+  }): Promise<TransactionInfo | undefined> {
+    const { lock, bitcoinNetworkFee, toScriptPubkey, argonKeyring } = args;
+    if (lock.status !== BitcoinLockStatus.LockedAndMinted && lock.status !== BitcoinLockStatus.LockedAndIsMinting) {
+      return;
+    }
+
+    const txResult = await this.#bitcoinLocksApi!.requestRelease({
+      ...args,
+      lock: lock.lockDetails,
+      priceIndex: this.vaults.priceIndex.current,
+      releaseRequest: {
+        toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinLocksStore.bitcoinNetwork),
+        bitcoinNetworkFee,
+      },
+      argonKeyring,
+      disableAutomaticTxTracking: true,
+    });
+
+    const txInfo = await this.#transactionTracker.trackTxResult({
+      txResult,
+      extrinsicType: ExtrinsicType.BitcoinRequestRelease,
+      metadata: { utxoId: lock.utxoId, toScriptPubkey, bitcoinNetworkFee },
+    });
+
+    await this.bitcoinLocksStore.updateReleaseIsProcessingOnArgon(lock);
+
+    void this.onRequestedReleaseInBlock(lock, txInfo, { toScriptPubkey, bitcoinNetworkFee });
+    return txInfo;
+  }
+
+  public async onRequestedReleaseInBlock(
+    lock: IBitcoinLockRecord,
+    txInfo: TransactionInfo,
+    releaseInfo: { toScriptPubkey: string; bitcoinNetworkFee: bigint },
+  ): Promise<void> {
+    const { txResult, isProcessed } = txInfo;
+    await txResult.waitForFinalizedBlock;
+    const client = this.#bitcoinLocksApi!.client;
+    const blockHash = await txResult.waitForFinalizedBlock;
+
+    const api = await client.at(blockHash);
+
+    lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
+    const { toScriptPubkey, bitcoinNetworkFee } = releaseInfo;
+    lock.releaseToDestinationAddress = toScriptPubkey;
+    lock.releaseBitcoinNetworkFee = bitcoinNetworkFee;
+
+    await this.bitcoinLocksStore.updateReleaseIsWaitingForVault(lock);
+
+    // kick off the vault's signing
+    void this.handleCosignOfBitcoinUnlock({
+      lock,
+      argonKeyring: this.config.vaultingAccount,
+      bitcoinXprivSeed: this.config.bitcoinXprivSeed,
+    });
+
+    isProcessed.resolve();
+  }
+
+  public async handleCosignOfBitcoinUnlock(args: {
     argonKeyring: KeyringPair;
     lock: IBitcoinLockRecord;
     bitcoinXprivSeed: Uint8Array;
@@ -239,11 +323,11 @@ export class MyVault {
     try {
       this.data.finalizeMyBitcoinError = undefined;
       // could be moved to BitcoinLocksStore
-      if (lock.status === BitcoinLockStatus.ReleaseWaitingForVault) {
+      if (lock.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
         const result = await this.cosignRelease({
           argonKeyring: argonKeyring,
           vaultXpriv: await this.getVaultXpriv(bitcoinXprivSeed),
-          utxoId: lock.utxoId,
+          utxoId: lock.utxoId!,
           toScriptPubkey: lock.releaseToDestinationAddress!,
           bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
         });
@@ -258,16 +342,16 @@ export class MyVault {
           });
         }
       }
-      if (lock.status === BitcoinLockStatus.ReleasedByVault) {
+      if (lock.status === BitcoinLockStatus.ReleaseSigned) {
         await this.bitcoinLocksStore.ownerCosignAndSendToBitcoin(lock, bitcoinXprivSeed);
       }
     } catch (error) {
       console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
-      this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId, error: String(error) };
+      this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId!, error: String(error) };
     }
   }
 
-  public async cosignRelease(args: {
+  private async cosignRelease(args: {
     argonKeyring: KeyringPair;
     vaultXpriv: HDKey;
     utxoId: number;
@@ -277,18 +361,18 @@ export class MyVault {
   }): Promise<{ txResult: TxResult; vaultSignature: Uint8Array } | undefined> {
     const { argonKeyring, vaultXpriv, utxoId, bitcoinNetworkFee, toScriptPubkey } = args;
 
-    const lock = await this.#bitcoinLocks!.getBitcoinLock(utxoId);
+    const lock = await this.#bitcoinLocksApi!.getBitcoinLock(utxoId);
     if (!lock) {
       console.warn('No lock found for utxoId:', utxoId);
       return;
     }
 
-    const releaseRequest = await this.#bitcoinLocks!.getReleaseRequest(utxoId);
+    const releaseRequest = await this.#bitcoinLocksApi!.getReleaseRequest(utxoId);
     if (!releaseRequest) {
       console.warn('No release request found for utxoId:', utxoId);
       return;
     }
-    const utxoRef = await this.#bitcoinLocks!.getUtxoRef(utxoId);
+    const utxoRef = await this.#bitcoinLocksApi!.getUtxoRef(utxoId);
     if (!utxoRef) {
       console.warn('No UTXO reference found for utxoId:', utxoId);
       return;
@@ -307,7 +391,15 @@ export class MyVault {
     if (!vaultSignature) {
       throw new Error('Failed to get vault signature from PSBT for utxoId: ' + utxoId);
     }
-    const txResult = await this.#bitcoinLocks?.submitVaultSignature({
+
+    console.log('Submitting vault signature', {
+      utxoId,
+      vaultSignature,
+      argonKeyring,
+      useLatestNonce: true,
+      disableAutomaticTxTracking: true,
+    });
+    const txResult = await this.#bitcoinLocksApi?.submitVaultSignature({
       utxoId,
       vaultSignature,
       argonKeyring,
@@ -317,17 +409,18 @@ export class MyVault {
     if (!txResult) {
       throw new Error('Failed to submit vault signature for utxoId: ' + utxoId);
     }
+    console.log('Submitted vault signature', txResult);
 
     const result = await this.#transactionTracker.trackTxResult({
       txResult,
-      extrinsicType: ExtrinsicType.BitcoinOwnerCosignRelease,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
       metadata: { utxoId },
     });
     void this.onCosignResult(result);
     return { txResult, vaultSignature };
   }
 
-  private async onCosignResult(txInfo: ITransactionInfo) {
+  private async onCosignResult(txInfo: TransactionInfo) {
     const { tx, txResult, isProcessed } = txInfo;
     const utxoId = tx.metadataJson.utxoId;
 
@@ -402,60 +495,49 @@ export class MyVault {
     return txResult;
   }
 
-  public async create(args: {
+  public async createNew(args: {
     argonKeyring: KeyringPair;
     xprivSeed: Uint8Array;
     rules: IVaultingRules;
     masterXpubPath: string;
-    progressCallback?: ITxProgressCallback;
-  }) {
-    if (this.data.creatingVaultPromise) {
-      return this.data.creatingVaultPromise;
-    }
+  }): Promise<TransactionInfo> {
+    const pendingTxInfo = this.getTxInfoByType(ExtrinsicType.VaultCreate);
+    if (pendingTxInfo) return pendingTxInfo;
 
     console.log('Creating a vault with address', args.argonKeyring.address);
 
-    const createVaultDeferred = createDeferred<{ vault: Vault; txResult: TxResult }>();
-    this.data.creatingVaultPromise = createVaultDeferred.promise;
-    try {
-      const { argonKeyring, xprivSeed, masterXpubPath, rules } = args;
+    const { argonKeyring, xprivSeed, masterXpubPath, rules } = args;
+    const vaultXpriv = await this.getVaultXpriv(xprivSeed, masterXpubPath);
+    const masterXpub = vaultXpriv.publicExtendedKey;
+    const client = await getMainchainClient(false);
 
-      const vaultXpriv = await this.getVaultXpriv(xprivSeed, masterXpubPath);
-      const masterXpub = vaultXpriv.publicExtendedKey;
-      const client = await getMainchainClient(false);
+    const { txResult } = await Vault.create(
+      client,
+      argonKeyring,
+      {
+        securitizationRatio: rules.securitizationRatio,
+        securitization: 1,
+        annualPercentRate: rules.btcPctFee / 100,
+        baseFee: rules.btcFlatFee,
+        bitcoinXpub: masterXpub,
+        treasuryProfitSharing: rules.profitSharingPct / 100,
+        disableAutomaticTxTracking: true,
+      },
+      { tickDurationMillis: this.vaults.tickDuration },
+    );
 
-      const { txResult } = await Vault.create(
-        client,
-        argonKeyring,
-        {
-          securitizationRatio: rules.securitizationRatio,
-          securitization: 1,
-          annualPercentRate: rules.btcPctFee / 100,
-          baseFee: rules.btcFlatFee,
-          bitcoinXpub: masterXpub,
-          treasuryProfitSharing: rules.profitSharingPct / 100,
-          txProgressCallback: args.progressCallback,
-          disableAutomaticTxTracking: true,
-        },
-        { tickDurationMillis: this.vaults.tickDuration },
-      );
+    const txInfo = await this.#transactionTracker.trackTxResult({
+      txResult,
+      extrinsicType: ExtrinsicType.VaultCreate,
+      metadata: { masterXpub, masterXpubPath },
+    });
 
-      const info = await this.#transactionTracker.trackTxResult({
-        txResult,
-        extrinsicType: ExtrinsicType.VaultCreate,
-        metadata: { masterXpub, masterXpubPath },
-      });
-      const vault = await this.onVaultCreated(info);
-      createVaultDeferred.resolve({ vault, txResult });
-    } catch (error) {
-      console.error('Error creating vault:', error);
-      createVaultDeferred.reject(error as Error);
-    }
-    this.data.creatingVaultPromise = undefined;
-    return createVaultDeferred.promise;
+    void this.onVaultCreated(txInfo);
+
+    return txInfo;
   }
 
-  private async onVaultCreated(txInfo: ITransactionInfo): Promise<Vault> {
+  private async onVaultCreated(txInfo: TransactionInfo): Promise<Vault> {
     const { tx, txResult, isProcessed } = txInfo;
     const client = await getMainchainClient(false);
     const table = await this.getTable();
@@ -586,8 +668,9 @@ export class MyVault {
 
     let bitcoin: IBitcoinLockRecord | undefined;
     const hasSecuritization = vault.activatedSecuritization() > 0n || vault.argonsPendingActivation > 0n;
+    console.log('HAS SECURITIZATION', hasSecuritization, prebond.blockNumber);
     if (hasSecuritization && prebond.blockNumber) {
-      const bitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
+      const myBitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
         mainchainClients,
         bitcoinLocksStore: this.bitcoinLocksStore,
         vaultSetupBlockNumber: prebond.blockNumber,
@@ -595,8 +678,8 @@ export class MyVault {
         vault,
       });
 
-      if (bitcoins.length) {
-        bitcoin = bitcoins[0];
+      if (myBitcoins.length) {
+        bitcoin = myBitcoins[0];
         this.metadata!.personalUtxoId = bitcoin.utxoId;
       }
     }
@@ -663,28 +746,31 @@ export class MyVault {
     return info;
   }
 
-  private async onModifySettings(info: ITransactionInfo) {
-    const { txResult, isProcessed } = info;
+  private async onModifySettings(txInfo: TransactionInfo) {
+    const { txResult, isProcessed } = txInfo;
     await txResult.waitForFinalizedBlock;
     await this.trackTxResultFee(txResult, false);
     console.log('Vault settings updated');
     isProcessed.resolve();
   }
 
-  public async initialActivate(args: {
+  public async activateSecuritizationAndTreasury(args: {
     argonKeyring: KeyringPair;
     rules: IVaultingRules;
     bip39Seed: Uint8Array;
-    txProgressCallback: ITxProgressCallback;
     tip?: bigint;
-  }): Promise<ITransactionInfo | undefined> {
+  }): Promise<TransactionInfo | undefined> {
     const vaultId = this.createdVault?.vaultId;
     if (!vaultId) {
       throw new Error('No vault created to prebond treasury pool');
     }
+    const pendingTxInfo = this.getTxInfoByType(ExtrinsicType.VaultInitialAllocate);
+    if (pendingTxInfo) return pendingTxInfo;
+
+    const { rules } = args;
     const vault = this.createdVault;
-    const { rules, txProgressCallback } = args;
     const client = await getMainchainClient(false);
+    const txs: SubmittableExtrinsic[] = [];
 
     // need to leave enough for the BTC fees
     const { microgonsForTreasury, microgonsForSecuritization } = MyVault.getMicrogonSplit(
@@ -693,7 +779,6 @@ export class MyVault {
     );
 
     const addedSecuritization = microgonsForSecuritization - vault.securitization;
-    const txs: SubmittableExtrinsic[] = [];
     if (addedSecuritization > 0n) {
       txs.push(
         client.tx.vaults.modifyFunding(vaultId, addedSecuritization, toFixedNumber(rules.securitizationRatio, 18)),
@@ -721,23 +806,21 @@ export class MyVault {
     if (!txs.length) {
       return undefined;
     }
-    txProgressCallback(5);
 
-    const info = await this.#transactionTracker.submitAndWatch({
+    const txInfo = await this.#transactionTracker.submitAndWatch({
       tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
       signer: args.argonKeyring,
       extrinsicType: ExtrinsicType.VaultInitialAllocate,
       metadata: { bitcoinArgs, microgonsForTreasury, microgonsForSecuritization, vaultId },
-      txProgressCallback,
       tip: args.tip,
     });
-    void this.onInitialVaultAllocate(info);
-    txProgressCallback(100);
-    return info;
+    void this.onInitialVaultAllocate(txInfo);
+
+    return txInfo;
   }
 
-  private async onInitialVaultAllocate(info: ITransactionInfo) {
-    const { tx, txResult, isProcessed } = info;
+  private async onInitialVaultAllocate(txInfo: TransactionInfo) {
+    const { tx, txResult, isProcessed } = txInfo;
     const blockHash = await txResult.waitForFinalizedBlock;
     await this.trackTxResultFee(txResult, false);
     const client = await getMainchainClient(false);
@@ -748,7 +831,11 @@ export class MyVault {
     metadata.prebondedMicrogons = microgonsForTreasury;
     metadata.prebondedMicrogonsAtTick = tick;
     if (bitcoinArgs) {
-      const record = await this.bitcoinLocksStore.saveBitcoinLock({ vaultId, txResult, ...bitcoinArgs });
+      const record = await this.bitcoinLocksStore.createBitcoinLockAfterVaultCreate({
+        vaultId,
+        txResult,
+        ...bitcoinArgs,
+      });
       metadata.personalUtxoId = record.utxoId;
     }
     console.log('Saving vault updates', {
@@ -762,59 +849,60 @@ export class MyVault {
     return { txResult };
   }
 
-  public async lockBitcoin(args: {
+  public async startBitcoinLocking(args: {
     argonKeyring: KeyringPair;
     microgonLiquidity: bigint;
     bip39Seed: Uint8Array;
-    txProgressCallback: ITxProgressCallback;
     tip?: bigint;
-  }): Promise<ITransactionInfo> {
+  }): Promise<void> {
     const vault = this.createdVault;
-    if (!vault) {
-      throw new Error('No vault created to lock bitcoin');
-    }
-    const {
-      tx: ext,
-      satoshis,
-      hdPath,
-      securityFee,
-    } = await this.bitcoinLocksStore.createInitializeTx({
-      ...args,
-      vault,
-    });
-    console.log('Saving vault bitcoin lock', { microgonLiquidity: args.microgonLiquidity, meta: this.metadata! });
-    const info = await this.#transactionTracker.submitAndWatch({
-      tx: ext,
+    if (!vault) throw new Error('No vault created to lock bitcoin');
+
+    console.log('Saving vault bitcoin lock', { microgonLiquidity: args.microgonLiquidity, metadata: this.metadata! });
+
+    const initialTx = await this.bitcoinLocksStore.createInitializeTx({ ...args, vault });
+    console.log('initialTx', initialTx);
+    const txInfo = await this.#transactionTracker.submitAndWatch({
+      tx: initialTx.tx,
       signer: args.argonKeyring,
-      extrinsicType: ExtrinsicType.BitcoinInitializeLock,
-      metadata: { vaultId: vault.vaultId, satoshis, hdPath, securityFee },
-      txProgressCallback: args.txProgressCallback,
+      extrinsicType: ExtrinsicType.BitcoinRequestLock,
+      metadata: {
+        vaultId: vault.vaultId,
+        satoshis: initialTx.satoshis,
+        hdPath: initialTx.hdPath,
+        securityFee: initialTx.securityFee,
+      },
       tip: args.tip,
     });
-    void this.onLockBitcoin(info);
-    return info;
+
+    const { vaultId } = txInfo.tx.metadataJson;
+    if (vaultId !== this.createdVault?.vaultId) {
+      throw new Error('Vault ID mismatch');
+    }
+    const lock = await this.bitcoinLocksStore.createPendingBitcoinLock({
+      vaultId,
+      satoshis: initialTx.satoshis,
+      hdPath: initialTx.hdPath,
+    });
+    this.bitcoinLocksStore.data.pendingLock = lock;
+
+    void this.onLockBitcoin(txInfo);
   }
 
-  private async onLockBitcoin(info: ITransactionInfo): Promise<number> {
-    const { tx, txResult, isProcessed } = info;
+  private async onLockBitcoin(txInfo: TransactionInfo): Promise<void> {
+    const { tx, txResult, isProcessed } = txInfo;
+
     await txResult.waitForFinalizedBlock;
-    const metadata = this.metadata!;
 
-    const { vaultId, satoshis, hdPath, securityFee } = tx.metadataJson;
-    if (vaultId !== this.createdVault?.vaultId) {
-      return 0;
-    }
-
-    const record = await this.bitcoinLocksStore.saveBitcoinLock({
-      vaultId,
-      txResult,
-      satoshis,
-      hdPath,
-      securityFee,
+    const { lock, createdAtHeight } = await this.#bitcoinLocksApi!.getBitcoinLockFromTxResult(txResult);
+    const record = await this.bitcoinLocksStore.finalizePendingBitcoinLock({
+      id: tx.id,
+      lock,
+      createdAtHeight,
+      txFee: txResult.finalFee ?? 0n,
     });
-    metadata.personalUtxoId = record.utxoId;
+    this.metadata!.personalUtxoId = record.utxoId;
     isProcessed.resolve();
-    return record.utxoId;
   }
 
   public async increaseVaultAllocations(args: {
@@ -898,8 +986,8 @@ export class MyVault {
     return { ...info, newlyAllocated };
   }
 
-  private async onIncreaseVaultAllocations(info: ITransactionInfo): Promise<{ newlyAllocated: bigint }> {
-    const { tx, txResult, isProcessed } = info;
+  private async onIncreaseVaultAllocations(txInfo: TransactionInfo): Promise<{ newlyAllocated: bigint }> {
+    const { tx, txResult, isProcessed } = txInfo;
     const blockHash = await txResult.waitForFinalizedBlock;
     console.log('Vault allocations increased');
     const metadata = this.metadata!;

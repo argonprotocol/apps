@@ -27,7 +27,7 @@
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
               class="mb-2 flex w-full flex-row items-center space-x-4 border-b border-black/20 px-3 pt-3 pb-3 text-5xl font-bold">
               <DialogTitle class="grow text-2xl font-bold">
-                {{ vault.data.pendingCollectRevenue ? 'Collect Pending Revenue' : 'Sign Bitcoin Transactions' }}
+                {{ myVault.data.pendingCollectRevenue ? 'Collect Pending Revenue' : 'Sign Bitcoin Transactions' }}
               </DialogTitle>
               <div
                 @click="closeOverlay"
@@ -40,12 +40,12 @@
               <span class="py-4 font-thin text-red-700" v-if="collectError">{{ collectError }}</span>
               <div :class="{ 'opacity-80': isCollecting }" class="flex flex-col gap-y-2">
                 <p>
-                  <span v-if="vault.data.pendingCollectRevenue">
+                  <span v-if="myVault.data.pendingCollectRevenue">
                     Your vault has
                     <strong>
                       {{ currency.symbol
                       }}{{
-                        microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0')
+                        microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0')
                       }}
                     </strong>
                     in uncollected revenue. You must collect this within
@@ -61,11 +61,11 @@
                     </CountdownClock>
                     ; otherwise, it will expire and be lost forever.
                   </span>
-                  <span v-if="vault.data.pendingCosignUtxoIds.size">
-                    {{ vault.data.pendingCollectRevenue ? 'Also, you' : 'You' }} have
+                  <span v-if="myVault.data.pendingCosignUtxoIds.size">
+                    {{ myVault.data.pendingCollectRevenue ? 'Also, you' : 'You' }} have
                     <strong>
-                      {{ vault.data.pendingCosignUtxoIds.size }} transaction{{
-                        vault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'
+                      {{ myVault.data.pendingCosignUtxoIds.size }} transaction{{
+                        myVault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'
                       }}
                     </strong>
                     that must be signed. Failure to do so within
@@ -88,7 +88,7 @@
                 <p>
                   Click the button below to complete
                   {{
-                    vault.data.pendingCosignUtxoIds.size && vault.data.pendingCollectRevenue
+                    myVault.data.pendingCosignUtxoIds.size && myVault.data.pendingCollectRevenue
                       ? 'both tasks at the same time'
                       : 'this task'
                   }}.
@@ -100,11 +100,11 @@
                   :disabled="isCollecting"
                   class="bg-argon-600 hover:bg-argon-700 mt-4 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white">
                   <template v-if="!isCollecting">
-                    <template v-if="vault.data.pendingCollectRevenue">Collect Revenue</template>
-                    <template v-if="vault.data.pendingCollectRevenue && vault.data.pendingCosignUtxoIds.size">
+                    <template v-if="myVault.data.pendingCollectRevenue">Collect Revenue</template>
+                    <template v-if="myVault.data.pendingCollectRevenue && myVault.data.pendingCosignUtxoIds.size">
                       +
                     </template>
-                    <template v-if="vault.data.pendingCosignUtxoIds.size">Sign Transactions</template>
+                    <template v-if="myVault.data.pendingCosignUtxoIds.size">Sign Transactions</template>
                   </template>
                   <template v-else>Processing...</template>
                 </button>
@@ -149,18 +149,18 @@ const draggable = Vue.reactive(new Draggable());
 const isCollecting = Vue.ref(false);
 const collectProgress = Vue.ref(0);
 const collectError = Vue.ref('');
-const vault = useMyVault();
+const myVault = useMyVault();
 const currency = useCurrency();
 const config = useConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const securitization = Vue.computed(() => {
-  return vault.createdVault?.securitization ?? 0n;
+  return myVault.createdVault?.securitization ?? 0n;
 });
 
 const nextCollectDueDate = Vue.computed(() => {
-  return dayjs.utc(vault.data.nextCollectDueDate);
+  return dayjs.utc(myVault.data.nextCollectDueDate);
 });
 
 function closeOverlay() {
@@ -172,7 +172,7 @@ async function collect() {
   collectProgress.value = 0;
   try {
     const { bitcoinXprivSeed, vaultingAccount } = config;
-    await vault.collect(
+    await myVault.collect(
       { argonKeyring: vaultingAccount, xprivSeed: bitcoinXprivSeed },
       (totalComplete, inProgressPctComplete, toComplete) => {
         collectProgress.value = totalComplete + inProgressPctComplete * (1 / toComplete);
