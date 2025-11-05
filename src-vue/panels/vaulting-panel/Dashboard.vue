@@ -4,10 +4,10 @@
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
       <section box class="flex flex-row items-center text-slate-900/90 !py-3">
         <div class="flex flex-row items-center w-full min-h-[6%]">
-          <div v-if="vault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
+          <div v-if="myVault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
-              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
+              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
               <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
                 <template v-if="hours || minutes || days">
                   (expires in&nbsp;
@@ -22,7 +22,7 @@
               </CountdownClock>
             </div>
             <div class="grow flex flex-row items-center pl-2 pr-3">
-              <div class="h-4 w-full bg-gradient-to-r from-transparent to-argon-700/10"></div>
+              <div class="h-4 w-full bg-linear-to-r from-transparent to-argon-700/10"></div>
               <div class="flex items-center justify-center">
                 <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
                   <path d="M7 5l5 5-5 5" fill="currentColor" />
@@ -33,10 +33,10 @@
               Collect Revenue
             </button>
           </div>
-          <div v-else-if="vault.data.pendingCosignUtxoIds.size" class="px-6 flex flex-row items-center w-full h-full">
+          <div v-else-if="myVault.data.pendingCosignUtxoIds.size" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
-              <strong>{{vault.data.pendingCosignUtxoIds.size || 2}} bitcoin transaction{{vault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'}} require signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(vault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
+              <strong>{{myVault.data.pendingCosignUtxoIds.size || 2}} bitcoin transaction{{myVault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'}} require signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
               <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
                 <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
                 <template v-else>
@@ -196,7 +196,7 @@
                       <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer w-full text-base"
                               :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60', sidelinedMicrogons ? '' : 'opacity-50 pointer-events-none']"
                               @click="openActivateOverlay" :disabled="isAllocating || !sidelinedMicrogons">
-                        {{!isAllocating ? 'Activate' : 'Allocating'}} Unused Argons
+                        {{!isAllocating ? 'Activate' : 'Allocating'}} these Unused Argons
                       </button>
                       <span :class="{active: isAllocating}" spinner class="ml-2 inline-block mt-1" />
                     </div>
@@ -229,7 +229,7 @@
                   <div class="grow">Bitcoin Security</div>
                   <div class="pr-1">
                     {{ currency.symbol
-                    }}{{ micronotToMoneyNm(activatedSecuritization + waitingSecuritization).format('0,0.00') }}
+                    }}{{ micronotToMoneyNm(activatedSecuritization + pendingSecuritization + waitingSecuritization).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
                 <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
@@ -342,7 +342,7 @@
               </div>
             </li>
             <li class="flex flex-row items-center w-full border-t border-gray-600/50 py-2 text-red-900/70"
-                v-if="[BitcoinLockStatus.LockedAndMinting, BitcoinLockStatus.LockedAndMinted].includes(personalUtxo?.status as any)">
+                v-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(personalUtxo?.status as any)">
               <HoverCardRoot :openDelay="200" :closeDelay="100">
                 <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
                   <div class="grow pl-1"><span class="hidden xl:inline">Cost to</span> Unlock Bitcoin</div>
@@ -365,7 +365,7 @@
                   <div class="grow pl-1"><span class="hidden xl:inline">Operational</span> Expenses</div>
                   <div class="pr-1">
                     -{{ currency.symbol
-                    }}{{ microgonToMoneyNm(vault.metadata?.operationalFeeMicrogons ?? 0n).format('0,0.00') }}
+                    }}{{ microgonToMoneyNm(myVault.metadata?.operationalFeeMicrogons ?? 0n).format('0,0.00') }}
                   </div>
                 </HoverCardTrigger>
                 <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
@@ -624,7 +624,7 @@ import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
-const vault = useMyVault();
+const myVault = useMyVault();
 const vaults = useVaults();
 const wallets = useWallets();
 const bitcoinLocks = useBitcoinLocks();
@@ -647,22 +647,22 @@ const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumera
 
 // For the Vault UI countdown clock
 const nextCollectDueDate = Vue.computed(() => {
-  return dayjs.utc(vault.data.nextCollectDueDate);
+  return dayjs.utc(myVault.data.nextCollectDueDate);
 });
 
 const personalUtxo = Vue.computed(() => personalBitcoin.value?.personalUtxo);
 const unlockPrice = Vue.computed(() => personalBitcoin.value?.unlockPrice ?? 0n);
 
 const activatedSecuritization = Vue.computed(() => {
-  return vault.createdVault?.activatedSecuritization() ?? 0n;
+  return myVault.createdVault?.activatedSecuritization() ?? 0n;
 });
 
 const pendingSecuritization = Vue.computed(() => {
-  return vault.createdVault?.argonsPendingActivation ?? 0n;
+  return myVault.createdVault?.argonsPendingActivation ?? 0n;
 });
 
 const waitingSecuritization = Vue.computed(() => {
-  const securitization = vault.createdVault?.securitization ?? 0n;
+  const securitization = myVault.createdVault?.securitization ?? 0n;
   return securitization - (activatedSecuritization.value + pendingSecuritization.value);
 });
 
@@ -680,7 +680,7 @@ const operationalMicrogons = Vue.computed(() => {
 });
 
 const internalTreasuryPoolBonds = Vue.computed(() => {
-  const revenue = vault.data.stats;
+  const revenue = myVault.data.stats;
   if (!revenue) return 0n;
   return revenue.changesByFrame
     .slice(0, 10)
@@ -692,11 +692,11 @@ const activatedTreasuryPoolInvestment = Vue.computed(() => {
 });
 
 const pendingTreasuryPoolInvestment = Vue.computed(() => {
-  return vault.data.prebondedMicrogons ?? 0n;
+  return myVault.data.prebondedMicrogons ?? 0n;
 });
 
 const externalTreasuryBonds = Vue.computed(() => {
-  const revenue = vault.data.stats;
+  const revenue = myVault.data.stats;
   if (!revenue) return 0n;
   return revenue.changesByFrame
     .slice(0, 10)
@@ -705,13 +705,14 @@ const externalTreasuryBonds = Vue.computed(() => {
 
 const totalVaultValue = Vue.computed(() => {
   return (
-    wallets.totalVaultingResources - (unlockPrice.value + vault.data.pendingCollectRevenue + pendingMintingValue.value)
+    wallets.totalVaultingResources -
+    (unlockPrice.value + myVault.data.pendingCollectRevenue + pendingMintingValue.value)
   );
 });
 
 const bitcoinLockedValue = Vue.computed<bigint>(() => {
-  if (!vault.createdVault) return 0n;
-  return vault.createdVault.activatedSecuritization() - vault.createdVault.getRelockCapacity();
+  if (!myVault.createdVault) return 0n;
+  return myVault.createdVault.activatedSecuritization() - myVault.createdVault.getRelockCapacity();
 });
 
 const pendingMintingValue = Vue.computed<bigint>(() => {
@@ -723,7 +724,7 @@ async function openActivateOverlay() {
 }
 
 const currentApy = Vue.computed(() => {
-  const stats = vault.data.stats;
+  const stats = myVault.data.stats;
   if (!stats) return 0;
 
   const capitalDeployed: bigint[] = [];
@@ -731,28 +732,27 @@ const currentApy = Vue.computed(() => {
   let framesRemaining = 365; // Assuming 365 frames for a year
 
   for (const change of stats.changesByFrame) {
-    console.log('change', change);
     ytdRevenue += change.bitcoinFeeRevenue;
     ytdRevenue += change.treasuryPool.vaultEarnings;
     capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
     framesRemaining -= 1;
     if (framesRemaining <= 0) break;
   }
-  ytdRevenue = bigIntMax(0n, ytdRevenue - vault.data.pendingCollectRevenue);
+  ytdRevenue = bigIntMax(0n, ytdRevenue - myVault.data.pendingCollectRevenue);
   const averageCapitalDeployed =
     capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
   return (Number(ytdRevenue) * 100) / Number(averageCapitalDeployed);
 });
 
 const revenueMicrogons = Vue.computed(() => {
-  const stats = vault.data.stats;
+  const stats = myVault.data.stats;
   if (!stats) return 0n;
   let sum = stats.baseline.feeRevenue ?? 0n;
   for (const change of stats.changesByFrame) {
     sum += change.bitcoinFeeRevenue ?? 0n;
     sum += change.treasuryPool.vaultEarnings ?? 0n;
   }
-  return sum - vault.data.pendingCollectRevenue;
+  return sum - myVault.data.pendingCollectRevenue;
 });
 
 const showCollectOverlay = Vue.ref(false);
@@ -819,7 +819,7 @@ const mining = getMining();
 
 let frameIdLoaded: number | undefined = undefined;
 async function loadChartData(currentFrameId?: number) {
-  const revenue = vault.data.stats;
+  const revenue = myVault.data.stats;
 
   const ticksPerFrame = MiningFrames.ticksPerFrame;
   const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
@@ -885,22 +885,22 @@ async function loadChartData(currentFrameId?: number) {
       return acc + capital;
     }, 0n);
     const rollingTreasuryCapital = trailingTreasuryCapitalTotal + (trailingTreasuryCapitalAmounts[9]?.[0] ?? 0n);
-    if (frameId === currentFrameId && vault.createdVault) {
+    if (frameId === currentFrameId && myVault.createdVault) {
       record.progress = Math.min(((currentTick - tickRange[0]) / ticksPerFrame) * 100, 100);
       const client = await getMainchainClient(false);
       record.totalTreasuryPayout = await TreasuryPool.getTreasuryPayoutPotential(client);
-      const securitization = vault.createdVault.securitization;
-      const activatedSecuritization = vault.createdVault.activatedSecuritization();
+      const securitization = myVault.createdVault.securitization;
+      const activatedSecuritization = myVault.createdVault.activatedSecuritization();
       const { vaultActivatedCapital, totalActivatedCapital } = await TreasuryPool.getActiveCapital(
         client,
-        vault.createdVault.vaultId ?? 0,
+        myVault.createdVault.vaultId ?? 0,
       );
       record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, totalActivatedCapital);
       record.myTreasuryPayout = percentOf(record.totalTreasuryPayout, record.myTreasuryPercentTake);
 
       bitcoinPercentUsed =
         activatedSecuritization > 0n
-          ? getPercent(activatedSecuritization - vault.createdVault.getRelockCapacity(), securitization)
+          ? getPercent(activatedSecuritization - myVault.createdVault.getRelockCapacity(), securitization)
           : 0;
       treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
       record.frameProfitPercent = getPercent(
@@ -975,8 +975,8 @@ async function loadChartData(currentFrameId?: number) {
 }
 
 Vue.onMounted(async () => {
-  await vault.load();
-  await vault.subscribe();
+  await myVault.load();
+  await myVault.subscribe();
   await bitcoinLocks.load();
 
   Vue.watch(
@@ -996,7 +996,7 @@ Vue.onMounted(async () => {
   Vue.onUnmounted(() => {
     onFrameSubscription.unsubscribe();
     onTickSubscription.unsubscribe();
-    vault.unsubscribe();
+    myVault.unsubscribe();
   });
 
   await loadChartData();

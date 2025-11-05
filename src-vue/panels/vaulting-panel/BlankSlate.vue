@@ -84,14 +84,21 @@
           <div class="flex flex-row h-full animate-scroll" :class="{ 'animate-paused': !isLoaded }">
             <template v-for="i in cloneCount" :key="'clone' + i">
               <template v-for="(vault, idx) in vaults" :key="vault.id">
-                <li :style="{ animationDelay: `${getAnimationDelay(idx)}ms`, '--sweep-delay': `${getAnimationDelay(idx)}ms` }" class="flex flex-row rounded-lg bg-white/30 mr-4 h-full pulse-highlight">
+                <li 
+                  :style="{ animationDelay: `${getAnimationDelay(idx)}ms`, '--sweep-delay': `${getAnimationDelay(idx)}ms` }" 
+                  :class="{ 'opacity-50': vault.isFiller }"
+                  class="flex flex-row rounded-lg bg-white/30 mr-4 h-full pulse-highlight"
+                >
                   <VaultImage class="relative h-full opacity-60 z-10" />
                   <div class="flex flex-col border-l-0 border border-slate-400/50 px-2 rounded-r-lg w-80">
                     <table class="w-full h-full">
                       <tbody>
                         <tr>
                           <td class="font-bold pl-1 pr-5 text-slate-800/70" colspan="2">
-                            <header>Stabilization Vault #{{ vault.id }}</header>
+                            <header>
+                              <template v-if="vault.isFiller">Pending Stabilization Vault</template>
+                              <template v-else>Stabilization Vault #{{ vault.id }}</template>
+                            </header>
                           </td>
                         </tr>
                         <tr>
@@ -158,7 +165,7 @@ const cloneCount = Vue.computed(() => {
   return Math.ceil(minVaults / Math.max(1, vaultCount.value));
 });
 
-const vaults = Vue.ref([] as { id: number; btcFillPct: number; treasuryFillPct: number }[]);
+const vaults = Vue.ref([] as { id: number; btcFillPct: number; treasuryFillPct: number; isFiller?: boolean }[]);
 const bitcoinLocked = Vue.ref(0);
 const microgonValueInVaults = Vue.ref(0n);
 /**
@@ -194,6 +201,14 @@ async function updateRevenue() {
         treasuryFillPct: vaultsStore.getTreasuryFillPct(vault.vaultId),
       });
       vaultApys.push(apy);
+    }
+
+    // Add filler items if less than 6 vaults are present, with negative ids to prevent conflict
+    if (vaults.value.length < 6) {
+      let increment = -1;
+      while (vaults.value.length < 6) {
+        vaults.value.push({ id: increment--, btcFillPct: 0, treasuryFillPct: 0, isFiller: true });
+      }
     }
 
     if (vaultApys.length > 0) {

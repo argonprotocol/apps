@@ -114,24 +114,27 @@ BEGIN
 END;
 
 CREATE TABLE BitcoinLocks (
-  utxoId INTEGER NOT NULL PRIMARY KEY,
+  id INTEGER NOT NULL PRIMARY KEY,
   status TEXT NOT NULL CHECK(status IN (
-    'LockInitialized', 'LockVerificationExpired', 'LockReceivedWrongAmount', 'LockProcessingOnBitcoin',
-    'LockedAndMinting', 'LockedAndMinted', 'ReleaseSubmittingToArgon', 'ReleaseWaitingForVault', 'ReleasedByVault',
-    'ReleaseProcessingOnBitcoin', 'ReleaseComplete'
-  )) DEFAULT 'LockInitialized',
-  txid TEXT,
-  vout INTEGER,
+    'LockIsProcessingOnArgon', 'LockReadyForBitcoin', 'LockFailedToHappen', 'LockReceivedWrongAmount', 
+    'LockIsProcessingOnBitcoin', 'LockedAndIsMinting', 'LockedAndMinted', 'ReleaseIsProcessingOnArgon', 
+    'ReleaseIsWaitingForVault', 'ReleaseSigned', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete'
+  )) DEFAULT 'LockIsProcessingOnArgon',
+  utxoId INTEGER,
   satoshis INTEGER NOT NULL,
-  peggedPrice INTEGER NOT NULL,
+  peggedPrice INTEGER NOT NULL DEFAULT 0,
   liquidityPromised INTEGER NOT NULL DEFAULT 0,
-  ratchets JSON NOT NULL,
+  ratchets JSON NOT NULL DEFAULT '[]',
   cosignVersion TEXT NOT NULL,
-  lockDetails JSON NOT NULL,
+  lockDetails JSON NOT NULL DEFAULT '{}',
   lockMempool JSON,
+  lockProcessingOnBitcoinAtTime DATETIME,
   lockProcessingOnBitcoinAtBitcoinHeight INTEGER,
-  lockProcessingOnBitcoinAtBitcoinTime INTEGER,
   lockProcessingOnBitcoinAtOracleBitcoinHeight INTEGER,
+  lockProcessingLastOracleBlockDate DATETIME,
+  lockProcessingLastOracleBlockHeight INTEGER,
+  lockedTxid TEXT,
+  lockedVout INTEGER,
   requestedReleaseAtTick INTEGER,
   releaseBitcoinNetworkFee INTEGER,
   releaseToDestinationAddress TEXT,
@@ -139,8 +142,10 @@ CREATE TABLE BitcoinLocks (
   releaseCosignHeight INTEGER,
   releaseMempool JSON,
   releaseProcessingOnBitcoinAtBitcoinHeight INTEGER,
-  releaseProcessingOnBitcoinAtBitcoinTime INTEGER,
+  releaseProcessingOnBitcoinAtDate DATETIME,
   releaseProcessingOnBitcoinAtOracleBitcoinHeight INTEGER,
+  releaseProcessingLastOracleBlockDate DATETIME,
+  releaseProcessingLastOracleBlockHeight INTEGER,
   releasedAtBitcoinHeight INTEGER,
   releasedTxid TEXT,
   network TEXT NOT NULL,
@@ -153,7 +158,7 @@ CREATE TABLE BitcoinLocks (
 CREATE TRIGGER BitcoinLocksUpdateTimestamp
 AFTER UPDATE ON BitcoinLocks
 BEGIN
-  UPDATE BitcoinLocks SET updatedAt = CURRENT_TIMESTAMP WHERE utxoId = NEW.utxoId;
+  UPDATE BitcoinLocks SET updatedAt = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
 --- Tracks the latest index for each bitcoin lock's HD path
@@ -204,6 +209,8 @@ CREATE TABLE Transactions (
   blockExtrinsicIndex INTEGER,
   blockExtrinsicEventsJson JSON,
   blockExtrinsicErrorJson JSON,
+  lastFinalizedBlockHeight INTEGER,
+  lastFinalizedBlockTime DATETIME,
   isFinalized BOOLEAN NOT NULL DEFAULT 0,
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP

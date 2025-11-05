@@ -7,7 +7,7 @@ import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork, getChildXpriv } from '@argonprotocol/bitcoin';
-import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from './MyVault.ts';
 
 export type VaultRecoveryFn = (args: {
@@ -72,7 +72,6 @@ export class MyVaultRecovery {
     tick?: number;
   }> {
     const { vaultingAddress, vaultId, client, vaultCreatedBlockNumber } = args;
-
     const prebondInitKey = client.query.treasury.prebondedByVaultId.key(vaultId);
     const vaultPrebondBlock = await StorageFinder.iterateFindStorageAddition({
       client,
@@ -186,6 +185,7 @@ export class MyVaultRecovery {
       if (lockMaybe.value.vaultId.toNumber() !== vaultId) return false;
       return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
     });
+
     const bitcoinHdPaths: { ownerBitcoinPubkey: Uint8Array; hdPath: string }[] = [];
     for (const _bitcoin of myBitcoins) {
       const next = await bitcoinLocksStore.getNextUtxoPubkey({ vault, bip39Seed });
@@ -230,13 +230,17 @@ export class MyVaultRecovery {
           bitcoinTxFee = result?.fee ?? 0n;
         }
 
-        const record = await bitcoinLocksStore.saveLock({
+        const { id } = await bitcoinLocksStore.createPendingBitcoinLock({
           vaultId,
-          lock: lock,
-          txFee: bitcoinTxFee,
+          satoshis: lock.satoshis,
           hdPath: thisHdPath.hdPath,
-          blockNumber: bitcoinBlockNumber,
-          securityFee: lock.securityFees, // no fee for owner
+        });
+
+        const record = await bitcoinLocksStore.finalizePendingBitcoinLock({
+          id,
+          lock,
+          createdAtHeight: bitcoinBlockNumber,
+          txFee: bitcoinTxFee,
         });
 
         records.push({ ...record, initializedAtBlockNumber: bitcoinBlockNumber });
