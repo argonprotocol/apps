@@ -47,7 +47,7 @@
 
     <div class="mb-4 flex flex-row items-center border-t border-gray-300 pt-4 pb-1 text-gray-500">
       <Spinner class="mr-3" />
-      We're constantly monitoring Bitcoin. This screen will update when your transaction is confirmed.
+      We're monitoring Bitcoin's network and will update this screen when your transaction is received.
     </div>
   </div>
 </template>

@@ -165,6 +165,7 @@ async function submitRelease() {
   } catch (error) {
     console.error('Failed to send release request:', error);
     requestReleaseError.value = `Failed to send release request. ${error}`;
+    isSubmitting.value = false;
   }
 }
 

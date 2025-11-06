@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-5 px-10 pt-5 pb-7">
+  <div class="space-y-5 px-10 pt-5 pb-10">
     <div v-if="hasError" class="px-3">
       <div class="mb-10 flex w-full flex-row items-center justify-center text-red-600">
         <div class="text-red-600">
@@ -19,18 +19,20 @@
     </div>
 
     <p class="pt-2 font-light opacity-80">
-      You {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} of BTC has been
-      correctly transferred to the correct multisig address. Argon miners are now actively monitoring Bitcoin's network
-      for final confirmation. This process usually takes an hour from start to finish.
+      Your {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} of BTC has been
+      transferred to the correct multisig address. Argon miners are now actively monitoring Bitcoin's network for final
+      confirmation. This process usually takes an hour from start to finish.
     </p>
 
-    <p class="font-italic mb-2 text-gray-400">NOTE: You can close this overlay without it disrupting the process.</p>
+    <p class="font-italic mb-2 font-light opacity-80">
+      NOTE: You can close this overlay without disrupting the process.
+    </p>
 
-    <div class="mt-10">
-      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(processingPct).format('0.00') }}%</div>
+    <div class="mt-16">
+      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
     </div>
 
-    <ProgressBar :progress="processingPct" :showLabel="false" class="h-4" />
+    <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
 
     <div class="text-center font-light text-gray-500">
       {{ progressLabel }}
@@ -54,26 +56,29 @@ const props = defineProps<{
 const bitcoinLocks = useBitcoinLocks();
 const currency = useCurrency();
 
-const processingPct = Vue.ref(0);
+const progressPct = Vue.ref(0);
 const blockConfirmations = Vue.ref(-1);
 
+let expectedConfirmations = 0;
+
 const progressLabel = Vue.computed(() => {
+  console.log('expectedConfirmations', expectedConfirmations);
   if (blockConfirmations.value === -1) {
-    return 'Waiting for Inclusion in Block...';
-  } else if (blockConfirmations.value === 0) {
     return 'Waiting for 1st Block...';
-  } else if (blockConfirmations.value === 1) {
+  } else if (blockConfirmations.value === 0 && expectedConfirmations > 0) {
     return 'Waiting for 2nd Block...';
-  } else if (blockConfirmations.value === 2) {
+  } else if (blockConfirmations.value === 1 && expectedConfirmations > 1) {
     return 'Waiting for 3rd Block...';
-  } else if (blockConfirmations.value === 3) {
+  } else if (blockConfirmations.value === 2 && expectedConfirmations > 2) {
     return 'Waiting for 4th Block...';
-  } else if (blockConfirmations.value === 4) {
+  } else if (blockConfirmations.value === 3 && expectedConfirmations > 3) {
     return 'Waiting for 5th Block...';
-  } else if (blockConfirmations.value === 5) {
+  } else if (blockConfirmations.value === 4 && expectedConfirmations > 4) {
     return 'Waiting for 6th Block...';
-  } else if (blockConfirmations.value === 6) {
+  } else if (blockConfirmations.value === 5 && expectedConfirmations > 5) {
     return 'Waiting for 7th Block...';
+  } else if (blockConfirmations.value === 6 && expectedConfirmations > 6) {
+    return 'Waiting for 8th Block...';
   } else {
     return 'Waiting for Finalization...';
   }
@@ -87,15 +92,16 @@ const hasError = Vue.computed(() => {
   return props.personalLock.status === BitcoinLockStatus.LockReceivedWrongAmount;
 });
 
-function updateBitcoinLockProcessingPercent() {
+function updateProgress() {
   const details = bitcoinLocks.getLockProcessingDetails(props.personalLock);
-  processingPct.value = details.progressPct;
+  progressPct.value = details.progressPct;
   blockConfirmations.value = details.confirmations;
+  expectedConfirmations = details.expectedConfirmations;
 }
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
-  const updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
+  const updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
   Vue.onUnmounted(() => clearInterval(updateBitcoinLockProcessingInterval));
 });
 </script>

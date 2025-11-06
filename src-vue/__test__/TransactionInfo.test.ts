@@ -1,12 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import { TransactionInfo } from '../lib/TransactionInfo';
 import { ITransactionRecord } from '../lib/db/TransactionsTable';
 import { TxResult } from '@argonprotocol/mainchain';
 import { createDeferred } from '../lib/Utils';
-import numeral from 'numeral';
 
 it('should update progress before the transaction has been added to a block', async () => {
-  const progressUpdates: { progress: number; confirmations: number }[] = [];
+  const progressUpdates: { progressPct: number; confirmations: number }[] = [];
   const txInfo = new TransactionInfo({
     tx: {
       blockHeight: undefined,
@@ -16,7 +15,7 @@ it('should update progress before the transaction has been added to a block', as
   });
   txInfo.finalizedBlockHeight = 95;
   const unsubscribe = txInfo.subscribeToProgress(
-    (args: { progress: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
+    (args: { progressPct: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
       progressUpdates.push(args);
     },
   );
@@ -25,13 +24,13 @@ it('should update progress before the transaction has been added to a block', as
   unsubscribe();
 
   expect(progressUpdates).toHaveLength(21);
-  expect(progressUpdates[0].progress).toBeGreaterThan(0);
-  expect(progressUpdates[0].progress).toBeLessThan(1);
+  expect(progressUpdates[0].progressPct).toBeGreaterThan(0);
+  expect(progressUpdates[0].progressPct).toBeLessThan(1);
   expect(progressUpdates[0].confirmations).toBe(-1);
 });
 
 it('should update progress throughout the entire finalization process', async () => {
-  const progressUpdates: { progress: number; confirmations: number }[] = [];
+  const progressUpdates: { progressPct: number; confirmations: number }[] = [];
   const txInfo = new TransactionInfo({
     tx: {
       blockHeight: undefined,
@@ -44,12 +43,12 @@ it('should update progress throughout the entire finalization process', async ()
   let finalizedBlockHeight: number | undefined = undefined;
 
   txInfo.subscribeToProgress(
-    (args: { progress: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
-      const { progress, confirmations, isMaxed } = args;
+    (args: { progressPct: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
+      const { progressPct, confirmations, isMaxed } = args;
 
-      if (progress === 99) {
+      if (progressPct === 99) {
         txInfo.tx.isFinalized = true;
-      } else if (progress === 100) {
+      } else if (progressPct === 100) {
         resolve?.(undefined);
       } else if (isMaxed) {
         txInfo.tx.blockHeight = 100;
@@ -68,11 +67,11 @@ it('should update progress throughout the entire finalization process', async ()
   expect(progressUpdates).toHaveLength(141);
 
   const firstProgressUpdate = progressUpdates[0];
-  expect(firstProgressUpdate.progress).toBeGreaterThan(0);
-  expect(firstProgressUpdate.progress).toBeLessThan(2);
+  expect(firstProgressUpdate.progressPct).toBeGreaterThan(0);
+  expect(firstProgressUpdate.progressPct).toBeLessThan(2);
   expect(firstProgressUpdate.confirmations).toBe(-1);
 
   const lastProgressUpdate = progressUpdates[progressUpdates.length - 1];
-  expect(lastProgressUpdate.progress).toBe(100);
+  expect(lastProgressUpdate.progressPct).toBe(100);
   expect(lastProgressUpdate.confirmations).toBe(5);
 }, 60_000);

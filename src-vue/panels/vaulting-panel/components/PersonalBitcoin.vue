@@ -217,11 +217,12 @@ const currency = useCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const personalLock = Vue.computed(() => {
+  if (bitcoinLocks.data.pendingLock) {
+    return bitcoinLocks.data.pendingLock;
+  }
   const utxoId = myVault.metadata?.personalUtxoId;
   if (utxoId) {
     return bitcoinLocks.data.locksByUtxoId[utxoId];
-  } else {
-    return bitcoinLocks.data.pendingLock;
   }
 });
 

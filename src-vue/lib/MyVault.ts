@@ -287,21 +287,19 @@ export class MyVault {
     releaseInfo: { toScriptPubkey: string; bitcoinNetworkFee: bigint },
   ): Promise<void> {
     const { txResult, isProcessed } = txInfo;
-    await txResult.waitForFinalizedBlock;
-    const client = this.#bitcoinLocksApi!.client;
     const blockHash = await txResult.waitForFinalizedBlock;
-
+    const client = this.#bitcoinLocksApi!.client;
     const api = await client.at(blockHash);
 
-    lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
     const { toScriptPubkey, bitcoinNetworkFee } = releaseInfo;
+    lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
     lock.releaseToDestinationAddress = toScriptPubkey;
     lock.releaseBitcoinNetworkFee = bitcoinNetworkFee;
 
     await this.bitcoinLocksStore.updateReleaseIsWaitingForVault(lock);
 
     // kick off the vault's signing
-    void this.handleCosignOfBitcoinUnlock({
+    void this.handleCosignDanceOfBitcoinUnlock({
       lock,
       argonKeyring: this.config.vaultingAccount,
       bitcoinXprivSeed: this.config.bitcoinXprivSeed,
@@ -310,7 +308,7 @@ export class MyVault {
     isProcessed.resolve();
   }
 
-  public async handleCosignOfBitcoinUnlock(args: {
+  public async handleCosignDanceOfBitcoinUnlock(args: {
     argonKeyring: KeyringPair;
     lock: IBitcoinLockRecord;
     bitcoinXprivSeed: Uint8Array;
@@ -336,7 +334,7 @@ export class MyVault {
         }
         if (!lock.releaseCosignVaultSignature) {
           await result.txResult.waitForInFirstBlock;
-          await this.bitcoinLocksStore.updateVaultSignature(lock, {
+          await this.bitcoinLocksStore.updateVaultUnlockingSignature(lock, {
             signature: result.vaultSignature,
             blockHeight: result.txResult.blockNumber!,
           });
@@ -861,7 +859,6 @@ export class MyVault {
     console.log('Saving vault bitcoin lock', { microgonLiquidity: args.microgonLiquidity, metadata: this.metadata! });
 
     const initialTx = await this.bitcoinLocksStore.createInitializeTx({ ...args, vault });
-    console.log('initialTx', initialTx);
     const txInfo = await this.#transactionTracker.submitAndWatch({
       tx: initialTx.tx,
       signer: args.argonKeyring,

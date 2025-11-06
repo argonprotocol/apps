@@ -14,7 +14,7 @@
                   : 'border-slate-600/20 bg-white text-black/20'
               "
               class="relative grow border-y px-2 py-1 text-center text-base font-bold">
-              Request Release
+              Initiate Unlock
               <div class="absolute top-0 left-0 h-full w-full overflow-hidden">
                 <div
                   class="absolute top-1/2 -left-1 aspect-square h-[150%] translate-x-[-75%] -translate-y-1/2 rounded-full border border-slate-600/20 bg-white"></div>
@@ -113,7 +113,7 @@
                   : 'border-slate-600/20 bg-white text-black/20'
               "
               class="relative w-1/3 grow rounded-r border-y border-r px-2 py-1 text-center text-base font-bold">
-              Take Your Bitcoin
+              Unlock Confirmed
               <Arrow
                 :class="unlockStep === UnlockStep.Complete ? '' : 'text-slate-600/20'"
                 class="absolute -top-px left-0 h-[calc(100%+2.1px)] w-5 fill-white" />
@@ -188,11 +188,12 @@ enum UnlockStep {
   Complete = 'Complete',
 }
 
+const isMissingBitcoin = !personalLock.value || personalLock.value.status === BitcoinLockStatus.ReleaseComplete;
+
 const unlockStep = Vue.computed<UnlockStep>(() => {
-  if (!personalLock.value || personalLock.value.status === BitcoinLockStatus.ReleaseComplete) {
+  if (isMissingBitcoin) {
     return UnlockStep.Start;
   }
-  console.log('unlockStep', personalLock.value.status);
   if ([BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(personalLock.value.status)) {
     return UnlockStep.Start;
   } else if (personalLock.value.status === BitcoinLockStatus.ReleaseIsProcessingOnArgon) {

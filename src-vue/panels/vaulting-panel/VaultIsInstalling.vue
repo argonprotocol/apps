@@ -15,7 +15,7 @@
 
       <div class="flex flex-col w-140 pt-7">
         <ProgressBar
-          :hasError="errorMessage != ''"
+          :hasError="errorMessage !== ''"
           :progress="progressPct"
         />
         <div class="text-gray-500 text-center font-light mt-3">
@@ -46,20 +46,26 @@ const errorMessage = Vue.ref('');
 const vaultingRules = config.vaultingRules;
 const blockConfirmations = Vue.ref(-1);
 
+let expectedConfirmations = 0;
+
 const progressLabel = Vue.computed(() => {
   const step = progressPct.value <= 50 ? 'Submitted Vault ' : 'Activated Funding';
   if (blockConfirmations.value === -1) {
-    return `'${step}... Waiting for 1st Block...'`;
-  } else if (blockConfirmations.value === 0) {
+    return `${step}... Waiting for 1st Block...`;
+  } else if (blockConfirmations.value === 0 && expectedConfirmations > 0) {
     return `${step}... Waiting for 2nd Block...`;
-  } else if (blockConfirmations.value === 1) {
+  } else if (blockConfirmations.value === 1 && expectedConfirmations > 1) {
     return `${step}... Waiting for 3rd Block...`;
-  } else if (blockConfirmations.value === 2) {
+  } else if (blockConfirmations.value === 2 && expectedConfirmations > 2) {
     return `${step}... Waiting for 4th Block...`;
-  } else if (blockConfirmations.value === 3) {
+  } else if (blockConfirmations.value === 3 && expectedConfirmations > 3) {
     return `${step}... Waiting for 5th Block...`;
-  } else if (blockConfirmations.value === 4) {
+  } else if (blockConfirmations.value === 4 && expectedConfirmations > 4) {
     return `${step}... Waiting for 6th Block...`;
+  } else if (blockConfirmations.value === 5 && expectedConfirmations > 5) {
+    return `${step}... Waiting for 7th Block...`;
+  } else if (blockConfirmations.value === 6 && expectedConfirmations > 6) {
+    return `${step}... Waiting for 8th Block...`;
   } else {
     return `${step}... Waiting for Finalization...`;
   }
@@ -75,7 +81,6 @@ async function createVault() {
   }
 
   const masterXpubPath = DEFAULT_MASTER_XPUB_PATH;
-  console.log('Loading installing page', config.vaultingAccount.address);
 
   try {
     const txInfo = await myVault.createNew({
@@ -86,12 +91,15 @@ async function createVault() {
     });
 
     txInfo.subscribeToProgress(
-      (args: { progress: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
-        const { progress, confirmations } = args;
-        console.log(`Vault creation progress: Step ${progress}% - ${confirmations} confirmations`);
-        blockConfirmations.value = confirmations;
-        progressPct.value = progress / 2;
-        if (progress === 100) {
+      (
+        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
+        error: Error | undefined,
+      ) => {
+        console.log(`Vault creation progress: Step ${args.progressPct}% - ${args.confirmations} confirmations`);
+        blockConfirmations.value = args.confirmations;
+        progressPct.value = args.progressPct / 2;
+        expectedConfirmations = args.expectedConfirmations;
+        if (args.progressPct === 100) {
           void activateVault();
         }
       },
@@ -118,12 +126,15 @@ async function activateVault() {
       return;
     }
     txInfo?.subscribeToProgress(
-      (args: { progress: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
-        const { progress, confirmations } = args;
-        console.log(`Vault activation progress: Step ${progress}% - ${confirmations} confirmations`);
-        blockConfirmations.value = confirmations;
-        progressPct.value = 50 + progress / 2;
-        if (progress === 100) {
+      (
+        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
+        error: Error | undefined,
+      ) => {
+        console.log(`Vault activation progress: Step ${args.progressPct}% - ${args.confirmations} confirmations`);
+        blockConfirmations.value = args.confirmations;
+        progressPct.value = 50 + args.progressPct / 2;
+        expectedConfirmations = args.expectedConfirmations;
+        if (args.progressPct === 100) {
           void finalizeVault();
         }
       },
