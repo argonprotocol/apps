@@ -41,7 +41,7 @@
                 <li>
                   <header>The Purpose of Vaults</header>
                   Vaults stabilize the Argon stablecoin by attracting Bitcoin Liquid Locks, which create financial "shorts" against the Argon. These "shorts" provide a profit incentive to burn away unwanted Argons from the system, in turn stabilizing the price of Argon.
-                  <div class="bg-gray-200 p-3 my-4 font-medium text-sm italic"><strong>> Unwanted Argons</strong> If the price of the Argon is below its target ($1), then there's too much supply. The extra supply is thus "unwanted" and its removal will stabilize the price.</div>
+                  <div class="border border-dashed border-gray-400/50 p-3 my-4 font-medium text-sm italic! rounded"><strong>> Unwanted Argons</strong> If the price of the Argon is below its target ($1), then there's too much supply. The extra supply is thus "unwanted" and its removal will stabilize the price.</div>
                 </li>
 
                 <li>

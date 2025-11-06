@@ -50,7 +50,7 @@ export const ConfigServerCreationLocalComputerSchema = z.object({});
 export const ConfigServerCreationCustomServerSchema = z.object({
   port: z.number(),
   sshUser: z.string(),
-  ipAddress: z.string().ip(),
+  ipAddress: z.string().ip().or(z.literal('')),
 });
 
 export const ConfigServerCreationSchema = z.object({
@@ -60,7 +60,7 @@ export const ConfigServerCreationSchema = z.object({
 });
 
 export const ConfigServerDetailsSchema = z.object({
-  ipAddress: z.string().ip(),
+  ipAddress: z.string().ip().or(z.literal('')),
   port: z.number().optional(),
   sshUser: z.string(),
   type: z.nativeEnum(ServerType),

@@ -5,22 +5,36 @@ export interface ICountry {
   value: string;
 }
 
+interface GeoIpResponse {
+  city?: string | null;
+  region?: string | null;
+  state?: string | null;
+  country?: string | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+}
+
 export async function getUserJurisdiction(): Promise<IConfig['userJurisdiction']> {
   const ipResponse = await fetch('https://api.ipify.org?format=json');
   const { ip: ipAddress } = await ipResponse.json();
 
   const geoResponse = await fetch(`https://api.hackertarget.com/geoip/?q=${ipAddress}&output=json`);
-  const { city, region, state, country: countryStr, latitude, longitude } = await geoResponse.json();
-  const country = Countries.closestMatch(countryStr) || ({} as any);
+  const { city, region, state, country: countryStr, latitude, longitude } = (await geoResponse.json()) as GeoIpResponse;
+  const resolvedCity = city ?? '';
+  const resolvedCountryStr = countryStr ?? '';
+  const country = Countries.closestMatch(resolvedCountryStr);
+  const latitudeStr = latitude != null ? String(latitude) : '';
+  const longitudeStr = longitude != null ? String(longitude) : '';
+  const resolvedRegion = region || state || '';
 
   return {
     ipAddress,
-    city,
-    region: region || state,
-    countryName: country.name || countryStr,
-    countryCode: country.value || '',
-    latitude,
-    longitude,
+    city: resolvedCity,
+    region: resolvedRegion,
+    countryName: country?.name || resolvedCountryStr,
+    countryCode: country?.value || '',
+    latitude: latitudeStr,
+    longitude: longitudeStr,
   };
 }
 
