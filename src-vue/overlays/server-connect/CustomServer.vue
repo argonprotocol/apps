@@ -24,21 +24,28 @@
           <td class="w-4/12 border-t border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">Ubuntu 24.04+</td>
           <td class="w-10"><div class="w-10"></div></td>
           <td class="w-2/12 border-t border-b border-slate-400/40 py-2 pr-4">Memory</td>
-          <td class="w-4/12 border-t border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">4GB+ RAM</td>
+          <td class="w-4/12 border-t border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">8GB+ RAM</td>
         </tr>
         <tr>
           <td class="border-b border-slate-400/40 py-2 pr-4">Compute Cores</td>
-          <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">2+ vCPUs</td>
+          <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">4+ vCPUs</td>
           <td></td>
           <td class="border-b border-slate-400/40 py-2 pr-4">Hard Drive</td>
           <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">100GB or more</td>
         </tr>
         <tr>
-          <td class="border-b border-slate-400/40 py-2 pr-4">Internet Access</td>
+          <td class="border-b border-slate-400/40 py-2 pr-4">Internet</td>
           <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">Public</td>
           <td></td>
           <td class="border-b border-slate-400/40 py-2 pr-4">Uptime</td>
           <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">Always On</td>
+        </tr>
+        <tr>
+          <td class="border-b border-slate-400/40 py-2 pr-4">Public Ports</td>
+          <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">{{ publicPorts.join(', ') }}</td>
+          <td></td>
+          <td class="border-b border-slate-400/40 py-2 pr-4">Ports Exposed to You</td>
+          <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">{{ privatePorts.join(', ') }}</td>
         </tr>
       </tbody>
     </table>
@@ -147,6 +154,7 @@ import { useTextareaAutosize } from '@vueuse/core';
 import { SSH } from '../../lib/SSH';
 import { IServerConnectChildExposed } from '../ServerConnectOverlay.vue';
 import { IConfigServerCreationCustomServer, ServerType } from '../../interfaces/IConfig';
+import { SERVER_ENV_VARS } from '../../lib/Env.ts';
 
 const emit = defineEmits(['ready']);
 
@@ -155,6 +163,20 @@ const { textarea } = useTextareaAutosize();
 
 const sshPublicKey = Vue.computed(() => config.security.sshPublicKey);
 const copyToClipboard = Vue.ref<typeof CopyToClipboard>();
+const publicPorts = Vue.computed<number[]>(() => {
+  return Object.entries(SERVER_ENV_VARS)
+    .filter(([name]) => name.endsWith('P2P_PORT'))
+    .map(([, port]) => parseInt(port, 10))
+    .sort((a, b) => a - b);
+});
+
+const privatePorts = Vue.computed<number[]>(() => {
+  return Object.entries(SERVER_ENV_VARS)
+    .filter(([name]) => name.endsWith('_PORT') && !name.endsWith('P2P_PORT'))
+    .map(([, port]) => parseInt(port, 10))
+    .concat([22])
+    .sort((a, b) => a - b);
+});
 
 const sshUser = Vue.ref(config.serverCreation?.customServer?.sshUser ?? '');
 const ipAddressAndMaybePort = Vue.ref(config.serverCreation?.customServer?.ipAddress ?? '');
@@ -215,7 +237,7 @@ function highlightCopiedContent() {
   const wrapperElem = copyToClipboard.value?.$el;
   if (!wrapperElem) return;
 
-  const inputElem = wrapperElem.querySelector('input') as HTMLInputElement;
+  const inputElem = wrapperElem.querySelector('textarea') as HTMLInputElement;
   inputElem.select();
 }
 

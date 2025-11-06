@@ -1,6 +1,6 @@
 import { type ArgonClient, getClient, Keyring, mnemonicGenerate, Vault } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, StorageFinder, TransactionFees } from '@argonprotocol/apps-core';
+import { MainchainClients, MiningFrames, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, it, expect, describe } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';
@@ -68,7 +68,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     );
     expect(iterateSearch.blocksChecked.length).toBe(actualBlock.number.toNumber() + 1 - 10);
 
-    const result = await TransactionFees.findFromEvents({
+    const result = await TransactionEvents.findFromFeePaidEvent({
       client,
       accountAddress: alice.address,
       isMatchingEvent: ev => client.events.vaults.VaultCreated.is(ev),

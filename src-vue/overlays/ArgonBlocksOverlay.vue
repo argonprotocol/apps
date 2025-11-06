@@ -1,14 +1,14 @@
 <template>
-  <Popover as="div" class="relative">
-    <PopoverButton class="focus:outline-none">
+  <PopoverRoot as="div" class="relative" @update:open="onOpen">
+    <PopoverTrigger as="button" class="focus:outline-none">
       <slot>
         <span
           class="border-argon-300 text-argon-600 hover:bg-argon-50/40 hover:border-argon-600 mt-10 cursor-pointer rounded border px-7 py-2 text-center text-lg font-bold whitespace-nowrap transition-all duration-300">
           View Argon Blocks
         </span>
       </slot>
-    </PopoverButton>
-    <PopoverPanel
+    </PopoverTrigger>
+    <PopoverContent
       as="div"
       :class="panelPositioningClasses"
       class="absolute z-50 mt-10 w-220 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg">
@@ -67,8 +67,8 @@
           </div>
         </div>
       </div>
-    </PopoverPanel>
-  </Popover>
+    </PopoverContent>
+  </PopoverRoot>
 </template>
 
 <script setup lang="ts">
@@ -80,7 +80,7 @@ import { useCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import numeral from 'numeral';
-import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
+import { PopoverRoot, PopoverTrigger, PopoverContent } from 'reka-ui';
 
 const config = useConfig();
 const currency = useCurrency();
@@ -90,6 +90,7 @@ const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const blockchainStore = useBlockchainStore();
 
 const blocks = Vue.ref<IBlock[]>([]);
+const isOpen = Vue.ref(false);
 
 const subaccounts = Accountset.getSubaccounts(config.miningAccount, parseSubaccountRange('0-99')!);
 
@@ -103,7 +104,7 @@ const props = withDefaults(
 );
 const panelPositioningClasses = Vue.computed(() => {
   if (props.position === 'left') {
-    return 'top-[-140px] right-[calc(100%+10px)] h-160 ';
+    return 'top-[-140px] right-[calc(100%+24px)] h-160';
   } else {
     // props.position === 'top'
     return 'top-[-55px] left-1/2 -translate-x-1/2 -translate-y-full h-140';
@@ -112,7 +113,7 @@ const panelPositioningClasses = Vue.computed(() => {
 
 const arrowPositioningClasses = Vue.computed(() => {
   if (props.position === 'left') {
-    return 'top-[122px] right-0 translate-x-[22.5px] -translate-y-full rotate-90';
+    return 'top-[92px] right-[12.5px] translate-x-[34.5px] -translate-y-full rotate-90';
   } else {
     // props.position === 'top'
     return 'top-full left-1/2 -translate-x-1/2 rotate-180';
@@ -126,7 +127,16 @@ function isOurAddress(address: string): boolean {
   return !!ourSubAccount;
 }
 
-Vue.onMounted(async () => {
+async function onOpen(open: boolean) {
+  isOpen.value = open;
+  if (open) {
+    await load();
+  } else {
+    unload();
+  }
+}
+
+async function load() {
   blocks.value = await blockchainStore.fetchBlocks(null, 10);
 
   unsubscribeFromBlocks = await blockchainStore.subscribeToBlocks(newBlock => {
@@ -136,11 +146,15 @@ Vue.onMounted(async () => {
       blocks.value.pop();
     }
   });
-});
-Vue.onBeforeUnmount(() => {
+}
+
+function unload() {
   if (unsubscribeFromBlocks) {
     unsubscribeFromBlocks();
     unsubscribeFromBlocks = null;
   }
-});
+}
+
+Vue.onMounted(load());
+Vue.onBeforeUnmount(unload);
 </script>

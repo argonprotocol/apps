@@ -19,7 +19,7 @@ export * from './CohortBidder.js';
 export * from './MiningBids.js';
 export * from './VaultMonitor.js';
 export * from './StorageFinder.js';
-export * from './TransactionFees.js';
+export * from './TransactionEvents.js';
 
 export * from './utils.js';
 

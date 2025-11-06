@@ -55,7 +55,7 @@ export function setMainchainClients(clients: MainchainClients) {
 
 export function getMainchainClients(): MainchainClients {
   if (!mainchainClients) {
-    mainchainClients = new MainchainClients(NETWORK_URL, () => LOG_DEBUG);
+    mainchainClients = new MainchainClients(NETWORK_URL, () => __LOG_DEBUG__ || LOG_DEBUG);
 
     const bot = useBot();
     if (bot.isReady) {

@@ -15,7 +15,7 @@ import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { createDeferred, IDeferred } from './Utils.ts';
-import { TransactionFees } from '@argonprotocol/apps-core';
+import { TransactionEvents } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -221,7 +221,7 @@ export class TransactionTracker {
       }
     | undefined
   > {
-    const { extrinsicHash, accountAddress, submittedAtBlockHeight } = tx;
+    const { extrinsicHash, submittedAtBlockHeight } = tx;
 
     for (let i = 0; i <= maxBlocksToCheck; i++) {
       const blockHeight = submittedAtBlockHeight + i;
@@ -237,29 +237,28 @@ export class TransactionTracker {
       });
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) === extrinsicHash) {
-          const result = await TransactionFees.findFromEvents({
+          const api = await client.at(blockHash);
+          const events = await api.query.system.events();
+          const result = await TransactionEvents.getErrorAndFeeForTransaction({
             client,
-            blockHash,
-            accountAddress,
-            onlyMatchExtrinsicIndex: index,
-            isMatchingEvent: () => true,
+            extrinsicIndex: index,
+            events,
           });
-          if (result) {
-            console.log(`Found extrinsic`, {
-              blockHeight,
-              blockHash: u8aToHex(blockHash),
-              extrinsicHash,
-            });
-            return {
-              blockNumber: blockHeight,
-              blockHash: u8aToHex(blockHash),
-              extrinsicError: result.error,
-              txFeePlusTip: result.fee + result.tip,
-              tip: result.tip,
-              transactionEvents: result.extrinsicEvents,
-              extrinsicIndex: index,
-            };
-          }
+
+          console.log(`Found extrinsic`, {
+            blockHeight,
+            blockHash: u8aToHex(blockHash),
+            extrinsicHash,
+          });
+          return {
+            blockNumber: blockHeight,
+            blockHash: u8aToHex(blockHash),
+            extrinsicError: result.error,
+            txFeePlusTip: result.fee + result.tip,
+            tip: result.tip,
+            transactionEvents: result.extrinsicEvents,
+            extrinsicIndex: index,
+          };
         }
       }
     }

@@ -1,6 +1,6 @@
 use crate::utils::Utils;
 use anyhow::Result;
-use log::info;
+use log::trace;
 use russh::client::{AuthResult, Msg};
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
@@ -143,7 +143,7 @@ impl SSH {
 
     pub async fn run_command(&self, command: impl Display) -> Result<(String, u32)> {
         let final_command = command.to_string().replace('\'', "'\\''");
-        info!("Executing ssh command: {}", final_command);
+        trace!("Executing ssh command: {}", final_command);
         let shell_command = format!("bash -c '{}'", final_command);
         let mut channel = self.open_channel().await?;
         channel.exec(true, shell_command).await?;
@@ -183,7 +183,6 @@ impl SSH {
 
     pub async fn upload_file(&self, contents: &[u8], remote_path: &str) -> Result<()> {
         // First, create the script in the remote server's home directory
-        info!("Uploading file {}", remote_path);
         let mut channel = self.open_channel().await?;
         let scp_command = format!("cat > {}", remote_path);
         channel.exec(true, scp_command).await?;
@@ -231,7 +230,7 @@ impl SSH {
             let percent = (total * 100 / file_size) as i32;
             if percent != last_percent {
                 last_percent = percent;
-                info!("Uploading {}: {}%", file_name, percent);
+                trace!("Uploading {}: {}%", file_name, percent);
                 app.emit(&event_progress_key, percent)?;
             }
         }

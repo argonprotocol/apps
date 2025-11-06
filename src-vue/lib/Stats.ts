@@ -6,7 +6,7 @@ import { Config } from './Config';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import { botEmitter } from './Bot';
-import { createDeferred, ensureOnlyOneInstance } from './Utils';
+import { createDeferred, ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
 import { MiningFrames } from '@argonprotocol/apps-core/src/MiningFrames';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
@@ -108,7 +108,20 @@ export class Stats {
     };
 
     this.frames = [];
-    this.serverState = {} as IServerStateRecord;
+    this.serverState = {
+      argonBlocksLastUpdatedAt: null as any,
+      argonLocalNodeBlockNumber: 0,
+      argonMainNodeBlockNumber: 0,
+      bitcoinBlocksLastUpdatedAt: null as any,
+      bitcoinLocalNodeBlockNumber: 0,
+      bitcoinMainNodeBlockNumber: 0,
+      botActivities: [],
+      botActivityLastUpdatedAt: null as any,
+      botActivityLastBlockNumber: 0,
+      latestFrameId: 0,
+      createdAt: new Date(),
+      insertedAt: new Date(),
+    };
 
     this.biddingActivity = [];
 
@@ -396,10 +409,9 @@ export class Stats {
           BigNumber(frame.progress).times(0.1).toNumber(),
         );
         const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
-        const percentOfMiners = frame.seatCountActive / frame.allMinersCount;
-        const frameProgress = frame.progress / 100;
-        frame.expected.blocksMinedTotal +=
-          Math.round(100 * percentOfMiners * MiningFrames.ticksPerFrame * frameProgress) / 100;
+        const percentOfMiners = getPercent(frame.seatCountActive, frame.allMinersCount);
+        const elapsedTicks = percentOf(MiningFrames.ticksPerFrame, frame.progress);
+        frame.expected.blocksMinedTotal += Number(percentOf(elapsedTicks, percentOfMiners));
         const seatsN = BigInt(cohort.seatCountWon);
         frame.expected.micronotsMinedTotal += micronotsToBeMined * seatsN;
         frame.expected.microgonsMinedTotal += microgonsToBeMined * seatsN;

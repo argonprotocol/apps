@@ -3,30 +3,62 @@ import {
   dispatchErrorToExtrinsicError,
   type ExtrinsicError,
   type FrameSystemEventRecord,
-  type SpRuntimeDispatchError,
   type GenericEvent,
+  type SpRuntimeDispatchError,
 } from '@argonprotocol/mainchain';
 
 type IsMatchingEventFn = (
   event: GenericEvent,
   registryError?: { section: string; method: string; index: number; name: string },
 ) => boolean;
-export class TransactionFees {
-  public static async findFromEvents(args: {
+
+export class TransactionEvents {
+  public static async getErrorAndFeeForTransaction(args: {
+    client: ArgonClient;
+    extrinsicIndex: number;
+    events: FrameSystemEventRecord[];
+  }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: GenericEvent[] }> {
+    const { client, events, extrinsicIndex } = args;
+
+    const applyExtrinsicEvents = events
+      .filter(x => x.phase.isApplyExtrinsic && x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex)
+      .map(x => x.event);
+    let fee = 0n;
+    let tip = 0n;
+    let extrinsicError: ExtrinsicError | undefined;
+
+    for (const event of applyExtrinsicEvents) {
+      if (client.events.transactionPayment.TransactionFeePaid.is(event)) {
+        const { actualFee, tip: t } = event.data;
+        fee = actualFee.toBigInt();
+        tip = t.toBigInt();
+      } else if (client.events.utility.BatchInterrupted.is(event)) {
+        const { error, index } = event.data;
+        extrinsicError = dispatchErrorToExtrinsicError(client, error as any, index.toNumber());
+      } else if (client.events.system.ExtrinsicFailed.is(event)) {
+        const { dispatchError } = event.data;
+        extrinsicError = dispatchErrorToExtrinsicError(client, dispatchError as any);
+      }
+    }
+
+    return {
+      fee: fee,
+      tip: tip,
+      error: extrinsicError,
+      extrinsicEvents: applyExtrinsicEvents,
+    };
+  }
+
+  public static async findFromFeePaidEvent(args: {
     client: ArgonClient;
     blockHash: Uint8Array;
     accountAddress: string;
     isMatchingEvent: IsMatchingEventFn;
-    onlyMatchExtrinsicIndex?: number;
-    events?: FrameSystemEventRecord[];
   }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: GenericEvent[] } | undefined> {
-    const { client, blockHash, accountAddress, isMatchingEvent, onlyMatchExtrinsicIndex } = args;
-    let events = args.events;
-    if (!events) {
-      const api = await client.at(blockHash);
+    const { client, blockHash, accountAddress, isMatchingEvent } = args;
+    const api = await client.at(blockHash);
 
-      events = await api.query.system.events();
-    }
+    const events = await api.query.system.events();
     const applyExtrinsicEvents = events.filter(x => x.phase.isApplyExtrinsic);
     for (const { event, phase } of applyExtrinsicEvents) {
       if (!client.events.transactionPayment.TransactionFeePaid.is(event)) {
@@ -41,7 +73,6 @@ export class TransactionFees {
       for (const extrinsicEvent of applyExtrinsicEvents) {
         // .. match only on the events for this extrinsic
         if (extrinsicEvent.phase.asApplyExtrinsic.toNumber() !== extrinsicIndex) continue;
-        if (onlyMatchExtrinsicIndex !== undefined && extrinsicIndex !== onlyMatchExtrinsicIndex) continue;
 
         let dispatchError: SpRuntimeDispatchError | undefined;
         let batchInterruptedIndex: number | undefined;

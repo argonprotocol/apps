@@ -27,7 +27,7 @@ parse_plain_progress() {
             continue
         fi
         if (( tot > 0 )); then
-            printf '%d\n' $(( (cur * 100) / tot )) > "$progress_file"
+            printf '%d\n' $(( (cur * 100) / tot )) > "$progress_file.tmp" && mv "$progress_file.tmp" "$progress_file"
         fi
     done
 }
@@ -59,7 +59,7 @@ parse_json_progress() {
       ' --unbuffered \
       | while read pct; do
           if [[ -n "$pct" && "$pct" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-              printf '%s\n' "$pct" > "$progress_file"
+              printf '%s\n' "$pct" > "${progress_file}.tmp" && mv "${progress_file}.tmp" "$progress_file"
           fi
         done
 }
@@ -72,7 +72,7 @@ run_compose() {
     # Create a temporary file to capture output
     stdout_file=$(mktemp)
     clean_cmd=$(echo "$command" \
-      | sed -E 's/^docker compose[ ]*//' \
+      | sed -E 's/^sudo docker compose[ ]*//' \
       | awk '{for (i=1; i<=NF; i++) if ($i !~ /^-/) printf "%s ", $i; print ""}' \
       | xargs)   # normalize spaces and remove args
     slug=$(echo "$clean_cmd" | tr -cs '[:alnum:]' '-' | sed 's/^-*//;s/-*$//')
@@ -80,11 +80,11 @@ run_compose() {
 
     if [[ "$command" == *" build"* ]]; then
       # Insert --progress=plain immediately after 'docker compose'
-      command=$(echo "$command" | sed -E 's/^(docker compose)([ ]*)/\1 --progress=plain\2/')
+      command=$(echo "$command" | sed -E 's/^(sudo docker compose)([ ]*)/\1 --progress=plain\2/')
     fi
     if [[ "$command" == *" pull"* ]]; then
       # Insert --progress=json immediately after 'docker compose'
-      command=$(echo "$command" | sed -E 's/^(docker compose)([ ]*)/\1 --progress=json\2/')
+      command=$(echo "$command" | sed -E 's/^(sudo docker compose)([ ]*)/\1 --progress=json\2/')
     fi
 
     log_file="$logs_dir/step-$akey.log"
@@ -132,8 +132,10 @@ run_command() {
     command_exit_status=${PIPESTATUS[0]}
 
     if [ $command_exit_status -ne 0 ]; then
-        rm "$stdout_file"
-        failed "Command \"$command\" failed with exit status $command_exit_status"
+       if [[ "$allow_run_command_fail" != "1" ]]; then
+          rm "$stdout_file"
+          failed "Command \"$command\" failed with exit status $command_exit_status"
+       fi
     fi
     # Return the captured output
     cat "$stdout_file"
@@ -152,14 +154,12 @@ fetch_log_contents() {
 start() {
     step_name=$1
     if [ ! -z "$akey" ]; then
-        echo "Error: akey is already set"
-        exit 1
+        failed "Error: akey is already set to $akey"
     fi
     akey=$step_name
     filepath="${logs_dir}/step-$step_name.Started"
     if [ -f "$filepath" ]; then
-        echo "Error: $filepath already exists"
-        exit 1
+        failed "Error: $filepath already exists"
     fi
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] STARTED" >> "$filepath"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] STARTED $step_name"
@@ -177,8 +177,7 @@ finish() {
     step_name=$1
     command_output=$2
     if [ "$step_name" != "$akey" ]; then
-        echo "Error: step_name ($step_name) does not match current akey ($akey) in finished()"
-        exit 1
+        failed "Error: step_name ($step_name) does not match current akey ($akey) in finished()"
     fi
     akey=""
     if [ ! -z "$command_output" ]; then

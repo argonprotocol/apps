@@ -72,7 +72,7 @@
                         {{getEpochSeatGoalCount()}} mining seats <tooltip content="An epoch is equivalent to ten days">per epoch</tooltip>, you need
                       </div>
                       <div class="flex flex-row items-center justify-center grow relative h-26 font-bold font-mono text-argon-600">
-                        <NeedMoreCapitalHover v-if="minimumCapitalCommitment > capitalToCommitMicrogons" :calculator="calculator" :seat-goal-count="getEpochSeatGoalCount()" :ideal-capital-commitment="minimumCapitalCommitment" @increase-capital-commitment="updateMinimumCapital()" />
+                        <NeedMoreCapitalHover v-if="minimumCapitalCommitment > capitalToCommitMicrogons" :calculator="calculator" :seat-goal-count="getEpochSeatGoalCount()" :ideal-capital-commitment="minimumCapitalCommitment" @increase-capital-commitment="acceptMinimumCapitalCommitment()" />
                         <InputArgon v-model="capitalToCommitMicrogons" :min="0n" :minDecimals="0" />
                         <CapitalOverlay align="end">
                           <PiechartIcon PiechartIcon class="ml-1 w-10 h-10 text-gray-300 hover:!text-argon-600" />
@@ -80,10 +80,10 @@
                       </div>
                       <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full mx-auto">
                         This is the <tooltip content="Click the capital amount listed above to directly change your commitment">amount of capital you'll need</tooltip> for acquiring<br/>
-                        {{ micronotToArgonotNm(rules.startingMicronots).format('0,0') }}
-                        <tooltip content="Argonots are the ownership tokens of the network">argonot{{ micronotToArgonotNm(rules.startingMicronots).format('0,0') === '1' ? '' : 's' }}</tooltip>
-                        and {{ microgonToArgonNm(rules.startingMicrogons).format('0,0') }}
-                        <tooltip content="Argons are the stable currency of the network">argon{{ microgonToArgonNm(rules.startingMicrogons).format('0,0') === '1' ? '' : 's' }}</tooltip>
+                        {{ micronotToArgonotNm(rules.startingMicronots).formatIfElse('<1', '0.00', '0,0') }}
+                        <tooltip content="Argonots are the ownership tokens of the network">argonot{{ micronotToArgonotNm(rules.startingMicronots).formatIfElse('<1', '0.00', '0,0') === '1' ? '' : 's' }}</tooltip>
+                        and {{ microgonToArgonNm(rules.startingMicrogons).formatIfElse('<100', '0,[0.]', '0,0') }}
+                        <tooltip content="Argons are the stable currency of the network">argon{{ microgonToArgonNm(rules.startingMicrogons).formatIfElse('<1', '0.00', '0,0') === '1' ? '' : 's' }}</tooltip>
                         at their <tooltip content="Prices reflect as closely as possible the real-time rates on Uniswap's trading exchange">current market rates</tooltip>.
                       </div>
                     </div>
@@ -126,7 +126,7 @@
                 </div>
               </section>
 
-              <BotSettings ref="botSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
+              <BotSettings ref="botSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" @update:data="onBotSettingsChange" :includeProjections="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -178,10 +178,10 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
+  bigIntMax,
+  bigIntMin,
   type IBiddingRules,
   JsonExt,
-  SeatGoalInterval,
-  SeatGoalType,
 } from '@argonprotocol/apps-core';
 import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
 import { bigIntCeil, bigNumberToInteger, ceilTo } from '@argonprotocol/apps-core/src/utils';
@@ -242,6 +242,7 @@ const startingBidAtFastGrowthAPY = Vue.ref(0);
 const maximumBidAtSlowGrowthAPY = Vue.ref(0);
 const maximumBidAtFastGrowthAPY = Vue.ref(0);
 const capitalToCommitMicrogons = Vue.ref(0n);
+const minimumCapitalCommitment = Vue.ref(0n);
 
 const averageAPY = Vue.ref(0);
 const averageEarnings = Vue.ref(0n);
@@ -376,19 +377,29 @@ function updateAPYs() {
   averageEarnings.value = (slowGrowthEarnings + fastGrowthEarnings) / 2n;
 }
 
-Vue.watch(capitalToCommitMicrogons, capital => {
+function onBotSettingsChange() {
+  updateStartingMicrogons();
+  updateMinimumCapitalCommitment();
+}
+function updateStartingMicrogons() {
   const seatCount = BigInt(getEpochSeatGoalCount());
   rules.value.startingMicronots = seatCount * calculatorData.micronotsRequiredForBid;
-  rules.value.startingMicrogons = capital - currency.micronotToMicrogon(rules.value.startingMicronots);
+  rules.value.startingMicrogons =
+    capitalToCommitMicrogons.value - currency.micronotToMicrogon(rules.value.startingMicronots);
+}
+
+Vue.watch(capitalToCommitMicrogons, capital => {
+  updateStartingMicrogons();
 });
 
-const minimumCapitalCommitment = Vue.computed(() => {
+function updateMinimumCapitalCommitment() {
   const { maxMicrogons, micronots } = calculator.minimumCapitalRequirement(rules.value);
   const commitment = currency.micronotToMicrogon(micronots) + maxMicrogons;
-  return bigIntCeil(commitment, 1_000_000n);
-});
 
-function updateMinimumCapital() {
+  minimumCapitalCommitment.value = bigIntMax(0n, bigIntCeil(commitment, 1_000_000n));
+}
+
+function acceptMinimumCapitalCommitment() {
   capitalToCommitMicrogons.value = minimumCapitalCommitment.value;
 }
 
@@ -415,7 +426,8 @@ Vue.onMounted(async () => {
   isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingBotTour;
   calculatorData.load().then(() => {
     previousBiddingRules = JsonExt.stringify(config.biddingRules);
-    capitalToCommitMicrogons.value = minimumCapitalCommitment.value;
+    updateMinimumCapitalCommitment();
+    acceptMinimumCapitalCommitment();
     updateAPYs();
     if (isBrandNew.value && startingBidAtFastGrowthAPY.value > 20_000) {
       /*
@@ -424,9 +436,12 @@ Vue.onMounted(async () => {
         create a more realistic projected return, we're setting the startingBidFormulaType to 12% below BreakevenAtSlowGrowth.
         We might remove this IF block in the future, but it seems a good safety fix for now.
       */
-      config.biddingRules.startingBidFormulaType = BidAmountFormulaType.BreakevenAtSlowGrowth;
-      config.biddingRules.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
-      config.biddingRules.startingBidAdjustRelative = -12.0;
+      rules.value.startingBidFormulaType = BidAmountFormulaType.BreakevenAtSlowGrowth;
+      rules.value.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
+      rules.value.startingBidAdjustRelative = -12.0;
+      updateMinimumCapitalCommitment();
+      acceptMinimumCapitalCommitment();
+      updateAPYs();
     }
     isLoaded.value = true;
   });
