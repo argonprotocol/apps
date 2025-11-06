@@ -134,7 +134,6 @@ import Draggable from './helpers/Draggable.ts';
 import { useMyVault } from '../stores/vaults.ts';
 import { useCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { useConfig } from '../stores/config.ts';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import ProgressBar from '../components/ProgressBar.vue';
 
@@ -151,7 +150,6 @@ const collectProgress = Vue.ref(0);
 const collectError = Vue.ref('');
 const myVault = useMyVault();
 const currency = useCurrency();
-const config = useConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -171,13 +169,9 @@ async function collect() {
   isCollecting.value = true;
   collectProgress.value = 0;
   try {
-    const { bitcoinXprivSeed, vaultingAccount } = config;
-    await myVault.collect(
-      { argonKeyring: vaultingAccount, xprivSeed: bitcoinXprivSeed },
-      (totalComplete, inProgressPctComplete, toComplete) => {
-        collectProgress.value = totalComplete + inProgressPctComplete * (1 / toComplete);
-      },
-    );
+    await myVault.collect((totalComplete, inProgressPctComplete, toComplete) => {
+      collectProgress.value = totalComplete + inProgressPctComplete * (1 / toComplete);
+    });
     collectProgress.value = 100;
     closeOverlay();
   } catch (error) {

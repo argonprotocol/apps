@@ -204,6 +204,7 @@ import BitcoinUnlockingOverlay from '../../../overlays/BitcoinUnlockingOverlay.v
 import BitcoinIcon from '../../../assets/wallets/bitcoin-thin.svg?component';
 import { BitcoinLockStatus } from '../../../lib/db/BitcoinLocksTable.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
+import { useWalletKeys } from '../../../stores/wallets.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -288,9 +289,8 @@ async function updateBitcoinUnlockPrices() {
     unlockPrice.value = 0n;
     return;
   }
-  const unlockFee = await bitcoinLocks
-    .estimatedReleaseArgonTxFee({ lock: lock, argonKeyring: config.vaultingAccount })
-    .catch(() => 0n);
+  const argonKeyring = await useWalletKeys().getVaultingKeypair();
+  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, argonKeyring }).catch(() => 0n);
   unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
 }
 

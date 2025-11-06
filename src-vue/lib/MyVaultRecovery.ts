@@ -6,15 +6,10 @@ import { MainchainClients, StorageFinder, TransactionEvents } from '@argonprotoc
 import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';
-import { BitcoinNetwork, getChildXpriv } from '@argonprotocol/bitcoin';
-import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from './MyVault.ts';
-
-export type VaultRecoveryFn = (args: {
-  vaultingAddress: string;
-  bitcoinXprivSeed: Uint8Array;
-  onProgress: (progressPct: number) => void;
-}) => Promise<IVaultingRules | undefined>;
+import { WalletKeys } from './WalletKeys.ts';
 
 export class MyVaultRecovery {
   public static rebuildRules(args: {
@@ -63,7 +58,7 @@ export class MyVaultRecovery {
     client: ArgonClient;
     vaultId: number;
     vaultCreatedBlockNumber: number;
-    vaultingAddress: string;
+    walletKeys: WalletKeys;
   }): Promise<{
     prebondedMicrogons: bigint;
     txFee?: bigint;
@@ -71,7 +66,7 @@ export class MyVaultRecovery {
     blockHash?: Uint8Array;
     tick?: number;
   }> {
-    const { vaultingAddress, vaultId, client, vaultCreatedBlockNumber } = args;
+    const { walletKeys, vaultId, client, vaultCreatedBlockNumber } = args;
     const prebondInitKey = client.query.treasury.prebondedByVaultId.key(vaultId);
     const vaultPrebondBlock = await StorageFinder.iterateFindStorageAddition({
       client,
@@ -87,7 +82,7 @@ export class MyVaultRecovery {
     } else {
       const result = await TransactionEvents.findFromFeePaidEvent({
         client,
-        accountAddress: vaultingAddress,
+        accountAddress: walletKeys.vaultingAddress,
         blockHash: vaultPrebondBlock.blockHash,
         isMatchingEvent: ev => {
           if (client.events.treasury.VaultOperatorPrebond.is(ev)) {
@@ -112,11 +107,11 @@ export class MyVaultRecovery {
   public static async findOperatorVault(
     mainchainClients: MainchainClients,
     bitcoinNetwork: BitcoinNetwork,
-    vaultingAddress: string,
-    bip39Seed: Uint8Array,
+    walletKeys: WalletKeys,
   ): Promise<{ vault: Vault; masterXpubPath: string; createBlockNumber: number; txFee: bigint } | undefined> {
     const client = await mainchainClients.archiveClientPromise;
 
+    const vaultingAddress = walletKeys.vaultingAddress;
     const vaultIdMaybe = await client.query.vaults.vaultIdByOperator(vaultingAddress);
     if (vaultIdMaybe.isNone) return;
     const vaultId = vaultIdMaybe.unwrap().toNumber();
@@ -130,7 +125,7 @@ export class MyVaultRecovery {
     const masterXpubPath = await this.recoverXpubPath({
       vaultId,
       storedXpubMaybe,
-      bip39Seed,
+      walletKeys,
       bitcoinNetwork,
     });
     console.log('Recovered vault xpub path:', masterXpubPath);
@@ -172,10 +167,9 @@ export class MyVaultRecovery {
     mainchainClients: MainchainClients;
     bitcoinLocksStore: BitcoinLocksStore;
     vaultSetupBlockNumber: number;
-    bip39Seed: Uint8Array;
     vault: Vault;
   }): Promise<(IBitcoinLockRecord & { initializedAtBlockNumber: number })[]> {
-    const { mainchainClients, bitcoinLocksStore, vault, bip39Seed, vaultSetupBlockNumber } = args;
+    const { mainchainClients, bitcoinLocksStore, vault, vaultSetupBlockNumber } = args;
     const vaultingAddress = vault.operatorAccountId;
     const vaultId = vault.vaultId;
     const client = await mainchainClients.archiveClientPromise;
@@ -188,7 +182,7 @@ export class MyVaultRecovery {
 
     const bitcoinHdPaths: { ownerBitcoinPubkey: Uint8Array; hdPath: string }[] = [];
     for (const _bitcoin of myBitcoins) {
-      const next = await bitcoinLocksStore.getNextUtxoPubkey({ vault, bip39Seed });
+      const next = await bitcoinLocksStore.getNextUtxoPubkey({ vault });
       bitcoinHdPaths.push(next);
     }
 
@@ -256,11 +250,11 @@ export class MyVaultRecovery {
     bitcoinNetwork: BitcoinNetwork;
     vaultId: number;
     storedXpubMaybe: Option<ITuple<[{ publicKey: U8aFixed }, any]>>;
-    bip39Seed: Uint8Array;
+    walletKeys: WalletKeys;
   }) {
-    const { bip39Seed, storedXpubMaybe, vaultId } = param;
+    const { walletKeys, storedXpubMaybe, vaultId } = param;
     const masterXpubPath = DEFAULT_MASTER_XPUB_PATH;
-    const vaultXpriv = getChildXpriv(bip39Seed, masterXpubPath, param.bitcoinNetwork);
+    const vaultXpriv = await walletKeys.getBitcoinChildXpriv(masterXpubPath, param.bitcoinNetwork);
     const masterXpub = vaultXpriv.publicExtendedKey;
     if (storedXpubMaybe.isNone) throw new Error(`Vault with id ${vaultId} xpub not found`);
     const storedXpubPubkey = storedXpubMaybe.unwrap()[0].publicKey.toHex().replace('0x', '');

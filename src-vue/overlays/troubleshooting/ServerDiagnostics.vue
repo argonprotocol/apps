@@ -15,7 +15,7 @@
       <heading>Checking Argon Account Identifier Match</heading>
       <success>
         Your app database and the mining machine are correctly using the same wallet address of
-        {{ config.miningAccount.address }}.
+        {{ config.miningAccountAddress }}.
       </success>
       <failure>
         Your app database and the mining machine are using different wallet addresses. Somehow you connected a server

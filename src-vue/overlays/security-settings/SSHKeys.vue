@@ -12,12 +12,12 @@
     <CopyToClipboard
       ref="copyToClipboard"
       @click="highlightCopiedContent"
-      :content="config.security.sshPublicKey"
+      :content="walletKeys.sshPublicKey"
       class="relative mb-3"
     >
       <input
         type="text"
-        :value="config.security.sshPublicKey"
+        :value="walletKeys.sshPublicKey"
         class="bg-white py-3 pl-3 pr-8 border border-slate-300 rounded-md w-full pointer-events-none font-mono text-md"
         readonly
       />
@@ -32,7 +32,7 @@
           class="bg-white py-3 pl-3 pr-8 border border-slate-300 rounded-md w-full pointer-events-none overflow-hidden"
         >
           <span class="bg-blue-200 whitespace-nowrap w-full inline-block font-mono text-md">
-            {{ config.security.sshPublicKey }}
+            {{ walletKeys.sshPublicKey }}
           </span>
         </div>
         <div
@@ -94,8 +94,9 @@ import { useConfig } from '../../stores/config';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import CopyIcon from '../../assets/copy.svg?component';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
+const walletKeys = useWalletKeys();
 const copyToClipboard = Vue.ref<typeof CopyToClipboard>();
 const privateKeyTextareaShadow = Vue.ref<HTMLElement>();
 const privateKeyTextareaHeight = Vue.ref('auto');
@@ -128,7 +129,6 @@ const sshPrivateKey = Vue.ref('');
 // Adjust textarea height when component mounts and when content changes
 Vue.onMounted(async () => {
   console.log('onMounted');
-  await config.load();
   sshPrivateKey.value = await invokeWithTimeout<string>('get_ssh_private_key', {}, 5000);
   adjustTextareaHeight();
   setTimeout(() => {

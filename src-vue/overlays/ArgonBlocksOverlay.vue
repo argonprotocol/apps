@@ -72,17 +72,16 @@
 </template>
 
 <script setup lang="ts">
-import { Accountset, parseSubaccountRange } from '@argonprotocol/apps-core';
-import { useConfig } from '../stores/config';
 import * as Vue from 'vue';
 import { IBlock, useBlockchainStore } from '../stores/blockchain';
 import { useCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import numeral from 'numeral';
-import { PopoverRoot, PopoverTrigger, PopoverContent } from 'reka-ui';
+import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
+import { useWalletKeys } from '../stores/wallets.ts';
 
-const config = useConfig();
+const walletKeys = useWalletKeys();
 const currency = useCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -92,7 +91,7 @@ const blockchainStore = useBlockchainStore();
 const blocks = Vue.ref<IBlock[]>([]);
 const isOpen = Vue.ref(false);
 
-const subaccounts = Accountset.getSubaccounts(config.miningAccount, parseSubaccountRange('0-99')!);
+const subaccounts = await walletKeys.getMiningSubaccounts();
 
 const props = withDefaults(
   defineProps<{

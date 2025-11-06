@@ -11,14 +11,14 @@
         {{ errorMessage }}
       </p>
     </div>
-  
+
     <ol class="grid grid-cols-3 gap-y-2 gap-x-5 pr-3 mt-5 mb-6 ml-1">
       <li v-for="i in 12" :key="i" class="flex flex-row items-center gap-2 py-1">
         <span class="text-slate-500 font-mono text-md">{{ `${i}.`.padStart(3, '&nbsp;') }}</span>
-        <input 
-          type="text" 
-          :class="[hasErrors && !mnemonic[i - 1] ? 'border-red-600 outline-2 outline-red-500/30' : 'border-slate-300']" 
-          class="w-full border rounded-md p-2" 
+        <input
+          type="text"
+          :class="[hasErrors && !mnemonic[i - 1] ? 'border-red-600 outline-2 outline-red-500/30' : 'border-slate-300']"
+          class="w-full border rounded-md p-2"
           v-model="mnemonic[i - 1]"
           @paste="handlePaste"
           @input="validateMnemonic"
@@ -29,7 +29,7 @@
     <button class="bg-argon-600 text-white rounded-md py-2 px-3 mb-1 cursor-pointer" @click="importAccount">
       {{ isImporting ? 'Importing Account...' : 'Import Account' }}
     </button>
-    
+
   </div>
 </template>
 
@@ -37,6 +37,7 @@
 import * as Vue from 'vue';
 import { useConfig } from '../../stores/config';
 import { useController } from '../../stores/controller';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const config = useConfig();
 const controller = useController();
@@ -85,7 +86,9 @@ async function importAccount() {
   hasErrors.value = mnemonic.value.some(word => !word);
   if (hasErrors.value) return;
 
-  const hasSameMnemonic = config.security.masterMnemonic === mnemonic.value.join(' ');
+  const masterMnemonic = await useWalletKeys().exposeMasterMnemonic();
+
+  const hasSameMnemonic = masterMnemonic === mnemonic.value.join(' ');
   if (hasSameMnemonic) {
     errorMessage.value = 'The mnemonic you entered is the same as your current account.';
     return;

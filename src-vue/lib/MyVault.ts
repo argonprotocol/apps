@@ -2,7 +2,6 @@ import {
   BitcoinLocks,
   FIXED_U128_DECIMALS,
   ITxProgressCallback,
-  KeyringPair,
   PalletVaultsVaultFrameRevenue,
   PERMILL_DECIMALS,
   SubmittableExtrinsic,
@@ -14,14 +13,7 @@ import {
   Vec,
 } from '@argonprotocol/mainchain';
 
-import {
-  BitcoinNetwork,
-  CosignScript,
-  getBitcoinNetworkFromApi,
-  getChildXpriv,
-  HDKey,
-  addressBytesHex,
-} from '@argonprotocol/bitcoin';
+import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { createDeferred, getPercent, IDeferred, percentOf } from './Utils.ts';
@@ -37,7 +29,7 @@ import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts
 import { TransactionTracker } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
-import { Config } from './Config.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
 export const FEE_ESTIMATE = 75_000n;
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
@@ -82,7 +74,7 @@ export class MyVault {
   constructor(
     private readonly dbPromise: Promise<Db>,
     public readonly vaults: Vaults,
-    public readonly config: Config,
+    public readonly walletKeys: WalletKeys,
     transactionTracker: TransactionTracker,
     public readonly bitcoinLocksStore: BitcoinLocksStore,
   ) {
@@ -112,13 +104,13 @@ export class MyVault {
     return this.#bitcoinNetwork;
   }
 
-  public async getVaultXpriv(bip39Seed: Uint8Array, masterXpubPath?: string): Promise<HDKey> {
+  public async getVaultXpriv(masterXpubPath?: string): Promise<HDKey> {
     masterXpubPath ??= this.metadata!.hdPath;
     if (!masterXpubPath) {
       throw new Error('No master xpub path defined in metadata');
     }
     const network = await this.getBitcoinNetwork();
-    return getChildXpriv(bip39Seed, masterXpubPath, network);
+    return await this.walletKeys.getBitcoinChildXpriv(masterXpubPath, network);
   }
 
   public async load(reload = false): Promise<void> {
@@ -128,7 +120,6 @@ export class MyVault {
     try {
       console.log('Loading MyVault...');
       await this.vaults.load(reload);
-      await this.config.load();
 
       void this.vaults.refreshRevenue().then(() => {
         const vaultId = this.metadata?.id;
@@ -250,9 +241,8 @@ export class MyVault {
     lock: IBitcoinLockRecord;
     bitcoinNetworkFee: bigint;
     toScriptPubkey: string;
-    argonKeyring: KeyringPair;
   }): Promise<TransactionInfo | undefined> {
-    const { lock, bitcoinNetworkFee, toScriptPubkey, argonKeyring } = args;
+    const { lock, bitcoinNetworkFee, toScriptPubkey } = args;
     if (lock.status !== BitcoinLockStatus.LockedAndMinted && lock.status !== BitcoinLockStatus.LockedAndIsMinting) {
       return;
     }
@@ -265,7 +255,7 @@ export class MyVault {
         toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinLocksStore.bitcoinNetwork),
         bitcoinNetworkFee,
       },
-      argonKeyring,
+      argonKeyring: await this.walletKeys.getVaultingKeypair(),
       disableAutomaticTxTracking: true,
     });
 
@@ -299,21 +289,12 @@ export class MyVault {
     await this.bitcoinLocksStore.updateReleaseIsWaitingForVault(lock);
 
     // kick off the vault's signing
-    void this.handleCosignDanceOfBitcoinUnlock({
-      lock,
-      argonKeyring: this.config.vaultingAccount,
-      bitcoinXprivSeed: this.config.bitcoinXprivSeed,
-    });
+    void this.handleCosignOfBitcoinUnlock(lock);
 
     isProcessed.resolve();
   }
 
-  public async handleCosignDanceOfBitcoinUnlock(args: {
-    argonKeyring: KeyringPair;
-    lock: IBitcoinLockRecord;
-    bitcoinXprivSeed: Uint8Array;
-  }): Promise<void> {
-    const { lock, argonKeyring, bitcoinXprivSeed } = args;
+  public async handleCosignOfBitcoinUnlock(lock: IBitcoinLockRecord): Promise<void> {
     if (lock.vaultId !== this.createdVault?.vaultId) {
       // this api is only to unlock our own vault's bitcoin locks
       return;
@@ -323,8 +304,6 @@ export class MyVault {
       // could be moved to BitcoinLocksStore
       if (lock.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
         const result = await this.cosignRelease({
-          argonKeyring: argonKeyring,
-          vaultXpriv: await this.getVaultXpriv(bitcoinXprivSeed),
           utxoId: lock.utxoId!,
           toScriptPubkey: lock.releaseToDestinationAddress!,
           bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
@@ -341,7 +320,7 @@ export class MyVault {
         }
       }
       if (lock.status === BitcoinLockStatus.ReleaseSigned) {
-        await this.bitcoinLocksStore.ownerCosignAndSendToBitcoin(lock, bitcoinXprivSeed);
+        await this.bitcoinLocksStore.ownerCosignAndSendToBitcoin(lock);
       }
     } catch (error) {
       console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
@@ -350,14 +329,12 @@ export class MyVault {
   }
 
   private async cosignRelease(args: {
-    argonKeyring: KeyringPair;
-    vaultXpriv: HDKey;
     utxoId: number;
     bitcoinNetworkFee: bigint;
     toScriptPubkey: string;
     progressCallback?: ITxProgressCallback;
   }): Promise<{ txResult: TxResult; vaultSignature: Uint8Array } | undefined> {
-    const { argonKeyring, vaultXpriv, utxoId, bitcoinNetworkFee, toScriptPubkey } = args;
+    const { utxoId, bitcoinNetworkFee, toScriptPubkey } = args;
 
     const lock = await this.#bitcoinLocksApi!.getBitcoinLock(utxoId);
     if (!lock) {
@@ -384,6 +361,8 @@ export class MyVault {
       },
       utxoRef,
     });
+    const vaultXpriv = await this.getVaultXpriv();
+    const argonKeyring = await this.walletKeys.getVaultingKeypair();
     const signedPsbt = cosign.vaultCosignPsbt(psbt, lock, vaultXpriv);
     const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
     if (!vaultSignature) {
@@ -429,7 +408,6 @@ export class MyVault {
   }
 
   public async collect(
-    args: { argonKeyring: KeyringPair; xprivSeed: Uint8Array },
     progressCallback?: (cosignProgress: number, activeTransactionProgress: number, steps: number) => void,
   ) {
     if (!this.createdVault) {
@@ -438,13 +416,12 @@ export class MyVault {
     if (!this.metadata) {
       throw new Error('No metadata available to collect revenue');
     }
-    const { argonKeyring, xprivSeed } = args;
     const toCollect = this.data.pendingCosignUtxoIds;
 
     const steps = toCollect.size + 1; // +1 for the final collect transaction
-    const vaultXpriv = await this.getVaultXpriv(xprivSeed, this.metadata.hdPath);
     let completed = 0;
     const client = await getMainchainClient(false);
+    const argonKeyring = await this.walletKeys.getVaultingKeypair();
     const allCollectTxs: Promise<any>[] = [];
     for (const utxoId of toCollect) {
       const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
@@ -454,8 +431,6 @@ export class MyVault {
       const pendingRelease = pendingReleaseRaw.unwrap();
 
       const result = await this.cosignRelease({
-        argonKeyring,
-        vaultXpriv,
         utxoId,
         bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee.toBigInt(),
         toScriptPubkey: pendingRelease.toScriptPubkey.toHex(),
@@ -493,19 +468,14 @@ export class MyVault {
     return txResult;
   }
 
-  public async createNew(args: {
-    argonKeyring: KeyringPair;
-    xprivSeed: Uint8Array;
-    rules: IVaultingRules;
-    masterXpubPath: string;
-  }): Promise<TransactionInfo> {
+  public async createNew(args: { rules: IVaultingRules; masterXpubPath: string }): Promise<TransactionInfo> {
     const pendingTxInfo = this.getTxInfoByType(ExtrinsicType.VaultCreate);
     if (pendingTxInfo) return pendingTxInfo;
 
-    console.log('Creating a vault with address', args.argonKeyring.address);
-
-    const { argonKeyring, xprivSeed, masterXpubPath, rules } = args;
-    const vaultXpriv = await this.getVaultXpriv(xprivSeed, masterXpubPath);
+    const { masterXpubPath, rules } = args;
+    const argonKeyring = await this.walletKeys.getVaultingKeypair();
+    console.log('Creating a vault with address', argonKeyring.address);
+    const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
     const masterXpub = vaultXpriv.publicExtendedKey;
     const client = await getMainchainClient(false);
 
@@ -613,12 +583,11 @@ export class MyVault {
   }
 
   public async recoverAccountVault(args: {
-    vaultingAddress: string;
-    bitcoinXprivSeed: Uint8Array;
     onProgress: (progress: number) => void;
   }): Promise<IVaultingRules | undefined> {
     await this.deleteAllDbData();
-    const { vaultingAddress, bitcoinXprivSeed, onProgress } = args;
+    const { onProgress } = args;
+    const vaultingAddress = this.walletKeys.vaultingAddress;
     console.log('Recovering vault for address', vaultingAddress);
     const mainchainClients = getMainchainClients();
     const client = await mainchainClients.archiveClientPromise;
@@ -627,8 +596,7 @@ export class MyVault {
     const foundVault = await MyVaultRecovery.findOperatorVault(
       mainchainClients,
       this.bitcoinLocksStore.bitcoinNetwork,
-      vaultingAddress,
-      bitcoinXprivSeed,
+      this.walletKeys,
     );
     onProgress(50);
     if (!foundVault) {
@@ -652,7 +620,7 @@ export class MyVault {
     const prebond = await MyVaultRecovery.findPrebonded({
       client,
       vaultId,
-      vaultingAddress,
+      walletKeys: this.walletKeys,
       vaultCreatedBlockNumber: foundVault.createBlockNumber,
     });
     if (prebond) {
@@ -672,7 +640,6 @@ export class MyVault {
         mainchainClients,
         bitcoinLocksStore: this.bitcoinLocksStore,
         vaultSetupBlockNumber: prebond.blockNumber,
-        bip39Seed: bitcoinXprivSeed,
         vault,
       });
 
@@ -693,7 +660,6 @@ export class MyVault {
   }
 
   public async updateSettings(args: {
-    argonKeyring: KeyringPair;
     previousRules: IVaultingRules;
     rules: IVaultingRules;
     tip?: bigint;
@@ -732,9 +698,10 @@ export class MyVault {
     if (txs.length === 0) {
       return undefined;
     }
+    const argonKeyring = await this.walletKeys.getVaultingKeypair();
     const info = await this.#transactionTracker.submitAndWatch({
       tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
-      signer: args.argonKeyring,
+      signer: argonKeyring,
       extrinsicType: ExtrinsicType.VaultModifySettings,
       metadata: { securitizationRatio: rules.securitizationRatio, profitSharingPct, btcFlatFee, btcPctFee },
       txProgressCallback: args.txProgressCallback,
@@ -753,9 +720,7 @@ export class MyVault {
   }
 
   public async activateSecuritizationAndTreasury(args: {
-    argonKeyring: KeyringPair;
     rules: IVaultingRules;
-    bip39Seed: Uint8Array;
     tip?: bigint;
   }): Promise<TransactionInfo | undefined> {
     const vaultId = this.createdVault?.vaultId;
@@ -776,6 +741,8 @@ export class MyVault {
       this.metadata?.operationalFeeMicrogons ?? 0n,
     );
 
+    const vaultingAccount = await this.walletKeys.getVaultingKeypair();
+
     const addedSecuritization = microgonsForSecuritization - vault.securitization;
     if (addedSecuritization > 0n) {
       txs.push(
@@ -794,6 +761,7 @@ export class MyVault {
       const { tx, satoshis, hdPath, securityFee } = await this.bitcoinLocksStore.createInitializeTx({
         ...args,
         vault,
+        argonKeyring: vaultingAccount,
         addingVaultSpace: BigInt(Number(addedSecuritization) / vault.securitizationRatio),
         microgonLiquidity: personalBtcInMicrogons,
       });
@@ -807,7 +775,7 @@ export class MyVault {
 
     const txInfo = await this.#transactionTracker.submitAndWatch({
       tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
-      signer: args.argonKeyring,
+      signer: vaultingAccount,
       extrinsicType: ExtrinsicType.VaultInitialAllocate,
       metadata: { bitcoinArgs, microgonsForTreasury, microgonsForSecuritization, vaultId },
       tip: args.tip,
@@ -847,21 +815,22 @@ export class MyVault {
     return { txResult };
   }
 
-  public async startBitcoinLocking(args: {
-    argonKeyring: KeyringPair;
-    microgonLiquidity: bigint;
-    bip39Seed: Uint8Array;
-    tip?: bigint;
-  }): Promise<void> {
+  public async startBitcoinLocking(args: { microgonLiquidity: bigint; tip?: bigint }): Promise<void> {
     const vault = this.createdVault;
     if (!vault) throw new Error('No vault created to lock bitcoin');
 
     console.log('Saving vault bitcoin lock', { microgonLiquidity: args.microgonLiquidity, metadata: this.metadata! });
 
-    const initialTx = await this.bitcoinLocksStore.createInitializeTx({ ...args, vault });
+    const keyring = await this.walletKeys.getVaultingKeypair();
+    const initialTx = await this.bitcoinLocksStore.createInitializeTx({
+      ...args,
+      argonKeyring: keyring,
+      vault,
+    });
+    console.log('initialTx', initialTx);
     const txInfo = await this.#transactionTracker.submitAndWatch({
       tx: initialTx.tx,
-      signer: args.argonKeyring,
+      signer: keyring,
       extrinsicType: ExtrinsicType.BitcoinRequestLock,
       metadata: {
         vaultId: vault.vaultId,
@@ -905,10 +874,9 @@ export class MyVault {
   public async increaseVaultAllocations(args: {
     freeBalance: bigint;
     rules: IVaultingRules;
-    argonKeyring: KeyringPair;
     tip?: bigint;
   }): Promise<{ txResult?: TxResult; newlyAllocated: bigint }> {
-    const { argonKeyring, tip = 0n, rules, freeBalance } = args;
+    const { tip = 0n, rules, freeBalance } = args;
 
     const { microgonsForSecuritization, microgonsForTreasury } = MyVault.getMicrogonSplit(
       {
@@ -968,6 +936,7 @@ export class MyVault {
 
     const newlyAllocated = securitizationToAllocate + treasuryToAllocate;
 
+    const argonKeyring = await this.walletKeys.getVaultingKeypair();
     const info = await this.#transactionTracker.submitAndWatch({
       tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
       signer: argonKeyring,

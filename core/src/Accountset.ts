@@ -80,7 +80,7 @@ export class Accountset {
     this.sessionMiniSecretOrMnemonic = options.sessionMiniSecretOrMnemonic;
     this.accountRegistry = options.accountRegistry ?? AccountRegistry.factory(options.name);
     this.client = options.client;
-    const defaultRange = options.subaccountRange ?? getDefaultSubaccountRange();
+    const defaultRange = options.subaccountRange ?? getRange();
     this.accountRegistry.register(this.seedAddress, `${this.accountRegistry.me}//seed`);
     for (const i of defaultRange) {
       const pair = this.txSubmitterPair.derive(`//${i}`);
@@ -507,7 +507,7 @@ export class Accountset {
   }
 
   public getAccountsInRange(range?: SubaccountRange): IAccountAndKey[] {
-    const entries = new Set(range ?? getDefaultSubaccountRange());
+    const entries = new Set(range ?? getRange());
     return Object.entries(this.subAccountsByAddress)
       .filter(([_, account]) => {
         return entries.has(account.index);
@@ -522,8 +522,8 @@ export class Accountset {
   }
 }
 
-export function getDefaultSubaccountRange(): number[] {
-  return Array.from({ length: 50 }, (_, i) => i);
+export function getRange(start = 0, end = 50): number[] {
+  return Array.from({ length: end - start }, (_, i) => start + i);
 }
 
 export function parseSubaccountRange(range?: string): number[] | undefined {

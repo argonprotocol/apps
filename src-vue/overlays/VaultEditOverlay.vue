@@ -132,7 +132,6 @@ async function saveRules() {
       isSaving.value = true;
 
       await myVault.updateSettings({
-        argonKeyring: Vue.toRaw(config.vaultingAccount),
         rules: Vue.toRaw(rules.value),
         previousRules: JsonExt.parse<IVaultingRules>(previousVaultingRules!),
         txProgressCallback(progress: number) {

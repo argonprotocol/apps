@@ -4,7 +4,6 @@ import {
   BitcoinNetwork,
   CosignScript,
   getBitcoinNetworkFromApi,
-  getChildXpriv,
   getCompressedPubkey,
   p2wshScriptHexToAddress,
 } from '@argonprotocol/bitcoin';
@@ -14,7 +13,6 @@ import {
   Header,
   IBitcoinLock,
   type IBitcoinLockConfig,
-  ISubmittableOptions,
   ITxProgressCallback,
   KeyringPair,
   TxResult,
@@ -33,9 +31,8 @@ import { MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { TransactionTracker } from './TransactionTracker.ts';
-import { TransactionInfo } from './TransactionInfo.ts';
-import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { BlockProgress } from './BlockProgress.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
 dayjs.extend(utc);
 
@@ -93,6 +90,7 @@ export default class BitcoinLocksStore {
 
   constructor(
     private readonly dbPromise: Promise<Db>,
+    private readonly walletKeys: WalletKeys,
     priceIndex: PriceIndex,
     transactionTracker: TransactionTracker,
   ) {
@@ -197,14 +195,14 @@ export default class BitcoinLocksStore {
     }
   }
 
-  public async getNextUtxoPubkey(args: { vault: Vault; bip39Seed: Uint8Array }) {
-    const { vault, bip39Seed } = args;
+  public async getNextUtxoPubkey(args: { vault: Vault }) {
+    const { vault } = args;
     const table = await this.getTable();
 
     // get bitcoin xpriv to generate the pubkey
     const nextIndex = await table.getNextVaultHdKeyIndex(vault.vaultId);
     const hdPath = `m/1018'/0'/${vault.vaultId}'/0/${nextIndex}'`;
-    const ownerBitcoinXpriv = getChildXpriv(bip39Seed, hdPath, this.bitcoinNetwork);
+    const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(hdPath, this.bitcoinNetwork);
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
 
     return { ownerBitcoinPubkey, hdPath };
@@ -218,10 +216,12 @@ export default class BitcoinLocksStore {
     vault: Vault;
     argonKeyring: KeyringPair;
     tip?: bigint;
-    bip39Seed: Uint8Array;
   }): Promise<{ canAfford: boolean; txFeePlusTip: bigint; securityFee: bigint }> {
-    const { vault, argonKeyring, tip = 0n, bip39Seed } = args;
-    const ownerBitcoinXpriv = getChildXpriv(bip39Seed, `m/1018'/0'/${vault.vaultId}'/0/0'`, this.bitcoinNetwork);
+    const { vault, argonKeyring, tip = 0n } = args;
+    const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(
+      `m/1018'/0'/${vault.vaultId}'/0/0'`,
+      this.bitcoinNetwork,
+    );
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
 
     // explode on purpose if we can't afford even the minimum
@@ -242,7 +242,6 @@ export default class BitcoinLocksStore {
 
   public async createInitializeTx(args: {
     vault: Vault;
-    bip39Seed: Uint8Array;
     argonKeyring: KeyringPair;
     microgonLiquidity: bigint;
     maxMicrogonSpend?: bigint;
@@ -479,9 +478,9 @@ export default class BitcoinLocksStore {
     await table.saveNewRatchet(lock);
   }
 
-  public async ownerCosignAndSendToBitcoin(lock: IBitcoinLockRecord, bitcoinSeed: Uint8Array): Promise<void> {
+  public async ownerCosignAndSendToBitcoin(lock: IBitcoinLockRecord): Promise<void> {
     if (lock.status !== BitcoinLockStatus.ReleaseSigned) return;
-    const { bytes } = await this.ownerCosignAndGenerateTxBytes(lock, bitcoinSeed);
+    const { bytes } = await this.ownerCosignAndGenerateTxBytes(lock);
     const mempoolPostTxUrl = this.getMempoolApi('tx');
     const response = await fetch(mempoolPostTxUrl, {
       method: 'POST',
@@ -505,12 +504,11 @@ export default class BitcoinLocksStore {
    * Cosigns the transaction.
    *
    * @param lock
-   * @param bip39Seed
+   * @param walletKeys
    * @param addTx
    */
   public async ownerCosignAndGenerateTxBytes(
     lock: IBitcoinLockRecord,
-    bip39Seed: Uint8Array,
     addTx?: string,
   ): Promise<{
     txid: string;
@@ -546,7 +544,7 @@ export default class BitcoinLocksStore {
       },
       vaultCosignature: cosignature.signature,
       utxoRef: { txid: lock.lockedTxid, vout: lock.lockedVout! },
-      ownerXpriv: getChildXpriv(bip39Seed, lock.hdPath, this.bitcoinNetwork),
+      ownerXpriv: await this.walletKeys.getBitcoinChildXpriv(lock.hdPath, this.bitcoinNetwork),
       addTx,
     });
     if (!tx) {
