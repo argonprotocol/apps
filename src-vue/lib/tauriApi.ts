@@ -12,7 +12,7 @@ export async function invokeWithTimeout<T>(cmd: string, args: Record<string, any
   );
 
   try {
-    console.info(`[TAURI] ${cmd}`);
+    console.info(`[TAURI] ${cmd}`, args);
     const invocation = invoke<T>(cmd, args);
     const result = await Promise.race([invocation, timeout]);
     console.debug(`[TAURI] ${cmd} returned`, result);

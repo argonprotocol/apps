@@ -2,12 +2,12 @@ import { ArgonClient, ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { MainchainClients, StorageFinder, TransactionFees } from '@argonprotocol/apps-core';
+import { MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork, getChildXpriv } from '@argonprotocol/bitcoin';
-import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from './MyVault.ts';
 
 export type VaultRecoveryFn = (args: {
@@ -72,7 +72,6 @@ export class MyVaultRecovery {
     tick?: number;
   }> {
     const { vaultingAddress, vaultId, client, vaultCreatedBlockNumber } = args;
-
     const prebondInitKey = client.query.treasury.prebondedByVaultId.key(vaultId);
     const vaultPrebondBlock = await StorageFinder.iterateFindStorageAddition({
       client,
@@ -86,7 +85,7 @@ export class MyVaultRecovery {
     if (!vaultPrebondBlock) {
       console.warn('No prebond/vault setup transaction found');
     } else {
-      const result = await TransactionFees.findFromEvents({
+      const result = await TransactionEvents.findFromFeePaidEvent({
         client,
         accountAddress: vaultingAddress,
         blockHash: vaultPrebondBlock.blockHash,
@@ -147,7 +146,7 @@ export class MyVaultRecovery {
     const vaultCreateBlockNumber = vaultStartBlock?.blockNumber ?? 0;
     let vaultCreateFee = 0n;
     if (vaultStartBlock) {
-      const result = await TransactionFees.findFromEvents({
+      const result = await TransactionEvents.findFromFeePaidEvent({
         client,
         accountAddress: vaultingAddress,
         blockHash: vaultStartBlock.blockHash,
@@ -186,6 +185,7 @@ export class MyVaultRecovery {
       if (lockMaybe.value.vaultId.toNumber() !== vaultId) return false;
       return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
     });
+
     const bitcoinHdPaths: { ownerBitcoinPubkey: Uint8Array; hdPath: string }[] = [];
     for (const _bitcoin of myBitcoins) {
       const next = await bitcoinLocksStore.getNextUtxoPubkey({ vault, bip39Seed });
@@ -216,7 +216,7 @@ export class MyVaultRecovery {
         const bitcoinBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
         let bitcoinTxFee = 0n;
         if (bitcoinTxAddition) {
-          const result = await TransactionFees.findFromEvents({
+          const result = await TransactionEvents.findFromFeePaidEvent({
             client,
             blockHash: bitcoinTxAddition.blockHash,
             isMatchingEvent: ev => {
@@ -230,13 +230,17 @@ export class MyVaultRecovery {
           bitcoinTxFee = result?.fee ?? 0n;
         }
 
-        const record = await bitcoinLocksStore.saveLock({
+        const { id } = await bitcoinLocksStore.createPendingBitcoinLock({
           vaultId,
-          lock: lock,
-          txFee: bitcoinTxFee,
+          satoshis: lock.satoshis,
           hdPath: thisHdPath.hdPath,
-          blockNumber: bitcoinBlockNumber,
-          securityFee: lock.securityFees, // no fee for owner
+        });
+
+        const record = await bitcoinLocksStore.finalizePendingBitcoinLock({
+          id,
+          lock,
+          createdAtHeight: bitcoinBlockNumber,
+          txFee: bitcoinTxFee,
         });
 
         records.push({ ...record, initializedAtBlockNumber: bitcoinBlockNumber });

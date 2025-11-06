@@ -71,6 +71,7 @@ import { Diagnostics } from '../../lib/Diagnostics.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { remove } from '@tauri-apps/plugin-fs';
+import { getInstanceConfigDir } from '../../lib/Utils.ts';
 
 const config = useConfig();
 const diagnostics = new Diagnostics(config as Config);
@@ -95,13 +96,14 @@ async function createZipFile() {
 async function downloadTroubleshooting() {
   isCreatingTroubleshootingPackage.value = true;
   troubleshootingProgress.value = 0;
+  troubleshootingError.value = '';
   try {
     await diagnostics.load();
     const downloadPath = await diagnostics.downloadTroubleshootingPackage(x => {
       troubleshootingProgress.value = x;
     });
     const zipPath = downloadPath.replace('.tar.gz', '.zip');
-    const config = await appConfigDir();
+    const config = await getInstanceConfigDir();
     const logDir = await appLogDir();
     await invokeWithTimeout(
       'create_zip',

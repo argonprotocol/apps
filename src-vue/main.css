@@ -47,7 +47,7 @@ html {
 }
 
 body {
-  @apply cursor-default select-none;
+  @apply cursor-default;
   height: 100%;
   border-radius: 10px;
   overflow: hidden;

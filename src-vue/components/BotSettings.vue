@@ -273,8 +273,9 @@ import EditIcon from '../assets/edit.svg?component';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
-  SeatGoalType,
+  BiddingCalculator,
   type IBiddingRules,
+  SeatGoalType,
 } from '@argonprotocol/apps-core';
 import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../overlays/EditBoxOverlay.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
@@ -288,6 +289,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'toggleEditBoxOverlay', value: boolean): void;
+  (e: 'update:data', calculator: BiddingCalculator): void;
 }>();
 
 const currency = useCurrency();
@@ -343,7 +345,7 @@ function openEditBoxOverlay(id: IEditBoxOverlayTypeForMining) {
   const editBoxParentRect = editBoxParent.value?.getBoundingClientRect() as DOMRect;
 
   editBoxOverlayPosition.value = {
-    top: selectedRect.top - editBoxParentRect.top,
+    top: selectedRect.top - editBoxParentRect.top - editBoxParentRect.height / 2,
     left: selectedRect.left - editBoxParentRect.left,
     width: selectedRect.width,
   };
@@ -373,8 +375,6 @@ function selectPreviousId(id: IEditBoxOverlayTypeForMining): IEditBoxOverlayType
     const item = editBoxItems[nextId];
     if (props.includeProjections || !item.isProjection) {
       return nextId as IEditBoxOverlayTypeForMining;
-    } else {
-      continue;
     }
   }
 }
@@ -395,8 +395,6 @@ function selectNextId(id: IEditBoxOverlayTypeForMining): IEditBoxOverlayTypeForM
     const item = editBoxItems[nextId];
     if (props.includeProjections || !item.isProjection) {
       return nextId as IEditBoxOverlayTypeForMining;
-    } else {
-      continue;
     }
   }
 }
@@ -423,6 +421,7 @@ function updateAPYs() {
 
   startingBidAmountOverride.value = calculator.startingBidAmountOverride;
   maximumBidAmountOverride.value = calculator.maximumBidAmountOverride;
+  emit('update:data', calculator);
 }
 
 Vue.watch(

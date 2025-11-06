@@ -62,14 +62,14 @@ export default class BiddingCalculator {
   }
 
   public get startingBidAmountOverride(): bigint | null {
-    if (this.startingBidAmountFromMaximumBid || this.startingBidAmountFromExpectedGrowth) {
+    if (this.startingBidAmountFromMaximumBid !== null || this.startingBidAmountFromExpectedGrowth !== null) {
       return bigIntMin(this.startingBidAmountFromMaximumBid, this.startingBidAmountFromExpectedGrowth);
     }
     return null;
   }
 
   public get maximumBidAmountOverride(): bigint | null {
-    if (this.maximumBidAmountFromStartingBid || this.maximumBidAmountFromExpectedGrowth) {
+    if (this.maximumBidAmountFromStartingBid !== null || this.maximumBidAmountFromExpectedGrowth !== null) {
       return bigIntMax(this.maximumBidAmountFromStartingBid, this.maximumBidAmountFromExpectedGrowth);
     }
     return null;
@@ -101,8 +101,8 @@ export default class BiddingCalculator {
 
   public setPivotPoint(pivotPoint: null | 'ExpectedGrowth' | 'StartingBid' | 'MaximumBid') {
     if (pivotPoint === 'ExpectedGrowth') {
-      this.startingBidAmountAtPivot = this.startingBidAmountAtPivot || this.startingBidAmount;
-      this.maximumBidAmountAtPivot = this.maximumBidAmountAtPivot || this.maximumBidAmount;
+      this.startingBidAmountAtPivot ??= this.startingBidAmount;
+      this.maximumBidAmountAtPivot ??= this.maximumBidAmount;
     }
     this.pivotPoint = pivotPoint;
   }
@@ -294,12 +294,9 @@ export default class BiddingCalculator {
 
     const tenDayCirculationGrowthPct = this.convertAnnualToTenDayRate(argonCirculationGrowthPct);
     const microgonsInCirculation = this.data.microgonsInCirculation;
-    // Convert annual growth rate to 10-day growth rate by taking the 36.5th root
-    // Use Math.pow for decimal exponents since BigNumber.pow only accepts integers
-    const annualMultiplier = 1 + tenDayCirculationGrowthPct / 100;
-    const epochMultiplier = Math.pow(annualMultiplier, 1 / 36.5);
+    const epochMultiplier = 1 + tenDayCirculationGrowthPct / 100; // one epoch = 10 days
 
-    const microgonsToMintThisEpochBn = BigNumber(microgonsInCirculation).multipliedBy(epochMultiplier - 1);
+    const microgonsToMintThisEpochBn = BigNumber(microgonsInCirculation).multipliedBy(epochMultiplier);
     const microgonsToMintThisSeatBn =
       this.data.maxPossibleMiningSeatCount === 0
         ? BigNumber(0)
@@ -311,7 +308,7 @@ export default class BiddingCalculator {
     if (!micronots) return 0n;
     const argonotsBn = BigNumber(micronots).dividedBy(MICRONOTS_PER_ARGONOT);
     const microgonsBn = argonotsBn.multipliedBy(this.data.microgonExchangeRateTo.ARGNOT);
-    return BigInt(Math.round(microgonsBn.toNumber()));
+    return bigNumberToBigInt(microgonsBn);
   }
 
   private extractBidDetails(bidType: IBidType): IBidDetails {

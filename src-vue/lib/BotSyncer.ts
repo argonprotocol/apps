@@ -438,8 +438,11 @@ export class BotSyncer {
     let bitcoinLastUpdatedAt = savedState?.bitcoinBlocksLastUpdatedAt;
     if (hasBitcoinChanges) {
       bitcoinLastUpdatedAt = new Date(this.botState.bitcoinBlockNumbers.localNodeBlockTime * 1000);
+      if (bitcoinLastUpdatedAt > new Date()) {
+        bitcoinLastUpdatedAt = new Date();
+      }
     }
-    let argonBlocksLastUpdatedAt = savedState?.botActivityLastUpdatedAt;
+    let argonBlocksLastUpdatedAt = savedState?.argonBlocksLastUpdatedAt;
     if (hasArgonChanges) {
       try {
         argonBlocksLastUpdatedAt = await this.getArgonTimestamp(latestArgonBlockNumbers.localNode);
@@ -478,15 +481,6 @@ export class BotSyncer {
 
     const dbFramesProcessed = Math.min(await this.db.framesTable.fetchProcessedCount(), dbFramesExpected);
     const dbCohortsProcessed = Math.min(await this.db.cohortsTable.fetchCount(), dbFramesExpected);
-
-    console.log(
-      'dbFramesExpected',
-      dbFramesExpected,
-      'dbFramesProcessed',
-      dbFramesProcessed,
-      'dbCohortsProcessed',
-      dbCohortsProcessed,
-    );
 
     return (Math.min(dbFramesProcessed, dbCohortsProcessed) / dbFramesExpected) * 100;
   }

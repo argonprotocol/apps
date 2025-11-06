@@ -1,6 +1,7 @@
 import packageJson from '../../package.json';
 import { Db } from './Db';
 import {
+  ConfigSchema,
   IConfig,
   IConfigDefaults,
   IConfigStringified,
@@ -28,11 +29,12 @@ import { getUserJurisdiction } from './Countries';
 import ISecurity from '../interfaces/ISecurity';
 import { getMainchainClients } from '../stores/mainchain';
 import { WalletBalances } from './WalletBalances';
-import { SECURITY } from './Env.ts';
+import { NETWORK_NAME, SECURITY } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import { VaultRecoveryFn } from './MyVaultRecovery.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
+import { ZodAny } from 'zod';
 
 export class Config implements IConfig {
   public readonly version: string = packageJson.version;
@@ -128,9 +130,12 @@ export class Config implements IConfig {
       'serverCreation',
       'serverDetails',
       'miningAccountAddress',
+      'biddingRules',
+      'vaultingRules',
       'hasReadVaultingInstructions',
-      'hasReadVaultingInstructions',
+      'hasReadMiningInstructions',
       'isMiningMachineCreated',
+      'isPreparingMinerSetup',
       'oldestFrameIdToSync',
       'defaultCurrencyKey',
       'requiresPassword',
@@ -170,7 +175,28 @@ export class Config implements IConfig {
       this._security = SECURITY;
 
       for (const [key, value] of Object.entries(defaults)) {
-        const rawValue = dbRawData[key as keyof typeof dbRawData];
+        let rawValue = dbRawData[key as keyof typeof dbRawData];
+        const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
+        if (schemaField && rawValue !== undefined && rawValue !== '') {
+          const data = JsonExt.parse(rawValue as string);
+          const isValid = schemaField.safeParse(data);
+          if (!isValid?.success) {
+            console.warn(`ConfigSchema validation error: ${key}`);
+            if (NETWORK_NAME !== 'mainnet') {
+              await tauriMessage(
+                `A field in your Config (${key}) is corrupted and could not be loaded. ${isValid.error.toString()}`,
+                {
+                  title: 'Mining Config Migration Issue',
+                  kind: 'error',
+                },
+              );
+            }
+            dbRawData[key as keyof typeof dbRawData] = undefined;
+            rawValue = undefined;
+          } else {
+            loadedData[key] = isValid.data;
+          }
+        }
         if (rawValue === undefined || rawValue === '') {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-call
           const defaultValue = await value();
@@ -182,7 +208,6 @@ export class Config implements IConfig {
           continue;
         }
 
-        loadedData[key] = JsonExt.parse(rawValue as string);
         rawData[key as keyof typeof rawData] = rawValue as string;
         if (key === dbFields.serverDetails) {
           // Ensure old serverDetails without type are set to DigitalOcean

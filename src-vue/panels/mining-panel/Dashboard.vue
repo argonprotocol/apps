@@ -664,6 +664,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import CountupClock from '../../components/CountupClock.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import AuctionIcon from '../../assets/auction.svg?component';
+import { ArrowTurnDownRightIcon } from '@heroicons/vue/24/outline';
 import ActivityIcon from '../../assets/activity.svg?component';
 import BlocksIcon from '../../assets/blocks.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
@@ -817,6 +818,9 @@ const currentFrameProfit = Vue.computed(() => {
 const expectedFrameProfit = Vue.computed(() => {
   const earningsBn = BigNumber(expectedFrameEarnings.value);
   const costBn = BigNumber(currentFrameCost.value);
+  if (costBn.isZero()) {
+    return 0;
+  }
   const profitBn = earningsBn.minus(costBn).dividedBy(costBn).multipliedBy(100);
   return profitBn.toNumber();
 });

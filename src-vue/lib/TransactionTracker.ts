@@ -11,39 +11,38 @@ import {
   TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
+import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { createDeferred, IDeferred } from './Utils.ts';
-import { TransactionFees } from '@argonprotocol/apps-core';
+import { TransactionEvents } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
-
-export interface ITransactionInfo {
-  tx: ITransactionRecord;
-  txResult: TxResult;
-  isProcessed: IDeferred;
-  statusAtLoad?: TransactionStatus;
-}
+import { TransactionInfo } from './TransactionInfo.ts';
 
 const PENDING_STATUSES = [TransactionStatus.Submitted, TransactionStatus.InBlock];
+
 export class TransactionTracker {
   public data: {
-    transactions: ITransactionInfo[];
+    txInfos: TransactionInfo[];
+    txInfosByType: Partial<Record<ExtrinsicType, TransactionInfo>>;
   };
 
   #waitForLoad?: IDeferred;
   #table?: TransactionsTable;
   #blockCache = new LRU<SignedBlock>(25);
+  #bestBlockNumber?: number;
   #watchUnsubscribe?: () => void;
 
   constructor(private readonly dbPromise: Promise<Db>) {
     this.data = {
-      transactions: [],
+      txInfos: [],
+      txInfosByType: {},
     };
   }
 
-  public get pendingBlockTransactionsAtLoad(): ITransactionInfo[] {
-    return this.data.transactions.filter(
+  public get pendingBlockTxInfos(): TransactionInfo[] {
+    return this.data.txInfos.filter(
       x => x.statusAtLoad === TransactionStatus.Submitted || x.statusAtLoad === TransactionStatus.InBlock,
     );
   }
@@ -56,7 +55,8 @@ export class TransactionTracker {
       const table = await this.getTable();
       const txs = await table.fetchAll();
       const client = await getMainchainClient(true);
-      this.data.transactions.length = 0;
+
+      this.data.txInfos.length = 0;
       for (const tx of txs) {
         const txResult = new TxResult(client, {
           accountAddress: tx.accountAddress,
@@ -101,14 +101,17 @@ export class TransactionTracker {
           txResult.setFinalized();
           isProcessed.resolve();
         }
-        this.data.transactions.push({
+        // Mark txResult as non-reactive to avoid issues with private fields
+        Vue.markRaw(txResult);
+        const txInfo = new TransactionInfo({
           tx,
           txResult,
-          statusAtLoad: tx.status,
           isProcessed,
         });
+        this.data.txInfos.push(txInfo);
+        this.data.txInfosByType[tx.extrinsicType] = txInfo;
       }
-      if (this.data.transactions.some(x => PENDING_STATUSES.includes(x.tx.status))) {
+      if (this.data.txInfos.some(x => PENDING_STATUSES.includes(x.tx.status))) {
         await this.watchForUpdates();
       }
       this.#waitForLoad.resolve();
@@ -126,10 +129,12 @@ export class TransactionTracker {
       extrinsicType: ExtrinsicType;
       metadata?: any;
     } & ISubmittableOptions,
-  ): Promise<ITransactionInfo> {
+  ): Promise<TransactionInfo> {
     const { tx, signer, extrinsicType, metadata } = args;
     const client = await getMainchainClient(false);
     const txSubmitter = new TxSubmitter(client, tx, signer);
+
+    console.log('SUBMITTING TRANSACTION', extrinsicType);
     const txResult = await txSubmitter.submit({
       ...args,
       disableAutomaticTxTracking: true,
@@ -147,7 +152,7 @@ export class TransactionTracker {
       extrinsicType: ExtrinsicType;
       metadata?: any;
     } & ISubmittableOptions,
-  ): Promise<ITransactionInfo> {
+  ): Promise<TransactionInfo> {
     await this.load();
     const { txResult, extrinsicType, metadata } = args;
     const table = await this.getTable();
@@ -164,21 +169,30 @@ export class TransactionTracker {
     });
     await this.watchForUpdates();
 
-    const entry = { tx: record, txResult, isProcessed: createDeferred() };
-    this.data.transactions.unshift(entry);
+    // Mark txResult as non-reactive to avoid issues with private fields
+    Vue.markRaw(txResult);
+    const txInfo = new TransactionInfo({ tx: record, txResult, isProcessed: createDeferred() });
+    this.data.txInfos.unshift(txInfo);
+    this.data.txInfosByType[extrinsicType] = txInfo;
     if (txResult.submissionError) {
       await table.recordSubmissionError(record, txResult.submissionError);
     }
 
-    return entry;
+    return txInfo;
   }
 
   private async watchForUpdates() {
     const client = await getMainchainClient(false);
+    this.#bestBlockNumber = (await client.rpc.chain.getHeader()).number.toNumber();
+    await this.updatePendingStatuses(this.#bestBlockNumber);
 
     this.#watchUnsubscribe ??= await client.rpc.chain.subscribeNewHeads(async bestHeader => {
       try {
-        await this.updatePendingStatuses(bestHeader.number.toNumber());
+        const bestBlockNumber = bestHeader.number.toNumber();
+        if (bestBlockNumber !== this.#bestBlockNumber) {
+          this.#bestBlockNumber = bestBlockNumber;
+          await this.updatePendingStatuses(bestBlockNumber);
+        }
       } catch (error) {
         console.error('Error watching for transaction updates:', error);
       }
@@ -190,7 +204,7 @@ export class TransactionTracker {
     this.#watchUnsubscribe = undefined;
   }
 
-  private async findTransaction(
+  private async findTransactionInBlocks(
     tx: ITransactionRecord,
     client: ArgonClient,
     maxBlocksToCheck: number,
@@ -207,7 +221,7 @@ export class TransactionTracker {
       }
     | undefined
   > {
-    const { extrinsicHash, accountAddress, submittedAtBlockHeight } = tx;
+    const { extrinsicHash, submittedAtBlockHeight } = tx;
 
     for (let i = 0; i <= maxBlocksToCheck; i++) {
       const blockHeight = submittedAtBlockHeight + i;
@@ -223,48 +237,56 @@ export class TransactionTracker {
       });
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) === extrinsicHash) {
-          const result = await TransactionFees.findFromEvents({
+          const api = await client.at(blockHash);
+          const events = await api.query.system.events();
+          const result = await TransactionEvents.getErrorAndFeeForTransaction({
             client,
-            blockHash,
-            accountAddress,
-            onlyMatchExtrinsicIndex: index,
-            isMatchingEvent: () => true,
+            extrinsicIndex: index,
+            events,
           });
-          if (result) {
-            console.log(`Found extrinsic`, {
-              blockHeight,
-              blockHash: u8aToHex(blockHash),
-              extrinsicHash,
-            });
-            return {
-              blockNumber: blockHeight,
-              blockHash: u8aToHex(blockHash),
-              extrinsicError: result.error,
-              txFeePlusTip: result.fee + result.tip,
-              tip: result.tip,
-              transactionEvents: result.extrinsicEvents,
-              extrinsicIndex: index,
-            };
-          }
+
+          console.log(`Found extrinsic`, {
+            blockHeight,
+            blockHash: u8aToHex(blockHash),
+            extrinsicHash,
+          });
+          return {
+            blockNumber: blockHeight,
+            blockHash: u8aToHex(blockHash),
+            extrinsicError: result.error,
+            txFeePlusTip: result.fee + result.tip,
+            tip: result.tip,
+            transactionEvents: result.extrinsicEvents,
+            extrinsicIndex: index,
+          };
         }
       }
     }
   }
 
-  private async getFinalizedBlockNumber(client: ArgonClient): Promise<number> {
+  private async getFinalizedBlockDetails(client: ArgonClient): Promise<{ blockNumber: number; blockTime: Date }> {
     const finalizedHash = await client.rpc.chain.getFinalizedHead();
     const finalizedHeader = await client.rpc.chain.getHeader(finalizedHash);
-    return finalizedHeader.number.toNumber();
+    const blockNumber = finalizedHeader.number.toNumber();
+    const clientAt = await client.at(finalizedHash);
+    const blockTime = new Date((await clientAt.query.timestamp.now()).toNumber());
+    return {
+      blockNumber,
+      blockTime,
+    };
   }
 
   private async updatePendingStatuses(bestBlockNumber: number): Promise<void> {
     const table = await this.getTable();
     const client = await getMainchainClient(true);
-    const finalizedHeight = await this.getFinalizedBlockNumber(client);
-    console.log('Checking for pending transaction statuses', { finalizedHeight, bestBlockNumber });
-    for (const { tx, txResult } of this.data.transactions) {
-      if (!PENDING_STATUSES.includes(tx.status)) continue;
+    const finalizedDetails = await this.getFinalizedBlockDetails(client);
+    const finalizedHeight = finalizedDetails.blockNumber;
 
+    for (const txInfo of this.data.txInfos) {
+      const { tx, txResult } = txInfo;
+      if (!PENDING_STATUSES.includes(tx.status)) {
+        continue;
+      }
       try {
         if (tx.blockHeight && tx.blockHeight <= finalizedHeight) {
           // ensure this block hash is still valid
@@ -286,11 +308,17 @@ export class TransactionTracker {
           continue;
         }
 
-        const findTransactionResult = await this.findTransaction(tx, client, MAX_BLOCKS_TO_CHECK, bestBlockNumber);
+        const findTransactionResult = await this.findTransactionInBlocks(
+          tx,
+          client,
+          MAX_BLOCKS_TO_CHECK,
+          bestBlockNumber,
+        );
         if (findTransactionResult) {
           const originalBlockHash = tx.blockHash;
           if (originalBlockHash === findTransactionResult.blockHash) {
             // no change
+            console.log('No change in block', { info: txInfo, findTransactionResult });
             continue;
           }
           const { blockHash, blockNumber, txFeePlusTip, tip, extrinsicError, transactionEvents, extrinsicIndex } =
@@ -319,12 +347,18 @@ export class TransactionTracker {
             await table.markFinalized(tx);
             txResult.setFinalized();
           }
+        } else {
+          console.log('No transaction found in block', { bestBlockNumber });
         }
       } catch (error) {
         console.error('Error updating pending transaction status:', error);
       }
     }
-    if (this.data.transactions.every(x => !PENDING_STATUSES.includes(x.tx.status))) {
+    for (const txInfo of this.data.txInfos) {
+      await table.updateLastFinalizedBlock(txInfo.tx, finalizedDetails);
+      txInfo.finalizedBlockHeight = finalizedHeight;
+    }
+    if (this.data.txInfos.every(x => !PENDING_STATUSES.includes(x.tx.status))) {
       this.stopWatching();
     }
   }

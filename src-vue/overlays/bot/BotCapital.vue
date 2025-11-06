@@ -132,7 +132,10 @@ function updateAPYs() {
   maximumBidAmount.value = calculator.maximumBidAmount;
   startingBidAmount.value = calculator.startingBidAmount;
 
-  const probableMinSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.maximumBidAmount);
+  const probableMinSeatsBn =
+    calculator.maximumBidAmount > 0n
+      ? BigNumber(rules.value.startingMicrogons).dividedBy(calculator.maximumBidAmount)
+      : new BigNumber(0);
   probableMinSeats.value = Math.max(probableMinSeatsBn.integerValue(BigNumber.ROUND_FLOOR).toNumber(), 0);
 
   const probableMaxSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.startingBidAmount);
@@ -144,11 +147,13 @@ function updateAPYs() {
   const averageEarningsPerSeat = (calculator.slowGrowthRewards + calculator.fastGrowthRewards) / 2n;
 
   const minSeats = BigInt(probableMinSeats.value);
-  maximumBidSeatsCost.value = minSeats * (calculator.maximumBidAmount + calculatorData.micronotsRequiredForBid);
+  maximumBidSeatsCost.value =
+    minSeats * (calculator.maximumBidAmount + currency.micronotToMicrogon(calculatorData.micronotsRequiredForBid));
   maximumBidSeatsEarnings.value = minSeats * averageEarningsPerSeat;
 
   const maxSeats = BigInt(probableMaxSeats.value);
-  startingBidSeatsCost.value = maxSeats * (calculator.startingBidAmount + calculatorData.micronotsRequiredForBid);
+  startingBidSeatsCost.value =
+    maxSeats * (calculator.startingBidAmount + currency.micronotToMicrogon(calculatorData.micronotsRequiredForBid));
   startingBidSeatsEarnings.value = maxSeats * averageEarningsPerSeat;
 }
 

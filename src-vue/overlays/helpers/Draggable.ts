@@ -36,7 +36,6 @@ export default class Draggable {
 
   private onDragMove(e: MouseEvent) {
     if (!this.isDragging) return;
-    console.log('onDragMove', `isDragging = ${this.isDragging}`);
 
     const dx = e.clientX - this.mouseStart.x;
     const dy = e.clientY - this.mouseStart.y;
@@ -69,7 +68,6 @@ export default class Draggable {
 
   private onDragEnd() {
     this.isDragging = false;
-    console.log('onDragEnd', `isDragging = ${this.isDragging}`);
     window.removeEventListener('mousemove', this.onDragMove.bind(this));
     window.removeEventListener('mouseup', this.onDragEnd.bind(this));
   }

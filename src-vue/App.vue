@@ -16,7 +16,7 @@
       <template v-if="showMiningPanel">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
-      <BootingOverlay v-else-if="config.isBootingUpPreviousWalletHistory" />
+      <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectOverlay />
       <WalletOverlay />
       <ServerRemoveOverlay />

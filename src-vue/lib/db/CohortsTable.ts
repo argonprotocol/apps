@@ -106,6 +106,7 @@ export class CohortsTable extends BaseTable {
     const frameProgressBn = BigNumber(frameProgress).dividedBy(100);
     const seatCostTotalPerDayBn = BigNumber(fromSqliteBigInt(rawActiveStats.seatCostTotal)).dividedBy(10);
     const seatCostTotalFramedBn = BigNumber(seatCostTotalPerDayBn).multipliedBy(frameProgressBn);
+    // TODO: add micronot depreciation to cost (see Bidding Calculator)
 
     return {
       seatCountActive: rawActiveStats.seatCountTotal,

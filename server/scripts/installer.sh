@@ -245,7 +245,7 @@ if ! (already_ran "DockerInstall"); then
     fi
 
     network_name="${COMPOSE_PROJECT_NAME:-argon}-net"
-    run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || docker network create ${network_name}"
+    run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || sudo docker network create ${network_name}"
     run_compose "sudo docker compose up status -d --build"
 
     finish "DockerInstall" "$command_output"
@@ -287,7 +287,14 @@ if ! (already_ran "BitcoinInstall"); then
     failures=0
     while true; do
         sleep 1
+        allow_run_command_fail=1
         command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${STATUS_PORT}/bitcoin/syncstatus" )
+        unset allow_run_command_fail
+
+        if [[ "${command_exit_status:-0}" -eq 52 ]]; then
+          echo "Bitcoin syncstatus transient empty reply (curl exit 52), retrying..."
+          continue
+        fi
 
         # Check if command failed
         if [[ -z "$command_output" ]] || \
@@ -336,8 +343,14 @@ if ! (already_ran "ArgonInstall"); then
     failures=0
     while true; do
         sleep 1
+        allow_run_command_fail=1
         command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${STATUS_PORT}/argon/syncstatus")
+        unset allow_run_command_fail
 
+        if [[ "${command_exit_status:-0}" -eq 52 ]]; then
+          echo "Bitcoin syncstatus transient empty reply (curl exit 52), retrying..."
+          continue
+        fi
         # Check if the response failed
         if [[ -z "$command_output" ]] || \
            ! jq empty <<<"$command_output" >/dev/null 2>&1 || \

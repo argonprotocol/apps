@@ -1086,5 +1086,145 @@
   {
     "date": "2025-09-29",
     "feeInBitcoins": 0.00000749
+  },
+  {
+    "date": "2025-09-30",
+    "feeInBitcoins": 0.00000569
+  },
+  {
+    "date": "2025-10-01",
+    "feeInBitcoins": 0.00000767
+  },
+  {
+    "date": "2025-10-02",
+    "feeInBitcoins": 0.00001085
+  },
+  {
+    "date": "2025-10-03",
+    "feeInBitcoins": 0.00001324
+  },
+  {
+    "date": "2025-10-04",
+    "feeInBitcoins": 0.0000094
+  },
+  {
+    "date": "2025-10-05",
+    "feeInBitcoins": 0.00000513
+  },
+  {
+    "date": "2025-10-06",
+    "feeInBitcoins": 0.00001023
+  },
+  {
+    "date": "2025-10-07",
+    "feeInBitcoins": 0.00000939
+  },
+  {
+    "date": "2025-10-08",
+    "feeInBitcoins": 0.0000079
+  },
+  {
+    "date": "2025-10-09",
+    "feeInBitcoins": 0.00001032
+  },
+  {
+    "date": "2025-10-10",
+    "feeInBitcoins": 0.00000964
+  },
+  {
+    "date": "2025-10-11",
+    "feeInBitcoins": 0.00000811
+  },
+  {
+    "date": "2025-10-12",
+    "feeInBitcoins": 0.00000526
+  },
+  {
+    "date": "2025-10-13",
+    "feeInBitcoins": 0.00000584
+  },
+  {
+    "date": "2025-10-14",
+    "feeInBitcoins": 0.00000485
+  },
+  {
+    "date": "2025-10-15",
+    "feeInBitcoins": 0.00000618
+  },
+  {
+    "date": "2025-10-16",
+    "feeInBitcoins": 0.00000637
+  },
+  {
+    "date": "2025-10-17",
+    "feeInBitcoins": 0.00000766
+  },
+  {
+    "date": "2025-10-18",
+    "feeInBitcoins": 0.00000453
+  },
+  {
+    "date": "2025-10-19",
+    "feeInBitcoins": 0.00000504
+  },
+  {
+    "date": "2025-10-20",
+    "feeInBitcoins": 0.0000069
+  },
+  {
+    "date": "2025-10-21",
+    "feeInBitcoins": 0.00000688
+  },
+  {
+    "date": "2025-10-22",
+    "feeInBitcoins": 0.00000592
+  },
+  {
+    "date": "2025-10-23",
+    "feeInBitcoins": 0.00000629
+  },
+  {
+    "date": "2025-10-24",
+    "feeInBitcoins": 0.00000509
+  },
+  {
+    "date": "2025-10-25",
+    "feeInBitcoins": 0.0000043
+  },
+  {
+    "date": "2025-10-26",
+    "feeInBitcoins": 0.00000391
+  },
+  {
+    "date": "2025-10-27",
+    "feeInBitcoins": 0.00000556
+  },
+  {
+    "date": "2025-10-28",
+    "feeInBitcoins": 0.0000056
+  },
+  {
+    "date": "2025-10-29",
+    "feeInBitcoins": 0.00000665
+  },
+  {
+    "date": "2025-10-30",
+    "feeInBitcoins": 0.00000518
+  },
+  {
+    "date": "2025-10-31",
+    "feeInBitcoins": 0.00000755
+  },
+  {
+    "date": "2025-11-01",
+    "feeInBitcoins": 0.00000631
+  },
+  {
+    "date": "2025-11-02",
+    "feeInBitcoins": 0.00000512
+  },
+  {
+    "date": "2025-11-03",
+    "feeInBitcoins": 0.00000698
   }
 ]

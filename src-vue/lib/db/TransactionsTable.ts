@@ -9,9 +9,11 @@ export enum ExtrinsicType {
   VaultInitialAllocate = 'VaultInitialAllocate',
   VaultIncreaseAllocation = 'VaultIncreaseAllocation',
   VaultCollect = 'VaultCollect',
-  BitcoinOwnerCosignRelease = 'BitcoinOwnerCosignRelease',
-  BitcoinRequestRelease = 'BitcoinRequestRelease',
-  BitcoinInitializeLock = 'BitcoinInitializeLock',
+
+  BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
+  BitcoinRequestRelease = 'BitcoinRequestRelease', // ReleaseIsProcessingOnBitcoin
+  VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease', // ReleaseIsWaitingForVault
+
   Transfer = 'Transfer',
 }
 
@@ -25,6 +27,7 @@ export enum TransactionStatus {
 
 export interface ITransactionRecord {
   id: number; // Auto-incrementing primary key since extrinsic hash isn't implicitly unique and can overlap
+  status: TransactionStatus;
   extrinsicHash: string;
   extrinsicMethodJson: any;
   extrinsicType: ExtrinsicType;
@@ -43,8 +46,9 @@ export interface ITransactionRecord {
   blockExtrinsicErrorJson:
     | { batchInterruptedIndex?: number; errorCode?: string; details?: string; message: string }
     | undefined;
+  lastFinalizedBlockHeight: number | undefined;
+  lastFinalizedBlockTime: Date | undefined;
   isFinalized: boolean;
-  status: TransactionStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -117,7 +121,7 @@ export class TransactionsTable extends BaseTable {
           blockExtrinsicIndex = ?,
           blockExtrinsicEventsJson = ?,
           status = ?
-        WHERE extrinsicHash = ?
+        WHERE id = ?
       `,
       toSqlParams([
         blockNumber,
@@ -129,8 +133,23 @@ export class TransactionsTable extends BaseTable {
         record.blockExtrinsicIndex,
         record.blockExtrinsicEventsJson,
         record.status,
-        record.extrinsicHash,
+        record.id,
       ]),
+    );
+    return record;
+  }
+
+  public async updateLastFinalizedBlock(
+    record: ITransactionRecord,
+    finalizedDetails: { blockNumber: number; blockTime: Date },
+  ): Promise<ITransactionRecord> {
+    record.lastFinalizedBlockHeight = finalizedDetails.blockNumber;
+    record.lastFinalizedBlockTime = finalizedDetails.blockTime;
+    await this.db.execute(
+      `UPDATE Transactions SET lastFinalizedBlockHeight = ?, lastFinalizedBlockTime = ?
+        WHERE id = ?
+      `,
+      toSqlParams([record.lastFinalizedBlockHeight, record.lastFinalizedBlockTime, record.id]),
     );
     return record;
   }
@@ -140,9 +159,9 @@ export class TransactionsTable extends BaseTable {
     record.status = TransactionStatus.Finalized;
     await this.db.execute(
       `UPDATE Transactions SET isFinalized = ?, status = ?
-        WHERE extrinsicHash = ?
+        WHERE id = ?
       `,
-      toSqlParams([record.isFinalized, record.status, record.extrinsicHash]),
+      toSqlParams([record.isFinalized, record.status, record.id]),
     );
     return record;
   }
@@ -151,9 +170,9 @@ export class TransactionsTable extends BaseTable {
     record.status = TransactionStatus.TimedOutWaitingForBlock;
     await this.db.execute(
       `UPDATE Transactions SET status = ?
-        WHERE extrinsicHash = ?
+        WHERE id = ?
       `,
-      toSqlParams([record.status, record.extrinsicHash]),
+      toSqlParams([record.status, record.id]),
     );
     return record;
   }
@@ -179,7 +198,7 @@ export class TransactionsTable extends BaseTable {
       submittedAtBlockHeight,
       submittedAtTime,
     } = args;
-    const record = await this.db.select<ITransactionRecord[]>(
+    const records = await this.db.select<ITransactionRecord[]>(
       `INSERT INTO Transactions (
           extrinsicHash, extrinsicMethodJson, metadataJson, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, status
         ) VALUES (
@@ -196,7 +215,7 @@ export class TransactionsTable extends BaseTable {
         TransactionStatus.Submitted,
       ]),
     );
-    return convertFromSqliteFields<ITransactionRecord[]>(record, this.fields)[0];
+    return convertFromSqliteFields<ITransactionRecord[]>(records, this.fields)[0];
   }
 
   public async recordSubmissionError(record: ITransactionRecord, submissionError: Error): Promise<ITransactionRecord> {
@@ -210,8 +229,8 @@ export class TransactionsTable extends BaseTable {
       : undefined;
     record.status = TransactionStatus.Error;
     await this.db.execute(
-      `UPDATE Transactions SET submissionErrorJson = ?, status = ? WHERE extrinsicHash = ?`,
-      toSqlParams([record.submissionErrorJson, record.status, record.extrinsicHash]),
+      `UPDATE Transactions SET submissionErrorJson = ?, status = ? WHERE id = ?`,
+      toSqlParams([record.submissionErrorJson, record.status, record.id]),
     );
     return record;
   }
