@@ -185,7 +185,7 @@ export default class BitcoinLocksStore {
     this.#subscription = undefined;
   }
 
-  public async updateVaultSignature(
+  public async updateVaultUnlockingSignature(
     lock: IBitcoinLockRecord,
     vaultSignature?: { blockHeight: number; signature: Uint8Array },
   ): Promise<void> {
@@ -307,16 +307,11 @@ export default class BitcoinLocksStore {
     return { hdPath, tx, ownerBitcoinPubkey, satoshis, securityFee };
   }
 
-  public async createPendingBitcoinLock(args: {
-    vaultId: number;
-    satoshis: bigint;
-    hdPath: string;
-    status?: BitcoinLockStatus;
-  }) {
-    const { satoshis, vaultId, hdPath, status = BitcoinLockStatus.LockIsProcessingOnArgon } = args;
+  public async createPendingBitcoinLock(args: { vaultId: number; satoshis: bigint; hdPath: string }) {
+    const { satoshis, vaultId, hdPath } = args;
     const table = await this.getTable();
     const record = await table.insertPending({
-      status,
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
       satoshis,
       cosignVersion: 'v1',
       network: this.#config.bitcoinNetwork.toString(),
@@ -583,58 +578,72 @@ export default class BitcoinLocksStore {
     return 100;
   }
 
-  public getLockProcessingDetails(lock: IBitcoinLockRecord): { progressPct: number; confirmations: number } {
-    if (lock.status === BitcoinLockStatus.LockReadyForBitcoin) return { progressPct: 0, confirmations: -1 };
-    if (lock.status !== BitcoinLockStatus.LockIsProcessingOnBitcoin) return { progressPct: 100, confirmations: 6 };
+  public getLockProcessingDetails(lock: IBitcoinLockRecord): {
+    progressPct: number;
+    confirmations: number;
+    expectedConfirmations: number;
+  } {
+    let expectedConfirmations = 6;
+    if (lock.status === BitcoinLockStatus.LockReadyForBitcoin)
+      return { progressPct: 0, confirmations: -1, expectedConfirmations };
+    if (lock.status !== BitcoinLockStatus.LockIsProcessingOnBitcoin)
+      return { progressPct: 100, confirmations: 6, expectedConfirmations };
 
     const recordedOracleHeight = lock.lockProcessingOnBitcoinAtOracleBitcoinHeight;
     const recordedTransactionHeight = lock.lockProcessingOnBitcoinAtBitcoinHeight;
 
-    let minimumConfirmations = 6;
     if (recordedOracleHeight && recordedTransactionHeight) {
-      minimumConfirmations = recordedTransactionHeight - recordedOracleHeight;
+      expectedConfirmations = recordedTransactionHeight - recordedOracleHeight;
     }
 
     const timeOfLastBlock = lock.lockProcessingLastOracleBlockDate || lock.lockProcessingOnBitcoinAtTime;
     const blockProgress = new BlockProgress({
       blockHeightGoal: lock.lockProcessingOnBitcoinAtBitcoinHeight,
       blockHeightCurrent: this.data.oracleBitcoinBlockHeight,
-      minimumConfirmations: minimumConfirmations,
+      minimumConfirmations: expectedConfirmations,
       millisPerBlock: BITCOIN_BLOCK_MILLIS,
       timeOfLastBlock: dayjs.utc(timeOfLastBlock),
     });
 
     const progressPct = blockProgress.getProgress();
     const confirmations = blockProgress.getConfirmations();
+    expectedConfirmations = blockProgress.expectedConfirmations;
 
-    return { progressPct, confirmations };
+    return { progressPct, confirmations, expectedConfirmations };
   }
 
-  public getReleaseProcessingDetails(lock: IBitcoinLockRecord): { progressPct: number; confirmations: number } {
-    if (lock.status === BitcoinLockStatus.ReleaseComplete) return { progressPct: 100, confirmations: 6 };
-    if (lock.status !== BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) return { progressPct: 0, confirmations: -1 };
+  public getReleaseProcessingDetails(lock: IBitcoinLockRecord): {
+    progressPct: number;
+    confirmations: number;
+    expectedConfirmations: number;
+  } {
+    let expectedConfirmations = 6;
+    if (lock.status === BitcoinLockStatus.ReleaseComplete)
+      return { progressPct: 100, confirmations: 6, expectedConfirmations };
+    if (lock.status !== BitcoinLockStatus.ReleaseIsProcessingOnBitcoin)
+      return { progressPct: 0, confirmations: -1, expectedConfirmations };
 
     const recordedOracleHeight = lock.releaseProcessingLastOracleBlockHeight;
     const recordedTransactionHeight = lock.releaseProcessingOnBitcoinAtBitcoinHeight;
 
-    let minimumConfirmations = 6;
     if (recordedOracleHeight && recordedTransactionHeight) {
-      minimumConfirmations = recordedTransactionHeight - recordedOracleHeight;
+      expectedConfirmations = recordedTransactionHeight - recordedOracleHeight;
     }
 
     const timeOfLastBlock = lock.releaseProcessingLastOracleBlockDate || lock.releaseProcessingOnBitcoinAtDate;
     const blockProgress = new BlockProgress({
       blockHeightGoal: lock.releaseProcessingOnBitcoinAtBitcoinHeight,
       blockHeightCurrent: this.data.oracleBitcoinBlockHeight,
-      minimumConfirmations: minimumConfirmations,
+      minimumConfirmations: expectedConfirmations,
       millisPerBlock: BITCOIN_BLOCK_MILLIS,
       timeOfLastBlock: dayjs.utc(timeOfLastBlock),
     });
 
     const progressPct = blockProgress.getProgress();
     const confirmations = blockProgress.getConfirmations();
+    expectedConfirmations = blockProgress.expectedConfirmations;
 
-    return { progressPct, confirmations };
+    return { progressPct, confirmations, expectedConfirmations };
   }
 
   public async updateLockIsProcessingOnBitcoin(lock: IBitcoinLockRecord) {
@@ -694,7 +703,7 @@ export default class BitcoinLocksStore {
       }
 
       if (lock.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
-        await this.updateVaultSignature(lock);
+        await this.updateVaultUnlockingSignature(lock);
       }
 
       if (lock.status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) {

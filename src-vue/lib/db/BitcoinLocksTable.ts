@@ -125,7 +125,7 @@ export class BitcoinLocksTable extends BaseTable {
       ]),
     );
     if (!rawRecords.length) {
-      throw new Error(`Failed to insert Bitcoin lock with utxoId ${lock.utxoId}`);
+      throw new Error(`Failed to finalize Bitcoin lock record (id = ${lock.id}, utxoId = ${lock.utxoId})`);
     }
     return convertFromSqliteFields<IBitcoinLockRecord[]>(rawRecords, this.fieldTypes)[0];
   }

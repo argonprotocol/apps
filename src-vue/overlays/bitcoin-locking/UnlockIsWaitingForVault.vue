@@ -30,7 +30,8 @@ const myVault = useMyVault();
 
 const processingPct = Vue.ref(0);
 const blockConfirmations = Vue.ref(-1);
-const transactionError = Vue.ref('');
+
+let expectedConfirmations = 0;
 
 const progressLabel = Vue.computed(() => {
   if (blockConfirmations.value === -1) {
@@ -58,9 +59,13 @@ function trackVaultCosignProgress() {
   if (txInfo) {
     isTrackingVaultCosignProgress = true;
     txInfo.subscribeToProgress(
-      (args: { progress: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
-        processingPct.value = args.progress;
+      (
+        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
+        error: Error | undefined,
+      ) => {
+        processingPct.value = args.progressPct;
         blockConfirmations.value = args.confirmations;
+        expectedConfirmations = args.expectedConfirmations;
       },
     );
   }

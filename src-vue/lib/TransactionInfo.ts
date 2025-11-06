@@ -9,8 +9,9 @@ import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 type IProgressCallbackArgs = {
-  progress: number;
+  progressPct: number;
   confirmations: number;
+  expectedConfirmations: number;
   isMaxed: boolean;
 };
 type IProgressCallback = (args: IProgressCallbackArgs, error?: Error) => void;
@@ -74,14 +75,15 @@ export class TransactionInfo {
     this.blockProgress.setIsFinalized(this.tx.isFinalized);
     this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
 
-    const progress = this.blockProgress.getProgress();
+    const progressPct = this.blockProgress.getProgress();
     const confirmations = this.blockProgress.getConfirmations();
+    const expectedConfirmations = this.blockProgress.expectedConfirmations;
 
     for (const { runFn } of this.progressCallbacks) {
-      runFn({ progress, confirmations, isMaxed: this.blockProgress.isMaxed });
+      runFn({ progressPct, confirmations, expectedConfirmations, isMaxed: this.blockProgress.isMaxed });
     }
 
-    if (progress === 100) {
+    if (progressPct === 100) {
       this.unsubscribeFromProgress();
     } else {
       const milliPerInterval = Math.max(100, Math.ceil(TICK_MILLIS / 60));
