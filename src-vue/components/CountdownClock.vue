@@ -22,6 +22,14 @@ const days = Vue.ref(0);
 
 function updateTime() {
   const now = dayjs.utc();
+  if (props.time < now) {
+    hours.value = 0;
+    minutes.value = 0;
+    seconds.value = 0;
+    days.value = 0;
+    emit('update:tick', 0);
+    return;
+  }
 
   let remaining = now;
   const totalDays = props.time.diff(now, 'days');

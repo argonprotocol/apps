@@ -107,6 +107,7 @@
       </button>
     </div>
   </div>
+  <VaultCreateOverlay v-if="openCreateOverlay" @close="openCreateOverlay = false" />
 </template>
 
 <script setup lang="ts">
@@ -124,6 +125,7 @@ import { getVaultCalculator } from '../../stores/mainchain.ts';
 import numeral from 'numeral';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
+import VaultCreateOverlay from '../../overlays/VaultCreateOverlay.vue';
 
 dayjs.extend(utc);
 
@@ -182,8 +184,9 @@ function updateApy() {
   averageAPY.value = (lowApy + highApy) / 2;
 }
 
+const openCreateOverlay = Vue.ref(false);
 function openVaultCreateOverlay() {
-  basicEmitter.emit('openVaultCreateOverlay');
+  openCreateOverlay.value = true;
 }
 
 Vue.watch(

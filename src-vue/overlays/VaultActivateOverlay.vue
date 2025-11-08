@@ -46,6 +46,9 @@
         </div>
       </div>
 
+      <div v-if="savingError" class="my-2 font-semibold text-red-700">
+        {{ savingError }}
+      </div>
       <div class="mt-10 flex flex-row items-center justify-end gap-x-3 border-t border-black/20 pt-4">
         <button
           class="cursor-pointer rounded-lg bg-gray-200 px-10 py-2 text-lg font-bold text-black hover:bg-gray-300"
@@ -82,8 +85,10 @@ import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { useDebounceFn } from '@vueuse/core';
 import { useConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { bigIntMax, bigNumberToBigInt } from '@argonprotocol/apps-core';
+import { bigIntMax, bigNumberToBigInt, JsonExt } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
+import { toRaw } from 'vue';
+import { MyVault } from '../lib/MyVault.ts';
 
 dayjs.extend(utc);
 
@@ -93,17 +98,17 @@ const myVault = useMyVault();
 const wallets = useWallets();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
-
 const emit = defineEmits<{
   (e: 'close', shouldFinishLocking: boolean): void;
 }>();
 
 const isSaving = Vue.ref(false);
+const savingError = Vue.ref('');
 
 const rules = config.vaultingRules;
 
 const sidelinedMicrogons = Vue.computed(() => {
-  return bigIntMax(wallets.vaultingWallet.availableMicrogons - 1_000_000n, 0n);
+  return bigIntMax(wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
 });
 
 console.log('capitalForSecuritizationPct', rules.capitalForSecuritizationPct);
@@ -150,26 +155,24 @@ async function handleTreasuryBondsChange(microgons: bigint) {
   treasuryAmount.value = microgons;
 }
 
+const vault = useMyVault();
+
 async function finalizeActivation() {
-  // if (!vault.createdVault) return;
-  // let fallbackRules = JsonExt.stringify(toRaw(config.vaultingRules));
-  // try {
-  //   isAllocating.value = true;
-  //   const availableMicrogons = wallets.vaultingWallet.availableMicrogons;
-  //   const { newlyAllocated } = await vault.increaseVaultAllocations({
-  //     freeBalance: availableMicrogons,
-  //     rules: config.vaultingRules,
-  //     argonKeyring: config.vaultingAccount,
-  //   });
-  //   config.vaultingRules.baseMicrogonCommitment += newlyAllocated;
-  //   await config.saveVaultingRules();
-  // } catch (err) {
-  //   console.error('Error during vault allocation: %o', err);
-  //   allocationError.value = 'Allocation failed. Please try again.';
-  //   config.vaultingRules = JsonExt.parse(fallbackRules);
-  // } finally {
-  //   isAllocating.value = false;
-  // }
+  if (!vault.createdVault) return;
+  let fallbackRules = JsonExt.stringify(toRaw(config.vaultingRules));
+  try {
+    isSaving.value = true;
+    await vault.increaseVaultAllocations({
+      addedSecuritizationMicrogons: securitizationAmount.value,
+      addedTreasuryMicrogons: treasuryAmount.value,
+    });
+  } catch (err) {
+    console.error('Error during vault allocation: %o', err);
+    savingError.value = 'Allocation failed. Please try again.';
+    config.vaultingRules = JsonExt.parse(fallbackRules);
+  } finally {
+    isSaving.value = false;
+  }
 }
 
 function cancelOverlay() {

@@ -7,7 +7,7 @@ import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinLocksTable, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
 
@@ -207,7 +207,7 @@ export class MyVaultRecovery {
           console.warn('Unable to find bitcoin lock creation block:', err);
           return undefined;
         });
-        const bitcoinBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
+        const addedAtBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
         let bitcoinTxFee = 0n;
         if (bitcoinTxAddition) {
           const result = await TransactionEvents.findFromFeePaidEvent({
@@ -224,20 +224,22 @@ export class MyVaultRecovery {
           bitcoinTxFee = result?.fee ?? 0n;
         }
 
-        const { id } = await bitcoinLocksStore.createPendingBitcoinLock({
+        const uuid = BitcoinLocksTable.createUuid();
+        const table = await bitcoinLocksStore.getTable();
+        await bitcoinLocksStore.insertPending({
+          uuid,
           vaultId,
           satoshis: lock.satoshis,
           hdPath: thisHdPath.hdPath,
         });
-
-        const record = await bitcoinLocksStore.finalizePendingBitcoinLock({
-          id,
+        const record = await table.finalizePending({
+          uuid,
           lock,
-          createdAtHeight: bitcoinBlockNumber,
-          txFee: bitcoinTxFee,
+          createdAtArgonBlockHeight: addedAtBlockNumber,
+          finalFee: bitcoinTxFee,
         });
 
-        records.push({ ...record, initializedAtBlockNumber: bitcoinBlockNumber });
+        records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
       }
     }
     records.sort((a, b) => {

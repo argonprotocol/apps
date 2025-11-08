@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
+  <DialogRoot class="absolute inset-0 z-10" :open="true">
     <DialogPortal>
       <DialogOverlay asChild>
         <BgOverlay @close="cancelOverlay" />
@@ -151,9 +151,19 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter from '../emitters/basicEmitter';
-import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
-import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverPortal, PopoverArrow } from 'reka-ui';
+import {
+  DialogContent,
+  DialogDescription,
+  DialogOverlay,
+  DialogPortal,
+  DialogRoot,
+  DialogTitle,
+  PopoverArrow,
+  PopoverContent,
+  PopoverPortal,
+  PopoverRoot,
+  PopoverTrigger,
+} from 'reka-ui';
 import { useConfig } from '../stores/config';
 import { getVaultCalculator } from '../stores/mainchain';
 import { useCurrency } from '../stores/currency';
@@ -177,7 +187,9 @@ const config = useConfig();
 const currency = useCurrency();
 const controller = useController();
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
-
+const emit = defineEmits<{
+  (e: 'close'): void;
+}>();
 let previousVaultingRules: string | null = null;
 
 const rules = Vue.computed(() => {
@@ -189,7 +201,6 @@ const calculator = getVaultCalculator();
 const isBrandNew = Vue.ref(true);
 const isSuggestingTour = Vue.ref(false);
 const currentTourStep = Vue.ref<number>(0);
-const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const hasEditBoxOverlay = Vue.ref(false);
@@ -268,11 +279,11 @@ function calculateElementWidth(element: HTMLElement | null) {
 
 function cancelOverlay() {
   if (hasEditBoxOverlay.value) return;
-  isOpen.value = false;
 
   if (previousVaultingRules) {
     config.vaultingRules = JsonExt.parse<IVaultingRules>(previousVaultingRules);
   }
+  emit('close');
 }
 
 function closeEditBoxOverlay() {
@@ -288,7 +299,7 @@ async function saveRules() {
   }
 
   isSaving.value = false;
-  isOpen.value = false;
+  emit('close');
 }
 
 function updateAPYs() {
@@ -326,18 +337,9 @@ function stopSuggestingTour() {
   isSuggestingTour.value = false;
 }
 
-Vue.watch(
-  rules,
-  () => {
-    if (isOpen.value) {
-      updateAPYs();
-    }
-  },
-  { deep: true },
-);
+Vue.watch(rules, () => updateAPYs(), { deep: true });
 
-basicEmitter.on('openVaultCreateOverlay', async () => {
-  if (isOpen.value) return;
+Vue.onMounted(async () => {
   isLoaded.value = false;
   isBrandNew.value = !config.hasSavedVaultingRules;
   isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingVaultTour;
@@ -347,7 +349,6 @@ basicEmitter.on('openVaultCreateOverlay', async () => {
   updateAPYs();
 
   isLoaded.value = true;
-  isOpen.value = true;
 });
 </script>
 

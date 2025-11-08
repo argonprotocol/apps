@@ -110,30 +110,33 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
         rules: vaultRules,
       });
+      await vaultCreation.txResult.waitForFinalizedBlock;
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
-      // TODO: The rest of this test is broken the vault hasn't been created yet.
-      // expect(vaultCreation.tx.metadataJson.vaultId).toBe(1);
-      vaultCreatedBlockNumber = await client.rpc.chain
-        .getHeader(await vaultCreation.txResult.waitForFinalizedBlock)
-        .then(x => x.number.toNumber());
+      expect(vaultCreation.tx.metadataJson.masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
+      vaultCreatedBlockNumber = vaultCreation.txResult.blockNumber!;
+      await vaultCreation.isProcessed.promise;
+      const createdVault = myVault.createdVault!;
+      expect(createdVault).toBeTruthy();
+      expect(createdVault.vaultId).toBe(1);
+      expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
 
-      // const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, alice.address, xprivSeed);
-      // await expect(recovery).resolves.toBeTruthy();
-      // const { vault, masterXpubPath, txFee, createBlockNumber } = (await recovery)!;
+      const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
+      await expect(recovery).resolves.toBeTruthy();
+      const { vault, masterXpubPath, txFee, createBlockNumber } = (await recovery)!;
 
-      // expect(txFee).toBe(vaultCreationFees);
-      // expect(createBlockNumber).toBe(vaultCreatedBlockNumber);
-      // expect(vault).toStrictEqual(vaultCreation.vault);
-      // expect(masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
-      // vaultId = vault.vaultId;
-      // await expect(
-      //   MyVaultRecovery.findPrebonded({
-      //     vaultCreatedBlockNumber: vaultCreatedBlockNumber,
-      //     vaultingAddress: alice.address,
-      //     vaultId: vault.vaultId,
-      //     client,
-      //   }),
-      // ).resolves.toMatchObject(expect.objectContaining({ prebondedMicrogons: 0n }));
+      expect(txFee).toBe(vaultCreationFees);
+      expect(createBlockNumber).toBe(vaultCreatedBlockNumber);
+      expect(vault).toStrictEqual(createdVault);
+      expect(masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
+      vaultId = vault.vaultId;
+      await expect(
+        MyVaultRecovery.findPrebonded({
+          vaultCreatedBlockNumber: vaultCreatedBlockNumber,
+          walletKeys,
+          vaultId: vault.vaultId,
+          client,
+        }),
+      ).resolves.toMatchObject(expect.objectContaining({ prebondedMicrogons: 0n }));
     },
   );
 
@@ -205,6 +208,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       });
       expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toStrictEqual({
         ...bitcoinStored,
+        uuid: expect.any(String),
         initializedAtBlockNumber: rulesSavedBlockNumber,
         createdAt: undefined,
         updatedAt: undefined,

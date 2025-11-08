@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { inspect } from 'util';
 import { getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import Path from 'path';
+import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.js';
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;
@@ -522,11 +523,17 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     });
     // wait for the slot to fully complete
     await new Promise(resolve =>
-      aliceClient.query.miningSlot.nextFrameId(y => {
-        if (y.toNumber() >= bobBidder!.cohortStartingFrameId) {
-          resolve(true);
-        }
-      }),
+      subscribeToFinalizedStorageChanges(aliceClient, [
+        {
+          key: aliceClient.query.miningSlot.nextFrameId.key(),
+          handler: async api => {
+            const y = await api.query.miningSlot.nextFrameId();
+            if (y.toNumber() >= bobBidder!.cohortStartingFrameId) {
+              resolve(true);
+            }
+          },
+        },
+      ]),
     );
 
     const aliceMiners = await alice.miningSeats();

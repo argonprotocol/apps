@@ -22,7 +22,6 @@
       <ServerRemoveOverlay />
       <SecuritySettingsOverlay />
       <BotEditOverlay />
-      <VaultCreateOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
       <ComplianceOverlay />

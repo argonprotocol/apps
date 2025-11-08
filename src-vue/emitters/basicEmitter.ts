@@ -7,7 +7,6 @@ type IBasicEmitter = {
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: void;
-  openVaultCreateOverlay: void;
   openProvisioningCompleteOverlay: void;
   openServerConnectOverlay: void;
   closeAllOverlays: void;

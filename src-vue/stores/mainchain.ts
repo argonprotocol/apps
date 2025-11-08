@@ -35,6 +35,12 @@ export function getMainchainClient(needsHistoricalAccess: boolean): Promise<Argo
   return getMainchainClients().get(needsHistoricalAccess);
 }
 
+export async function getFinalizedClient(): Promise<ApiDecoration<'promise'>> {
+  const client = await getMainchainClient(false);
+  const finalized = await client.rpc.chain.getFinalizedHead();
+  return client.at(finalized);
+}
+
 export function setArchiveClientUrl(url: string) {
   const clients = getMainchainClients();
   return clients.setArchiveClient(url);

@@ -157,7 +157,7 @@ async function submitRelease() {
     );
 
     await myVault.requestBitcoinRelease({
-      lock: props.personalLock,
+      lockRecord: props.personalLock,
       bitcoinNetworkFee: networkFee,
       toScriptPubkey,
     });
