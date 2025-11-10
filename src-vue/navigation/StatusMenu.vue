@@ -180,35 +180,6 @@
                 <div class="h-4 w-px bg-slate-400/80"></div>
                 <div class="text-argon-600 cursor-pointer" @click="openBotCreateOverlay">Modify Bidding Rules</div>
               </div>
-              <!-- <table class="w-full text-left mt-3 mb-5 whitespace-nowrap">
-                <thead>
-                  <tr>
-                    <th class="w-[28%]">Base Capital</th>
-                    <th class="w-[36%]">Reinvested</th>
-                    <th class="text-right w-[36%]">Total Capital Committed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>
-                      {{ microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0,0.[00000000]') }}
-                      ARGNs
-                    </td>
-                    <td>{{ microgonToArgonNm(reinvestedEarnings || 0n).format('0,0.[00000000]') }} ARGNs</td>
-                    <td class="text-right">
-                      {{ microgonToArgonNm(totalBiddingBudget || 0n).format('0,0.[00000000]') }} ARGNs
-                    </td>
-                  </tr>
-                </tbody>
-              </table> -->
-              <!-- <div class="flex flex-row gap-x-2 mt-2">
-                <button
-                  @click="openFundMiningAccountOverlay"
-                  class="px-4 py-1.5 rounded-md border border-lime-600 text-lime-700/70 hover:bg-lime-600/10 cursor-pointer font-bold"
-                >
-                  Transfer More Tokens Into Mining
-                </button>
-              </div> -->
             </div>
             <div v-else-if="miningStatus === 'Underfunded'" class="rounded-md bg-red-100/70 px-4 py-4">
               <header class="flex flex-row items-center gap-x-2 text-lg font-bold whitespace-nowrap text-red-600">
@@ -217,19 +188,23 @@
               </header>
               <p class="mt-px py-1 opacity-80">
                 Your account needs
-                {{ micronotToArgonotNm(miningMicrogonsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
-                argon{{
-                  microgonToArgonNm(miningMicrogonsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
-                    ? ''
-                    : 's'
-                }}
-                and
-                {{ microgonToArgonNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
-                argonot{{
-                  micronotToArgonotNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
-                    ? ''
-                    : 's'
-                }}
+                <template v-if="miningMicrogonsNeeded > 0n">
+                  {{ micronotToArgonotNm(miningMicrogonsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
+                  argon{{
+                    microgonToArgonNm(miningMicrogonsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
+                      ? ''
+                      : 's'
+                  }}
+                </template>
+                <template v-if="miningMicrogonsNeeded > 0n && miningMicronotsNeeded > 0n">and</template>
+                <template v-if="miningMicronotsNeeded > 0n">
+                  {{ microgonToArgonNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
+                  argonot{{
+                    micronotToArgonotNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
+                      ? ''
+                      : 's'
+                  }}
+                </template>
                 in order to fully operate according to your bidding rules.
               </p>
               <div class="mt-2 flex flex-row gap-x-2">
@@ -431,14 +406,14 @@ const isOpen = Vue.ref(false);
 
 const eyeballsElem = Vue.ref<HTMLElement | null>(null);
 
-const minimumBiddingMicrogonsForGoal = Vue.ref(0n);
-const minimumBiddingMicronotsForGoal = Vue.ref(0n);
+const requiredMicrogonsForGoal = Vue.ref(0n);
+const requiredMicronotsForGoal = Vue.ref(0n);
 const miningMicronotsNeeded = Vue.computed(() => {
-  return bigIntMax(minimumBiddingMicronotsForGoal.value - wallets.totalMiningMicronots, 0n);
+  return bigIntMax(requiredMicronotsForGoal.value - wallets.totalMiningMicronots, 0n);
 });
 
 const miningMicrogonsNeeded = Vue.computed(() => {
-  return bigIntMax(minimumBiddingMicrogonsForGoal.value - wallets.totalMiningMicrogons, 0n);
+  return bigIntMax(requiredMicrogonsForGoal.value - wallets.totalMiningMicrogons, 0n);
 });
 
 const hasVault = Vue.computed(() => {
@@ -446,7 +421,7 @@ const hasVault = Vue.computed(() => {
 });
 
 const miningStatus = Vue.computed<Status>(() => {
-  if (!config.hasSavedBiddingRules) {
+  if (!config.hasSavedBiddingRules || !config.isMinerInstalled) {
     return Status.WaitingForSetup;
   } else if (!config.isMinerReadyToInstall && wallets.miningWallet.availableMicrogons === 0n) {
     return Status.WaitingForFunding;
@@ -547,9 +522,9 @@ Vue.onMounted(async () => {
   await config.isLoadedPromise;
 
   const loadSubscription = calculator.onLoad(() => {
-    const minimumCapitalRequirement = calculator.minimumCapitalRequirement(config.biddingRules);
-    minimumBiddingMicrogonsForGoal.value = minimumCapitalRequirement.startingMicrogons;
-    minimumBiddingMicronotsForGoal.value = minimumCapitalRequirement.micronots;
+    const projections = calculator.runProjections(config.biddingRules, 'maximum');
+    requiredMicrogonsForGoal.value = projections.microgonRequirement;
+    requiredMicronotsForGoal.value = projections.micronotRequirement;
   });
   void calculator.load();
 

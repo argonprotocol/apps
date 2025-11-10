@@ -105,7 +105,7 @@ const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const allWinningBids = Vue.computed<IBidsFile['winningBids']>(() => stats.allWinningBids);
 
 function formatMicrogonsBid(microgonsBid: bigint | undefined): string {
-  if (!microgonsBid) return '0';
+  if (!microgonsBid) return '0.00';
   return microgonToMoneyNm(microgonsBid).format('0,0.00');
 }
 

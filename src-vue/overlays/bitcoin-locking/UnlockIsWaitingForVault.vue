@@ -16,11 +16,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import numeral from 'numeral';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import { useMyVault } from '../../stores/vaults.ts';
-import numeral from '../../lib/numeral.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;

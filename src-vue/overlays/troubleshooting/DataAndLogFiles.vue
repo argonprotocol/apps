@@ -38,20 +38,21 @@
       <span v-if="troubleshootingError" class="text-sm text-red-500">
         {{ troubleshootingError }}
       </span>
-      <div class="flex flex-row gap-2">
-        <div class="pointer-events-none mt-2 flex w-1/2 cursor-pointer flex-row items-center space-x-2 text-gray-800">
-          <Checkbox :isChecked="true" :size="5" class="opacity-50" />
-          <span class="text-sm font-bold">Include Wallet Mnemonic and Keys</span>
-        </div>
+      <div class="mt-5 flex flex-row items-center gap-2">
         <button
           @click="downloadTroubleshooting"
           :disabled="isCreatingTroubleshootingPackage"
           :class="{
             'opacity-50': isCreatingTroubleshootingPackage,
           }"
-          class="bg-argon-button border-argon-600 right align-end mt-5 w-1/2 cursor-pointer rounded-md border px-3 py-1 text-lg text-white">
+          class="bg-argon-button border-argon-600 hover:bg-argon-700 right align-end w-1/2 grow cursor-pointer rounded-md border px-3 py-1 text-lg text-white">
           Download
         </button>
+        <div
+          class="pointer-events-none ml-2 flex cursor-pointer flex-row items-center space-x-2 whitespace-nowrap text-gray-800">
+          <Checkbox :isChecked="true" :size="5" class="opacity-50" />
+          <span class="text-sm font-bold">Include Wallet Mnemonics</span>
+        </div>
       </div>
     </li>
   </ul>

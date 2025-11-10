@@ -13,9 +13,8 @@
         align="end"
         class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade text-md z-100 w-[500px] rounded-md border border-gray-800/20 bg-white px-4 pt-4 pb-5 text-left leading-5.5 text-gray-600 shadow-xl select-none data-[state=open]:transition-all">
         <p>
-          You need a minimum of {{ currency.symbol
-          }}{{ microgonToMoneyNm(idealCapitalCommitment).format('0,0.[00]') }} in order to have a chance at fulfilling
-          your goal of winning {{ seatGoalCount }} seats.
+          You need a minimum of {{ currency.symbol }}{{ microgonToMoneyNm(idealCapitalCommitment).format('0,0.00') }} in
+          order to have a chance at fulfilling your goal of winning {{ seatGoalCount }} seats.
         </p>
         <button
           @click="increaseCapitalCommitment"

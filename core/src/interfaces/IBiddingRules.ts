@@ -61,8 +61,10 @@ export const BiddingRulesSchema = z.object({
   seatGoalPercent: z.number(),
   seatGoalInterval: z.nativeEnum(SeatGoalInterval),
 
-  startingMicrogons: z.bigint(),
-  startingMicronots: z.bigint(),
+  initialMicrogonRequirement: z.bigint(),
+  initialMicronotRequirement: z.bigint(),
+  initialCapitalCommitment: z.bigint().optional(),
+
   sidelinedMicrogons: z.bigint(),
   sidelinedMicronots: z.bigint(),
 });

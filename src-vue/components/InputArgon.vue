@@ -12,6 +12,7 @@
     :maxDecimals="props.maxDecimals"
     :options="props.options"
     :model-value="modelValue"
+    @input="handleInput"
     @update:model-value="handleUpdate" />
 </template>
 
@@ -48,6 +49,11 @@ const props = withDefaults(
   },
 );
 
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: bigint): void;
+  (e: 'input', value: bigint): void;
+}>();
+
 const prefix = Vue.computed(() => {
   return (props.prefix || '') + currency.symbol;
 });
@@ -76,10 +82,13 @@ const dragByMin = Vue.computed<number | undefined>(() => {
   return BigNumber(props.dragByMin).dividedBy(MICROGONS_PER_ARGON).toNumber();
 });
 
-const emit = defineEmits(['update:modelValue']);
-
 const handleUpdate = (value: number) => {
   const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
   emit('update:modelValue', bigNumberToBigInt(valueBn));
+};
+
+const handleInput = (value: number) => {
+  const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
+  emit('input', bigNumberToBigInt(valueBn));
 };
 </script>

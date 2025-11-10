@@ -3,10 +3,10 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="finishReading" />
+        <BgOverlay @close="closeOverlay" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="finishReading" :aria-describedby="undefined">
+      <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
           ref="dialogPanel"
           class="HowVaultingWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
@@ -18,7 +18,7 @@
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
               <DialogTitle as="div" class="relative z-10">How Vaulting Works</DialogTitle>
-              <div @click="cancelOverlay" class="absolute top-[22px] right-[0px] z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
+              <div @click="closeOverlay" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
                 <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
               </div>
             </h2>
@@ -263,7 +263,7 @@ function finishReading() {
   requestAnimationFrame(step);
 }
 
-function cancelOverlay() {
+function closeOverlay() {
   isOpen.value = false;
 }
 

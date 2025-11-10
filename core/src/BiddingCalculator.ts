@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 import BiddingCalculatorData from './BiddingCalculatorData.js';
-import { bigIntAbs, bigIntMax, bigIntMin, bigNumberToBigInt, ceilTo } from './utils.js';
+import { bigIntAbs, bigIntCeil, bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import { BidAmountAdjustmentType, BidAmountFormulaType, type IBiddingRules } from './interfaces/IBiddingRules.js';
 import { MICROGONS_PER_ARGON } from './index.js';
 
@@ -14,7 +14,7 @@ interface IBidDetails {
   custom: bigint;
 }
 
-type IBidType = 'minimum' | 'maximum';
+type IBidType = 'starting' | 'maximum';
 type IGrowthType = 'slow' | 'medium' | 'fast';
 
 export default class BiddingCalculator {
@@ -22,21 +22,19 @@ export default class BiddingCalculator {
   public biddingRules: IBiddingRules;
 
   public startingBidAmount!: bigint;
-
   public startingBidAmountAtPivot: null | bigint = null;
   public startingBidAmountFromMaximumBid: null | bigint = null;
   public startingBidAmountFromExpectedGrowth: null | bigint = null;
-  public maximumBidAmount!: bigint;
+  public startingBidAtSlowGrowthAPY!: number;
+  public startingBidAtFastGrowthAPY!: number;
 
+  public maximumBidAmount!: bigint;
   public maximumBidAmountAtPivot: null | bigint = null;
   public maximumBidAmountFromStartingBid: null | bigint = null;
   public maximumBidAmountFromExpectedGrowth: null | bigint = null;
-  public startingBidAtSlowGrowthAPY!: number;
-
-  public startingBidAtFastGrowthAPY!: number;
   public maximumBidAtSlowGrowthAPY!: number;
-
   public maximumBidAtFastGrowthAPY!: number;
+
   public averageAPY!: number;
 
   public pivotPoint: null | 'ExpectedGrowth' | 'StartingBid' | 'MaximumBid' = null;
@@ -83,16 +81,52 @@ export default class BiddingCalculator {
     return this.calculateOptimisticRewardsThisSeat();
   }
 
-  public minimumCapitalRequirement(rules: IBiddingRules): {
-    micronots: bigint;
-    startingMicrogons: bigint;
-    maxMicrogons: bigint;
+  public runProjections(
+    rules: IBiddingRules,
+    bidType: IBidType,
+    useSeatGoalCount: boolean = false,
+  ): {
+    estimatedSeats: number;
+    microgonRequirement: bigint;
+    micronotRequirement: bigint;
+    capitalCommitment: bigint;
   } {
-    const epochSeatGoal = BigInt(this.data.getEpochSeatGoalCount(rules));
-    const startingMicrogons = ceilTo(this.startingBidAmount * epochSeatGoal, 6);
-    const maxMicrogons = ceilTo(this.maximumBidAmount * epochSeatGoal, 6);
-    const micronots = epochSeatGoal * this.data.micronotsRequiredForBid;
-    return { startingMicrogons: BigInt(startingMicrogons), maxMicrogons: BigInt(maxMicrogons), micronots };
+    const microgonsPerSeat = bidType === 'maximum' ? this.maximumBidAmount : this.startingBidAmount;
+    const micronotsPerSeat = this.data.maximumMicronotsForBid;
+
+    let estimatedSeats = BigInt(this.data.getEpochSeatGoalCount(rules));
+    if (!useSeatGoalCount && rules.initialCapitalCommitment) {
+      estimatedSeats = this.calculateMaximumSeats(rules.initialCapitalCommitment, microgonsPerSeat, micronotsPerSeat);
+    }
+
+    const microgonRequirement = bigIntCeil(estimatedSeats * microgonsPerSeat, 10_000n);
+    const micronotRequirement = bigIntCeil(estimatedSeats * micronotsPerSeat, 10_000n);
+    const micronotsAsMicrogons = this.micronotToMicrogon(micronotRequirement);
+    const capitalCommitment = bigIntCeil(microgonRequirement + micronotsAsMicrogons, 10_000n);
+
+    return {
+      estimatedSeats: Number(estimatedSeats),
+      microgonRequirement,
+      micronotRequirement,
+      capitalCommitment,
+    };
+  }
+
+  private calculateMaximumSeats(capitalCommitment: bigint, microgonsPerSeat: bigint, micronotsPerSeat: bigint): bigint {
+    if (capitalCommitment <= 0n) return 0n;
+
+    const micronotsAsMicrogonsPerSeat = this.micronotToMicrogon(micronotsPerSeat);
+    const totalCostPerSeat = microgonsPerSeat + micronotsAsMicrogonsPerSeat;
+    if (totalCostPerSeat === 0n) return 0n;
+
+    let seats = capitalCommitment / totalCostPerSeat;
+
+    const maxPossibleSeats = BigInt(this.data.maxPossibleMiningSeatCount);
+    if (maxPossibleSeats > 0n && seats > maxPossibleSeats) {
+      seats = maxPossibleSeats;
+    }
+
+    return seats;
   }
 
   public async updateBiddingRules(biddingRules: IBiddingRules) {
@@ -108,7 +142,7 @@ export default class BiddingCalculator {
   }
 
   public calculateBidAmounts() {
-    this.startingBidAmount = this.calculateBidAmount('minimum');
+    this.startingBidAmount = this.calculateBidAmount('starting');
     this.maximumBidAmount = this.calculateBidAmount('maximum');
 
     if (this.pivotPoint === 'StartingBid') {
@@ -136,8 +170,8 @@ export default class BiddingCalculator {
       }
     }
 
-    this.startingBidAtSlowGrowthAPY = this.calculateAPY('minimum', 'slow');
-    this.startingBidAtFastGrowthAPY = this.calculateAPY('minimum', 'fast');
+    this.startingBidAtSlowGrowthAPY = this.calculateAPY('starting', 'slow');
+    this.startingBidAtFastGrowthAPY = this.calculateAPY('starting', 'fast');
     this.maximumBidAtSlowGrowthAPY = this.calculateAPY('maximum', 'slow');
     this.maximumBidAtFastGrowthAPY = this.calculateAPY('maximum', 'fast');
 
@@ -220,7 +254,7 @@ export default class BiddingCalculator {
     if (argonotPriceChangePct >= 0) return 0n;
 
     const tenDayPercent = this.convertAnnualToTenDayRate(argonotPriceChangePct);
-    const lossInMicronotsBn = BigNumber(this.data.micronotsRequiredForBid).multipliedBy(tenDayPercent).dividedBy(100);
+    const lossInMicronotsBn = BigNumber(this.data.currentMicronotsForBid).multipliedBy(tenDayPercent).dividedBy(100);
 
     // this will multiply times a loss, but we want to return a positive number
     const negativeLossMicrogons = this.micronotToMicrogon(bigNumberToBigInt(lossInMicronotsBn));
@@ -230,7 +264,7 @@ export default class BiddingCalculator {
   public calculateTenDayYield(bidType: IBidType, growthType: IGrowthType): number {
     const startingBidAmount = this.startingBidAmountOverride ?? this.startingBidAmount;
     const maximumBidAmount = this.maximumBidAmountOverride ?? this.maximumBidAmount;
-    const microgonsBid = bidType === 'minimum' ? startingBidAmount : maximumBidAmount;
+    const microgonsBid = bidType === 'starting' ? startingBidAmount : maximumBidAmount;
 
     const transactionFee = this.data.estimatedTransactionFee;
 
@@ -312,7 +346,7 @@ export default class BiddingCalculator {
   }
 
   private extractBidDetails(bidType: IBidType): IBidDetails {
-    if (bidType === 'minimum') {
+    if (bidType === 'starting') {
       return {
         formulaType: this.biddingRules.startingBidFormulaType,
         adjustmentType: this.biddingRules.startingBidAdjustmentType,

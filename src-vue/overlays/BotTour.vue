@@ -64,12 +64,6 @@ function updateStepVars() {
 async function loadStep(step: number) {
   if (step === 5) {
     step = 0;
-    config.showWelcomeOverlay = false;
-    await config.save();
-  } else if (step === 2) {
-    controller.setPanelKey(PanelKey.Vaulting);
-  } else if (step > 0) {
-    controller.setPanelKey(PanelKey.Mining);
   }
 
   currentStep.value = step;

@@ -48,11 +48,11 @@
               Decide how much capital you want to commit, your starting bid, maximum bid, and other basic settings.
             </p>
             <p v-else>
-              You set up bidding rules and
+              Your bidding rules expect a 
               <BotCapital align="start" :alignOffset="alignOffsetForBotCapital">
                 <span @mouseenter="alignOffsetForBotCapital = calculateAlignOffset($event, botCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
-                  committed
-                  {{ currency.symbol }}{{ microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0,0.[00]') }} in capital
+                  capital commitment of
+                  {{ currency.symbol }}{{ microgonToArgonNm(capitalCommitment || 0n).formatIfElse('< 100_000_000', '0,0.00', '0,0.[00]') }} 
                 </span>
               </BotCapital>
               with an
@@ -113,16 +113,16 @@
               Complete this step by moving the missing tokens to your account.
             </p>
             <p v-else-if="config.hasSavedBiddingRules">
-              Your acccount needs a minimum of
-              {{ microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0,0.[00000000]') }} argon{{
-                microgonToArgonNm(config.biddingRules?.startingMicrogons || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
+              Your account needs a minimum of
+              {{ microgonToArgonNm(config.biddingRules?.initialMicrogonRequirement || 0n).format('0,0.[00000000]') }} argon{{
+                microgonToArgonNm(config.biddingRules?.initialMicrogonRequirement || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
               }}
               and
               {{
-                micronotToArgonotNm(config.biddingRules?.startingMicronots || 0n).format('0,0.[00000000]')
+                micronotToArgonotNm(config.biddingRules?.initialMicronotRequirement || 0n).format('0,0.[00000000]')
               }}
               argonot{{
-                  micronotToArgonotNm(config.biddingRules?.startingMicronots || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
+                  micronotToArgonotNm(config.biddingRules?.initialMicronotRequirement || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
                 }}
                 to submit auction bids.
               </p>
@@ -154,7 +154,7 @@
       <button
         @click="launchMiningBot"
         :class="[
-          walletIsFullyFunded && hasMiningMachine
+          walletIsFullyFunded && hasMiningMachine && !controller.walletOverlayIsOpen
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30',
           isLaunchingMiningBot ? 'opacity-30 pointer-events-none' : '',
@@ -185,7 +185,7 @@ import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mai
 import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
 import BotCreateOverlay from '../../overlays/BotCreateOverlay.vue';
-import BotEditOverlay from '../../overlays/BotEditOverlay.vue';
+import { useController } from '../../stores/controller';
 
 dayjs.extend(utc);
 
@@ -193,6 +193,7 @@ const config = useConfig();
 const installer = useInstaller();
 const wallets = useWallets();
 const currency = useCurrency();
+const controller = useController();
 const calculator = getBiddingCalculator();
 const calculatorData = getBiddingCalculatorData();
 const openBotCreate = Vue.ref(false);
@@ -202,6 +203,8 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const botCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
 const alignOffsetForBotReturns = Vue.ref(0);
 const alignOffsetForBotCapital = Vue.ref(0);
+
+const capitalCommitment = Vue.ref(0n);
 
 const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
@@ -215,12 +218,12 @@ const walletIsPartiallyFunded = Vue.computed(() => {
 });
 
 const additionalMicrogonsNeeded = Vue.computed(() => {
-  return bigIntMax(config.biddingRules.startingMicrogons - wallets.totalMiningMicrogons, 0n);
+  return bigIntMax(config.biddingRules.initialMicrogonRequirement - wallets.totalMiningMicrogons, 0n);
 });
 
 const additionalMicronotsNeeded = Vue.computed(() => {
   return bigIntMax(
-    config.biddingRules.startingMicronots -
+    config.biddingRules.initialMicronotRequirement -
       wallets.miningWallet.availableMicronots -
       wallets.miningWallet.reservedMicronots,
     0n,
@@ -294,33 +297,36 @@ async function launchMiningBot() {
   // in case the entry was skipped
   config.isPreparingMinerSetup = true;
   const biddingRules = config.biddingRules;
-  if (wallets.miningWallet.availableMicrogons > biddingRules.startingMicrogons) {
-    biddingRules.sidelinedMicrogons = wallets.miningWallet.availableMicrogons - biddingRules.startingMicrogons;
+  if (wallets.miningWallet.availableMicrogons > biddingRules.initialMicrogonRequirement) {
+    biddingRules.initialMicrogonRequirement = wallets.miningWallet.availableMicrogons;
   }
-  if (wallets.miningWallet.availableMicronots > biddingRules.startingMicronots) {
-    biddingRules.sidelinedMicrogons = wallets.miningWallet.availableMicronots - biddingRules.startingMicronots;
+  if (wallets.miningWallet.availableMicronots > biddingRules.initialMicronotRequirement) {
+    biddingRules.initialMicronotRequirement = wallets.miningWallet.availableMicronots;
   }
+  const micronotsAsMicrogons = currency.micronotToMicrogon(wallets.miningWallet.availableMicronots);
+  const capitalCommitment = wallets.miningWallet.availableMicrogons + micronotsAsMicrogons;
+  biddingRules.initialCapitalCommitment = capitalCommitment;
+
   config.biddingRules = biddingRules;
   await config.save();
   await installer.run();
   isLaunchingMiningBot.value = false;
 }
 
-Vue.watch(
-  config.vaultingRules,
-  () => {
-    calculator.calculateBidAmounts();
-    averageAPY.value = calculator.averageAPY;
-  },
-  { deep: true },
-);
+async function updateAPYs() {
+  calculator.updateBiddingRules(config.biddingRules);
+  calculator.calculateBidAmounts();
+  averageAPY.value = calculator.averageAPY;
+
+  const projections = calculator.runProjections(config.biddingRules, 'maximum');
+  capitalCommitment.value = config.biddingRules.initialCapitalCommitment || projections.capitalCommitment;
+}
+
+Vue.watch(config.biddingRules, () => updateAPYs(), { deep: true });
 
 Vue.onMounted(async () => {
-  calculatorData.load().then(() => {
-    calculator.updateBiddingRules(config.biddingRules);
-    calculator.calculateBidAmounts();
-    averageAPY.value = calculator.averageAPY;
-  });
+  await calculatorData.load();
+  await updateAPYs();
 });
 </script>
 

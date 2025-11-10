@@ -23,7 +23,7 @@
       Collateral Provided
     </div>
     <div class="flex flex-row items-center gap-2 w-full">
-      <InputNumber v-model="collateralProvided" @update:model-value="updateCollateral" :min="100" :max="100" :dragBy="1" :maxDecimals="0" format="percent" class="w-1/2" />
+      <InputNumber v-model="collateralProvided" @input="updateCollateral" :min="100" :max="100" :dragBy="1" :maxDecimals="0" format="percent" class="w-1/2" />
       <div>=</div>
       <div class="border border-slate-400 rounded-md px-2 py-1 h-[32px] border-dashed w-1/2 font-mono text-sm text-gray-800">
         {{ config.vaultingRules.securitizationRatio }} to 1

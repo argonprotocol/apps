@@ -20,7 +20,7 @@
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
               <DialogTitle as="div" class="relative z-10">Configure Your Stabilization Vault</DialogTitle>
-              <div @click="cancelOverlay" class="absolute top-[22px] right-[0px] z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
+              <div @click="cancelOverlay" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
                 <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
               </div>
             </h2>
@@ -37,7 +37,7 @@
                     </div>
                   </PopoverTrigger>
                   <PopoverPortal>
-                    <PopoverContent side="bottom" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30 z-1000">
+                    <PopoverContent @escapeKeyDown="stopSuggestingTour" side="bottom" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30 z-1000">
                       <p class="text-gray-800 font-light">We recommend first-time vaulters start with a brief tour of how to use this overlay.</p>
                       <div class="flex flex-row space-x-2 mt-6">
                         <button @click="stopSuggestingTour" tabindex="-1" class="cursor-pointer grow rounded-md border border-slate-500/30 px-4 py-1 focus:outline-none">Not Now</button>
@@ -54,7 +54,7 @@
                   <div PrimaryStat :isTouring="currentTourStep === 1" ref="capitalToCommitElement" class="flex flex-col grow group border border-slate-500/30 rounded-lg shadow-sm">
                     <header StatHeader class="mx-0.5 pt-5 pb-0 relative">
                       <tooltip side="top" content="The amount you're willing to invest in your vault">
-                        Capital {{ isBrandNew ? 'to Commit' : 'Committed' }}
+                        Capital {{ config.isVaultActivated ? 'Committed' : 'to Commit' }}
                       </tooltip>
                     </header>
                     <div class="grow flex flex-col mt-3 border-t border-slate-500/30 border-dashed w-10/12 mx-auto">
@@ -107,7 +107,7 @@
                         </ReturnsOverlay>
                       </div>
                       <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full">
-                      This <tooltip content="It's a blended approximation that is probably wrong">represents an average</tooltip> of all your estimated vaulting<br/>
+                      This <tooltip content="It's more of a blended approximation">represents an average</tooltip> of all your estimated vaulting<br/>
                       returns
                       <template v-if="vaultLowUtilizationAPY < 999_999 || vaultHighUtilizationAPY < 999_999">
                         which range between
@@ -287,7 +287,6 @@ function cancelOverlay() {
 }
 
 function closeEditBoxOverlay() {
-  // hasEditBoxOverlay.value = false;
   vaultSettings.value?.closeEditBoxOverlay();
 }
 
@@ -389,8 +388,12 @@ Vue.onMounted(async () => {
   [PrimaryStat] {
     @apply relative;
 
-    [tooltip]:focus {
-      @apply text-argon-600;
+    [tooltip] {
+      @apply text-argon-600/60 transition-all duration-300;
+
+      &:focus {
+        @apply text-argon-600;
+      }
     }
 
     &:hover {

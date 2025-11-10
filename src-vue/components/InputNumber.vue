@@ -60,7 +60,7 @@
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
 import NumArrow from '../assets/num-arrow.svg?component';
-import numeral from '../lib/numeral';
+import numeral from 'numeral';
 import Tooltip from './Tooltip.vue';
 import { twMerge } from 'tailwind-merge';
 
@@ -98,6 +98,7 @@ const currentInputValueFormatted = Vue.ref(formatFn(currentInputValue));
 const inputValueInserted = Vue.ref('');
 
 const emit = defineEmits<{
+  (e: 'input', value: number): void;
   (e: 'update:modelValue', value: number): void;
 }>();
 
@@ -131,7 +132,11 @@ const suffix = Vue.computed(() => {
   return sfx;
 });
 
-function updateInputValue(inputValue: number, setAsLastValueBeforeMinIncrease: boolean = false) {
+function updateInputValue(
+  inputValue: number,
+  isManualInput: boolean,
+  setAsLastValueBeforeMinIncrease: boolean = false,
+) {
   const boundedInputValue = calculateBoundedInputValue(inputValue);
   currentInputValue = inputValue;
 
@@ -147,11 +152,14 @@ function updateInputValue(inputValue: number, setAsLastValueBeforeMinIncrease: b
   if (boundedInputValue !== inputValue) {
     minMaxInputValueTimeoutId = window.setTimeout(() => {
       if (inputValue !== currentInputValue) return;
-      updateInputValue(boundedInputValue);
+      updateInputValue(boundedInputValue, isManualInput);
     }, 1_000);
   }
 
   emit('update:modelValue', boundedInputValue);
+  if (isManualInput) {
+    emit('input', boundedInputValue);
+  }
   insertIntoInputElem(inputValue);
 }
 
@@ -276,7 +284,7 @@ function handleBlur() {
   if (activeElementIsOther) {
     hasFocus.value = false;
     const boundedInputValue = calculateBoundedInputValue(currentInputValue);
-    updateInputValue(boundedInputValue);
+    updateInputValue(boundedInputValue, true);
   }
 }
 
@@ -419,7 +427,7 @@ function emitDrag(event: PointerEvent) {
     }
 
     if (newValue !== currentInputValue) {
-      updateInputValue(newValue, true);
+      updateInputValue(newValue, true, true);
     }
   }
 }
@@ -535,7 +543,7 @@ function handlePaste(event: ClipboardEvent) {
   pendingCaretPosition = calculatedCaretPosition;
 
   if (!isNaN(numericValue)) {
-    updateInputValue(numericValue, true);
+    updateInputValue(numericValue, true, true);
   }
 }
 
@@ -568,7 +576,7 @@ function handleInput() {
       clearTimeout(updateInputValueTimer);
     }
     updateInputValueTimer = setTimeout(() => {
-      updateInputValue(boundedInputValue, true);
+      updateInputValue(boundedInputValue, true, true);
     }, 1e3);
   }
 
@@ -729,7 +737,7 @@ Vue.watch(
   () => props.modelValue,
   (x: number) => {
     if (x !== currentInputValue) {
-      updateInputValue(x);
+      updateInputValue(x, false);
     }
   },
 );
@@ -742,9 +750,9 @@ Vue.watch(
 
     if (currentInputValue < newMinValue) {
       lastValueBeforeMinIncrease = Math.min(currentInputValue, lastValueBeforeMinIncrease);
-      updateInputValue(newMinValue);
+      updateInputValue(newMinValue, false);
     } else if (currentInputValue > newMinValue && currentInputValue > lastValueBeforeMinIncrease) {
-      updateInputValue(Math.max(newMinValue, lastValueBeforeMinIncrease));
+      updateInputValue(Math.max(newMinValue, lastValueBeforeMinIncrease), false);
     }
   },
   { immediate: true },

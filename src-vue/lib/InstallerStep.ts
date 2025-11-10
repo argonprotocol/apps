@@ -40,9 +40,9 @@ export const stepLabels: IStepLabel[] = [
   {
     key: InstallStepKey.DockerInstall,
     options: [
-      `Verify Docker v28.0 and Install Required Images`,
-      `Verifying Docker v28.0 and Installing Required Images`,
-      `Verified Docker v28.0 and Installed Required Images`,
+      `Verify Docker v27+ and Install Required Images`,
+      `Verifying Docker v27+ and Installing Required Images`,
+      `Verified Docker v27+ and Installed Required Images`,
     ],
   },
   {

@@ -39,54 +39,6 @@
           <TooltipTrigger asChild>
             <Arrows
               :class="
-                unlockStep === UnlockStep.IsProcessingOnArgon ? 'text-argon-600/80 processing-active' : 'text-black/10'
-              "
-              class="ml-8 min-h-[34px] pr-2" />
-          </TooltipTrigger>
-          <TooltipContent
-            side="bottom"
-            :sideOffset="-7"
-            align="center"
-            :collisionPadding="9"
-            class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center font-light text-slate-900/60 shadow-2xl">
-            Argon miners will validate your request and kick-off the unlocking process.
-            <TooltipArrow :width="27" :height="15" class="-mt-px ml-2 fill-white stroke-gray-800/20 stroke-[0.5px]" />
-          </TooltipContent>
-        </TooltipRoot>
-
-        <TooltipRoot :delayDuration="100">
-          <TooltipTrigger asChild>
-            <div
-              :class="
-                unlockStep === UnlockStep.IsWaitingForVault
-                  ? 'text-argon-600 border-argon-600 bg-slate-400/10'
-                  : 'border-slate-600/20 bg-white text-black/20'
-              "
-              class="relative z-0 w-1/3 grow border-y px-2 py-1 text-center text-base font-bold">
-              Wait for Cosigning
-              <Arrow
-                :class="unlockStep === UnlockStep.IsWaitingForVault ? '' : 'text-slate-600/20'"
-                class="absolute -top-px left-0 h-[calc(100%+2.1px)] w-5 fill-white" />
-              <Arrow
-                :class="unlockStep === UnlockStep.IsWaitingForVault ? 'fill-slate-400/10' : 'text-slate-600/20'"
-                class="absolute -top-px right-0 h-[calc(100%+2.1px)] w-5 translate-x-full" />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent
-            side="bottom"
-            :sideOffset="-7"
-            align="center"
-            :collisionPadding="9"
-            class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center font-light text-slate-900/60 shadow-2xl">
-            Your vault must co-sign the bitcoin multisig transaction and submit it to the network.
-            <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-          </TooltipContent>
-        </TooltipRoot>
-
-        <TooltipRoot :delayDuration="100">
-          <TooltipTrigger asChild>
-            <Arrows
-              :class="
                 unlockStep === UnlockStep.IsProcessingOnBitcoin
                   ? 'text-argon-600/80 processing-active'
                   : 'text-black/10'

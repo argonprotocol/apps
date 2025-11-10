@@ -22,7 +22,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from '../../lib/numeral.ts';
+import numeral from 'numeral';
 import { useCurrency } from '../../stores/currency.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { useMyVault } from '../../stores/vaults.ts';

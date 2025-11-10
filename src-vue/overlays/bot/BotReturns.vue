@@ -22,9 +22,14 @@
 
           <p>
             Regardless of price, each seat in today's auction is guaranteed to earn an average of
-            {{ microgonToArgonNm(calculatorData.microgonsToMineThisSeat).format('0,0') }} argons and
-            {{ micronotToArgonotNm(calculatorData.micronotsToMineThisSeat).format('0,0') }} argonots. This provides the
-            safety of a profit minimum.
+            {{ microgonToArgonNm(calculatorData.microgonsToMineThisSeat).format('0,0.00') }} argons and
+            {{ micronotToArgonotNm(calculatorData.micronotsToMineThisSeat).format('0,0.00') }} argonots, which currently
+            has a market value of {{ currency.symbol
+            }}{{
+              microgonToMoneyNm(calculatorData.microgonsToMineThisSeat + calculatorData.micronotsToMineThisSeat).format(
+                '0,0.00',
+              )
+            }}. This provides the safety of a profit minimum.
           </p>
 
           <p>
@@ -42,7 +47,7 @@
               <tr class="text-argon-600 h-1/3">
                 <td class="w-5/12"></td>
                 <td class="text-argon-800/40 w-5/12 pl-5 text-right font-sans font-light">Slow Growth</td>
-                <td class="text-argon-800/40 w-5/12 pl-5 text-right font-sans font-light">Medium Growth</td>
+                <td class="text-argon-800/40 w-5/12 pl-5 text-right font-sans font-light">Average Growth</td>
                 <td class="text-argon-800/40 w-5/12 pl-5 text-right font-sans font-light">Fast Growth</td>
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
@@ -126,11 +131,16 @@ function updateAPYs() {
   startingBidAmount.value = calculator.startingBidAmount;
 
   maximumBidAtSlowGrowthAPY.value = calculator.maximumBidAtSlowGrowthAPY;
-  maximumBidAtMediumGrowthAPY.value = (calculator.maximumBidAtSlowGrowthAPY + calculator.maximumBidAtFastGrowthAPY) / 2;
+  maximumBidAtMediumGrowthAPY.value =
+    (Math.min(calculator.maximumBidAtSlowGrowthAPY, 999_999) +
+      Math.min(calculator.maximumBidAtFastGrowthAPY, 999_999)) /
+    2;
   maximumBidAtFastGrowthAPY.value = calculator.maximumBidAtFastGrowthAPY;
   startingBidAtSlowGrowthAPY.value = calculator.startingBidAtSlowGrowthAPY;
   startingBidAtMediumGrowthAPY.value =
-    (calculator.startingBidAtSlowGrowthAPY + calculator.startingBidAtFastGrowthAPY) / 2;
+    (Math.min(calculator.startingBidAtSlowGrowthAPY, 999_999) +
+      Math.min(calculator.startingBidAtFastGrowthAPY, 999_999)) /
+    2;
   startingBidAtFastGrowthAPY.value = calculator.startingBidAtFastGrowthAPY;
 }
 

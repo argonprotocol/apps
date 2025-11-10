@@ -89,7 +89,6 @@
         </div>
 
         <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
-
         <div class="text-center font-light text-gray-500">
           {{ progressLabel }}
         </div>
