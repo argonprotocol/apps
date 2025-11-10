@@ -48,6 +48,13 @@ export class MyVault {
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
     currentFrameId: number;
     prebondedMicrogons: bigint;
+    pendingCollectTxInfo: TransactionInfo<{ expectedCollectRevenue: bigint; cosignedUtxoIds: number[] }> | null;
+    pendingAllocateTxInfo: TransactionInfo<{
+      prebondedMicrogons: bigint;
+      addedSecuritizationMicrogons: bigint;
+      addedTreasuryMicrogons: bigint;
+      vaultId: number;
+    }> | null;
   };
 
   public get createdVault(): Vault | null {
@@ -85,6 +92,8 @@ export class MyVault {
       stats: null,
       ownTreasuryPoolCapitalDeployed: 0n,
       pendingCollectRevenue: 0n,
+      pendingCollectTxInfo: null,
+      pendingAllocateTxInfo: null,
       pendingCosignUtxoIds: new Set(),
       nextCollectDueDate: 0,
       expiringCollectAmount: 0n,
@@ -319,10 +328,11 @@ export class MyVault {
           throw new Error("Failed to add the vault's co-signature.");
         }
         if (!lock.releaseCosignVaultSignature) {
-          await result.txResult.waitForInFirstBlock;
+          const txResult = result.txInfo.txResult;
+          await txResult.waitForInFirstBlock;
           await this.bitcoinLocksStore.updateVaultUnlockingSignature(lock, {
             signature: result.vaultSignature,
-            blockHeight: result.txResult.blockNumber!,
+            blockHeight: txResult.blockNumber!,
           });
         }
       }
@@ -335,12 +345,11 @@ export class MyVault {
     }
   }
 
-  private async cosignRelease(args: {
+  private async buildCosignTx(args: {
     utxoId: number;
     bitcoinNetworkFee: bigint;
     toScriptPubkey: string;
-    progressCallback?: ITxProgressCallback;
-  }): Promise<{ txResult: TxResult; vaultSignature: Uint8Array } | undefined> {
+  }): Promise<{ tx: SubmittableExtrinsic; vaultSignature: Uint8Array } | undefined> {
     const { utxoId, bitcoinNetworkFee, toScriptPubkey } = args;
 
     const finalizedClient = await getFinalizedClient();
@@ -370,40 +379,39 @@ export class MyVault {
       utxoRef,
     });
     const vaultXpriv = await this.getVaultXpriv();
-    const argonKeyring = await this.walletKeys.getVaultingKeypair();
     const signedPsbt = cosign.vaultCosignPsbt(psbt, lock, vaultXpriv);
     const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
     if (!vaultSignature) {
       throw new Error('Failed to get vault signature from PSBT for utxoId: ' + utxoId);
     }
+    const client = await getMainchainClient(false);
+    const signature = u8aToHex(vaultSignature);
+    return { tx: client.tx.bitcoinLocks.cosignRelease(utxoId, signature), vaultSignature };
+  }
 
-    console.log('Submitting vault signature', {
-      utxoId,
-      vaultSignature,
-      argonKeyring,
-      useLatestNonce: true,
-      disableAutomaticTxTracking: true,
-    });
-    const txResult = await BitcoinLock.submitVaultSignature({
-      client: await getMainchainClient(false),
-      utxoId,
-      vaultSignature,
-      argonKeyring,
-      useLatestNonce: true,
-      disableAutomaticTxTracking: true,
-    });
-    if (!txResult) {
-      throw new Error('Failed to submit vault signature for utxoId: ' + utxoId);
+  private async cosignRelease(args: {
+    utxoId: number;
+    bitcoinNetworkFee: bigint;
+    toScriptPubkey: string;
+    progressCallback?: ITxProgressCallback;
+  }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
+    const { utxoId } = args;
+    const cosignResult = await this.buildCosignTx(args);
+    if (!cosignResult) {
+      return;
     }
-    console.log('Submitted vault signature', txResult);
+    const { tx, vaultSignature } = cosignResult;
 
-    const result = await this.#transactionTracker.trackTxResult({
-      txResult,
+    const argonKeyring = await this.walletKeys.getVaultingKeypair();
+    const txInfo = await this.#transactionTracker.submitAndWatch({
+      tx,
+      signer: argonKeyring,
+      useLatestNonce: true,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
       metadata: { utxoId },
     });
-    void this.onCosignResult(result);
-    return { txResult, vaultSignature };
+    void this.onCosignResult(txInfo);
+    return { txInfo: txInfo, vaultSignature };
   }
 
   private async onCosignResult(txInfo: TransactionInfo<{ utxoId: number }>): Promise<void> {
@@ -416,67 +424,49 @@ export class MyVault {
     isProcessed.resolve();
   }
 
-  public async collect(
-    progressCallback?: (cosignProgress: number, activeTransactionProgress: number, steps: number) => void,
-  ) {
+  public async collect(): Promise<TransactionInfo> {
     if (!this.createdVault) {
       throw new Error('No vault created to collect revenue');
     }
     if (!this.metadata) {
       throw new Error('No metadata available to collect revenue');
     }
-    const toCollect = this.data.pendingCosignUtxoIds;
-
-    const steps = toCollect.size + 1; // +1 for the final collect transaction
-    let completed = 0;
+    const toCollect = [...this.data.pendingCosignUtxoIds];
+    const expectedCollectRevenue = this.data.pendingCollectRevenue;
     // You should only cosign finalized releases, so we get a finalized client
     const finalizedClient = await getFinalizedClient();
     const argonKeyring = await this.walletKeys.getVaultingKeypair();
-    const allCollectTxs: Promise<any>[] = [];
+    const txs: SubmittableExtrinsic[] = [];
     for (const utxoId of toCollect) {
       const pendingReleaseRaw = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
       if (pendingReleaseRaw.isNone) {
         continue;
       }
       const pendingRelease = pendingReleaseRaw.unwrap();
-
-      const result = await this.cosignRelease({
+      const result = await this.buildCosignTx({
         utxoId,
         bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee.toBigInt(),
         toScriptPubkey: pendingRelease.toScriptPubkey.toHex(),
-        progressCallback(progressPct) {
-          if (progressCallback) {
-            progressCallback((completed * 100) / steps, progressPct, steps);
-          }
-        },
       });
-      if (result) allCollectTxs.push(result.txResult.waitForInFirstBlock);
-      completed++;
+      if (result) txs.push(result.tx);
     }
-    await Promise.all(allCollectTxs);
 
     // now we can collect!
     const client = await getMainchainClient(false);
-    const { txResult } = await this.#transactionTracker.submitAndWatch({
-      tx: client.tx.vaults.collect(this.createdVault.vaultId),
+    const txInfo = await this.#transactionTracker.submitAndWatch({
+      tx: client.tx.utility.batchAll([...txs, client.tx.vaults.collect(this.createdVault.vaultId)]),
       signer: argonKeyring,
       extrinsicType: ExtrinsicType.VaultCollect,
-      metadata: { vaultId: this.createdVault.vaultId, index: completed, count: steps },
+      metadata: { vaultId: this.createdVault.vaultId, cosignedUtxoIds: toCollect, expectedCollectRevenue },
       useLatestNonce: true,
-      txProgressCallback(progressPct) {
-        if (progressCallback) {
-          progressCallback((completed * 100) / steps, progressPct, steps);
-        }
-      },
     });
-    void txResult.waitForFinalizedBlock.then(async () => {
-      await this.trackTxResultFee(txResult, true);
-      completed++;
-      if (progressCallback) {
-        progressCallback(100, 100, steps);
-      }
+    this.data.pendingCollectTxInfo = txInfo;
+    void txInfo.txResult.waitForFinalizedBlock.then(async () => {
+      await this.trackTxResultFee(txInfo.txResult, true);
+      await txInfo.txResult.waitForFinalizedBlock;
+      this.data.pendingCollectTxInfo = null;
     });
-    return txResult;
+    return txInfo;
   }
 
   public async createNew(args: {
@@ -888,11 +878,39 @@ export class MyVault {
     await this.saveMetadata();
   }
 
+  public async getVaultAllocations(unusedBalance: bigint, rules: IVaultingRules) {
+    const vault = this.createdVault;
+    if (!vault) {
+      throw new Error('No vault created to get allocations');
+    }
+    const { microgonsForSecuritization, microgonsForTreasury } = MyVault.getMicrogonSplit(
+      {
+        ...rules,
+        baseMicrogonCommitment: rules.baseMicrogonCommitment + unusedBalance,
+      },
+      this.metadata?.operationalFeeMicrogons ?? 0n,
+    );
+
+    const activeTreasuryFunds = await this.activeMicrogonsForTreasuryPool();
+    const amountAllocatedToTreasury = activeTreasuryFunds.maxAmountPerFrame
+      ? activeTreasuryFunds.maxAmountPerFrame * 10n
+      : activeTreasuryFunds.active;
+    const securitizationShortage = bigIntMax(0n, microgonsForSecuritization - vault.securitization);
+    const treasuryShortage = bigIntMax(0n, microgonsForTreasury - amountAllocatedToTreasury);
+
+    return {
+      securitizationMicrogons: vault.securitization,
+      treasuryMicrogons: amountAllocatedToTreasury,
+      proposedTreasuryMicrogons: amountAllocatedToTreasury + treasuryShortage,
+      proposedSecuritizationMicrogons: vault.securitization + securitizationShortage,
+    };
+  }
+
   public async increaseVaultAllocations(args: {
     addedSecuritizationMicrogons: bigint;
     addedTreasuryMicrogons: bigint;
     tip?: bigint;
-  }): Promise<TransactionInfo> {
+  }) {
     const { tip = 0n, addedSecuritizationMicrogons, addedTreasuryMicrogons } = args;
 
     const vault = this.createdVault;
@@ -934,9 +952,12 @@ export class MyVault {
       metadata: {
         prebondedMicrogons,
         vaultId: vault.vaultId,
+        addedSecuritizationMicrogons,
+        addedTreasuryMicrogons,
       },
       tip,
     });
+    this.data.pendingAllocateTxInfo = info;
     void this.onIncreaseVaultAllocations(info);
     return info;
   }
@@ -944,6 +965,7 @@ export class MyVault {
   private async onIncreaseVaultAllocations(txInfo: TransactionInfo<{ prebondedMicrogons: bigint }>): Promise<void> {
     const { tx, txResult, isProcessed } = txInfo;
     const blockHash = await txResult.waitForFinalizedBlock;
+    this.data.pendingAllocateTxInfo = null;
     console.log('Vault allocations increased');
     const metadata = this.metadata!;
     const client = await getMainchainClient(true);

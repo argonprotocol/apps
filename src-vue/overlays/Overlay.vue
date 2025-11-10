@@ -8,10 +8,10 @@
             <BgOverlay @close="closeOverlay" />
           </Motion>
         </DialogOverlay>
-        
+
         <DialogContent asChild @escapeKeyDown="handleEscapeKeyDown" :aria-describedby="undefined">
           <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-            <div 
+            <div
               :ref="draggable.setModalRef"
               :style="{
                 top: `calc(50% + ${draggable.modalPosition.y}px)`,
@@ -28,14 +28,14 @@
                 <slot name="title">
                   <DialogTitle class="grow pt-1">{{ title }}</DialogTitle>
                 </slot>
-                <DialogTitle 
+                <DialogTitle
                   v-if="props.showCloseIcon"
                   @click="closeOverlay"
                   class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
                 >
                   <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
                 </DialogTitle>
-              </h2>              
+              </h2>
               <slot />
             </div>
           </Motion>
@@ -79,5 +79,6 @@ function closeOverlay() {
 
 function handleEscapeKeyDown() {
   emit('esc');
+  emit('close');
 }
 </script>

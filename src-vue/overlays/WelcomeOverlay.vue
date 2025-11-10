@@ -3,14 +3,14 @@
   <Overlay :isOpen="isOpen" :showCloseIcon="false" title="Welcome to the Argon Investor Console" class="w-7/12">
     <div class="mx-2 pl-5 pr-10 pt-5 space-y-3 font-light leading-6">
       <p>
-        You might already be familiar with Argon, but in case you're not: Argon is the first crypto asset 
-        designed to remain truly stable. It achieves this with zero off-chain collateral and zero centralized control. Argon is a 
+        You might already be familiar with Argon, but in case you're not: Argon is the first crypto asset
+        designed to remain truly stable. It achieves this with zero off-chain collateral and zero centralized control. Argon is a
         breakthrough in the quest for a global currency that's free from inflation and the debt-ridden nature of fiat money.
       </p>
 
       <p>
-        This app is built for a select group of early insiders who want to participate in running Argon's blockchain -- whether by 
-        mining new blocks or by vaulting to help stabilize the currency. Argon Investor guides you through setting up operations, handling 
+        This app is built for a select group of early insiders who want to participate in running Argon's blockchain -- whether by
+        mining new blocks or by vaulting to help stabilize the currency. Argon Investor guides you through setting up operations, handling
         governance, and monitoring your capital flows. We recommend starting with the quick tour to get familiar.
       </p>
     </div>
