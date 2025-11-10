@@ -5,9 +5,15 @@
       <div class="text-2xl font-bold grow">Add Funds to Your {{ walletName }} Wallet</div>
     </template>
 
-    <div class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5">
+    <div v-if="requiresRulesToBeSet && walletId === 'mining'" class="flex flex-row items-center justify-center w-full pt-3 pb-5 px-5 gap-x-5 min-h-60">
+      <div>You haven't set any bidding rules. Please do so before adding funds.</div>
+    </div>
+    <div v-else-if="requiresRulesToBeSet && walletId === 'vaulting'" class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5 min-h-60">
+      You haven't set any vaulting rules. Please do so before adding funds.
+    </div>
+    <div v-else class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5">
       <div class="flex flex-col grow pt-2 text-md">
-        <div v-if="config.biddingRules" class="w-11/12">
+        <div class="w-11/12">
           <p class="font-light">
             You can use any polkadot/substrate compatible wallet to add funds to your account. Just scan the
             QR code shown on the right, or copy and paste the address that's printed below it.
@@ -61,12 +67,15 @@
             </tbody>
           </table>
 
-          <button @click="closeOverlay" class="w-full mt-8 bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 inner-button-shadow text-slate-900 px-4 py-2 rounded-lg focus:outline-none cursor-pointer">
+          <button 
+            @click="closeOverlay" 
+            :class="walletIsFullyFunded ? 'bg-argon-600 hover:bg-argon-700 border-argon-700 text-white' : 'bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 text-slate-900'"
+            class="w-full mt-8 inner-button-shadow px-4 py-2 rounded-lg focus:outline-none cursor-pointer"
+          >
             Close Wallet
           </button>
 
         </div>
-        <div v-else>You haven't set any bidding rules. Please do so before adding funds.</div>
       </div>
 
       <div class="flex flex-col w-full max-w-44 items-end justify-end">
@@ -104,6 +113,7 @@ import { createNumeralHelpers } from '../lib/numeral';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import basicEmitter from '../emitters/basicEmitter';
+import { useController } from '../stores/controller';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -113,19 +123,18 @@ const walletId: Vue.Ref<'mining' | 'vaulting'> = Vue.ref('mining');
 const config = useConfig();
 const wallets = useWallets();
 const currency = useCurrency();
+const controller = useController();
 const calculator = getBiddingCalculator();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const qrCode = Vue.ref('');
-const minimumBiddingMicrogonsForGoal = Vue.ref(0n);
-const minimumBiddingMicronotsForGoal = Vue.ref(0n);
+const requiredMicrogonsForGoal = Vue.ref(0n);
+const requiredMicronotsForGoal = Vue.ref(0n);
 
 const minimumMicrogonsNeeded = Vue.computed(() => {
   if (walletId.value === 'mining') {
-    const baseAmountNeeded = config.isMinerInstalled
-      ? minimumBiddingMicrogonsForGoal.value
-      : (config.biddingRules?.startingMicrogons ?? 0n);
+    const baseAmountNeeded = requiredMicrogonsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicrogons ?? 0n);
   } else if (walletId.value === 'vaulting') {
     return config.vaultingRules?.baseMicrogonCommitment || 0n;
@@ -135,9 +144,7 @@ const minimumMicrogonsNeeded = Vue.computed(() => {
 
 const minimumMicronotsNeeded = Vue.computed(() => {
   if (walletId.value === 'mining') {
-    const baseAmountNeeded = config.isMinerInstalled
-      ? minimumBiddingMicronotsForGoal.value
-      : (config.biddingRules?.startingMicronots ?? 0n);
+    const baseAmountNeeded = requiredMicronotsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicronots ?? 0n);
   } else if (walletId.value === 'vaulting') {
     return config.vaultingRules?.baseMicronotCommitment || 0n;
@@ -197,6 +204,22 @@ const wallet = Vue.computed(() => {
   }
 });
 
+const walletIsFullyFunded = Vue.computed(() => {
+  if (walletAllocatedMicronots.value < minimumMicronotsNeeded.value) return false;
+  if (walletAllocatedMicrogons.value < minimumMicrogonsNeeded.value) return false;
+  return true;
+});
+
+const requiresRulesToBeSet = Vue.computed(() => {
+  if (walletId.value === 'mining' && !config.hasSavedBiddingRules) {
+    return true;
+  }
+  if (walletId.value === 'vaulting' && !config.hasSavedVaultingRules) {
+    return true;
+  }
+  return false;
+});
+
 let calculatorIsSubscribed = false;
 
 async function load() {
@@ -206,9 +229,9 @@ async function load() {
     await config.isLoadedPromise;
 
     const loadSubscription = calculator.onLoad(() => {
-      const minimumCapitalRequirement = calculator.minimumCapitalRequirement(config.biddingRules);
-      minimumBiddingMicrogonsForGoal.value = minimumCapitalRequirement.startingMicrogons;
-      minimumBiddingMicronotsForGoal.value = minimumCapitalRequirement.micronots;
+      const projections = calculator.runProjections(config.biddingRules, 'maximum');
+      requiredMicrogonsForGoal.value = projections.microgonRequirement;
+      requiredMicronotsForGoal.value = projections.micronotRequirement;
     });
     Vue.onMounted(() => {
       loadSubscription.unsubscribe();
@@ -230,6 +253,7 @@ async function loadQRCode() {
 
 function closeOverlay() {
   isOpen.value = false;
+  controller.walletOverlayIsOpen = false;
 }
 
 basicEmitter.on('openWalletOverlay', async (data: any) => {
@@ -237,6 +261,7 @@ basicEmitter.on('openWalletOverlay', async (data: any) => {
   await load();
   isOpen.value = true;
   isLoaded.value = true;
+  controller.walletOverlayIsOpen = true;
 });
 </script>
 

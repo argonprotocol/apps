@@ -11,6 +11,7 @@
         <div
           :ref="draggable.setModalRef"
           :style="{
+            // TODO: Need to fix draggable so it works for this overlay
             // top: `calc(50% + ${draggable.modalPosition.y}px)`,
             // left: `calc(50% + ${draggable.modalPosition.x}px)`,
             // transform: 'translate(-50%, -50%)',
@@ -28,7 +29,7 @@
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
               <DialogTitle as="div" class="relative z-10">Configure Your Mining Bot</DialogTitle>
-              <div @click="cancelOverlay" class="absolute top-[22px] right-[0px] z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
+              <div @click="cancelOverlay" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
                 <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
               </div>
             </h2>
@@ -46,7 +47,7 @@
                     </div>
                   </PopoverTrigger>
                   <PopoverPortal>
-                    <PopoverContent side="bottom" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30 z-1000">
+                    <PopoverContent @escapeKeyDown="stopSuggestingTour" side="bottom" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30 z-1000">
                       <p class="text-gray-800 font-light">We recommend first-time miners start with a brief tour of how to use this overlay.</p>
                       <div class="flex flex-row space-x-2 mt-6">
                         <button @click="stopSuggestingTour" tabindex="-1" class="cursor-pointer grow rounded-md border border-slate-500/30 px-4 py-1 focus:outline-none">Not Now</button>
@@ -63,7 +64,7 @@
                   <div PrimaryStat :isTouring="currentTourStep === 1" ref="capitalToCommitElement" class="flex flex-col grow group border border-slate-500/30 rounded-lg shadow-sm">
                     <header StatHeader class="mx-0.5 pt-5 pb-0 relative">
                       <tooltip side="top" content="The amount you're willing to invest in mining seats">
-                        Capital {{ isBrandNew ? 'to Commit' : 'Committed' }}
+                        Capital {{ config.isMinerInstalled ? 'Committed' : 'to Commit' }}
                       </tooltip>
                     </header>
                     <div class="grow flex flex-col mt-3 border-t border-slate-500/30 border-dashed w-10/12 mx-auto">
@@ -72,18 +73,23 @@
                         {{getEpochSeatGoalCount()}} mining seats <tooltip content="An epoch is equivalent to ten days">per epoch</tooltip>, you need
                       </div>
                       <div class="flex flex-row items-center justify-center grow relative h-26 font-bold font-mono text-argon-600">
-                        <NeedMoreCapitalHover v-if="minimumCapitalCommitment > capitalToCommitMicrogons" :calculator="calculator" :seat-goal-count="getEpochSeatGoalCount()" :ideal-capital-commitment="minimumCapitalCommitment" @increase-capital-commitment="acceptMinimumCapitalCommitment()" />
-                        <InputArgon v-model="capitalToCommitMicrogons" :min="0n" :minDecimals="0" />
+                        <NeedMoreCapitalHover v-if="minimumCapitalCommitment > capitalCommitment" :calculator="calculator" :seat-goal-count="getEpochSeatGoalCount()" :ideal-capital-commitment="minimumCapitalCommitment" @increase-capital-commitment="acceptMinimumCapitalCommitment()" />
+                        <InputArgon v-model="capitalCommitment" :min="0n" :maxDecimals="2" @input="handleCapitalCommitmentInput" />
                         <CapitalOverlay align="end">
                           <PiechartIcon PiechartIcon class="ml-1 w-10 h-10 text-gray-300 hover:!text-argon-600" />
                         </CapitalOverlay>
                       </div>
                       <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full mx-auto">
                         This is the <tooltip content="Click the capital amount listed above to directly change your commitment">amount of capital you'll need</tooltip> for acquiring<br/>
-                        {{ micronotToArgonotNm(rules.startingMicronots).formatIfElse('<1', '0.00', '0,0') }}
-                        <tooltip content="Argonots are the ownership tokens of the network">argonot{{ micronotToArgonotNm(rules.startingMicronots).formatIfElse('<1', '0.00', '0,0') === '1' ? '' : 's' }}</tooltip>
-                        and {{ microgonToArgonNm(rules.startingMicrogons).formatIfElse('<100', '0,[0.]', '0,0') }}
-                        <tooltip content="Argons are the stable currency of the network">argon{{ microgonToArgonNm(rules.startingMicrogons).formatIfElse('<1', '0.00', '0,0') === '1' ? '' : 's' }}</tooltip>
+                        <tooltip content="Argons are the stable currency of the network">
+                          {{ microgonToArgonNm(rules.initialMicrogonRequirement).formatIfElse('<100', '0,0.[00]', '0,0') }}
+                          argon{{ microgonToArgonNm(rules.initialMicrogonRequirement).formatIfElse('<100', '0.[00]', '0,0') === '1' ? '' : 's' }}
+                        </tooltip>
+                        and 
+                        <tooltip content="Argonots are the ownership tokens of the network">
+                          {{ micronotToArgonotNm(rules.initialMicronotRequirement).formatIfElse('<100', '0.00', '0,0') }}
+                          argonot{{ micronotToArgonotNm(rules.initialMicronotRequirement).formatIfElse('<100', '0.[00]', '0,0') === '1' ? '' : 's' }}
+                        </tooltip>
                         at their <tooltip content="Prices reflect as closely as possible the real-time rates on Uniswap's trading exchange">current market rates</tooltip>.
                       </div>
                     </div>
@@ -241,7 +247,8 @@ const startingBidAtSlowGrowthAPY = Vue.ref(0);
 const startingBidAtFastGrowthAPY = Vue.ref(0);
 const maximumBidAtSlowGrowthAPY = Vue.ref(0);
 const maximumBidAtFastGrowthAPY = Vue.ref(0);
-const capitalToCommitMicrogons = Vue.ref(0n);
+
+const capitalCommitment = Vue.ref(0n);
 const minimumCapitalCommitment = Vue.ref(0n);
 
 const averageAPY = Vue.ref(0);
@@ -308,6 +315,7 @@ function cancelEditOverlay() {
 }
 
 function cancelOverlay() {
+  console.log('CANCEL OVERLAY');
   if (hasEditBoxOverlay.value) return;
 
   if (previousBiddingRules) {
@@ -336,12 +344,20 @@ async function saveRules() {
   }
 }
 
+function handleCapitalCommitmentInput() {
+  console.log('RUNNING handleCapitalCommitmentInput', capitalCommitment.value);
+  rules.value.initialCapitalCommitment = capitalCommitment.value;
+
+  const projections = calculator.runProjections(rules.value, 'maximum');
+  rules.value.initialMicrogonRequirement = projections.microgonRequirement;
+  rules.value.initialMicronotRequirement = projections.micronotRequirement;
+}
+
 function updateAPYs() {
   calculator.updateBiddingRules(rules.value);
   calculator.calculateBidAmounts();
 
   startingBidAmount.value = calculator.startingBidAmount;
-
   maximumBidAmount.value = calculator.maximumBidAmount;
 
   startingBidAtSlowGrowthAPY.value = calculator.startingBidAtSlowGrowthAPY;
@@ -351,56 +367,78 @@ function updateAPYs() {
 
   averageAPY.value = calculator.averageAPY;
 
-  const epochMinimumSlowYield = calculator.calculateTenDayYield('minimum', 'slow');
-  const epochMinimumFastYield = calculator.calculateTenDayYield('minimum', 'fast');
+  const epochStartingSlowYield = calculator.calculateTenDayYield('starting', 'slow');
+  const epochStartingFastYield = calculator.calculateTenDayYield('starting', 'fast');
   const epochMaximumSlowYield = calculator.calculateTenDayYield('maximum', 'slow');
   const epochMaximumFastYield = calculator.calculateTenDayYield('maximum', 'fast');
   epochPercentageYield.value =
-    (epochMinimumSlowYield + epochMinimumFastYield + epochMaximumSlowYield + epochMaximumFastYield) / 4;
+    (epochStartingSlowYield + epochStartingFastYield + epochMaximumSlowYield + epochMaximumFastYield) / 4;
 
-  const maxAffordableSeats = rules.value.startingMicronots / calculatorData.micronotsRequiredForBid;
+  const maxAffordableSeats = rules.value.initialMicronotRequirement / calculatorData.maximumMicronotsForBid;
 
-  const probableMinSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.maximumBidAmount);
+  const probableMinSeatsBn =
+    calculator.maximumBidAmount === 0n
+      ? new BigNumber(0)
+      : BigNumber(rules.value.initialMicrogonRequirement).dividedBy(
+          calculator.maximumBidAmount,
+        );
   probableMinSeats.value = Math.max(bigNumberToInteger(probableMinSeatsBn), 0);
-  if (probableMinSeats.value > maxAffordableSeats) {
+  if (probableMinSeats.value > Number(maxAffordableSeats)) {
     probableMinSeats.value = Number(maxAffordableSeats);
   }
 
-  const probableMaxSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.startingBidAmount);
+  const probableMaxSeatsBn =
+    calculator.startingBidAmount === 0n
+      ? new BigNumber(0)
+      : BigNumber(rules.value.initialMicrogonRequirement).dividedBy(
+          calculator.startingBidAmount,
+        );
   probableMaxSeats.value = Math.min(bigNumberToInteger(probableMaxSeatsBn), calculatorData.maxPossibleMiningSeatCount);
-  if (probableMaxSeats.value > maxAffordableSeats) {
+  if (probableMaxSeats.value > Number(maxAffordableSeats)) {
     probableMaxSeats.value = Number(maxAffordableSeats);
   }
 
-  const slowGrowthEarnings = BigInt(probableMinSeats.value) * calculator.slowGrowthRewards;
-  const fastGrowthEarnings = BigInt(probableMaxSeats.value) * calculator.fastGrowthRewards;
+  const safeProbableMinSeats = Number.isFinite(probableMinSeats.value)
+    ? Math.max(0, Math.trunc(probableMinSeats.value))
+    : 0;
+  const safeProbableMaxSeats = Number.isFinite(probableMaxSeats.value)
+    ? Math.max(0, Math.trunc(probableMaxSeats.value))
+    : 0;
+
+  probableMinSeats.value = safeProbableMinSeats;
+  probableMaxSeats.value = Math.min(safeProbableMaxSeats, calculatorData.maxPossibleMiningSeatCount);
+
+  const slowGrowthEarnings = BigInt(safeProbableMinSeats) * calculator.slowGrowthRewards;
+  const fastGrowthEarnings = BigInt(safeProbableMaxSeats) * calculator.fastGrowthRewards;
   averageEarnings.value = (slowGrowthEarnings + fastGrowthEarnings) / 2n;
 }
 
 function onBotSettingsChange() {
-  updateStartingMicrogons();
+  updateTokenRequirements();
   updateMinimumCapitalCommitment();
 }
-function updateStartingMicrogons() {
-  const seatCount = BigInt(getEpochSeatGoalCount());
-  rules.value.startingMicronots = seatCount * calculatorData.micronotsRequiredForBid;
-  rules.value.startingMicrogons =
-    capitalToCommitMicrogons.value - currency.micronotToMicrogon(rules.value.startingMicronots);
+
+function updateTokenRequirements() {
+  const projections = calculator.runProjections(rules.value, 'maximum');
+  rules.value.initialMicrogonRequirement = projections.microgonRequirement;
+  rules.value.initialMicronotRequirement = projections.micronotRequirement;
+  if (rules.value.initialCapitalCommitment) {
+    capitalCommitment.value = rules.value.initialCapitalCommitment;
+  } else {
+    capitalCommitment.value = projections.capitalCommitment;
+  }
 }
 
-Vue.watch(capitalToCommitMicrogons, capital => {
-  updateStartingMicrogons();
-});
-
 function updateMinimumCapitalCommitment() {
-  const { maxMicrogons, micronots } = calculator.minimumCapitalRequirement(rules.value);
-  const commitment = currency.micronotToMicrogon(micronots) + maxMicrogons;
-
-  minimumCapitalCommitment.value = bigIntMax(0n, bigIntCeil(commitment, 1_000_000n));
+  const { microgonRequirement, micronotRequirement } = calculator.runProjections(rules.value, 'maximum', true);
+  const commitment = currency.micronotToMicrogon(micronotRequirement) + microgonRequirement;
+  minimumCapitalCommitment.value = bigIntMax(0n, bigIntCeil(commitment, 10_000n));
 }
 
 function acceptMinimumCapitalCommitment() {
-  capitalToCommitMicrogons.value = minimumCapitalCommitment.value;
+  capitalCommitment.value = minimumCapitalCommitment.value;
+  rules.value.initialCapitalCommitment = undefined;
+  console.log('capitalCommitment.value', capitalCommitment.value)
 }
 
 function startTour() {
@@ -421,30 +459,38 @@ Vue.watch(rules, () => updateAPYs(), { deep: true });
 
 Vue.onMounted(async () => {
   isLoaded.value = false;
-
   isBrandNew.value = !config.hasSavedBiddingRules;
   isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingBotTour;
-  calculatorData.load().then(() => {
-    previousBiddingRules = JsonExt.stringify(config.biddingRules);
-    updateMinimumCapitalCommitment();
+
+  await calculatorData.load();
+
+  previousBiddingRules = JsonExt.stringify(config.biddingRules);
+  
+  updateAPYs();
+  updateTokenRequirements();
+  updateMinimumCapitalCommitment();
+  if (!rules.value.initialCapitalCommitment) {
     acceptMinimumCapitalCommitment();
+  }
+
+  if (isBrandNew.value && startingBidAtFastGrowthAPY.value > 20_000) {
+    /*
+      The default startingBidFormulaType is set at PreviousDayLow, which at least on testnet, is creating a
+      situation where the projected returns are astronomically high (and seemingly unrealistic). In order to
+      create a more realistic projected return, we're setting the startingBidFormulaType to 12% below BreakevenAtSlowGrowth.
+      We might remove this IF block in the future, but it seems a good safety fix for now.
+    */
+    rules.value.startingBidFormulaType = BidAmountFormulaType.BreakevenAtSlowGrowth;
+    rules.value.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
+    rules.value.startingBidAdjustRelative = -12.0;
     updateAPYs();
-    if (isBrandNew.value && startingBidAtFastGrowthAPY.value > 20_000) {
-      /*
-        The default startingBidFormulaType is set at PreviousDayLow, which at least on testnet, is creating a
-        situation where the projected returns are astronomically high (and seemingly unrealistic). In order to
-        create a more realistic projected return, we're setting the startingBidFormulaType to 12% below BreakevenAtSlowGrowth.
-        We might remove this IF block in the future, but it seems a good safety fix for now.
-      */
-      rules.value.startingBidFormulaType = BidAmountFormulaType.BreakevenAtSlowGrowth;
-      rules.value.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
-      rules.value.startingBidAdjustRelative = -12.0;
-      updateMinimumCapitalCommitment();
+    updateTokenRequirements();
+    updateMinimumCapitalCommitment();
+    if (!rules.value.initialCapitalCommitment) {
       acceptMinimumCapitalCommitment();
-      updateAPYs();
     }
-    isLoaded.value = true;
-  });
+  }
+  isLoaded.value = true;
 });
 </script>
 
@@ -486,7 +532,7 @@ Vue.onMounted(async () => {
     @apply relative;
 
     [tooltip] {
-      @apply transition-all duration-300;
+      @apply transition-all duration-300 text-argon-600/60;
 
       &:focus {
         @apply text-argon-600;

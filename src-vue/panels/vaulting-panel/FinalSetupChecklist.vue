@@ -97,7 +97,7 @@
       <button
         @click="createVault"
         :class="[
-          walletIsFullyFunded
+          walletIsFullyFunded && !controller.walletOverlayIsOpen
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30'
         ]"
@@ -114,6 +114,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import numeral from 'numeral';
 import basicEmitter from '../../emitters/basicEmitter';
 import { useConfig } from '../../stores/config';
 import { useWallets } from '../../stores/wallets';
@@ -122,16 +123,17 @@ import Checkbox from '../../components/Checkbox.vue';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getVaultCalculator } from '../../stores/mainchain.ts';
-import numeral from 'numeral';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreateOverlay from '../../overlays/VaultCreateOverlay.vue';
+import { useController } from '../../stores/controller';
 
 dayjs.extend(utc);
 
 const config = useConfig();
 const wallets = useWallets();
 const currency = useCurrency();
+const controller = useController();
 const calculator = getVaultCalculator();
 
 const averageAPY = Vue.ref(0);
@@ -146,7 +148,6 @@ const walletIsPartiallyFunded = Vue.computed(() => {
 });
 
 const walletIsFullyFunded = Vue.computed(() => {
-  console.log('Checking if wallet is fully funded', walletIsPartiallyFunded.value);
   if (!walletIsPartiallyFunded.value) {
     return false;
   }

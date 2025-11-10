@@ -54,6 +54,10 @@ body {
   background-color: #f9f2fa;
 }
 
+button {
+  @apply select-none;
+}
+
 .selectable-text {
   @apply cursor-text select-text;
 }

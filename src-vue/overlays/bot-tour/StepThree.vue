@@ -2,6 +2,7 @@
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
       <PopoverContent
+        @escapeKeyDown="previousStep"
         ref="boxRef"
         class="absolute z-[2001] -translate-y-full"
         :style="{ left, top, width: `${props.pos.width}px` }">

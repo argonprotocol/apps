@@ -24,7 +24,7 @@
         Internal Take
       </div>
       <div class="flex flex-row items-center gap-2 w-full">
-        <InputNumber v-model="internalProfitSharingPct" @update:modelValue="handleInternalChange" :min="0" :max="100" :dragBy="1" :dragByMin="0.1" :maxDecimals="1" format="percent" class="w-full" />
+        <InputNumber v-model="internalProfitSharingPct" @input="handleInternalChange" :min="0" :max="100" :dragBy="1" :dragByMin="0.1" :maxDecimals="1" format="percent" class="w-full" />
       </div>
     </div>
     <div class="flex flex-col pb-1 opacity-30">
@@ -35,7 +35,7 @@
         External Take
       </div>
       <div class="flex flex-row items-center gap-2 w-full">
-        <InputNumber v-model="config.vaultingRules.profitSharingPct" @update:modelValue="handleExternalChange" :min="0" :max="100" :dragBy="1" :dragByMin="0.1" :maxDecimals="1" format="percent" class="w-full" />
+        <InputNumber v-model="config.vaultingRules.profitSharingPct" @input="handleExternalChange" :min="0" :max="100" :dragBy="1" :dragByMin="0.1" :maxDecimals="1" format="percent" class="w-full" />
       </div>
     </div>
   </div>

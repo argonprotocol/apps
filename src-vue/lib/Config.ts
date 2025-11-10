@@ -436,7 +436,7 @@ export class Config implements IConfig {
   }
 
   public set biddingRules(value: IConfig['biddingRules']) {
-    this.setField('biddingRules', value);
+    this.setField('biddingRules', value, false);
   }
 
   public get vaultingRules(): IConfig['vaultingRules'] {
@@ -444,7 +444,7 @@ export class Config implements IConfig {
   }
 
   public set vaultingRules(value: IConfig['vaultingRules']) {
-    this.setField('vaultingRules', value);
+    this.setField('vaultingRules', value, false);
   }
 
   public get defaultCurrencyKey(): CurrencyKey {
@@ -508,10 +508,12 @@ export class Config implements IConfig {
     return this._loadedData[field];
   }
 
-  private setField<T extends keyof IConfig>(field: T, value: IConfig[T]): void {
+  private setField<T extends keyof IConfig>(field: T, value: IConfig[T], trySaveToDb = true): void {
     this._throwErrorIfNotLoaded();
     this._loadedData[field] = value;
-    this._tryFieldsToSave((dbFields as any)[field], value);
+    if (trySaveToDb) {
+      this._tryFieldsToSave((dbFields as any)[field], value);
+    }
   }
 
   private _throwErrorIfNotLoaded() {
@@ -740,8 +742,9 @@ const defaults: IConfigDefaults = {
       seatGoalPercent: 0,
       seatGoalInterval: SeatGoalInterval.Epoch,
 
-      startingMicrogons: 1_000n * BigInt(MICROGONS_PER_ARGON),
-      startingMicronots: 0n,
+      initialMicrogonRequirement: 0n,
+      initialMicronotRequirement: 0n,
+      initialCapitalCommitment: undefined,
 
       sidelinedMicronots: 0n,
       sidelinedMicrogons: 0n,

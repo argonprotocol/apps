@@ -203,7 +203,7 @@
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
                     <template v-if="!myVault.data.pendingAllocateTxInfo">
-                    {{ microgonToArgonNm(sidelinedMicrogons).format('0,0.[00]') }} Needs Activation
+                    {{ microgonToArgonNm(sidelinedMicrogons).format('0,0.[00]') }} Sidelined
                     </template>
                     <template v-else>
                       {{ microgonToArgonNm(myVault.data.pendingAllocateTxInfo.tx.metadataJson.addedSecuritizationMicrogons +

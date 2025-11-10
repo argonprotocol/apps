@@ -28,7 +28,7 @@
           <label class="font-bold opacity-40">Bitcoins to Lock</label>
           <InputNumber
             v-model="bitcoinAmount"
-            @update:modelValue="handleBtcChange"
+            @input="handleBtcChange"
             :maxDecimals="8"
             :min="0"
             :max="bitcoinSpaceInBtc"
@@ -44,7 +44,7 @@
           <label class="font-bold opacity-40">Argons to Receive</label>
           <InputArgon
             v-model="microgonAmount"
-            @update:modelValue="handleArgonChange"
+            @input="handleArgonChange"
             :maxDecimals="0"
             :min="0n"
             :max="bitcoinSpaceInMicrogons"

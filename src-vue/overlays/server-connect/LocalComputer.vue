@@ -86,6 +86,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import numeral from 'numeral';
 import { DialogDescription } from 'reka-ui';
 import DockerIcon from '../../assets/docker.svg?component';
 import DatabaseIcon from '../../assets/database.svg?component';
@@ -97,7 +98,6 @@ import { platformType } from '../../tauri-controls/utils/os.ts';
 import { IServerConnectChildExposed } from '../ServerConnectOverlay.vue';
 import { IConfigServerCreationLocalComputer } from '../../interfaces/IConfig';
 import { invokeWithTimeout } from '../../lib/tauriApi';
-import numeral from '../../lib/numeral';
 import { MiningMachine } from '../../lib/MiningMachine.ts';
 import { IS_TEST } from '../../lib/Env.ts';
 

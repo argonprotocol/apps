@@ -8,6 +8,9 @@ export const BLOCK_REWARD_INCREASE_PER_INTERVAL = BigInt(1_000);
 export const BLOCK_REWARD_MAX = BigInt(5_000_000);
 export const BLOCK_REWARD_INTERVAL = 118;
 
+const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.80;
+const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.20;
+
 export class Mining {
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
     return this.clients.prunedClientPromise ?? this.clients.archiveClientPromise;
@@ -167,9 +170,35 @@ export class Mining {
     return aggregateBidCosts;
   }
 
-  public async getMicronotsRequiredForBid(): Promise<bigint> {
+  public async getCurrentMicronotsForBid(): Promise<bigint> {
     const client = await this.prunedClientOrArchivePromise;
     return await client.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
+  }
+
+  public async getMaximumMicronotsForBid(): Promise<bigint> {
+    const client = await this.prunedClientOrArchivePromise;
+    const ownershipCirculation = await client.query.ownership.totalIssuance().then(x => x.toBigInt());
+    const nextCohortSize = await this.getNextCohortSize();
+    const currentMaxMiners = nextCohortSize * 10;
+    const baseOwnershipTokens = ownershipCirculation / BigInt(currentMaxMiners);
+    const maxValue = Math.ceil(MAXIMUM_ARGONOT_PRORATA_PERCENT *  Number(baseOwnershipTokens));
+
+    return BigInt(maxValue);
+  }
+
+  public async getMaximumMicronotsForEndOfEpochBid(): Promise<bigint> {
+    const currentMicronots = await this.getCurrentMicronotsForBid();
+
+    const adjustmentFactorNumerator = BigInt(ARGONOTS_PERCENT_ADJUSTMENT_DAMPER * 100);
+    const adjustmentFactorDenominator = 100n;
+    const compoundedNumerator = adjustmentFactorNumerator ** 10n;
+    const compoundedDenominator = adjustmentFactorDenominator ** 10n;
+    const adjustedMicronots = (currentMicronots * compoundedNumerator) / compoundedDenominator;
+
+    const maximumPossible = await this.getMaximumMicronotsForBid();
+    const maximumMicronots = Math.min(Number(adjustedMicronots), Number(maximumPossible));
+
+    return BigInt(maximumMicronots);
   }
 
   public async getMicrogonsPerBlockForMiner(api: ApiDecoration<'promise'>) {

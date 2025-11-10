@@ -10,7 +10,7 @@
       Percent of Bitcoin Space to Lock
     </div>
     <div class="flex flex-row items-center gap-2 w-full">
-      <InputNumber v-model="rules.personalBtcPct" @update:model-value="updateValue" :maxDecimals="0" class="w-5/12" :min="0" :max="100" :dragBy="1" :dragByMin="0.1" format="percent"  prefix='' />
+      <InputNumber v-model="rules.personalBtcPct" @input="updateValue" :maxDecimals="0" class="w-5/12" :min="0" :max="100" :dragBy="1" :dragByMin="0.1" format="percent"  prefix='' />
       <div>=</div>
       <div class="border border-slate-400 rounded-md px-2 py-1 h-[32px] border-dashed w-7/12 font-mono text-sm text-gray-800">
         {{ microgonToBtcNm(btcMicrogons).format('0,0[.00000000]') }} <span class="opacity-50">BTC</span>

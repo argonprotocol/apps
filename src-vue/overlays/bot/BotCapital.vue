@@ -30,10 +30,11 @@
             <tbody>
               <tr class="text-argon-600 h-1/3">
                 <td class="w-5/12"></td>
-                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Seat Goal</td>
                 <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Est. Seats</td>
-                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Est. Cost</td>
-                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Est. Earnings</td>
+                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Argons Per</td>
+                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Argonots Per</td>
+                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Cost Total</td>
+                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Earnings Total</td>
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
@@ -41,16 +42,19 @@
                   Maximum Bid ({{ currency.symbol }}{{ microgonToMoneyNm(maximumBidAmount).format('0,0.00') }})
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ seatGoalCount }}
+                  {{ maximumBidProbableSeatCount }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ probableMinSeats }}
+                  {{ microgonToArgonNm(maximumBidArgonPerSeat).format('0,0.[00]') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(maximumBidSeatsCost).format('0,0.00') }}
+                  {{ micronotToArgonotNm(maximumBidArgonotPerSeat).format('0,0.[00]') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(maximumBidSeatsEarnings).format('0,0.00') }}
+                  {{ currency.symbol }}{{ microgonToMoneyNm(maximumBidCostTotal).format('0,0.00') }}
+                </td>
+                <td class="border-t border-dashed border-slate-300 text-right">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(maximumBidEarningsTotal).format('0,0.00') }}
                 </td>
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
@@ -59,16 +63,19 @@
                   Starting Bid ({{ currency.symbol }}{{ microgonToMoneyNm(startingBidAmount).format('0,0.00') }})
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ seatGoalCount }}
+                  {{ startingBidProbableSeatCount }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ probableMaxSeats }}
+                  {{ microgonToArgonNm(startingBidArgonPerSeat).format('0,0.[00]') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(startingBidSeatsCost).format('0,0.00') }}
+                  {{ micronotToArgonotNm(startingBidArgonotPerSeat).format('0,0.[00]') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(startingBidSeatsEarnings).format('0,0.00') }}
+                  {{ currency.symbol }}{{ microgonToMoneyNm(startingBidCostTotal).format('0,0.00') }}
+                </td>
+                <td class="border-t border-dashed border-slate-300 text-right">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(startingBidEarningsTotal).format('0,0.00') }}
                 </td>
               </tr>
             </tbody>
@@ -101,20 +108,28 @@ const calculatorData = getBiddingCalculatorData();
 
 const config = useConfig();
 const currency = useCurrency();
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const rules = Vue.computed(() => config.biddingRules as IBiddingRules);
 
-const probableMinSeats = Vue.ref(0);
-const probableMaxSeats = Vue.ref(0);
-
-const maximumBidSeatsCost = Vue.ref(0n);
-const maximumBidSeatsEarnings = Vue.ref(0n);
-const startingBidSeatsCost = Vue.ref(0n);
-const startingBidSeatsEarnings = Vue.ref(0n);
+const startingBidAmount = Vue.ref(0n);
+const startingBidArgonPerSeat = Vue.ref(0n);
+const startingBidArgonotPerSeat = Vue.ref(0n);
+const startingBidCostPerSeat = Vue.ref(0n);
+const startingBidEarningsPerSeat = Vue.ref(0n);
+const startingBidProbableSeatCount = Vue.ref(0);
+const startingBidCostTotal = Vue.ref(0n);
+const startingBidEarningsTotal = Vue.ref(0n);
 
 const maximumBidAmount = Vue.ref(0n);
-const startingBidAmount = Vue.ref(0n);
+const maximumBidArgonPerSeat = Vue.ref(0n);
+const maximumBidArgonotPerSeat = Vue.ref(0n);
+const maximumBidCostPerSeat = Vue.ref(0n);
+const maximumBidEarningsPerSeat = Vue.ref(0n);
+const maximumBidProbableSeatCount = Vue.ref(0);
+const maximumBidCostTotal = Vue.ref(0n);
+const maximumBidEarningsTotal = Vue.ref(0n);
+
 const seatGoalCount = Vue.ref(rules.value.seatGoalCount);
 
 function updateAPYs() {
@@ -132,29 +147,28 @@ function updateAPYs() {
   maximumBidAmount.value = calculator.maximumBidAmount;
   startingBidAmount.value = calculator.startingBidAmount;
 
-  const probableMinSeatsBn =
-    calculator.maximumBidAmount > 0n
-      ? BigNumber(rules.value.startingMicrogons).dividedBy(calculator.maximumBidAmount)
-      : new BigNumber(0);
-  probableMinSeats.value = Math.max(probableMinSeatsBn.integerValue(BigNumber.ROUND_FLOOR).toNumber(), 0);
-
-  const probableMaxSeatsBn = BigNumber(rules.value.startingMicrogons).dividedBy(calculator.startingBidAmount);
-  probableMaxSeats.value = Math.min(
-    probableMaxSeatsBn.integerValue(BigNumber.ROUND_FLOOR).toNumber(),
-    calculatorData.maxPossibleMiningSeatCount,
-  );
-
   const averageEarningsPerSeat = (calculator.slowGrowthRewards + calculator.fastGrowthRewards) / 2n;
 
-  const minSeats = BigInt(probableMinSeats.value);
-  maximumBidSeatsCost.value =
-    minSeats * (calculator.maximumBidAmount + currency.micronotToMicrogon(calculatorData.micronotsRequiredForBid));
-  maximumBidSeatsEarnings.value = minSeats * averageEarningsPerSeat;
+  const startingProjections = calculator.runProjections(rules.value, 'starting');
+  startingBidProbableSeatCount.value = startingProjections.estimatedSeats;
+  startingBidArgonPerSeat.value = calculator.startingBidAmount;
+  startingBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
 
-  const maxSeats = BigInt(probableMaxSeats.value);
-  startingBidSeatsCost.value =
-    maxSeats * (calculator.startingBidAmount + currency.micronotToMicrogon(calculatorData.micronotsRequiredForBid));
-  startingBidSeatsEarnings.value = maxSeats * averageEarningsPerSeat;
+  const startingBidSeatsCount = BigInt(startingBidProbableSeatCount.value);
+  const startingBidSeatCost = calculator.startingBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
+  startingBidCostTotal.value = startingBidSeatsCount * startingBidSeatCost;
+  startingBidEarningsTotal.value = startingBidSeatsCount * averageEarningsPerSeat;
+
+  const maximumProjections = calculator.runProjections(rules.value, 'maximum');
+  maximumBidProbableSeatCount.value = maximumProjections.estimatedSeats;
+  maximumBidArgonPerSeat.value = calculator.maximumBidAmount;
+  maximumBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
+  console.log('MAXIMUM PROJECTIONS', maximumProjections);
+  
+  const maximumBidSeatCount = BigInt(maximumBidProbableSeatCount.value);
+  const maximumBidSeatCost = calculator.maximumBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
+  maximumBidCostTotal.value = maximumBidSeatCount * maximumBidSeatCost;
+  maximumBidEarningsTotal.value = maximumBidSeatCount * averageEarningsPerSeat;
 }
 
 Vue.onMounted(() => {

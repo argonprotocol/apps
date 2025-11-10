@@ -53,21 +53,21 @@ let expectedConfirmations = 0;
 const progressLabel = Vue.computed(() => {
   const step = progressPct.value <= 50 ? 'Submitted Vault ' : 'Activated Funding';
   if (blockConfirmations.value === -1) {
-    return `${step}... Waiting for 1st Block...`;
+    return `${step}... Waiting for 1st Argon Block...`;
   } else if (blockConfirmations.value === 0 && expectedConfirmations > 0) {
-    return `${step}... Waiting for 2nd Block...`;
+    return `${step}... Waiting for 2nd Argon Block...`;
   } else if (blockConfirmations.value === 1 && expectedConfirmations > 1) {
-    return `${step}... Waiting for 3rd Block...`;
+    return `${step}... Waiting for 3rd Argon Block...`;
   } else if (blockConfirmations.value === 2 && expectedConfirmations > 2) {
-    return `${step}... Waiting for 4th Block...`;
+    return `${step}... Waiting for 4th Argon Block...`;
   } else if (blockConfirmations.value === 3 && expectedConfirmations > 3) {
-    return `${step}... Waiting for 5th Block...`;
+    return `${step}... Waiting for 5th Argon Block...`;
   } else if (blockConfirmations.value === 4 && expectedConfirmations > 4) {
-    return `${step}... Waiting for 6th Block...`;
+    return `${step}... Waiting for 6th Argon Block...`;
   } else if (blockConfirmations.value === 5 && expectedConfirmations > 5) {
-    return `${step}... Waiting for 7th Block...`;
+    return `${step}... Waiting for 7th Argon Block...`;
   } else if (blockConfirmations.value === 6 && expectedConfirmations > 6) {
-    return `${step}... Waiting for 8th Block...`;
+    return `${step}... Waiting for 8th Argon Block...`;
   } else {
     return `${step}... Waiting for Finalization...`;
   }

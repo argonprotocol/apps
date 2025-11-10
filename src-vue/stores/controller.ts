@@ -20,6 +20,8 @@ export const useController = defineStore('controller', () => {
   const stopSuggestingBotTour = Vue.ref(false);
   const stopSuggestingVaultTour = Vue.ref(false);
 
+  const walletOverlayIsOpen = Vue.ref(false);
+
   function setPanelKey(value: PanelKey) {
     if (panelKey.value === value) return;
 
@@ -58,6 +60,7 @@ export const useController = defineStore('controller', () => {
     isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
+    walletOverlayIsOpen,
     importFromFile,
     importFromMnemonic,
     setPanelKey,

@@ -54,13 +54,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import numeral from 'numeral';
 import { abbreviateAddress } from '../../lib/Utils';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../../components/BitcoinQrCode.vue';
 import CopyIcon from '../../assets/copy.svg?component';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
-import numeral from '../../lib/numeral.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import Spinner from '../../components/Spinner.vue';

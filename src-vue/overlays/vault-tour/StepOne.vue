@@ -1,7 +1,7 @@
 <template>
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
-      <PopoverContent ref="boxRef" class="absolute z-[2001]" :style="{ left, top, width: `${props.pos.width}px` }">
+      <PopoverContent @escapeKeyDown="cancelTour" ref="boxRef" class="absolute z-[2001]" :style="{ left, top, width: `${props.pos.width}px` }">
         <div Arrow ref="arrowRef" class="absolute top-0.5 left-6/12 z-1 -translate-y-full">
           <svg
             class="relative z-10"

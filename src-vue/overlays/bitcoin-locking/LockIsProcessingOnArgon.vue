@@ -29,9 +29,9 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import numeral from 'numeral';
 import { useMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
-import numeral from '../../lib/numeral.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';

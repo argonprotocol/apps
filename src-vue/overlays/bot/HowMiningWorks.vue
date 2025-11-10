@@ -3,21 +3,22 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelOverlay" />
+        <BgOverlay @close="closeOverlay" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
+      <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
           ref="dialogPanel"
           class="HowMiningWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
         >
           <div class="flex flex-col h-full w-full">
             <h2
+              FadeBorder
               class="relative text-3xl font-bold text-left border-b border-slate-300 pt-5 pb-4 pl-3 mx-4 text-[#672D73]"
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
               <DialogTitle as="div" class="relative z-10">How Mining Works</DialogTitle>
-              <div @click="cancelOverlay" class="absolute top-[22px] right-[0px] z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
+              <div @click="closeOverlay" class="absolute top-[22px] right-[0px] z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
                 <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
               </div>
             </h2>
@@ -89,7 +90,7 @@
                           <tr v-if="isLoaded">
                             <td>Today</td>
                             <td>{{ currentFrameId}}</td>
-                            <td>{{ micronotToArgonotNm(micronotsRequiredForBid).format('0,0.[00000000]') }}</td>
+                            <td>{{ micronotToArgonotNm(micronotsForBid).format('0,0.[00000000]') }}</td>
                           </tr>
                           <tr v-else>
                           <td colspan="3">Loading...</td>
@@ -227,10 +228,14 @@
             </div>
             <div v-else>Loading...</div>
 
-            <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
-              <div class="flex flex-row space-x-4 justify-center items-center">
-                <button @click="cancelOverlay" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
-                  <span>Finished Reading</span>
+            <div 
+              FadeBorder
+              class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg"
+              style="box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.1)"
+            >
+              <div class="flex flex-row space-x-4 justify-center items-center relative z-10">
+                <button @click="closeOverlay" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
+                  <span>Finish Reading</span>
                 </button>
               </div>
             </div>
@@ -265,20 +270,20 @@ const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 
 const miningSeats = Vue.ref(0);
-const micronotsRequiredForBid = Vue.ref(0n);
+const micronotsForBid = Vue.ref(0n);
 const currentFrameId = Vue.ref(0);
 const seatSummaries = Vue.ref<
   { biddingFrameId: number; seats: number; lowestWinningBid: bigint; highestWinningBid: bigint }[]
 >([]);
 const winningBids = Vue.ref<(IWinningBid & { micronotsStakedPerSeat: bigint })[]>([]);
 
-function cancelOverlay() {
+function closeOverlay() {
   isOpen.value = false;
 }
 
 async function load() {
   mainchain.getActiveMinersCount().then(x => (miningSeats.value = x));
-  mainchain.getMicronotsRequiredForBid().then(x => (micronotsRequiredForBid.value = x));
+  mainchain.getCurrentMicronotsForBid().then(x => (micronotsForBid.value = x));
   mainchain.getCurrentFrameId().then(x => (currentFrameId.value = x));
   mainchain.getRecentSeatSummaries().then(x => (seatSummaries.value = x));
   mainchain.fetchWinningBids().then(x => (winningBids.value = x));
@@ -302,7 +307,7 @@ async function openUniswapMarket(uniswapUrl: string) {
   if (config.isValidJurisdiction) {
     await tauriOpen(uniswapUrl);
   } else {
-    cancelOverlay();
+    closeOverlay();
     basicEmitter.emit('openComplianceOverlay');
   }
 }
@@ -321,7 +326,7 @@ basicEmitter.on('openHowMiningWorksOverlay', async () => {
 @reference "../../main.css";
 
 .HowMiningWorksOverlay {
-  h2 {
+  [FadeBorder] {
     position: relative;
     &:before {
       @apply from-argon-menu-bg bg-gradient-to-r to-transparent;
@@ -331,7 +336,7 @@ basicEmitter.on('openHowMiningWorksOverlay', async () => {
       position: absolute;
       z-index: 1;
       left: -5px;
-      top: 0;
+      top: -5px;
       bottom: -5px;
     }
     &:after {
@@ -342,7 +347,7 @@ basicEmitter.on('openHowMiningWorksOverlay', async () => {
       position: absolute;
       z-index: 1;
       right: -5px;
-      top: 0;
+      top: -5px;
       bottom: -5px;
     }
   }

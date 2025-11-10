@@ -43,9 +43,15 @@
       class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/2 pointer-events-none relative top-[1px]"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
-      <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"><StatusMenu /></div>
-      <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"><CurrencyMenu ref="currencyMenuRef" /></div>
-      <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"><AccountMenu ref="accountMenuRef" /></div>
+      <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <StatusMenu />
+      </div>
+      <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <CurrencyMenu ref="currencyMenuRef" />
+      </div>
+      <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <AccountMenu ref="accountMenuRef" />
+      </div>
     </div>
   </div>
 </template>
