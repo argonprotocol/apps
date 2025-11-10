@@ -8,15 +8,15 @@ import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { Config } from '../lib/Config.ts';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
-import { bip39, BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { MyVaultRecovery } from '../lib/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
-import { useConfig } from '../stores/config.ts';
 import { Db } from '../lib/Db.ts';
 import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { IAllVaultStats } from '../interfaces/IVaultStats.ts';
 import Path from 'path';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 
 afterAll(teardown);
 
@@ -40,10 +40,9 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
     btcPctFee: 2.5,
     profitSharingPct: 5,
   };
-  const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
-  const xprivSeed = bip39.mnemonicToSeedSync(mnemonicGenerate());
   let vaultCreatedBlockNumber: number;
   let vaultCreationFees: bigint;
+  const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: mnemonicGenerate() });
 
   beforeAll(async () => {
     db = await createTestDb();
@@ -51,12 +50,21 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
+    const client = await clients.get(false);
+
+    const txSubmitter = new TxSubmitter(
+      client,
+      client.tx.balances.transferAllowDeath(walletKeys.vaultingAddress, 10_000_000n),
+      new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice'),
+    );
+    await txSubmitter.submit().then(res => res.waitForInFirstBlock);
+
     setMainchainClients(clients);
     MiningFrames.setNetwork('dev-docker');
   }, 60e3);
 
   it('should work when no vault is found', async () => {
-    const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, alice.address, xprivSeed);
+    const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
     await expect(recovery).resolves.toBeUndefined();
   });
 
@@ -90,8 +98,8 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       await priceIndex.fetchMicrogonExchangeRatesTo();
       const vaults = new Vaults('dev-docker', priceIndex);
       const transactionTracker = new TransactionTracker(Promise.resolve(db));
-      const bitcoinLocksStore = new BitcoinLocksStore(Promise.resolve(db), priceIndex, transactionTracker);
-      myVault = new MyVault(Promise.resolve(db), vaults, useConfig() as Config, transactionTracker, bitcoinLocksStore);
+      const bitcoinLocksStore = new BitcoinLocksStore(Promise.resolve(db), walletKeys, priceIndex, transactionTracker);
+      myVault = new MyVault(Promise.resolve(db), vaults, walletKeys, transactionTracker, bitcoinLocksStore);
       vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
       vi.spyOn(myVault.vaults, 'refreshRevenue').mockImplementation(async () => {
         return {} as IAllVaultStats;
@@ -99,35 +107,36 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
       await myVault.load();
       const vaultCreation = await myVault.createNew({
-        argonKeyring: alice,
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
         rules: vaultRules,
-        xprivSeed,
       });
+      await vaultCreation.txResult.waitForFinalizedBlock;
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
-      // TODO: The rest of this test is broken the vault hasn't been created yet.
-      // expect(vaultCreation.tx.metadataJson.vaultId).toBe(1);
-      vaultCreatedBlockNumber = await client.rpc.chain
-        .getHeader(await vaultCreation.txResult.waitForFinalizedBlock)
-        .then(x => x.number.toNumber());
+      expect(vaultCreation.tx.metadataJson.masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
+      vaultCreatedBlockNumber = vaultCreation.txResult.blockNumber!;
+      await vaultCreation.isProcessed.promise;
+      const createdVault = myVault.createdVault!;
+      expect(createdVault).toBeTruthy();
+      expect(createdVault.vaultId).toBe(1);
+      expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
 
-      // const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, alice.address, xprivSeed);
-      // await expect(recovery).resolves.toBeTruthy();
-      // const { vault, masterXpubPath, txFee, createBlockNumber } = (await recovery)!;
+      const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
+      await expect(recovery).resolves.toBeTruthy();
+      const { vault, masterXpubPath, txFee, createBlockNumber } = (await recovery)!;
 
-      // expect(txFee).toBe(vaultCreationFees);
-      // expect(createBlockNumber).toBe(vaultCreatedBlockNumber);
-      // expect(vault).toStrictEqual(vaultCreation.vault);
-      // expect(masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
-      // vaultId = vault.vaultId;
-      // await expect(
-      //   MyVaultRecovery.findPrebonded({
-      //     vaultCreatedBlockNumber: vaultCreatedBlockNumber,
-      //     vaultingAddress: alice.address,
-      //     vaultId: vault.vaultId,
-      //     client,
-      //   }),
-      // ).resolves.toMatchObject(expect.objectContaining({ prebondedMicrogons: 0n }));
+      expect(txFee).toBe(vaultCreationFees);
+      expect(createBlockNumber).toBe(vaultCreatedBlockNumber);
+      expect(vault).toStrictEqual(createdVault);
+      expect(masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
+      vaultId = vault.vaultId;
+      await expect(
+        MyVaultRecovery.findPrebonded({
+          vaultCreatedBlockNumber: vaultCreatedBlockNumber,
+          walletKeys,
+          vaultId: vault.vaultId,
+          client,
+        }),
+      ).resolves.toMatchObject(expect.objectContaining({ prebondedMicrogons: 0n }));
     },
   );
 
@@ -139,8 +148,6 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
     async () => {
       const vaultSave = await myVault.activateSecuritizationAndTreasury({
         rules: vaultRules,
-        argonKeyring: alice,
-        bip39Seed: xprivSeed,
       });
       const bitcoinLocksStore = myVault.bitcoinLocksStore;
       expect(vaultSave).toBeTruthy();
@@ -156,19 +163,14 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const bitcoinStored = Object.values(bitcoinLocksStore.data.locksByUtxoId)[0];
 
       // recover again so we get the right securitization
-      const recovery = await MyVaultRecovery.findOperatorVault(
-        clients,
-        BitcoinNetwork.Regtest,
-        alice.address,
-        xprivSeed,
-      );
+      const recovery = await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
       expect(recovery).toBeTruthy();
       const { vault: recoveredVault } = recovery!;
 
       // check treasury
       const prebond = await MyVaultRecovery.findPrebonded({
         vaultCreatedBlockNumber: vaultCreatedBlockNumber,
-        vaultingAddress: alice.address,
+        walletKeys,
         vaultId: recoveredVault.vaultId,
         client: await clients.archiveClientPromise,
       });
@@ -186,6 +188,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb));
       const bitcoinLocksStoreRecovery = new BitcoinLocksStore(
         Promise.resolve(newDb),
+        walletKeys,
         myVault.vaults.priceIndex,
         transactionTracker2,
       );
@@ -195,7 +198,6 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         mainchainClients: clients,
         vaultSetupBlockNumber: prebond.blockNumber!,
         vault: recoveredVault,
-        bip39Seed: xprivSeed,
         bitcoinLocksStore: bitcoinLocksStoreRecovery,
       });
       expect(bitcoins).toHaveLength(1);
@@ -206,6 +208,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       });
       expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toStrictEqual({
         ...bitcoinStored,
+        uuid: expect.any(String),
         initializedAtBlockNumber: rulesSavedBlockNumber,
         createdAt: undefined,
         updatedAt: undefined,

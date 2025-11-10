@@ -1,6 +1,6 @@
 import { Command } from '@commander-js/extra-typings';
 import { VaultMonitor } from '@argonprotocol/apps-core';
-import { BitcoinLocks, formatArgons, hexToU8a, MICROGONS_PER_ARGON, PriceIndex } from '@argonprotocol/mainchain';
+import { BitcoinLock, formatArgons, hexToU8a, MICROGONS_PER_ARGON, PriceIndex } from '@argonprotocol/mainchain';
 import { accountsetFromCli } from './index.js';
 
 export default function bitcoinCli() {
@@ -61,10 +61,10 @@ export default function bitcoinCli() {
         }
 
         try {
-          const bitcoinLock = new BitcoinLocks(accountset.client);
-          let satoshis = await bitcoinLock.requiredSatoshisForArgonLiquidity(priceIndex, amount);
+          let satoshis = await BitcoinLock.requiredSatoshisForArgonLiquidity(priceIndex, amount);
           satoshis -= 500n;
-          const { securityFee, txResult } = await bitcoinLock.initializeLock({
+          const { securityFee, txResult } = await BitcoinLock.initialize({
+            client: accountset.client,
             vault,
             priceIndex,
             satoshis,

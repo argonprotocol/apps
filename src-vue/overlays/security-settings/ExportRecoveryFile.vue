@@ -46,8 +46,10 @@ import { save as saveFileOverlay } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IRecoveryFile } from '../../interfaces/IRecoveryFile.ts';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const config = useConfig();
+const walleyKeys = useWalletKeys();
 const isSavingExport = Vue.ref(false);
 const hasSavedExport = Vue.ref(false);
 
@@ -62,7 +64,10 @@ async function exportAccount() {
 
   isSavingExport.value = true;
   const data: IRecoveryFile = {
-    security: config.security,
+    security: {
+      sshPublicKey: walleyKeys.sshPublicKey,
+      masterMnemonic: await walleyKeys.exposeMasterMnemonic(),
+    },
     oldestFrameIdToSync: config.oldestFrameIdToSync,
     biddingRules: config.biddingRules,
     vaultingRules: config.vaultingRules,

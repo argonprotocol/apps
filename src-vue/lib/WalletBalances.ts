@@ -1,14 +1,7 @@
-import { Accountset, ArgonClient, MainchainClients, parseSubaccountRange } from '@argonprotocol/apps-core';
-import { FrameSystemAccountInfo, KeyringPair, PalletBalancesAccountData } from '@argonprotocol/mainchain';
+import { MainchainClients } from '@argonprotocol/apps-core';
+import { FrameSystemAccountInfo, PalletBalancesAccountData } from '@argonprotocol/mainchain';
 import { createDeferred } from './Utils';
-import {
-  IMiningAccountPreviousHistoryBid,
-  IMiningAccountPreviousHistoryRecord,
-  IMiningAccountPreviousHistorySeat,
-} from '../interfaces/IConfig';
-import { FrameIterator } from '@argonprotocol/apps-core/src/FrameIterator.ts';
-import IVaultingRules from '../interfaces/IVaultingRules.ts';
-import { VaultRecoveryFn } from './MyVaultRecovery.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
 export interface IWallet {
   address: string;
@@ -22,9 +15,9 @@ export class WalletBalances {
   private clients: MainchainClients;
   private subscriptions: VoidFunction[] = [];
   private deferredLoading = createDeferred<void>(false);
+  private readonly walletKeys: WalletKeys;
 
   public onBalanceChange?: () => void;
-  public onLoadHistoryProgress?: (loadPct: number) => void;
 
   public miningWallet: IWallet = {
     address: '',
@@ -45,19 +38,20 @@ export class WalletBalances {
   public totalWalletMicrogons: bigint = 0n;
   public totalWalletMicronots: bigint = 0n;
 
-  constructor(mainchainClients: MainchainClients) {
+  constructor(mainchainClients: MainchainClients, walletKeys: WalletKeys) {
     this.clients = mainchainClients;
+    this.walletKeys = walletKeys;
   }
 
-  public async load(accountData: { miningAccountAddress: string; vaultingAccountAddress: string }) {
+  public async load() {
     if (this.deferredLoading.isRunning || this.deferredLoading.isSettled) {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
 
-    const { miningAccountAddress, vaultingAccountAddress } = accountData;
-    this.miningWallet.address = miningAccountAddress;
-    this.vaultingWallet.address = vaultingAccountAddress;
+    const { miningAddress, vaultingAddress } = this.walletKeys;
+    this.miningWallet.address = miningAddress;
+    this.vaultingWallet.address = vaultingAddress;
 
     await this.updateBalances(false);
     this.deferredLoading.resolve();
@@ -66,9 +60,7 @@ export class WalletBalances {
   public async updateBalances(waitForLoad = true) {
     if (waitForLoad) await this.deferredLoading.promise;
 
-    const walletsToUpdate = [this.miningWallet, this.vaultingWallet].filter(x => x.address);
-
-    for (const wallet of walletsToUpdate) {
+    for (const wallet of [this.miningWallet, this.vaultingWallet]) {
       await Promise.all([this.loadMicrogonBalance(wallet), this.loadMicronotBalance(wallet)]);
     }
 
@@ -83,9 +75,7 @@ export class WalletBalances {
       this.subscriptions.length = 0;
     }
 
-    const walletsToSubscribe = [this.miningWallet, this.vaultingWallet].filter(x => x.address);
-
-    for (const wallet of walletsToSubscribe) {
+    for (const wallet of [this.miningWallet, this.vaultingWallet]) {
       const client = await this.clients.prunedClientOrArchivePromise;
       const [subMicrogon, subMicronot] = await Promise.all([
         client.query.system.account(wallet.address, result => {
@@ -99,131 +89,10 @@ export class WalletBalances {
     }
   }
 
-  private async loadMiningHistory(
-    liveClient: ArgonClient,
-    miningAccount: KeyringPair,
-    onProgress: (progressPct: number) => void,
-  ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
-    const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
-
-    const accountSubaccounts = Accountset.getSubaccounts(miningAccount, parseSubaccountRange('0-99')!);
-
-    const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
-    const latestFrameId = await liveClient.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-    const earliestPossibleFrameId = 150; // this is hard coded based on the spec version needing to be > 124. Doesn't need to be exact.
-
-    const bidsRaw = await liveClient.query.miningSlot.bidsForNextSlotCohort();
-    for (const [bidPosition, bidRaw] of bidsRaw.entries()) {
-      const address = bidRaw.accountId.toHuman();
-      const isOurAccount = !!accountSubaccounts[address];
-      if (!isOurAccount) continue;
-
-      currentFrameBids.push({
-        bidPosition,
-        microgonsBid: bidRaw.bid.toBigInt(),
-        micronotsStaked: bidRaw.argonots.toBigInt(),
-      });
-    }
-
-    const framesToProcess = latestFrameId - earliestPossibleFrameId;
-    await new FrameIterator(this.clients, 'MiningHistory').iterateFramesByEpoch(
-      async (frameId, _firstBlockMeta, api, _abortController) => {
-        console.log(`[MiningHistory] Loading frame ${frameId} (oldest ${earliestPossibleFrameId})`);
-        const seatsByFrameId = await this.fetchSeatData(api as ArgonClient, accountSubaccounts);
-        for (const [frameIdStr, seats] of Object.entries(seatsByFrameId)) {
-          if (!seats.length) continue;
-          dataByFrameId[frameIdStr] = {
-            frameId: Number(frameIdStr),
-            bids: [],
-            seats,
-          };
-        }
-        const framesProcessed = latestFrameId - frameId;
-        const progress = Math.max((100 * framesProcessed) / framesToProcess, 0);
-        onProgress(progress);
-        console.log(`[MiningHistory] Progress: ${progress}`);
-      },
-    );
-    if (currentFrameBids.length) {
-      dataByFrameId[latestFrameId] ??= { frameId: latestFrameId, seats: [], bids: [] };
-      dataByFrameId[latestFrameId].bids = currentFrameBids;
-    }
-    console.log('[MiningHistory] Finished loading history', dataByFrameId);
-
-    onProgress(100);
-
-    const miningHistory = Object.values(dataByFrameId);
-    if (miningHistory.length) {
-      return miningHistory;
-    }
-  }
-
-  public async loadHistory(
-    miningAccount: KeyringPair,
-    bitcoinXprivSeed: Uint8Array,
-    loadVaultHistory?: VaultRecoveryFn,
-  ): Promise<{ miningHistory?: IMiningAccountPreviousHistoryRecord[]; vaultingRules?: IVaultingRules }> {
-    await this.deferredLoading.promise;
-
+  public async didWalletHavePreviousLife() {
     const hasVaultHistory = WalletBalances.doesWalletHaveValue(this.vaultingWallet);
     const hasMiningHistory = WalletBalances.doesWalletHaveValue(this.miningWallet);
-
-    let vaultProgress = hasVaultHistory ? 0 : 100;
-    let miningProgress = hasMiningHistory ? 0 : 100;
-    this.onLoadHistoryProgress?.(0);
-    const onProgress = (source: 'miner' | 'vault', progressPct: number) => {
-      if (source === 'miner') miningProgress = progressPct;
-      else vaultProgress = progressPct;
-      this.onLoadHistoryProgress?.(Math.round(100 * ((vaultProgress + miningProgress) / 2)) / 100);
-    };
-
-    let miningHistoryPromise: Promise<IMiningAccountPreviousHistoryRecord[] | undefined> = Promise.resolve(undefined);
-    if (hasMiningHistory) {
-      const liveClient = await this.clients.archiveClientPromise;
-      miningHistoryPromise = this.loadMiningHistory(liveClient, miningAccount, pct => onProgress('miner', pct));
-    }
-
-    let vaultingHistoryPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
-    if (hasVaultHistory) {
-      if (!loadVaultHistory) {
-        throw new Error('No vault history loader provided');
-      }
-      vaultingHistoryPromise = loadVaultHistory({
-        vaultingAddress: this.vaultingWallet.address,
-        bitcoinXprivSeed,
-        onProgress: pct => onProgress('vault', pct),
-      });
-    }
-    const [miningHistory, vaultingRules] = await Promise.all([miningHistoryPromise, vaultingHistoryPromise]);
-    this.onLoadHistoryProgress?.(100);
-    return {
-      miningHistory,
-      vaultingRules,
-    };
-  }
-
-  private async fetchSeatData(
-    api: ArgonClient,
-    accountSubaccounts: Record<string, any>,
-  ): Promise<Record<number, IMiningAccountPreviousHistorySeat[]>> {
-    const minersByCohort = await api.query.miningSlot.minersByCohort.entries();
-
-    const seatsByFrameId = {} as Record<number, IMiningAccountPreviousHistorySeat[]>;
-    for (const [frameIdRaw, seatsInFrame] of minersByCohort) {
-      const frameId = frameIdRaw.args[0].toNumber();
-      for (const [seatPosition, seatRaw] of seatsInFrame.entries()) {
-        const address = seatRaw.accountId.toHuman();
-        const isOurAccount = !!accountSubaccounts[address];
-        if (!isOurAccount) continue;
-        seatsByFrameId[frameId] ??= [];
-        seatsByFrameId[frameId].push({
-          seatPosition,
-          microgonsBid: seatRaw.bid.toBigInt(),
-          micronotsStaked: seatRaw.argonots.toBigInt(),
-        });
-      }
-    }
-    return seatsByFrameId;
+    return hasVaultHistory || hasMiningHistory;
   }
 
   private async loadMicrogonBalance(wallet: IWallet) {

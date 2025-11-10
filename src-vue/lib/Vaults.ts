@@ -1,8 +1,7 @@
-import { BitcoinLocks, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
+import { BitcoinLock, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt, FrameIterator, JsonExt, MainchainClients, PriceIndex } from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
-import { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { convertBigIntStringToNumber, createDeferred, IDeferred } from './Utils.ts';
 import { IAllVaultStats, IVaultFrameStats } from '../interfaces/IVaultStats.ts';
 import mainnetVaultRevenueHistory from '../data/vaultRevenue.mainnet.json';
@@ -25,10 +24,6 @@ export class Vaults {
   private waitForLoad?: IDeferred;
   private refreshingPromise?: Promise<IAllVaultStats>;
   private isSavingStats: boolean = false;
-
-  private get bitcoinLocks(): Promise<BitcoinLocks> {
-    return getMainchainClient(false).then(x => new BitcoinLocks(x));
-  }
 
   public async load(reload = false): Promise<void> {
     if (this.waitForLoad && !reload) return this.waitForLoad.promise;
@@ -131,7 +126,6 @@ export class Vaults {
   public async refreshRevenue(clients?: MainchainClients): Promise<IAllVaultStats> {
     await this.load();
     clients ??= getMainchainClients();
-    const client = await clients.prunedClientOrArchivePromise;
     if (this.refreshingPromise) return this.refreshingPromise;
     const refreshingDeferred = createDeferred<IAllVaultStats>();
     this.refreshingPromise = refreshingDeferred.promise;
@@ -147,6 +141,11 @@ export class Vaults {
       const revenue = this.stats ?? { synchedToFrame: 0, vaultsById: {} };
       const oldestFrameToGet = revenue.synchedToFrame;
 
+      const client = await getMainchainClient(false);
+      const finalizedHead = await client.rpc.chain.getFinalizedHead();
+      const finalizedBlockNumber = await client.rpc.chain
+        .getHeader(finalizedHead)
+        .then(header => header.number.toNumber());
       const currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
       console.log(`Syncing vault revenue stats from ${oldestFrameToGet}->${currentFrameId}`);
       await new FrameIterator(clients, 'VaultHistory').iterateFramesLimited(
@@ -157,6 +156,10 @@ export class Vaults {
               `[VaultHistory] Aborting iteration at frame ${frameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
             );
             return abortController.abort();
+          }
+          // don't process until finalized
+          if (firstBlockMeta.blockNumber > finalizedBlockNumber) {
+            return;
           }
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
           for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
@@ -254,30 +257,14 @@ export class Vaults {
     }, 0n);
   }
 
-  public async getRatchetPrice(
-    lock: IBitcoinLockRecord,
-  ): Promise<{ burnAmount: bigint; ratchetingFee: bigint; marketRate: bigint }> {
-    const vault = this.vaultsById[lock.vaultId];
-    if (!vault) throw new Error('Vault not found');
+  public async getRedemptionRate(lock: { satoshis: bigint; peggedPrice: bigint }): Promise<bigint> {
     await this.priceIndex.fetchMicrogonExchangeRatesTo();
-    const bitcoinLocks = await this.bitcoinLocks;
-    const ratchetPrice = await bitcoinLocks.getRatchetPrice(lock.lockDetails, this.priceIndex.current, vault);
-
-    return {
-      ...ratchetPrice,
-    };
-  }
-
-  public async getRedemptionRate(lock: { satoshis: bigint; peggedPrice?: bigint }): Promise<bigint> {
-    await this.priceIndex.fetchMicrogonExchangeRatesTo();
-    const bitcoinLocks = await this.bitcoinLocks;
-    return await bitcoinLocks.getRedemptionRate(this.priceIndex.current, lock);
+    return await BitcoinLock.getRedemptionRate(this.priceIndex.current, lock);
   }
 
   public async getMarketRate(satoshis: bigint): Promise<bigint> {
     await this.priceIndex.fetchMicrogonExchangeRatesTo();
-    const bitcoinLocks = await this.bitcoinLocks;
-    return await bitcoinLocks.getMarketRate(this.priceIndex.current, satoshis);
+    return await BitcoinLock.getMarketRate(this.priceIndex.current, satoshis);
   }
 
   public getTreasuryFillPct(vaultId: number): number {

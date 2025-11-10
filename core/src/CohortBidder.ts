@@ -11,6 +11,7 @@ import {
   Vec,
 } from '@argonprotocol/mainchain';
 import { MiningFrames } from './MiningFrames.js';
+import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
 
 interface IBidDetail {
   address: string;
@@ -178,36 +179,45 @@ export class CohortBidder {
     if (!waitForFinalBids) {
       return this.myWinningBids;
     }
-    const client = this.client;
-    const [nextFrameId, isBiddingOpen] = await client.queryMulti<[u64, Bool]>([
-      client.query.miningSlot.nextFrameId as any,
-      client.query.miningSlot.isNextSlotBiddingOpen,
+    const finalizedBlock = await this.client.rpc.chain.getFinalizedHead();
+    // wait for the finalized block to the be the next frame or later
+    const finalizedClient = await this.client.at(finalizedBlock);
+
+    const [nextFrameId, isBiddingOpen] = await finalizedClient.queryMulti<[u64, Bool]>([
+      finalizedClient.query.miningSlot.nextFrameId as any,
+      finalizedClient.query.miningSlot.isNextSlotBiddingOpen,
     ]);
     if (nextFrameId.toNumber() === this.cohortStartingFrameId && isBiddingOpen.isTrue) {
       this.log('Bidding is still open, waiting for it to close');
       await new Promise<void>(async resolve => {
-        const unsub = await client.query.miningSlot.isNextSlotBiddingOpen(isOpen => {
-          if (isOpen.isFalse) {
-            unsub();
-            resolve();
-          }
-        });
+        const unsub = await subscribeToFinalizedStorageChanges(this.client, [
+          {
+            key: this.client.query.miningSlot.isNextSlotBiddingOpen.key(),
+            handler: async api => {
+              const isOpen = await api.query.miningSlot.isNextSlotBiddingOpen();
+              if (isOpen.isFalse) {
+                unsub.unsubscribe();
+                resolve();
+              }
+            },
+          },
+        ]);
       });
     }
     // wait for any pending request to finish updating stats
     void (await this.pendingRequest);
 
-    const currentFrameId = await client.query.miningSlot.nextFrameId();
+    const currentFrameId = await this.client.query.miningSlot.nextFrameId();
     let blockNumber: number;
     // go back to last block with this cohort
     if (currentFrameId.toNumber() > this.cohortStartingFrameId) {
-      blockNumber = (await client.query.miningSlot.frameStartBlockNumbers().then(x => x[0]?.toNumber())) - 1;
+      blockNumber = (await this.client.query.miningSlot.frameStartBlockNumbers().then(x => x[0]?.toNumber())) - 1;
     } else {
-      blockNumber = await client.query.system.number().then(x => x.toNumber());
+      blockNumber = await this.client.query.system.number().then(x => x.toNumber());
     }
 
-    const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
-    const header = await client.rpc.chain.getHeader(blockHash);
+    const blockHash = await this.client.rpc.chain.getBlockHash(blockNumber);
+    const header = await this.client.rpc.chain.getHeader(blockHash);
     await this.onHeader(header, false);
     this.log('Bidder stopped', {
       cohortStartingFrameId: this.cohortStartingFrameId,

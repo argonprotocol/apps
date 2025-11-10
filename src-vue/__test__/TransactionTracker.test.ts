@@ -41,11 +41,16 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       metadata: { testId: 1 },
       extrinsicType: ExtrinsicType.VaultCreate,
     });
+    await expect(txResult.waitForInFirstBlock).rejects.toBeTruthy();
     expect(tx.status).toBe(TransactionStatus.Error);
     expect(transactionTracker.data.txInfos).toHaveLength(1);
-    expect(transactionTracker.pendingBlockTxInfos).toHaveLength(0);
     console.log('Transaction result', JsonExt.stringify(tx, 2));
-    await expect(txResult.waitForInFirstBlock).rejects.toBeTruthy();
+    // doesn't reload status at load
+    expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(1);
+    await transactionTracker.load(true);
+    expect(transactionTracker.data.txInfos).toHaveLength(1);
+    // now cleared on reload
+    expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(0);
   });
 
   it('should watch a transaction as it reaches a block', async () => {
@@ -74,12 +79,12 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     }
     await transactionTracker.load(true);
     expect(transactionTracker.data.txInfos).toHaveLength(1);
-    expect(transactionTracker.pendingBlockTxInfos).toHaveLength(1);
+    expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(1);
     console.timeLog('test', 'after reload');
 
     // @ts-expect-error Now actually watch for updates
     await transactionTracker.watchForUpdates();
-    const { txResult, tx } = transactionTracker.pendingBlockTxInfos[0];
+    const { txResult, tx } = transactionTracker.pendingBlockTxInfosAtLoad[0];
     await expect(txResult.waitForInFirstBlock).resolves.toBeTruthy();
     console.timeLog('test', 'got inBlockPromise');
 
@@ -90,7 +95,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
       await transactionTracker2.load();
       expect(transactionTracker2.data.txInfos).toHaveLength(1);
-      expect(transactionTracker2.pendingBlockTxInfos).toHaveLength(1);
+      expect(transactionTracker2.pendingBlockTxInfosAtLoad).toHaveLength(1);
       console.timeLog('test', 'reloaded statuses 1');
     }
 
@@ -100,13 +105,13 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     expect(transactionTracker.data.txInfos).toHaveLength(1);
     expect(unWatchSpy).toHaveBeenCalledTimes(1);
     // doesn't change the starting load status
-    expect(transactionTracker.pendingBlockTxInfos).toHaveLength(1);
+    expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(1);
     {
       const transactionTracker2 = new TransactionTracker(Promise.resolve(db));
       vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
       await transactionTracker2.load();
       expect(transactionTracker2.data.txInfos).toHaveLength(1);
-      expect(transactionTracker2.pendingBlockTxInfos).toHaveLength(0);
+      expect(transactionTracker2.pendingBlockTxInfosAtLoad).toHaveLength(0);
       console.timeLog('test', 'reloaded statuses 2');
     }
   });

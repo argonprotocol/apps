@@ -25,13 +25,13 @@ export enum TransactionStatus {
   TimedOutWaitingForBlock = 'TimedOutWaitingForBlock',
 }
 
-export interface ITransactionRecord {
+export interface ITransactionRecord<MetadataType = any> {
   id: number; // Auto-incrementing primary key since extrinsic hash isn't implicitly unique and can overlap
   status: TransactionStatus;
   extrinsicHash: string;
   extrinsicMethodJson: any;
   extrinsicType: ExtrinsicType;
-  metadataJson: any;
+  metadataJson: MetadataType;
   accountAddress: string;
   submittedAtTime: Date;
   submittedAtBlockHeight: number;
@@ -101,8 +101,10 @@ export class TransactionsTable extends BaseTable {
     record.blockHeight = blockNumber;
     record.blockTime = blockTime;
     record.blockExtrinsicIndex = block.extrinsicIndex;
-    const { batchInterruptedIndex, errorCode, details, message = 'Unknown Error' } = block.extrinsicError || {};
-    record.blockExtrinsicErrorJson = message ? { batchInterruptedIndex, errorCode, details, message } : undefined;
+    const { batchInterruptedIndex, errorCode, details, message } = block.extrinsicError || {};
+    record.blockExtrinsicErrorJson = message
+      ? { batchInterruptedIndex, errorCode, details, message: message ?? 'Unknown Error' }
+      : undefined;
     record.blockExtrinsicEventsJson = block.transactionEvents.map(event => {
       return {
         raw: event.toHex(),

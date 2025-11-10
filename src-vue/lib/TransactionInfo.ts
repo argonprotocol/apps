@@ -18,8 +18,8 @@ type IProgressCallback = (args: IProgressCallbackArgs, error?: Error) => void;
 
 const REQUIRED_FINALIZATION_BLOCKS = 4;
 
-export class TransactionInfo {
-  public tx: ITransactionRecord;
+export class TransactionInfo<MetadataType = unknown> {
+  public tx: ITransactionRecord<MetadataType>;
   public txResult: TxResult;
   public isProcessed: IDeferred;
   public statusAtLoad?: TransactionStatus;

@@ -6,6 +6,7 @@ import { SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
 import { SSHFingerprint } from './SSHFingerprint';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env';
+import { WalletKeys } from './WalletKeys.ts';
 
 export class MiningMachineError extends Error {
   constructor(message: string) {
@@ -28,17 +29,17 @@ type IDroplet = {
 };
 
 export class MiningMachine {
-  public static async setup(config: Config): Promise<IConfigServerDetails> {
-    const sshPublicKey = config.security.sshPublicKey;
+  public static async setup(config: Config, walletKeys: WalletKeys): Promise<IConfigServerDetails> {
+    const sshPublicKey = walletKeys.sshPublicKey;
 
     if (config.serverCreation?.digitalOcean) {
       const { apiKey } = config.serverCreation.digitalOcean;
-      return await this.setupDigitalOcean(apiKey, sshPublicKey, config.miningAccount.address);
+      return await this.setupDigitalOcean(apiKey, sshPublicKey, config.miningAccountAddress);
     } else if (config.serverCreation?.customServer) {
       const { port, sshUser, ipAddress } = config.serverCreation.customServer;
       return await this.setupCustomServer(port, sshUser, ipAddress, config);
     } else if (config.serverCreation?.localComputer) {
-      return await this.setupLocalComputer(config.security.sshPublicKey);
+      return await this.setupLocalComputer(walletKeys.sshPublicKey);
     } else {
       throw new MiningMachineError('No server creation data found');
     }
@@ -253,7 +254,7 @@ export class MiningMachine {
       }
     })();
 
-    if (serverMeta.walletAddress && serverMeta.walletAddress !== config.miningAccount.address) {
+    if (serverMeta.walletAddress && serverMeta.walletAddress !== config.miningAccountAddress) {
       throw new MiningMachineError('The server has a different wallet address than your mining account.');
     }
 

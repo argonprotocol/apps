@@ -7,7 +7,7 @@
         <div class="mb-6">
           <p class="mb-4 text-gray-700">
             You are releasing
-            <strong>{{ numeral(currency.satsToBtc(personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>, 
+            <strong>{{ numeral(currency.satsToBtc(personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
             which requires
             <strong>{{ microgonToArgonNm(releasePrice).format('0,0.[000000]') }} argons to unlock</strong>.
             These funds will be pulled directly from available capital in your vaulting wallet.
@@ -157,10 +157,9 @@ async function submitRelease() {
     );
 
     await myVault.requestBitcoinRelease({
-      lock: props.personalLock,
+      lockRecord: props.personalLock,
       bitcoinNetworkFee: networkFee,
       toScriptPubkey,
-      argonKeyring: config.vaultingAccount,
     });
   } catch (error) {
     console.error('Failed to send release request:', error);

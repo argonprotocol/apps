@@ -114,10 +114,10 @@ BEGIN
 END;
 
 CREATE TABLE BitcoinLocks (
-  id INTEGER NOT NULL PRIMARY KEY,
+  uuid TEXT NOT NULL PRIMARY KEY,
   status TEXT NOT NULL CHECK(status IN (
-    'LockIsProcessingOnArgon', 'LockReadyForBitcoin', 'LockFailedToHappen', 'LockReceivedWrongAmount', 
-    'LockIsProcessingOnBitcoin', 'LockedAndIsMinting', 'LockedAndMinted', 'ReleaseIsProcessingOnArgon', 
+    'LockIsProcessingOnArgon', 'LockReadyForBitcoin', 'LockFailedToHappen', 'LockReceivedWrongAmount',
+    'LockIsProcessingOnBitcoin', 'LockedAndIsMinting', 'LockedAndMinted', 'ReleaseIsProcessingOnArgon',
     'ReleaseIsWaitingForVault', 'ReleaseSigned', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete'
   )) DEFAULT 'LockIsProcessingOnArgon',
   utxoId INTEGER,
@@ -158,7 +158,7 @@ CREATE TABLE BitcoinLocks (
 CREATE TRIGGER BitcoinLocksUpdateTimestamp
 AFTER UPDATE ON BitcoinLocks
 BEGIN
-  UPDATE BitcoinLocks SET updatedAt = CURRENT_TIMESTAMP WHERE id = NEW.id;
+  UPDATE BitcoinLocks SET updatedAt = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
 END;
 
 --- Tracks the latest index for each bitcoin lock's HD path

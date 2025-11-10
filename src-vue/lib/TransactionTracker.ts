@@ -41,7 +41,7 @@ export class TransactionTracker {
     };
   }
 
-  public get pendingBlockTxInfos(): TransactionInfo[] {
+  public get pendingBlockTxInfosAtLoad(): TransactionInfo<any>[] {
     return this.data.txInfos.filter(
       x => x.statusAtLoad === TransactionStatus.Submitted || x.statusAtLoad === TransactionStatus.InBlock,
     );
@@ -122,14 +122,14 @@ export class TransactionTracker {
     return this.#waitForLoad.promise;
   }
 
-  public async submitAndWatch(
+  public async submitAndWatch<T>(
     args: {
       tx: SubmittableExtrinsic;
       signer: KeyringPair;
       extrinsicType: ExtrinsicType;
-      metadata?: any;
+      metadata?: T;
     } & ISubmittableOptions,
-  ): Promise<TransactionInfo> {
+  ): Promise<TransactionInfo<T>> {
     const { tx, signer, extrinsicType, metadata } = args;
     const client = await getMainchainClient(false);
     const txSubmitter = new TxSubmitter(client, tx, signer);
@@ -146,13 +146,13 @@ export class TransactionTracker {
     });
   }
 
-  public async trackTxResult(
+  public async trackTxResult<T>(
     args: {
       txResult: TxResult;
       extrinsicType: ExtrinsicType;
-      metadata?: any;
+      metadata?: T;
     } & ISubmittableOptions,
-  ): Promise<TransactionInfo> {
+  ): Promise<TransactionInfo<T>> {
     await this.load();
     const { txResult, extrinsicType, metadata } = args;
     const table = await this.getTable();
@@ -171,7 +171,7 @@ export class TransactionTracker {
 
     // Mark txResult as non-reactive to avoid issues with private fields
     Vue.markRaw(txResult);
-    const txInfo = new TransactionInfo({ tx: record, txResult, isProcessed: createDeferred() });
+    const txInfo = new TransactionInfo<T>({ tx: record, txResult, isProcessed: createDeferred() });
     this.data.txInfos.unshift(txInfo);
     this.data.txInfosByType[extrinsicType] = txInfo;
     if (txResult.submissionError) {
@@ -355,6 +355,7 @@ export class TransactionTracker {
       }
     }
     for (const txInfo of this.data.txInfos) {
+      if (txInfo.tx.status === TransactionStatus.Finalized || txInfo.tx.status === TransactionStatus.Error) continue;
       await table.updateLastFinalizedBlock(txInfo.tx, finalizedDetails);
       txInfo.finalizedBlockHeight = finalizedHeight;
     }

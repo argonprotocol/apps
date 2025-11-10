@@ -3,7 +3,7 @@
     <p class="text-gray-700">
       Argon is currently in the process of validating your unlock request for
       {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC. This requires a
-      series of four steps...
+      series of three steps...
     </p>
 
     <p class="font-italic mb-2 text-gray-400">NOTE: You can close this overlay without disrupting its process.</p>

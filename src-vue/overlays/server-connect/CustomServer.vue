@@ -155,13 +155,15 @@ import { SSH } from '../../lib/SSH';
 import { IServerConnectChildExposed } from '../ServerConnectOverlay.vue';
 import { IConfigServerCreationCustomServer, ServerType } from '../../interfaces/IConfig';
 import { SERVER_ENV_VARS } from '../../lib/Env.ts';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const emit = defineEmits(['ready']);
 
+const walletKeys = useWalletKeys();
 const config = useConfig();
 const { textarea } = useTextareaAutosize();
 
-const sshPublicKey = Vue.computed(() => config.security.sshPublicKey);
+const sshPublicKey = Vue.computed(() => walletKeys.sshPublicKey);
 const copyToClipboard = Vue.ref<typeof CopyToClipboard>();
 const publicPorts = Vue.computed<number[]>(() => {
   return Object.entries(SERVER_ENV_VARS)
@@ -194,7 +196,7 @@ Vue.watch(
 );
 
 const addSshPublicKey = Vue.computed(() => {
-  const key = config.security.sshPublicKey.trim();
+  const key = walletKeys.sshPublicKey.trim();
   return `echo "${key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`;
 });
 
@@ -226,7 +228,7 @@ async function connect(): Promise<IConfigServerCreationCustomServer> {
     }
   })();
 
-  if (serverMeta.walletAddress && serverMeta.walletAddress !== config.miningAccount.address) {
+  if (serverMeta.walletAddress && serverMeta.walletAddress !== config.miningAccountAddress) {
     throw new Error('The server has a different wallet address than your mining account.');
   }
 

@@ -1,9 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { teardown } from '@argonprotocol/testing';
 import BitcoinLocksStore from '../lib/BitcoinLocksStore';
 import { createTestDb } from './helpers/db.ts';
 import { MainchainClients, MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
-import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -12,6 +11,7 @@ import { BitcoinLockStatus, IBitcoinLockRecord } from '../lib/db/BitcoinLocksTab
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BITCOIN_BLOCK_MILLIS } from '../lib/Env.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 
 dayjs.extend(utc);
 
@@ -22,7 +22,6 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3 }, () => {
   let clients: MainchainClients;
   let mainchainUrl: string;
-  const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
 
   beforeAll(async () => {
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename));
@@ -37,7 +36,13 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const priceIndex = new PriceIndex(clients);
     const db = await createTestDb();
     const transactionTracker = new TransactionTracker(Promise.resolve(db));
-    const bitcoinLocksStore = new BitcoinLocksStore(Promise.resolve(createTestDb()), priceIndex, transactionTracker);
+    const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: '//Alice' });
+    const bitcoinLocksStore = new BitcoinLocksStore(
+      Promise.resolve(createTestDb()),
+      walletKeys,
+      priceIndex,
+      transactionTracker,
+    );
     bitcoinLocksStore.data.oracleBitcoinBlockHeight = 103;
 
     let timeStart = dayjs.utc().subtract(1, 'second');

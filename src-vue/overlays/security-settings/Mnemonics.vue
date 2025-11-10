@@ -20,12 +20,20 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
+const walletKeys = useWalletKeys();
 
 const isCopied = Vue.ref(false);
-const words = Vue.computed(() => config.security.masterMnemonic.split(' '));
+const masterMnemonic = Vue.ref('');
+
+Vue.onMounted(() => {
+  walletKeys.exposeMasterMnemonic().then(x => {
+    masterMnemonic.value = x;
+  });
+});
+
+const words = Vue.ref(() => masterMnemonic.value.split(' '));
 
 const emit = defineEmits(['close', 'goTo']);
 
@@ -34,7 +42,7 @@ function closeOverlay() {
 }
 
 function copyToClipboard() {
-  navigator.clipboard.writeText(config.security.masterMnemonic);
+  navigator.clipboard.writeText(masterMnemonic.value);
   isCopied.value = true;
   setTimeout(() => {
     isCopied.value = false;

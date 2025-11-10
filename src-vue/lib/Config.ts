@@ -10,13 +10,12 @@ import {
   PanelKey,
   ServerType,
 } from '../interfaces/IConfig';
-import { Keyring, type KeyringPair, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
   JsonExt,
   MicronotPriceChangeType,
-  miniSecretFromUri,
   SeatGoalInterval,
   SeatGoalType,
 } from '@argonprotocol/apps-core';
@@ -24,17 +23,14 @@ import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { createDeferred, ensureOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
 import { CurrencyKey } from './Currency';
-import { bip39 } from '@argonprotocol/bitcoin';
 import { getUserJurisdiction } from './Countries';
-import ISecurity from '../interfaces/ISecurity';
-import { getMainchainClients } from '../stores/mainchain';
-import { WalletBalances } from './WalletBalances';
-import { NETWORK_NAME, SECURITY } from './Env.ts';
+import { NETWORK_NAME } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
-import { VaultRecoveryFn } from './MyVaultRecovery.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { ZodAny } from 'zod';
+import { WalletKeys } from './WalletKeys.ts';
+import { WalletRecoveryFn } from './WalletRecovery.ts';
 
 export class Config implements IConfig {
   public readonly version: string = packageJson.version;
@@ -52,28 +48,20 @@ export class Config implements IConfig {
   private _db!: Db;
   private _fieldsToSave: Set<string> = new Set();
   private _dbPromise: Promise<Db>;
-  private _security!: ISecurity;
   private _loadedData!: IConfig;
   private _rawData = {} as IConfigStringified;
-  private _masterAccount!: KeyringPair;
-  private _miningAccount!: KeyringPair;
   private _walletPreviousHistoryLoadPct: number = 0;
-  private _vaultingAccount!: KeyringPair;
-  private _miningSessionMiniSecret!: string;
 
   constructor(
     dbPromise: Promise<Db>,
-    private vaultRecoveryFn?: VaultRecoveryFn,
+    private _walletKeys: WalletKeys,
+    private accountRecoveryFn?: WalletRecoveryFn,
   ) {
     ensureOnlyOneInstance(this.constructor);
     this._loadedDeferred = createDeferred<void>(false);
     this.hasDbMigrationError = false;
 
     this._dbPromise = dbPromise;
-    this._security = {
-      masterMnemonic: '',
-      sshPublicKey: '',
-    };
     this._loadedData = {
       version: packageJson.version,
       panelKey: PanelKey.Mining,
@@ -172,8 +160,6 @@ export class Config implements IConfig {
         this.hasDbMigrationError = true;
       }
 
-      this._security = SECURITY;
-
       for (const [key, value] of Object.entries(defaults)) {
         let rawValue = dbRawData[key as keyof typeof dbRawData];
         const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
@@ -234,7 +220,7 @@ export class Config implements IConfig {
       const dataToSave = Config.extractDataToSave(fieldsToSave, rawData);
       await db.configTable.insertOrReplace(dataToSave);
 
-      if (this.miningAccount.address !== loadedData.miningAccountAddress) {
+      if (this._walletKeys.miningAddress !== loadedData.miningAccountAddress) {
         await tauriMessage(
           'Your database does not match your current mining account address. Something has corrupted your data.',
           {
@@ -256,42 +242,6 @@ export class Config implements IConfig {
     }
 
     return this._loadedDeferred.promise;
-  }
-
-  public get masterAccount(): KeyringPair {
-    // we will allow this to operate even if not loaded so this._injectFirstTimeAppData can set the miningAccountAddress
-    if (this._masterAccount) return this._masterAccount;
-
-    const masterAccount = new Keyring({ type: 'sr25519' }).createFromUri(this._security.masterMnemonic);
-    if (!this.isLoaded) return masterAccount;
-
-    this._masterAccount = masterAccount;
-    return this._masterAccount;
-  }
-
-  public get miningSessionMiniSecret(): string {
-    this._throwErrorIfNotLoaded();
-    return (this._miningSessionMiniSecret ||= miniSecretFromUri(`${this.security.masterMnemonic}//mining//sessions`));
-  }
-
-  public get miningAccount(): KeyringPair {
-    // we will allow this to operate even if not loaded so this._injectFirstTimeAppData can set the miningAccountAddress
-    if (this._miningAccount) return this._miningAccount;
-
-    const miningAccount = this.masterAccount.derive(`//mining`);
-    if (!this.isLoaded) return miningAccount;
-
-    this._miningAccount = miningAccount;
-    return this._miningAccount;
-  }
-
-  public get vaultingAccount(): KeyringPair {
-    if (this._vaultingAccount) return this._vaultingAccount;
-
-    const vaultingAccount = this.masterAccount.derive(`//vaulting`);
-    if (!this.isLoaded) return vaultingAccount;
-    this._vaultingAccount = vaultingAccount;
-    return this._vaultingAccount;
   }
 
   public get walletAccountsHadPreviousLife(): IConfig['walletAccountsHadPreviousLife'] {
@@ -328,10 +278,6 @@ export class Config implements IConfig {
     return Math.min(this._walletPreviousHistoryLoadPct, 100);
   }
 
-  public get bitcoinXprivSeed(): Uint8Array {
-    return bip39.mnemonicToSeedSync(this.security.masterMnemonic);
-  }
-
   public get panelKey(): PanelKey {
     return this.getField('panelKey');
   }
@@ -351,11 +297,6 @@ export class Config implements IConfig {
   }
   public set showWelcomeOverlay(value: boolean) {
     this.setField('showWelcomeOverlay', value);
-  }
-
-  public get security(): ISecurity {
-    this._throwErrorIfNotLoaded();
-    return this._security;
   }
 
   public get serverCreation(): IConfig['serverCreation'] {
@@ -593,15 +534,12 @@ export class Config implements IConfig {
     // We cannot use this._tryFieldsToSave because this._stringifiedData and this._fieldsToSave are not initialized yet. Instead
     // we can set the values to their temporary loadedData and stringifiedData objects
 
-    const miningAccountAddress = this.miningAccount.address;
+    const miningAccountAddress = this._walletKeys.miningAddress;
     loadedData.miningAccountAddress = miningAccountAddress;
     stringifiedData[dbFields.miningAccountAddress] = JsonExt.stringify(miningAccountAddress, 2);
     fieldsToSave.add(dbFields.miningAccountAddress);
 
-    const walletHadPreviousLife = await this._didWalletHavePreviousLife({
-      miningAccountAddress,
-      vaultingAccountAddress: this.vaultingAccount.address,
-    });
+    const walletHadPreviousLife = await this._walletKeys.didWalletHavePreviousLife();
     loadedData.walletAccountsHadPreviousLife = walletHadPreviousLife;
     stringifiedData[dbFields.walletAccountsHadPreviousLife] = JsonExt.stringify(walletHadPreviousLife, 2);
     fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
@@ -613,37 +551,15 @@ export class Config implements IConfig {
     }
   }
 
-  private async _didWalletHavePreviousLife(addresses: {
-    miningAccountAddress: string;
-    vaultingAccountAddress: string;
-  }) {
-    const walletBalances = new WalletBalances(getMainchainClients());
-    await walletBalances.load(addresses);
-
-    const miningHasValue = WalletBalances.doesWalletHaveValue(walletBalances.miningWallet);
-    const vaultingHasValue = WalletBalances.doesWalletHaveValue(walletBalances.vaultingWallet);
-    return miningHasValue || vaultingHasValue;
-  }
-
   private async _bootupFromAccountPreviousHistory() {
-    console.log('Config: Booting up from account previous history...', {
-      miningAccountAddress: this.miningAccount.address,
-      vaultingAccountAddress: this.vaultingAccount.address,
-    });
-    const walletBalances = new WalletBalances(getMainchainClients());
-    await walletBalances.load({
-      miningAccountAddress: this.miningAccount.address,
-      vaultingAccountAddress: this.vaultingAccount.address,
-    });
-    walletBalances.onLoadHistoryProgress = (loadPct: number) => {
-      this._walletPreviousHistoryLoadPct = loadPct;
-    };
+    console.log('Config: Booting up from account previous history...');
+    if (!this.accountRecoveryFn) {
+      throw new Error('Config: No account recovery function provided');
+    }
 
-    const { miningHistory, vaultingRules } = await walletBalances.loadHistory(
-      this.miningAccount,
-      this.bitcoinXprivSeed,
-      this.vaultRecoveryFn,
-    );
+    const { miningHistory, vaultingRules } = await this.accountRecoveryFn(pct => {
+      this._walletPreviousHistoryLoadPct = pct;
+    });
     if (!miningHistory?.length && !vaultingRules) {
       console.warn('Config: No previous history found');
       this.walletAccountsHadPreviousLife = false;

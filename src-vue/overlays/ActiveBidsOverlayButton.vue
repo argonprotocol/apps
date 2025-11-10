@@ -57,10 +57,11 @@ import { useCurrency } from '../stores/currency';
 import { getMainchainClient, getMining } from '../stores/mainchain';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { useStats } from '../stores/stats';
-import { Accountset, type IBidsFile } from '@argonprotocol/apps-core';
+import { Accountset, getRange, type IBidsFile } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral';
 import { TICK_MILLIS } from '../lib/Env.ts';
 import { useConfig } from '../stores/config.ts';
+import { useWalletKeys } from '../stores/wallets.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -79,7 +80,7 @@ const props = withDefaults(
 const stats = useStats();
 const currency = useCurrency();
 const mainchain = getMining();
-const config = useConfig();
+const walletKeys = useWalletKeys();
 
 const panelPositioningClasses = Vue.computed(() => {
   if (props.position === 'left') {
@@ -118,17 +119,10 @@ function lastBidAtTickFromNow(lastBidAtTick: number | undefined): string {
 
 Vue.onMounted(async () => {
   if (props.loadFromMainchain) {
-    const client = await getMainchainClient(false);
-
-    const accountset = new Accountset({
-      client,
-      seedAccount: config.miningAccount,
-      sessionMiniSecretOrMnemonic: config.miningSessionMiniSecret,
-      subaccountRange: new Array(99).fill(0).map((_, i) => i),
-    });
+    const subaccounts = await walletKeys.getMiningSubaccounts();
     const allWinningBids = await mainchain.fetchWinningBids();
     for (const bid of allWinningBids) {
-      const accountInfo = accountset.subAccountsByAddress[bid.address];
+      const accountInfo = subaccounts[bid.address];
       if (accountInfo) {
         bid.subAccountIndex = accountInfo.index;
       }

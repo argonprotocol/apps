@@ -80,7 +80,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import numeral from 'numeral';
-import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
+import { ChevronDoubleRightIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -89,8 +89,6 @@ import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { useDebounceFn } from '@vueuse/core';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import { useMyVault, useVaults } from '../../stores/vaults.ts';
-import { useConfig } from '../../stores/config.ts';
-import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -99,7 +97,6 @@ const emit = defineEmits<{
 const currency = useCurrency();
 const myVault = useMyVault();
 const vaults = useVaults();
-const config = useConfig();
 const bitcoinLocksStore = useBitcoinLocks();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -157,8 +154,6 @@ async function submitLiquidLock() {
 
     await myVault.startBitcoinLocking({
       microgonLiquidity: microgonLiquidity,
-      argonKeyring: config.vaultingAccount,
-      bip39Seed: config.bitcoinXprivSeed,
     });
   } catch (e: any) {
     console.error('Error initializing liquid lock:', e);
@@ -175,7 +170,6 @@ function closeOverlay() {
 Vue.onMounted(async () => {
   await myVault.load();
   await myVault.subscribe();
-  await config.load();
 
   bitcoinSpaceInMicrogons.value = myVault.createdVault!.availableBitcoinSpace();
   bitcoinSpaceInBtc.value = currency.satsToBtc(

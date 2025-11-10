@@ -164,13 +164,13 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
 }
 
 export function createDeferred<T = void>(isRunning: boolean = true): IDeferred<T> {
-  let resolve!: (value: T) => void;
+  let resolve!: (value: T | Promise<T>) => void;
   let reject!: (reason?: unknown) => void;
   let isResolved = false;
   let isRejected = false;
 
   const promise = new Promise<T>((res, rej) => {
-    resolve = (value: T) => {
+    resolve = (value: T | Promise<T>) => {
       isResolved = true;
       isRunning = false;
       res(value);
@@ -185,8 +185,9 @@ export function createDeferred<T = void>(isRunning: boolean = true): IDeferred<T
   const setIsRunning = (x: boolean) => (isRunning = x);
 
   // Create the object with arrow functions to avoid 'this' binding issues
-  const deferred: IDeferred<T> = {
-    resolve: (value: T) => resolve(value),
+
+  return {
+    resolve: (value: T | Promise<T>) => resolve(value),
     reject: (reason?: unknown) => reject(reason),
     promise,
     setIsRunning,
@@ -203,12 +204,10 @@ export function createDeferred<T = void>(isRunning: boolean = true): IDeferred<T
       return isResolved || isRejected;
     },
   };
-
-  return deferred;
 }
 
 export type IDeferred<T = void> = {
-  resolve(this: void, value: T): void;
+  resolve(this: void, value: T | Promise<T>): void;
   reject(this: void, reason?: unknown): void;
   setIsRunning(this: void, isRunning: boolean): void;
   promise: Promise<T>;

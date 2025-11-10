@@ -29,7 +29,7 @@ export class Diagnostics {
 
   public async accountAddressMatches() {
     const remoteAccountAddress = await this.server.downloadAccountAddress();
-    return remoteAccountAddress === this.config.miningAccount.address;
+    return remoteAccountAddress === this.config.miningAccountAddress;
   }
 
   public async remoteServerFilesAreUpToDate() {

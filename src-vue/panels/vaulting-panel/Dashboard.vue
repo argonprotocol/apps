@@ -9,16 +9,15 @@
               <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
               <strong>{{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
               <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
-                <template v-if="hours || minutes || days">
-                  (expires in&nbsp;
+                <template v-if="hours || minutes || days || seconds > 0">
+                  ({{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse('< 1_000', '0,0.00', '0,0')}} expires in&nbsp;
                   <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
-                  <template v-else-if="hours || minutes">
+                  <span v-else-if="hours || minutes > 1">
                     <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
                     <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-                  </template>
-                  )
+                  </span>
+                  <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>)
                 </template>
-                <template v-else-if="seconds">(expires in {{ seconds }} second{{ seconds === 1 ? '' : 's' }})</template>
               </CountdownClock>
             </div>
             <div class="grow flex flex-row items-center pl-2 pr-3">
@@ -189,16 +188,12 @@
                       These argons are available for use. Click the Activate button to distribute them
                       between bitcoin securitization and treasury bonds.
                     </p>
-                    <div v-if="allocationError" class="text-red-700 font-semibold my-2">
-                      {{ allocationError }}
-                    </div>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer w-full text-base"
-                              :class="[!isAllocating ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60', sidelinedMicrogons ? '' : 'opacity-50 pointer-events-none']"
-                              @click="openActivateOverlay" :disabled="isAllocating || !sidelinedMicrogons">
-                        {{!isAllocating ? 'Activate' : 'Allocating'}} these Unused Argons
+                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer w-full text-base bg-argon-600"
+                              :class="[sidelinedMicrogons ? '' : 'opacity-50 pointer-events-none']"
+                              @click="openActivateOverlay" :disabled="!sidelinedMicrogons">
+                        Allocate these Unused Argons
                       </button>
-                      <span :class="{active: isAllocating}" spinner class="ml-2 inline-block mt-1" />
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </HoverCardContent>
@@ -620,6 +615,7 @@ import { getMainchainClient, getMining } from '../../stores/mainchain.ts';
 import { getPercent, percentOf } from '../../lib/Utils.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
+import { MyVault } from '../../lib/MyVault.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -639,8 +635,6 @@ const latestFrameId = Vue.computed(() => {
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const frameRecords = Vue.ref<IVaultFrameRecord[]>([]);
 const chartItems = Vue.ref<IChartItem[]>([]);
-const isAllocating = Vue.ref(false);
-const allocationError = Vue.ref<string | null>(null);
 const personalBitcoin = Vue.ref<InstanceType<typeof PersonalBitcoin> | null>(null);
 
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
@@ -671,12 +665,13 @@ const totalTreasuryPoolBonds = Vue.computed(() => {
 });
 
 const sidelinedMicrogons = Vue.computed(() => {
-  return bigIntMax(wallets.vaultingWallet.availableMicrogons - 1_000_000n, 0n);
+  return bigIntMax(wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
 });
 
 const operationalMicrogons = Vue.computed(() => {
-  if (wallets.vaultingWallet.availableMicrogons < 1_000_000n) return wallets.vaultingWallet.availableMicrogons;
-  return 1_000_000n;
+  if (wallets.vaultingWallet.availableMicrogons < MyVault.OperationalReserves)
+    return wallets.vaultingWallet.availableMicrogons;
+  return MyVault.OperationalReserves;
 });
 
 const internalTreasuryPoolBonds = Vue.computed(() => {
@@ -749,10 +744,12 @@ const revenueMicrogons = Vue.computed(() => {
   if (!stats) return 0n;
   let sum = stats.baseline.feeRevenue ?? 0n;
   for (const change of stats.changesByFrame) {
-    sum += change.bitcoinFeeRevenue ?? 0n;
-    sum += change.treasuryPool.vaultEarnings ?? 0n;
+    if (change.uncollectedEarnings === 0n) {
+      sum += change.bitcoinFeeRevenue ?? 0n;
+      sum += change.treasuryPool.vaultEarnings ?? 0n;
+    }
   }
-  return sum - myVault.data.pendingCollectRevenue;
+  return sum;
 });
 
 const showCollectOverlay = Vue.ref(false);

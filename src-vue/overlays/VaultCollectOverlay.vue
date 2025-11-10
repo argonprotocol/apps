@@ -48,18 +48,30 @@
                         microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0')
                       }}
                     </strong>
-                    in uncollected revenue. You must collect this within
+                    in uncollected revenue.
                     <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
-                      <template v-if="hours || minutes || days">
-                        <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
-                        <template v-else-if="hours || minutes">
+                      <template v-if="hours || minutes || days || seconds">
+                        You must collect this within
+                        <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}.</span>
+                        <span v-else-if="hours || minutes > 0">
                           <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
                           <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-                        </template>
+                        </span>
+                        <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
+                        ; otherwise,
+                        <strong>
+                          {{ currency.symbol
+                          }}{{
+                            microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse(
+                              '< 1_000',
+                              '0,0.00',
+                              '0,0',
+                            )
+                          }}
+                        </strong>
+                        will expire and be lost forever.
                       </template>
-                      <template v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</template>
                     </CountdownClock>
-                    ; otherwise, it will expire and be lost forever.
                   </span>
                   <span v-if="myVault.data.pendingCosignUtxoIds.size">
                     {{ myVault.data.pendingCollectRevenue ? 'Also, you' : 'You' }} have
@@ -134,7 +146,6 @@ import Draggable from './helpers/Draggable.ts';
 import { useMyVault } from '../stores/vaults.ts';
 import { useCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { useConfig } from '../stores/config.ts';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import ProgressBar from '../components/ProgressBar.vue';
 
@@ -151,7 +162,6 @@ const collectProgress = Vue.ref(0);
 const collectError = Vue.ref('');
 const myVault = useMyVault();
 const currency = useCurrency();
-const config = useConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -171,13 +181,9 @@ async function collect() {
   isCollecting.value = true;
   collectProgress.value = 0;
   try {
-    const { bitcoinXprivSeed, vaultingAccount } = config;
-    await myVault.collect(
-      { argonKeyring: vaultingAccount, xprivSeed: bitcoinXprivSeed },
-      (totalComplete, inProgressPctComplete, toComplete) => {
-        collectProgress.value = totalComplete + inProgressPctComplete * (1 / toComplete);
-      },
-    );
+    await myVault.collect((totalComplete, inProgressPctComplete, toComplete) => {
+      collectProgress.value = totalComplete + inProgressPctComplete * (1 / toComplete);
+    });
     collectProgress.value = 100;
     closeOverlay();
   } catch (error) {

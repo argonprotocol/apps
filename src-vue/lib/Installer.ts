@@ -17,6 +17,7 @@ import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { Server } from './Server';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { MiningMachine, MiningMachineError } from './MiningMachine.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
 dayjs.extend(utc);
 
@@ -56,18 +57,20 @@ export default class Installer {
 
   private isLoadedDeferred!: IDeferred<void>;
   private config: Config;
+  private walletKeys: WalletKeys;
   private installerCheck: InstallerCheck;
   private disableWrites = false;
 
   private _server?: Server;
 
-  constructor(config: Config) {
+  constructor(config: Config, walletKeys: WalletKeys) {
     ensureOnlyOneInstance(this.constructor);
 
     this.isRunning = false;
     this.isRunningInBackground = false;
 
     this.config = config;
+    this.walletKeys = walletKeys;
     this.installerCheck = new InstallerCheck(this, config);
     this.reasonToSkipInstall = '';
     this.reasonToSkipInstallData = null;
@@ -84,7 +87,7 @@ export default class Installer {
         await this.ensureIpAddressIsWhitelisted();
         const server = await this.getServer();
         const accountAddressOnServer = await server.downloadAccountAddress();
-        if (accountAddressOnServer && accountAddressOnServer !== this.config.miningAccount.address) {
+        if (accountAddressOnServer && accountAddressOnServer !== this.config.miningAccountAddress) {
           await tauriMessage(
             'The wallet address on the server does not match the wallet address in the local database. This app will shutdown.',
             {
@@ -176,7 +179,7 @@ export default class Installer {
 
       if (!this.config.isMiningMachineCreated) {
         try {
-          const serverDetails = await MiningMachine.setup(this.config);
+          const serverDetails = await MiningMachine.setup(this.config, this.walletKeys);
           this.config.serverDetails = serverDetails;
           this.config.isMiningMachineCreated = true;
           this.remoteFilesNeedUpdating = true;
@@ -198,7 +201,7 @@ export default class Installer {
 
       if (this.remoteFilesNeedUpdating) {
         console.info('Uploading account address');
-        await server.uploadAccountAddress(this.config.miningAccount.address);
+        await server.uploadAccountAddress(this.config.miningAccountAddress);
 
         console.info('Uploading core files');
         await this.uploadCoreFiles(t => (this.fileUploadProgress += (1 / t) * 49));
@@ -542,14 +545,15 @@ export default class Installer {
   private async uploadBotConfigFiles(progressFn?: (totalCount: number, uploadedCount: number) => void): Promise<void> {
     const server = await this.getServer();
     await server.createConfigDir();
-    await server.uploadMiningWallet(this.config.miningAccount.toJson(''));
+    const miningAccount = await this.walletKeys.exportMiningAccountJson('');
+    await server.uploadMiningWallet(miningAccount);
     progressFn?.(4, 1);
     await server.uploadBiddingRules(this.config.biddingRules);
     progressFn?.(4, 2);
     await server.uploadEnvState({ oldestFrameIdToSync: this.config.oldestFrameIdToSync });
     progressFn?.(4, 3);
     await server.uploadEnvSecurity({
-      sessionMiniSecret: this.config.miningSessionMiniSecret,
+      sessionMiniSecret: await this.walletKeys.getMiningSessionMiniSecret(),
       keypairPassphrase: '',
     });
     progressFn?.(4, 4);

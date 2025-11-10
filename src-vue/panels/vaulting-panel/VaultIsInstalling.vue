@@ -10,7 +10,7 @@
       </p>
 
       <p v-else class="pt-1 pb-2 font-light text-center opacity-70">
-        {{ abbreviateAddress(config.vaultingAccount.address, 20) }}
+        {{ abbreviateAddress(walletKeys.vaultingAddress, 20) }}
       </p>
 
       <div class="flex flex-col w-140 pt-7">
@@ -35,8 +35,10 @@ import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
 import VaultIcon from '../../assets/vault.svg?component';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { useCurrency } from '../../stores/currency.ts';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const config = useConfig();
+const walletKeys = useWalletKeys();
 const myVault = useMyVault();
 const currency = useCurrency();
 
@@ -84,10 +86,8 @@ async function createVault() {
 
   try {
     const txInfo = await myVault.createNew({
-      argonKeyring: Vue.toRaw(config.vaultingAccount),
       rules: config.vaultingRules,
       masterXpubPath,
-      xprivSeed: Vue.toRaw(config.bitcoinXprivSeed),
     });
 
     txInfo.subscribeToProgress(
@@ -117,8 +117,6 @@ async function activateVault() {
     console.log('Activating vault');
     await currency.load();
     const txInfo = await myVault.activateSecuritizationAndTreasury({
-      argonKeyring: config.vaultingAccount,
-      bip39Seed: config.bitcoinXprivSeed,
       rules: vaultingRules,
     });
     if (!txInfo) {

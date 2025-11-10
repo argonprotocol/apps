@@ -8,19 +8,21 @@ import { IInstallStepStatuses, InstallStepStatusType } from '../lib/Server';
 import { InstallStepKey, ServerType } from '../interfaces/IConfig';
 import { InstallerCheck } from '../lib/InstallerCheck.ts';
 import { MiningMachine } from '../lib/MiningMachine.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 
 beforeEach(() => {
   resetInstaller();
-  // @ts-expect-error - mock
-  Config.prototype._didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
+  WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
 });
 
 it('should skip install if server is not connected', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'false' });
-  const config = new Config(dbPromise);
+
+  const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: '//Alice' });
+  const config = new Config(dbPromise, walletKeys);
   await config.load();
 
-  const installer = new Installer(config);
+  const installer = new Installer(config, walletKeys);
   await installer.load();
   // @ts-expect-error - test private method
   const didRun = await installer.calculateIsReadyToRun();
@@ -31,10 +33,11 @@ it('should skip install if server is not connected', async () => {
 
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'true' });
-  const config = new Config(dbPromise);
+  const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: '//Alice' });
+  const config = new Config(dbPromise, walletKeys);
   await config.load();
 
-  const installer = new Installer(config);
+  const installer = new Installer(config, walletKeys);
   const runSpy = vi.spyOn(installer, 'run');
   installer.isRunning = true;
   await installer.load();
@@ -45,10 +48,11 @@ it('should skip install if install is already running', async () => {
 
 it('should install if all conditions are met', async () => {
   const dbPromise = createMockedDbPromise({});
-  const config = new Config(dbPromise);
+  const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: '//Alice' });
+  const config = new Config(dbPromise, walletKeys);
   await config.load();
 
-  const installer = new Installer(config);
+  const installer = new Installer(config, walletKeys);
   await installer.load();
 
   config.isMinerReadyToInstall = true;
@@ -77,7 +81,8 @@ it('should install if all conditions are met', async () => {
 
 it('should run through entire install process', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'true', serverCreation: '{ "localComputer": {} }' });
-  const config = Vue.reactive(new Config(dbPromise)) as Config;
+  const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: '//Alice' });
+  const config = Vue.reactive(new Config(dbPromise, walletKeys)) as Config;
   await config.load();
 
   MiningMachine.setupLocalComputer = vi.fn().mockResolvedValue({
@@ -88,7 +93,7 @@ it('should run through entire install process', async () => {
     workDir: '/app',
   });
 
-  const installer = new Installer(config);
+  const installer = new Installer(config, walletKeys);
 
   // @ts-ignore
   installer.isRemoteVersionLatest = vi.fn().mockResolvedValue(true);

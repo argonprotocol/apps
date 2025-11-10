@@ -54,7 +54,7 @@ export default class Importer {
       this.config.serverDetails = this.data.serverDetails;
       const serverData = await this.fetchServerData(this.data.serverDetails);
 
-      if (serverData?.walletAddress !== this.config.miningAccount.address) {
+      if (serverData?.walletAddress !== this.config.miningAccountAddress) {
         throw new Error('Wallet address mismatch');
       }
 
@@ -90,7 +90,7 @@ export default class Importer {
 
     if (!serverData) {
       throw new Error('Failed to fetch server data');
-    } else if (serverData.walletAddress !== this.config.miningAccount.address) {
+    } else if (serverData.walletAddress !== this.config.miningAccountAddress) {
       throw new Error('Wallet address mismatch');
     }
 
