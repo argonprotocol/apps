@@ -315,7 +315,6 @@ function cancelEditOverlay() {
 }
 
 function cancelOverlay() {
-  console.log('CANCEL OVERLAY');
   if (hasEditBoxOverlay.value) return;
 
   if (previousBiddingRules) {
@@ -434,7 +433,6 @@ function updateMinimumCapitalCommitment() {
 function acceptMinimumCapitalCommitment() {
   capitalCommitment.value = minimumCapitalCommitment.value;
   rules.value.initialCapitalCommitment = undefined;
-  console.log('capitalCommitment.value', capitalCommitment.value);
 }
 
 function startTour() {

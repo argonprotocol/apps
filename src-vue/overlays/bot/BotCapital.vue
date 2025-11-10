@@ -164,7 +164,6 @@ function updateAPYs() {
   maximumBidProbableSeatCount.value = maximumProjections.estimatedSeats;
   maximumBidArgonPerSeat.value = calculator.maximumBidAmount;
   maximumBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
-  console.log('MAXIMUM PROJECTIONS', maximumProjections);
 
   const maximumBidSeatCount = BigInt(maximumBidProbableSeatCount.value);
   const maximumBidSeatCost =

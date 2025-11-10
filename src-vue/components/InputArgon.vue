@@ -89,7 +89,6 @@ const handleUpdate = (value: number) => {
 
 const handleInput = (value: number) => {
   const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
-  console.log('INPUT', bigNumberToBigInt(valueBn));
   emit('input', bigNumberToBigInt(valueBn));
 };
 </script>
