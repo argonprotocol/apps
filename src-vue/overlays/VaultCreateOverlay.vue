@@ -389,7 +389,7 @@ Vue.onMounted(async () => {
     @apply relative;
 
     [tooltip] {
-      @apply transition-all duration-300 text-argon-600/60;
+      @apply text-argon-600/60 transition-all duration-300;
 
       &:focus {
         @apply text-argon-600;

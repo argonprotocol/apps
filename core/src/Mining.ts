@@ -8,8 +8,8 @@ export const BLOCK_REWARD_INCREASE_PER_INTERVAL = BigInt(1_000);
 export const BLOCK_REWARD_MAX = BigInt(5_000_000);
 export const BLOCK_REWARD_INTERVAL = 118;
 
-const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.80;
-const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.20;
+const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.8;
+const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.2;
 
 export class Mining {
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
@@ -181,7 +181,7 @@ export class Mining {
     const nextCohortSize = await this.getNextCohortSize();
     const currentMaxMiners = nextCohortSize * 10;
     const baseOwnershipTokens = ownershipCirculation / BigInt(currentMaxMiners);
-    const maxValue = Math.ceil(MAXIMUM_ARGONOT_PRORATA_PERCENT *  Number(baseOwnershipTokens));
+    const maxValue = Math.ceil(MAXIMUM_ARGONOT_PRORATA_PERCENT * Number(baseOwnershipTokens));
 
     return BigInt(maxValue);
   }

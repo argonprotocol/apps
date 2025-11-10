@@ -132,7 +132,11 @@ const suffix = Vue.computed(() => {
   return sfx;
 });
 
-function updateInputValue(inputValue: number, isManualInput: boolean, setAsLastValueBeforeMinIncrease: boolean = false) {
+function updateInputValue(
+  inputValue: number,
+  isManualInput: boolean,
+  setAsLastValueBeforeMinIncrease: boolean = false,
+) {
   const boundedInputValue = calculateBoundedInputValue(inputValue);
   currentInputValue = inputValue;
 

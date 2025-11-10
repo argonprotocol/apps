@@ -9,7 +9,7 @@ import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces
 export default class BiddingCalculatorData {
   public microgonsToMineThisSeat: bigint = 0n;
   public micronotsToMineThisSeat: bigint = 0n;
-  
+
   public currentMicronotsForBid: bigint = 0n;
   public maximumMicronotsForBid: bigint = 0n;
 
@@ -73,7 +73,7 @@ export default class BiddingCalculatorData {
         this.microgonsToMineThisSeat =
           (microgonsMinedPerBlock * BigInt(MiningFrames.ticksPerCohort)) / BigInt(maxPossibleMinersInNextEpoch);
         this.microgonsInCirculation = await priceIndex.fetchMicrogonsInCirculation();
-        
+
         this.currentMicronotsForBid = await mining.getCurrentMicronotsForBid();
         this.maximumMicronotsForBid = await mining.getMaximumMicronotsForEndOfEpochBid();
 

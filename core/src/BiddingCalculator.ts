@@ -27,7 +27,7 @@ export default class BiddingCalculator {
   public startingBidAmountFromExpectedGrowth: null | bigint = null;
   public startingBidAtSlowGrowthAPY!: number;
   public startingBidAtFastGrowthAPY!: number;
-  
+
   public maximumBidAmount!: bigint;
   public maximumBidAmountAtPivot: null | bigint = null;
   public maximumBidAmountFromStartingBid: null | bigint = null;
@@ -81,7 +81,11 @@ export default class BiddingCalculator {
     return this.calculateOptimisticRewardsThisSeat();
   }
 
-  public runProjections(rules: IBiddingRules, bidType: IBidType, useSeatGoalCount: boolean = false): {
+  public runProjections(
+    rules: IBiddingRules,
+    bidType: IBidType,
+    useSeatGoalCount: boolean = false,
+  ): {
     estimatedSeats: number;
     microgonRequirement: bigint;
     micronotRequirement: bigint;
@@ -99,7 +103,7 @@ export default class BiddingCalculator {
     const micronotRequirement = bigIntCeil(estimatedSeats * micronotsPerSeat, 10_000n);
     const micronotsAsMicrogons = this.micronotToMicrogon(micronotRequirement);
     const capitalCommitment = bigIntCeil(microgonRequirement + micronotsAsMicrogons, 10_000n);
-    
+
     return {
       estimatedSeats: Number(estimatedSeats),
       microgonRequirement,

@@ -196,16 +196,14 @@
                       : 's'
                   }}
                 </template>
-                <template v-if="miningMicrogonsNeeded > 0n && miningMicronotsNeeded > 0n">
-                  and
-                </template>
+                <template v-if="miningMicrogonsNeeded > 0n && miningMicronotsNeeded > 0n">and</template>
                 <template v-if="miningMicronotsNeeded > 0n">
                   {{ microgonToArgonNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') }}
                   argonot{{
                     micronotToArgonotNm(miningMicronotsNeeded).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
                       ? ''
                       : 's'
-                  }}  
+                  }}
                 </template>
                 in order to fully operate according to your bidding rules.
               </p>

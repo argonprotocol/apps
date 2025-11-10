@@ -379,9 +379,7 @@ function updateAPYs() {
   const probableMinSeatsBn =
     calculator.maximumBidAmount === 0n
       ? new BigNumber(0)
-      : BigNumber(rules.value.initialMicrogonRequirement).dividedBy(
-          calculator.maximumBidAmount,
-        );
+      : BigNumber(rules.value.initialMicrogonRequirement).dividedBy(calculator.maximumBidAmount);
   probableMinSeats.value = Math.max(bigNumberToInteger(probableMinSeatsBn), 0);
   if (probableMinSeats.value > Number(maxAffordableSeats)) {
     probableMinSeats.value = Number(maxAffordableSeats);
@@ -390,9 +388,7 @@ function updateAPYs() {
   const probableMaxSeatsBn =
     calculator.startingBidAmount === 0n
       ? new BigNumber(0)
-      : BigNumber(rules.value.initialMicrogonRequirement).dividedBy(
-          calculator.startingBidAmount,
-        );
+      : BigNumber(rules.value.initialMicrogonRequirement).dividedBy(calculator.startingBidAmount);
   probableMaxSeats.value = Math.min(bigNumberToInteger(probableMaxSeatsBn), calculatorData.maxPossibleMiningSeatCount);
   if (probableMaxSeats.value > Number(maxAffordableSeats)) {
     probableMaxSeats.value = Number(maxAffordableSeats);
@@ -438,7 +434,7 @@ function updateMinimumCapitalCommitment() {
 function acceptMinimumCapitalCommitment() {
   capitalCommitment.value = minimumCapitalCommitment.value;
   rules.value.initialCapitalCommitment = undefined;
-  console.log('capitalCommitment.value', capitalCommitment.value)
+  console.log('capitalCommitment.value', capitalCommitment.value);
 }
 
 function startTour() {
@@ -465,7 +461,7 @@ Vue.onMounted(async () => {
   await calculatorData.load();
 
   previousBiddingRules = JsonExt.stringify(config.biddingRules);
-  
+
   updateAPYs();
   updateTokenRequirements();
   updateMinimumCapitalCommitment();
@@ -532,7 +528,7 @@ Vue.onMounted(async () => {
     @apply relative;
 
     [tooltip] {
-      @apply transition-all duration-300 text-argon-600/60;
+      @apply text-argon-600/60 transition-all duration-300;
 
       &:focus {
         @apply text-argon-600;

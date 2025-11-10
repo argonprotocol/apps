@@ -155,7 +155,8 @@ function updateAPYs() {
   startingBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
 
   const startingBidSeatsCount = BigInt(startingBidProbableSeatCount.value);
-  const startingBidSeatCost = calculator.startingBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
+  const startingBidSeatCost =
+    calculator.startingBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
   startingBidCostTotal.value = startingBidSeatsCount * startingBidSeatCost;
   startingBidEarningsTotal.value = startingBidSeatsCount * averageEarningsPerSeat;
 
@@ -164,9 +165,10 @@ function updateAPYs() {
   maximumBidArgonPerSeat.value = calculator.maximumBidAmount;
   maximumBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
   console.log('MAXIMUM PROJECTIONS', maximumProjections);
-  
+
   const maximumBidSeatCount = BigInt(maximumBidProbableSeatCount.value);
-  const maximumBidSeatCost = calculator.maximumBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
+  const maximumBidSeatCost =
+    calculator.maximumBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
   maximumBidCostTotal.value = maximumBidSeatCount * maximumBidSeatCost;
   maximumBidEarningsTotal.value = maximumBidSeatCount * averageEarningsPerSeat;
 }
