@@ -303,6 +303,10 @@ async function launchMiningBot() {
   if (wallets.miningWallet.availableMicronots > biddingRules.initialMicronotRequirement) {
     biddingRules.initialMicronotRequirement = wallets.miningWallet.availableMicronots;
   }
+  const micronotsAsMicrogons = currency.micronotToMicrogon(wallets.miningWallet.availableMicronots);
+  const capitalCommitment = wallets.miningWallet.availableMicrogons + micronotsAsMicrogons;
+  biddingRules.initialCapitalCommitment = capitalCommitment;
+
   config.biddingRules = biddingRules;
   await config.save();
   await installer.run();
