@@ -4,7 +4,28 @@
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
       <section box class="flex flex-row items-center text-slate-900/90 !py-3">
         <div class="flex flex-row items-center w-full min-h-[6%]">
-          <div v-if="myVault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
+          <div v-if="myVault.data.pendingCollectTxInfo" class="px-6 flex flex-row items-center w-full h-full">
+            <div class="flex flex-row items-center text-lg relative text-slate-800/90" v-if="pendingCollectTxMetadata?.expectedCollectRevenue">
+              <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
+              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(pendingCollectTxMetadata?.expectedCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is being collected</strong>&nbsp;
+            </div>
+            <div v-else class="flex flex-row items-center text-lg relative text-slate-800/90">
+              <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
+              <strong>{{ pendingCollectTxMetadata?.cosignedUtxoIds.length ?? 0 }} co-signatures are processing.</strong>&nbsp;
+            </div>
+            <div class="grow flex flex-row items-center pl-2 pr-3">
+              <div class="h-4 w-full bg-linear-to-r from-transparent to-argon-700/10"></div>
+              <div class="flex items-center justify-center">
+                <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M7 5l5 5-5 5" fill="currentColor" />
+                </svg>
+              </div>
+            </div>
+            <button @click="showCollectOverlay = true" class="bg-white border border-argon-600/20 hover:bg-argon-600/10 inner-button-shadow cursor-pointer rounded-md px-8 py-2 font-bold text-argon-600 focus:outline-none">
+              View Progress
+            </button>
+          </div>
+          <div v-else-if="myVault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
               <strong>{{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
@@ -181,18 +202,35 @@
                 <HoverCardRoot :openDelay="200" :closeDelay="100">
                   <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
                     <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
+                    <template v-if="!myVault.data.pendingAllocateTxInfo">
                     {{ microgonToArgonNm(sidelinedMicrogons).format('0,0.[00]') }} Needs Activation
+                    </template>
+                    <template v-else>
+                      {{ microgonToArgonNm(myVault.data.pendingAllocateTxInfo.tx.metadataJson.addedSecuritizationMicrogons +
+                        myVault.data.pendingAllocateTxInfo.tx.metadataJson.addedTreasuryMicrogons).format('0,0.[00]') }} Activation in
+                      Progress
+                    </template>
                   </HoverCardTrigger>
                   <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-md text-slate-900/60">
                     <p class="break-words whitespace-normal">
-                      These argons are available for use. Click the Activate button to distribute them
+                      <template v-if="!myVault.data.pendingAllocateTxInfo">
+                        These argons are available for use. Click the Activate button to distribute them
                       between bitcoin securitization and treasury bonds.
+                      </template>
+                      <template v-else>
+                        These argons are currently being activated. Once the activation transaction is finalized,
+                        they will be distributed between bitcoin securitization and treasury bonds.
+                      </template>
                     </p>
                     <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
                       <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer w-full text-base bg-argon-600"
-                              :class="[sidelinedMicrogons ? '' : 'opacity-50 pointer-events-none']"
-                              @click="openActivateOverlay" :disabled="!sidelinedMicrogons">
-                        Allocate these Unused Argons
+                              @click="openActivateOverlay">
+                        <template v-if="!myVault.data.pendingAllocateTxInfo">
+                          Activate these Unused Argons
+                        </template>
+                        <template v-else>
+                          View Activation Progress
+                        </template>
                       </button>
                     </div>
                     <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
@@ -642,6 +680,10 @@ const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumera
 // For the Vault UI countdown clock
 const nextCollectDueDate = Vue.computed(() => {
   return dayjs.utc(myVault.data.nextCollectDueDate);
+});
+
+const pendingCollectTxMetadata = Vue.computed(() => {
+  return myVault.data.pendingCollectTxInfo?.tx.metadataJson;
 });
 
 const personalUtxo = Vue.computed(() => personalBitcoin.value?.personalUtxo);

@@ -186,7 +186,7 @@ export class BitcoinLocksTable extends BaseTable {
     lock.status = BitcoinLockStatus.ReleaseIsProcessingOnBitcoin;
     lock.releasedTxid = releasedTxid;
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = ?, releasedTxuuid = ?  WHERE uuid = ?`,
+      `UPDATE BitcoinLocks SET status = ?, releasedTxid = ?  WHERE uuid = ?`,
       toSqlParams([lock.status, lock.releasedTxid, lock.uuid]),
     );
   }
@@ -298,7 +298,7 @@ export class BitcoinLocksTable extends BaseTable {
       lock.status = BitcoinLockStatus.LockedAndIsMinting;
     }
     await this.db.execute(
-      'UPDATE BitcoinLocks SET status = ?, lockedTxuuid = ?, lockedVout = ? WHERE uuid = ?',
+      'UPDATE BitcoinLocks SET status = ?, lockedTxid = ?, lockedVout = ? WHERE uuid = ?',
       toSqlParams([lock.status, lock.lockedTxid, lock.lockedVout, lock.uuid]),
     );
   }
