@@ -314,6 +314,11 @@ export default class BiddingCalculator {
     return microgonsToMine + micronotsMinedAsMicrogons + microgonsToMint;
   }
 
+  /**
+   * Get the end-of-epoch value of the mined argonots as microgons, based on the price change percentage.
+   * @param argonotPriceChangePct
+   * @private
+   */
   private micronotMinedAsMicrogonValue(argonotPriceChangePct: number): bigint {
     const tenDayPriceChangePct = this.convertAnnualToTenDayRate(argonotPriceChangePct);
     const micronots = this.data.micronotsToMineThisSeat;
@@ -328,7 +333,7 @@ export default class BiddingCalculator {
 
     const tenDayCirculationGrowthPct = this.convertAnnualToTenDayRate(argonCirculationGrowthPct);
     const microgonsInCirculation = this.data.microgonsInCirculation;
-    const epochMultiplier = 1 + tenDayCirculationGrowthPct / 100; // one epoch = 10 days
+    const epochMultiplier = tenDayCirculationGrowthPct / 100; // one epoch = 10 days
 
     const microgonsToMintThisEpochBn = BigNumber(microgonsInCirculation).multipliedBy(epochMultiplier);
     const microgonsToMintThisSeatBn =

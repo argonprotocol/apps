@@ -6,7 +6,7 @@
     :style="[positionStyle, { cursor: isDragging ? 'grabbing' : 'default' }]"
   >
     <div class="flex flex-col">
-      <div class="flex flex-row items-center justify-center text-xl font-bold font-sans text-argon-600/70 mx-2 text-center border-b border-slate-400/30">
+      <div class="flex flex-row items-center justify-center text-xl font-bold font-sans text-argon-600/70 mx-2 text-center border-b border-slate-400/30 select-none">
         <ChevronLeftIcon v-if="previousId" class="w-5 h-5 text-argon-600/70 cursor-pointer opacity-50 hover:opacity-100" @click="goToPrevious" />
         <span @mousedown="onDragStart" class="grow pt-4 pb-1 cursor-grab">{{ titles[id as keyof typeof titles] }}</span>
         <ChevronRightIcon v-if="nextId" class="w-5 h-5 text-argon-600/70 cursor-pointer opacity-50 hover:opacity-100" @click="toToNext" />
@@ -41,13 +41,13 @@
 
 <script lang="ts">
 import * as Vue from 'vue';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/solid';
 
 export interface IEditBoxChildExposed {
   beforeSave?: (stopSaveFn: () => void) => void | Promise<void>;
   beforeCancel?: (stopCancelFn: () => void) => void | Promise<void>;
   saveButtonLabel?: Vue.Ref<string>;
   shouldHideSaveButton?: Vue.Ref<boolean>;
+  isAlertShowing?: Vue.Ref<boolean>;
 }
 
 export type IEditBoxOverlayTypeForMining =
@@ -81,6 +81,7 @@ import VaultBtcLockingFees from './edit-box/VaultBtcLockingFees.vue';
 import VaultPoolRevenueShare from './edit-box/VaultPoolRevenueShare.vue';
 import VaultSecuritizationRatio from './edit-box/VaultSecuritizationRatio.vue';
 import VaultPersonalBtc from './edit-box/VaultPersonalBtc.vue';
+import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { useConfig } from '../stores/config';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
@@ -211,19 +212,21 @@ function onDragStart(e: MouseEvent) {
 }
 
 function constrainToViewport(x: number, y: number): { x: number; y: number } {
-  if (!modalElem.value) return { x, y };
+  if (!modalElem.value || !modalElem.value.parentElement) return { x, y };
 
   const rect = modalElem.value.getBoundingClientRect();
+  const parentRect = modalElem.value.parentElement.getBoundingClientRect();
+  // get position relative to viewport
+
   const modalWidth = rect.width;
   const modalHeight = rect.height;
 
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
   const padding = 10;
 
   // Constrain the modal to stay within viewport bounds with padding
-  const maxX = vw - modalWidth - padding;
-  const maxY = vh - modalHeight * 2 - padding;
+  // Boundaries relative to the parent container
+  const maxX = parentRect.width - modalWidth - padding;
+  const maxY = parentRect.height - modalHeight - padding;
 
   return {
     x: Math.max(padding, Math.min(maxX, x)),
@@ -263,12 +266,12 @@ function handleResize(boundingClientRect: DOMRect) {
   return constrainToViewport(currentPosition.value.left, currentPosition.value.top);
 }
 
-const observer = new ResizeObserver(entries => {
-  if (!modalElem.value) return;
+const observer = new ResizeObserver(checkForCollisions);
 
+function checkForCollisions() {
+  if (!modalElem.value) return;
   const boundingClientRect = modalElem.value.getBoundingClientRect();
   const constrained = handleResize(boundingClientRect);
-
   // Update position if it was constrained
   if (constrained.x !== currentPosition.value.left || constrained.y !== currentPosition.value.top) {
     currentPosition.value.left = constrained.x;
@@ -276,7 +279,7 @@ const observer = new ResizeObserver(entries => {
   }
 
   lastBoundingClientRect = boundingClientRect;
-});
+}
 
 Vue.watch(
   () => editorInstance.value?.saveButtonLabel,
@@ -289,6 +292,13 @@ Vue.watch(
   () => editorInstance.value?.shouldHideSaveButton,
   value => {
     shouldHideSaveButton.value = value || false;
+  },
+);
+
+Vue.watch(
+  () => editorInstance.value?.isAlertShowing,
+  () => {
+    requestAnimationFrame(() => checkForCollisions());
   },
 );
 

@@ -55,8 +55,7 @@ impl Security {
             .map_err(|e| e.to_string())?
             .to_seed("");
         let path = bip32::DerivationPath::from_str(hd_path).map_err(|e| e.to_string())?;
-        let hd_key: XPrv =
-            bip32::XPrv::derive_from_path(seed, &path).map_err(|e| e.to_string())?;
+        let hd_key: XPrv = bip32::XPrv::derive_from_path(seed, &path).map_err(|e| e.to_string())?;
 
         let prefix = Prefix::try_from(version).map_err(|e| e.to_string())?;
 

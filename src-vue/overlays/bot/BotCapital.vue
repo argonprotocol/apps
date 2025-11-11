@@ -31,8 +31,8 @@
               <tr class="text-argon-600 h-1/3">
                 <td class="w-5/12"></td>
                 <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Est. Seats</td>
-                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Argons Per</td>
-                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Argonots Per</td>
+                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">ARGN/Seat</td>
+                <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">ARGNOT/Seat</td>
                 <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Cost Total</td>
                 <td class="text-argon-800/40 w-5/12 text-right font-sans font-light">Earnings Total</td>
               </tr>

@@ -44,6 +44,7 @@ import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
 import { useConfig } from '../../stores/config';
+import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 
 const config = useConfig();
 const calculator = getBiddingCalculator();
@@ -68,4 +69,5 @@ Vue.onMounted(() => {
 Vue.onBeforeUnmount(() => {
   calculator.setPivotPoint(null);
 });
+defineExpose<IEditBoxChildExposed>({ isAlertShowing: showBidAmountAlert });
 </script>

@@ -9,10 +9,16 @@
       <div class="shrink-0">
         <AlertIcon class="size-5 text-yellow-700" aria-hidden="true" />
       </div>
-      <div class="ml-3">
+      <div class="ml-3" v-if="calculator.maximumBidAmountFromStartingBid">
+        <h3 class="text-sm font-medium text-yellow-800">Starting Bid Overridden</h3>
+        <div class="mt-1 text-sm text-yellow-700">
+          <p>Your changes to starting bid are conflicting with the values used in your maximum bid. You might want to adjust your starting bid after saving this screen.</p>
+        </div>
+      </div>
+      <div class="ml-3" v-else>
         <h3 class="text-sm font-medium text-yellow-800">This Formula Has Changed By -{{currency.symbol}}{{ microgonToMoneyNm(formulaChangeAmount).format('0,0.00') }}</h3>
         <div class="mt-1 text-sm text-yellow-700">
-          <p>You made changes to the Ecosystem Growth rates, which increased the value of you formula for Maximum Bid
+          <p>You made changes to the Ecosystem Growth rates, which increased the value of the formula for Maximum Bid
             (Breakeven at Slow Growth). Applying this change will affect your APY.</p>
           <button @click="applyChanges" class="text-sm text-yellow-700 font-bold px-5 py-1 border border-red-500 cursor-pointer rounded-md bg-red-100 hover:bg-red-200 mt-3 mb-2 inner-button-shadow">Apply Changes</button>
         </div>
@@ -65,6 +71,7 @@ import { getBiddingCalculator } from '../../stores/mainchain';
 import { useConfig } from '../../stores/config';
 import { useCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
+import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 
 const emit = defineEmits<{
   (e: 'update:data'): void;
@@ -85,8 +92,8 @@ const isAbsoluteType = Vue.computed(
 const showHasOverrideAlert = Vue.ref(false);
 const formulaChangeAmount = Vue.ref<bigint>(0n);
 
-let maximumBidAmountFromStartingBid = calculator.maximumBidAmountFromStartingBid;
-let maximumBidAmountFromExpectedGrowth = calculator.maximumBidAmountFromExpectedGrowth;
+const maximumBidAmountFromStartingBid = calculator.maximumBidAmountFromStartingBid;
+const maximumBidAmountFromExpectedGrowth = calculator.maximumBidAmountFromExpectedGrowth;
 
 function applyChanges() {
   calculator.maximumBidAmountFromStartingBid = null;
@@ -160,5 +167,5 @@ Vue.onBeforeMount(async () => {
 });
 
 // Expose functions that can be called from parent component
-defineExpose({ beforeSave, beforeCancel });
+defineExpose<IEditBoxChildExposed>({ beforeSave, beforeCancel, isAlertShowing: showHasOverrideAlert });
 </script>

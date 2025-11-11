@@ -39,30 +39,8 @@ import * as Vue from 'vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
-import { getBiddingCalculator } from '../../stores/mainchain';
 import { useConfig } from '../../stores/config';
 
 const config = useConfig();
-const calculator = getBiddingCalculator();
 const showBidAmountAlert = Vue.ref(false);
-
-Vue.watch(
-  config.biddingRules,
-  () => {
-    if (calculator.startingBidAmountFromExpectedGrowth || calculator.maximumBidAmountFromExpectedGrowth) {
-      showBidAmountAlert.value = true;
-    } else {
-      showBidAmountAlert.value = false;
-    }
-  },
-  { deep: true, immediate: true },
-);
-
-Vue.onMounted(() => {
-  calculator.setPivotPoint('ExpectedGrowth');
-});
-
-Vue.onBeforeUnmount(() => {
-  calculator.setPivotPoint(null);
-});
 </script>
