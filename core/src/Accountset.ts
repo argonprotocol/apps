@@ -1,13 +1,13 @@
 import {
+  type ApiDecoration,
   type ArgonClient,
   dispatchErrorToString,
   formatArgons,
   getClient,
   Keyring,
   type KeyringPair,
-  TxSubmitter,
   type SubmittableExtrinsic,
-  type ApiDecoration,
+  TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import { ed25519DeriveHard, keyExtractSuri, mnemonicToMiniSecret } from '@polkadot/util-crypto';
@@ -89,16 +89,16 @@ export class Accountset {
     }
   }
 
-  public static getSubaccounts(
-    seedAccount: KeyringPair,
+  public static async getSubaccounts(
+    seedAccount: { derive: (path: string) => Promise<string> },
     range: SubaccountRange,
-  ): { [address: string]: { index: number; pair: KeyringPair } } {
+  ): Promise<{ [address: string]: { index: number } }> {
     const subAccountsByAddress: {
-      [address: string]: { index: number; pair: KeyringPair };
+      [address: string]: { index: number };
     } = {};
     for (const i of range) {
-      const pair = seedAccount.derive(`//${i}`);
-      subAccountsByAddress[pair.address] = { pair, index: i };
+      const address = await seedAccount.derive(`//${i}`);
+      subAccountsByAddress[address] = { index: i };
     }
     return subAccountsByAddress;
   }
@@ -357,7 +357,7 @@ export class Accountset {
   }
 
   public async registerKeys(url: string) {
-    const client = await getClient(url.replace('ws:', 'http:'));
+    const client = await getClient(url.replace('ws:', 'http:'), { throwOnConnect: true });
     const keys = this.keys();
     for (const [name, key] of Object.entries(keys)) {
       console.log('Registering key', name, key.publicKey);

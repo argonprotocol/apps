@@ -12,6 +12,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BITCOIN_BLOCK_MILLIS } from '../lib/Env.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 dayjs.extend(utc);
 
@@ -36,7 +37,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const priceIndex = new PriceIndex(clients);
     const db = await createTestDb();
     const transactionTracker = new TransactionTracker(Promise.resolve(db));
-    const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: '//Alice' });
+    const walletKeys = createMockWalletKeys();
     const bitcoinLocksStore = new BitcoinLocksStore(
       Promise.resolve(createTestDb()),
       walletKeys,

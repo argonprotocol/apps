@@ -1,5 +1,8 @@
+use crate::security::Security;
 use log::trace;
 use nosleep::{NoSleep, NoSleepType};
+use sp_core::Pair;
+use sp_core::crypto::Ss58Codec;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Listener, Manager};
@@ -11,6 +14,7 @@ use utils::Utils;
 #[cfg(target_os = "macos")]
 use window_vibrancy::*;
 use zip::DateTime;
+
 mod migrations;
 mod security;
 mod ssh;
@@ -31,7 +35,7 @@ async fn open_ssh_connection(
     username: String,
 ) -> Result<String, String> {
     log::info!("ensure_ssh_connection");
-    let private_key_path = security::Security::get_private_key_path(&app)
+    let private_key_path = security::Security::get_ssh_private_key_path(&app)
         .to_string_lossy()
         .to_string();
     ssh_pool::open_connection(address, host, port, username, private_key_path)
@@ -155,6 +159,49 @@ async fn overwrite_mnemonic(
     let security =
         security::Security::save_with_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
     Ok(security)
+}
+
+#[tauri::command]
+async fn expose_mnemonic(app: AppHandle) -> Result<String, String> {
+    let master_mnemonic = Security::expose_mnemonic(&app).map_err(|err| err.to_string())?;
+    Ok(master_mnemonic)
+}
+
+#[tauri::command]
+async fn derive_sr25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], String> {
+    let (_pair, seed) = Security::sr_derive(&app, suri).map_err(|e| e.to_string())?;
+    Ok(seed)
+}
+
+#[tauri::command]
+async fn derive_sr25519_address(app: AppHandle, suris: Vec<String>) -> Result<Vec<String>, String> {
+    let result = suris
+        .into_iter()
+        .map(|suri| {
+            let (pair, _seed) = Security::sr_derive(&app, &suri).map_err(|e| e.to_string())?;
+            let address = pair.public().to_ss58check();
+            Ok(address)
+        })
+        .collect::<Result<Vec<String>, String>>()?;
+    Ok(result)
+}
+
+#[tauri::command]
+async fn derive_ed25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], String> {
+    let (_pair, seed) = Security::ed_derive(&app, suri).map_err(|e| e.to_string())?;
+    Ok(seed)
+}
+
+#[tauri::command]
+async fn derive_bitcoin_extended_key(
+    app: AppHandle,
+    hd_path: &str,
+    version: u32,
+) -> Result<String, String> {
+    let extended_key =
+        Security::derive_bitcoin_extended_key(&app, hd_path, version).map_err(|e| e.to_string())?;
+    let bs58_key = format!("{}", extended_key);
+    Ok(bs58_key)
 }
 
 #[tauri::command]
@@ -399,8 +446,6 @@ pub fn run() {
             ssh_download_file,
             ssh_upload_embedded_file,
             read_embedded_file,
-            get_ssh_private_key,
-            overwrite_mnemonic,
             run_db_migrations,
             create_zip,
             toggle_nosleep,
@@ -410,6 +455,13 @@ pub fn run() {
             vm::remove_local_vm,
             vm::is_docker_running,
             vm::check_needed_ports,
+            derive_sr25519_seed,
+            derive_sr25519_address,
+            derive_ed25519_seed,
+            derive_bitcoin_extended_key,
+            expose_mnemonic,
+            get_ssh_private_key,
+            overwrite_mnemonic,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

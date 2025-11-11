@@ -91,7 +91,14 @@ const blockchainStore = useBlockchainStore();
 const blocks = Vue.ref<IBlock[]>([]);
 const isOpen = Vue.ref(false);
 
-const subaccounts = await walletKeys.getMiningSubaccounts();
+const subaccounts = Vue.ref(new Set<string>());
+Vue.onMounted(() => {
+  walletKeys.getMiningSubaccounts().then(x => {
+    for (const key of Object.keys(x)) {
+      subaccounts.value.add(key);
+    }
+  });
+});
 
 const props = withDefaults(
   defineProps<{
@@ -122,8 +129,7 @@ const arrowPositioningClasses = Vue.computed(() => {
 let unsubscribeFromBlocks: any = null;
 
 function isOurAddress(address: string): boolean {
-  const ourSubAccount = subaccounts[address];
-  return !!ourSubAccount;
+  return subaccounts.value.has(address);
 }
 
 async function onOpen(open: boolean) {

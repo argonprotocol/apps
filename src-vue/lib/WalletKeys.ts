@@ -1,34 +1,29 @@
-import { Accountset, getRange, miniSecretFromUri } from '@argonprotocol/apps-core';
-import { Keyring, KeyringPair, KeyringPair$Json } from '@argonprotocol/mainchain';
-import { bip39, BitcoinNetwork, getChildXpriv, HDKey } from '@argonprotocol/bitcoin';
+import { Accountset, getRange } from '@argonprotocol/apps-core';
+import { Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol/mainchain';
+import { BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { WalletBalances } from './WalletBalances.ts';
 import { getMainchainClients } from '../stores/mainchain.ts';
 import ISecurity from '../interfaces/ISecurity.ts';
+import { invokeWithTimeout } from './tauriApi.ts';
 
 export class WalletKeys {
-  #security: ISecurity;
-  #miningAccount: KeyringPair;
-  #vaultingAccount: KeyringPair;
   public walletBalances?: WalletBalances;
 
-  public get sshPublicKey(): string {
-    return this.#security.sshPublicKey;
-  }
-
+  public sshPublicKey: string;
   public miningAddress: string;
   public vaultingAddress: string;
 
+  public miningSubaccountsCache: { [address: string]: { index: number } } = {};
+
   constructor(security: ISecurity) {
-    this.#security = security;
-    const masterAccount = new Keyring({ type: 'sr25519' }).createFromUri(this.#security.masterMnemonic);
-    this.#miningAccount = masterAccount.derive(`//mining`);
-    this.#vaultingAccount = masterAccount.derive(`//vaulting`);
-    this.miningAddress = this.#miningAccount.address;
-    this.vaultingAddress = this.#vaultingAccount.address;
+    this.sshPublicKey = security.sshPublicKey;
+    this.miningAddress = security.miningAddress;
+    this.vaultingAddress = security.vaultingAddress;
+    console.log('WalletKeys initialized with mining address:', this.miningAddress, security);
   }
 
   public async exposeMasterMnemonic(): Promise<string> {
-    return this.#security.masterMnemonic;
+    return await invokeWithTimeout<string>('expose_mnemonic', {}, 60e3);
   }
 
   public getBalances(): WalletBalances {
@@ -43,23 +38,47 @@ export class WalletKeys {
   }
 
   public async exportMiningAccountJson(passphrase: string): Promise<KeyringPair$Json> {
-    return this.#miningAccount.toJson(passphrase);
+    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
+    const keyring = new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
+    return keyring.toJson(passphrase);
   }
 
   public async getMiningSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
-    return Accountset.getSubaccounts(this.#miningAccount, getRange(0, count));
+    if (Object.keys(this.miningSubaccountsCache).length >= count) {
+      return this.miningSubaccountsCache;
+    }
+
+    const indexes = getRange(0, count);
+    const derivedAddresses = await invokeWithTimeout<string[]>(
+      'derive_sr25519_address',
+      { suris: indexes.map(i => `//mining//${i}`) },
+      60e3,
+    );
+    for (const index of indexes) {
+      const address = derivedAddresses[index];
+      this.miningSubaccountsCache[address] = { index };
+    }
+    return this.miningSubaccountsCache;
   }
 
   public async getMiningSessionMiniSecret(): Promise<string> {
-    return miniSecretFromUri(`${this.#security.masterMnemonic}//mining//sessions`);
+    const seed = await invokeWithTimeout<Uint8Array>('derive_ed25519_seed', { suri: '//mining//sessions' }, 60e3);
+    return u8aToHex(seed);
   }
 
+  // TODO: move signing to backend instead of passing around key
   public async getVaultingKeypair(): Promise<KeyringPair> {
-    return this.#vaultingAccount;
+    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {
-    const masterXprivSeed = await bip39.mnemonicToSeed(this.#security.masterMnemonic);
-    return getChildXpriv(masterXprivSeed, xpubPath, network);
+    const bip32Version = getBip32Version(network);
+    const extendedKey = await invokeWithTimeout<string>(
+      'derive_bitcoin_extended_key',
+      { hdPath: xpubPath, version: bip32Version?.private },
+      60e3,
+    );
+    return HDKey.fromExtendedKey(extendedKey, bip32Version);
   }
 }

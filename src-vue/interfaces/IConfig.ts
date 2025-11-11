@@ -15,6 +15,7 @@ export enum InstallStepKey {
 
 export enum InstallStepErrorType {
   Unknown = 'Unknown',
+  ServerConnect = InstallStepKey.ServerConnect,
   FileUpload = InstallStepKey.FileUpload,
   UbuntuCheck = InstallStepKey.UbuntuCheck,
   DockerInstall = InstallStepKey.DockerInstall,

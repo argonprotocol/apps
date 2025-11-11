@@ -21,7 +21,7 @@
     "tauri": "tauri",
     "tauri:dev": "sh -c 'TAURI_PORT=${ARGON_APP_INSTANCE##*:}; if [ \"$TAURI_PORT\" = \"$ARGON_APP_INSTANCE\" ]; then unset TAURI_PORT; fi; yarn tauri dev --config=\"{\\\"build\\\":{\\\"devUrl\\\":\\\"http://localhost:${TAURI_PORT:-1420}\\\"}}\"'",
     "tauri:dev:local": "NODE_ENV=localnet yarn tauri:dev",
-    "tauri:dev:docker": "ARGON_APP_INSTANCE=e2e ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
+    "tauri:dev:docker": "RUST_BACKTRACE=full ARGON_APP_INSTANCE=e2e ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
     "lint": "prettier -w bot core src-vue cli",
     "lint:check": "prettier --check bot core cli src-vue && eslint bot core cli src-vue --ext .ts --cache --max-warnings=0",
     "eslint": "eslint bot core cli src-vue --ext .ts --cache --fix",

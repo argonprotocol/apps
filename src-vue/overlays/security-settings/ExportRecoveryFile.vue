@@ -65,7 +65,7 @@ async function exportAccount() {
   isSavingExport.value = true;
   const data: IRecoveryFile = {
     security: {
-      sshPublicKey: walleyKeys.sshPublicKey,
+      ...walleyKeys,
       masterMnemonic: await walleyKeys.exposeMasterMnemonic(),
     },
     oldestFrameIdToSync: config.oldestFrameIdToSync,
