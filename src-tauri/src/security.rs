@@ -56,7 +56,7 @@ impl Security {
             .to_seed("");
         let path = bip32::DerivationPath::from_str(hd_path).map_err(|e| e.to_string())?;
         let hd_key: XPrv =
-            bip32::XPrv::derive_from_path(&seed, &path).map_err(|e| e.to_string())?;
+            bip32::XPrv::derive_from_path(seed, &path).map_err(|e| e.to_string())?;
 
         let prefix = Prefix::try_from(version).map_err(|e| e.to_string())?;
 
@@ -82,7 +82,7 @@ impl Security {
         mnemonic: &str,
         suri: &str,
     ) -> Result<(sr25519::Pair, [u8; 32]), Box<dyn std::error::Error>> {
-        let (pair, seed) = sr25519::Pair::from_phrase(&mnemonic, None)?;
+        let (pair, seed) = sr25519::Pair::from_phrase(mnemonic, None)?;
         let suri = AddressUri::parse(suri)?;
         let ssh_derive = suri.paths.iter().map(DeriveJunction::from);
         let (derived_pair, seed) = pair.derive(ssh_derive, Some(seed))?;
@@ -115,7 +115,7 @@ impl Security {
     }
 
     fn derive_ssh_key(mnemonic: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
-        let (ssh_key, _seed) = Self::ed_derive_from_mnemonic(&mnemonic, "//ssh-ed25519//1")?;
+        let (ssh_key, _seed) = Self::ed_derive_from_mnemonic(mnemonic, "//ssh-ed25519//1")?;
         let (private_key, public_key) = SSH::format_as_openssh(ssh_key)?;
         Ok((private_key, public_key))
     }
@@ -148,7 +148,7 @@ impl Security {
         app: &AppHandle,
         mnemonic: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let (private_key, public_key) = Self::derive_ssh_key(&mnemonic)?;
+        let (private_key, public_key) = Self::derive_ssh_key(mnemonic)?;
         let config_dir = Utils::get_absolute_config_instance_dir(app);
         let ssh_private_key_path = Self::get_ssh_private_key_path(app);
         fs::create_dir_all(&config_dir)?;
@@ -162,10 +162,10 @@ impl Security {
         }
 
         // Save mnemonics
-        fs::write(config_dir.join("mnemonic"), &mnemonic)?;
+        fs::write(config_dir.join("mnemonic"), mnemonic)?;
 
-        let mining_account = Self::sr_derive_from_mnemonic(&mnemonic, "//mining")?;
-        let vaulting_account = Self::sr_derive_from_mnemonic(&mnemonic, "//vaulting")?;
+        let mining_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?;
+        let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
 
         Ok(Self {
             vaulting_address: vaulting_account.0.public().to_ss58check(),
