@@ -10,4 +10,4 @@ export type IRecoveryFile = Pick<
   | 'oldestFrameIdToSync'
   | 'defaultCurrencyKey'
   | 'requiresPassword'
-> & { security: ISecurity };
+> & { security: ISecurity & { masterMnemonic: string } };

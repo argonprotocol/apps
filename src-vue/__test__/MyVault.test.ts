@@ -8,7 +8,7 @@ import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { Config } from '../lib/Config.ts';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
-import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { bip39, BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { MyVaultRecovery } from '../lib/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { Db } from '../lib/Db.ts';
@@ -17,6 +17,7 @@ import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { IAllVaultStats } from '../interfaces/IVaultStats.ts';
 import Path from 'path';
 import { WalletKeys } from '../lib/WalletKeys.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 afterAll(teardown);
 
@@ -42,7 +43,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
   };
   let vaultCreatedBlockNumber: number;
   let vaultCreationFees: bigint;
-  const walletKeys = new WalletKeys({ sshPublicKey: '', masterMnemonic: mnemonicGenerate() });
+  const walletKeys = createMockWalletKeys();
 
   beforeAll(async () => {
     db = await createTestDb();

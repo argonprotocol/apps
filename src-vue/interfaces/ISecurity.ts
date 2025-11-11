@@ -1,4 +1,5 @@
 export default interface ISecurity {
-  masterMnemonic: string;
+  miningAddress: string;
+  vaultingAddress: string;
   sshPublicKey: string;
 }

@@ -117,7 +117,14 @@ const arrowPositioningClasses = Vue.computed(() => {
   }
 });
 
-const subaccounts = await walletKeys.getMiningSubaccounts();
+const subaccounts = Vue.ref(new Set<string>());
+Vue.onMounted(() => {
+  walletKeys.getMiningSubaccounts().then(x => {
+    for (const key of Object.keys(x)) {
+      subaccounts.value.add(key);
+    }
+  });
+});
 
 const activities = Vue.computed(() => {
   return stats.biddingActivity
@@ -128,7 +135,7 @@ const activities = Vue.computed(() => {
       let isMine = false;
       if (activity.type === BotActivityType.BidReceived) {
         bidderAddress = activity.data.bidderAddress;
-        isMine = !!subaccounts[bidderAddress];
+        isMine = subaccounts.value.has(bidderAddress);
       }
       const timestamp = activity.tick * MiningFrames.tickMillis;
       const message = extractMessage(activity);

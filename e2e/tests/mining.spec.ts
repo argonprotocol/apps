@@ -10,7 +10,7 @@ it('should be able to start a miner', async () => {
   await waitAndClick('WelcomeOverlay.closeOverlay()');
   await waitAndClick('BlankSlate.startSettingUpMiner()');
   await waitAndClick('FinalSetupChecklist.openHowMiningWorksOverlay()'); // click for tour
-  await waitAndClick('HowMiningWorks.cancelOverlay()');
+  await waitAndClick('HowMiningWorks.closeOverlay()');
   // open the bot rules
   await waitAndClick('FinalSetupChecklist.openBotCreateOverlay()');
   // cancel the tour
