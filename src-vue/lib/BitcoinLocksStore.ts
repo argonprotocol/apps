@@ -15,7 +15,6 @@ import {
   type IBitcoinLockConfig,
   ITxProgressCallback,
   KeyringPair,
-  TxSubmitter,
   u8aToHex,
   Vault,
 } from '@argonprotocol/mainchain';
@@ -407,32 +406,27 @@ export default class BitcoinLocksStore {
 
   public async estimatedReleaseArgonTxFee(args: {
     lock: IBitcoinLockRecord;
-    argonKeyring: KeyringPair;
     tip?: bigint;
+    vaultingAddress: string;
     toScriptPubkey?: string;
     bitcoinFeeRatePerVb?: bigint;
   }): Promise<bigint> {
     const {
       lock,
-      argonKeyring,
       // NOTE: not submitting, so a default value is ok
       toScriptPubkey = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
       bitcoinFeeRatePerVb = 5n,
+      vaultingAddress,
     } = args;
     // get release fee at current block
     const client = await getMainchainClient(false);
 
     const bitcoinNetworkFee = await this.calculateBitcoinNetworkFee(lock, bitcoinFeeRatePerVb, toScriptPubkey);
-    const submitter = new TxSubmitter(
-      client,
-      client.tx.bitcoinLocks.requestRelease(
-        lock.utxoId!,
-        addressBytesHex(toScriptPubkey, this.bitcoinNetwork),
-        bitcoinNetworkFee,
-      ),
-      argonKeyring,
-    );
-    return submitter.feeEstimate();
+
+    const fee = await client.tx.bitcoinLocks
+      .requestRelease(lock.utxoId!, addressBytesHex(toScriptPubkey, this.bitcoinNetwork), bitcoinNetworkFee)
+      .paymentInfo(vaultingAddress, { tip: args.tip ?? 0n });
+    return fee.partialFee.toBigInt();
   }
 
   public async ratchet(lock: IBitcoinLockRecord, argonKeyring: KeyringPair, tip = 0n) {

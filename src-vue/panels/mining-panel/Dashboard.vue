@@ -641,6 +641,7 @@ const currentFrame = Vue.ref<IDashboardFrameStats>({
   profit: 0,
   profitPct: 0,
   score: 0,
+  accruedMicrogonProfits: 0n,
 
   expected: {
     blocksMinedTotal: 0,
@@ -784,7 +785,8 @@ const globalMicrogonsInvested = Vue.computed(() => {
 });
 
 const globalAPY = Vue.computed(() => {
-  return calculateAPY(globalMicrogonsInvested.value, globalMicrogonsEarned.value);
+  const elapsedFrames = stats.latestFrameId - (stats.firstRevenueFrameId ?? stats.latestFrameId);
+  return calculateAPY(globalMicrogonsInvested.value, globalMicrogonsEarned.value, elapsedFrames);
 });
 
 const currentFrameEarnings = Vue.computed(() => {

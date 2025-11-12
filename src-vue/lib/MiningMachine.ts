@@ -66,6 +66,41 @@ export class MiningMachine {
     }
   }
 
+  public static async createSshKey(sshKeyName: string, apiKey: string, sshPublicKey: string): Promise<string> {
+    const listRes = await fetch('https://api.digitalocean.com/v2/account/keys', {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+    });
+    const listData = (await listRes.json()) as {
+      ssh_keys: { id: string; fingerprint: string; public_key: string; name: string }[];
+    };
+    let key = listData.ssh_keys.find(k => k.public_key === sshPublicKey);
+
+    if (!key) {
+      const createKeyRes = await fetch('https://api.digitalocean.com/v2/account/keys', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          name: sshKeyName,
+          public_key: sshPublicKey,
+        }),
+      });
+      const createKeyData = await createKeyRes.json();
+      key = createKeyData.ssh_key;
+    }
+    if (!key) {
+      throw new MiningMachineError('Failed to create SSH key on DigitalOcean');
+    }
+    return key.id;
+  }
+
   public static async setupDigitalOcean(
     apiKey: string,
     sshPublicKey: string,
@@ -76,8 +111,8 @@ export class MiningMachine {
       return existing;
     }
 
-    const apiKeyFingerprint = SSHFingerprint.createMD5(sshPublicKey);
     const dropletName = `Argon-Investor-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
+    const sshKey = await this.createSshKey(dropletName, apiKey, sshPublicKey);
     const createRes = await fetch('https://api.digitalocean.com/v2/droplets', {
       method: 'POST',
       headers: {
@@ -91,7 +126,7 @@ export class MiningMachine {
         region: 'sfo3',
         size: 's-4vcpu-8gb',
         image: 'ubuntu-25-04-x64',
-        ssh_keys: [apiKeyFingerprint],
+        ssh_keys: [sshKey],
         tags: [miningAccountAddress],
       }),
     });

@@ -43,8 +43,10 @@ parse_json_progress() {
          elif ($in.progressDetail.current | type) == "number" and ($in.progressDetail.total | type) == "number" and $in.progressDetail.total > 0 then
              .progress[$in.id].current = ($in.progressDetail.current // .progress[$in.id].current // 0)
              | .progress[$in.id].total = ($in.progressDetail.total   // .progress[$in.id].total   // 0)
+         elif ($in.status == "Download complete") then
+             .progress[$in.id].current = .progress[$in.id].total
          elif ($in.id? and (.progress[$in.id].total | not)) then
-             .progress[$in.id].total = (5 * 1024 * 1024 * 1024)   # 5 GB guess
+             .progress[$in.id].total = (9500 * 1024 * 1024)   # 9500MB default for layers with no total
          else
              .
          end;

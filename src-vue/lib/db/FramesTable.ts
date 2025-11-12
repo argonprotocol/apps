@@ -1,12 +1,13 @@
 import { IFrameRecord } from '../../interfaces/db/IFrameRecord';
 import { BaseTable, IFieldTypes } from './BaseTable';
-import { convertFromSqliteFields, fromSqliteBigInt, toSqlParams } from '../Utils';
+import { convertFromSqliteFields, toSqlParams } from '../Utils';
 import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { TICK_MILLIS } from '../Env.ts';
 import { IDashboardFrameStats } from '../../interfaces/IStats.ts';
+import { Currency } from '../Currency.ts';
 
 dayjs.extend(utc);
 
@@ -167,19 +168,18 @@ export class FramesTable extends BaseTable {
     return frames.map(frame => frame.id);
   }
 
-  public async fetchLastYear(): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
+  public async fetchLastYear(currency: Currency): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
-      id, firstTick, lastTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
+      id, firstTick, lastTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
     FROM Frames ORDER BY id DESC LIMIT 365`);
 
     const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
       .map((x: any) => {
         const date = dayjs.utc(x.firstTick * TICK_MILLIS).format('YYYY-MM-DD');
 
-        // TODO: WE need to calculate the microgon value of micronotsMinted
         const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
           .plus(x.microgonsMintedTotal)
-          .plus(x.micronotsMinedTotal);
+          .plus(currency.micronotToMicrogon(x.micronotsMinedTotal));
         const microgonValueOfRewards = bigNumberToBigInt(microgonValueEarnedBn);
         const profitBn = BigNumber(microgonValueEarnedBn).minus(x.seatCostTotalFramed);
         const profitPctBn = x.seatCostTotalFramed
@@ -205,7 +205,7 @@ export class FramesTable extends BaseTable {
           microgonsMintedTotal: x.microgonsMintedTotal,
           micronotsMinedTotal: x.micronotsMinedTotal,
           microgonFeesCollectedTotal: x.microgonFeesCollectedTotal,
-
+          accruedMicrogonProfits: x.accruedMicrogonProfits,
           microgonValueOfRewards,
           progress: x.progress,
           profit: profitBn.toNumber(),
@@ -245,6 +245,7 @@ export class FramesTable extends BaseTable {
         progress: 0,
         profit: 0,
         profitPct: 0,
+        accruedMicrogonProfits: 0n,
       };
       records.unshift(blankRecord);
     }

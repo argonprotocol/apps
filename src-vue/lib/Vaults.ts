@@ -187,12 +187,22 @@ export class Vaults {
     }
   }
 
+  private get oldestActiveFrameId(): number {
+    return Math.max(0, this.syncedToFrame - 10);
+  }
+
+  private get syncedToFrame(): number {
+    return this.stats?.synchedToFrame ?? 0;
+  }
+
   public contributedTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
+    if (!this.stats) return 0n;
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
 
     return vaultRevenue.changesByFrame
       .slice(0, maxFrames)
+      .filter(x => x.frameId >= this.oldestActiveFrameId)
       .reduce((total, change) => total + change.treasuryPool.externalCapital + change.treasuryPool.vaultCapital, 0n);
   }
 
@@ -202,6 +212,7 @@ export class Vaults {
 
     return vaultRevenue.changesByFrame
       .slice(0, maxFrames)
+      .filter(x => x.frameId >= this.oldestActiveFrameId)
       .reduce((total, change) => total + change.treasuryPool.totalEarnings, 0n);
   }
 
@@ -209,7 +220,10 @@ export class Vaults {
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
 
-    return vaultRevenue.changesByFrame.slice(0, 365).reduce((total, change) => total + change.bitcoinFeeRevenue, 0n);
+    return vaultRevenue.changesByFrame
+      .slice(0, 365)
+      .filter(x => x.frameId >= this.syncedToFrame - 365)
+      .reduce((total, change) => total + change.bitcoinFeeRevenue, 0n);
   }
 
   public getLockedBitcoin(vaultId: number): bigint {

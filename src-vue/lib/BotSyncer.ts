@@ -356,7 +356,6 @@ export class BotSyncer {
       const miningSeatCount = BigInt(bidsFile.allMinersCount) || 1n;
 
       const progress = this.calculateProgress([cohortStartingTick, cohortEndingTick], currentTick);
-      const micronotsStaked = bidsFile.micronotsStakedPerSeat * BigInt(bidsFile.seatCountWon);
 
       const microgonsToBeMinedDuringCohort = bidsFile.microgonsToBeMinedPerBlock * ticksPerCohort;
       const micronotsToBeMinedDuringCohort = await this.mainchain.getMinimumMicronotsMinedDuringTickRange(
@@ -374,7 +373,7 @@ export class BotSyncer {
         id: cohortActivationFrameId,
         progress,
         transactionFeesTotal,
-        micronotsStakedPerSeat: micronotsStaked,
+        micronotsStakedPerSeat: bidsFile.micronotsStakedPerSeat,
         microgonsBidPerSeat,
         seatCountWon: bidsFile.seatCountWon,
         microgonsToBeMinedPerSeat,

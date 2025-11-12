@@ -58,12 +58,12 @@
 <script setup lang="ts">
 import { type IBitcoinBlockMeta } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
+import { WatchHandle } from 'vue';
 import numeral from 'numeral';
-import { PopoverRoot, PopoverTrigger, PopoverContent } from 'reka-ui';
+import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
 import { BotFetch } from '../lib/BotFetch.ts';
 import { useStats } from '../stores/stats.ts';
-import { WatchHandle } from 'vue';
 
 const stats = useStats();
 
@@ -125,6 +125,6 @@ function unload() {
   watcher?.stop();
 }
 
-Vue.onMounted(load());
+Vue.onMounted(load);
 Vue.onBeforeUnmount(unload);
 </script>

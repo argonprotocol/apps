@@ -9,7 +9,7 @@
             <div>By Running Your Own Mining Node</div>
           </div>
           <p class="text-base text-justify w-[780px] !mx-auto mt-10 text-argon-text-primary">
-            Argon is a fully decentralized and democratic. Anyone can participate in the mining and rewards of the system, and 
+            Argon is a fully decentralized and democratic. Anyone can participate in the mining and rewards of the system, and
             a special auction process serves as gatekeeper. Auctions are held every 24 hours, and the winners are given the keys
             for ten days before the cycle repeats itself. The best thing is, special mining hardware provides no advantage.
             Argon is optimized for cheap virtual cloud machines, which makes getting involved easy and cost-effective.

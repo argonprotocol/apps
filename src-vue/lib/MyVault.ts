@@ -575,9 +575,11 @@ export class MyVault {
     const client = await getMainchainClient(false);
     const vaultId = this.createdVault.vaultId;
     const prebondedToPool = await client.query.treasury.prebondedByVaultId(vaultId);
+    const oldestFrame = Math.max(0, this.data.currentFrameId - 10);
     const activePoolFunds =
       this.data.stats?.changesByFrame
         .slice(0, 10)
+        .filter(change => change.frameId >= oldestFrame)
         .reduce((total, change) => total + change.treasuryPool.vaultCapital, 0n) ?? 0n;
 
     const maxAmountPerFrame = prebondedToPool.isSome

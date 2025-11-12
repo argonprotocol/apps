@@ -10,6 +10,7 @@ import { createDeferred, ensureOnlyOneInstance, getPercent, percentOf } from './
 import IDeferred from '../interfaces/IDeferred';
 import { MiningFrames } from '@argonprotocol/apps-core/src/MiningFrames';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
+import { Currency } from './Currency.ts';
 
 interface IMyMiningSeats {
   seatCount: number;
@@ -32,6 +33,7 @@ interface IMyMiningBids {
 
 export class Stats {
   public latestFrameId: number;
+  public firstRevenueFrameId?: number;
   public selectedFrameId!: number;
   public selectedCohortTickRange!: [number, number];
 
@@ -66,7 +68,9 @@ export class Stats {
   private activitySubscribers: number = 0;
   private activityHasUpdates: boolean = true;
 
-  constructor(dbPromise: Promise<Db>, config: Config) {
+  private currency: Currency;
+
+  constructor(dbPromise: Promise<Db>, config: Config, currency: Currency) {
     ensureOnlyOneInstance(this.constructor);
 
     this.isLoaded = false;
@@ -75,6 +79,7 @@ export class Stats {
 
     this.latestFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
     this.selectFrameId(this.latestFrameId, true);
+    this.firstRevenueFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
 
     this.myMiningSeats = {
       seatCount: 0,
@@ -130,6 +135,7 @@ export class Stats {
 
     this.dbPromise = dbPromise;
     this.config = config;
+    this.currency = currency;
 
     this.isLoadedDeferred = createDeferred<void>();
     this.isLoadedPromise = this.isLoadedDeferred.promise;
@@ -163,15 +169,16 @@ export class Stats {
 
     await this.config.isLoadedPromise;
     this.db = await this.dbPromise;
+    await this.currency.load();
+
+    await this.updateDashboard();
 
     botEmitter.on('updated-cohort-data', async (frameId: number) => {
       await this.updateMiningSeats();
 
       const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
       this.latestFrameId = frameId;
-      if (!isOnLatestFrame) return;
-
-      this.selectFrameId(frameId, true);
+      if (isOnLatestFrame) this.selectFrameId(frameId, true);
       await this.updateAccruedProfits();
 
       if (this.isSubscribedToDashboard) {
@@ -384,12 +391,15 @@ export class Stats {
   }
 
   private async fetchFramesFromDb(): Promise<IDashboardFrameStats[]> {
-    const lastYear = await this.db.framesTable.fetchLastYear().then(x => x as IDashboardFrameStats[]);
+    const lastYear = await this.db.framesTable.fetchLastYear(this.currency).then(x => x as IDashboardFrameStats[]);
 
     const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(lastYear.at(-1)?.id ?? 0);
     const framesById = new Map<number, IDashboardFrameStats>();
     for (const frame of lastYear) {
       if (frame.id === 0) continue;
+      if (frame.accruedMicrogonProfits !== 0n) {
+        this.firstRevenueFrameId = Math.min(this.firstRevenueFrameId ?? frame.id, frame.id);
+      }
       frame.expected = {
         blocksMinedTotal: 0,
         micronotsMinedTotal: 0n,
@@ -406,10 +416,10 @@ export class Stats {
         const expectedCohortReturns = this.calculateExpectedBlockRewardsPerSeat(
           cohort,
           // Get one frame (1/10th) of the cohort rewards, times the frame progress
-          BigNumber(frame.progress).times(0.1).toNumber(),
+          BigNumber(frame.progress).dividedBy(10).toNumber(),
         );
         const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
-        const percentOfMiners = getPercent(frame.seatCountActive, frame.allMinersCount);
+        const percentOfMiners = getPercent(cohort.seatCountWon, frame.allMinersCount);
         const elapsedTicks = percentOf(MiningFrames.ticksPerFrame, frame.progress);
         frame.expected.blocksMinedTotal += Number(percentOf(elapsedTicks, percentOfMiners));
         const seatsN = BigInt(cohort.seatCountWon);

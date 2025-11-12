@@ -173,7 +173,7 @@
             </div>
             <div v-else>Loading...</div>
 
-            <div 
+            <div
               FadeBorder
               class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg"
               style="box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.1)"
@@ -300,7 +300,7 @@ async function loadVaults() {
   } = {};
   for (const vault of Object.values(vaultStore.stats!.vaultsById)) {
     for (const { frameId, treasuryPool } of Object.values(vault.changesByFrame)) {
-      if (frameId < oldestFrame) continue;
+      if (frameId < oldestFrame) break;
       statsByFrame[frameId] ??= {
         frameId: frameId,
         auctionCapitalRaised: 0n,

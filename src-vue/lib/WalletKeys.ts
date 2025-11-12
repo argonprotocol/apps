@@ -1,4 +1,4 @@
-import { Accountset, getRange } from '@argonprotocol/apps-core';
+import { getRange } from '@argonprotocol/apps-core';
 import { Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { WalletBalances } from './WalletBalances.ts';
@@ -73,12 +73,19 @@ export class WalletKeys {
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {
-    const bip32Version = getBip32Version(network);
+    const bip32Version = getBip32Version(network) ?? BITCOIN_VERSIONS[network as keyof typeof BITCOIN_VERSIONS];
+    if (!bip32Version) {
+      throw new Error(`Unsupported Bitcoin network: ${network}`);
+    }
     const extendedKey = await invokeWithTimeout<string>(
       'derive_bitcoin_extended_key',
-      { hdPath: xpubPath, version: bip32Version?.private },
+      { hdPath: xpubPath, version: bip32Version.private },
       60e3,
     );
     return HDKey.fromExtendedKey(extendedKey, bip32Version);
   }
 }
+
+const BITCOIN_VERSIONS = {
+  [BitcoinNetwork.Bitcoin]: { private: 0x0488ade4, public: 0x0488b21e },
+};
