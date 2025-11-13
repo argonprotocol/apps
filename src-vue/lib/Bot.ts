@@ -22,7 +22,7 @@ export class Bot {
   public maxSeatsPossible: number;
   public maxSeatsReductionReason: IBidReductionReason | null;
 
-  private status: BotStatus | null = null;
+  private status: BotStatus | null;
   private config: Config;
   private dbPromise: Promise<Db>;
   private botSyncer!: BotSyncer;
@@ -34,6 +34,7 @@ export class Bot {
     this.syncProgress = 0;
     this.maxSeatsPossible = 10;
     this.maxSeatsReductionReason = null;
+    this.status = null;
 
     this.config = config;
     this.dbPromise = dbPromise;

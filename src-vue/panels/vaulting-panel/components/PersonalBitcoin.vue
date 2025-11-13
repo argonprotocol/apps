@@ -289,8 +289,8 @@ async function updateBitcoinUnlockPrices() {
     unlockPrice.value = 0n;
     return;
   }
-  const argonKeyring = await useWalletKeys().getVaultingKeypair();
-  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, argonKeyring }).catch(() => 0n);
+  const vaultingAddress = useWalletKeys().vaultingAddress;
+  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, vaultingAddress }).catch(() => 0n);
   unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
 }
 

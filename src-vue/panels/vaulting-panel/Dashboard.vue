@@ -650,7 +650,7 @@ import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipAr
 import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
 import { IVaultFrameStats } from '../../interfaces/IVaultStats.ts';
 import { getMainchainClient, getMining } from '../../stores/mainchain.ts';
-import { getPercent, percentOf } from '../../lib/Utils.ts';
+import { calculateAPY, getPercent, percentOf } from '../../lib/Utils.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import { MyVault } from '../../lib/MyVault.ts';
@@ -721,6 +721,7 @@ const internalTreasuryPoolBonds = Vue.computed(() => {
   if (!revenue) return 0n;
   return revenue.changesByFrame
     .slice(0, 10)
+    .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
     .reduce((acc, change) => acc + (change.treasuryPool.vaultCapital ?? 0n), 0n);
 });
 
@@ -737,6 +738,7 @@ const externalTreasuryBonds = Vue.computed(() => {
   if (!revenue) return 0n;
   return revenue.changesByFrame
     .slice(0, 10)
+    .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
     .reduce((acc, change) => acc + (change.treasuryPool.externalCapital ?? 0n), 0n);
 });
 
@@ -765,20 +767,27 @@ const currentApy = Vue.computed(() => {
   if (!stats) return 0;
 
   const capitalDeployed: bigint[] = [];
-  let ytdRevenue = 0n;
-  let framesRemaining = 365; // Assuming 365 frames for a year
-
+  let sum = 0n;
+  let startingFrame: number | undefined = undefined;
+  let oldestFrame: number | undefined = undefined;
   for (const change of stats.changesByFrame) {
-    ytdRevenue += change.bitcoinFeeRevenue;
-    ytdRevenue += change.treasuryPool.vaultEarnings;
+    if (change.uncollectedEarnings === 0n) {
+      sum += change.bitcoinFeeRevenue ?? 0n;
+      sum += change.treasuryPool.vaultEarnings ?? 0n;
+    }
+    if (change.bitcoinFeeRevenue > 0n || change.treasuryPool.vaultEarnings > 0n) {
+      startingFrame = Math.max(startingFrame ?? change.frameId, change.frameId);
+      oldestFrame = Math.min(oldestFrame ?? change.frameId, change.frameId);
+    }
     capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
-    framesRemaining -= 1;
-    if (framesRemaining <= 0) break;
   }
-  ytdRevenue = bigIntMax(0n, ytdRevenue - myVault.data.pendingCollectRevenue);
+
   const averageCapitalDeployed =
     capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
-  return (Number(ytdRevenue) * 100) / Number(averageCapitalDeployed);
+  const frames = (oldestFrame !== undefined && startingFrame !== undefined)
+    ? startingFrame - oldestFrame + 1
+    : undefined;
+  return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + revenueMicrogons.value, frames);
 });
 
 const revenueMicrogons = Vue.computed(() => {

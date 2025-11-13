@@ -160,6 +160,6 @@ function unload() {
   }
 }
 
-Vue.onMounted(load());
+Vue.onMounted(load);
 Vue.onBeforeUnmount(unload);
 </script>

@@ -33,9 +33,8 @@ export function calculateProfitPct(costs: bigint, rewards: bigint): number {
   return Number(((rewards - costs) * 100_000n) / costs) / 100_000;
 }
 
-export function compoundTenDayRateToAnnual(tenDayRate: number): number {
-  // Compound over 36.5 cycles (10-day periods in a year)
-  return (Math.pow(1 + tenDayRate, 36.5) - 1) * 100;
+export function compoundXTimes(rate: number, times: number): number {
+  return Math.pow(1 + rate, times) - 1;
 }
 
 export function calculateAPR(costs: bigint, rewards: bigint): number {
@@ -46,9 +45,18 @@ export function calculateAPR(costs: bigint, rewards: bigint): number {
   return Math.max(apr, -100);
 }
 
-export function calculateAPY(costs: bigint, rewards: bigint): number {
-  const tenDayRate = calculateProfitPct(costs, rewards);
-  return compoundTenDayRateToAnnual(tenDayRate);
+/**
+ * Calculates the actual APY based on costs, rewards, and remaining compounding periods.
+ * @param costs - The total costs incurred.
+ * @param rewards - The total rewards earned.
+ * @param elapsedDays - The number of days this investment reflects
+ */
+export function calculateAPY(costs: bigint, rewards: bigint, elapsedDays?: number): number {
+  const roi = calculateProfitPct(costs, rewards);
+  const elapsedDenominator = elapsedDays ? elapsedDays : 1;
+  const dailyRate = Math.pow(1 + roi, 1 / elapsedDenominator) - 1;
+
+  return compoundXTimes(dailyRate, 365) * 100;
 }
 
 export function convertBigIntStringToNumber(bigIntStr: string | undefined): bigint | undefined {

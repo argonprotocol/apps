@@ -132,7 +132,7 @@
           asChild
           :calculateWidth="() => calculateElementWidth(projectedUtilizationParent)"
           side="top"
-          content="This is the percentage of your capital you're willing to fund the treasury pool with.">
+          content="You can play with scenarios of how utilized your Bitcoin and Treasury pools will be to see how it impacts your returns.">
           <div
             MainWrapper
             @click="openEditBoxOverlay('projectedUtilization')"
