@@ -1,10 +1,10 @@
 import mitt, { type Emitter } from 'mitt';
-import { ComputedRef } from 'vue';
-import Importer from '../lib/Importer';
+import Importer from '../lib/Importer.ts';
 
 type IBasicEmitter = {
   openWalletOverlay: { walletId: string; screen: string };
   openBotEditOverlay: void;
+  openBotPriceChangeOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: void;
   openProvisioningCompleteOverlay: void;

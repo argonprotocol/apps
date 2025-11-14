@@ -85,7 +85,7 @@
                           {{ microgonToArgonNm(rules.initialMicrogonRequirement).formatIfElse('<100', '0,0.[00]', '0,0') }}
                           argon{{ microgonToArgonNm(rules.initialMicrogonRequirement).formatIfElse('<100', '0.[00]', '0,0') === '1' ? '' : 's' }}
                         </tooltip>
-                        and 
+                        and
                         <tooltip content="Argonots are the ownership tokens of the network">
                           {{ micronotToArgonotNm(rules.initialMicronotRequirement).formatIfElse('<100', '0.00', '0,0') }}
                           argonot{{ micronotToArgonotNm(rules.initialMicronotRequirement).formatIfElse('<100', '0.[00]', '0,0') === '1' ? '' : 's' }}
@@ -132,7 +132,7 @@
                 </div>
               </section>
 
-              <BotSettings ref="botSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" @update:data="onBotSettingsChange" :includeProjections="true" />
+              <BotSettings ref="botSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" @update:data="updateCapitalRequirements" :includeProjections="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -185,12 +185,11 @@ import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
   bigIntMax,
-  bigIntMin,
   type IBiddingRules,
   JsonExt,
 } from '@argonprotocol/apps-core';
 import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
-import { bigIntCeil, bigNumberToInteger, ceilTo } from '@argonprotocol/apps-core/src/utils';
+import { bigIntCeil, bigNumberToInteger } from '@argonprotocol/apps-core/src/utils';
 import InputArgon from '../components/InputArgon.vue';
 import NeedMoreCapitalHover from './bot/NeedMoreCapitalHover.vue';
 import ReturnsOverlay from './bot/BotReturns.vue';
@@ -408,7 +407,7 @@ function updateAPYs() {
   averageEarnings.value = (slowGrowthEarnings + fastGrowthEarnings) / 2n;
 }
 
-function onBotSettingsChange() {
+function updateCapitalRequirements() {
   updateTokenRequirements();
   updateMinimumCapitalCommitment();
 }
@@ -456,13 +455,13 @@ Vue.onMounted(async () => {
   isBrandNew.value = !config.hasSavedBiddingRules;
   isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingBotTour;
 
-  await calculatorData.load();
+  calculator.onLoad(() => updateCapitalRequirements());
+  await calculator.load();
 
   previousBiddingRules = JsonExt.stringify(config.biddingRules);
 
   updateAPYs();
-  updateTokenRequirements();
-  updateMinimumCapitalCommitment();
+  updateCapitalRequirements();
   if (!rules.value.initialCapitalCommitment) {
     acceptMinimumCapitalCommitment();
   }
@@ -478,8 +477,7 @@ Vue.onMounted(async () => {
     rules.value.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
     rules.value.startingBidAdjustRelative = -12.0;
     updateAPYs();
-    updateTokenRequirements();
-    updateMinimumCapitalCommitment();
+    updateCapitalRequirements();
     if (!rules.value.initialCapitalCommitment) {
       acceptMinimumCapitalCommitment();
     }

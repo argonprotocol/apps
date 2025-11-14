@@ -145,7 +145,7 @@ function updateAPYs() {
 }
 
 Vue.onMounted(() => {
-  calculatorData.load().then(() => {
+  calculator.load().then(() => {
     updateAPYs();
   });
 });

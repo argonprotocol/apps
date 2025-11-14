@@ -7,7 +7,5 @@ addGlobalArgs(program);
 // load env
 applyEnv(program);
 
-(async function main() {
-  await waitForLoad();
-  await program.parseAsync(process.argv);
-})().catch(console.error);
+await waitForLoad();
+await program.parseAsync(process.argv);

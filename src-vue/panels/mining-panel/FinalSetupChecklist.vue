@@ -166,6 +166,7 @@
     </div>
   </div>
   <BotCreateOverlay @close="openBotCreate = false" v-if="openBotCreate" />
+  <BotCreatePriceChangeOverlay v-if="!openBotCreate" />
 </template>
 
 <script setup lang="ts">
@@ -186,6 +187,7 @@ import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
 import BotCreateOverlay from '../../overlays/BotCreateOverlay.vue';
 import { useController } from '../../stores/controller';
+import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 
 dayjs.extend(utc);
 
@@ -304,8 +306,8 @@ async function launchMiningBot() {
     biddingRules.initialMicronotRequirement = wallets.miningWallet.availableMicronots;
   }
   const micronotsAsMicrogons = currency.micronotToMicrogon(wallets.miningWallet.availableMicronots);
-  const capitalCommitment = wallets.miningWallet.availableMicrogons + micronotsAsMicrogons;
-  biddingRules.initialCapitalCommitment = capitalCommitment;
+
+  biddingRules.initialCapitalCommitment = wallets.miningWallet.availableMicrogons + micronotsAsMicrogons;
 
   config.biddingRules = biddingRules;
   await config.save();
@@ -325,7 +327,7 @@ async function updateAPYs() {
 Vue.watch(config.biddingRules, () => updateAPYs(), { deep: true });
 
 Vue.onMounted(async () => {
-  await calculatorData.load();
+  await calculator.load();
   await updateAPYs();
 });
 </script>
