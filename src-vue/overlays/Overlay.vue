@@ -9,7 +9,7 @@
           </Motion>
         </DialogOverlay>
 
-        <DialogContent asChild @escapeKeyDown="handleEscapeKeyDown" :aria-describedby="undefined">
+        <DialogContent asChild @escapeKeyDown="handleEscapeKeyDown" :aria-describedby="undefined" :style="{ zIndex: zIndex + 1000 }">
           <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
             <div
               :ref="draggable.setModalRef"
@@ -45,6 +45,10 @@
   </DialogRoot>
 </template>
 
+<script lang="ts">
+const openZIndexes = Vue.ref(new Set<number>());
+</script>
+
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
@@ -66,6 +70,17 @@ const props = withDefaults(
   },
 );
 
+const zIndex = Vue.ref(0);
+
+Vue.watch(props, () => {
+  if (props.isOpen) {
+    zIndex.value = Math.max(...openZIndexes.value, 0) + 1;
+    openZIndexes.value.add(zIndex.value);
+  } else {
+    openZIndexes.value.delete(zIndex.value);
+  }
+});
+
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'esc'): void;
@@ -74,11 +89,12 @@ const emit = defineEmits<{
 const draggable = Vue.reactive(new Draggable());
 
 function closeOverlay() {
+  openZIndexes.value.delete(zIndex.value);
   emit('close');
 }
 
 function handleEscapeKeyDown() {
   emit('esc');
-  emit('close');
+  closeOverlay();
 }
 </script>

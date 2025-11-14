@@ -45,10 +45,10 @@
                   {{ maximumBidProbableSeatCount }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ microgonToArgonNm(maximumBidArgonPerSeat).format('0,0.[00]') }}
+                  {{ microgonToArgonNm(maximumBidArgonPerSeat).formatIfElse('>1000', '0,0.[00]', '0,0.00') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ micronotToArgonotNm(maximumBidArgonotPerSeat).format('0,0.[00]') }}
+                  {{ micronotToArgonotNm(maximumBidArgonotPerSeat).formatIfElse('>1000', '0,0.[00]', '0,0.00') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
                   {{ currency.symbol }}{{ microgonToMoneyNm(maximumBidCostTotal).format('0,0.00') }}
@@ -66,10 +66,10 @@
                   {{ startingBidProbableSeatCount }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ microgonToArgonNm(startingBidArgonPerSeat).format('0,0.[00]') }}
+                  {{ microgonToArgonNm(startingBidArgonPerSeat).formatIfElse('>1000', '0,0.[00]', '0,0.00') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ micronotToArgonotNm(startingBidArgonotPerSeat).format('0,0.[00]') }}
+                  {{ micronotToArgonotNm(startingBidArgonotPerSeat).formatIfElse('>1000', '0,0.[00]', '0,0.00') }}
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
                   {{ currency.symbol }}{{ microgonToMoneyNm(startingBidCostTotal).format('0,0.00') }}
@@ -173,7 +173,7 @@ function updateAPYs() {
 }
 
 Vue.onMounted(() => {
-  calculatorData.load().then(() => {
+  calculator.load().then(() => {
     updateAPYs();
   });
 });

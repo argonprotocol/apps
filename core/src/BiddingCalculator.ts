@@ -40,6 +40,7 @@ export default class BiddingCalculator {
   public pivotPoint: null | 'ExpectedGrowth' | 'StartingBid' | 'MaximumBid' = null;
 
   private readonly onLoadSubscribers = new Set<() => void>();
+  private onFrameSubscription: Promise<{ unsubscribe: () => void }> | null = null;
 
   constructor(calculatorData: BiddingCalculatorData, biddingRules: IBiddingRules) {
     this.data = calculatorData;
@@ -48,15 +49,35 @@ export default class BiddingCalculator {
 
   public onLoad(callbackFn: () => void): { unsubscribe: () => void } {
     this.onLoadSubscribers.add(callbackFn);
+    void this.data.loadedFrameIdPromise?.then(callbackFn);
     return {
-      unsubscribe: () => this.onLoadSubscribers.delete(callbackFn),
+      unsubscribe: () => {
+        this.onLoadSubscribers.delete(callbackFn);
+
+        if (this.onLoadSubscribers.size === 0) {
+          void this.onFrameSubscription?.then(x => x.unsubscribe());
+          this.onFrameSubscription = null;
+        }
+      },
     };
   }
 
-  public async load() {
-    await this.data.load();
-    this.calculateBidAmounts();
-    for (const s of this.onLoadSubscribers) s();
+  public async load(): Promise<void> {
+    this.onFrameSubscription ??= new Promise(async (resolve, reject) => {
+      const { unsubscribe } = await this.data.mining.onFrameId(async frameId => {
+        try {
+          await this.data.load(frameId);
+          this.calculateBidAmounts();
+          for (const callbackFn of this.onLoadSubscribers) {
+            callbackFn();
+          }
+        } catch (err) {
+          reject(err);
+        }
+        resolve({ unsubscribe });
+      });
+    });
+    await this.onFrameSubscription;
   }
 
   public get startingBidAmountOverride(): bigint | null {
@@ -96,7 +117,10 @@ export default class BiddingCalculator {
 
     let estimatedSeats = BigInt(this.data.getEpochSeatGoalCount(rules));
     if (!useSeatGoalCount && rules.initialCapitalCommitment) {
-      estimatedSeats = this.calculateMaximumSeats(rules.initialCapitalCommitment, microgonsPerSeat, micronotsPerSeat);
+      const maxSeats = this.calculateMaximumSeats(rules.initialCapitalCommitment, microgonsPerSeat, micronotsPerSeat);
+      if (maxSeats > estimatedSeats) {
+        estimatedSeats = maxSeats;
+      }
     }
 
     const microgonRequirement = bigIntCeil(estimatedSeats * microgonsPerSeat, 10_000n);
