@@ -114,7 +114,7 @@ export class CohortBidder {
       this.myAddresses.add(x.address);
     });
     this.lastLoggedSeatsInBudget = subaccounts.length;
-    this.name = name ?? `BIDDER_${accountset.txSubmitterPair.address.substring(0, 5)}} #${cohortStartingFrameId}`;
+    this.name = name ?? `BIDDER_${accountset.txSubmitterPair.address.substring(0, 5)} #${cohortStartingFrameId}`;
   }
 
   public async start() {
