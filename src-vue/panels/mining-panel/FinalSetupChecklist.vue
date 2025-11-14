@@ -186,7 +186,6 @@ import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
 import BotCreateOverlay from '../../overlays/BotCreateOverlay.vue';
 import { useController } from '../../stores/controller';
-import { MiningMachine } from '../../lib/MiningMachine.ts';
 
 dayjs.extend(utc);
 
@@ -324,8 +323,6 @@ async function updateAPYs() {
 }
 
 Vue.watch(config.biddingRules, () => updateAPYs(), { deep: true });
-
-MiningMachine.chooseBestDigitalOceanRegion(config.userJurisdiction).then(console.log);
 
 Vue.onMounted(async () => {
   await calculatorData.load();

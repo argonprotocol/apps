@@ -225,7 +225,7 @@ export default class Installer {
     } catch (e: any) {
       console.error(`Installation failed: `, e);
       this.config.installDetails.errorType = installPhase ?? InstallStepErrorType.Unknown;
-      this.config.installDetails.errorMessage = `Installation failed: ${e}`;
+      this.config.installDetails.errorMessage = e.message ?? `Installation failed - ${String(e)}`;
       this.config.installDetails = this.config.installDetails;
     }
 

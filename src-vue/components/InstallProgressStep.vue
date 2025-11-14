@@ -68,7 +68,7 @@
       clicking Retry. If the issue persists, you might need to remove the server and start afresh with a new
       one.
     </p>
-    <p class="bg-argon-600/10 font-medium text-sm text-black/70 p-5 italic my-5 " v-if="errorDetails">
+    <p class="bg-argon-600/10 font-medium text-sm text-black/70 p-5 italic my-5" v-if="errorDetails">
       <strong>Technical Error Details</strong>
       {{ errorDetails }}
     </p>
@@ -102,15 +102,14 @@ const isRetrying = Vue.ref(false);
 const hasError = Vue.computed(() => {
   return !!config.installDetails.errorType;
 });
+
 const errorDetails = Vue.computed(() => {
   const message = config.installDetails.errorMessage;
   if (!message) return null;
-  return message.replace('Installation Details:', '').trim().replace('MiningMachineError:', '').trim();
+  return message.replace('Installation failed:', '').trim().replace('MiningMachineError:', '').trim();
 });
+
 const stepStatus = Vue.computed(() => {
-  if (stepLabel.value.key === InstallStepKey.ServerConnect && props.stepIndex > 0) {
-    alert(`stepLabel.value.key (index = ${props.stepIndex}) is ServerConnect`);
-  }
   let stepStatus = config.installDetails[stepLabel.value.key].status;
   if (stepStatus === InstallStepStatus.Pending && props.stepIndex === 0) {
     stepStatus = InstallStepStatus.Working;

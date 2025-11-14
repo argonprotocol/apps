@@ -176,7 +176,7 @@ export class MiningMachine {
         return result;
       }
       progress += 1;
-      progress = Math.max(90, progress);
+      progress = Math.min(90, progress);
       progressFn(progress);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
@@ -214,7 +214,7 @@ export class MiningMachine {
         }
       }
     }
-    return { region: 'nyc3', size: preferences[0] };
+    return { region: DEFAULT_REGION, size: preferences[0] };
   }
 
   public static async chooseBestDigitalOceanRegion(userJurisdiction: {
@@ -224,15 +224,19 @@ export class MiningMachine {
     const lat = Number(userJurisdiction.latitude);
     const long = Number(userJurisdiction.longitude);
     if (isNaN(lat) || isNaN(long)) {
-      console.log('[MINING_MACHINE] Invalid user location, defaulting to nyc1', { lat, long, userJurisdiction });
-      return 'nyc1';
+      console.log(`[MINING_MACHINE] Invalid user location, defaulting to ${DEFAULT_REGION}`, {
+        lat,
+        long,
+        userJurisdiction,
+      });
+      return DEFAULT_REGION;
     }
     const regions = this.findClosestRegions({ lat, long });
     let best = null;
     let bestMs = BigInt(Number.MAX_SAFE_INTEGER);
 
     for (const region of regions) {
-      const url = `https://${region}.digitaloceanspaces.com/cache_buster=${Date.now()}`;
+      const url = `https://${region}.digitaloceanspaces.com/cache_buster_${Date.now()}`;
 
       const ms = await invokeWithTimeout<bigint>('measure_latency', { url }, 5000).catch(() => bestMs);
       console.log(`[MINING_MACHINE] Latency to region ${region}: ${ms} ms`);
@@ -242,7 +246,7 @@ export class MiningMachine {
       }
     }
 
-    return best ?? 'nyc1';
+    return best ?? DEFAULT_REGION;
   }
 
   private static findClosestRegions(location: ILatLog): string[] {
@@ -423,6 +427,8 @@ interface ILatLog {
   lat: number;
   long: number;
 }
+
+const DEFAULT_REGION = 'nyc3';
 
 // only add regions with digitaloceanspaces domains and latest DO sizes/images
 const DO_REGIONS = {
