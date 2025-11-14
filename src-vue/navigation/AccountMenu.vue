@@ -130,21 +130,21 @@ defineExpose({
   $el: rootRef,
 });
 
-let mouseLeaveTimerId: ReturnType<typeof setTimeout> | null = null;
+let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function onMouseEnter() {
-  if (mouseLeaveTimerId) {
-    clearTimeout(mouseLeaveTimerId);
+  if (mouseLeaveTimeoutId) {
+    clearTimeout(mouseLeaveTimeoutId);
   }
-  mouseLeaveTimerId = null;
+  mouseLeaveTimeoutId = undefined;
   isOpen.value = true;
 }
 
 function onMouseLeave() {
-  if (mouseLeaveTimerId) {
-    clearTimeout(mouseLeaveTimerId);
+  if (mouseLeaveTimeoutId) {
+    clearTimeout(mouseLeaveTimeoutId);
   }
-  mouseLeaveTimerId = setTimeout(() => {
+  mouseLeaveTimeoutId = setTimeout(() => {
     isOpen.value = false;
   }, 100);
 }

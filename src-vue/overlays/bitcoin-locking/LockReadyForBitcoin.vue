@@ -54,7 +54,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from 'numeral';
+import numeral from '../../lib/numeral';
 import { abbreviateAddress } from '../../lib/Utils';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../../components/BitcoinQrCode.vue';

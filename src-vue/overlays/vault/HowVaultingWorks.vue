@@ -199,9 +199,8 @@ import basicEmitter from '../../emitters/basicEmitter';
 import { useConfig } from '../../stores/config';
 import BgOverlay from '../../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { createNumeralHelpers } from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useVaults } from '../../stores/vaults.ts';
-import numeral from 'numeral';
 
 const config = useConfig();
 const currency = useCurrency();

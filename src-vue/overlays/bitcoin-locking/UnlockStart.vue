@@ -42,14 +42,11 @@
         </div>
 
         <button
-          @click="submitRelease"
+          :class="[!canSendRequest || isSubmitting ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700']"
           :disabled="!canSendRequest || isSubmitting"
-          class="w-full rounded-lg py-3 font-medium transition-all"
-          :class="
-            canSendRequest && !isSubmitting
-              ? 'bg-red-500 text-white hover:bg-red-600'
-              : 'cursor-not-allowed bg-gray-200 text-gray-400'
-          ">
+          @click="submitRelease"
+          class="cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white"
+        >
           <span v-if="isSubmitting">Releasing...</span>
           <span v-else>Initiate Release</span>
         </button>
@@ -72,18 +69,15 @@ import * as Vue from 'vue';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import { useMyVault, useVaults } from '../../stores/vaults.ts';
-import { useConfig } from '../../stores/config.ts';
 import BitcoinLocksStore from '../../lib/BitcoinLocksStore.ts';
-import { createNumeralHelpers } from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useCurrency } from '../../stores/currency.ts';
-import numeral from 'numeral';
 import { useWallets } from '../../stores/wallets.ts';
 import InputMenu from '../../components/InputMenu.vue';
 
 const vaults = useVaults();
 const myVault = useMyVault();
 const bitcoinLocks = useBitcoinLocks();
-const config = useConfig();
 const currency = useCurrency();
 const wallets = useWallets();
 const { microgonToArgonNm } = createNumeralHelpers(currency);

@@ -114,13 +114,12 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import numeral from 'numeral';
 import basicEmitter from '../../emitters/basicEmitter';
 import { useConfig } from '../../stores/config';
 import { useWallets } from '../../stores/wallets';
 import { useCurrency } from '../../stores/currency';
 import Checkbox from '../../components/Checkbox.vue';
-import { createNumeralHelpers } from '../../lib/numeral';
+import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getVaultCalculator } from '../../stores/mainchain.ts';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';

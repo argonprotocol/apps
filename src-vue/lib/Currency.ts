@@ -132,6 +132,7 @@ export class Currency {
   }
 
   public microgonTo(microgons: bigint): number {
+    if (!this.record) throw new Error('Currency not loaded');
     if (this.record.key === CurrencyKey.USD) {
       return BigNumber(microgons).dividedBy(this.microgonExchangeRateTo.USD).toNumber();
     } else if (this.record.key === CurrencyKey.EUR) {
@@ -143,31 +144,6 @@ export class Currency {
     } else {
       return this.microgonToArgon(microgons);
     }
-  }
-
-  public argonTo(argons: number): number {
-    const microgons = this.argonToMicrogon(argons);
-    return this.microgonTo(microgons);
-  }
-
-  public argonToMicrogon(argons: number): bigint {
-    return BigInt(Math.round(argons * MICROGONS_PER_ARGON));
-  }
-
-  public toMicrogon(value: number): bigint {
-    let exchangeRate = BigInt(1 * MICROGONS_PER_ARGON);
-    if (this.record.key === CurrencyKey.USD) {
-      exchangeRate = this.microgonExchangeRateTo.USD;
-    } else if (this.record.key === CurrencyKey.EUR) {
-      exchangeRate = this.microgonExchangeRateTo.EUR;
-    } else if (this.record.key === CurrencyKey.GBP) {
-      exchangeRate = this.microgonExchangeRateTo.GBP;
-    } else if (this.record.key === CurrencyKey.INR) {
-      exchangeRate = this.microgonExchangeRateTo.INR;
-    } else {
-      throw new Error(`Invalid currency key: ${this.record.key}`);
-    }
-    return bigNumberToBigInt(BigNumber(value).multipliedBy(exchangeRate));
   }
 
   public micronotToMicrogon(micronots: bigint): bigint {
@@ -189,11 +165,6 @@ export class Currency {
 
   public micronotTo(micronots: bigint): number {
     const microgons = this.micronotToMicrogon(micronots);
-    return this.microgonTo(microgons);
-  }
-
-  public btcTo(bitcoins: number) {
-    const microgons = this.btcToMicrogon(bitcoins);
     return this.microgonTo(microgons);
   }
 

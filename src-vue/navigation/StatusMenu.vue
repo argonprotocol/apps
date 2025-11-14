@@ -516,22 +516,23 @@ function clickOutside(e: PointerDownOutsideEvent) {
   return false;
 }
 
-// Lifecycle hooks
+let loadSubscription: { unsubscribe: () => void };
+
 Vue.onMounted(async () => {
   document.addEventListener('mousemove', handleMouseMove);
   await config.isLoadedPromise;
 
-  const loadSubscription = calculator.onLoad(() => {
+  loadSubscription = calculator.onLoad(() => {
     const projections = calculator.runProjections(config.biddingRules, 'maximum');
     requiredMicrogonsForGoal.value = projections.microgonRequirement;
     requiredMicronotsForGoal.value = projections.micronotRequirement;
   });
   void calculator.load();
+});
 
-  Vue.onMounted(() => {
-    loadSubscription.unsubscribe();
-    document.removeEventListener('mousemove', handleMouseMove);
-  });
+Vue.onUnmounted(() => {
+  loadSubscription.unsubscribe();
+  document.removeEventListener('mousemove', handleMouseMove);
 });
 </script>
 

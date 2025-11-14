@@ -52,17 +52,21 @@ export interface IMempoolReleaseStatus {
 }
 
 export default class BitcoinLocksStore {
-  public get bitcoinNetwork() {
-    return this.data.bitcoinNetwork;
-  }
-
-  data: {
+  public data: {
     pendingLock: IBitcoinLockRecord | undefined;
     locksByUtxoId: { [utxoId: number]: IBitcoinLockRecord };
     oracleBitcoinBlockHeight: number;
     bitcoinNetwork: BitcoinNetwork;
     latestArgonBlockHeight: number;
   };
+
+  public get bitcoinNetwork() {
+    return this.data.bitcoinNetwork;
+  }
+
+  public get recordCount() {
+    return Object.keys(this.locksByUtxoId).length + (this.data.pendingLock ? 1 : 0);
+  }
 
   private get locksByUtxoId() {
     return this.data.locksByUtxoId;
@@ -86,6 +90,7 @@ export default class BitcoinLocksStore {
   #waitForLoad?: IDeferred;
   #priceIndex: PriceIndex;
   #transactionTracker: TransactionTracker;
+
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,

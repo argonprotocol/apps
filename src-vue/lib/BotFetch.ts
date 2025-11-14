@@ -23,7 +23,7 @@ export class BotFetch {
     const url = `http://${ipAddress}:${SERVER_ENV_VARS.BOT_PORT}/${botPath}`;
     const abortController = new AbortController();
     const signal = abortController.signal;
-    const timeout = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       abortController.abort();
     }, 10e3);
     const result = await fetch(url, { signal }).catch(e => {
@@ -34,7 +34,7 @@ export class BotFetch {
       console.error(`[BOT] Request Error: ${url}`, result.status, result.statusText);
       throw new Error(`HTTP GET command failed with status ${result.status}`);
     }
-    clearTimeout(timeout);
+    clearTimeout(timeoutId);
 
     try {
       const body = await result.text();

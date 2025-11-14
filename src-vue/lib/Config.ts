@@ -738,7 +738,7 @@ const defaults: IConfigDefaults = {
       maximumBidAdjustRelative: -1.0,
 
       seatGoalType: SeatGoalType.Min,
-      seatGoalCount: 3,
+      seatGoalCount: 1,
       seatGoalPercent: 0,
       seatGoalInterval: SeatGoalInterval.Epoch,
 

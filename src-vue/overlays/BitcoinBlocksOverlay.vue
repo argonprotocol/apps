@@ -59,7 +59,7 @@
 import { type IBitcoinBlockMeta } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { WatchHandle } from 'vue';
-import numeral from 'numeral';
+import numeral from '../lib/numeral';
 import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
 import { BotFetch } from '../lib/BotFetch.ts';

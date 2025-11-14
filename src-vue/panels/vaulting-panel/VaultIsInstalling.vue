@@ -33,7 +33,7 @@ import { useMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
 import VaultIcon from '../../assets/vault.svg?component';
-import { abbreviateAddress } from '../../lib/Utils.ts';
+import { abbreviateAddress, generateProgressLabel } from '../../lib/Utils.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { useWalletKeys } from '../../stores/wallets.ts';
 
@@ -51,26 +51,11 @@ const blockConfirmations = Vue.ref(-1);
 let expectedConfirmations = 0;
 
 const progressLabel = Vue.computed(() => {
-  const step = progressPct.value <= 50 ? 'Submitted Vault ' : 'Activated Funding';
-  if (blockConfirmations.value === -1) {
-    return `${step}... Waiting for 1st Argon Block...`;
-  } else if (blockConfirmations.value === 0 && expectedConfirmations > 0) {
-    return `${step}... Waiting for 2nd Argon Block...`;
-  } else if (blockConfirmations.value === 1 && expectedConfirmations > 1) {
-    return `${step}... Waiting for 3rd Argon Block...`;
-  } else if (blockConfirmations.value === 2 && expectedConfirmations > 2) {
-    return `${step}... Waiting for 4th Argon Block...`;
-  } else if (blockConfirmations.value === 3 && expectedConfirmations > 3) {
-    return `${step}... Waiting for 5th Argon Block...`;
-  } else if (blockConfirmations.value === 4 && expectedConfirmations > 4) {
-    return `${step}... Waiting for 6th Argon Block...`;
-  } else if (blockConfirmations.value === 5 && expectedConfirmations > 5) {
-    return `${step}... Waiting for 7th Argon Block...`;
-  } else if (blockConfirmations.value === 6 && expectedConfirmations > 6) {
-    return `${step}... Waiting for 8th Argon Block...`;
-  } else {
-    return `${step}... Waiting for Finalization...`;
-  }
+  const prefix = progressPct.value <= 50 ? 'Submitted Vault ' : 'Activated Funding';
+  return generateProgressLabel(blockConfirmations.value, expectedConfirmations, {
+    prefix,
+    blockType: 'Argon',
+  });
 });
 
 async function createVault() {

@@ -1,11 +1,17 @@
 <template>
-  <div class="flex flex-col space-y-5 px-10 py-5">
+  <div class="flex flex-col space-y-5 px-10 py-6">
     <p class="text-gray-700">
-      Your bitcoin has been officially unlocked from the Argon network. It's now sitting back under your full control at
-      the following address:
+      Your {{ numeral(currency.satsToBtc(props.personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC has
+      been officially unlocked from both the Argon and Bitcoin blockchains. It's now sitting under your control at the
+      address listed below:
     </p>
 
-    <div class="mb-10 ml-4 text-gray-700 italic">{{ personalLock.releaseToDestinationAddress }}</div>
+    <div class="mt-5 mb-12 flex flex-row items-center">
+      <BitcoinUnlockedSvg />
+      <div class="ml-5 grow rounded border border-slate-200 py-2 pr-10 pl-2 font-mono italic">
+        {{ personalLock.releaseToDestinationAddress }}
+      </div>
+    </div>
 
     <button
       @click="closeOverlay"
@@ -16,8 +22,12 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
+import numeral from '../../lib/numeral';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import BitcoinUnlockedSvg from '../../assets/wallets/bitcoin-unlocked.svg';
+import { useCurrency } from '../../stores/currency.ts';
+
+const currency = useCurrency();
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;

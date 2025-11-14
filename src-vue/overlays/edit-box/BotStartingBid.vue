@@ -87,6 +87,7 @@ const formulaChangeAmount = Vue.ref<bigint>(0n);
 const showHasOverrideAlert = Vue.ref(false);
 const startingBidAmountFromExpectedGrowth = calculator.startingBidAmountFromExpectedGrowth;
 const startingBidAmountFromMaximumBid = calculator.startingBidAmountFromMaximumBid;
+
 function applyChanges() {
   calculator.startingBidAmountFromMaximumBid = null;
   calculator.startingBidAmountFromExpectedGrowth = null;

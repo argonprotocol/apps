@@ -47,7 +47,7 @@
         <StatusMenu />
       </div>
       <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
-        <CurrencyMenu ref="currencyMenuRef" />
+        <FinancialsMenu ref="financialsMenuRef" />
       </div>
       <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <AccountMenu ref="accountMenuRef" />
@@ -64,7 +64,7 @@ import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import * as Vue from 'vue';
 import { useController } from '../stores/controller';
 import WindowControls from '../tauri-controls/WindowControls.vue';
-import CurrencyMenu from './CurrencyMenu.vue';
+import FinancialsMenu from './FinancialsMenu.vue';
 import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import { useWallets } from '../stores/wallets';
@@ -79,7 +79,7 @@ const bot = useBot();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 
-const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
+const financialsMenuRef = Vue.ref<InstanceType<typeof FinancialsMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 
 tour.registerPositionCheck('miningTab', (): ITourPos => {
@@ -101,7 +101,7 @@ tour.registerPositionCheck('vaultingTab', () => {
 });
 
 tour.registerPositionCheck('currencyMenu', () => {
-  const currencyMenuElem = currencyMenuRef.value?.$el;
+  const currencyMenuElem = financialsMenuRef.value?.$el;
   const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
   rect.left -= 10;
   rect.right += 10;

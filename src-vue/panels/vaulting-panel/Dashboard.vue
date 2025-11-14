@@ -1020,6 +1020,9 @@ async function loadChartData(currentFrameId?: number) {
   frameRecords.value = records;
 }
 
+let onFrameSubscription: { unsubscribe: () => void };
+let onTickSubscription: { unsubscribe: () => void };
+
 Vue.onMounted(async () => {
   await myVault.load();
   await myVault.subscribe();
@@ -1031,21 +1034,21 @@ Vue.onMounted(async () => {
     { deep: true },
   );
 
-  const onFrameSubscription = await mining.onFrameId(async frameId => {
+  onFrameSubscription = await mining.onFrameId(async frameId => {
     await loadChartData(frameId);
   });
 
-  const onTickSubscription = await mining.onTick(() => {
+  onTickSubscription = await mining.onTick(() => {
     updateLatestFrameProgress();
   });
 
-  Vue.onUnmounted(() => {
-    onFrameSubscription.unsubscribe();
-    onTickSubscription.unsubscribe();
-    myVault.unsubscribe();
-  });
-
   await loadChartData();
+});
+
+Vue.onUnmounted(() => {
+  onFrameSubscription.unsubscribe();
+  onTickSubscription.unsubscribe();
+  myVault.unsubscribe();
 });
 </script>
 

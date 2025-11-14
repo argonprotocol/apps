@@ -23,7 +23,7 @@
               </div>
             </h2>
 
-            <div v-if="isLoaded" class="flex flex-col grow relative w-full overflow-y-auto px-8 py-5">
+            <div v-if="isLoaded" ref="dialogPanelContent" class="flex flex-col grow relative w-full overflow-y-auto px-8 py-5">
               <p>
                 The most basic thing to understand about Argon Investor Console is that there is no third-party company, authority, or server helping to run
                 this app. It simply exists as code on your computer. In fact, the entire Argon blockchain is fully
@@ -234,7 +234,7 @@
               style="box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.1)"
             >
               <div class="flex flex-row space-x-4 justify-center items-center relative z-10">
-                <button @click="closeOverlay" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
+                <button @click="finishReading" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
                   <span>Finish Reading</span>
                 </button>
               </div>
@@ -268,6 +268,8 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
+
+const dialogPanelContent = Vue.ref<HTMLDivElement | null>(null);
 
 const miningSeats = Vue.ref(0);
 const micronotsForBid = Vue.ref(0n);
@@ -310,6 +312,33 @@ async function openUniswapMarket(uniswapUrl: string) {
     closeOverlay();
     basicEmitter.emit('openComplianceOverlay');
   }
+}
+
+function finishReading() {
+  const el = dialogPanelContent.value;
+  if (!el) {
+    isOpen.value = false;
+    return;
+  }
+  const start = el.scrollTop;
+  const end = Math.max(0, el.scrollHeight - el.clientHeight);
+  const change = end - start;
+  if (change <= 0 || end === 0) {
+    isOpen.value = false;
+    return;
+  }
+  const remainingFraction = change / end; // 1.0 if at top, 0.5 if halfway, etc.
+  const duration = Math.max(0, 1500 * remainingFraction);
+  let startTime: number | null = null;
+  const step = (ts: number) => {
+    if (startTime === null) startTime = ts;
+    const p = Math.min((ts - startTime) / duration, 1);
+    const eased = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p; // easeInOutQuad
+    el.scrollTop = start + change * eased;
+    if (p < 1) requestAnimationFrame(step);
+    else isOpen.value = false;
+  };
+  requestAnimationFrame(step);
 }
 
 basicEmitter.on('openHowMiningWorksOverlay', async () => {

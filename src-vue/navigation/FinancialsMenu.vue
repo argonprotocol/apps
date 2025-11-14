@@ -6,12 +6,15 @@
         class="flex flex-row items-center justify-center text-sm/6 font-semibold text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 px-3 h-[30px] focus:outline-none hover:border-slate-400/50"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
-        <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="h-[16px]" />
-        <DollarSign v-else-if="currency?.record?.key === 'USD'" class="h-[18px]" />
-        <EuroSign v-else-if="currency?.record?.key === 'EUR'" class="h-[18px]" />
-        <PoundSign v-else-if="currency?.record?.key === 'GBP'" class="h-[18px]" />
-        <RupeeSign v-else-if="currency?.record?.key === 'INR'" class="h-[18px]" />
+        <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="h-[14px]" />
+        <DollarSign v-else-if="currency?.record?.key === 'USD'" class="h-[16px]" />
+        <EuroSign v-else-if="currency?.record?.key === 'EUR'" class="h-[16px]" />
+        <PoundSign v-else-if="currency?.record?.key === 'GBP'" class="h-[16px]" />
+        <RupeeSign v-else-if="currency?.record?.key === 'INR'" class="h-[16px]" />
         <div v-else class="h-[18px] w-[14px]"></div>
+        <div class="text-lg font-bold ml-[3px] relative top-px -mr-0.5">
+          {{ totalNetWorth[0] }}.<span class="opacity-50">{{ totalNetWorth[1] }}</span>
+        </div>
       </HoverCardTrigger>
 
       <HoverCardPortal>
@@ -65,6 +68,8 @@ import PoundSign from '../assets/currencies/pound.svg?component';
 import RupeeSign from '../assets/currencies/rupee.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
 import { useConfig } from '../stores/config';
+import { useWallets } from '../stores/wallets';
+import { createNumeralHelpers } from '../lib/numeral.ts';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -76,6 +81,17 @@ defineExpose({
 
 const currency = useCurrency();
 const config = useConfig();
+const wallets = useWallets();
+
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
+
+const totalNetWorth = Vue.computed(() => {
+  if (!currency.isLoaded) {
+    return ['--', '--'];
+  }
+  const value = microgonToMoneyNm(wallets.totalNetWorth).format('0,0.00');
+  return value.split('.');
+});
 
 function setCurrencyKey(key: ICurrencyKey) {
   if (key === CurrencyKey.ARGN || config.isValidJurisdiction) {

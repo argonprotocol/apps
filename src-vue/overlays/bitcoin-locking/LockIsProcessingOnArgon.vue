@@ -8,12 +8,14 @@
     </div>
   </div>
 
-  <div v-else class="flex flex-col space-y-5 px-28 pt-10 pb-20">
-    <p class="font-light text-gray-700">
+  <div v-else class="flex flex-col space-y-5 px-10 pt-10 pb-20">
+    <p>
       Your request to lock {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} in
-      BTC has been submitted to the Argon network and is now awaiting finalization. This process usually takes four to
-      five minutes to complete.
+      BTC has been submitted to the Argon network and is now awaiting finalization. This process usually takes between
+      four to five minutes.
     </p>
+
+    <p class="font-italic mb-2">NOTE: You can close this overlay without disrupting the process.</p>
 
     <div class="mt-10">
       <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
@@ -29,12 +31,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from 'numeral';
+import numeral from '../../lib/numeral';
 import { useMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { useCurrency } from '../../stores/currency.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { generateProgressLabel } from '../../lib/Utils.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -50,25 +53,7 @@ const transactionError = Vue.ref('');
 let expectedConfirmations = 0;
 
 const progressLabel = Vue.computed(() => {
-  if (blockConfirmations.value === -1) {
-    return 'Waiting for 1st Block...';
-  } else if (blockConfirmations.value === 0 && expectedConfirmations > 0) {
-    return 'Waiting for 2nd Block...';
-  } else if (blockConfirmations.value === 1 && expectedConfirmations > 1) {
-    return 'Waiting for 3rd Block...';
-  } else if (blockConfirmations.value === 2 && expectedConfirmations > 2) {
-    return 'Waiting for 4th Block...';
-  } else if (blockConfirmations.value === 3 && expectedConfirmations > 3) {
-    return 'Waiting for 5th Block...';
-  } else if (blockConfirmations.value === 4 && expectedConfirmations > 4) {
-    return 'Waiting for 6th Block...';
-  } else if (blockConfirmations.value === 5 && expectedConfirmations > 5) {
-    return 'Waiting for 7th Block...';
-  } else if (blockConfirmations.value === 6 && expectedConfirmations > 6) {
-    return 'Waiting for 8th Block...';
-  } else {
-    return 'Waiting for Finalization...';
-  }
+  return generateProgressLabel(blockConfirmations.value, expectedConfirmations, { blockType: 'Argon' });
 });
 
 Vue.onMounted(async () => {

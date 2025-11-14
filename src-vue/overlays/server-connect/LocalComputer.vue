@@ -86,7 +86,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from 'numeral';
+import numeral from '../../lib/numeral';
 import { DialogDescription } from 'reka-ui';
 import DockerIcon from '../../assets/docker.svg?component';
 import DatabaseIcon from '../../assets/database.svg?component';
