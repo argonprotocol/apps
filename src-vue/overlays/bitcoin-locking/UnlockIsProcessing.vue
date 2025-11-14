@@ -93,7 +93,7 @@ function trackVaultCosignProgress() {
         args: { progressPct: number; confirmations: number; expectedConfirmations: number },
         error: Error | undefined,
       ) => {
-        progressPct.value = 66 * (args.progressPct * 0.34);
+        progressPct.value = 66 + args.progressPct * 0.34;
         progressLabel.value = 'Waiting for Vault to Cosign';
       },
     );

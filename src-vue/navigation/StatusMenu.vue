@@ -87,9 +87,12 @@
         <div
           class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
           <div
-            v-if="!config.isMinerInstalled && installer.isFreshInstall && !hasVault"
+            v-if="!config.isMinerInstalled && !hasVault"
             class="flex w-110 flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80">
-            <p>This is where you'll be notified of important alerts such as when your mining bot's capital runs low.</p>
+            <p>
+              Once your mining bot has been setup, this is where you'll be notified of important alerts such as when
+              your bot's capital runs low.
+            </p>
             <table class="mt-3 w-full text-left whitespace-nowrap">
               <thead>
                 <tr>
@@ -111,10 +114,10 @@
                 <tr @click="openFundVaultingAccountOverlay" class="group cursor-pointer">
                   <td class="group-hover:text-argon-600 group-hover:bg-argon-100/20">ARGNOT</td>
                   <td class="group-hover:text-argon-600 group-hover:bg-argon-100/20 text-right">
-                    {{ micronotToArgonotNm(wallets.vaultingWallet.availableMicronots).format('0,0.[00]') }}
+                    {{ micronotToArgonotNm(wallets.totalMiningMicronots).format('0,0.[00]') }}
                   </td>
                   <td class="group-hover:text-argon-600 group-hover:bg-argon-100/20 text-right">
-                    {{ micronotToArgonotNm(wallets.totalMiningMicronots).format('0,0.[00]') }}
+                    {{ micronotToArgonotNm(wallets.vaultingWallet.availableMicronots).format('0,0.[00]') }}
                   </td>
                 </tr>
               </tbody>

@@ -126,10 +126,10 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return props.personalLock;
 });
 
-const startedWithoutBitcoin = personalLock.value?.status === BitcoinLockStatus.ReleaseComplete;
+const wasOpenedWithoutBitcoin = personalLock.value?.status === BitcoinLockStatus.ReleaseComplete;
 
 const unlockStep = Vue.computed<UnlockStep>(() => {
-  if (!personalLock.value || startedWithoutBitcoin) return UnlockStep.Start;
+  if (!personalLock.value || wasOpenedWithoutBitcoin) return UnlockStep.Start;
 
   const status = personalLock.value.status;
   const startStatuses = [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted];

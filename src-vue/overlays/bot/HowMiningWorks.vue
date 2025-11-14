@@ -279,10 +279,6 @@ const seatSummaries = Vue.ref<
 >([]);
 const winningBids = Vue.ref<(IWinningBid & { micronotsStakedPerSeat: bigint })[]>([]);
 
-function closeOverlay() {
-  isOpen.value = false;
-}
-
 async function load() {
   mainchain.getActiveMinersCount().then(x => (miningSeats.value = x));
   mainchain.getCurrentMicronotsForBid().then(x => (micronotsForBid.value = x));
@@ -317,18 +313,23 @@ async function openUniswapMarket(uniswapUrl: string) {
 function finishReading() {
   const el = dialogPanelContent.value;
   if (!el) {
-    isOpen.value = false;
+    closeOverlay();
     return;
   }
   const start = el.scrollTop;
   const end = Math.max(0, el.scrollHeight - el.clientHeight);
   const change = end - start;
   if (change <= 0 || end === 0) {
-    isOpen.value = false;
+    closeOverlay();
     return;
   }
   const remainingFraction = change / end; // 1.0 if at top, 0.5 if halfway, etc.
   const duration = Math.max(0, 1500 * remainingFraction);
+  if (duration <= 0) {
+    closeOverlay();
+    return;
+  }
+
   let startTime: number | null = null;
   const step = (ts: number) => {
     if (startTime === null) startTime = ts;
@@ -336,9 +337,13 @@ function finishReading() {
     const eased = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p; // easeInOutQuad
     el.scrollTop = start + change * eased;
     if (p < 1) requestAnimationFrame(step);
-    else isOpen.value = false;
+    else closeOverlay();
   };
   requestAnimationFrame(step);
+}
+
+function closeOverlay() {
+  isOpen.value = false;
 }
 
 basicEmitter.on('openHowMiningWorksOverlay', async () => {

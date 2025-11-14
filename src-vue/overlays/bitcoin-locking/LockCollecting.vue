@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-5 px-10 pt-5 pb-5">
     <p>
-      The Argon Network has sucessfully processed and locked your
+      The Argon Network has successfully processed and locked your
       {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC.
     </p>
     <p>

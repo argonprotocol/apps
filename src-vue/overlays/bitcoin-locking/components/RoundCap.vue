@@ -5,12 +5,11 @@
     <div
       :class="
         twMerge(
-          props.align === 'start' ? '-left-1' : '-left-1',
           props.isSelected ? 'border-argon-600' : 'border-slate-600/20',
           props.isSelected && props.align === 'end' ? 'bg-slate-100' : 'bg-white',
         )
       "
-      class="absolute top-1/2 aspect-square h-[150%] translate-x-[-75%] -translate-y-1/2 rounded-full border" />
+      class="absolute top-1/2 -left-1 aspect-square h-[150%] translate-x-[-75%] -translate-y-1/2 rounded-full border" />
   </div>
 </template>
 
