@@ -398,6 +398,7 @@ export class Stats {
     this.activeFrames = 0;
     for (const frame of lastYear) {
       if (frame.id === 0) continue;
+      // count an active frame if we bid but didn't win any seats
       if (frame.accruedMicrogonProfits < 0n || frame.seatCountActive > 0) {
         this.activeFrames++;
       }

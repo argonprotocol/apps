@@ -769,7 +769,7 @@ const currentApy = Vue.computed(() => {
   const capitalDeployed: bigint[] = [];
   let sum = 0n;
   let startingFrame: number | undefined = undefined;
-  let oldestFrame: number | undefined = undefined;
+  let mostRecentFrame: number | undefined = undefined;
   let lastSecuritization = 0n;
   for (const change of stats.changesByFrame) {
     if (change.uncollectedEarnings === 0n) {
@@ -778,20 +778,21 @@ const currentApy = Vue.computed(() => {
     }
     // if there's a change record, the vault did something
     startingFrame = Math.max(startingFrame ?? change.frameId, change.frameId);
-    oldestFrame = Math.min(oldestFrame ?? change.frameId, change.frameId);
+    mostRecentFrame = Math.min(mostRecentFrame ?? change.frameId, change.frameId);
     if (change.securitization) {
       lastSecuritization = change.securitization;
     }
     capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
   }
 
-  if (lastSecuritization > 0n && oldestFrame !== undefined) {
-    oldestFrame = Math.max(myVault.data.currentFrameId, oldestFrame);
+  if (lastSecuritization > 0n && mostRecentFrame !== undefined) {
+    mostRecentFrame = Math.max(myVault.data.currentFrameId, mostRecentFrame);
   }
 
   const averageCapitalDeployed =
     capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
-  const frames = oldestFrame !== undefined && startingFrame !== undefined ? startingFrame - oldestFrame + 1 : undefined;
+  const frames =
+    mostRecentFrame !== undefined && startingFrame !== undefined ? startingFrame - mostRecentFrame + 1 : undefined;
   return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + revenueMicrogons.value, frames);
 });
 
