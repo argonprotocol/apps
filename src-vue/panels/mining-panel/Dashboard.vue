@@ -785,8 +785,7 @@ const globalMicrogonsInvested = Vue.computed(() => {
 });
 
 const globalAPY = Vue.computed(() => {
-  const elapsedFrames = stats.latestFrameId - (stats.firstRevenueFrameId ?? stats.latestFrameId);
-  return calculateAPY(globalMicrogonsInvested.value, globalMicrogonsEarned.value, elapsedFrames);
+  return calculateAPY(globalMicrogonsInvested.value, globalMicrogonsEarned.value, stats.activeFrames);
 });
 
 const currentFrameEarnings = Vue.computed(() => {

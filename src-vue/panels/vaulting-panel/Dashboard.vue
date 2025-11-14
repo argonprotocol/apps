@@ -770,16 +770,23 @@ const currentApy = Vue.computed(() => {
   let sum = 0n;
   let startingFrame: number | undefined = undefined;
   let oldestFrame: number | undefined = undefined;
+  let lastSecuritization = 0n;
   for (const change of stats.changesByFrame) {
     if (change.uncollectedEarnings === 0n) {
       sum += change.bitcoinFeeRevenue ?? 0n;
       sum += change.treasuryPool.vaultEarnings ?? 0n;
     }
-    if (change.bitcoinFeeRevenue > 0n || change.treasuryPool.vaultEarnings > 0n) {
-      startingFrame = Math.max(startingFrame ?? change.frameId, change.frameId);
-      oldestFrame = Math.min(oldestFrame ?? change.frameId, change.frameId);
+    // if there's a change record, the vault did something
+    startingFrame = Math.max(startingFrame ?? change.frameId, change.frameId);
+    oldestFrame = Math.min(oldestFrame ?? change.frameId, change.frameId);
+    if (change.securitization) {
+      lastSecuritization = change.securitization;
     }
     capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
+  }
+
+  if (lastSecuritization > 0n && oldestFrame !== undefined) {
+    oldestFrame = Math.max(myVault.data.currentFrameId, oldestFrame);
   }
 
   const averageCapitalDeployed =
