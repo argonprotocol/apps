@@ -75,9 +75,8 @@
 import * as Vue from 'vue';
 import { IBlock, useBlockchainStore } from '../stores/blockchain';
 import { useCurrency } from '../stores/currency.ts';
-import { createNumeralHelpers } from '../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
-import numeral from 'numeral';
 import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { useWalletKeys } from '../stores/wallets.ts';
 

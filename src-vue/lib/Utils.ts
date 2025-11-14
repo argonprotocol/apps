@@ -239,3 +239,39 @@ export function ensureOnlyOneInstance(constructor: any) {
 export function resetOnlyOneInstance(constructor: any) {
   constructor.isInitialized = false;
 }
+
+export function getOrdinalSuffix(n: number): string {
+  // Handle special teen cases: 11th, 12th, 13th
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) {
+    return 'th';
+  }
+
+  // Otherwise, use last digit
+  switch (n % 10) {
+    case 1:
+      return 'st';
+    case 2:
+      return 'nd';
+    case 3:
+      return 'rd';
+    default:
+      return 'th';
+  }
+}
+
+export function generateProgressLabel(
+  blockCount: number,
+  expectedBlockCount: number,
+  options: { prefix?: string; blockType?: 'Argon' | 'Bitcoin' } = {},
+) {
+  const prefix = options.prefix ? `${options.prefix}... ` : '';
+  const blockType = options.blockType ? `${options.blockType} ` : '';
+  if (blockCount === expectedBlockCount) {
+    return `${prefix}Waiting for ${blockType}Finalization...`;
+  }
+
+  const num = Math.max(-1, blockCount) + 2;
+  const ordinalSuffix = getOrdinalSuffix(num);
+  return `${prefix}Waiting for ${num}${ordinalSuffix} ${blockType}Block...`;
+}

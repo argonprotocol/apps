@@ -1,9 +1,9 @@
 <template>
-  <Overlay :isOpen="true" @close="closeOverlay" @esc="closeOverlay" class="BitcoinLockingOverlay min-h-60 w-240">
+  <Overlay :isOpen="true" @close="closeOverlay" @esc="closeOverlay" class="BitcoinUnlockingOverlay min-h-60 w-240">
     <template #title>
-      <div v-if="isLoaded" class="mr-5 flex w-full flex-row items-center">
+      <div v-if="isLoaded" class="mr-6 flex w-full flex-row items-center">
         <TooltipRoot :delayDuration="100">
-          <TooltipTrigger class="flex w-[calc(33.333333%+3rem)] flex-row items-center">
+          <TooltipTrigger class="flex w-[calc(50%+3rem)] flex-row items-center">
             <BitcoinIcon
               :class="unlockStep === UnlockStep.Start ? 'text-argon-600/80' : 'text-black/20'"
               class="relative left-1 mr-2 h-10" />
@@ -15,13 +15,8 @@
               "
               class="relative grow border-y px-2 py-1 text-center text-base font-bold">
               Initiate Unlock
-              <div class="absolute top-0 left-0 h-full w-full overflow-hidden">
-                <div
-                  class="absolute top-1/2 -left-1 aspect-square h-[150%] translate-x-[-75%] -translate-y-1/2 rounded-full border border-slate-600/20 bg-white"></div>
-              </div>
-              <Arrow
-                :class="unlockStep === UnlockStep.Start ? 'fill-slate-400/10' : 'text-slate-600/20'"
-                class="absolute -top-px right-0 h-[calc(100%+2.1px)] w-5 translate-x-full" />
+              <RoundCap class="absolute top-0 left-0" :isSelected="unlockStep === UnlockStep.Start" />
+              <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="unlockStep === UnlockStep.Start" />
             </div>
           </TooltipTrigger>
           <TooltipContent
@@ -29,21 +24,17 @@
             :sideOffset="-10"
             align="start"
             :collisionPadding="9"
-            class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl">
+            class="text-md z-50 w-106 rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl">
             You must specify the address where you want your unlocked bitcoin to be sent.
-            <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+            <TooltipArrow :width="27" :height="15" class="-mt-px -ml-10 fill-white stroke-gray-800/20 stroke-[0.5px]" />
           </TooltipContent>
         </TooltipRoot>
 
         <TooltipRoot :delayDuration="100">
           <TooltipTrigger asChild>
             <Arrows
-              :class="
-                unlockStep === UnlockStep.IsProcessingOnBitcoin
-                  ? 'text-argon-600/80 processing-active'
-                  : 'text-black/10'
-              "
-              class="ml-8 min-h-[34px] pr-2" />
+              :class="unlockStep === UnlockStep.IsProcessing ? 'text-argon-600/80 processing-active' : 'text-black/10'"
+              class="ml-6 min-h-[34px] pr-3" />
           </TooltipTrigger>
           <TooltipContent
             side="bottom"
@@ -64,20 +55,23 @@
                   ? 'text-argon-600 border-argon-600 bg-slate-400/10'
                   : 'border-slate-600/20 bg-white text-black/20'
               "
-              class="relative w-1/3 grow rounded-r border-y border-r px-2 py-1 text-center text-base font-bold">
+              class="relative w-1/2 grow rounded-r border-y border-r px-2 py-1 text-center text-base font-bold">
               Unlock Confirmed
-              <Arrow
-                :class="unlockStep === UnlockStep.Complete ? '' : 'text-slate-600/20'"
-                class="absolute -top-px left-0 h-[calc(100%+2.1px)] w-5 fill-white" />
+              <RoundCap class="absolute top-0 left-0" :isSelected="unlockStep === UnlockStep.Complete" />
+              <RoundCap
+                align="end"
+                class="absolute top-0 right-[2px]"
+                :isSelected="unlockStep === UnlockStep.Complete" />
             </div>
           </TooltipTrigger>
           <TooltipContent
             side="bottom"
             :sideOffset="-7"
             align="end"
+            :alignOffset="-10"
             :collisionPadding="9"
-            class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-right font-light text-slate-900/60 shadow-2xl">
-            Your bitcoin has now been unlocked from the Argon networkand is back in your full control.
+            class="text-md z-50 w-100 rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl">
+            Your bitcoin has now been unlocked from the Argon network and is back in your full control.
             <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
           </TooltipContent>
         </TooltipRoot>
@@ -85,19 +79,21 @@
     </template>
 
     <UnlockStart v-if="unlockStep === UnlockStep.Start" :personalLock="personalLock!" @close="closeOverlay" />
-    <UnlockIsProcessingOnArgon
-      v-else-if="unlockStep === UnlockStep.IsProcessingOnArgon"
-      :personalLock="personalLock!" />
-    <UnlockIsWaitingForVault v-else-if="unlockStep === UnlockStep.IsWaitingForVault" :personalLock="personalLock!" />
-    <UnlockIsProcessingOnBitcoin
-      v-else-if="unlockStep === UnlockStep.IsProcessingOnBitcoin"
-      :personalLock="personalLock!" />
+    <UnlockIsProcessing v-else-if="unlockStep === UnlockStep.IsProcessing" :personalLock="personalLock!" />
     <UnlockComplete
       v-else-if="unlockStep === UnlockStep.Complete"
       :personalLock="personalLock!"
       @close="closeOverlay" />
   </Overlay>
 </template>
+
+<script lang="ts">
+enum UnlockStep {
+  Start = 'Start',
+  IsProcessing = 'IsProcessing',
+  Complete = 'Complete',
+}
+</script>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
@@ -107,13 +103,11 @@ import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-
 import Overlay from './Overlay.vue';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import UnlockStart from './bitcoin-locking/UnlockStart.vue';
-import UnlockIsProcessingOnArgon from './bitcoin-locking/UnlockIsProcessingOnArgon.vue';
-import UnlockIsWaitingForVault from './bitcoin-locking/UnlockIsWaitingForVault.vue';
-import UnlockIsProcessingOnBitcoin from './bitcoin-locking/UnlockIsProcessingOnBitcoin.vue';
+import UnlockIsProcessing from './bitcoin-locking/UnlockIsProcessing.vue';
 import UnlockComplete from './bitcoin-locking/UnlockComplete.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
-import Arrow from './bitcoin-locking/components/Arrow.vue';
 import Arrows from '../assets/arrows.svg?component';
+import RoundCap from './bitcoin-locking/components/RoundCap.vue';
 
 dayjs.extend(utc);
 
@@ -132,30 +126,24 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return props.personalLock;
 });
 
-enum UnlockStep {
-  Start = 'Start',
-  IsProcessingOnArgon = 'IsProcessingOnArgon',
-  IsWaitingForVault = 'IsWaitingForVault',
-  IsProcessingOnBitcoin = 'IsProcessingOnBitcoin',
-  Complete = 'Complete',
-}
-
-const isMissingBitcoin = !personalLock.value || personalLock.value.status === BitcoinLockStatus.ReleaseComplete;
+const wasOpenedWithoutBitcoin = personalLock.value?.status === BitcoinLockStatus.ReleaseComplete;
 
 const unlockStep = Vue.computed<UnlockStep>(() => {
-  if (isMissingBitcoin) {
+  if (!personalLock.value || wasOpenedWithoutBitcoin) return UnlockStep.Start;
+
+  const status = personalLock.value.status;
+  const startStatuses = [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted];
+  const processingStatuses = [
+    BitcoinLockStatus.ReleaseIsProcessingOnArgon,
+    BitcoinLockStatus.ReleaseIsWaitingForVault,
+    BitcoinLockStatus.ReleaseSigned,
+    BitcoinLockStatus.ReleaseIsProcessingOnBitcoin,
+  ];
+
+  if (startStatuses.includes(status)) {
     return UnlockStep.Start;
-  }
-  if ([BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(personalLock.value.status)) {
-    return UnlockStep.Start;
-  } else if (personalLock.value.status === BitcoinLockStatus.ReleaseIsProcessingOnArgon) {
-    return UnlockStep.IsProcessingOnArgon;
-  } else if (
-    [BitcoinLockStatus.ReleaseIsWaitingForVault, BitcoinLockStatus.ReleaseSigned].includes(personalLock.value.status)
-  ) {
-    return UnlockStep.IsWaitingForVault;
-  } else if (personalLock.value.status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) {
-    return UnlockStep.IsProcessingOnBitcoin;
+  } else if (processingStatuses.includes(status)) {
+    return UnlockStep.IsProcessing;
   } else {
     return UnlockStep.Complete;
   }
@@ -175,7 +163,7 @@ Vue.onMounted(async () => {
 <style>
 @reference "../main.css";
 
-.BitcoinLockingOverlay {
+.BitcoinUnlockingOverlay {
   /* Target the three arrow polygons */
   .processing-active #arrows polygon {
     opacity: 0.3;

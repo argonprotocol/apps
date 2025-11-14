@@ -196,7 +196,6 @@ import utc from 'dayjs/plugin/utc';
 import { useCurrency } from '../../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral';
 import { useMyVault, useVaults } from '../../../stores/vaults.ts';
-import { useConfig } from '../../../stores/config.ts';
 import CountdownClock from '../../../components/CountdownClock.vue';
 import { useBitcoinLocks } from '../../../stores/bitcoin.ts';
 import BitcoinLockingOverlay from '../../../overlays/BitcoinLockingOverlay.vue';
@@ -212,7 +211,6 @@ dayjs.extend(utc);
 const myVault = useMyVault();
 const vaults = useVaults();
 const bitcoinLocks = useBitcoinLocks();
-const config = useConfig();
 const currency = useCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -298,6 +296,8 @@ function closeLockingOverlay() {
   showLockingOverlay.value = false;
 }
 
+let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined;
+
 Vue.onMounted(async () => {
   await myVault.load();
   await myVault.subscribe();
@@ -324,13 +324,15 @@ Vue.onMounted(async () => {
   await loadPersonalUtxo();
   await updateBitcoinUnlockPrices();
 
-  const updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
-  Vue.onUnmounted(() => clearInterval(updateBitcoinLockProcessingInterval));
+  updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
 });
 
 Vue.onUnmounted(() => {
   myVault.unsubscribe();
   bitcoinLocks.unsubscribeFromArgonBlocks();
+  if (updateBitcoinLockProcessingInterval) {
+    clearInterval(updateBitcoinLockProcessingInterval);
+  }
 });
 
 defineExpose({

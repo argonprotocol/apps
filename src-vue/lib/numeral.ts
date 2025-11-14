@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import numeralOriginal, { Numeral } from 'numeral';
-import { Currency, MICROGONS_PER_ARGON } from './Currency';
+import { Currency } from './Currency';
 
 // Extend the Numeral interface to include our custom method
 declare module 'numeral' {

@@ -45,9 +45,8 @@ import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { useCurrency } from '../stores/currency';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
-import { createNumeralHelpers } from '../lib/numeral';
+import numeral, { createNumeralHelpers } from '../lib/numeral';
 import { useVaults } from '../stores/vaults.ts';
-import numeral from 'numeral';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);

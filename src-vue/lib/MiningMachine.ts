@@ -75,7 +75,11 @@ export class MiningMachine {
     }
   }
 
-  public static async createSshKey(sshKeyName: string, apiKey: string, sshPublicKey: string): Promise<string> {
+  private static async setupSshKeyOnDigitalOcean(
+    sshKeyName: string,
+    apiKey: string,
+    sshPublicKey: string,
+  ): Promise<string> {
     const listRes = await fetch('https://api.digitalocean.com/v2/account/keys', {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -125,7 +129,7 @@ export class MiningMachine {
     }
 
     const dropletName = `Argon-Investor-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
-    const sshKey = await this.createSshKey(dropletName, apiKey, sshPublicKey);
+    const sshKey = await this.setupSshKeyOnDigitalOcean(dropletName, apiKey, sshPublicKey);
     progressFn(25);
     const { region, size } = await this.chooseRegionAndSize(apiKey, userLocation);
     progressFn(40);

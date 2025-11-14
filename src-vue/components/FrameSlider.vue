@@ -148,11 +148,11 @@ Vue.watch(
 Vue.onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', handleResize);
+});
 
-  Vue.onUnmounted(() => {
-    window.removeEventListener('keydown', handleKeyDown);
-    window.removeEventListener('resize', handleResize);
-  });
+Vue.onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('resize', handleResize);
 });
 
 defineExpose({

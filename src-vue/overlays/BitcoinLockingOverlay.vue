@@ -1,8 +1,8 @@
 <template>
   <Overlay :isOpen="true" @close="closeOverlay" @esc="closeOverlay" class="BitcoinLockingOverlay min-h-60 w-240">
     <template #title>
-      <div v-if="isLoaded" class="mr-5 flex w-full flex-row items-center">
-        <TooltipRoot :delayDuration="100">
+      <div v-if="isLoaded" class="mr-6 flex w-full flex-row items-center">
+        <TooltipRoot v-if="shouldShowFullProcess" :delayDuration="100">
           <TooltipTrigger class="flex w-[calc(33.333333%+3rem)] flex-row items-center">
             <BitcoinIcon
               :class="lockStep === LockStep.Start ? 'text-argon-600/80' : 'text-black/20'"
@@ -15,13 +15,8 @@
               "
               class="relative grow border-y px-2 py-1 text-center text-base font-bold">
               Choose Amount
-              <div class="absolute top-0 left-0 h-full w-full overflow-hidden">
-                <div
-                  class="absolute top-1/2 -left-1 aspect-square h-[150%] translate-x-[-75%] -translate-y-1/2 rounded-full border border-slate-600/20 bg-white"></div>
-              </div>
-              <Arrow
-                :class="lockStep === LockStep.Start ? 'fill-slate-400/10' : 'text-slate-600/20'"
-                class="absolute -top-px right-0 h-[calc(100%+2.1px)] w-5 translate-x-full" />
+              <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.Start" />
+              <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="lockStep === LockStep.Start" />
             </div>
           </TooltipTrigger>
           <TooltipContent
@@ -35,13 +30,13 @@
           </TooltipContent>
         </TooltipRoot>
 
-        <TooltipRoot :delayDuration="100">
+        <TooltipRoot v-if="shouldShowFullProcess" :delayDuration="100">
           <TooltipTrigger asChild>
             <Arrows
               :class="
                 lockStep === LockStep.IsProcessingOnArgon ? 'text-argon-600/80 processing-active' : 'text-black/10'
               "
-              class="ml-8 min-h-[34px] pr-2" />
+              class="ml-5 min-h-[34px] pr-3" />
           </TooltipTrigger>
           <TooltipContent
             side="bottom"
@@ -50,12 +45,16 @@
             :collisionPadding="9"
             class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl">
             Your request is submitted to the Argon network and validated by participating miners.
-            <TooltipArrow :width="27" :height="15" class="-mt-px ml-2 fill-white stroke-gray-800/20 stroke-[0.5px]" />
+            <TooltipArrow :width="27" :height="15" class="-mt-px ml-4 fill-white stroke-gray-800/20 stroke-[0.5px]" />
           </TooltipContent>
         </TooltipRoot>
 
         <TooltipRoot :delayDuration="100">
           <TooltipTrigger asChild>
+            <BitcoinIcon
+              v-if="!shouldShowFullProcess"
+              :class="lockStep === LockStep.Start ? 'text-argon-600/80' : 'text-black/20'"
+              class="relative left-1 mr-2 h-10" />
             <div
               :class="
                 lockStep === LockStep.ReadyForBitcoin
@@ -64,12 +63,11 @@
               "
               class="relative z-0 w-1/3 grow border-y px-2 py-1 text-center text-base font-bold">
               Lock Bitcoin
-              <Arrow
-                :class="lockStep === LockStep.ReadyForBitcoin ? '' : 'text-slate-600/20'"
-                class="absolute -top-px left-0 h-[calc(100%+2.1px)] w-5 fill-white" />
-              <Arrow
-                :class="lockStep === LockStep.ReadyForBitcoin ? 'fill-slate-400/10' : 'text-slate-600/20'"
-                class="absolute -top-px right-0 h-[calc(100%+2.1px)] w-5 translate-x-full" />
+              <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.ReadyForBitcoin" />
+              <RoundCap
+                align="end"
+                class="absolute top-0 right-[2px]"
+                :isSelected="lockStep === LockStep.ReadyForBitcoin" />
             </div>
           </TooltipTrigger>
           <TooltipContent
@@ -89,7 +87,7 @@
               :class="
                 lockStep === LockStep.ProcessingOnBitcoin ? 'text-argon-600/80 processing-active' : 'text-black/10'
               "
-              class="ml-8 min-h-[34px] pr-2" />
+              class="ml-5 min-h-[34px] pr-3" />
           </TooltipTrigger>
           <TooltipContent
             side="bottom"
@@ -98,7 +96,7 @@
             :collisionPadding="9"
             class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl">
             Argon will monitor the Bitcoin network to verify your multisig transaction completed.
-            <TooltipArrow :width="27" :height="15" class="-mt-px ml-2 fill-white stroke-gray-800/20 stroke-[0.5px]" />
+            <TooltipArrow :width="27" :height="15" class="-mt-px ml-4 fill-white stroke-gray-800/20 stroke-[0.5px]" />
           </TooltipContent>
         </TooltipRoot>
 
@@ -107,14 +105,13 @@
             <div
               :class="
                 lockStep === LockStep.Collecting
-                  ? 'text-argon-600 border-argon-600 bg-slate-400/10'
+                  ? 'text-argon-600 border-argon-600 bg-slate-100'
                   : 'border-slate-600/20 bg-white text-black/20'
               "
-              class="relative w-1/3 grow rounded-r border-y border-r px-2 py-1 text-center text-base font-bold">
+              class="relative w-1/3 grow rounded-r border-y px-2 py-1 text-center text-base font-bold">
               Collect Argons
-              <Arrow
-                :class="lockStep === LockStep.Collecting ? '' : 'text-slate-600/20'"
-                class="absolute -top-px left-0 h-[calc(100%+2.1px)] w-5 fill-white" />
+              <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.Collecting" />
+              <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="lockStep === LockStep.Collecting" />
             </div>
           </TooltipTrigger>
           <TooltipContent
@@ -138,6 +135,16 @@
   </Overlay>
 </template>
 
+<script lang="ts">
+enum LockStep {
+  Start = 'Start',
+  IsProcessingOnArgon = 'IsProcessingOnArgon',
+  ReadyForBitcoin = 'ReadyForBitcoin',
+  ProcessingOnBitcoin = 'ProcessingOnBitcoin',
+  Collecting = 'Collecting',
+}
+</script>
+
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
@@ -151,10 +158,13 @@ import LockReadyForBitcoin from './bitcoin-locking/LockReadyForBitcoin.vue';
 import LockIsProcessingOnBitcoin from './bitcoin-locking/LockIsProcessingOnBitcoin.vue';
 import LockCollecting from './bitcoin-locking/LockCollecting.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
-import Arrow from './bitcoin-locking/components/Arrow.vue';
 import Arrows from '../assets/arrows.svg?component';
+import RoundCap from './bitcoin-locking/components/RoundCap.vue';
+import { useBitcoinLocks } from '../stores/bitcoin.ts';
 
 dayjs.extend(utc);
+
+const bitcoinLocks = useBitcoinLocks();
 
 const props = defineProps<{
   personalLock?: IBitcoinLockRecord;
@@ -171,16 +181,16 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return props.personalLock;
 });
 
-enum LockStep {
-  Start = 'Start',
-  IsProcessingOnArgon = 'IsProcessingOnArgon',
-  ReadyForBitcoin = 'ReadyForBitcoin',
-  ProcessingOnBitcoin = 'ProcessingOnBitcoin',
-  Collecting = 'Collecting',
-}
+const isAtBeginning =
+  !personalLock.value ||
+  [BitcoinLockStatus.ReleaseComplete, BitcoinLockStatus.LockFailedToHappen].includes(personalLock.value.status);
+const shouldShowFullProcess = bitcoinLocks.recordCount > 1 || isAtBeginning;
 
 const lockStep = Vue.computed<LockStep>(() => {
-  if (!personalLock.value || personalLock.value.status === BitcoinLockStatus.ReleaseComplete) {
+  if (
+    !personalLock.value ||
+    [BitcoinLockStatus.ReleaseComplete, BitcoinLockStatus.LockFailedToHappen].includes(personalLock.value.status)
+  ) {
     return LockStep.Start;
   } else if (personalLock.value.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
     return LockStep.IsProcessingOnArgon;
@@ -236,7 +246,7 @@ Vue.onMounted(async () => {
 @keyframes bitcoin-locking-overlay-arrows-pulse {
   0%,
   100% {
-    opacity: 0.3;
+    opacity: 0.8;
     transform: scale(1);
   }
   50% {

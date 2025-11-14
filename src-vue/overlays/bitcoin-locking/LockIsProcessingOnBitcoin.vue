@@ -18,15 +18,17 @@
       </button>
     </div>
 
-    <p class="pt-2 font-light opacity-80">
-      Your {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} of BTC has been
-      transferred to the correct multisig address. Argon miners are now actively monitoring Bitcoin's network for final
-      confirmation. This process usually takes an hour from start to finish.
+    <p class="pt-2">
+      Argon miners have confirmed that
+      {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
+      in BTC has been transferred to the correct multisig address.
+    </p>
+    <p>
+      We are now actively monitoring Bitcoin's network for final confirmation. This process usually takes an hour from
+      start to finish.
     </p>
 
-    <p class="font-italic mb-2 font-light opacity-80">
-      NOTE: You can close this overlay without disrupting the process.
-    </p>
+    <p class="font-italic mb-2">NOTE: You can close this overlay without disrupting the process.</p>
 
     <div class="mt-16">
       <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
@@ -42,12 +44,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from 'numeral';
+import numeral from '../../lib/numeral';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 import ProgressBar from '../../components/ProgressBar.vue';
+import { generateProgressLabel } from '../../lib/Utils.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -62,26 +65,7 @@ const blockConfirmations = Vue.ref(-1);
 let expectedConfirmations = 0;
 
 const progressLabel = Vue.computed(() => {
-  console.log('expectedConfirmations', expectedConfirmations);
-  if (blockConfirmations.value === -1) {
-    return 'Waiting for 1st Block...';
-  } else if (blockConfirmations.value === 0 && expectedConfirmations > 0) {
-    return 'Waiting for 2nd Block...';
-  } else if (blockConfirmations.value === 1 && expectedConfirmations > 1) {
-    return 'Waiting for 3rd Block...';
-  } else if (blockConfirmations.value === 2 && expectedConfirmations > 2) {
-    return 'Waiting for 4th Block...';
-  } else if (blockConfirmations.value === 3 && expectedConfirmations > 3) {
-    return 'Waiting for 5th Block...';
-  } else if (blockConfirmations.value === 4 && expectedConfirmations > 4) {
-    return 'Waiting for 6th Block...';
-  } else if (blockConfirmations.value === 5 && expectedConfirmations > 5) {
-    return 'Waiting for 7th Block...';
-  } else if (blockConfirmations.value === 6 && expectedConfirmations > 6) {
-    return 'Waiting for 8th Block...';
-  } else {
-    return 'Waiting for Finalization...';
-  }
+  return generateProgressLabel(blockConfirmations.value, expectedConfirmations, { blockType: 'Bitcoin' });
 });
 
 const personalLock = Vue.computed(() => {
@@ -99,10 +83,17 @@ function updateProgress() {
   expectedConfirmations = details.expectedConfirmations;
 }
 
+let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined = undefined;
+
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
-  const updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
-  Vue.onUnmounted(() => clearInterval(updateBitcoinLockProcessingInterval));
+  updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
+});
+
+Vue.onUnmounted(() => {
+  if (updateBitcoinLockProcessingInterval) {
+    clearInterval(updateBitcoinLockProcessingInterval);
+  }
 });
 </script>
 

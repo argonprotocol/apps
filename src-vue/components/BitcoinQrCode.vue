@@ -3,7 +3,7 @@
 </template>
 
 <script setup type="ts">
-import { onMounted, ref } from 'vue';
+import * as Vue from 'vue';
 
 import QRCode from 'qrcode';
 import { Buffer } from 'buffer';
@@ -42,10 +42,10 @@ if (props.isPsbt) {
   frames = [u8aToHex(props.bytes, undefined, false)];
 }
 
-const qrCode = ref('');
+const qrCode = Vue.ref('');
 let index = 0;
 
-onMounted(async () => {
+Vue.onMounted(async () => {
   if (frames.length === 0) {
     console.warn('No frames to rotate');
     return;

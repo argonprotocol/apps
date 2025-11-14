@@ -63,10 +63,10 @@
         Cancel
       </button>
       <button
-        class="cursor-pointer rounded-lg px-10 py-1 text-lg font-bold text-white"
-        :class="[isSaving ? 'bg-argon-600/60' : 'bg-argon-600 hover:bg-argon-700']"
+        :class="[isSaving ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700']"
         :disabled="isSaving"
-        @click="submitLiquidLock">
+        @click="submitLiquidLock"
+        class="cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white">
         <template v-if="isSaving">Initializing Liquid Lock</template>
         <template v-else>
           Initialize Liquid Lock
@@ -79,11 +79,10 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from 'numeral';
 import { ChevronDoubleRightIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
-import { createNumeralHelpers } from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { useDebounceFn } from '@vueuse/core';

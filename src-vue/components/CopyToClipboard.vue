@@ -28,9 +28,9 @@ defineExpose({
   $el,
 });
 
-let highlightAndCopyTimeout1: any = null;
-let highlightAndCopyTimeout2: any = null;
-let highlightAndCopyTimeout3: any = null;
+let highlightAndCopyTimeout1: ReturnType<typeof setTimeout> | undefined = undefined;
+let highlightAndCopyTimeout2: ReturnType<typeof setTimeout> | undefined = undefined;
+let highlightAndCopyTimeout3: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function copyContent() {
   navigator.clipboard.writeText(props.content);

@@ -60,7 +60,7 @@
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
 import NumArrow from '../assets/num-arrow.svg?component';
-import numeral from 'numeral';
+import numeral from '../lib/numeral';
 import Tooltip from './Tooltip.vue';
 import { twMerge } from 'tailwind-merge';
 
@@ -106,9 +106,11 @@ const $el = Vue.ref<HTMLElement | null>(null);
 const inputElem = Vue.ref<HTMLInputElement | null>(null);
 const hasFocus = Vue.ref(false);
 
-let incrementTimerId: number | null = null;
-let decrementTimerId: number | null = null;
-let minMaxInputValueTimeoutId: number | null = null;
+let incrementTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+let incrementIntervalId: ReturnType<typeof setInterval> | undefined = undefined;
+let decrementTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+let decrementIntervalId: ReturnType<typeof setInterval> | undefined = undefined;
+let minMaxInputValueTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 // Add this after other module-level variables
 let pendingCaretPosition: number | null = null;
@@ -141,16 +143,16 @@ function updateInputValue(
   currentInputValue = inputValue;
 
   if (minMaxInputValueTimeoutId) {
-    window.clearTimeout(minMaxInputValueTimeoutId);
+    clearTimeout(minMaxInputValueTimeoutId);
   }
-  minMaxInputValueTimeoutId = null;
+  minMaxInputValueTimeoutId = undefined;
 
   if (setAsLastValueBeforeMinIncrease) {
     lastValueBeforeMinIncrease = inputValue;
   }
 
   if (boundedInputValue !== inputValue) {
-    minMaxInputValueTimeoutId = window.setTimeout(() => {
+    minMaxInputValueTimeoutId = setTimeout(() => {
       if (inputValue !== currentInputValue) return;
       updateInputValue(boundedInputValue, isManualInput);
     }, 1_000);
@@ -297,7 +299,7 @@ let stepsDownUntilDragBy: number = 0;
 let startPointerX: number | null = null;
 let startPointerY: number | null = null;
 let isContinuousMode = false;
-let continuousTimer: number | null = null;
+let continuousTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function handlePointerDown(event: PointerEvent) {
   const button = event.currentTarget as HTMLButtonElement;
@@ -339,7 +341,7 @@ function handlePointerDown(event: PointerEvent) {
   }
 
   // Start a timer to check if we should enter continuous mode
-  continuousTimer = window.setTimeout(() => {
+  continuousTimeoutId = setTimeout(() => {
     if (startPointerX !== null && startPointerY !== null && !isDragging) {
       isContinuousMode = true;
       // Determine which arrow was clicked and start appropriate continuous function
@@ -366,9 +368,9 @@ function emitDrag(event: PointerEvent) {
 
   if (totalMovement > 3) {
     // Cancel continuous mode if we're moving significantly
-    if (continuousTimer !== null) {
-      window.clearTimeout(continuousTimer);
-      continuousTimer = null;
+    if (continuousTimeoutId !== undefined) {
+      clearTimeout(continuousTimeoutId);
+      continuousTimeoutId = undefined;
     }
     if (isContinuousMode) {
       stopContinuousUpdates();
@@ -441,9 +443,9 @@ function handlePointerUp(event: PointerEvent) {
   document.body.classList.remove('isDraggingDecrease');
 
   // Clear continuous timer
-  if (continuousTimer !== null) {
-    window.clearTimeout(continuousTimer);
-    continuousTimer = null;
+  if (continuousTimeoutId !== undefined) {
+    clearTimeout(continuousTimeoutId);
+    continuousTimeoutId = undefined;
   }
 
   // Stop continuous updates if active
@@ -560,7 +562,7 @@ function handleBeforeInput(event: InputEvent) {
   }
 }
 
-let updateInputValueTimer: ReturnType<typeof setTimeout> | null = null;
+let updateInputValueTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function handleInput() {
   const currentText = inputElem.value?.textContent || '';
@@ -654,12 +656,11 @@ function startContinuousIncrement() {
   stopContinuousUpdates();
   incrementValue();
 
-  incrementTimerId = window.setTimeout(() => {
-    const intervalId = window.setInterval(() => {
+  incrementTimeoutId = setTimeout(() => {
+    incrementIntervalId = setInterval(() => {
       incrementValue();
     }, updateInterval);
-
-    incrementTimerId = intervalId;
+    incrementTimeoutId = undefined;
   }, initialDelay);
 }
 
@@ -668,12 +669,11 @@ function startContinuousDecrement() {
     stopContinuousUpdates();
     decrementValue();
 
-    decrementTimerId = window.setTimeout(() => {
-      const intervalId = window.setInterval(() => {
+    decrementTimeoutId = setTimeout(() => {
+      decrementIntervalId = setInterval(() => {
         decrementValue();
       }, updateInterval);
-
-      decrementTimerId = intervalId;
+      decrementTimeoutId = undefined;
     }, initialDelay);
   } catch (error) {
     console.error('Error starting continuous decrement:', error);
@@ -681,19 +681,25 @@ function startContinuousDecrement() {
 }
 
 function stopContinuousUpdates() {
-  if (incrementTimerId !== null) {
-    window.clearTimeout(incrementTimerId);
-    window.clearInterval(incrementTimerId);
-    incrementTimerId = null;
+  if (incrementTimeoutId !== undefined) {
+    clearTimeout(incrementTimeoutId);
+    incrementTimeoutId = undefined;
   }
-  if (decrementTimerId !== null) {
-    window.clearTimeout(decrementTimerId);
-    window.clearInterval(decrementTimerId);
-    decrementTimerId = null;
+  if (incrementIntervalId !== undefined) {
+    clearInterval(incrementIntervalId);
+    incrementIntervalId = undefined;
   }
-  if (continuousTimer !== null) {
-    window.clearTimeout(continuousTimer);
-    continuousTimer = null;
+  if (decrementTimeoutId !== undefined) {
+    clearTimeout(decrementTimeoutId);
+    decrementTimeoutId = undefined;
+  }
+  if (decrementIntervalId !== undefined) {
+    clearInterval(decrementIntervalId);
+    decrementIntervalId = undefined;
+  }
+  if (continuousTimeoutId !== undefined) {
+    clearTimeout(continuousTimeoutId);
+    continuousTimeoutId = undefined;
   }
 }
 
@@ -733,6 +739,13 @@ function selectAllText() {
   }
 }
 
+function handleClickOutside(event: MouseEvent) {
+  const isOutsideClick = $el.value && !$el.value.contains(event.target as Node);
+  if (isOutsideClick) {
+    inputElem.value?.blur();
+  }
+}
+
 Vue.watch(
   () => props.modelValue,
   (x: number) => {
@@ -764,18 +777,10 @@ Vue.onMounted(() => {
 
 // Add click outside handler
 Vue.onMounted(() => {
-  const handleClickOutside = (event: MouseEvent) => {
-    const isOutsideClick = $el.value && !$el.value.contains(event.target as Node);
-    if (isOutsideClick) {
-      inputElem.value?.blur();
-    }
-  };
-
   document.addEventListener('mousedown', handleClickOutside);
+});
 
-  // Cleanup on unmount
-  Vue.onUnmounted(() => {
-    document.removeEventListener('mousedown', handleClickOutside);
-  });
+Vue.onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside);
 });
 </script>

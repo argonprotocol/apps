@@ -113,9 +113,8 @@ import utc from 'dayjs/plugin/utc';
 import CountdownClock from '../components/CountdownClock.vue';
 import { useMyVault } from '../stores/vaults.ts';
 import { useCurrency } from '../stores/currency.ts';
-import { createNumeralHelpers } from '../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
-import numeral from 'numeral';
 import Overlay from './Overlay.vue';
 
 dayjs.extend(utc);

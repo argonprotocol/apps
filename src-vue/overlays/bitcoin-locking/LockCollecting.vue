@@ -1,16 +1,21 @@
 <template>
   <div class="space-y-5 px-10 pt-5 pb-5">
     <p>
-      Your {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} of BTC has been
-      successfully processed! You've been awarded the full market value of your Bitcoin, which is {{ currency.symbol
-      }}{{ microgonToArgonNm(microgonValue).format('0,0.[00]') }}. These will be minted and sent to your wallet as the
-      network's minting algorithm allows.
+      The Argon Network has successfully processed and locked your
+      {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC.
     </p>
+    <p>
+      You're being awarded the full market value of your Bitcoin, which is currently
+      {{ currency.symbol }}{{ microgonToArgonNm(microgonValue).format('0,0.[00]') }}. These argons will be minted and
+      sent to your wallet as the network's capacity allows.
+    </p>
+
+    <BitcoinMintingSvg class="mx-auto my-10" />
 
     <button
       @click="closeOverlay"
       class="bg-argon-600 border-argon-700 mb-2 w-full cursor-pointer rounded-lg border px-6 py-2 text-lg font-bold text-white focus:outline-none">
-      Close
+      Okay
     </button>
   </div>
 </template>
@@ -21,6 +26,7 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { useVaults } from '../../stores/vaults.ts';
+import BitcoinMintingSvg from '../../assets/wallets/bitcoin-minting.svg';
 
 const currency = useCurrency();
 const vaults = useVaults();

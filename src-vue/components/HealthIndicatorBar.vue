@@ -19,7 +19,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from 'numeral';
+import numeral from '../lib/numeral';
 
 const props = withDefaults(
   defineProps<{

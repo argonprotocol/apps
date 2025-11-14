@@ -443,6 +443,7 @@ Vue.watch(
   },
   { deep: true },
 );
+
 Vue.onMounted(() => updateAPYs());
 
 defineExpose({
