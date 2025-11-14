@@ -2,9 +2,7 @@ import { invokeWithTimeout } from './tauriApi';
 import { listen } from '@tauri-apps/api/event';
 import { IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
 
-export interface ISSHConfig extends IConfigServerDetails {
-  privateKeyPath?: string;
-}
+export type ISSHConfig = IConfigServerDetails;
 
 export class SSHConnection {
   public isConnected = false;
@@ -17,7 +15,6 @@ export class SSHConnection {
   public host: string;
   public port: number;
   public username: string;
-  public privateKeyPath?: string;
   public isDockerHostProxy = false;
   public isDestroyed = false;
 
@@ -25,7 +22,6 @@ export class SSHConnection {
     this.host = sshConfig.ipAddress;
     this.port = sshConfig.port ?? 22;
     this.username = sshConfig.sshUser;
-    this.privateKeyPath = sshConfig.privateKeyPath;
     this.isDockerHostProxy = sshConfig.type === ServerType.LocalComputer;
   }
 
@@ -41,7 +37,6 @@ export class SSHConnection {
         host: this.host,
         port: this.port,
         username: this.username,
-        privateKeyPath: this.privateKeyPath,
       };
       if (!sshConfig.host) {
         reject(new Error('No SSH host config provided'));
@@ -56,7 +51,7 @@ export class SSHConnection {
           console.log(`Connection refused... retrying ${3 - retries + 1}/3`);
           await new Promise(r => setTimeout(r, 1000 * (4 - retries)));
           await this.close();
-          return this.connect(retries - 1);
+          return this.connect(retries - 1).then(resolve, reject);
         }
         reject(error);
       }

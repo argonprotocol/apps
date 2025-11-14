@@ -5,6 +5,7 @@ use sp_core::Pair;
 use sp_core::crypto::Ss58Codec;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Instant;
 use tauri::{AppHandle, Listener, Manager};
 use tauri::{Emitter, State};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
@@ -133,6 +134,17 @@ async fn ssh_upload_embedded_file(
         .await
         .map_err(|e| e.to_string())?;
     Ok("success".to_string())
+}
+
+#[tauri::command]
+async fn measure_latency(url: String) -> Result<u128, String> {
+    let client = reqwest::Client::new();
+    let start = Instant::now();
+
+    let _ = client.head(&url).send().await.ok();
+
+    let elapsed = start.elapsed().as_millis();
+    Ok(elapsed)
 }
 
 #[tauri::command]
@@ -462,6 +474,7 @@ pub fn run() {
             expose_mnemonic,
             get_ssh_private_key,
             overwrite_mnemonic,
+            measure_latency
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -130,7 +130,7 @@ async function saveRules() {
       savingError.value = null;
       isSaving.value = true;
       await bot.resyncBiddingRules();
-      await config.saveVaultingRules();
+      await config.saveBiddingRules();
     } catch (error) {
       console.error('Failed to reload server bidding rules:', error);
       savingError.value = 'Failed to save bidding rules. Please try again.';
@@ -140,7 +140,7 @@ async function saveRules() {
     }
   }
 
-  isOpen.value = true;
+  isOpen.value = false;
 }
 
 basicEmitter.on('openBotEditOverlay', async () => {

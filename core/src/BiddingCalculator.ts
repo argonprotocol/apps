@@ -129,7 +129,7 @@ export default class BiddingCalculator {
     return seats;
   }
 
-  public async updateBiddingRules(biddingRules: IBiddingRules) {
+  public updateBiddingRules(biddingRules: IBiddingRules) {
     this.biddingRules = biddingRules;
   }
 

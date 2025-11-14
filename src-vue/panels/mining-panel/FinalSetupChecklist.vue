@@ -48,11 +48,11 @@
               Decide how much capital you want to commit, your starting bid, maximum bid, and other basic settings.
             </p>
             <p v-else>
-              Your bidding rules expect a 
+              Your bidding rules expect a
               <BotCapital align="start" :alignOffset="alignOffsetForBotCapital">
                 <span @mouseenter="alignOffsetForBotCapital = calculateAlignOffset($event, botCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
                   capital commitment of
-                  {{ currency.symbol }}{{ microgonToArgonNm(capitalCommitment || 0n).formatIfElse('< 100_000_000', '0,0.00', '0,0.[00]') }} 
+                  {{ currency.symbol }}{{ microgonToArgonNm(capitalCommitment || 0n).formatIfElse('< 100_000_000', '0,0.00', '0,0.[00]') }}
                 </span>
               </BotCapital>
               with an

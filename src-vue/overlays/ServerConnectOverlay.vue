@@ -203,6 +203,7 @@ async function connect() {
 
   try {
     config.serverCreation = await extractServerCreation();
+    config.resetField('installDetails');
     await config.save();
   } catch (error: any) {
     serverCreationError.value = error.message;

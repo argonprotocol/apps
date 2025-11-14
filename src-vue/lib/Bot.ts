@@ -74,10 +74,8 @@ export class Bot {
       this.status = BotStatus.ServerSyncing;
       this.syncProgress = 25;
       this.botSyncer.isPaused = true;
-      await server.stopBotDocker();
-      this.syncProgress = 30;
       await server.uploadBiddingRules(this.config.biddingRules);
-      this.syncProgress = 40;
+      this.syncProgress = 50;
       await server.startBotDocker();
       this.syncProgress = 100;
       this.status = BotStatus.Ready;

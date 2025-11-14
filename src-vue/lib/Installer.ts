@@ -45,11 +45,10 @@ export default class Installer {
   public isRunning: boolean;
   public isRunningInBackground: boolean;
   public fileUploadProgress: number = 0;
+  public serverConnectProgress: number = 0;
 
   public reasonToSkipInstall: string;
   public reasonToSkipInstallData: any;
-
-  public hasMiningMachineError = '';
 
   public get isDockerHostProxy(): boolean {
     return this.config.serverDetails.type === ServerType.LocalComputer;
@@ -84,7 +83,6 @@ export default class Installer {
 
     if (this.config.isMinerReadyToInstall && !this.isRunning) {
       if (this.config.isMiningMachineCreated) {
-        await this.ensureIpAddressIsWhitelisted();
         const server = await this.getServer();
         const accountAddressOnServer = await server.downloadAccountAddress();
         if (accountAddressOnServer && accountAddressOnServer !== this.config.miningAccountAddress) {
@@ -153,7 +151,6 @@ export default class Installer {
     this.isRunningInBackground = false;
     this.config.isMinerWaitingForUpgradeApproval = false;
     this.config.isMinerUpToDate = false;
-    await this.config.save();
 
     if (this.remoteFilesNeedUpdating) {
       const stepsToClear = [
@@ -166,39 +163,40 @@ export default class Installer {
       ];
       console.info('Clearing step files');
       await this.clearStepFiles(stepsToClear);
+    } else {
+      this.config.installDetails.errorMessage = null;
+      this.config.installDetails.errorType = null;
     }
-
-    let errorMessage = '';
+    await this.config.save();
 
     this.installerCheck.shouldUseCachedInstallSteps = true;
     this.fileUploadProgress = 0;
+    this.serverConnectProgress = 0;
     this.installerCheck.start();
 
+    let installPhase: InstallStepErrorType | undefined = InstallStepErrorType.ServerConnect;
     try {
       console.info('Setting up mining machine');
 
       if (!this.config.isMiningMachineCreated) {
-        try {
-          const serverDetails = await MiningMachine.setup(this.config, this.walletKeys);
-          this.config.serverDetails = serverDetails;
-          this.config.isMiningMachineCreated = true;
-          this.remoteFilesNeedUpdating = true;
-          await this.config.save();
-        } catch (e: any) {
-          this.hasMiningMachineError = e.message;
-          throw e;
-        }
+        this.config.serverDetails = await MiningMachine.setup(this.config, this.walletKeys, pct => {
+          this.serverConnectProgress = pct * 0.5;
+        });
+        this.config.isMiningMachineCreated = true;
+        this.remoteFilesNeedUpdating = true;
+        await this.config.save();
       }
-
-      await this.ensureIpAddressIsWhitelisted();
-      await this.installerCheck.activateServer();
-
+      this.serverConnectProgress = 60;
       const server = await this.getServer();
+      this.serverConnectProgress = 90;
+      this.installerCheck.activateServer(server);
       const uploadedWalletAddress = await server.downloadAccountAddress();
       if (!uploadedWalletAddress) {
         await server.deleteBotStorageFiles();
       }
+      this.serverConnectProgress = 100;
 
+      installPhase = InstallStepErrorType.FileUpload;
       if (this.remoteFilesNeedUpdating) {
         console.info('Uploading account address');
         await server.uploadAccountAddress(this.config.miningAccountAddress);
@@ -213,55 +211,31 @@ export default class Installer {
       console.info('Starting remote script');
       await server.createLogsDir();
       await server.startInstallerScript();
+      installPhase = undefined;
       this.fileUploadProgress = 99;
-
       this.isRunningInBackground = true;
       this.installerCheck.shouldUseCachedInstallSteps = false;
 
       console.info('Waiting for install to complete');
-      await this.installerCheck.waitForInstallToComplete();
+      await this.installerCheck.noThrowWaitForInstallToComplete();
 
       console.info('Confirming all install flags');
-      this.isRunning = false;
-      this.isRunningInBackground = false;
-      this.isReadyToRun = false;
       this.remoteFilesNeedUpdating = false;
       console.info('Installer finished');
-    } catch (e) {
+    } catch (e: any) {
       console.error(`Installation failed: `, e);
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-      errorMessage = `Installation failed: ${e}`;
+      this.config.installDetails.errorType = installPhase ?? InstallStepErrorType.Unknown;
+      this.config.installDetails.errorMessage = e.message ?? `Installation failed - ${String(e)}`;
+      this.config.installDetails = this.config.installDetails;
     }
 
-    if (errorMessage && !this.disableWrites) {
-      try {
-        this.config.installDetails.errorType = InstallStepErrorType.Unknown;
-        this.config.installDetails.errorMessage = errorMessage;
-        this.config.installDetails = this.config.installDetails;
-        await this.config.save();
-      } catch (e) {
-        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-        console.error(`Failed to save install status: ${e}`);
-      }
+    if (!this.disableWrites) {
+      await this.config.save().catch(() => null);
     }
 
     this.isRunning = false;
     this.isRunningInBackground = false;
     this.isReadyToRun = false;
-  }
-
-  public async uploadBiddingRules() {
-    const server = await this.getServer();
-
-    await server.uploadBiddingRules(this.config.biddingRules);
-  }
-
-  public async ensureIpAddressIsWhitelisted(): Promise<void> {
-    // we don't have anything to connect to yet!
-    if (!this.config.serverDetails.ipAddress) return;
-    const ipResponse = await fetch('https://api.ipify.org?format=json');
-    const { ip: ipAddress } = await ipResponse.json();
-    await SSH.runCommand(`sudo ufw status | grep ${ipAddress} || sudo ufw allow from ${ipAddress}`);
   }
 
   public async runFailedStep(stepKey: string): Promise<void> {
@@ -291,12 +265,21 @@ export default class Installer {
     void this.run();
   }
 
+  public async ensureIpAddressIsWhitelisted(): Promise<void> {
+    // we don't have anything to connect to yet!
+    if (!this.config.serverDetails.ipAddress) return;
+    const ipResponse = await fetch('https://api.ipify.org?format=json');
+    const { ip: ipAddress } = await ipResponse.json();
+    await SSH.runCommand(`sudo ufw status | grep ${ipAddress} || sudo ufw allow from ${ipAddress}`);
+  }
+
   private async getServer(): Promise<Server> {
     // We were getting into issues where server hadn't been created yet. I decided to just force
     // getting it in every function that needs it.
     if (!this._server) {
       const connection = await SSH.getOrCreateConnection();
       this._server = new Server(connection, this.config.serverDetails);
+      await this.ensureIpAddressIsWhitelisted();
     }
     return this._server;
   }
@@ -419,12 +402,13 @@ export default class Installer {
     if (!hasProgress || isComplete) return;
 
     this.isRunning = true;
-    await this.installerCheck.activateServer(await this.getServer());
+    const server = await this.getServer();
+    this.installerCheck.activateServer(server);
     this.installerCheck.start();
     this.installerCheck.shouldUseCachedInstallSteps = false;
 
     console.info('Waiting for install to complete');
-    await this.installerCheck.waitForInstallToComplete();
+    await this.installerCheck.noThrowWaitForInstallToComplete();
 
     this.isRunning = false;
     this.remoteFilesNeedUpdating = false;
@@ -449,7 +433,7 @@ export default class Installer {
       };
     }
 
-    await this.installerCheck.activateServer(server);
+    this.installerCheck.activateServer(server);
     this.installerCheck.shouldUseCachedInstallSteps = false;
     await this.installerCheck.updateInstallStatus();
     const isServerInstallComplete = this.installerCheck.isServerInstallComplete;
@@ -584,14 +568,10 @@ export default class Installer {
         console.log('SETTING SERVER STEP TO WORKING', stepKey);
         stepObj.status = InstallStepStatus.Working;
         stepObj.startDate = dayjs.utc().toISOString();
-      } else if (stepKey === InstallStepKey.ServerConnect) {
-        console.log('CLEAR STEP', stepKey, installDetails[stepKey]?.progress, ' -> ', stepObj.progress);
       }
       installDetails[stepKey] = { ...stepObj };
       await server.removeLogStep(stepKey);
     }
-
-    console.log('clearStepFiles', stepKeys, installDetails);
     this.config.installDetails = installDetails;
     await this.config.save();
   }

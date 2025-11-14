@@ -76,7 +76,7 @@ export async function accountsetFromCli(program: Command, proxyForAddress?: stri
     throw new Error('No ACCOUNT account loaded (either ACCOUNT_SURI or ACCOUNT_JSON_PATH required)');
   }
 
-  const client = await getClient(opts.mainchainUrl);
+  const client = await getClient(opts.mainchainUrl, { throwOnConnect: true });
   if (!opts.network) {
     const chain = await client.rpc.system.chain().then(x => x.toString());
     if (chain === 'Argon Testnet') {
