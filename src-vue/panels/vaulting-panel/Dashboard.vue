@@ -784,9 +784,7 @@ const currentApy = Vue.computed(() => {
 
   const averageCapitalDeployed =
     capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
-  const frames = (oldestFrame !== undefined && startingFrame !== undefined)
-    ? startingFrame - oldestFrame + 1
-    : undefined;
+  const frames = oldestFrame !== undefined && startingFrame !== undefined ? startingFrame - oldestFrame + 1 : undefined;
   return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + revenueMicrogons.value, frames);
 });
 
@@ -1007,7 +1005,7 @@ async function loadChartData(currentFrameId?: number) {
       id: frame.id,
       date: frame.date,
       score: Number(frame.myTreasuryPayout),
-      isFiller: false,
+      isFiller: !myVaultRevenueByFrame[frame.id],
       previous: items[index - 1],
       next: undefined,
     };

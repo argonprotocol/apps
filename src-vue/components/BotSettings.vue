@@ -178,6 +178,18 @@
             <div MainRule v-if="rules.seatGoalType === SeatGoalType.Max && rules.seatGoalCount === 0" class="w-full">
               Disabled
             </div>
+            <div
+              MainRule
+              v-else-if="
+                rules.seatGoalType === SeatGoalType.MaxPercent || rules.seatGoalType === SeatGoalType.MinPercent
+              "
+              class="w-full">
+              <span>
+                {{ String(rules.seatGoalType).replace('Percent', '') }} {{ rules.seatGoalPercent }}% Seats Per
+                {{ rules.seatGoalInterval }}
+              </span>
+              <EditIcon EditIcon />
+            </div>
             <div MainRule v-else class="flex w-full flex-row items-center justify-center">
               <span>{{ rules.seatGoalType }} {{ rules.seatGoalCount }} Seats Per {{ rules.seatGoalInterval }}</span>
               <EditIcon EditIcon />
