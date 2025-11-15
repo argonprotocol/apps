@@ -114,9 +114,7 @@ export class CohortBidder {
       this.myAddresses.add(x.address);
     });
     this.lastLoggedSeatsInBudget = subaccounts.length;
-    this.name =
-      name ??
-      `${accountset.txSubmitterPair.address.substring(0, 6)}...${accountset.txSubmitterPair.address.slice(-4)} #${cohortStartingFrameId}`;
+    this.name = name ?? `BIDDER_${accountset.txSubmitterPair.address.substring(0, 5)} #${cohortStartingFrameId}`;
   }
 
   public async start() {
@@ -195,7 +193,19 @@ export class CohortBidder {
             key: this.client.query.miningSlot.isNextSlotBiddingOpen.key(),
             handler: async api => {
               const isOpen = await api.query.miningSlot.isNextSlotBiddingOpen();
+              this.log('miningSlot.isNextSlotBiddingOpen changed', isOpen.toHuman());
               if (isOpen.isFalse) {
+                unsub.unsubscribe();
+                resolve();
+              }
+            },
+          },
+          {
+            key: this.client.query.miningSlot.nextFrameId.key(),
+            handler: async api => {
+              const frameId = await api.query.miningSlot.nextFrameId();
+              this.log('miningSlot.nextFrameId changed', frameId.toNumber());
+              if (frameId.toNumber() > this.cohortStartingFrameId) {
                 unsub.unsubscribe();
                 resolve();
               }

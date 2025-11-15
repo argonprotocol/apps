@@ -187,7 +187,7 @@ export default class Installer {
         await this.config.save();
       }
       this.serverConnectProgress = 60;
-      const server = await this.getServer();
+      const server = await this.getServer(5);
       this.serverConnectProgress = 90;
       this.installerCheck.activateServer(server);
       const uploadedWalletAddress = await server.downloadAccountAddress();
@@ -273,11 +273,11 @@ export default class Installer {
     await SSH.runCommand(`sudo ufw status | grep ${ipAddress} || sudo ufw allow from ${ipAddress}`);
   }
 
-  private async getServer(): Promise<Server> {
+  private async getServer(retries?: number): Promise<Server> {
     // We were getting into issues where server hadn't been created yet. I decided to just force
     // getting it in every function that needs it.
     if (!this._server) {
-      const connection = await SSH.getOrCreateConnection();
+      const connection = await SSH.getOrCreateConnection(retries);
       this._server = new Server(connection, this.config.serverDetails);
       await this.ensureIpAddressIsWhitelisted();
     }

@@ -49,11 +49,11 @@ export function calculateAPR(costs: bigint, rewards: bigint): number {
  * Calculates the actual APY based on costs, rewards, and remaining compounding periods.
  * @param costs - The total costs incurred.
  * @param rewards - The total rewards earned.
- * @param elapsedDays - The number of days this investment reflects
+ * @param activeDays - The number of days this investment reflects
  */
-export function calculateAPY(costs: bigint, rewards: bigint, elapsedDays?: number): number {
+export function calculateAPY(costs: bigint, rewards: bigint, activeDays?: number): number {
   const roi = calculateProfitPct(costs, rewards);
-  const elapsedDenominator = elapsedDays ? elapsedDays : 1;
+  const elapsedDenominator = activeDays ? activeDays : 1;
   const dailyRate = Math.pow(1 + roi, 1 / elapsedDenominator) - 1;
 
   return compoundXTimes(dailyRate, 365) * 100;

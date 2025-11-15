@@ -38,7 +38,7 @@ const hasError = Vue.computed(() => {
 
 function serverType() {
   if (serverDetails.value.type === ServerType.LocalComputer) {
-    return 'Docker';
+    return 'Local';
   }
 
   return 'Cloud';
@@ -46,7 +46,7 @@ function serverType() {
 
 function serverIdentity() {
   if (serverDetails.value.type === ServerType.LocalComputer) {
-    return 'Docker machine';
+    return 'Local computer';
   }
   if (serverDetails.value.type === ServerType.DigitalOcean) {
     return `${serverDetails.value.ipAddress} server on DigitalOcean`;
