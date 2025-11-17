@@ -33,7 +33,7 @@ interface IMyMiningBids {
 
 export class Stats {
   public latestFrameId: number;
-  public firstRevenueFrameId?: number;
+  public activeFrames: number;
   public selectedFrameId!: number;
   public selectedCohortTickRange!: [number, number];
 
@@ -79,7 +79,7 @@ export class Stats {
 
     this.latestFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
     this.selectFrameId(this.latestFrameId, true);
-    this.firstRevenueFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
+    this.activeFrames = 0;
 
     this.myMiningSeats = {
       seatCount: 0,
@@ -395,10 +395,12 @@ export class Stats {
 
     const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(lastYear.at(-1)?.id ?? 0);
     const framesById = new Map<number, IDashboardFrameStats>();
+    this.activeFrames = 0;
     for (const frame of lastYear) {
       if (frame.id === 0) continue;
-      if (frame.accruedMicrogonProfits !== 0n) {
-        this.firstRevenueFrameId = Math.min(this.firstRevenueFrameId ?? frame.id, frame.id);
+      // count an active frame if we bid but didn't win any seats
+      if (frame.accruedMicrogonProfits < 0n || frame.seatCountActive > 0) {
+        this.activeFrames++;
       }
       frame.expected = {
         blocksMinedTotal: 0,
