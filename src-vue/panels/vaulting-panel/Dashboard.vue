@@ -910,6 +910,7 @@ async function loadChartData(currentFrameId?: number) {
 
   const trailingTreasuryCapitalAmounts: [capital: bigint, frameId: number][] = [];
 
+  let maxFrameProfitPercent = 0;
   let treasuryPercentActivated = 0;
   let bitcoinPercentUsed = 0;
   for (const frameId of frameIds) {
@@ -1005,6 +1006,7 @@ async function loadChartData(currentFrameId?: number) {
     record.treasuryPercentActivated = treasuryPercentActivated;
     record.bitcoinPercentUsed = bitcoinPercentUsed;
     record.profitMaximizationPercent = getPercent(bitcoinPercentUsed * treasuryPercentActivated, 100 * 100);
+    maxFrameProfitPercent = Math.max(maxFrameProfitPercent, record.frameProfitPercent);
   }
 
   const items: IChartItem[] = [];
@@ -1012,7 +1014,7 @@ async function loadChartData(currentFrameId?: number) {
     const item = {
       id: frame.id,
       date: frame.date,
-      score: Number(frame.myTreasuryPayout),
+      score: frame.frameProfitPercent / maxFrameProfitPercent * 100,
       isFiller: !myVaultRevenueByFrame[frame.id],
       previous: items[index - 1],
       next: undefined,

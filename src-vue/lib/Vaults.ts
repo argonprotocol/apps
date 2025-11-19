@@ -1,5 +1,12 @@
 import { BitcoinLock, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
-import { bigNumberToBigInt, FrameIterator, JsonExt, MainchainClients, PriceIndex } from '@argonprotocol/apps-core';
+import {
+  bigNumberToBigInt,
+  FrameIterator,
+  JsonExt,
+  MainchainClients,
+  Mining,
+  PriceIndex,
+} from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { convertBigIntStringToNumber, createDeferred, IDeferred } from './Utils.ts';
@@ -394,20 +401,14 @@ export class Vaults {
     return stats;
   }
 
-  public static async getTreasuryPoolPayout(
+  public static async getPreviousEpochTreasuryPoolPayout(
     clients: MainchainClients,
   ): Promise<{ totalPoolRewards: bigint; totalActivatedCapital: bigint; participatingVaults: number }> {
     const client = await clients.prunedClientOrArchivePromise;
-    const minersAtFrame = await client.query.miningSlot.minersByCohort.entries();
+    const bidBurnPercent = (100 - client.consts.treasury.bidPoolBurnPercent.toNumber()) / 100;
+    const totalMicrogonsBid = await new Mining(clients).getAggregateBidCosts();
     const vaultRevenue = await client.query.vaults.revenuePerFrameByVault.entries();
-    let totalMicrogonsBid = 0n;
     let totalActivatedCapital = 0n;
-    for (const [_cohort, miners] of minersAtFrame) {
-      for (const miner of miners) {
-        totalMicrogonsBid += miner.bid.toBigInt();
-      }
-    }
-
     let participatingVaults = 0;
     for (const [_vaultId, revenue] of vaultRevenue) {
       for (const entry of revenue) {
@@ -420,7 +421,7 @@ export class Vaults {
     }
 
     // treasury burns 20% of total bids
-    const totalPoolRewardsBn = BigNumber(totalMicrogonsBid).multipliedBy(0.8);
+    const totalPoolRewardsBn = BigNumber(totalMicrogonsBid).multipliedBy(bidBurnPercent);
     const totalPoolRewards = bigNumberToBigInt(totalPoolRewardsBn);
 
     return {

@@ -20,9 +20,12 @@ export class MainchainClients {
   constructor(
     archiveUrl: string,
     private enableApiLogging = () => true,
+    connectedArchiveClient?: ArgonClient,
   ) {
     this.archiveUrl = archiveUrl;
-    this.archiveClientPromise = getMainchainClientOrThrow(archiveUrl).then(x => this.wrapClient(x, 'archive'));
+    this.archiveClientPromise = (
+      connectedArchiveClient ? Promise.resolve(connectedArchiveClient) : getMainchainClientOrThrow(archiveUrl)
+    ).then(x => this.wrapClient(x, 'archive'));
   }
 
   public async setArchiveClient(url: string) {

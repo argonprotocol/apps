@@ -4,7 +4,7 @@ import {
   createBidderParams,
   type IBiddingRules,
   MainchainClients,
-  MiningBids,
+  Mining,
 } from '@argonprotocol/apps-core';
 import { type Storage } from './Storage.ts';
 import { type History } from './History.ts';
@@ -16,7 +16,7 @@ import { type History } from './History.ts';
  * @param biddingRules
  */
 export class AutoBidder {
-  public readonly miningBids: MiningBids;
+  public readonly mining: Mining;
   private cohortBiddersByActivationFrameId = new Map<number, CohortBidder>();
   private isStopped: boolean = false;
   private unsubscribe?: () => void;
@@ -28,11 +28,11 @@ export class AutoBidder {
     private readonly history: History,
     private biddingRules: IBiddingRules,
   ) {
-    this.miningBids = new MiningBids(accountset.client);
+    this.mining = new Mining(mainchainClients);
   }
   public async start(localRpcUrl: string): Promise<void> {
     await this.accountset.registerKeys(localRpcUrl);
-    const { unsubscribe } = await this.miningBids.onCohortChange({
+    const { unsubscribe } = await this.mining.onCohortChange({
       onBiddingStart: this.onBiddingStart.bind(this),
       onBiddingEnd: this.onBiddingEnd.bind(this),
     });
@@ -70,11 +70,9 @@ export class AutoBidder {
 
     const subaccounts: { index: number; isRebid: boolean; address: string }[] = [];
     if (bidsFileData && bidsFileData.winningBids.length) {
-      const miningAccounts = await this.accountset.loadRegisteredMiners(this.accountset.client);
       for (const winningBid of bidsFileData.winningBids) {
         if (typeof winningBid.subAccountIndex !== 'number') continue;
-        const account = miningAccounts.find(x => x.address === winningBid.address);
-        if (account) {
+        if (this.accountset.subAccountsByAddress[winningBid.address]) {
           subaccounts.push({
             index: winningBid.subAccountIndex,
             isRebid: true,

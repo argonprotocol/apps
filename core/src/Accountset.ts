@@ -1,30 +1,28 @@
 import {
   type ApiDecoration,
   type ArgonClient,
-  dispatchErrorToString,
-  formatArgons,
   getClient,
+  getOfflineRegistry,
   Keyring,
   type KeyringPair,
-  type SubmittableExtrinsic,
   TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
-import { ed25519DeriveHard, keyExtractSuri, mnemonicToMiniSecret } from '@polkadot/util-crypto';
+import { blake2AsU8a, ed25519DeriveHard, keyExtractSuri, mnemonicToMiniSecret } from '@polkadot/util-crypto';
 import { DEV_PHRASE } from '@polkadot/keyring';
-import { AccountRegistry } from './AccountRegistry.js';
-import { AccountMiners } from './AccountMiners.js';
+import { Mining } from './Mining.js';
 
 export type SubaccountRange = readonly number[];
-
-export type IAddressNames = Map<string, string>;
 
 export interface ISubaccountMiner {
   address: string;
   subaccountIndex: number;
   seat?: IMiningIndex;
   isLastDay: boolean;
+  isDeprecatedAddress: boolean;
 }
+
+const registry = getOfflineRegistry();
 
 export interface IMiningIndex {
   startingFrameId: number;
@@ -37,27 +35,18 @@ export class Accountset {
   public isProxy = false;
   public seedAddress: string;
   public subAccountsByAddress: {
-    [address: string]: { index: number; pair?: KeyringPair };
+    [address: string]: { index: number; isDeprecated: boolean };
   } = {};
-  public accountRegistry: AccountRegistry;
   public readonly client: ArgonClient;
-
-  public get addresses(): string[] {
-    return [this.seedAddress, ...Object.keys(this.subAccountsByAddress)];
-  }
-
-  public get namedAccounts(): IAddressNames {
-    return this.accountRegistry.namedAccounts;
-  }
 
   public sessionMiniSecretOrMnemonic: string | undefined;
 
   constructor(
     options: {
       client: ArgonClient;
-      accountRegistry?: AccountRegistry;
       subaccountRange?: SubaccountRange;
       sessionMiniSecretOrMnemonic?: string;
+      includeDerivedSubaccounts?: boolean;
       name?: string;
     } & (
       | { seedAccount: KeyringPair }
@@ -78,29 +67,24 @@ export class Accountset {
       this.seedAddress = options.seedAddress;
     }
     this.sessionMiniSecretOrMnemonic = options.sessionMiniSecretOrMnemonic;
-    this.accountRegistry = options.accountRegistry ?? AccountRegistry.factory(options.name);
     this.client = options.client;
     const defaultRange = options.subaccountRange ?? getRange();
-    this.accountRegistry.register(this.seedAddress, `${this.accountRegistry.me}//seed`);
     for (const i of defaultRange) {
-      const pair = this.txSubmitterPair.derive(`//${i}`);
-      this.subAccountsByAddress[pair.address] = { pair, index: i };
-      this.accountRegistry.register(pair.address, `${this.accountRegistry.me}//${i}`);
+      if (options.includeDerivedSubaccounts !== false && 'seedAccount' in options) {
+        const pair = options.seedAccount.derive(`//${i}`);
+        this.subAccountsByAddress[pair.address] = { index: i, isDeprecated: true };
+      }
+      const hashedAccount = Accountset.createMiningSubaccount(this.seedAddress, i);
+      this.subAccountsByAddress[hashedAccount] = { index: i, isDeprecated: false };
     }
   }
 
-  public static async getSubaccounts(
-    seedAccount: { derive: (path: string) => Promise<string> },
-    range: SubaccountRange,
-  ): Promise<{ [address: string]: { index: number } }> {
-    const subAccountsByAddress: {
-      [address: string]: { index: number };
-    } = {};
-    for (const i of range) {
-      const address = await seedAccount.derive(`//${i}`);
-      subAccountsByAddress[address] = { index: i };
-    }
-    return subAccountsByAddress;
+  public static createMiningSubaccount(address: string, index: number): string {
+    const address32 = registry.createType('AccountId32', address).toU8a();
+    const index16 = registry.createType('u16', index).toU8a();
+    const bytes = Uint8Array.from([...address32, ...index16]);
+    const hash = blake2AsU8a(bytes, 256);
+    return registry.createType('AccountId32', hash).toHuman();
   }
 
   public async submitterBalance(blockHash?: Uint8Array): Promise<bigint> {
@@ -111,10 +95,10 @@ export class Accountset {
     return accountData.data.free.toBigInt();
   }
 
-  public async submitterMicronots(blockHash?: Uint8Array): Promise<bigint> {
+  public async accountMicronots(blockHash?: Uint8Array): Promise<bigint> {
     const client = this.client;
     const api = blockHash ? await client.at(blockHash) : client;
-    const accountData = await api.query.ownership.account(this.txSubmitterPair.address);
+    const accountData = await api.query.ownership.account(this.seedAddress);
 
     return accountData.free.toBigInt();
   }
@@ -127,43 +111,13 @@ export class Accountset {
     return accountData.data.free.toBigInt();
   }
 
-  public async totalArgonsAt(blockHash?: Uint8Array): Promise<{ address: string; amount: bigint; index: number }[]> {
-    const client = this.client;
-    const api = blockHash ? await client.at(blockHash) : client;
-    const addresses = this.addresses;
-    const results = await api.query.system.account.multi(addresses);
-    return results.map((account, i) => {
-      const address = addresses[i];
-      return {
-        address,
-        amount: account.data.free.toBigInt(),
-        index: this.subAccountsByAddress[address]?.index ?? Number.NaN,
-      };
-    });
-  }
-
-  public async totalArgonotsAt(blockHash?: Uint8Array): Promise<{ address: string; amount: bigint; index: number }[]> {
-    const client = this.client;
-    const api = blockHash ? await client.at(blockHash) : client;
-    const addresses = this.addresses;
-    const results = await api.query.ownership.account.multi(addresses);
-    return results.map((account, i) => {
-      const address = addresses[i];
-      return {
-        address,
-        amount: account.free.toBigInt(),
-        index: this.subAccountsByAddress[address]?.index ?? Number.NaN,
-      };
-    });
-  }
-
   public async getAvailableMinerAccounts(
     maxSeats: number,
   ): Promise<{ index: number; isRebid: boolean; address: string }[]> {
-    const miningSeats = await this.miningSeats();
+    const miningSeats = await this.miningSeatsAndBids();
     const subaccountRange = [];
     for (const seat of miningSeats) {
-      if (seat.hasWinningBid) {
+      if (seat.hasWinningBid || seat.isDeprecatedAddress) {
         continue;
       }
       if (seat.isLastDay || seat.seat === undefined) {
@@ -181,179 +135,57 @@ export class Accountset {
   }
 
   public async loadRegisteredMiners(api: ApiDecoration<'promise'>): Promise<ISubaccountMiner[]> {
-    const addresses = Object.keys(this.subAccountsByAddress);
-    const rawIndices = await api.query.miningSlot.accountIndexLookup.multi(addresses);
-    const frameIds = [
-      ...new Set(rawIndices.map(x => (x.isNone ? undefined : x.value[0].toNumber())).filter(x => x !== undefined)),
-    ];
-    const bidAmountsByFrame: { [frameId: number]: bigint[] } = {};
-    if (frameIds.length) {
-      const cohorts = await api.query.miningSlot.minersByCohort.multi(frameIds);
-      for (let i = 0; i < frameIds.length; i++) {
-        const cohort = cohorts[i];
-        const frameId = frameIds[i];
-        bidAmountsByFrame[frameId] = cohort.map(x => x.bid.toBigInt());
-      }
-    }
-    const addressToMiningIndex: { [address: string]: IMiningIndex } = {};
-    for (let i = 0; i < addresses.length; i++) {
-      const address = addresses[i];
-      if (rawIndices[i].isNone) continue;
-      const [frameIdRaw, indexRaw] = rawIndices[i].value;
-      const frameId = frameIdRaw.toNumber();
-      const index = indexRaw.toNumber();
-      const bidAmount = bidAmountsByFrame[frameId]?.[index];
-      addressToMiningIndex[address] = {
-        startingFrameId: frameId,
-        index,
-        bidAmount: bidAmount ?? 0n,
-      };
-    }
-    const nextFrameId = await api.query.miningSlot.nextFrameId();
+    const addressToMiningIndex = await Mining.fetchMiningSeats(this.seedAddress, api);
+    const addresses = Object.entries(this.subAccountsByAddress).filter(([, v]) => {
+      return !!addressToMiningIndex[v.index] || !v.isDeprecated;
+    });
 
-    return addresses.map(address => {
-      const cohort = addressToMiningIndex[address];
-      let isLastDay = false;
-      if (cohort !== undefined) {
-        isLastDay = nextFrameId.toNumber() - cohort.startingFrameId === 10;
-      }
+    return addresses.map(([address, _]) => {
       return {
+        ...addressToMiningIndex[address],
         address,
-        seat: cohort,
-        isLastDay,
         subaccountIndex: this.subAccountsByAddress[address]?.index ?? Number.NaN,
+        isDeprecatedAddress: this.subAccountsByAddress[address]?.isDeprecated ?? true,
       };
     });
   }
 
-  public async miningSeats(blockHash?: Uint8Array): Promise<
+  public async miningSeatsAndBids(api?: ApiDecoration<'promise'>): Promise<
     (ISubaccountMiner & {
       hasWinningBid: boolean;
       bidAmount?: bigint;
     })[]
   > {
     const client = this.client;
-    const api = blockHash ? await client.at(blockHash) : client;
-    const miners = await this.loadRegisteredMiners(api);
-
-    const nextCohort = await api.query.miningSlot.bidsForNextSlotCohort();
-
-    return miners.map(miner => {
-      const bid = nextCohort.find(x => x.accountId.toHuman() === miner.address);
-      return {
-        ...miner,
-        hasWinningBid: !!bid,
-        bidAmount: bid?.bid.toBigInt() ?? miner.seat?.bidAmount ?? 0n,
-      };
+    api ??= client;
+    const miners = (await this.loadRegisteredMiners(api)).map(x => {
+      return { ...x, hasWinningBid: false };
     });
-  }
 
-  public async bids(
-    blockHash?: Uint8Array,
-  ): Promise<{ address: string; bidPlace?: number; index: number; bidAmount: bigint }[]> {
-    const client = this.client;
-    const api = blockHash ? await client.at(blockHash) : client;
-    const addresses = Object.keys(this.subAccountsByAddress);
-    const nextCohort = await api.query.miningSlot.bidsForNextSlotCohort();
-
-    const registrationsByAddress = Object.fromEntries(
-      nextCohort.map((x, i) => [x.accountId.toHuman(), { ...x, index: i }]),
-    );
-
-    return addresses.map(address => {
-      const entry = registrationsByAddress[address];
-
-      return {
-        address,
-        bidPlace: entry?.index,
-        bidAmount: entry?.bid?.toBigInt(),
-        index: this.subAccountsByAddress[address]?.index ?? Number.NaN,
-      };
-    });
-  }
-
-  public async consolidate(
-    subaccounts?: SubaccountRange,
-  ): Promise<{ index: number; inBlock?: string; failedError?: Error }[]> {
-    const client = this.client;
-    const accounts = this.getAccountsInRange(subaccounts);
-    const results: { index: number; inBlock?: string; failedError?: Error }[] = [];
-    await Promise.allSettled(
-      accounts.map(({ pair, index }) => {
-        if (!pair) {
-          results.push({
-            index,
-            failedError: new Error(`No keypair for //${index}`),
+    const nextCohort = await Mining.fetchWinningBids(api);
+    for (const bid of nextCohort) {
+      if (bid.managedByAddress === this.seedAddress) {
+        const address = bid.address;
+        const existing = miners.find(x => x.address === address);
+        const details = {
+          hasWinningBid: true,
+          bidAmount: bid.microgonsPerSeat,
+          address,
+          isLastDay: !!existing,
+        };
+        if (existing) {
+          Object.assign(existing, details);
+        } else {
+          miners.push({
+            ...details,
+            subaccountIndex: this.subAccountsByAddress[address]?.index ?? Number.NaN,
+            isDeprecatedAddress: this.subAccountsByAddress[address]?.isDeprecated ?? true,
           });
-          return Promise.resolve();
         }
-        return new Promise<void>(resolve => {
-          client.tx.utility
-            .batchAll([
-              client.tx.balances.transferAll(this.seedAddress, true),
-              client.tx.ownership.transferAll(this.seedAddress, true),
-            ])
-            .signAndSend(pair, cb => {
-              if (cb.dispatchError) {
-                const error = dispatchErrorToString(client, cb.dispatchError);
-
-                results.push({
-                  index,
-                  failedError: new Error(`Error consolidating //${index}: ${error}`),
-                });
-                resolve();
-              }
-              if (cb.isInBlock) {
-                results.push({ index, inBlock: cb.status.asInBlock.toHex() });
-                resolve();
-              }
-            })
-            .catch(e => {
-              results.push({ index, failedError: e });
-              resolve();
-            });
-        });
-      }),
-    );
-    return results;
-  }
-
-  public status(opts: {
-    argons: Awaited<ReturnType<Accountset['totalArgonsAt']>>;
-    argonots: Awaited<ReturnType<Accountset['totalArgonotsAt']>>;
-    seats: Awaited<ReturnType<Accountset['miningSeats']>>;
-    bids: Awaited<ReturnType<Accountset['bids']>>;
-    accountSubset?: ReturnType<Accountset['getAccountsInRange']>;
-  }): IAccountStatus[] {
-    const { argons, argonots, accountSubset, bids, seats } = opts;
-    const accounts: IAccountStatus[] = [
-      {
-        index: 'main',
-        address: this.seedAddress,
-        argons: formatArgons(argons.find(x => x.address === this.seedAddress)?.amount ?? 0n),
-        argonots: formatArgons(argonots.find(x => x.address === this.seedAddress)?.amount ?? 0n),
-      },
-    ];
-    for (const [address, { index }] of Object.entries(this.subAccountsByAddress)) {
-      const argonAmount = argons.find(x => x.address === address)?.amount ?? 0n;
-      const argonotAmount = argonots.find(x => x.address === address)?.amount ?? 0n;
-      const bid = bids.find(x => x.address === address);
-      const seat = seats.find(x => x.address === address)?.seat;
-      const entry: IAccountStatus = {
-        index: ` //${index}`,
-        address,
-        argons: formatArgons(argonAmount),
-        argonots: formatArgons(argonotAmount),
-        seat,
-        bidPlace: bid?.bidPlace,
-        bidAmount: bid?.bidAmount ?? 0n,
-      };
-      if (accountSubset) {
-        entry.isWorkingOn = accountSubset.some(x => x.address === address);
       }
-      accounts.push(entry);
     }
-    return accounts;
+
+    return miners;
   }
 
   public async registerKeys(url: string) {
@@ -404,11 +236,6 @@ export class Accountset {
     };
   }
 
-  public async tx(tx: SubmittableExtrinsic): Promise<TxSubmitter> {
-    const client = this.client;
-    return new TxSubmitter(client, tx, this.txSubmitterPair);
-  }
-
   /**
    * Create but don't submit a mining bid transaction.
    * @param options
@@ -438,117 +265,21 @@ export class Accountset {
     return new TxSubmitter(client, tx, this.txSubmitterPair);
   }
 
-  /**
-   * Create a mining bid. This will create a bid for each account in the given range from the seed account as funding.
-   */
-  public async createMiningBids(options: {
-    subaccountRange?: SubaccountRange;
-    bidAmount: bigint;
-    tip?: bigint;
-  }): Promise<{
-    finalFee?: bigint;
-    blockHash?: Uint8Array;
-    bidError?: Error;
-    successfulBids?: number;
-  }> {
-    const accounts = this.getAccountsInRange(options.subaccountRange);
-    const client = this.client;
-    const submitter = await this.createMiningBidTx({
-      ...options,
-      subaccounts: accounts,
-    });
-    const { tip = 0n } = options;
-    const txFee = await submitter.feeEstimate(tip);
-
-    let minBalance = options.bidAmount * BigInt(accounts.length);
-    const totalFees = tip + 1n + txFee;
-    const seedBalance = await client.query.system.account(this.seedAddress).then(x => x.data.free.toBigInt());
-    if (!this.isProxy) {
-      minBalance += totalFees;
-    }
-    if (seedBalance < minBalance) {
-      throw new Error(
-        `Insufficient balance to create mining bids. Seed account has ${formatArgons(
-          seedBalance,
-        )} but needs ${formatArgons(minBalance)}`,
-      );
-    }
-    if (this.isProxy) {
-      const { canAfford, availableBalance } = await submitter.canAfford({
-        tip,
-      });
-      if (!canAfford) {
-        throw new Error(
-          `Insufficient balance to pay proxy fees. Proxy account has ${formatArgons(
-            availableBalance,
-          )} but needs ${formatArgons(totalFees)}`,
-        );
-      }
-    }
-
-    console.log('Creating bids', {
-      perSeatBid: options.bidAmount,
-      subaccounts: options.subaccountRange,
-      txFee,
-    });
-
-    const txResult = await submitter.submit({
-      tip,
-      useLatestNonce: true,
-    });
-
-    const bidError = await txResult.waitForFinalizedBlock.then(() => undefined).catch((x: Error) => x);
-    return {
-      finalFee: txResult.finalFee,
-      bidError,
-      blockHash: txResult.blockHash,
-      successfulBids: txResult.batchInterruptedIndex !== undefined ? txResult.batchInterruptedIndex : accounts.length,
-    };
-  }
-
-  public getAccountsInRange(range?: SubaccountRange): IAccountAndKey[] {
+  public getAccountsInRange(range?: SubaccountRange, includeDeprecatedAddresses: boolean = false): IAccountAndIndex[] {
     const entries = new Set(range ?? getRange());
     return Object.entries(this.subAccountsByAddress)
       .filter(([_, account]) => {
+        if (account.isDeprecated && !includeDeprecatedAddresses) {
+          return false;
+        }
         return entries.has(account.index);
       })
-      .map(([address, { pair, index }]) => ({ pair, index, address }));
-  }
-
-  public async watchBlocks(shouldLog: boolean = false): Promise<AccountMiners> {
-    const accountMiners = await AccountMiners.loadAt(this, { shouldLog });
-    await accountMiners.watch();
-    return accountMiners;
+      .map(([address, { index }]) => ({ index, address }));
   }
 }
 
 export function getRange(start = 0, end = 50): number[] {
   return Array.from({ length: end - start }, (_, i) => start + i);
-}
-
-export function parseSubaccountRange(range?: string): number[] | undefined {
-  if (!range) {
-    return undefined;
-  }
-  const indices = [];
-  for (const entry of range.split(',')) {
-    if (entry.includes('-')) {
-      const [start, end] = entry.split('-').map(x => parseInt(x, 10));
-      for (let i = start; i <= end; i++) {
-        indices.push(i);
-      }
-      continue;
-    }
-
-    const record = parseInt(entry.trim(), 10);
-    if (Number.isNaN(record) || !Number.isInteger(record)) {
-      throw new Error(`Invalid range entry: ${entry}`);
-    }
-    if (Number.isInteger(record)) {
-      indices.push(record);
-    }
-  }
-  return indices;
 }
 
 export function miniSecretFromUri(uri: string, password?: string): string {
@@ -564,19 +295,7 @@ export function miniSecretFromUri(uri: string, password?: string): string {
   return u8aToHex(mini);
 }
 
-export type IAccountAndKey = {
-  pair?: KeyringPair;
+export type IAccountAndIndex = {
   index: number;
   address: string;
 };
-
-interface IAccountStatus {
-  index: string;
-  address: string;
-  argons: string;
-  argonots: string;
-  seat?: IMiningIndex;
-  bidPlace?: number;
-  bidAmount?: bigint;
-  isWorkingOn?: boolean;
-}

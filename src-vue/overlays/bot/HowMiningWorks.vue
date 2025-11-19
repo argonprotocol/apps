@@ -228,7 +228,7 @@
             </div>
             <div v-else>Loading...</div>
 
-            <div 
+            <div
               FadeBorder
               class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg"
               style="box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.1)"
@@ -252,12 +252,11 @@ import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } f
 import basicEmitter from '../../emitters/basicEmitter';
 import { useConfig } from '../../stores/config';
 import BgOverlay from '../../components/BgOverlay.vue';
-import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { getMining } from '../../stores/mainchain';
+import { ArrowRightCircleIcon, XMarkIcon } from '@heroicons/vue/24/outline';
+import { getMainchainClient, getMining } from '../../stores/mainchain';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { useCurrency } from '../../stores/currency';
-import { type IWinningBid } from '@argonprotocol/apps-core';
-import { ArrowRightCircleIcon } from '@heroicons/vue/24/outline';
+import { type IWinningBid, Mining } from '@argonprotocol/apps-core';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 
 const config = useConfig();
@@ -284,7 +283,10 @@ async function load() {
   mainchain.getCurrentMicronotsForBid().then(x => (micronotsForBid.value = x));
   mainchain.getCurrentFrameId().then(x => (currentFrameId.value = x));
   mainchain.getRecentSeatSummaries().then(x => (seatSummaries.value = x));
-  mainchain.fetchWinningBids().then(x => (winningBids.value = x));
+
+  getMainchainClient(false)
+    .then(client => Mining.fetchWinningBids(client))
+    .then(x => (winningBids.value = x));
 }
 
 function convertNumberToWord(number: number) {

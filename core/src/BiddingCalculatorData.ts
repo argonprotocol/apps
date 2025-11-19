@@ -60,11 +60,8 @@ export default class BiddingCalculatorData {
           const tickAtStartOfNextCohort = await mining.getTickAtStartOfNextCohort();
           const tickAtEndOfNextCohort = tickAtStartOfNextCohort + MiningFrames.ticksPerCohort;
 
-          const activeMinersCount = await mining.getActiveMinersCount();
-          const nextCohortSize = await mining.getNextCohortSize();
-          this.nextCohortSize = nextCohortSize;
-          const retiringCohortSize = await mining.getRetiringCohortSize();
-          const maxPossibleMinersInNextEpoch = activeMinersCount + nextCohortSize - retiringCohortSize;
+          this.nextCohortSize = await mining.getNextCohortSize();
+          const maxPossibleMinersInNextEpoch = await mining.getNextEpochMaxMiners();
 
           const previousDayWinningBids = await mining.fetchPreviousDayWinningBidAmounts();
           this.previousDayHighBid = previousDayWinningBids.length > 0 ? bigIntMax(...previousDayWinningBids) : 0n;

@@ -6,7 +6,7 @@ import {
   TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
-import { Accountset, parseSubaccountRange } from '@argonprotocol/apps-core';
+import { Accountset, getRange } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import Path from 'path';
@@ -30,36 +30,47 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     const accountset = new Accountset({
       client,
       seedAccount,
-      subaccountRange: parseSubaccountRange('0-49'),
+      subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
 
-    expect(Object.keys(accountset.subAccountsByAddress).length).toBe(50);
-    expect(accountset.accountRegistry.getName(seedAccount.address)).toContain('//seed');
-    for (const i of Object.keys(accountset.subAccountsByAddress)) {
-      expect(accountset.accountRegistry.getName(i)).toBeTruthy();
-    }
+    expect(Object.keys(accountset.subAccountsByAddress).length).toBe(100);
+    expect(new Set(Object.values(accountset.subAccountsByAddress)).size).toBe(100); // all unique
+    // half should be deprecated addresses
+    const deprecatedAccounts = Object.values(accountset.subAccountsByAddress).filter(x => x.isDeprecated);
+    expect(deprecatedAccounts.length).toBe(50);
+
+    // generating a second time should yield the same accounts
+    const accountset2 = new Accountset({
+      client,
+      seedAccount,
+      subaccountRange: getRange(0, 49),
+      sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
+    });
+    expect(Object.keys(accountset2.subAccountsByAddress).length).toBe(100);
+    expect(Object.keys(accountset.subAccountsByAddress).every(x => accountset2.subAccountsByAddress[x])).toBe(true);
   });
 
-  it.sequential('can register keys from a mnemonic', async () => {
+  it('can register keys from a mnemonic', async () => {
     const seedAccount = sudo();
     const accountset = new Accountset({
       client,
       seedAccount,
-      subaccountRange: parseSubaccountRange('0-49'),
+      subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
 
     await expect(accountset.registerKeys(mainchainUrl)).resolves.toBeUndefined();
   });
 
-  it.sequential('can submit bids', async () => {
+  it('can submit bids', async () => {
     const seedAccount = sudo();
     const accountset = new Accountset({
       client,
       seedAccount,
-      subaccountRange: parseSubaccountRange('0-49'),
+      subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
+      includeDerivedSubaccounts: true,
     });
     const txSubmitter = new TxSubmitter(
       client,
@@ -71,87 +82,25 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
 
     const nextSeats = await accountset.getAvailableMinerAccounts(5);
     expect(nextSeats).toHaveLength(5);
-    const existingBids = await accountset.bids();
-    expect(existingBids.filter(x => x.bidPlace !== undefined)).toHaveLength(0);
-    {
-      const result = await accountset.createMiningBids({
-        bidAmount: 1000n,
-        subaccountRange: [0, 1, 2, 3, 4],
-        tip: 100n,
-      });
-      expect(result).toBeTruthy();
-      expect(result.finalFee).toBeGreaterThan(6000);
-      expect(result.successfulBids).toBe(0);
-      expect(result.bidError?.stack).toMatch('InvalidBidAmount');
-    }
-    const result = await accountset.createMiningBids({
+
+    const submitter = await accountset.createMiningBidTx({
       bidAmount: 10_000n,
-      subaccountRange: [0, 1, 2, 3, 4],
-      tip: 100n,
+      subaccounts: nextSeats,
     });
-    console.log('Mining bid result', result);
+    const result = await submitter.submit({
+      tip: 100n,
+      useLatestNonce: true,
+    });
+    await result.waitForInFirstBlock;
+
+    console.log('Mining bid result', { ...result, client: undefined });
     expect(result).toBeTruthy();
     expect(result.finalFee).toBeGreaterThan(6000);
-    expect(result.successfulBids).toBe(5);
-    expect(result.bidError).toBeFalsy();
+    expect(result.batchInterruptedIndex).not.toBeDefined();
+    expect(result.extrinsicError).toBeFalsy();
     // check for bids or registered seats
-    const seats = await accountset.miningSeats(result.blockHash);
+    const api = await client.at(result.blockHash!);
+    const seats = await accountset.miningSeatsAndBids(api);
     expect(seats.filter(x => !!x.seat || x.hasWinningBid)).toHaveLength(5);
-  });
-
-  it.sequential('can will handle a subset of failed bids', async () => {
-    const alice = sudo();
-    const secondAccount = createKeyringPair({});
-
-    const api = client;
-    const txSubmitter = new TxSubmitter(
-      api,
-      api.tx.sudo.sudo(
-        api.tx.utility.batchAll([
-          api.tx.balances.forceSetBalance(secondAccount.address, 5_000_000),
-          api.tx.ownership.forceSetBalance(secondAccount.address, 500_000),
-        ]),
-      ),
-      alice,
-    );
-    const res = await txSubmitter.submit();
-    await res.waitForInFirstBlock;
-    const startingCohortStartingFrameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber());
-    await new Promise(resolve =>
-      api.query.miningSlot.nextFrameId(x => {
-        if (x.toNumber() > startingCohortStartingFrameId) {
-          resolve(true);
-        }
-      }),
-    );
-
-    const account = new Accountset({
-      client,
-      seedAccount: alice,
-      subaccountRange: parseSubaccountRange('0-49'),
-      sessionMiniSecretOrMnemonic: mnemonicGenerate(),
-    });
-    const subaccounts = await account.getAvailableMinerAccounts(7);
-    const alice_result = await account.createMiningBids({
-      bidAmount: 2_000_000n,
-      subaccountRange: subaccounts.map(x => x.index),
-    });
-    expect(alice_result.bidError).toBeFalsy();
-    expect(alice_result.successfulBids).toBe(7);
-
-    const second_bids = await new Accountset({
-      client,
-      seedAccount: secondAccount,
-      subaccountRange: parseSubaccountRange('0-49'),
-      sessionMiniSecretOrMnemonic: mnemonicGenerate(),
-    }).createMiningBids({
-      bidAmount: 500_000n,
-      subaccountRange: [0, 1, 2, 3, 4],
-      tip: 100n,
-    });
-    expect(second_bids).toBeTruthy();
-    expect(second_bids.finalFee).toBeGreaterThan(6000n);
-    expect(second_bids.successfulBids).toBe(3);
-    expect(second_bids.bidError?.stack).toMatch('BidTooLow');
   });
 });

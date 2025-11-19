@@ -1,7 +1,6 @@
 import BigNumber from 'bignumber.js';
-import { getPriceIndex } from '../stores/mainchain';
 import { MICROGONS_PER_ARGON, SATS_PER_BTC } from '@argonprotocol/mainchain';
-import { bigNumberToBigInt, PriceIndex } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt, CurrencyKey, ICurrencyKey, IExchangeRates, PriceIndex } from '@argonprotocol/apps-core';
 import IDeferred from '../interfaces/IDeferred';
 import { createDeferred } from './Utils';
 import { Config } from './Config';
@@ -9,6 +8,7 @@ import { Config } from './Config';
 export const SATOSHIS_PER_BITCOIN = SATS_PER_BTC;
 export { MICROGONS_PER_ARGON };
 export const MICRONOTS_PER_ARGONOT = 1_000_000;
+export { CurrencyKey, type ICurrencyKey, type IExchangeRates };
 
 export interface ICurrencyRecord {
   key: ICurrencyKey;
@@ -16,18 +16,7 @@ export interface ICurrencyRecord {
   name: string;
 }
 
-export type IExchangeRates = Record<ICurrencyKey | 'ARGNOT' | 'BTC', bigint>;
-
-export enum CurrencyKey {
-  ARGN = 'ARGN',
-  USD = 'USD',
-  EUR = 'EUR',
-  GBP = 'GBP',
-  INR = 'INR',
-}
-
 const EXCHANGE_RATE_CACHE_DURATION = 24 * 60 * 60e3; // 24 hours in milliseconds
-export type ICurrencyKey = CurrencyKey.ARGN | CurrencyKey.USD | CurrencyKey.EUR | CurrencyKey.GBP | CurrencyKey.INR;
 
 export class Currency {
   // These exchange rates are relative to the argon, which means the ARGN is always 1

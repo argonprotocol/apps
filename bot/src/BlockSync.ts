@@ -372,7 +372,6 @@ export class BlockSync {
     const api = await client.at(blockMeta.hash);
     const events = await api.query.system.events();
     const { duringFrameId: _r, ...cohortEarningsAtFrameId } = await this.accountMiners.onBlock(
-      null as any,
       blockMeta,
       events.map(x => x.event),
     );

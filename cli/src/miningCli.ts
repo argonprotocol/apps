@@ -1,109 +1,11 @@
 import { Command } from '@commander-js/extra-typings';
-import { printTable } from 'console-table-printer';
-import { CohortBidder, MiningBids } from '@argonprotocol/apps-core';
-import { formatArgons, getClient, type KeyringPair, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
+import { CohortBidder, MainchainClients, Mining } from '@argonprotocol/apps-core';
+import { getClient, type KeyringPair, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
 
 import { accountsetFromCli, globalOptions, saveKeyringPair } from './index.js';
 
 export default function miningCli() {
   const program = new Command('mining').description('Watch mining seats or setup bidding');
-
-  program
-    .command('list', { isDefault: true })
-    .description('Monitor all miners')
-    .action(async () => {
-      const accountset = await accountsetFromCli(program);
-      const bids = new MiningBids(accountset.client);
-      const api = accountset.client;
-      const lastMiners: {
-        [frameId: string]: {
-          miner: string;
-          bid?: bigint;
-          isLastDay?: boolean;
-        };
-      } = {};
-
-      function print(blockNumber: number) {
-        console.clear();
-        const toPrint = Object.entries(lastMiners).map(([seat, miner]) => ({
-          seat,
-          ...miner,
-        }));
-        if (!toPrint.length) {
-          console.log('No active miners');
-        } else {
-          console.log(`Miners at block ${blockNumber}`);
-          printTable(
-            toPrint.map(x => ({
-              ...x,
-              bid: x.bid ? formatArgons(x.bid) : '-',
-              isLastDay: x.isLastDay ? 'Y' : '',
-              miner: x.miner,
-            })),
-          );
-        }
-        if (!bids.nextCohort.length) {
-          console.log('-------------------------------------\nNo bids for next cohort');
-        } else {
-          bids.print();
-        }
-      }
-
-      const { unsubscribe } = await bids.watch(accountset.namedAccounts, undefined, print);
-      console.log('Watching miners...');
-      const minMiners = api.consts.miningSlot.minCohortSize.toNumber();
-
-      const unsub = await api.query.miningSlot.nextFrameId(async nextFrameId => {
-        const frames = new Array(nextFrameId.toNumber())
-          .fill(0)
-          .map((_, i) => nextFrameId.toNumber() - i)
-          .sort();
-        const unseenFrames = new Set(frames);
-        const entries = await api.query.miningSlot.minersByCohort.entries();
-        const block = await api.query.system.number();
-
-        const sortedEntries = entries.sort((a, b) => {
-          const aIndex = a[0].args[0].toNumber();
-          const bIndex = b[0].args[0].toNumber();
-          return aIndex - bIndex;
-        });
-
-        for (const [rawFrameId, miners] of sortedEntries) {
-          const frameId = rawFrameId.args[0].toNumber();
-          unseenFrames.delete(frameId);
-          let i = 0;
-          for (const miner of miners) {
-            const address = miner.accountId.toHuman();
-            const startingFrameId = miner.startingFrameId.toNumber();
-            lastMiners[`${frameId}-${i}`] = {
-              miner: accountset.namedAccounts.get(address) ?? address,
-              bid: miner.bid.toBigInt(),
-              isLastDay: nextFrameId.toNumber() - startingFrameId === 10,
-            };
-            i++;
-          }
-          while (i < minMiners) {
-            lastMiners[`${frameId}-${i}`] = {
-              miner: 'none',
-            };
-            i++;
-          }
-        }
-        for (const frameId of unseenFrames) {
-          for (let i = 0; i < minMiners; i++) {
-            lastMiners[`${frameId}-${i}`] = {
-              miner: 'none',
-            };
-          }
-        }
-        print(block.toNumber());
-      });
-      process.on('SIGINT', () => {
-        unsubscribe();
-        unsub();
-        process.exit(0);
-      });
-    });
 
   program
     .command('bid')
@@ -126,7 +28,7 @@ export default function miningCli() {
       async ({ maxSeats, runContinuous, maxBid, minBid, maxBalance, bidDelay, bidIncrement, proxyForAddress }) => {
         const accountset = await accountsetFromCli(program, proxyForAddress);
 
-        const miningBids = new MiningBids(accountset.client, false);
+        const miningBids = new Mining(new MainchainClients('', () => true, accountset.client));
         const biddersByFrames: { [frameId: number]: CohortBidder } = {};
 
         const stopBidder = async (cohortStartingFrameId: number, unsubscribe: () => void) => {
@@ -149,7 +51,7 @@ export default function miningCli() {
             await stopBidder(cohortStartingFrameId, unsubscribe);
           },
           async onBiddingStart(cohortStartingFrameId) {
-            const seatsToWin = maxSeats ?? (await miningBids.maxCohortSize());
+            const seatsToWin = maxSeats ?? (await miningBids.getNextCohortSize());
             const balance = await accountset.balance();
             const feeWiggleRoom = BigInt(25e3);
             const amountAvailable = balance - feeWiggleRoom;

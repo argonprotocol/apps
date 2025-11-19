@@ -24,7 +24,7 @@ export class VaultCalculator {
     this.isLoaded.setIsRunning(true);
     this.rules = rules;
     try {
-      const { totalPoolRewards, totalActivatedCapital } = await Vaults.getTreasuryPoolPayout(this.clients);
+      const { totalPoolRewards, totalActivatedCapital } = await Vaults.getPreviousEpochTreasuryPoolPayout(this.clients);
       this.epochPoolRewards = totalPoolRewards;
       this.epochPoolCapitalTotal = totalActivatedCapital;
       this.isLoaded.resolve();

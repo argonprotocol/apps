@@ -2,7 +2,7 @@ import mitt, { type Emitter } from 'mitt';
 import Importer from '../lib/Importer.ts';
 
 type IBasicEmitter = {
-  openWalletOverlay: { walletId: string; screen: string };
+  openWalletOverlay: { walletType: 'vaulting' | 'mining'; screen: string };
   openBotEditOverlay: void;
   openBotPriceChangeOverlay: void;
   openServerRemoveOverlay: void;

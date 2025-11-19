@@ -1,32 +1,8 @@
 import { Accountset, type IMiningIndex, type ISubaccountMiner } from './Accountset.js';
-import { type Header, GenericEvent } from '@argonprotocol/mainchain';
-import { BlockWatch } from './BlockWatch.js';
-import { createNanoEvents } from './utils.js';
+import { GenericEvent } from '@argonprotocol/mainchain';
 import { MiningFrames } from './MiningFrames.js';
 
 export class AccountMiners {
-  public events = createNanoEvents<{
-    mined: (
-      header: Header,
-      earnings: {
-        author: string;
-        argons: bigint;
-        argonots: bigint;
-        forCohortWithStartingFrameId: number;
-        duringFrameId: number;
-      },
-    ) => void;
-    minted: (
-      header: Header,
-      minted: {
-        accountId: string;
-        argons: bigint;
-        forCohortWithStartingFrameId: number;
-        duringFrameId: number;
-      },
-    ) => void;
-  }>();
-
   private trackedAccountsByAddress: {
     [address: string]: {
       startingFrameId: number;
@@ -37,7 +13,6 @@ export class AccountMiners {
   constructor(
     private accountset: Accountset,
     registeredMiners: (ISubaccountMiner & { seat: IMiningIndex })[],
-    private options: { shouldLog: boolean } = { shouldLog: false },
   ) {
     for (const miner of registeredMiners) {
       this.trackedAccountsByAddress[miner.address] = {
@@ -47,25 +22,9 @@ export class AccountMiners {
     }
   }
 
-  public async watch(): Promise<BlockWatch> {
-    const blockWatch = new BlockWatch(this.accountset.client, {
-      shouldLog: this.options.shouldLog,
-    });
-    blockWatch.events.on('block', this.onBlock.bind(this));
-    await blockWatch.start();
-    return blockWatch;
-  }
-
-  public async onBlock(header: Header, digests: { author: string; tick: number }, events: GenericEvent[]) {
+  public async onBlock(digests: { author: string; tick: number }, events: GenericEvent[]) {
     const { author, tick } = digests;
-    if (author) {
-      const voteAuthor = this.trackedAccountsByAddress[author];
-      if (voteAuthor && this.options.shouldLog) {
-        console.log('> Our vote author', this.accountset.accountRegistry.getName(author));
-      }
-    } else {
-      console.warn('> No vote author found');
-    }
+
     const client = this.accountset.client;
     const currentFrameId = MiningFrames.getForTick(tick);
     let newMiners: { frameId: number; addresses: string[] } | undefined;
@@ -98,13 +57,6 @@ export class AccountMiners {
             };
             dataByCohort[entry.startingFrameId].argonotsMined += ownership.toBigInt();
             dataByCohort[entry.startingFrameId].argonsMined += argons.toBigInt();
-            this.events.emit('mined', header, {
-              author,
-              argons: argons.toBigInt(),
-              argonots: ownership.toBigInt(),
-              forCohortWithStartingFrameId: entry.startingFrameId,
-              duringFrameId: currentFrameId,
-            });
           }
         }
       }
@@ -112,7 +64,7 @@ export class AccountMiners {
         const { perMiner } = event.data;
         const amountPerMiner = perMiner.toBigInt();
         if (amountPerMiner > 0n) {
-          for (const [address, info] of Object.entries(this.trackedAccountsByAddress)) {
+          for (const [_address, info] of Object.entries(this.trackedAccountsByAddress)) {
             const { startingFrameId } = info;
             dataByCohort[startingFrameId] ??= {
               argonsMinted: 0n,
@@ -120,12 +72,6 @@ export class AccountMiners {
               argonotsMined: 0n,
             };
             dataByCohort[startingFrameId].argonsMinted += amountPerMiner;
-            this.events.emit('minted', header, {
-              accountId: address,
-              argons: amountPerMiner,
-              forCohortWithStartingFrameId: startingFrameId,
-              duringFrameId: currentFrameId,
-            });
           }
         }
       }
@@ -151,19 +97,5 @@ export class AccountMiners {
         };
       }
     }
-  }
-
-  public static async loadAt(
-    accountset: Accountset,
-    options: {
-      blockHash?: Uint8Array;
-      shouldLog?: boolean;
-    } = {},
-  ) {
-    const seats = await accountset.miningSeats(options.blockHash);
-    const registered = seats.filter(x => x.seat !== undefined);
-    return new AccountMiners(accountset, registered as any, {
-      shouldLog: options.shouldLog ?? false,
-    });
   }
 }
