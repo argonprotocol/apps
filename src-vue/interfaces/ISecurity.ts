@@ -1,5 +1,6 @@
 export default interface ISecurity {
+  sshPublicKey: string;
   miningAddress: string;
   vaultingAddress: string;
-  sshPublicKey: string;
+  holdingAddress: string;
 }

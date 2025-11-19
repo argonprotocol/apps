@@ -19,7 +19,7 @@ beforeEach(() => {
 it('should skip install if server is not connected', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'false' });
 
-  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '' });
+  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '', holdingAddress: '' });
   const config = new Config(dbPromise, walletKeys);
   await config.load();
 
@@ -34,7 +34,7 @@ it('should skip install if server is not connected', async () => {
 
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'true' });
-  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '' });
+  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '', holdingAddress: '' });
   const config = new Config(dbPromise, walletKeys);
   await config.load();
 
@@ -49,7 +49,7 @@ it('should skip install if install is already running', async () => {
 
 it('should install if all conditions are met', async () => {
   const dbPromise = createMockedDbPromise({});
-  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '' });
+  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '', holdingAddress: '' });
   const config = new Config(dbPromise, walletKeys);
   await config.load();
 

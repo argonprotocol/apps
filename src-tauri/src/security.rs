@@ -19,6 +19,7 @@ use crate::{ssh::SSH, utils::Utils};
 pub struct Security {
     pub vaulting_address: String,
     pub mining_address: String,
+    pub holding_address: String,
     pub ssh_public_key: String,
 }
 
@@ -127,17 +128,7 @@ impl Security {
             let ssh_public_key = SSHConfig::get_pubkey_from_privkey_file(&private_key_path)?;
             let mnemonic = Self::expose_mnemonic(app)?;
 
-            Ok(Self {
-                vaulting_address: Self::sr_derive_from_mnemonic(&mnemonic, "//vaulting")?
-                    .0
-                    .public()
-                    .to_ss58check(),
-                mining_address: Self::sr_derive_from_mnemonic(&mnemonic, "//mining")?
-                    .0
-                    .public()
-                    .to_ss58check(),
-                ssh_public_key,
-            })
+            Self::create_with_addresses(&mnemonic, &ssh_public_key)
         } else {
             Security::create(app)
         }
@@ -163,13 +154,19 @@ impl Security {
         // Save mnemonics
         fs::write(config_dir.join("mnemonic"), mnemonic)?;
 
+        Self::create_with_addresses(&mnemonic, &public_key)
+    }
+
+    fn create_with_addresses(mnemonic: &str, public_key: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mining_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?;
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
+        let holding_account = Self::sr_derive_from_mnemonic(mnemonic, "//holding")?;
 
         Ok(Self {
             vaulting_address: vaulting_account.0.public().to_ss58check(),
             mining_address: mining_account.0.public().to_ss58check(),
-            ssh_public_key: public_key,
+            holding_address: holding_account.0.public().to_ss58check(),
+            ssh_public_key: public_key.to_string(),
         })
     }
 

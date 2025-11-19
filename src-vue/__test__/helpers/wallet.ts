@@ -9,10 +9,12 @@ export function createMockWalletKeys(mnemonic?: string) {
   const keypair = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonic);
   const miningAccount = keypair.derive('//mining');
   const vaultingAccount = keypair.derive('//vaulting');
+  const holdingAccount = keypair.derive('//holding');
   const walletKeys = new WalletKeys({
     sshPublicKey: '',
     miningAddress: miningAccount.address,
     vaultingAddress: vaultingAccount.address,
+    holdingAddress: holdingAccount.address,
   });
   vi.spyOn(walletKeys, 'getBitcoinChildXpriv').mockImplementation(async (path, networks) => {
     const xpriv = await bip39.mnemonicToSeed(mnemonic);
