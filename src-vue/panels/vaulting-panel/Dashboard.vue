@@ -1014,7 +1014,7 @@ async function loadChartData(currentFrameId?: number) {
     const item = {
       id: frame.id,
       date: frame.date,
-      score: frame.frameProfitPercent / maxFrameProfitPercent * 100,
+      score: (frame.frameProfitPercent / maxFrameProfitPercent) * 100,
       isFiller: !myVaultRevenueByFrame[frame.id],
       previous: items[index - 1],
       next: undefined,

@@ -6,21 +6,38 @@ import { useConfig } from './config.ts';
 import { createDeferred } from '../lib/Utils.ts';
 import { useStats } from './stats.ts';
 import { useCurrency } from './currency.ts';
-import { botEmitter } from '../lib/Bot.ts';
-import { BotStatus } from '../lib/BotSyncer.ts';
-import { IWallet as IWalletBasic } from '../lib/WalletBalances.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { SECURITY } from '../lib/Env.ts';
-
-export interface IWallet extends IWalletBasic {
-  name: string;
-}
+import { IBalanceChange, IWallet, Wallet } from '../lib/Wallet.ts';
+import { IBlockToProcess, WalletBalances } from '../lib/WalletBalances.ts';
+import { getDbPromise } from './helpers/dbPromise.ts';
+import { getMainchainClients } from './mainchain.ts';
 
 let walletKeys: WalletKeys;
 export function useWalletKeys() {
-  walletKeys ??= new WalletKeys(SECURITY);
+  walletKeys ??= new WalletKeys(SECURITY, async () => {
+    const walletBalances = useWalletBalances();
+    await walletBalances.load();
+    return walletBalances.didWalletHavePreviousLife();
+  });
   return walletKeys;
 }
+
+let walletBalances: WalletBalances;
+export function useWalletBalances() {
+  walletBalances ??= new WalletBalances(getMainchainClients(), useWalletKeys(), getDbPromise());
+  return walletBalances;
+}
+
+const defaultBalance = {
+  address: '',
+  availableMicrogons: 0n,
+  availableMicronots: 0n,
+  reservedMicrogons: 0n,
+  reservedMicronots: 0n,
+  totalMicronots: 0n,
+  totalMicrogons: 0n,
+};
 
 export const useWallets = defineStore('wallets', () => {
   const stats = useStats();
@@ -31,16 +48,12 @@ export const useWallets = defineStore('wallets', () => {
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
   const walletKeys = useWalletKeys();
-  const walletBalances = walletKeys.getBalances();
-  const miningWallet = Vue.reactive<IWallet>({
-    name: 'Mining Wallet',
-    ...walletBalances.miningWallet,
-  });
-
-  const vaultingWallet = Vue.reactive<IWallet>({
-    name: 'Vaulting Wallet',
-    ...walletBalances.vaultingWallet,
-  });
+  const walletBalances = useWalletBalances();
+  walletBalances.priceIndex = currency.priceIndex as any;
+  const miningWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.miningAddress });
+  const vaultingWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.vaultingAddress });
+  const holdingWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.holdingAddress });
+  console.log('wallets 2', walletBalances);
 
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningAccountPreviousHistory) return;
@@ -138,7 +151,12 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const totalNetWorth = Vue.computed(() => {
-    return totalMiningResources.value + totalVaultingResources.value;
+    return (
+      totalMiningResources.value +
+      totalVaultingResources.value +
+      holdingWallet.totalMicrogons +
+      currency.micronotToMicrogon(holdingWallet.totalMicronots)
+    );
   });
 
   const totalWalletMicrogons = Vue.ref(0n);
@@ -149,20 +167,31 @@ export const useWallets = defineStore('wallets', () => {
     totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
     totalWalletMicronots.value = walletBalances.totalWalletMicronots;
 
-    Object.assign(miningWallet, walletBalances.miningWallet);
-    Object.assign(vaultingWallet, walletBalances.vaultingWallet);
+    for (const key of Object.keys(defaultBalance) as (keyof IWallet)[]) {
+      miningWallet[key] = walletBalances.miningWallet[key];
+      vaultingWallet[key] = walletBalances.vaultingWallet[key];
+      holdingWallet[key] = walletBalances.holdingWallet[key];
+    }
   };
+
+  function registerWalletBalanceChangeEvents(callbacks: {
+    onTransferIn: (wallet: Wallet, balanceChange: IBalanceChange) => void;
+    onBlockDeleted: (block: IBlockToProcess) => void;
+  }) {
+    walletBalances.onTransferIn = callbacks.onTransferIn;
+    walletBalances.onBlockDeleted = callbacks.onBlockDeleted;
+  }
 
   async function load() {
     while (!isLoaded.value) {
       try {
         await config.isLoadedPromise;
         await walletBalances.load();
-        await walletBalances.subscribeToBalanceUpdates();
         await Promise.all([stats.isLoadedPromise, currency.isLoadedPromise]);
         isLoadedResolve();
         isLoaded.value = true;
       } catch (error) {
+        console.error(`Error loading wallets`, error);
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {
           title: 'Difficulty Loading Wallets',
           kind: 'warning',
@@ -180,20 +209,12 @@ export const useWallets = defineStore('wallets', () => {
     isLoadedReject();
   });
 
-  botEmitter.on('status-changed', status => {
-    if (isLoaded.value && status === BotStatus.Ready) {
-      // Reload balances when bot status changes
-      walletBalances.updateBalances().catch(error => {
-        console.error('Error reloading wallet balances:', error);
-      });
-    }
-  });
-
   return {
     isLoaded,
     isLoadedPromise,
     miningWallet,
     vaultingWallet,
+    holdingWallet,
     totalWalletMicrogons,
     totalWalletMicronots,
     miningSeatValue,
@@ -208,5 +229,6 @@ export const useWallets = defineStore('wallets', () => {
     totalMiningResources,
     totalVaultingResources,
     totalNetWorth,
+    registerWalletBalanceChangeEvents,
   };
 });

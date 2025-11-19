@@ -84,11 +84,13 @@ async function createVault() {
         blockConfirmations.value = args.confirmations;
         progressPct.value = args.progressPct / 2;
         expectedConfirmations = args.expectedConfirmations;
-        if (args.progressPct === 100) {
-          void activateVault();
+        if (error) {
+          console.error('Error creating vault:', error);
+          errorMessage.value = error.message || 'Unknown error occurred while creating vault.';
         }
       },
     );
+    void txInfo.isProcessed.promise.then(activateVault);
   } catch (error: any) {
     console.error('Error creating vault:', error);
     errorMessage.value = error.message || 'Unknown error occurred while creating vault.';
@@ -108,7 +110,7 @@ async function activateVault() {
       void finalizeVault();
       return;
     }
-    txInfo?.subscribeToProgress(
+    txInfo.subscribeToProgress(
       (
         args: { progressPct: number; confirmations: number; expectedConfirmations: number },
         error: Error | undefined,
@@ -117,11 +119,13 @@ async function activateVault() {
         blockConfirmations.value = args.confirmations;
         progressPct.value = 50 + args.progressPct / 2;
         expectedConfirmations = args.expectedConfirmations;
-        if (args.progressPct === 100) {
-          void finalizeVault();
+        if (error) {
+          console.error('Error activating vault:', error);
+          errorMessage.value = error.message || 'Unknown error occurred while activating vault.';
         }
       },
     );
+    void txInfo.isProcessed.promise.then(finalizeVault);
   } catch (error) {
     console.error('Error prebonding treasury pool:', error);
     errorMessage.value = error instanceof Error ? error.message : `${error}`;

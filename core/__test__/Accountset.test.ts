@@ -30,7 +30,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     const accountset = new Accountset({
       client,
       seedAccount,
-      subaccountRange: getRange(0, 49),
+      subaccountRange: getRange(0, 50),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
 
@@ -44,7 +44,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     const accountset2 = new Accountset({
       client,
       seedAccount,
-      subaccountRange: getRange(0, 49),
+      subaccountRange: getRange(0, 50),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
     expect(Object.keys(accountset2.subAccountsByAddress).length).toBe(100);

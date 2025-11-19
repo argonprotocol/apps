@@ -64,6 +64,7 @@ const props = withDefaults(
     isOpen: boolean;
     class?: string;
     showCloseIcon?: boolean;
+    disallowClose?: boolean;
   }>(),
   {
     showCloseIcon: true,
@@ -89,6 +90,9 @@ const emit = defineEmits<{
 const draggable = Vue.reactive(new Draggable());
 
 function closeOverlay() {
+  if (props.disallowClose) {
+    return;
+  }
   openZIndexes.value.delete(zIndex.value);
   emit('close');
 }

@@ -114,11 +114,12 @@ import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import basicEmitter from '../emitters/basicEmitter';
 import { useController } from '../stores/controller';
+import { IWalletType } from '../lib/Wallet.ts';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 
-const walletId: Vue.Ref<'mining' | 'vaulting'> = Vue.ref('mining');
+const walletId: Vue.Ref<IWalletType> = Vue.ref('mining');
 
 const config = useConfig();
 const wallets = useWallets();
@@ -256,7 +257,7 @@ function closeOverlay() {
   controller.walletOverlayIsOpen = false;
 }
 
-basicEmitter.on('openWalletOverlay', async (data) => {
+basicEmitter.on('openWalletOverlay', async data => {
   walletId.value = data.walletType;
   await load();
   isOpen.value = true;
