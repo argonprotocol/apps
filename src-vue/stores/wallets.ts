@@ -53,7 +53,6 @@ export const useWallets = defineStore('wallets', () => {
   const miningWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.miningAddress });
   const vaultingWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.vaultingAddress });
   const holdingWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.holdingAddress });
-  console.log('wallets 2', walletBalances);
 
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningAccountPreviousHistory) return;

@@ -154,10 +154,13 @@ impl Security {
         // Save mnemonics
         fs::write(config_dir.join("mnemonic"), mnemonic)?;
 
-        Self::create_with_addresses(&mnemonic, &public_key)
+        Self::create_with_addresses(mnemonic, &public_key)
     }
 
-    fn create_with_addresses(mnemonic: &str, public_key: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    fn create_with_addresses(
+        mnemonic: &str,
+        public_key: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let mining_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?;
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
         let holding_account = Self::sr_derive_from_mnemonic(mnemonic, "//holding")?;

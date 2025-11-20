@@ -3,6 +3,7 @@ import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import { ArgonClient, FrameIterator, MainchainClients } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
+import { WalletBalances } from './WalletBalances.ts';
 
 export type WalletRecoveryFn = WalletRecovery['findHistory'];
 
@@ -10,6 +11,7 @@ export class WalletRecovery {
   constructor(
     private readonly myVault: MyVault,
     private readonly walletKeys: WalletKeys,
+    private readonly walletBalances: WalletBalances,
     private readonly clients: MainchainClients,
   ) {}
 
@@ -17,7 +19,7 @@ export class WalletRecovery {
     miningHistory?: IMiningAccountPreviousHistoryRecord[];
     vaultingRules?: IVaultingRules;
   }> {
-    const walletBalances = this.walletKeys.getBalances();
+    const walletBalances = this.walletBalances;
     await walletBalances.load();
 
     const hasVaultHistory = walletBalances.vaultingWallet.hasValue();

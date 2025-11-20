@@ -35,8 +35,8 @@ export class Wallet implements IWallet {
     this.balanceHistory = [];
   }
 
-  public get finalizedBalance(): IBalanceChange {
-    return this.balanceHistory.at(0)!;
+  public get finalizedBalance(): IBalanceChange | undefined {
+    return this.balanceHistory.at(0);
   }
 
   public get latestBalanceChange(): IBalanceChange | undefined {

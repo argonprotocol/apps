@@ -408,8 +408,14 @@ export class CohortBidder {
             reductionReason = 'insufficient-argonot-balance';
           }
         }
+        // can't afford any bids
+        if (availableBalanceForBids < 0n) {
+          availableBalanceForBids = 0n;
+          accountsToBidWith.length = 0;
+          reductionReason = 'insufficient-argon-balance';
+        }
         // shrink to affordable bids
-        if (bidPrice > 0n || availableBalanceForBids < 0n) {
+        else if (bidPrice > 0n) {
           let maxBids = Math.floor(Number(availableBalanceForBids / bidPrice));
           if (maxBids < 0) maxBids = 0;
           if (accountsToBidWith.length > maxBids) {
