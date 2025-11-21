@@ -1,8 +1,9 @@
 import mitt, { type Emitter } from 'mitt';
 import Importer from '../lib/Importer.ts';
+import { IWalletType } from '../lib/Wallet.ts';
 
 type IBasicEmitter = {
-  openWalletOverlay: { walletId: string; screen: string };
+  openWalletOverlay: { walletType: IWalletType; screen: string };
   openBotEditOverlay: void;
   openBotPriceChangeOverlay: void;
   openServerRemoveOverlay: void;

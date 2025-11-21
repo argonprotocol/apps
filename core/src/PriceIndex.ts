@@ -4,11 +4,31 @@ import { bigNumberToBigInt } from './utils.js';
 import type { MainchainClients } from './MainchainClients.js';
 import { MiningFrames } from './MiningFrames.js';
 
+export type ICurrencyKey = CurrencyKey.ARGN | CurrencyKey.USD | CurrencyKey.EUR | CurrencyKey.GBP | CurrencyKey.INR;
+export type IExchangeRates = Record<ICurrencyKey | 'ARGNOT' | 'BTC', bigint>;
+
+export enum CurrencyKey {
+  ARGN = 'ARGN',
+  USD = 'USD',
+  EUR = 'EUR',
+  GBP = 'GBP',
+  INR = 'INR',
+}
+
+export type IMainchainExchangeRates = Omit<IExchangeRates, 'EUR' | 'GBP' | 'INR'>;
+
 export class PriceIndex {
-  current: PriceIndexModel;
+  public current: PriceIndexModel;
+  public exchangeRates: IMainchainExchangeRates;
 
   constructor(public clients: MainchainClients) {
     this.current = new PriceIndexModel();
+    this.exchangeRates = {
+      USD: BigInt(MICROGONS_PER_ARGON),
+      ARGNOT: BigInt(MICROGONS_PER_ARGON),
+      ARGN: BigInt(MICROGONS_PER_ARGON),
+      BTC: BigInt(MICROGONS_PER_ARGON),
+    };
   }
 
   public async fetchMicrogonsInCirculation(): Promise<bigint> {
@@ -16,22 +36,12 @@ export class PriceIndex {
     return (await client.query.balances.totalIssuance()).toBigInt();
   }
 
-  public async fetchMicrogonExchangeRatesTo(api?: ApiDecoration<'promise'>): Promise<{
-    USD: bigint;
-    ARGNOT: bigint;
-    ARGN: bigint;
-    BTC: bigint;
-  }> {
+  public async fetchMicrogonExchangeRatesTo(api?: ApiDecoration<'promise'>): Promise<IMainchainExchangeRates> {
     api ??= await this.clients.prunedClientOrArchivePromise;
     const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
     const priceIndex = await this.current.load(api as any);
     if (priceIndex.argonUsdPrice === undefined) {
-      return {
-        USD: microgonsForArgon,
-        ARGNOT: microgonsForArgon,
-        ARGN: microgonsForArgon,
-        BTC: microgonsForArgon,
-      };
+      return this.exchangeRates;
     }
     const usdForArgon = priceIndex.argonUsdPrice;
 
@@ -47,13 +57,14 @@ export class PriceIndex {
       microgonsForArgnot = microgonsForArgnot / 10n;
     }
     const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgon);
-
-    return {
+    this.exchangeRates = {
       ARGN: microgonsForArgon,
       USD: microgonsForUsd,
       ARGNOT: microgonsForArgnot,
       BTC: microgonsForBtc,
     };
+
+    return this.exchangeRates;
   }
 
   private calculateExchangeRateInMicrogons(usdAmount: BigNumber, usdForArgon: BigNumber): bigint {

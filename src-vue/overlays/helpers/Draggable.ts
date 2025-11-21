@@ -28,6 +28,7 @@ export default class Draggable {
       return;
     }
     this.isDragging = true;
+    document.body.classList.add('select-none');
     this.mouseStart = { x: event.clientX, y: event.clientY };
     this.dragStart = { ...this.modalPosition };
     window.addEventListener('mousemove', this.onDragMove.bind(this));
@@ -68,6 +69,7 @@ export default class Draggable {
 
   private onDragEnd() {
     this.isDragging = false;
+    document.body.classList.remove('select-none');
     window.removeEventListener('mousemove', this.onDragMove.bind(this));
     window.removeEventListener('mouseup', this.onDragEnd.bind(this));
   }

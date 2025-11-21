@@ -202,7 +202,7 @@ Vue.onMounted(async () => {
 });
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletId: 'vaulting', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' });
 }
 
 async function createVault() {

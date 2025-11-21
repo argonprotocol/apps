@@ -63,11 +63,6 @@ import { useCurrency } from '../stores/currency';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { createNumeralHelpers } from '../lib/numeral';
 import { useStats } from '../stores/stats';
-import { useConfig } from '../stores/config';
-import { Accountset, getRange, MiningFrames, parseSubaccountRange } from '@argonprotocol/apps-core';
-import ActivityArrowIcon from '../assets/activity-arrow.svg?component';
-import ActivityFailureIcon from '../assets/activity-failure.svg?component';
-import ActivitySuccessIcon from '../assets/activity-success.svg?component';
 import {
   BotActivityType,
   type IBotActivity,
@@ -75,7 +70,11 @@ import {
   type IBotActivityBidsRejected,
   type IBotActivityBidsSubmitted,
   type IBotActivitySeatReduction,
+  MiningFrames,
 } from '@argonprotocol/apps-core';
+import ActivityArrowIcon from '../assets/activity-arrow.svg?component';
+import ActivityFailureIcon from '../assets/activity-failure.svg?component';
+import ActivitySuccessIcon from '../assets/activity-success.svg?component';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';

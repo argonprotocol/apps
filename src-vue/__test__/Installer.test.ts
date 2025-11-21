@@ -9,7 +9,7 @@ import { InstallStepKey, ServerType } from '../interfaces/IConfig';
 import { InstallerCheck } from '../lib/InstallerCheck.ts';
 import { MiningMachine } from '../lib/MiningMachine.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
-import { createMockWalletKeys } from './helpers/wallet.ts';
+import { createMockWalletKeys, createTestWallet } from './helpers/wallet.ts';
 
 beforeEach(() => {
   resetInstaller();
@@ -19,7 +19,7 @@ beforeEach(() => {
 it('should skip install if server is not connected', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'false' });
 
-  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '' });
+  const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(dbPromise, walletKeys);
   await config.load();
 
@@ -34,7 +34,7 @@ it('should skip install if server is not connected', async () => {
 
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'true' });
-  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '' });
+  const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(dbPromise, walletKeys);
   await config.load();
 
@@ -49,7 +49,7 @@ it('should skip install if install is already running', async () => {
 
 it('should install if all conditions are met', async () => {
   const dbPromise = createMockedDbPromise({});
-  const walletKeys = new WalletKeys({ sshPublicKey: '', miningAddress: '', vaultingAddress: '' });
+  const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(dbPromise, walletKeys);
   await config.load();
 

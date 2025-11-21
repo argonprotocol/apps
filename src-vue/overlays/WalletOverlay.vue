@@ -67,8 +67,8 @@
             </tbody>
           </table>
 
-          <button 
-            @click="closeOverlay" 
+          <button
+            @click="closeOverlay"
             :class="walletIsFullyFunded ? 'bg-argon-600 hover:bg-argon-700 border-argon-700 text-white' : 'bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 text-slate-900'"
             class="w-full mt-8 inner-button-shadow px-4 py-2 rounded-lg focus:outline-none cursor-pointer"
           >
@@ -114,11 +114,12 @@ import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import basicEmitter from '../emitters/basicEmitter';
 import { useController } from '../stores/controller';
+import { IWalletType } from '../lib/Wallet.ts';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 
-const walletId: Vue.Ref<'mining' | 'vaulting'> = Vue.ref('mining');
+const walletId: Vue.Ref<IWalletType> = Vue.ref('mining');
 
 const config = useConfig();
 const wallets = useWallets();
@@ -256,8 +257,8 @@ function closeOverlay() {
   controller.walletOverlayIsOpen = false;
 }
 
-basicEmitter.on('openWalletOverlay', async (data: any) => {
-  walletId.value = data.walletId;
+basicEmitter.on('openWalletOverlay', async data => {
+  walletId.value = data.walletType;
   await load();
   isOpen.value = true;
   isLoaded.value = true;

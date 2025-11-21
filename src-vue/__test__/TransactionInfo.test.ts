@@ -64,7 +64,7 @@ it('should update progress throughout the entire finalization process', async ()
     setTimeout(res, 20_000);
   });
 
-  expect(progressUpdates).toHaveLength(141);
+  expect(progressUpdates.length).toBeGreaterThanOrEqual(141);
 
   const firstProgressUpdate = progressUpdates[0];
   expect(firstProgressUpdate.progressPct).toBeLessThan(2);

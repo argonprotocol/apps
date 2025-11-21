@@ -316,7 +316,7 @@ export class CohortBidder {
     let accountBalance = await this.accountset.submitterBalance();
     accountBalance -= this.options.sidelinedWalletMicrogons ?? 0n;
     if (accountBalance <= 0n) accountBalance = 0n;
-    let accountMicronots = await this.accountset.submitterMicronots();
+    let accountMicronots = await this.accountset.accountMicronots();
     accountMicronots -= this.options.sidelinedWalletMicronots ?? 0n;
     if (accountMicronots < 0n) accountMicronots = 0n;
 
@@ -408,9 +408,16 @@ export class CohortBidder {
             reductionReason = 'insufficient-argonot-balance';
           }
         }
+        // can't afford any bids
+        if (availableBalanceForBids < 0n) {
+          availableBalanceForBids = 0n;
+          accountsToBidWith.length = 0;
+          reductionReason = 'insufficient-argon-balance';
+        }
         // shrink to affordable bids
-        if (bidPrice > 0n) {
-          const maxBids = Math.floor(Number(availableBalanceForBids / bidPrice));
+        else if (bidPrice > 0n) {
+          let maxBids = Math.floor(Number(availableBalanceForBids / bidPrice));
+          if (maxBids < 0) maxBids = 0;
           if (accountsToBidWith.length > maxBids) {
             accountsToBidWith.length = maxBids;
             reductionReason = 'insufficient-argon-balance';

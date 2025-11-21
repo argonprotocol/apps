@@ -80,7 +80,7 @@ export default async function menuStart() {
       {
         id: 'token-transfer-to-mining',
         text: 'Open Mining Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletId: 'mining', screen: 'receive' }),
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' }),
       },
     ],
   });
@@ -96,7 +96,7 @@ export default async function menuStart() {
       {
         id: 'token-transfer-to-vaulting',
         text: 'Open Vaulting Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletId: 'vaulting', screen: 'receive' }),
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' }),
       },
     ],
   });

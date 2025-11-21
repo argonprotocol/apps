@@ -190,11 +190,11 @@ function openComplianceOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletId: 'mining', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' });
 }
 
 function openFundVaultingAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletId: 'vaulting', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' });
 }
 
 function openTroubleshooting() {

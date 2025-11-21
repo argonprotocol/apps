@@ -14,7 +14,7 @@ type IProgressCallbackArgs = {
   expectedConfirmations: number;
   isMaxed: boolean;
 };
-type IProgressCallback = (args: IProgressCallbackArgs, error?: Error) => void;
+type IProgressCallback = (args: IProgressCallbackArgs, error?: Error) => void | Promise<void>;
 
 const REQUIRED_FINALIZATION_BLOCKS = 4;
 
@@ -52,10 +52,14 @@ export class TransactionInfo<MetadataType = unknown> {
 
     const runFn = (args: IProgressCallbackArgs, error?: Error) => callback(args, error);
     const unsubscribeFn = () => {
-      this.progressCallbacks = this.progressCallbacks.filter(x => x.runFn !== runFn);
+      const index = this.progressCallbacks.findIndex(x => x.runFn === runFn);
+      if (index !== -1) {
+        this.progressCallbacks.splice(index, 1);
+      }
     };
 
     this.progressCallbacks.push({ runFn, unsubscribeFn });
+    void this.isProcessed.promise.finally(() => this.updateProgress());
 
     return unsubscribeFn;
   }
@@ -75,12 +79,19 @@ export class TransactionInfo<MetadataType = unknown> {
     this.blockProgress.setIsFinalized(this.tx.isFinalized);
     this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
 
-    const progressPct = this.blockProgress.getProgress();
+    let progressPct = this.blockProgress.getProgress();
     const confirmations = this.blockProgress.getConfirmations();
     const expectedConfirmations = this.blockProgress.expectedConfirmations;
+    if (progressPct > 99 && !this.isProcessed.isSettled) {
+      progressPct = 99;
+    }
 
     for (const { runFn } of this.progressCallbacks) {
-      runFn({ progressPct, confirmations, expectedConfirmations, isMaxed: this.blockProgress.isMaxed });
+      try {
+        void runFn({ progressPct, confirmations, expectedConfirmations, isMaxed: this.blockProgress.isMaxed });
+      } catch (e) {
+        console.error('Error in transaction progress callback', e);
+      }
     }
 
     if (progressPct === 100) {

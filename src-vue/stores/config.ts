@@ -6,7 +6,7 @@ import { getDbPromise } from './helpers/dbPromise';
 import handleFatalError from './helpers/handleFatalError';
 import { SSH } from '../lib/SSH';
 import { useMyVault } from './vaults.ts';
-import { useWalletKeys } from './wallets.ts';
+import { useWalletBalances, useWalletKeys } from './wallets.ts';
 import { WalletRecovery } from '../lib/WalletRecovery.ts';
 import { getMainchainClients } from './mainchain.ts';
 
@@ -23,7 +23,9 @@ export function useConfig(): Vue.Reactive<Config> {
       new Config(dbPromise, useWalletKeys(), async onProgress => {
         const myVault = useMyVault();
         const clients = getMainchainClients();
-        const walletRecover = new WalletRecovery(myVault, useWalletKeys(), clients);
+        const walletKeys = useWalletKeys();
+        const walletBalances = useWalletBalances();
+        const walletRecover = new WalletRecovery(myVault, walletKeys, walletBalances, clients);
         return await walletRecover.findHistory(onProgress);
       }),
     );

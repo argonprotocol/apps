@@ -1,9 +1,16 @@
-import { Accountset, CohortBidder, type ICohortBidderOptions, MiningBids, parseSubaccountRange } from '../src/index.js';
+import {
+  Accountset,
+  CohortBidder,
+  getRange,
+  type ICohortBidderOptions,
+  MainchainClients,
+  Mining,
+} from '../src/index.js';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
-import { getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { getAuthorFromHeader, getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import Path from 'path';
 import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.js';
 
@@ -14,7 +21,7 @@ afterAll(teardown);
 
 describe('CohortBidder unit tests', () => {
   let accountset: Accountset;
-  const subaccountRange = parseSubaccountRange('0-49')!;
+  const subaccountRange = getRange(0, 49);
   beforeAll(() => {
     accountset = new Accountset({
       client: null as any,
@@ -388,7 +395,7 @@ async function createBidderWithMocks(
   vi.spyOn(accountset, 'submitterBalance').mockImplementation(() => {
     return Promise.resolve(options.accountBalance);
   });
-  vi.spyOn(accountset, 'submitterMicronots').mockImplementation(() => {
+  vi.spyOn(accountset, 'accountMicronots').mockImplementation(() => {
     return Promise.resolve(options.accountMicronots ?? 100_000n);
   });
 
@@ -404,12 +411,13 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const aliceClientPromise = getClient(network.archiveUrl);
     const aliceClient = await aliceClientPromise;
+    const clients = new MainchainClients(network.archiveUrl, () => false, aliceClient);
     const bobRing = new Keyring({ type: 'sr25519' }).addFromUri('//Bob');
 
     const alice = new Accountset({
       client: aliceClient,
       seedAccount: sudo(),
-      subaccountRange: parseSubaccountRange('0-49'),
+      subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'alice',
     });
@@ -434,7 +442,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const bob = new Accountset({
       client: await getClient(bobAddress),
       seedAccount: bobRing,
-      subaccountRange: parseSubaccountRange('0-49'),
+      subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'bob',
     });
@@ -443,7 +451,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     console.log('Alice and Bob set up');
 
-    const miningBids = new MiningBids(alice.client);
+    const miningBids = new Mining(clients);
     let bobBidder: CohortBidder;
     let aliceBidder: CohortBidder;
     // wait for the cohort to change so we have enough time
@@ -509,18 +517,23 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     expect(aliceBidder!).toBeTruthy();
     expect(bobBidder!).toBeTruthy();
 
-    const bobWatch = await bob.watchBlocks(true);
-    const bobMinePromise = new Promise<{ argons: bigint }>(resolve => {
-      bobWatch.events.on('mined', (_blockHash, mined) => {
-        resolve(mined);
+    const bobMinePromise = new Promise(resolve => {
+      bob.client.rpc.chain.subscribeNewHeads(h => {
+        const author = getAuthorFromHeader(bob.client, h)!;
+        if (bob.subAccountsByAddress[author]) {
+          resolve(true);
+        }
       });
     });
-    const aliceWatch = await alice.watchBlocks(true);
-    const aliceMinePromise = new Promise<{ argons: bigint }>(resolve => {
-      aliceWatch.events.on('mined', (_blockHash, mined) => {
-        resolve(mined);
+    const aliceMinePromise = new Promise(resolve => {
+      alice.client.rpc.chain.subscribeNewHeads(h => {
+        const author = getAuthorFromHeader(alice.client, h)!;
+        if (alice.subAccountsByAddress[author]) {
+          resolve(true);
+        }
       });
     });
+
     // wait for the slot to fully complete
     await new Promise(resolve =>
       subscribeToFinalizedStorageChanges(aliceClient, [
@@ -536,9 +549,9 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       ]),
     );
 
-    const aliceMiners = await alice.miningSeats();
+    const aliceMiners = await alice.miningSeatsAndBids();
     const cohortStartingFrameId = aliceBidder!.cohortStartingFrameId;
-    const bobMiners = await bob.miningSeats();
+    const bobMiners = await bob.miningSeatsAndBids();
 
     const aliceStats = {
       seatsWon: aliceBidder!.myWinningBids.length,

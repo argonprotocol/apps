@@ -290,7 +290,7 @@ export class TransactionTracker {
       try {
         if (tx.blockHeight && tx.blockHeight <= finalizedHeight) {
           // ensure this block hash is still valid
-          const finalizedHash = await client.rpc.chain.getBlockHash(tx.blockHeight);
+          const finalizedHash = await client.rpc.chain.getBlockHash(tx.blockHeight).catch(() => null);
           if (u8aToHex(finalizedHash) === tx.blockHash) {
             await table.markFinalized(tx);
             txResult.setFinalized();

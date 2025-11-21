@@ -10,6 +10,7 @@ import { FrameBidsTable } from './db/FrameBidsTable';
 import { VaultsTable } from './db/VaultsTable.ts';
 import { BitcoinLocksTable } from './db/BitcoinLocksTable.ts';
 import { TransactionsTable } from './db/TransactionsTable.ts';
+import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -23,6 +24,7 @@ export class Db {
   public transactionsTable: TransactionsTable;
   public vaultsTable: VaultsTable;
   public bitcoinLocksTable: BitcoinLocksTable;
+  public walletLedgerTable: WalletLedgerTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -38,6 +40,7 @@ export class Db {
     this.vaultsTable = new VaultsTable(this);
     this.transactionsTable = new TransactionsTable(this);
     this.bitcoinLocksTable = new BitcoinLocksTable(this);
+    this.walletLedgerTable = new WalletLedgerTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {

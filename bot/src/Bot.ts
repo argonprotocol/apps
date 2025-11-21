@@ -12,6 +12,7 @@ import {
   FatalError,
   MainchainClients,
   type IBidReductionReason,
+  getRange,
 } from '@argonprotocol/apps-core';
 import { History } from './History.ts';
 
@@ -112,7 +113,7 @@ export default class Bot implements IBotSyncStatus {
         client: this.localClient,
         seedAccount: this.options.pair,
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
-        subaccountRange: new Array(99).fill(0).map((_, i) => i),
+        subaccountRange: getRange(0, 144),
       });
       this.autobidder = new AutoBidder(
         this.accountset,

@@ -2,15 +2,12 @@ import { Command, Option } from '@commander-js/extra-typings';
 import accountCli from './accountCli.js';
 import { configDotenv } from 'dotenv';
 import Path from 'node:path';
-import vaultCli from './vaultCli.js';
 import miningCli from './miningCli.js';
-import treasuryCli from './treasuryCli.js';
-import bitcoinCli from './bitcoinCli.js';
-import { Accountset, MiningFrames, parseSubaccountRange } from '@argonprotocol/apps-core';
+import { Accountset, MiningFrames } from '@argonprotocol/apps-core';
 import { getClient, keyringFromSuri, type KeyringPair } from '@argonprotocol/mainchain';
 import { keyringFromFile, saveKeyringPair } from './keyringStore.js';
 
-export { accountCli, vaultCli, miningCli, treasuryCli, bitcoinCli, keyringFromFile, saveKeyringPair };
+export { accountCli, miningCli, keyringFromFile, saveKeyringPair };
 
 export function globalOptions(program: Command) {
   return program.optsWithGlobals() as IGlobalOptions;
@@ -52,10 +49,32 @@ export function buildCli() {
         .argParser(parseSubaccountRange),
     )
     .addCommand(accountCli())
-    .addCommand(vaultCli())
-    .addCommand(miningCli())
-    .addCommand(treasuryCli())
-    .addCommand(bitcoinCli());
+    .addCommand(miningCli());
+}
+
+export function parseSubaccountRange(range?: string): number[] | undefined {
+  if (!range) {
+    return undefined;
+  }
+  const indices = [];
+  for (const entry of range.split(',')) {
+    if (entry.includes('-')) {
+      const [start, end] = entry.split('-').map(x => parseInt(x, 10));
+      for (let i = start; i <= end; i++) {
+        indices.push(i);
+      }
+      continue;
+    }
+
+    const record = parseInt(entry.trim(), 10);
+    if (Number.isNaN(record) || !Number.isInteger(record)) {
+      throw new Error(`Invalid range entry: ${entry}`);
+    }
+    if (Number.isInteger(record)) {
+      indices.push(record);
+    }
+  }
+  return indices;
 }
 
 export async function accountsetFromCli(program: Command, proxyForAddress?: string): Promise<Accountset> {

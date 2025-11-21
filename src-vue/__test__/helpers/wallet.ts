@@ -4,16 +4,32 @@ import { vi } from 'vitest';
 import { bip39, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { miniSecretFromUri } from '@argonprotocol/apps-core';
 
-export function createMockWalletKeys(mnemonic?: string) {
+export function createTestWallet(mnemonic?: string) {
   mnemonic ??= mnemonicGenerate();
   const keypair = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonic);
   const miningAccount = keypair.derive('//mining');
   const vaultingAccount = keypair.derive('//vaulting');
-  const walletKeys = new WalletKeys({
-    sshPublicKey: '',
-    miningAddress: miningAccount.address,
-    vaultingAddress: vaultingAccount.address,
-  });
+  const holdingAccount = keypair.derive('//holding');
+  return {
+    mnemonic,
+    miningAccount,
+    vaultingAccount,
+    holdingAccount,
+    walletKeys: new WalletKeys(
+      {
+        sshPublicKey: '',
+        miningAddress: miningAccount.address,
+        vaultingAddress: vaultingAccount.address,
+        holdingAddress: holdingAccount.address,
+      },
+      () => Promise.resolve(false),
+    ),
+  };
+}
+
+export function createMockWalletKeys(mnemonic?: string) {
+  mnemonic ??= mnemonicGenerate();
+  const { miningAccount, vaultingAccount, walletKeys } = createTestWallet(mnemonic);
   vi.spyOn(walletKeys, 'getBitcoinChildXpriv').mockImplementation(async (path, networks) => {
     const xpriv = await bip39.mnemonicToSeed(mnemonic);
     const version = getBip32Version(networks);

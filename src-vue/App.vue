@@ -19,6 +19,7 @@
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectOverlay />
       <WalletOverlay />
+      <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <SecuritySettingsOverlay />
       <BotEditOverlay />
@@ -66,6 +67,7 @@ import { PanelKey } from './interfaces/IConfig.ts';
 import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
+import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
 
 const controller = useController();
 const config = useConfig();

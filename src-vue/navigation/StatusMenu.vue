@@ -458,12 +458,12 @@ const status = Vue.computed<Status>(() => {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletId: 'mining', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletId: 'vaulting', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' });
 }
 
 function openBotCreateOverlay() {

@@ -57,7 +57,7 @@ import { useCurrency } from '../stores/currency';
 import { getMainchainClient, getMining } from '../stores/mainchain';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { useStats } from '../stores/stats';
-import { Accountset, getRange, type IBidsFile } from '@argonprotocol/apps-core';
+import { Accountset, getRange, type IBidsFile, Mining } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral';
 import { TICK_MILLIS } from '../lib/Env.ts';
 import { useConfig } from '../stores/config.ts';
@@ -79,7 +79,6 @@ const props = withDefaults(
 
 const stats = useStats();
 const currency = useCurrency();
-const mainchain = getMining();
 const walletKeys = useWalletKeys();
 
 const panelPositioningClasses = Vue.computed(() => {
@@ -120,7 +119,8 @@ function lastBidAtTickFromNow(lastBidAtTick: number | undefined): string {
 Vue.onMounted(async () => {
   if (props.loadFromMainchain) {
     const subaccounts = await walletKeys.getMiningSubaccounts();
-    const allWinningBids = await mainchain.fetchWinningBids();
+    const client = await getMainchainClient(false);
+    const allWinningBids = await Mining.fetchWinningBids(client);
     for (const bid of allWinningBids) {
       const accountInfo = subaccounts[bid.address];
       if (accountInfo) {

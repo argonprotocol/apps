@@ -252,13 +252,13 @@
                     <tbody>
                       <tr>
                         <td class="pr-5 border-t border-gray-600/20 h-10">Argons</td>
-                        <td class="border-t border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicrogons / BigInt(stats.myMiningBids.bidCount)).format('0,0.00') }}</td>
+                        <td class="border-t border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicrogons / BigInt(stats.myMiningBids.bidCount || 1)).format('0,0.00') }}</td>
                         <td class="border-t border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicrogons).format('0,0.00') }}</td>
                         <td class="border-t border-gray-600/20 text-right">{{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningBidMicrogons).format('0,0.00') }}</td>
                       </tr>
                       <tr>
                         <td class="pr-5 border-y border-gray-600/20 h-10">Argonots</td>
-                        <td class="border-y border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicronots / BigInt(stats.myMiningBids.bidCount)).format('0,0.00') }}</td>
+                        <td class="border-y border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicronots / BigInt(stats.myMiningBids.bidCount || 1)).format('0,0.00') }}</td>
                         <td class="border-y border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicronots).format('0,0.00') }}</td>
                         <td class="border-y border-gray-600/20 text-right">{{ currency.symbol }}{{ microgonToMoneyNm(currency.micronotToMicrogon(wallets.miningBidMicronots)).format('0,0.00') }}</td>
                       </tr>
