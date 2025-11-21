@@ -41,7 +41,7 @@
         >
           <li class="w-1/4">
             <div class="text-4xl font-bold">
-              {{ blockchainStore.activeMiningSeatCount ? numeral(blockchainStore.activeMiningSeatCount).format('0,0') : '---' }}
+              {{ miningStats.activeMiningSeatCount ? numeral(miningStats.activeMiningSeatCount).format('0,0') : '---' }}
             </div>
             <div>Mining Seats</div>
           </li>
@@ -52,7 +52,7 @@
                 <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
                   {{ currency.symbol }}
                 </span>
-                <span>{{ microgonToMoneyNm(blockchainStore.aggregatedBidCosts).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+                <span>{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
               </template>
               <template v-else>---</template>
             </div>
@@ -65,7 +65,7 @@
                 <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
                   {{ currency.symbol }}
                 </span>
-                <span>{{ microgonToMoneyNm(aggregatedBlockRewards).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+                <span>{{ microgonToMoneyNm(miningStats.aggregatedBlockRewards).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
               </template>
               <template v-else>---</template>
             </div>
@@ -74,7 +74,7 @@
           <li style="width: 1px" class="bg-slate-300"></li>
           <li class="w-1/4">
             <div class="text-4xl font-bold">
-              <template v-if="isLoaded">{{ numeral(currentAPY).formatCapped('0,0', 9_999) }}%</template>
+              <template v-if="isLoaded">{{ numeral(miningStats.currentAPY).formatCapped('0,0', 9_999) }}%</template>
               <template v-else>---</template>
             </div>
             <div>Annual Percentage Yield</div>
@@ -92,17 +92,16 @@ const isLoaded = Vue.ref(false);
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useBlockchainStore } from '../../stores/blockchain';
+import { useMiningStats } from '../../stores/miningStats.ts';
 import { useConfig } from '../../stores/config';
 import { useCurrency } from '../../stores/currency';
-import { calculateAPY } from '../../lib/Utils';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import basicEmitter from '../../emitters/basicEmitter';
 import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
 import { useTour } from '../../stores/tour';
 
-const blockchainStore = useBlockchainStore();
+const miningStats = useMiningStats();
 const currency = useCurrency();
 const config = useConfig();
 const tour = useTour();
@@ -110,17 +109,6 @@ const tour = useTour();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const miningButtonRef = Vue.ref<HTMLElement | null>(null);
-
-const aggregatedBlockRewards = Vue.computed(() => {
-  return (
-    blockchainStore.aggregatedBlockRewards.microgons +
-    currency.micronotToMicrogon(blockchainStore.aggregatedBlockRewards.micronots)
-  );
-});
-
-const currentAPY = Vue.computed(() => {
-  return calculateAPY(blockchainStore.aggregatedBidCosts, aggregatedBlockRewards.value);
-});
 
 function openHowMiningWorksOverlay() {
   basicEmitter.emit('openHowMiningWorksOverlay');
@@ -141,9 +129,9 @@ tour.registerPositionCheck('miningButton', () => {
 
 Vue.onMounted(async () => {
   Promise.all([
-    blockchainStore.updateAggregateBidCosts(),
-    blockchainStore.updateAggregateBlockRewards(),
-    blockchainStore.updateActiveMiningSeatCount(),
+    miningStats.updateAggregateBidCosts(),
+    miningStats.updateAggregateBlockRewards(),
+    miningStats.updateActiveMiningSeatCount(),
   ]).then(() => {
     isLoaded.value = true;
   });

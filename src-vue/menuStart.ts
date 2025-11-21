@@ -26,7 +26,7 @@ export default async function menuStart() {
     items: [
       {
         id: 'about',
-        text: 'About this Investor Console',
+        text: 'About This App',
         action: openAboutOverlay,
       },
       {

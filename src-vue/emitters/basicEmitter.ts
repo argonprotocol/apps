@@ -21,6 +21,7 @@ type IBasicEmitter = {
   openHowMiningWorksOverlay: void;
   openHowVaultingWorksOverlay: void;
   openWelcomeOverlay: void;
+  openFinancialsOverlay: void;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

@@ -272,9 +272,8 @@ export class Vaults {
   public getTotalSatoshisLocked(): bigint {
     if (!this.stats) return 0n;
     return Object.values(this.stats.vaultsById).reduce((total, vault) => {
-      return (
-        total + vault.baseline.satoshis + vault.changesByFrame.reduce((sum, change) => sum + change.satoshisAdded, 0n)
-      );
+      const changesByFrame = vault.changesByFrame.reduce((sum, change) => sum + change.satoshisAdded, 0n);
+      return total + vault.baseline.satoshis + changesByFrame;
     }, 0n);
   }
 
