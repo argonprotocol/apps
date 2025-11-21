@@ -48,6 +48,7 @@ it('should update progress throughout the entire finalization process', async ()
 
       if (progressPct === 99) {
         txInfo.tx.isFinalized = true;
+        txInfo.isProcessed.resolve();
       } else if (progressPct === 100) {
         resolve?.(undefined);
       } else if (isMaxed) {
