@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 407 32" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>bankless-bottom</title>
+    <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="bankless-finished" transform="translate(-1, -352)">
+            <g id="bankless-bottom" transform="translate(0.0832, 338.7789)">
+                <rect id="bg" fill-opacity="0" fill="#FFFFFF" x="1" y="13.3003726" width="406.07" height="31.4207284"></rect>
+                <path d="M15.4210136,29.152903 L15.4210136,15.319628 C15.4210136,14.7673433 15.8687288,14.319628 16.4210136,14.319628 L391.305899,14.319628 C391.858184,14.319628 392.305899,14.7673433 392.305899,15.319628 L392.305899,29.152903" class="hasStroke" stroke="#000000" stroke-width="2"></path>
+                <rect class="hasStroke" stroke="#000000" stroke-width="2" x="2" y="29.319628" width="404.071465" height="14.411473" rx="1"></rect>
+            </g>
+        </g>
+    </g>
+</svg>
