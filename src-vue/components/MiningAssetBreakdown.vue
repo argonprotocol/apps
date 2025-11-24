@@ -1,13 +1,11 @@
 <template>
   <div class="text-md relative flex w-full flex-col items-center whitespace-nowrap">
-    <div
-      v-if="props.show !== 'OnlyTotal'"
-      class="flex min-h-[calc(100%/7)] w-full flex-col border-t border-gray-600/40 pt-2 pb-3">
+    <template v-if="props.show !== 'OnlyTotal'">
       <HoverCardRoot :openDelay="200" :closeDelay="100">
-        <HoverCardTrigger as="div" class="hover:text-argon-600 flex w-full flex-row items-center">
-          <ArgonIcon class="text-argon-600/70 mr-2 h-7 w-7" />
-          <div class="grow">Bidding Reserves</div>
-          <div class="pr-1">
+        <HoverCardTrigger as="div" class="Row Header border-t border-gray-600/40">
+          <ArgonIcon class="Icon h-7 w-7" />
+          <div class="Text">Bidding Reserves</div>
+          <div class="Value">
             {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.availableMicrogons).format('0,0.00') }}
           </div>
         </HoverCardTrigger>
@@ -21,55 +19,48 @@
           <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
         </HoverCardContent>
       </HoverCardRoot>
-      <div class="ml-9 flex flex-col gap-y-1 text-slate-900/60">
-        <HoverCardRoot :openDelay="200" :closeDelay="100">
-          <HoverCardTrigger
-            as="div"
-            class="hover:text-argon-600 relative border-t border-dashed border-gray-600/20 pt-2">
-            <ArrowTurnDownRightIcon
-              class="absolute top-1/2 left-0 h-5 w-5 -translate-x-[130%] -translate-y-1/2 text-slate-600/40" />
-            {{ microgonToArgonNm(breakdown.unusedMicrogons).format('0,0.[00]') }} ARGN
-          </HoverCardTrigger>
-          <HoverCardContent
-            align="start"
-            :alignOffset="-20"
-            side="right"
-            :avoidCollisions="false"
-            class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
-            <div v-html="breakdown.help.unusedMicrogons" />
-            <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-          </HoverCardContent>
-        </HoverCardRoot>
-        <HoverCardRoot :openDelay="200" :closeDelay="100">
-          <HoverCardTrigger
-            as="div"
-            class="hover:text-argon-600 relative border-t border-dashed border-gray-600/20 pt-2">
-            <ArrowTurnDownRightIcon
-              class="absolute top-1/2 left-0 h-5 w-5 -translate-x-[130%] -translate-y-1/2 text-slate-600/40" />
-            {{ micronotToArgonotNm(breakdown.unusedMicronots).format('0,0.[00]') }} ARGNOT
-          </HoverCardTrigger>
-          <HoverCardContent
-            align="start"
-            :alignOffset="-20"
-            side="right"
-            :avoidCollisions="false"
-            class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
-            <div v-html="breakdown.help.unusedMicronots" />
-            <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-          </HoverCardContent>
-        </HoverCardRoot>
-      </div>
-    </div>
-    <div v-if="props.show !== 'OnlyTotal'" class="flex w-full flex-col border-t border-dashed border-gray-600/20 py-2">
+
       <HoverCardRoot :openDelay="200" :closeDelay="100">
-        <HoverCardTrigger as="div" class="hover:text-argon-600 flex w-full flex-row items-center">
-          <MiningBidIcon class="text-argon-600/70 mr-2 h-7 w-7" />
-          <div class="grow">
+        <HoverCardTrigger as="div" class="Row SubItem">
+          <div class="Arrow" />
+          <div class="Text">{{ microgonToArgonNm(breakdown.unusedMicrogons).format('0,0.[00]') }} ARGN Available</div>
+        </HoverCardTrigger>
+        <HoverCardContent
+          align="start"
+          :alignOffset="-20"
+          side="right"
+          :avoidCollisions="false"
+          class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
+          <div v-html="breakdown.help.unusedMicrogons" />
+          <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+        </HoverCardContent>
+      </HoverCardRoot>
+
+      <HoverCardRoot :openDelay="200" :closeDelay="100">
+        <HoverCardTrigger as="div" class="Row SubItem">
+          <div class="Arrow" />
+          <div class="Text">{{ micronotToArgonotNm(breakdown.unusedMicronots).format('0,0.[00]') }} ARGNOT Available</div>
+        </HoverCardTrigger>
+        <HoverCardContent
+          align="start"
+          :alignOffset="-20"
+          side="right"
+          :avoidCollisions="false"
+          class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
+          <div v-html="breakdown.help.unusedMicronots" />
+          <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+        </HoverCardContent>
+      </HoverCardRoot>
+
+      <HoverCardRoot :openDelay="200" :closeDelay="100">
+        <HoverCardTrigger as="div" class="Row Header">
+          <MiningBidIcon class="Icon h-7 w-7" />
+          <div class="Text">
             Winning
             <span class="hidden 2xl:inline">Mining</span>
             Bids ({{ numeral(breakdown.bidTotalCount).format('0,0') }})
           </div>
-          <div class="pr-1">{{ currency.symbol }}{{ microgonToMoneyNm(breakdown.bidTotalCost).format('0,0.00') }}</div>
+          <div class="Value">{{ currency.symbol }}{{ microgonToMoneyNm(breakdown.bidTotalCost).format('0,0.00') }}</div>
         </HoverCardTrigger>
         <HoverCardContent
           align="start"
@@ -81,45 +72,39 @@
           <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
         </HoverCardContent>
       </HoverCardRoot>
-      <div class="ml-9 flex flex-col gap-y-1 text-slate-900/60">
-        <HoverCardRoot :openDelay="200" :closeDelay="100">
-          <HoverCardTrigger
-            as="div"
-            class="hover:text-argon-600 relative border-t border-dashed border-gray-600/20 pt-2">
-            <ArrowTurnDownRightIcon
-              class="absolute top-1/2 left-0 h-5 w-5 -translate-x-[130%] -translate-y-1/2 text-slate-600/40" />
-            {{ microgonToArgonNm(breakdown.bidMicrogons).format('0,0.[00]') }} ARGN
-          </HoverCardTrigger>
-          <HoverCardContent
-            align="start"
-            :alignOffset="-20"
-            side="right"
-            :avoidCollisions="false"
-            class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
-            <div v-html="breakdown.help.bidMicrogons" />
-            <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-          </HoverCardContent>
-        </HoverCardRoot>
-        <HoverCardRoot :openDelay="200" :closeDelay="100">
-          <HoverCardTrigger
-            as="div"
-            class="hover:text-argon-600 relative border-t border-dashed border-gray-600/20 pt-2">
-            <ArrowTurnDownRightIcon
-              class="absolute top-1/2 left-0 h-5 w-5 -translate-x-[130%] -translate-y-1/2 text-slate-600/40" />
-            {{ micronotToArgonotNm(breakdown.bidMicronots).format('0,0.[00]') }} ARGNOT
-          </HoverCardTrigger>
-          <HoverCardContent
-            align="start"
-            :alignOffset="-20"
-            side="right"
-            :avoidCollisions="false"
-            class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
-            <div v-html="breakdown.help.bidMicronots" />
-            <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-          </HoverCardContent>
-        </HoverCardRoot>
-      </div>
-    </div>
+
+      <HoverCardRoot :openDelay="200" :closeDelay="100">
+        <HoverCardTrigger as="div" class="Row SubItem">
+          <div class="Arrow" />
+          <div class="Text">{{ microgonToArgonNm(breakdown.bidMicrogons).format('0,0.[00]') }} ARGN Locked</div>
+        </HoverCardTrigger>
+        <HoverCardContent
+          align="start"
+          :alignOffset="-20"
+          side="right"
+          :avoidCollisions="false"
+          class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
+          <div v-html="breakdown.help.bidMicrogons" />
+          <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+        </HoverCardContent>
+      </HoverCardRoot>
+
+      <HoverCardRoot :openDelay="200" :closeDelay="100">
+        <HoverCardTrigger as="div" class="Row SubItem">
+          <div class="Arrow" />
+          <div class="Text">{{ micronotToArgonotNm(breakdown.bidMicronots).format('0,0.[00]') }} ARGNOT Locked</div>
+        </HoverCardTrigger>
+        <HoverCardContent
+          align="start"
+          :alignOffset="-20"
+          side="right"
+          :avoidCollisions="false"
+          class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
+          <div v-html="breakdown.help.bidMicronots" />
+          <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+        </HoverCardContent>
+      </HoverCardRoot>
+    </template>
     <div v-if="props.show !== 'OnlyTotal'" class="flex w-full flex-col border-t border-dashed border-gray-600/20 py-2">
       <HoverCardRoot :openDelay="200" :closeDelay="100">
         <HoverCardTrigger as="div" class="hover:text-argon-600 flex w-full flex-row items-center">
@@ -148,7 +133,7 @@
             class="hover:text-argon-600 relative border-t border-dashed border-gray-600/20 pt-2">
             <ArrowTurnDownRightIcon
               class="absolute top-1/2 left-0 h-5 w-5 -translate-x-[130%] -translate-y-1/2 text-slate-600/40" />
-            {{ microgonToArgonNm(breakdown.seatMicrogons).format('0,0.[00]') }} ARGN
+            {{ microgonToArgonNm(breakdown.seatMicrogons).format('0,0.[00]') }} ARGN Remaining
           </HoverCardTrigger>
           <HoverCardContent
             align="start"
@@ -166,7 +151,7 @@
             class="hover:text-argon-600 relative border-t border-dashed border-gray-600/20 pt-2">
             <ArrowTurnDownRightIcon
               class="absolute top-1/2 left-0 h-5 w-5 -translate-x-[130%] -translate-y-1/2 text-slate-600/40" />
-            {{ micronotToArgonotNm(breakdown.seatMicronots).format('0,0.[00]') }} ARGNOT
+            {{ micronotToArgonotNm(breakdown.seatMicronots).format('0,0.[00]') }} ARGNOT Remaining
           </HoverCardTrigger>
           <HoverCardContent
             align="start"
@@ -212,9 +197,7 @@
             <span class="hidden xl:inline">Mining</span>
             Losses
           </div>
-          <div class="pr-1">
-            -{{ currency.symbol }}{{ microgonToMoneyNm(breakdown.transactionFeesTotal).format('0,0.00') }}
-          </div>
+          <div class="pr-1">-{{ currency.symbol }}{{ microgonToMoneyNm(0n).format('0,0.00') }}</div>
         </HoverCardTrigger>
         <HoverCardContent
           align="start"
@@ -276,3 +259,41 @@ const breakdown = useMiningAssetBreakdown();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 </script>
+
+<style scoped>
+@reference "../main.css";
+
+.Row {
+  @apply hover:text-argon-600 hover:bg-argon-200/10 flex h-[9.091%] w-full flex-row items-center;
+}
+
+.SubItem {
+  @apply flex flex-row;
+  .Arrow {
+    @apply w-9 h-full relative;
+    &:before {
+      content: '';
+      @apply absolute left-1/2 top-0 w-px h-1/2 translate-x-[-6px] bg-argon-600/40;
+    }
+    &:after {
+      content: '';
+      @apply absolute left-1/2 top-1/2 h-px w-3.5 translate-x-[-6px] bg-argon-600/40;
+    }
+  }
+  .Text {
+    @apply flex flex-row items-center h-full grow border-t border-dashed border-gray-600/20 text-slate-900/60;
+  }
+}
+
+.Header {
+  .Icon {
+    @apply text-argon-600/70 mr-2;
+  }
+  .Text {
+    @apply grow;
+  }
+  .Value {
+    @apply pr-1;
+  }
+}
+</style>

@@ -1,19 +1,22 @@
 <template>
-  <div class="Assets Panel flex h-full flex-col space-y-5 px-3 pt-1 pb-10">
-    <p class="w-11/12 pb-2 font-light text-slate-800/70">
-      This page shows a breakdown of all your Argon assets, including your mining, vaulting, and the holding accounts.
+  <div class="Assets Panel flex h-full flex-col space-y-5 px-3 pt-1 pb-5">
+    <p class="w-11/12 font-light text-slate-800/70 -mb-5 relative z-20">
+      This page presents a breakdown of all your Argon assets, including your mining, vaulting, and the holding accounts.
       Move your mouse over the various items to learn more or click the Move buttons to transfer.
     </p>
 
     <div class="flex grow flex-col">
-      <div class="flex flex-row">
+      <div class="flex flex-row relative">
+        <div class="absolute top-0 left-0 h-3/4 w-full bg-gradient-to-b from-white from-20% to-transparent z-10" />
         <div class="flex h-full w-[30%] flex-col justify-end">
           <header class="text-lg font-bold">Mining Assets</header>
           <div class="mb-5 text-left">{{ abbreviateAddress(wallets.miningWallet.address, 10) }}</div>
         </div>
-        <div class="h-full w-[40%]">
-          <header class="text-center text-lg font-bold">Holding Account</header>
-          <div class="mb-5 text-center">{{ abbreviateAddress(wallets.holdingWallet.address, 10) }}</div>
+        <div class="h-full w-[40%] relative">
+          <div class="absolute top-[71%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center">
+            <header class="text-center text-lg font-bold">Holding Account</header>
+            <div class="mb-5 text-center">{{ abbreviateAddress(wallets.holdingWallet.address, 10) }}</div>
+          </div>
           <BanklessTop1 class="w-full" />
         </div>
         <div class="flex h-full w-[30%] flex-col justify-end">
