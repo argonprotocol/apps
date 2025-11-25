@@ -1,33 +1,81 @@
 <template>
-  <div class="Assets Panel flex h-full flex-col space-y-5 px-3 pt-1 pb-5">
-    <p class="w-11/12 font-light text-slate-800/70 -mb-5 relative z-20">
-      This page presents a breakdown of all your Argon assets, including your mining, vaulting, and the holding accounts.
-      Move your mouse over the various items to learn more or click the Move buttons to transfer.
+  <div class="Assets Panel flex h-full flex-col space-y-5 px-3 pt-1 pb-6">
+    <p class="relative z-20 w-11/12 font-light text-slate-800/90">
+      This page presents a breakdown of all your Argon assets, including your mining, vaulting, and the holding
+      accounts. Move your mouse over the various items to learn more or click the Move buttons to transfer.
     </p>
 
     <div class="flex grow flex-col">
-      <div class="flex flex-row relative">
-        <div class="absolute top-0 left-0 h-3/4 w-full bg-gradient-to-b from-white from-20% to-transparent z-10" />
-        <div class="flex h-full w-[30%] flex-col justify-end">
+      <div class="relative flex flex-row">
+        <div class="relative flex h-full w-[30%] flex-col justify-end">
+          <div class="relative mt-10 grow">
+            <div class="absolute top-0 left-3 flex h-3 w-[140%] flex-row items-center justify-center">
+              <div class="ml-3 h-3 grow bg-slate-600/13" />
+              <div class="relative z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/13 to-slate-600/0" />
+            </div>
+            <div class="absolute top-0 bottom-3 left-3 w-3 bg-slate-600/13">
+              <Arrow class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90" />
+            </div>
+          </div>
           <header class="text-lg font-bold">Mining Assets</header>
-          <div class="mb-5 text-left">{{ abbreviateAddress(wallets.miningWallet.address, 10) }}</div>
+          <div class="hover:text-argon-600/90 mb-5 cursor-pointer text-left">
+            {{ abbreviateAddress(wallets.miningWallet.address, 10) }}
+            <CopyIcon class="ml-1 inline-block h-5 w-5 text-slate-600/80" />
+          </div>
         </div>
-        <div class="h-full w-[40%] relative">
-          <div class="absolute top-[71%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center">
-            <header class="text-center text-lg font-bold">Holding Account</header>
+        <div class="relative h-full w-[40%]">
+          <div
+            class="absolute top-[65%] left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center">
+            <CopyIcon class="h-5 w-5 cursor-pointer text-slate-600/80 hover:text-slate-600/90" />
+            <header class="mt-2 text-center text-lg font-bold">Holding Account</header>
             <div class="mb-5 text-center">{{ abbreviateAddress(wallets.holdingWallet.address, 10) }}</div>
           </div>
           <BanklessTop1 class="w-full" />
         </div>
-        <div class="flex h-full w-[30%] flex-col justify-end">
+        <div class="relative flex h-full w-[30%] flex-col justify-end">
+          <div class="relative mt-10 grow">
+            <div class="absolute top-0 right-3 flex h-3 w-[140%] flex-row items-center justify-center">
+              <div class="mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
+              <div class="relative z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="mr-3 h-3 grow bg-slate-600/13" />
+            </div>
+            <div class="absolute top-0 right-3 bottom-3 w-3 bg-slate-600/13">
+              <Arrow class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90" />
+            </div>
+          </div>
           <header class="text-right text-lg font-bold">Vaulting Assets</header>
-          <div class="mb-5 text-right">{{ abbreviateAddress(wallets.vaultingWallet.address, 10) }}</div>
+          <div class="hover:text-argon-600/90 mb-5 cursor-pointer text-right">
+            <CopyIcon class="mr-1 inline-block h-5 w-5 text-slate-600/80" />
+            {{ abbreviateAddress(wallets.vaultingWallet.address, 10) }}
+          </div>
         </div>
       </div>
 
       <div class="flex grow flex-row">
-        <div class="h-full w-[30%] pr-20">
-          <MiningAssetBreakdown class="h-full" show="AllExceptTotal" />
+        <div class="flex h-full w-[30%] flex-row">
+          <MiningAssetBreakdown class="h-full grow" show="AllExceptTotal" :showArrows="true" />
+          <div class="flex min-w-20 flex-col">
+            <div class="h-[9.091%]"></div>
+            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
+              <div class="relative -left-5 z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="absolute top-1/2 -right-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
+              <Arrow class="absolute top-1/2 -right-13 translate-x-full -translate-y-1/2" />
+            </div>
+            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
+              <div class="relative -left-5 z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="absolute top-1/2 -right-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
+              <Arrow class="absolute top-1/2 -right-13 translate-x-full -translate-y-1/2" />
+            </div>
+          </div>
         </div>
         <div class="flex h-full w-[40%] flex-col">
           <BanklessTop2 class="w-full" />
@@ -35,21 +83,56 @@
             <BanklessMiddle class="h-full w-full" />
             <div class="absolute top-0 left-0 flex h-full w-full flex-col justify-around text-slate-600/70">
               <div class="flex flex-col items-center justify-center pt-10 text-2xl font-bold">
-                <div>32,384</div>
+                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicrogons).format('0,0.[0000000]') }}</div>
                 ARGN
-                <div class="text-base font-light">( {{ currency.symbol }}453.43 )</div>
+                <div class="text-base font-light">
+                  ( {{ currency.symbol
+                  }}{{ microgonToMoneyNm(wallets.holdingWallet.availableMicrogons).format('0,0.00') }} )
+                </div>
               </div>
               <div class="flex flex-col items-center justify-center pb-10 text-2xl font-bold">
-                <div>32,384</div>
+                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicrogons).format('0,0.[0000000]') }}</div>
                 ARGNOT
-                <div class="text-base font-light">( {{ currency.symbol }}453.43 )</div>
+                <div class="text-base font-light">
+                  ( {{ currency.symbol
+                  }}{{ micronotToMoneyNm(wallets.holdingWallet.availableMicrogons).format('0,0.00') }} )
+                </div>
               </div>
             </div>
           </div>
           <BanklessBottom1 class="w-full" />
         </div>
-        <div class="h-full w-[30%] pl-20">
-          <VaultingAssetBreakdown class="h-full" show="AllExceptTotal" />
+        <div class="flex h-full w-[30%] flex-row">
+          <div class="min-w-20">
+            <div class="h-[9.091%]"></div>
+            <div class="h-[9.091%]"></div>
+            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
+              <div class="relative -right-5 z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="absolute top-1/2 -left-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
+              <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
+            </div>
+            <div class="h-[9.091%]"></div>
+            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
+              <div class="relative -right-5 z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="absolute top-1/2 -left-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
+              <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
+            </div>
+            <div class="h-[9.091%]"></div>
+            <div class="h-[9.091%]"></div>
+            <div class="h-[9.091%]"></div>
+            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
+              <div class="relative -right-5 z-10 bg-white px-2">
+                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              </div>
+              <div class="absolute top-1/2 -left-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
+              <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
+            </div>
+          </div>
+          <VaultingAssetBreakdown align="right" class="h-full" show="AllExceptTotal" :showArrows="true" />
         </div>
       </div>
 
@@ -61,13 +144,14 @@
           <BanklessBottom2 class="w-full" />
         </div>
         <div class="h-full w-[30%] pl-20">
-          <VaultingAssetBreakdown class="h-full" show="OnlyTotal" />
+          <VaultingAssetBreakdown align="right" class="h-full" show="OnlyTotal" />
         </div>
       </div>
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import * as Vue from 'vue';
 import VaultingAssetBreakdown from '../../components/VaultingAssetBreakdown.vue';
 import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
 import BanklessTop1 from '../../assets/bankless-top1.svg';
@@ -77,73 +161,15 @@ import BanklessBottom1 from '../../assets/bankless-bottom1.svg';
 import BanklessBottom2 from '../../assets/bankless-bottom2.svg';
 import { useWallets } from '../../stores/wallets.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
-import { toRaw } from 'vue';
-import * as Vue from 'vue';
-import { HoverCardArrow, HoverCardContent, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
 import { useCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import { useMiningAssetBreakdown } from '../../stores/miningAssetBreakdown.ts';
+import CopyIcon from '../../assets/copy.svg';
+import Arrow from './components/Arrow.vue';
 
 const wallets = useWallets();
 const currency = useCurrency();
-const breakdown = useMiningAssetBreakdown();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
-
-// async function activateMicrogons() {
-//   const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-//   config.biddingRules.sidelinedMicrogons -= sidelinedMicrogons.value;
-//   await saveUpdatedBiddingRules(startRules);
-// }
-//
-// async function activateMicronots() {
-//   const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-//   config.biddingRules.sidelinedMicronots -= sidelinedMicronots.value;
-//   await saveUpdatedBiddingRules(startRules);
-// }
-//
-// async function sidelineMicronots() {
-//   const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-//   config.biddingRules.sidelinedMicronots += breakdown.unusedMicronots;
-//   await saveUpdatedBiddingRules(startRules);
-// }
-//
-// async function sidelineMicrogons() {
-//   const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-//   config.biddingRules.sidelinedMicrogons += breakdown.unusedMicrogons;
-//   await saveUpdatedBiddingRules(startRules);
-// }
-
-const isUpdatingRules = Vue.ref(false);
-const ruleUpdateError = Vue.ref('');
-
-// const sidelinedMicrogons = Vue.computed(() => {
-//   if (wallets.miningWallet.availableMicrogons >= config.biddingRules.sidelinedMicrogons) {
-//     return config.biddingRules.sidelinedMicrogons;
-//   }
-//   return 0n;
-// });
-//
-// const sidelinedMicronots = Vue.computed(() => {
-//   if (wallets.miningWallet.availableMicronots >= config.biddingRules.sidelinedMicronots) {
-//     return config.biddingRules.sidelinedMicronots;
-//   }
-//   return 0n;
-// });
-//
-// async function saveUpdatedBiddingRules(startRules: string) {
-//   try {
-//     isUpdatingRules.value = true;
-//     await bot.resyncBiddingRules();
-//     config.saveBiddingRules();
-//   } catch (e) {
-//     ruleUpdateError.value = `Sorry, this allocation failed. Details: ${String(e)}`;
-//     config.biddingRules = JsonExt.parse(startRules);
-//   } finally {
-//     isUpdatingRules.value = false;
-//   }
-// }
+const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 </script>
 
 <style>
@@ -151,7 +177,7 @@ const ruleUpdateError = Vue.ref('');
 
 .Assets.Panel {
   .hasStroke {
-    @apply stroke-1;
+    @apply stroke-slate-300 stroke-1;
   }
 }
 </style>
