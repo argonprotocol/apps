@@ -182,11 +182,6 @@ export class Mining {
     return winningBids.map(bid => bid.bid.toBigInt());
   }
 
-  public async fetchMicrogonsMinedPerBlockDuringNextCohort(): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
-    return await client.query.blockRewards.argonsPerBlock().then(x => x.toBigInt());
-  }
-
   public async onCohortChange(options: {
     onBiddingStart?: (cohortStartingFrameId: number) => Promise<void>;
     onBiddingEnd?: (cohortStartingFrameId: number) => Promise<void>;
@@ -288,10 +283,24 @@ export class Mining {
     return BigInt(maximumMicronots);
   }
 
-  public async getMicrogonsPerBlockForMiner(api: ApiDecoration<'promise'>) {
+  public async fetchMicrogonsMinedPerBlockDuringNextCohort(): Promise<bigint> {
+    const client = await this.prunedClientOrArchivePromise;
+    return this.getMicrogonsPerBlockForMiner(client);
+  }
+
+  public async getMicrogonsPerBlockForMiner(api: ApiDecoration<'promise'>, frameId?: number): Promise<bigint> {
+    frameId ??= await this.getNextFrameId();
+    if (frameId <= 1) {
+      return api.consts.blockRewards.startingArgonsPerBlock.toBigInt();
+    }
     const minerPercent = fromFixedNumber(api.consts.blockRewards.minerPayoutPercent.toBigInt(), FIXED_U128_DECIMALS);
-    const microgonsPerBlock = await api.query.blockRewards.argonsPerBlock().then(x => x.toBigInt());
-    return bigNumberToBigInt(minerPercent.times(microgonsPerBlock));
+    const microgonsPerBlockByCohort = await api.query.blockRewards.blockRewardsByCohort();
+    for (const [cohortFrameActivationId, blockReward] of microgonsPerBlockByCohort) {
+      if (cohortFrameActivationId.toNumber() === frameId) {
+        return bigNumberToBigInt(minerPercent.times(blockReward.toBigInt()));
+      }
+    }
+    throw new Error(`No block reward found for cohort starting at frame ID ${frameId}`);
   }
 
   public async minimumBlockRewardsAtTick(
@@ -360,10 +369,18 @@ export class Mining {
     return { unsubscribe };
   }
 
-  public async getCurrentFrameId(): Promise<number> {
+  public async getNextFrameId(): Promise<number> {
     const client = await this.prunedClientOrArchivePromise;
     const nextFrameId = await client.query.miningSlot.nextFrameId();
-    return nextFrameId.toNumber() - 1; // Subtract 1 to get the current frame ID
+    return nextFrameId.toNumber();
+  }
+
+  public async getCurrentFrameId(): Promise<number> {
+    const nextFrameId = await this.getNextFrameId();
+    if (nextFrameId === 0) {
+      return 0;
+    }
+    return nextFrameId - 1; // Subtract 1 to get the current frame ID
   }
 
   public async getCurrentTick(): Promise<number> {

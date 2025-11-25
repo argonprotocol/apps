@@ -520,7 +520,10 @@ export class BlockSync {
             x.micronotsStakedPerSeat = await api.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
           }
           if (x.microgonsToBeMinedPerBlock === 0n) {
-            x.microgonsToBeMinedPerBlock = await this.mining.getMicrogonsPerBlockForMiner(api);
+            x.microgonsToBeMinedPerBlock = await this.mining.getMicrogonsPerBlockForMiner(
+              api,
+              activationFrameIdOfNewCohort,
+            );
           }
 
           let bidPosition = 0;
@@ -556,7 +559,7 @@ export class BlockSync {
         x.micronotsStakedPerSeat = await api.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
       }
       if (x.microgonsToBeMinedPerBlock === 0n) {
-        x.microgonsToBeMinedPerBlock = await this.mining.getMicrogonsPerBlockForMiner(api);
+        x.microgonsToBeMinedPerBlock = await this.mining.getMicrogonsPerBlockForMiner(api, cohortActivationFrameId);
       }
       x.biddingFrameTickRange = this.currentFrameTickRange;
       x.lastBlockNumber = blockNumber;

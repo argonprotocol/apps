@@ -28,6 +28,7 @@ export class WalletBalances {
   public vaultingWallet: Wallet;
   public holdingWallet: Wallet;
 
+  private isClosed = false;
   private blockHistory: IBlockToProcess[] = [];
   private blockQueue = new Queue({ concurrency: 1 });
 
@@ -70,6 +71,11 @@ export class WalletBalances {
     this.deferredLoading.resolve();
   }
 
+  public async close() {
+    this.blockQueue.pause();
+    this.isClosed = true;
+  }
+
   public async didWalletHavePreviousLife() {
     for (const wallet of this.wallets) {
       if (wallet.hasValue()) {
@@ -80,6 +86,9 @@ export class WalletBalances {
   }
 
   public async loadBalancesAt(header: Header) {
+    if (this.isClosed) {
+      return;
+    }
     await this.blockQueue.add(async () => {
       console.log(`Loading wallet balances at block #${header.number.toNumber()} (${header.hash.toHex()})`);
       const archiveClient = await this.clients.archiveClientPromise;
@@ -155,6 +164,7 @@ export class WalletBalances {
           await this.loadFromApi(archiveClient, block);
           block.isProcessed = true;
         }
+        if (this.isClosed) break;
       }
     });
   }
