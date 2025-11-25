@@ -1,6 +1,6 @@
 <template>
-  <HoverCardRoot :openDelay="200" :closeDelay="100">
-    <HoverCardTrigger
+  <TooltipRoot :openDelay="200" :closeDelay="100">
+    <TooltipTrigger
       as="div"
       :class="
         twMerge('border-t border-gray-600/40', props.class, paddingClass, isRight ? 'flex-row-reverse' : 'flex-row')
@@ -16,23 +16,24 @@
       <div class="Value">
         <slot name="value" />
       </div>
-    </HoverCardTrigger>
-    <HoverCardContent
+    </TooltipTrigger>
+    <TooltipContent
       align="start"
-      :alignOffset="-20"
+      :alignOffset="props.tooltip.length < 100 ? -10 : -20"
       :side="isRight ? 'left' : 'right'"
       :avoidCollisions="false"
-      class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
+      :class="props.tooltip.length < 100 ? 'w-fit' : 'w-md'"
+      class="z-50 rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
       <div v-html="props.tooltip" />
-      <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-    </HoverCardContent>
-  </HoverCardRoot>
+      <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+    </TooltipContent>
+  </TooltipRoot>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
-import { HoverCardArrow, HoverCardContent, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
+import { TooltipProvider, TooltipArrow, TooltipContent, TooltipRoot, TooltipTrigger } from 'reka-ui';
 
 const props = withDefaults(
   defineProps<{

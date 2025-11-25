@@ -21,7 +21,7 @@
             </div>
           </div>
           <header class="text-lg font-bold">Mining Assets</header>
-          <div class="hover:text-argon-600/90 mb-5 cursor-pointer text-left">
+          <div class="hover:text-argon-600/90 mb-3 cursor-pointer text-left">
             {{ abbreviateAddress(wallets.miningWallet.address, 10) }}
             <CopyIcon class="ml-1 inline-block h-5 w-5 text-slate-600/80" />
           </div>
@@ -49,7 +49,7 @@
             </div>
           </div>
           <header class="text-right text-lg font-bold">Vaulting Assets</header>
-          <div class="hover:text-argon-600/90 mb-5 cursor-pointer text-right">
+          <div class="hover:text-argon-600/90 mb-3 cursor-pointer text-right">
             <CopyIcon class="mr-1 inline-block h-5 w-5 text-slate-600/80" />
             {{ abbreviateAddress(wallets.vaultingWallet.address, 10) }}
           </div>
@@ -58,7 +58,10 @@
 
       <div class="flex grow flex-row">
         <div class="flex h-full w-[30%] flex-row">
-          <MiningAssetBreakdown class="h-full grow" show="AllExceptTotal" :showArrows="true" />
+          <MiningAssetBreakdown
+            class="h-full grow border-t border-slate-600/30"
+            show="AllExceptTotal"
+            :showArrows="true" />
           <div class="flex min-w-20 flex-col">
             <div class="h-[9.091%]"></div>
             <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
@@ -80,7 +83,7 @@
         <div class="flex h-full w-[40%] flex-col">
           <BanklessTop2 class="w-full" />
           <div class="relative -my-px w-full grow">
-            <BanklessMiddle class="h-full w-full" />
+            <BanklessMiddle class="-my-1 h-full w-full" />
             <div class="absolute top-0 left-0 flex h-full w-full flex-col justify-around text-slate-600/70">
               <div class="flex flex-col items-center justify-center pt-10 text-2xl font-bold">
                 <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicrogons).format('0,0.[0000000]') }}</div>
@@ -100,7 +103,7 @@
               </div>
             </div>
           </div>
-          <BanklessBottom1 class="w-full" />
+          <BanklessBottom1 class="-mt-1.5 -mb-px w-full" />
         </div>
         <div class="flex h-full w-[30%] flex-row">
           <div class="min-w-20">
@@ -132,7 +135,11 @@
               <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
             </div>
           </div>
-          <VaultingAssetBreakdown align="right" class="h-full" show="AllExceptTotal" :showArrows="true" />
+          <VaultingAssetBreakdown
+            align="right"
+            class="h-full border-t border-slate-600/30"
+            show="AllExceptTotal"
+            :showArrows="true" />
         </div>
       </div>
 

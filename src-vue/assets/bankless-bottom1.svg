@@ -1,18 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 407 15" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg viewBox="0 0 407 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>bankless-bottom1</title>
-    <defs>
-        <rect id="path-1" x="1" y="-0.00175136741" width="406.07" height="13.325269"></rect>
-    </defs>
     <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="bankless-finished" transform="translate(-1, -338)">
-            <g id="bankless-bottom1" transform="translate(0.0832, 338.7789)">
-                <mask id="mask-2" fill="white">
-                    <use xlink:href="#path-1"></use>
-                </mask>
-                <use id="bg" fill-opacity="0" fill="#FFFFFF" xlink:href="#path-1"></use>
-                <path d="M90.9168036,1.01 L83.4925387,13.0117438 C83.1365356,13.6351942 82.4736809,14.02 81.7557474,14.02 L44.0778598,14.02 C43.3599262,14.02 42.6970715,13.6351942 42.3410684,13.0117438 L34.9168036,1.01" class="hasStroke" stroke="#000000" stroke-width="2" mask="url(#mask-2)" transform="translate(62.9168, 7.515) scale(1, -1) translate(-62.9168, -7.515)"></path>
-                <path d="M372.916804,1.01 L365.492539,13.0117438 C365.136536,13.6351942 364.473681,14.02 363.755747,14.02 L326.07786,14.02 C325.359926,14.02 324.697072,13.6351942 324.341068,13.0117438 L316.916804,1.01" class="hasStroke" stroke="#000000" stroke-width="2" mask="url(#mask-2)" transform="translate(344.9168, 7.515) scale(1, -1) translate(-344.9168, -7.515)"></path>
+        <g id="Stack" transform="translate(-1, -387)">
+            <g id="bankless-bottom1" transform="translate(1.0832, 387.7771)">
+                <rect id="bg" fill-opacity="0" fill="#FFFFFF" x="0" y="0" width="406.07" height="13.325269"></rect>
+                <path d="M89.9168036,1.01175137 L82.4925387,13.0134952 C82.1365356,13.6369456 81.4736809,14.0217514 80.7557474,14.0217514 L43.0778598,14.0217514 C42.3599262,14.0217514 41.6970715,13.6369456 41.3410684,13.0134952 L33.9168036,1.01175137" class="hasStroke" stroke="#000000" stroke-width="2" transform="translate(61.9168, 7.5168) scale(1, -1) translate(-61.9168, -7.5168)"></path>
+                <path d="M371.916804,1.01175137 L364.492539,13.0134952 C364.136536,13.6369456 363.473681,14.0217514 362.755747,14.0217514 L325.07786,14.0217514 C324.359926,14.0217514 323.697072,13.6369456 323.341068,13.0134952 L315.916804,1.01175137" class="hasStroke" stroke="#000000" stroke-width="2" transform="translate(343.9168, 7.5168) scale(1, -1) translate(-343.9168, -7.5168)"></path>
             </g>
         </g>
     </g>

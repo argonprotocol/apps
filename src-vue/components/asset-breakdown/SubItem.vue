@@ -1,6 +1,6 @@
 <template>
-  <HoverCardRoot :openDelay="200" :closeDelay="100">
-    <HoverCardTrigger
+  <TooltipRoot :openDelay="200" :closeDelay="100">
+    <TooltipTrigger
       as="div"
       class="Row SubItem"
       :class="twMerge(props.class, isRight ? 'flex-row-reverse' : 'flex-row')"
@@ -13,23 +13,23 @@
           class="h-3 grow bg-gradient-to-r"
           :class="isRight ? 'mr-1 from-slate-600/20 to-slate-600/0' : 'ml-1 from-slate-600/0 to-slate-600/20'" />
       </div>
-    </HoverCardTrigger>
-    <HoverCardContent
+    </TooltipTrigger>
+    <TooltipContent
       align="start"
       :alignOffset="-20"
       :side="isRight ? 'left' : 'right'"
       :avoidCollisions="false"
       class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
       <div v-html="props.tooltip" />
-      <HoverCardArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-    </HoverCardContent>
-  </HoverCardRoot>
+      <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+    </TooltipContent>
+  </TooltipRoot>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
-import { HoverCardArrow, HoverCardContent, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
+import { TooltipProvider, TooltipArrow, TooltipContent, TooltipRoot, TooltipTrigger } from 'reka-ui';
 
 const props = defineProps<{
   tooltip: string;
