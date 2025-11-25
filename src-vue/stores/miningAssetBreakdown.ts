@@ -142,6 +142,11 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
         The summation of all operational expenses that have been paid since you started mining.
       </p>
     `,
+    miningLosses: `
+      <p class="break-words whitespace-normal">
+        These are your cumulated losses from mining seats where your revenue was less than your bid.
+      </p>
+    `,
     bidMicronots: `
       <p class="break-words whitespace-normal">
         These argonots are available for mining, but your bot hasn't found a competitively priced bid.

@@ -56,7 +56,7 @@
           </template>
         </Expenses>
 
-        <Expenses :tooltip="breakdown.help.transactionFeesTotal" class="border-dashed" :height="itemHeight">
+        <Expenses :tooltip="breakdown.help.miningLosses" class="border-dashed" :height="itemHeight">
           ARGN
           <span class="hidden xl:inline">Mining</span>
           Losses

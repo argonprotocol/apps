@@ -173,7 +173,6 @@ function calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
 
 async function fetchBitcoinsMicrogonValueInVault() {
   const satsLocked = vaults.getTotalSatoshisLocked();
-  console.log('Total Satoshis Locked:', satsLocked);
   try {
     return await vaults.getMarketRate(satsLocked);
   } catch (error) {
@@ -188,12 +187,12 @@ Vue.onMounted(async () => {
   microgonsPerBitcoin.value = currency.microgonExchangeRateTo.BTC;
   dollarsPerArgon.value = currency.usdForArgon;
   dollarTargetPerArgon.value = currency.usdTargetForArgon;
-
   microgonsInCirculation.value = await currency.priceIndex.fetchMicrogonsInCirculation();
 
   const bitcoinsMicrogonValueInVault = await fetchBitcoinsMicrogonValueInVault();
   const bitcoinDollarValueInVault = dollarsPerArgon.value * currency.microgonToArgon(bitcoinsMicrogonValueInVault);
-  const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(0.001);
+  const finalPriceAfterTerraCollapse = 0.001;
+  const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(finalPriceAfterTerraCollapse);
   unlockValueInArgons.value = burnPerBitcoinDollar * bitcoinDollarValueInVault;
 });
 </script>

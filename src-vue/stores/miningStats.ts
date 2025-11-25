@@ -1,6 +1,4 @@
 import * as Vue from 'vue';
-import { useVaults } from './vaults.ts';
-import { SATOSHIS_PER_BITCOIN } from '../lib/Currency.ts';
 import { defineStore } from 'pinia';
 import { getMining } from './mainchain.ts';
 import { useCurrency } from './currency.ts';

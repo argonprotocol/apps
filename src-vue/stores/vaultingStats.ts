@@ -13,12 +13,6 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
 
   const averageVaultAPY = Vue.ref(0);
 
-  async function updateRevenue() {
-    try {
-      const list = Object.values(vaultsStore.vaultsById);
-    } catch (e) {}
-  }
-
   async function load() {
     await vaultsStore.load();
 
@@ -46,8 +40,6 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     } else {
       averageVaultAPY.value = 0;
     }
-
-    await updateRevenue();
   }
 
   const isLoadedPromise = load();

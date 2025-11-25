@@ -50,12 +50,6 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return bigIntMax(wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
   });
 
-  const operationalMicrogons = Vue.computed(() => {
-    if (wallets.vaultingWallet.availableMicrogons < MyVault.OperationalReserves)
-      return wallets.vaultingWallet.availableMicrogons;
-    return MyVault.OperationalReserves;
-  });
-
   const internalTreasuryPoolBonds = Vue.computed(() => {
     const revenue = myVault.data.stats;
     if (!revenue) return 0n;

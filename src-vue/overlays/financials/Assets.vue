@@ -94,11 +94,11 @@
                 </div>
               </div>
               <div class="flex flex-col items-center justify-center pb-10 text-2xl font-bold">
-                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicrogons).format('0,0.[0000000]') }}</div>
+                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicronots).format('0,0.[0000000]') }}</div>
                 ARGNOT
                 <div class="text-base font-light">
                   ( {{ currency.symbol
-                  }}{{ micronotToMoneyNm(wallets.holdingWallet.availableMicrogons).format('0,0.00') }} )
+                  }}{{ micronotToMoneyNm(wallets.holdingWallet.availableMicronots).format('0,0.00') }} )
                 </div>
               </div>
             </div>
