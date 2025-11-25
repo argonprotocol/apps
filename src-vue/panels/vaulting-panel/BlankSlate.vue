@@ -40,7 +40,7 @@
           <li class="w-1/4">
             <div class="text-4xl font-bold">
               <template v-if="isLoaded">
-                {{ vaultCount }}
+                {{ vaultingStats.vaultCount }}
               </template>
               <template v-else>---</template>
             </div>
@@ -50,7 +50,7 @@
           <li class="w-1/4">
             <div class="text-4xl font-bold">
               <template v-if="isLoaded">
-                {{ numeral(bitcoinLocked).format('0,0.[00000000]') }}
+                {{ numeral(vaultingStats.bitcoinLocked).format('0,0.[00000000]') }}
               </template>
               <template v-else>---</template>
             </div>
@@ -63,7 +63,7 @@
                 <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
                   {{ currency.symbol }}
                 </span>
-                <span>{{ microgonToMoneyNm(microgonValueInVaults).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+                <span>{{ microgonToMoneyNm(vaultingStats.microgonValueInVaults).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
               </template>
               <template v-else>---</template>
             </div>
@@ -73,7 +73,7 @@
           <li class="w-1/4">
             <div class="text-4xl font-bold">
               <template v-if="isLoaded">
-                {{ numeral(averageVaultAPY).formatIfElseCapped('< 1_000', '0,0.00', '0,0', 9_999) }}%
+                {{ numeral(vaultingStats.averageVaultAPY).formatIfElseCapped('< 1_000', '0,0.00', '0,0', 9_999) }}%
               </template>
               <template v-else>---</template>
             </div>
@@ -97,7 +97,7 @@
                           <td class="font-bold pl-1 pr-5 text-slate-800/70" colspan="2">
                             <header>
                               <template v-if="vault.isFiller">Pending Stabilization Vault</template>
-                              <template v-else>Stabilization Vault #{{ vault.id }}</template>
+                              <template v-else>Stabilization Vault #{{ abbreviateAddress(vault.operatorAccountId, 3) }}</template>
                             </header>
                           </td>
                         </tr>
@@ -148,13 +148,15 @@ import VaultImage from '../../assets/vault.svg?component';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { useVaults } from '../../stores/vaults.ts';
-import { SATOSHIS_PER_BITCOIN } from '../../lib/Currency.ts';
 import { useConfig } from '../../stores/config';
+import { abbreviateAddress } from '../../lib/Utils.ts';
+import { useVaultingStats } from '../../stores/vaultingStats.ts';
 
 const currency = useCurrency();
 const config = useConfig();
+const vaultsStore = useVaults();
 
-const vaultCount = Vue.ref(0);
+const vaultingStats = useVaultingStats();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -162,16 +164,12 @@ const isLoaded = Vue.ref(false);
 
 const cloneCount = Vue.computed(() => {
   const minVaults = 6;
-  return Math.ceil(minVaults / Math.max(1, vaultCount.value));
+  return Math.ceil(minVaults / Math.max(1, vaultingStats.vaultCount));
 });
 
-const vaults = Vue.ref([] as { id: number; btcFillPct: number; treasuryFillPct: number; isFiller?: boolean }[]);
-const bitcoinLocked = Vue.ref(0);
-const microgonValueInVaults = Vue.ref(0n);
-/**
- * Get btc revenue from last 10 days and add treasury pool revenue from last 10 days. Multiply by 365 and divide by capital contributed.
- */
-const averageVaultAPY = Vue.ref(0);
+const vaults = Vue.ref(
+  [] as { id: number; operatorAccountId: string; btcFillPct: number; treasuryFillPct: number; isFiller?: boolean }[],
+);
 
 function openHowVaultingWorksOverlay() {
   basicEmitter.emit('openHowVaultingWorksOverlay');
@@ -189,51 +187,41 @@ function getAnimationDelay(position: number): number {
 async function updateRevenue() {
   try {
     const list = Object.values(vaultsStore.vaultsById);
-    const vaultApys: number[] = [];
     vaults.value = [];
     for (const vault of list) {
-      const apy = vaultsStore.calculateVaultApy(vault.vaultId);
       const maxSpace = vault.securitization - vault.recoverySecuritization();
       const bitcoinSpaceUsed = maxSpace - vault.availableBitcoinSpace();
+      const isAlreadyFound = vaults.value.some(v => v.operatorAccountId === vault.operatorAccountId);
+      if (isAlreadyFound) continue;
+
       vaults.value.push({
         id: vault.vaultId,
+        operatorAccountId: vault.operatorAccountId,
         btcFillPct: Math.round((Number(bitcoinSpaceUsed) / Number(maxSpace)) * 100),
         treasuryFillPct: vaultsStore.getTreasuryFillPct(vault.vaultId),
       });
-      vaultApys.push(apy);
     }
 
     // Add filler items if less than 6 vaults are present, with negative ids to prevent conflict
     if (vaults.value.length < 6) {
       let increment = -1;
       while (vaults.value.length < 6) {
-        vaults.value.push({ id: increment--, btcFillPct: 0, treasuryFillPct: 0, isFiller: true });
+        vaults.value.push({
+          id: increment--,
+          operatorAccountId: '',
+          btcFillPct: 0,
+          treasuryFillPct: 0,
+          isFiller: true,
+        });
       }
     }
 
-    if (vaultApys.length > 0) {
-      averageVaultAPY.value = vaultApys.reduce((a, b) => a + b, 0) / vaultApys.length;
-    } else {
-      averageVaultAPY.value = 0;
-    }
-    vaultCount.value = list.length;
-    const satsLocked = vaultsStore.getTotalSatoshisLocked();
-    bitcoinLocked.value = Number(satsLocked) / Number(SATOSHIS_PER_BITCOIN);
-    vaultsStore
-      .getMarketRate(satsLocked)
-      .then(rate => {
-        microgonValueInVaults.value = rate;
-      })
-      .catch(() => {
-        microgonValueInVaults.value = 0n;
-      });
     isLoaded.value = true;
   } catch (error) {
     console.error('Error loading vaults:', error);
   }
 }
 
-const vaultsStore = useVaults();
 Vue.onMounted(async () => {
   await vaultsStore.load();
   await updateRevenue();

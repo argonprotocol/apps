@@ -59,22 +59,22 @@ numeralOriginal.fn.formatIfElseCapped = function (
 
 export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>) {
   return {
-    microgonToArgonNm(microgons: bigint): Numeral {
+    microgonToArgonNm(this: void, microgons: bigint): Numeral {
       return numeral(currency.microgonToArgon(microgons));
     },
-    micronotToArgonNm(micronots: bigint): Numeral {
+    micronotToArgonNm(this: void, micronots: bigint): Numeral {
       return numeral(currency.micronotToArgon(micronots));
     },
-    micronotToArgonotNm(micronots: bigint): Numeral {
+    micronotToArgonotNm(this: void, micronots: bigint): Numeral {
       return numeral(currency.micronotToArgonot(micronots));
     },
-    microgonToMoneyNm(microgons: bigint): Numeral {
+    microgonToMoneyNm(this: void, microgons: bigint): Numeral {
       return numeral(currency.microgonTo(microgons));
     },
-    micronotToMoneyNm(micronots: bigint): Numeral {
+    micronotToMoneyNm(this: void, micronots: bigint): Numeral {
       return numeral(currency.micronotTo(micronots));
     },
-    microgonToBtcNm(microgons: bigint): Numeral {
+    microgonToBtcNm(this: void, microgons: bigint): Numeral {
       return numeral(currency.microgonToBtc(microgons));
     },
   };

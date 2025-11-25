@@ -1,5 +1,5 @@
 import BigNumber from 'bignumber.js';
-import { MICROGONS_PER_ARGON, SATS_PER_BTC } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON, SATS_PER_BTC, PriceIndex as PriceIndexModel } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt, CurrencyKey, ICurrencyKey, IExchangeRates, PriceIndex } from '@argonprotocol/apps-core';
 import IDeferred from '../interfaces/IDeferred';
 import { createDeferred } from './Utils';
@@ -21,14 +21,17 @@ const EXCHANGE_RATE_CACHE_DURATION = 24 * 60 * 60e3; // 24 hours in milliseconds
 export class Currency {
   // These exchange rates are relative to the argon, which means the ARGN is always 1
   public microgonExchangeRateTo: IExchangeRates = {
-    ARGN: BigInt(1 * MICROGONS_PER_ARGON),
-    ARGNOT: BigInt(1 * MICROGONS_PER_ARGON),
-    USD: BigInt(1 * MICROGONS_PER_ARGON),
-    EUR: BigInt(1 * MICROGONS_PER_ARGON),
-    GBP: BigInt(1 * MICROGONS_PER_ARGON),
-    INR: BigInt(1 * MICROGONS_PER_ARGON),
-    BTC: BigInt(1 * MICROGONS_PER_ARGON),
+    ARGN: BigInt(MICROGONS_PER_ARGON),
+    ARGNOT: BigInt(MICROGONS_PER_ARGON),
+    USD: BigInt(MICROGONS_PER_ARGON),
+    EUR: BigInt(MICROGONS_PER_ARGON),
+    GBP: BigInt(MICROGONS_PER_ARGON),
+    INR: BigInt(MICROGONS_PER_ARGON),
+    BTC: BigInt(MICROGONS_PER_ARGON),
   };
+
+  public usdForArgon: number;
+  public usdTargetForArgon: number;
 
   public records: Record<ICurrencyKey, ICurrencyRecord> = {
     [CurrencyKey.ARGN]: { key: CurrencyKey.ARGN, symbol: '₳', name: 'Argon' },
@@ -62,6 +65,8 @@ export class Currency {
     this.isLoadedDeferred = createDeferred<void>();
     this.isLoadedPromise = this.isLoadedDeferred.promise;
     this.priceIndex = priceIndex;
+    this.usdForArgon = 0;
+    this.usdTargetForArgon = 0;
   }
 
   private async updateExchangeRates() {
@@ -88,6 +93,10 @@ export class Currency {
         this.updateExchangeRates(),
         this.priceIndex.fetchMicrogonExchangeRatesTo(),
       ]);
+
+      const priceIndexRaw: PriceIndexModel = this.priceIndex.current;
+      this.usdForArgon = priceIndexRaw.argonUsdPrice?.toNumber() ?? 0;
+      this.usdTargetForArgon = priceIndexRaw.argonUsdTargetPrice?.toNumber() ?? 0;
 
       this.microgonExchangeRateTo.USD = microgonExchangeRateTo.USD;
       this.microgonExchangeRateTo.ARGNOT = microgonExchangeRateTo.ARGNOT;

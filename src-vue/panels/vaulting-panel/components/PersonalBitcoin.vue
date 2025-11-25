@@ -336,7 +336,6 @@ Vue.onUnmounted(() => {
 });
 
 defineExpose({
-  personalUtxo: personalLock,
   unlockPrice,
 });
 </script>

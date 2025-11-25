@@ -5,7 +5,7 @@
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >
-    <div class="flex flex-row items-center w-1/2 pointer-events-none relative top-px">
+    <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
         Argon Investor Console
@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <div class="flex-grow flex justify-center pointer-events-none">
+    <div class="flex w-1/3 justify-center pointer-events-none">
       <ul
         ref="toggleRef"
         class="TOGGLE flex flex-row fit-content bg-[#E9EBF1] border border-[#b8b9bd] rounded text-center text-slate-600 pointer-events-auto"
@@ -40,7 +40,7 @@
     </div>
 
     <div v-if="controller.isLoaded"
-      class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/2 pointer-events-none relative top-[1px]"
+      class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/3 grow pointer-events-none relative top-[1px]"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
       <div :class="[controller.panelKey === PanelKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">

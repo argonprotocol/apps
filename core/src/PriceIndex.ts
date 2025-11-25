@@ -40,15 +40,15 @@ export class PriceIndex {
     api ??= await this.clients.prunedClientOrArchivePromise;
     const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
     const priceIndex = await this.current.load(api as any);
+
     if (priceIndex.argonUsdPrice === undefined) {
       return this.exchangeRates;
     }
-    const usdForArgon = priceIndex.argonUsdPrice;
 
     // These exchange rates should be relative to the argon
-
-    const microgonsForUsd = this.calculateExchangeRateInMicrogons(BigNumber(1), usdForArgon);
-    let microgonsForArgnot = this.calculateExchangeRateInMicrogons(priceIndex.argonotUsdPrice!, usdForArgon);
+    const usdForArgonBn = priceIndex.argonUsdPrice;
+    const microgonsForUsd = this.calculateExchangeRateInMicrogons(BigNumber(1), usdForArgonBn);
+    let microgonsForArgnot = this.calculateExchangeRateInMicrogons(priceIndex.argonotUsdPrice!, usdForArgonBn);
 
     if (
       priceIndex.argonotUsdPrice! === BigNumber(0) &&
@@ -56,7 +56,7 @@ export class PriceIndex {
     ) {
       microgonsForArgnot = microgonsForArgnot / 10n;
     }
-    const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgon);
+    const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgonBn);
     this.exchangeRates = {
       ARGN: microgonsForArgon,
       USD: microgonsForUsd,

@@ -59,8 +59,8 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(globalAPY).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</span>
-            <label>Current APY</label>
+            <span>{{ numeral(globalROI).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</span>
+            <label>Current Profit</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             Your annual percentage yield based on frames that have been completed.
@@ -74,262 +74,7 @@
           <header class="text-[18px] font-bold py-2 text-slate-900/80 border-b border-slate-400/30">
             Asset Breakdown
           </header>
-          <ul class="relative flex flex-col items-center whitespace-nowrap w-full min-h-6/12 mb-4 text-md">
-            <li class="flex flex-col w-full min-h-[calc(100%/7)] pt-2 pb-3">
-              <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
-                  <ArgonIcon class="w-7 h-7 text-argon-600/70 mr-2" />
-                  <div class="grow">Available Argons</div>
-                  <div class="pr-1">
-                    {{ currency.symbol
-                    }}{{ microgonToMoneyNm(wallets.miningWallet.availableMicrogons).format('0,0.00') }}
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
-                  <p class="break-words whitespace-normal">
-                     These argons are currently sitting unused.
-                  </p>
-                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </HoverCardContent>
-              </HoverCardRoot>
-              <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
-                <HoverCardRoot :openDelay="200" :closeDelay="100">
-                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
-                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{microgonToArgonNm(sidelinedMicrogons).format('0,0.[00]')}} Sidelined
-                  </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                    <p class="break-words whitespace-normal" v-if="sidelinedMicrogons > 0n">
-                      These argons have been sidelined from usage. Click the Activate button to enable your
-                      bot to use them to win more mining seats.
-                    </p>
-                    <p class="break-words whitespace-normal" v-else>
-                      You can sideline Argonots to make them unavailable for use by your bot. You can think of this as a way to put a pause on the use of some of your Argonots.
-                    </p>
-
-                    <div v-if="ruleUpdateError" class="text-red-700 font-semibold my-2">
-                      {{ ruleUpdateError }}
-                    </div>
-                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full" v-if="sidelinedMicrogons > 0n">
-                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
-                              :class="[!isUpdatingRules ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
-                              @click="activateMicrogons" :disabled="isUpdatingRules">
-                        {{ !isUpdatingRules ? 'Activate These' : 'Activating' }}
-                        {{ microgonToArgonNm(sidelinedMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons for
-                        Mining
-                      </button>
-                      <span :class="{active:isUpdatingRules}" spinner class="ml-2 inline-block mt-1" />
-                    </div>
-                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </HoverCardContent>
-                </HoverCardRoot>
-                <HoverCardRoot :openDelay="200" :closeDelay="100">
-                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
-                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{microgonToArgonNm(unusedMicrogons).format('0,0.[00]')}} Waiting for Usage
-                  </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                    <p class="break-words whitespace-normal">
-                      These argons have been activated for mining, but your bot hasn't found a competitively priced bid.
-                    </p>
-                    <div v-if="ruleUpdateError" class="text-red-700 font-semibold my-2">
-                      {{ ruleUpdateError }}
-                    </div>
-                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
-                              :class="[!isUpdatingRules ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
-                              @click="sidelineMicrogons" :disabled="isUpdatingRules">
-                        {{ !isUpdatingRules ? 'Sideline These' : 'Sidelining' }}
-                        {{ microgonToArgonNm(unusedMicrogons).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons
-                      </button>
-                      <span :class="{active:isUpdatingRules}" spinner class="ml-2 inline-block mt-1" />
-                    </div>
-                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </HoverCardContent>
-                </HoverCardRoot>
-              </div>
-            </li>
-            <li class="flex flex-col w-full border-t border-gray-600/20 border-dashed pt-2 pb-3">
-              <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
-                  <ArgonotIcon class="w-7 h-7 text-argon-600/70 mr-2" />
-                  <div class="grow">Available Argonots</div>
-                  <div class="pr-1">
-                    {{ currency.symbol
-                    }}{{ micronotToArgonotNm(wallets.miningWallet.availableMicronots).format('0,0.00') }}
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
-                  <p class="break-words whitespace-normal">
-                    These argonots are currently sitting unused.
-                  </p>
-                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </HoverCardContent>
-              </HoverCardRoot>
-              <div class="flex flex-col ml-9 gap-y-1 text-slate-900/60">
-                <HoverCardRoot :openDelay="200" :closeDelay="100">
-                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
-                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{micronotToArgonotNm(sidelinedMicronots).format('0,0.[00]')}} Sidelined
-                  </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                    <p class="break-words whitespace-normal" v-if="sidelinedMicronots > 0n">
-                      These argonots have been sidelined from usage by your bot. Click the Activate button to enable your
-                      bot to use them to win more mining seats.
-                    </p>
-                    <p class="break-words whitespace-normal" v-else>
-                      You can sideline Argonots to make them unavailable for use by your bot. You can think of this as a way to put a pause on the use of some of your Argonots.
-                    </p>
-
-                    <div v-if="ruleUpdateError" class="text-red-700 font-semibold my-2">
-                      {{ ruleUpdateError }}
-                    </div>
-                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full" v-if="sidelinedMicronots > 0n">
-                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
-                              :class="[!isUpdatingRules ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
-                              @click="activateMicronots" :disabled="isUpdatingRules">
-                        {{ !isUpdatingRules ? 'Activate These' : 'Activating' }}
-                        {{ microgonToArgonNm(sidelinedMicronots).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons for
-                        Mining
-                      </button>
-                      <span :class="{active:isUpdatingRules}" spinner class="ml-2 inline-block mt-1" />
-                    </div>
-                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </HoverCardContent>
-                </HoverCardRoot>
-                <HoverCardRoot :openDelay="200" :closeDelay="100">
-                  <HoverCardTrigger as="div" class="border-t border-gray-600/20 border-dashed pt-2 relative hover:text-argon-600">
-                    <ArrowTurnDownRightIcon class="w-5 h-5 text-slate-600/40 absolute top-1/2 -translate-y-1/2 -translate-x-[130%] left-0" />
-                    {{micronotToArgonotNm(unusedMicronots).format('0,0.[00]')}} Waiting for Usage
-                  </HoverCardTrigger>
-                  <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                    <p class="break-words whitespace-normal">
-                      These argonots are available for mining, but your bot hasn't found a competitively priced bid.
-                    </p>
-
-                    <div v-if="ruleUpdateError" class="text-red-700 font-semibold my-2">
-                      {{ ruleUpdateError }}
-                    </div>
-                    <div class="flex flex-row items-center border-t border-gray-600/20 pt-4 mt-3 w-full">
-                      <button class="text-white font-bold px-5 py-2 rounded-md cursor-pointer"
-                              :class="[!isUpdatingRules ? 'bg-argon-600 hover:bg-argon-700' : 'bg-argon-600/60']"
-                              @click="sidelineMicronots" :disabled="isUpdatingRules">
-                        {{ !isUpdatingRules ? 'Sideline These' : 'Sidelining' }}
-                        {{ microgonToArgonNm(unusedMicronots).formatIfElse('< 100', '0,0.[00]', '0,0') }} Argons
-                      </button>
-                      <span :class="{active:isUpdatingRules}" spinner class="ml-2 inline-block mt-1" />
-                    </div>
-                    <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </HoverCardContent>
-                </HoverCardRoot>
-              </div>
-            </li>
-            <li class="flex flex-row items-center w-full border-t border-gray-600/20 border-dashed py-2">
-              <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
-                  <MiningBidIcon class="w-7 h-7 text-argon-600/70 mr-2" />
-                  <div class="grow">Winning <span class="hidden 2xl:inline">Mining</span> Bids ({{ numeral(stats.myMiningBids.bidCount).format('0,0') }})</div>
-                  <div class="pr-1">
-                    {{ currency.symbol
-                    }}{{ microgonToMoneyNm(wallets.miningBidValue).format('0,0.00') }}
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                  <p class="break-words whitespace-normal">
-                    You have a total of {{ numeral(stats.myMiningBids.bidCount).format('0,0') }} winning bids in today's mining auction. They
-                    include both argons and argonots at a total value of {{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningBidValue).format('0,0.00') }}:
-                  </p>
-
-                  <table class="text-slate-800/50 w-full my-3">
-                    <thead>
-                      <tr>
-                        <th class="w-1/4 h-10">Token</th>
-                        <th class="w-1/4 text-right">Per Seat</th>
-                        <th class="w-1/4 text-right">Total</th>
-                        <th class="w-1/4 h-10 text-right">Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td class="pr-5 border-t border-gray-600/20 h-10">Argons</td>
-                        <td class="border-t border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicrogons / BigInt(stats.myMiningBids.bidCount || 1)).format('0,0.00') }}</td>
-                        <td class="border-t border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicrogons).format('0,0.00') }}</td>
-                        <td class="border-t border-gray-600/20 text-right">{{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningBidMicrogons).format('0,0.00') }}</td>
-                      </tr>
-                      <tr>
-                        <td class="pr-5 border-y border-gray-600/20 h-10">Argonots</td>
-                        <td class="border-y border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicronots / BigInt(stats.myMiningBids.bidCount || 1)).format('0,0.00') }}</td>
-                        <td class="border-y border-gray-600/20 text-right">{{ microgonToMoneyNm(wallets.miningBidMicronots).format('0,0.00') }}</td>
-                        <td class="border-y border-gray-600/20 text-right">{{ currency.symbol }}{{ microgonToMoneyNm(currency.micronotToMicrogon(wallets.miningBidMicronots)).format('0,0.00') }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  <p class="break-words whitespace-normal">
-                    If any bids lose, all associated tokens will automatically revert back to your mining wallet.
-                </p>
-                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </HoverCardContent>
-              </HoverCardRoot>
-            </li>
-            <li class="flex flex-row items-center w-full border-t border-gray-600/20 border-dashed py-2">
-              <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
-                  <MiningSeatIcon class="w-7 h-7 text-argon-600/70 mr-2" />
-                  <div class="grow">Active <span class="hidden 2xl:inline">Mining</span> Seats ({{ numeral(stats.myMiningSeats.seatCount).format('0,0') }})</div>
-                  <div class="pr-1">
-                    {{ currency.symbol
-                    }}{{ microgonToMoneyNm(wallets.miningSeatValue).format('0,0.00') }}
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                  <p class="break-words whitespace-normal">
-                    You have a total of {{ numeral(stats.myMiningSeats.seatCount).format('0,0') }} active mining seats. You won them using
-                    a combination of argons and argonots. They have an currently estimated value of {{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningSeatValue).format('0,0.00') }}.
-                  </p>
-                  <p class="break-words whitespace-normal mt-3">
-                    These mining seats have {{ microgonToMoneyNm(stats.myMiningSeats.micronotsStakedTotal).format('0,0.00') }} argonots
-                    which will be released back into your wallet once the associated mining cycle completes.
-                  </p>
-                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </HoverCardContent>
-              </HoverCardRoot>
-            </li>
-            <li class="flex flex-row items-center w-full  border-t border-gray-600/40 py-2 text-red-900/70">
-              <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-red-600">
-                  <div class="grow pl-1"><span class="hidden 2xl:inline">Operational</span> Expenses</div>
-                  <div class="pr-1">
-                    -{{ currency.symbol
-                    }}{{ microgonToMoneyNm(stats.global.transactionFeesTotal).format('0,0.00') }}
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-md text-slate-900/60">
-                  <p class="break-words whitespace-normal">
-                    The summation of all operational expenses that have been paid since you started mining.
-                  </p>
-                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </HoverCardContent>
-              </HoverCardRoot>
-            </li>
-            <li class="flex flex-row items-center justify-between w-full border-t border-b border-gray-600/40 py-2 font-bold">
-              <HoverCardRoot :openDelay="200" :closeDelay="100">
-                <HoverCardTrigger as="div" class="flex flex-row items-center w-full hover:text-argon-600">
-                  <div class="grow pl-1">Total Value</div>
-                  <div class="pr-1">
-                    {{ currency.symbol
-                    }}{{ microgonToMoneyNm(wallets.totalMiningResources).format('0,0.00') }}
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent align="start" :alignOffset="-20" side="right" :avoidCollisions="false" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-fit text-slate-900/60">
-                  <p class="break-words whitespace-normal font-normal">
-                    The total value of your vault's assets.
-                  </p>
-                  <HoverCardArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </HoverCardContent>
-              </HoverCardRoot>
-            </li>
-          </ul>
+          <MiningAssetBreakdown />
           <div class="grow flex flex-col items-center justify-end">
             <div @click="openBotEditOverlay" class="relative text-center mb-5 text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
               <MinerIcon class="w-20 h-20 mt-5 inline-block mb-1" />
@@ -658,43 +403,32 @@ dayjs.extend(utc);
 
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
-import { calculateAPY } from '../../lib/Utils';
+import { calculateProfitPct } from '../../lib/Utils';
 import { useStats } from '../../stores/stats';
 import { useCurrency } from '../../stores/currency';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import CountupClock from '../../components/CountupClock.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import AuctionIcon from '../../assets/auction.svg?component';
-import { ArrowTurnDownRightIcon } from '@heroicons/vue/24/outline';
 import ActivityIcon from '../../assets/activity.svg?component';
 import BlocksIcon from '../../assets/blocks.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { TICK_MILLIS } from '../../lib/Env.ts';
-import { useWallets } from '../../stores/wallets';
 import MinerIcon from '../../assets/miner.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import ArgonIcon from '../../assets/resources/argon.svg?component';
-import ArgonotIcon from '../../assets/resources/argonot.svg?component';
-import MiningBidIcon from '../../assets/resources/mining-bid.svg?component';
-import MiningSeatIcon from '../../assets/resources/mining-seat.svg?component';
 import ArgonBlocksOverlay from '../../overlays/ArgonBlocksOverlay.vue';
 import BitcoinBlocksOverlay from '../../overlays/BitcoinBlocksOverlay.vue';
 import FrameSlider from '../../components/FrameSlider.vue';
 import { IChartItem } from '../../components/FrameSlider.vue';
-import { HoverCardRoot, HoverCardTrigger, HoverCardContent, HoverCardArrow } from 'reka-ui';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import { useConfig } from '../../stores/config.ts';
-import { useBot } from '../../stores/bot.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
-import { toRaw } from 'vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
+import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
 
 const stats = useStats();
 const currency = useCurrency();
-const config = useConfig();
 
-const wallets = useWallets();
+const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const chartItems = Vue.ref<IChartItem[]>([]);
@@ -702,73 +436,6 @@ const chartItems = Vue.ref<IChartItem[]>([]);
 function getPercent(value: bigint | number, total: bigint | number): number {
   if (total === 0n || total === 0) return 0;
   return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
-}
-
-const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
-
-const sidelinedMicrogons = Vue.computed(() => {
-  if (wallets.miningWallet.availableMicrogons >= config.biddingRules.sidelinedMicrogons) {
-    return config.biddingRules.sidelinedMicrogons;
-  }
-  return 0n;
-});
-
-const sidelinedMicronots = Vue.computed(() => {
-  if (wallets.miningWallet.availableMicronots >= config.biddingRules.sidelinedMicronots) {
-    return config.biddingRules.sidelinedMicronots;
-  }
-  return 0n;
-});
-
-const unusedMicrogons = Vue.computed(() => {
-  const unused = wallets.miningWallet.availableMicrogons - config.biddingRules.sidelinedMicrogons;
-  return unused > 0n ? unused : 0n;
-});
-
-const unusedMicronots = Vue.computed(() => {
-  const unused = wallets.miningWallet.availableMicronots - config.biddingRules.sidelinedMicronots;
-  return unused > 0n ? unused : 0n;
-});
-
-const bot = useBot();
-const isUpdatingRules = Vue.ref(false);
-const ruleUpdateError = Vue.ref('');
-
-async function activateMicrogons() {
-  const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-  config.biddingRules.sidelinedMicrogons -= sidelinedMicrogons.value;
-  await saveUpdatedBiddingRules(startRules);
-}
-
-async function activateMicronots() {
-  const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-  config.biddingRules.sidelinedMicronots -= sidelinedMicronots.value;
-  await saveUpdatedBiddingRules(startRules);
-}
-
-async function sidelineMicronots() {
-  const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-  config.biddingRules.sidelinedMicronots += unusedMicronots.value;
-  await saveUpdatedBiddingRules(startRules);
-}
-
-async function sidelineMicrogons() {
-  const startRules = JsonExt.stringify(toRaw(config.biddingRules));
-  config.biddingRules.sidelinedMicrogons += unusedMicrogons.value;
-  await saveUpdatedBiddingRules(startRules);
-}
-
-async function saveUpdatedBiddingRules(startRules: string) {
-  try {
-    isUpdatingRules.value = true;
-    await bot.resyncBiddingRules();
-    config.saveBiddingRules();
-  } catch (e) {
-    ruleUpdateError.value = `Sorry, this allocation failed. Details: ${String(e)}`;
-    config.biddingRules = JsonExt.parse(startRules);
-  } finally {
-    isUpdatingRules.value = false;
-  }
 }
 
 const globalMicrogonsEarned = Vue.computed(() => {
@@ -784,8 +451,8 @@ const globalMicrogonsInvested = Vue.computed(() => {
   return stats.global.framedCost;
 });
 
-const globalAPY = Vue.computed(() => {
-  return calculateAPY(globalMicrogonsInvested.value, globalMicrogonsEarned.value, stats.activeFrames);
+const globalROI = Vue.computed(() => {
+  return calculateProfitPct(globalMicrogonsInvested.value, globalMicrogonsEarned.value) * 100;
 });
 
 const currentFrameEarnings = Vue.computed(() => {
