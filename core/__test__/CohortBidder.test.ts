@@ -48,6 +48,22 @@ describe('CohortBidder unit tests', () => {
     expect(accountsToBidWith.length).toBe(10);
   });
 
+  it('bids with min bid before increment', async () => {
+    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: Argons(5),
+      accountBalance: Argons(51),
+      bidIncrement: Argons(10),
+    });
+    cohortBidder.currentBids.bids = createBids(10, Argons(1.0));
+    cohortBidder.currentBids.atTick = 10;
+    // @ts-expect-error - private var
+    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
+    expect(submitBids).toHaveBeenCalledTimes(1);
+    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
+    expect(microgonsPerSeat).toBe(Argons(5));
+    expect(accountsToBidWith.length).toBe(10);
+  });
+
   it('bids up to max budget', async () => {
     const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
       maxBid: Argons(0.51),
@@ -465,9 +481,9 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       });
     });
 
-    let waitForStopPromise: () => void;
+    let resolveWaitForStopPromise: () => void;
     const waitForStop = new Promise<void>(resolve => {
-      waitForStopPromise = resolve;
+      resolveWaitForStopPromise = resolve;
     });
     const { unsubscribe } = await miningBids.onCohortChange({
       async onBiddingStart(cohortStartingFrameId) {
@@ -508,7 +524,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         console.log(`Cohort ${cohortStartingFrameId} ended bidding`);
         await aliceBidder.stop(true);
         await bobBidder.stop(true);
-        waitForStopPromise();
+        resolveWaitForStopPromise();
       },
     });
     await waitForStop;
@@ -535,20 +551,25 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     });
 
     // wait for the slot to fully complete
-    await new Promise(resolve =>
-      subscribeToFinalizedStorageChanges(aliceClient, [
-        {
-          key: aliceClient.query.miningSlot.nextFrameId.key(),
-          handler: async api => {
-            const y = await api.query.miningSlot.nextFrameId();
-            if (y.toNumber() >= bobBidder!.cohortStartingFrameId) {
-              resolve(true);
-            }
+    const finalizedBlock = await aliceClient.rpc.chain.getFinalizedHead();
+    const finalizedClient = await aliceClient.at(finalizedBlock);
+    const finalizedNextFrameId = await finalizedClient.query.miningSlot.nextFrameId();
+    if (finalizedNextFrameId.toNumber() === bobBidder!.cohortStartingFrameId) {
+      await new Promise(resolve =>
+        // this is overkill here, but it's a place to test it
+        subscribeToFinalizedStorageChanges(aliceClient, [
+          {
+            key: aliceClient.query.miningSlot.nextFrameId.key(),
+            handler: async api => {
+              const y = await api.query.miningSlot.nextFrameId();
+              if (y.toNumber() !== bobBidder!.cohortStartingFrameId) {
+                resolve(true);
+              }
+            },
           },
-        },
-      ]),
-    );
-
+        ]),
+      );
+    }
     const aliceMiners = await alice.miningSeatsAndBids();
     const cohortStartingFrameId = aliceBidder!.cohortStartingFrameId;
     const bobMiners = await bob.miningSeatsAndBids();
@@ -563,12 +584,15 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       fees: bobBidder!.txFees,
       bidsAttempted: bobBidder!.bidsAttempted,
     };
-    console.log({ cohortStartingFrameId, aliceStats, bobStats });
+    console.log({
+      cohortStartingFrameId,
+      aliceStats,
+      bobStats,
+      bobMiners: bobMiners.filter(x => x.hasWinningBid || !!x.seat),
+    });
 
-    const bobActive = bobMiners.filter(x => x.seat !== undefined && x.seat.startingFrameId === cohortStartingFrameId);
-    const aliceActive = aliceMiners.filter(
-      x => x.seat !== undefined && x.seat.startingFrameId === cohortStartingFrameId,
-    );
+    const bobActive = bobMiners.filter(x => x.seat?.startingFrameId === cohortStartingFrameId);
+    const aliceActive = aliceMiners.filter(x => x.seat?.startingFrameId === cohortStartingFrameId);
 
     expect(bobActive.length).toBe(bobStats.seatsWon);
     expect(bobBidder!.bidsAttempted).toBeGreaterThanOrEqual(4);

@@ -305,6 +305,9 @@ export class CohortBidder {
       beatableBids.push(this.clampBid(0n));
     }
     for (const { bidMicrogons } of bids) {
+      if (this.options.minBid > bidMicrogons && !beatableBids.includes(this.options.minBid)) {
+        beatableBids.push(this.options.minBid);
+      }
       const nextBid = this.clampBid(bidMicrogons + this.options.bidIncrement);
 
       if (nextBid >= bidMicrogons + this.minIncrement && !beatableBids.includes(nextBid)) {

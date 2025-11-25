@@ -50,7 +50,7 @@ provision:
       apt-get update
 
       # basic deps
-      apt-get install -y curl git vim build-essential pkg-config
+      apt-get install -y curl git vim build-essential pkg-config libssl-dev
 
       # nodejs
       apt-get install -y nodejs

@@ -1,4 +1,4 @@
-import { teardown } from '@argonprotocol/testing';
+import { closeOnTeardown, teardown } from '@argonprotocol/testing';
 import { MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
@@ -34,6 +34,7 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     const db = await createTestDb();
     const walletBalances = new WalletBalances(clients, walletKeys, Promise.resolve(db));
     await walletBalances.load();
+    closeOnTeardown(walletBalances);
     const onBalanceChange = vi.fn();
     const onTransferIn = vi.fn();
     const onBlockDeleted = vi.fn();
