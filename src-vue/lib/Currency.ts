@@ -94,7 +94,7 @@ export class Currency {
         this.priceIndex.fetchMicrogonExchangeRatesTo(),
       ]);
 
-      const priceIndexRaw: PriceIndexModel = this.priceIndex.raw!;
+      const priceIndexRaw: PriceIndexModel = this.priceIndex.current;
       this.usdForArgon = priceIndexRaw.argonUsdPrice?.toNumber() ?? 0;
       this.usdTargetForArgon = priceIndexRaw.argonUsdTargetPrice?.toNumber() ?? 0;
 

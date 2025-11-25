@@ -20,7 +20,6 @@ export type IMainchainExchangeRates = Omit<IExchangeRates, 'EUR' | 'GBP' | 'INR'
 export class PriceIndex {
   public current: PriceIndexModel;
   public exchangeRates: IMainchainExchangeRates;
-  public raw?: PriceIndexModel;
 
   constructor(public clients: MainchainClients) {
     this.current = new PriceIndexModel();
@@ -58,7 +57,6 @@ export class PriceIndex {
       microgonsForArgnot = microgonsForArgnot / 10n;
     }
     const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgonBn);
-    this.raw = priceIndex;
     this.exchangeRates = {
       ARGN: microgonsForArgon,
       USD: microgonsForUsd,
