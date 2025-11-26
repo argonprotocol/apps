@@ -23,7 +23,7 @@
               <header>About This App</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem class="py-2">
+            <DropdownMenuItem @click="() => openSecuritySettingsOverlay()" class="py-2">
               <header>Security and Recovery</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
@@ -93,14 +93,10 @@ import {
 } from 'reka-ui';
 import ConfigIcon from '../assets/config.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
-import { useConfig } from '../stores/config';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
-import { useInstaller } from '../stores/installer';
 import { useTour } from '../stores/tour';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
-const config = useConfig();
-const installer = useInstaller();
 const tour = useTour();
 
 const isOpen = Vue.ref(false);
@@ -168,14 +164,6 @@ function openAboutOverlay() {
 function openComplianceOverlay() {
   basicEmitter.emit('openComplianceOverlay');
   isOpen.value = false;
-}
-
-function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' });
-}
-
-function openFundVaultingAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' });
 }
 
 function openTroubleshooting() {
