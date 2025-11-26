@@ -47,21 +47,25 @@ impl Utils {
     }
 
     pub fn get_network_name() -> String {
-        std::env::var("ARGON_NETWORK_NAME").unwrap_or(
-            if Self::is_experimental() {
-                "testnet"
-            } else {
-                #[cfg(debug_assertions)]
-                {
-                    "testnet"
-                }
-                #[cfg(not(debug_assertions))]
-                {
-                    "mainnet"
-                }
-            }
-            .to_string(),
-        )
+        // explicit override always wins
+        if let Ok(name) = std::env::var("ARGON_NETWORK_NAME") {
+            return name;
+        }
+
+        // cargo tauri dev → TAURI_ENV="development"
+        if std::env::var("TAURI_ENV")
+            .map(|v| v == "development")
+            .unwrap_or(false)
+        {
+            return "testnet".into();
+        }
+
+        // packaged app behavior
+        if Self::is_experimental() {
+            "testnet".into()
+        } else {
+            "mainnet".into()
+        }
     }
 
     pub fn get_relative_config_instance_dir() -> PathBuf {

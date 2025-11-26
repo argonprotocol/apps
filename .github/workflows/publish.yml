@@ -110,7 +110,7 @@ jobs:
           prerelease: true
           updaterJsonKeepUniversal: true
           includeUpdaterJson: true
-          args: ${{ matrix.args }} --config "${{ env.TAURI_CONFIG }}"
+          args: ${{ matrix.args }} --config '${{ env.TAURI_CONFIG }}'
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}
