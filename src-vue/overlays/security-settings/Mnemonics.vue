@@ -26,20 +26,9 @@ const walletKeys = useWalletKeys();
 
 const isCopied = Vue.ref(false);
 const masterMnemonic = Vue.ref('');
-
-Vue.onMounted(() => {
-  walletKeys.exposeMasterMnemonic().then(x => {
-    masterMnemonic.value = x;
-  });
-});
-
-const words = Vue.ref(() => masterMnemonic.value.split(' '));
+const words = Vue.computed(() => masterMnemonic.value.split(' '));
 
 const emit = defineEmits(['close', 'goTo']);
-
-function closeOverlay() {
-  emit('close');
-}
 
 function copyToClipboard() {
   navigator.clipboard.writeText(masterMnemonic.value);
@@ -48,4 +37,10 @@ function copyToClipboard() {
     isCopied.value = false;
   }, 2000);
 }
+
+Vue.onMounted(() => {
+  walletKeys.exposeMasterMnemonic().then(x => {
+    masterMnemonic.value = x;
+  });
+});
 </script>

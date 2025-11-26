@@ -3,11 +3,11 @@
     "archiveUrl": "ws://localhost:9944",
     "tickMillis": 2000,
     "bitcoinBlockMillis": 20000,
-    "esploraHost": "http://localhost:55417",
+    "esploraHost": "http://localhost:55430",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 882051753,
-    "biddingStartTick": 882051753
+    "genesisTick": 882057370,
+    "biddingStartTick": 882057370
   },
   "localnet": {
     "archiveUrl": "ws://localhost:9944",
