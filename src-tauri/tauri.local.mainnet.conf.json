@@ -1,0 +1,12 @@
+{
+  "identifier": "com.argon.apps.local",
+  "bundle": {
+    "icon": [
+      "icons/local/mainnet/32x32.png",
+      "icons/local/mainnet/128x128.png",
+      "icons/local/mainnet/128x128@2x.png",
+      "icons/local/mainnet/icon.icns",
+      "icons/local/mainnet/icon.ico"
+    ]
+  }
+}

@@ -3,11 +3,11 @@
     "archiveUrl": "ws://localhost:9944",
     "tickMillis": 2000,
     "bitcoinBlockMillis": 20000,
-    "esploraHost": "http://localhost:55430",
+    "esploraHost": "http://localhost:55032",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 882057370,
-    "biddingStartTick": 882057370
+    "genesisTick": 882151485,
+    "biddingStartTick": 882151485
   },
   "localnet": {
     "archiveUrl": "ws://localhost:9944",
@@ -16,8 +16,8 @@
     "esploraHost": "http://localhost:3002",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 881914436,
-    "biddingStartTick": 881914436
+    "genesisTick": 882094396,
+    "biddingStartTick": 882094396
   },
   "testnet": {
     "archiveUrl": "wss://rpc.testnet.argonprotocol.org",

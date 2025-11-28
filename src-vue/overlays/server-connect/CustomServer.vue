@@ -228,7 +228,7 @@ async function connect(): Promise<IConfigServerCreationCustomServer> {
     }
   })();
 
-  if (serverMeta.walletAddress && serverMeta.walletAddress !== config.miningAccountAddress) {
+  if (serverMeta.walletAddress && serverMeta.walletAddress !== walletKeys.miningAddress) {
     throw new Error('The server has a different wallet address than your mining account.');
   }
 

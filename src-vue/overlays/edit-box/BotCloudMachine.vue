@@ -75,8 +75,10 @@ import { useConfig } from '../../stores/config';
 import { getDbPromise } from '../../stores/helpers/dbPromise';
 import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 import { ArrowTurnLeftDownIcon } from '@heroicons/vue/24/solid';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const config = useConfig();
+const walletKeys = useWalletKeys();
 const dbPromise = getDbPromise();
 
 const setupType = Vue.ref<'new' | 'existing'>('new');
@@ -108,7 +110,7 @@ async function beforeSave(stopSaveFn: () => void) {
   }
 
   try {
-    const importer = new Importer(config as Config, dbPromise);
+    const importer = new Importer(config as Config, walletKeys, dbPromise);
     await importer.importFromServer(importIpAddress.value);
   } catch (error) {
     isImporting.value = false;

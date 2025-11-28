@@ -40,13 +40,13 @@ export class MiningMachine {
       return await this.setupDigitalOcean(
         apiKey,
         sshPublicKey,
-        config.miningAccountAddress,
+        walletKeys.miningAddress,
         config.userJurisdiction,
         progressFn,
       );
     } else if (config.serverCreation?.customServer) {
       const { port, sshUser, ipAddress } = config.serverCreation.customServer;
-      return await this.setupCustomServer(port, sshUser, ipAddress, config, progressFn);
+      return await this.setupCustomServer(port, sshUser, ipAddress, walletKeys.miningAddress, progressFn);
     } else if (config.serverCreation?.localComputer) {
       return await this.setupLocalComputer(walletKeys.sshPublicKey, progressFn);
     } else {
@@ -114,7 +114,7 @@ export class MiningMachine {
     return key.id;
   }
 
-  public static async setupDigitalOcean(
+  private static async setupDigitalOcean(
     apiKey: string,
     sshPublicKey: string,
     miningAccountAddress: string,
@@ -382,11 +382,11 @@ export class MiningMachine {
     return newServerDetails;
   }
 
-  public static async setupCustomServer(
+  private static async setupCustomServer(
     port: number,
     sshUser: string,
     ipAddress: string,
-    config: Config,
+    miningAccountAddress: string,
     progressFn: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
     const newServerDetails: IConfigServerDetails = {
@@ -406,7 +406,7 @@ export class MiningMachine {
     })();
     progressFn(100);
 
-    if (serverMeta.walletAddress && serverMeta.walletAddress !== config.miningAccountAddress) {
+    if (serverMeta.walletAddress && serverMeta.walletAddress !== miningAccountAddress) {
       throw new MiningMachineError('The server has a different wallet address than your mining account.');
     }
 

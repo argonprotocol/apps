@@ -7,19 +7,20 @@ import { ITryServerData, SSH } from './SSH';
 import { IConfigServerDetails } from '../interfaces/IConfig';
 import { IRecoveryFile } from '../interfaces/IRecoveryFile.ts';
 import { SECURITY } from './Env.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
 export default class Importer {
-  private onFinished?: () => void;
+  private readonly config: Config;
+  private readonly walletKeys: WalletKeys;
+  private readonly dbPromise: Promise<Db>;
   private data!: IRecoveryFile;
-  private config: Config;
-  private dbPromise: Promise<Db>;
 
   public failureToReadData: boolean;
 
-  constructor(config: Config, dbPromise: Promise<Db>, onFinished?: () => void) {
+  constructor(config: Config, walletKeys: WalletKeys, dbPromise: Promise<Db>) {
     this.config = config;
+    this.walletKeys = walletKeys;
     this.dbPromise = dbPromise;
-    this.onFinished = onFinished;
 
     this.failureToReadData = false;
   }
@@ -34,7 +35,7 @@ export default class Importer {
     }
 
     const restarter = new Restarter(this.dbPromise, this.config);
-    await restarter.recreateLocalDatabase();
+    await restarter.deleteAndCreateLocalDatabase();
     const security = await invokeWithTimeout(
       'overwrite_mnemonic',
       { mnemonic: this.data.security.masterMnemonic },
@@ -54,7 +55,7 @@ export default class Importer {
       this.config.serverDetails = this.data.serverDetails;
       const serverData = await this.fetchServerData(this.data.serverDetails);
 
-      if (serverData?.walletAddress !== this.config.miningAccountAddress) {
+      if (serverData?.walletAddress !== this.walletKeys.miningAddress) {
         throw new Error('Wallet address mismatch');
       }
 
@@ -65,16 +66,14 @@ export default class Importer {
       this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
     }
     await this.config.save();
-
-    this.onFinished?.();
   }
 
   public async importFromMnemonic(mnemonic: string) {
     const restarter = new Restarter(this.dbPromise, this.config);
     const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
     Object.assign(SECURITY, security);
-    await restarter.recreateLocalDatabase(true);
-    this.onFinished?.();
+    await restarter.deleteAndCreateLocalDatabase();
+    restarter.restart();
   }
 
   public async importFromServer(ipAddress: string) {
@@ -90,7 +89,7 @@ export default class Importer {
 
     if (!serverData) {
       throw new Error('Failed to fetch server data');
-    } else if (serverData.walletAddress !== this.config.miningAccountAddress) {
+    } else if (serverData.walletAddress !== this.walletKeys.miningAddress) {
       throw new Error('Wallet address mismatch');
     }
 
@@ -101,8 +100,6 @@ export default class Importer {
     this.config.serverDetails = { ...this.config.serverDetails, ipAddress: ipAddress };
     this.config.isMinerInstalled = true;
     await this.config.save();
-
-    this.onFinished?.();
   }
 
   private async fetchServerData(serverDetails: IConfigServerDetails): Promise<ITryServerData | undefined> {

@@ -96,7 +96,7 @@ export class Db {
     this.sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
   }
 
-  public static get relativeDir() {
+  public static get relativeDir(): string {
     return `${NETWORK_NAME}/${INSTANCE_NAME}`;
   }
 

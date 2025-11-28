@@ -71,7 +71,7 @@ export default class Restarter {
 
     if (toRestart.has(AdvancedRestartOption.RecreateLocalDatabase)) {
       installer.stop();
-      await this.recreateLocalDatabase(toRestart.has(AdvancedRestartOption.ReloadAppUi));
+      await this.migrateToFreshLocalDatabase(toRestart.has(AdvancedRestartOption.ReloadAppUi));
     }
 
     if (toRestart.has(AdvancedRestartOption.ReloadAppUi)) {
@@ -79,20 +79,19 @@ export default class Restarter {
     }
   }
 
-  public async recreateLocalDatabase(restartAfter: boolean = true) {
+  public async migrateToFreshLocalDatabase(restartAfter: boolean = true) {
     const db = await this.dbPromise;
     const config = this._config;
-    await db.close();
 
-    const dbPath = Db.relativePath;
-    await remove(dbPath, { baseDir: BaseDirectory.AppConfig });
+    await this.deleteAndCreateLocalDatabase();
     if (restartAfter) {
       db.pauseWrites();
+      config.isRestarting = true;
     }
-    await invokeWithTimeout('run_db_migrations', {}, 30e3);
 
     // use a different connection since we're paused to avoid conflicts
     const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
+
     await config.restoreToConnection(sql);
 
     if (restartAfter) {
@@ -101,6 +100,15 @@ export default class Restarter {
       await db.reconnect();
       await config.load(true);
     }
+  }
+
+  public async deleteAndCreateLocalDatabase(): Promise<void> {
+    const db = await this.dbPromise;
+    await db.close();
+
+    const dbPath = Db.relativePath;
+    await remove(dbPath, { baseDir: BaseDirectory.AppConfig });
+    await invokeWithTimeout('run_db_migrations', {}, 30e3);
   }
 
   public restart() {

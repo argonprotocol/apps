@@ -73,9 +73,12 @@ import ProgressBar from '../../components/ProgressBar.vue';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { remove } from '@tauri-apps/plugin-fs';
 import { getInstanceConfigDir } from '../../lib/Utils.ts';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const config = useConfig();
-const diagnostics = new Diagnostics(config as Config);
+const walletKeys = useWalletKeys();
+
+const diagnostics = new Diagnostics(config as Config, walletKeys);
 const localDataDir = Vue.ref('');
 const localLogDir = Vue.ref('');
 const troubleshootingProgress = Vue.ref(0);

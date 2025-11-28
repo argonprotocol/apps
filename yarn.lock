@@ -2198,10 +2198,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tauri-apps/api@npm:^2.6.0, @tauri-apps/api@npm:^2.8.0, @tauri-apps/api@npm:~2.8.0":
+"@tauri-apps/api@npm:^2.6.0, @tauri-apps/api@npm:^2.8.0":
   version: 2.8.0
   resolution: "@tauri-apps/api@npm:2.8.0"
   checksum: 10c0/fb111e4d7572372997b440ebe6879543fa8c4765151878e3fddfbfe809b18da29eed142ce83061d14a9ca6d896b3266dc8a4927c642d71cdc0b4277dc7e3aabf
+  languageName: node
+  linkType: hard
+
+"@tauri-apps/api@npm:~2.9.0":
+  version: 2.9.0
+  resolution: "@tauri-apps/api@npm:2.9.0"
+  checksum: 10c0/714a43ec1c4eeeebbf7a070800731cb1f473ef9ef59849abe64a8f0495a39d38f836009901d24c6992689244760129f8ef581526c198b422074da85f38ad13c2
   languageName: node
   linkType: hard
 
@@ -3573,7 +3580,7 @@ __metadata:
     "@mempool/mempool.js": "npm:^3.0.0"
     "@ngraveio/bc-ur": "npm:^1.1.13"
     "@tailwindcss/vite": "npm:^4.1.12"
-    "@tauri-apps/api": "npm:~2.8.0"
+    "@tauri-apps/api": "npm:~2.9.0"
     "@tauri-apps/cli": "npm:^2.8.2"
     "@tauri-apps/plugin-autostart": "npm:^2.5.0"
     "@tauri-apps/plugin-dialog": "npm:~2.4.0"
