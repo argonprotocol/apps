@@ -51,7 +51,6 @@ import { useCurrency } from '../stores/currency';
 import Overlay from './Overlay.vue';
 import { createNumeralHelpers } from '../lib/numeral';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
-import basicEmitter from '../emitters/basicEmitter';
 
 const isOpen = Vue.ref(false);
 const config = useConfig();
@@ -77,11 +76,11 @@ Vue.onMounted(async () => {
     );
     requiredMicrogonsForGoal.value = projections.microgonRequirement;
     requiredMicronotsForGoal.value = projections.micronotRequirement;
-    if (
-      config.hasSavedBiddingRules &&
-      (projections.microgonRequirement > config.biddingRules.initialMicrogonRequirement ||
-        projections.micronotRequirement > config.biddingRules.initialMicronotRequirement)
-    ) {
+
+    const needsMoreMicrogons = projections.microgonRequirement > config.biddingRules.initialMicrogonRequirement;
+    const needsMoreMicronots = projections.micronotRequirement > config.biddingRules.initialMicronotRequirement;
+    const needsMoreCapital = needsMoreMicrogons || needsMoreMicronots;
+    if (config.hasSavedBiddingRules && needsMoreCapital) {
       isOpen.value = true;
     }
   });
@@ -92,25 +91,23 @@ Vue.onMounted(async () => {
 Vue.onUnmounted(() => {
   loadSubscription?.unsubscribe();
   loadSubscription = null;
-  basicEmitter.off('openBotPriceChangeOverlay', onOpen);
 });
 
 function closeOverlay() {
   config.biddingRules.initialMicrogonRequirement = requiredMicrogonsForGoal.value;
   config.biddingRules.initialMicronotRequirement = requiredMicronotsForGoal.value;
   if (config.biddingRules.initialCapitalCommitment) {
-    config.biddingRules.initialCapitalCommitment =
-      config.biddingRules.initialMicrogonRequirement +
-      currency.micronotToMicrogon(config.biddingRules.initialMicronotRequirement);
+    const microgonCapital = requiredMicrogonsForGoal.value;
+    const micronotCapital = currency.micronotToMicrogon(requiredMicronotsForGoal.value);
+    config.biddingRules.initialCapitalCommitment = microgonCapital + micronotCapital;
   }
   void config.saveBiddingRules();
   isOpen.value = false;
 }
+
 function onOpen() {
   isOpen.value = true;
 }
-
-basicEmitter.on('openBotPriceChangeOverlay', onOpen);
 </script>
 
 <style scoped>

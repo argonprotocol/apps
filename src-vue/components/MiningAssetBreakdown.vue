@@ -2,11 +2,11 @@
   <TooltipProvider :disableHoverableContent="true">
     <div class="text-md relative flex w-full flex-col items-center whitespace-nowrap">
       <template v-if="props.show !== 'OnlyTotal'">
-        <Header :tooltip="breakdown.help.availableMicrogons" :height="itemHeight" class="border-0">
+        <Header :tooltip="breakdown.help.biddingReserves" :height="itemHeight" class="border-0">
           Bidding Reserves
           <template #icon><ArgonIcon class="h-7 w-7" /></template>
           <template #value>
-            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.availableMicrogons).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.biddingReserves).format('0,0.00') }}
           </template>
         </Header>
         <SubItem :tooltip="breakdown.help.unusedMicrogons" :height="itemHeight" :showArrow="props.showArrows">

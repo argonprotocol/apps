@@ -41,12 +41,19 @@
       >
         Configure Mining Machine
       </button>
+<!-- I HID THIS FOR NOW BECAUSE I'M NOT SURE IT'S A GOOD IDEA WITHOUT BETTER WARNINGS TO THE USER -->
+<!--      <button-->
+<!--        v-else-if="!isRetrying"-->
+<!--        @click="openServerRemoveOverlay"-->
+<!--        class="text-argon-button font-bold px-4 py-0.5 border border-argon-button rounded cursor-pointer hover:border-argon-button-hover hover:text-argon-button-hover mr-2"-->
+<!--      >-->
+<!--        Remove Server-->
+<!--      </button>-->
       <button
-        v-else-if="!isRetrying"
-        @click="openServerRemoveOverlay"
+        @click="retryAll"
         class="text-argon-button font-bold px-4 py-0.5 border border-argon-button rounded cursor-pointer hover:border-argon-button-hover hover:text-argon-button-hover mr-2"
       >
-        Remove Server
+        Retry All
       </button>
       <button
         @click="retryFailedStep(stepLabel)"
@@ -60,11 +67,11 @@
       v-if="stepLabel.key === InstallStepKey.ServerConnect"
       class="text-black/70 border-t border-dashed border-slate-400/50 pt-3 mt-3 pr-2.5 relative z-10"
     >
-      Argon Investor could not connect to your server. Click the Configure Mining Machine button to modify settings. You can also retry the connection. If this issue persists, you might need to remove the current server
+      This app could not connect to your server. Click the Configure Mining Machine button to modify settings. You can also retry the connection. If this issue persists, you might need to remove the current server
       and start afresh with a new one.
     </p>
     <p v-else class="text-black/70 border-t border-dashed border-slate-400/50 pt-3 pb-5 mt-3 pr-2.5 relative z-10">
-      Argon Investor has encountered an unrecoverable error while trying to provision your server. Rerun this step by
+      This app has encountered an unrecoverable error while trying to provision your server. Rerun this step by
       clicking Retry. If the issue persists, you might need to remove the server and start afresh with a new
       one.
     </p>
@@ -156,6 +163,12 @@ function getLabelNumber(step: IStepLabel) {
 
 function getLabel(step: IStepLabel, offset: number = 0) {
   return step.options[getLabelNumber(step) + offset];
+}
+
+async function retryAll() {
+  isRetrying.value = true;
+  await installer.runFailedStep('all');
+  isRetrying.value = false;
 }
 
 async function retryFailedStep(step: IStepLabel) {

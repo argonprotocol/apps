@@ -123,7 +123,7 @@ export interface IServerConnectChildExposed {
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter';
-import { useConfig } from '../stores/config';
+import { useConfig, Config } from '../stores/config';
 import BgOverlay from '../components/BgOverlay.vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
@@ -141,8 +141,11 @@ import {
 import DigitalOcean from './server-connect/DigitalOcean.vue';
 import LocalComputer from './server-connect/LocalComputer.vue';
 import CustomServer from './server-connect/CustomServer.vue';
+import { MiningMachine } from '../lib/MiningMachine.ts';
+import { useWalletKeys } from '../stores/wallets.ts';
 
 const config = useConfig();
+const walletKeys = useWalletKeys();
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -193,8 +196,7 @@ function isReadyToConnect() {
   if (selectedTab.value === 'digitalOcean' && !isDigitalOceanReady.value) return false;
   if (selectedTab.value === 'localComputer' && !isLocalComputerReady.value) return false;
   if (selectedTab.value === 'customServer' && !isCustomServerReady.value) return false;
-  if (isSaving.value) return false;
-  return true;
+  return !isSaving.value;
 }
 
 async function connect() {
@@ -204,6 +206,17 @@ async function connect() {
   try {
     config.serverCreation = await extractServerCreation();
     config.resetField('installDetails');
+
+    if (config.serverCreation.customServer?.hasRunningBot) {
+      config.serverDetails = await MiningMachine.setup(config as Config, walletKeys);
+      config.hasReadMiningInstructions = true;
+      config.isMinerInstalled = true;
+      config.isMinerReadyToInstall = true;
+      config.isMinerUpToDate = true;
+      config.isMiningMachineCreated = true;
+      config.isPreparingMinerSetup = true;
+    }
+
     await config.save();
   } catch (error: any) {
     serverCreationError.value = error.message;

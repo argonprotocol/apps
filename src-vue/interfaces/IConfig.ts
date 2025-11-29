@@ -52,6 +52,7 @@ export const ConfigServerCreationCustomServerSchema = z.object({
   port: z.number(),
   sshUser: z.string(),
   ipAddress: z.string().ip().or(z.literal('')),
+  hasRunningBot: z.boolean().optional(),
 });
 
 export const ConfigServerCreationSchema = z.object({

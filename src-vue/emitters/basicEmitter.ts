@@ -5,7 +5,6 @@ import { IWalletType } from '../lib/Wallet.ts';
 type IBasicEmitter = {
   openWalletOverlay: { walletType: IWalletType; screen: string };
   openBotEditOverlay: void;
-  openBotPriceChangeOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: void;
   openProvisioningCompleteOverlay: void;
