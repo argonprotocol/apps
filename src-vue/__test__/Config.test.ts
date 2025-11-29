@@ -20,7 +20,6 @@ it('can load config defaults', async () => {
   expect(config.isMinerReadyToInstall).toBe(false);
   expect(config.isMinerInstalled).toBe(false);
   expect(config.isMinerUpToDate).toBe(false);
-  expect(config.isMinerWaitingForUpgradeApproval).toBe(false);
   expect(config.hasMiningSeats).toBe(false);
   expect(config.hasMiningBids).toBe(false);
   expect(config.biddingRules).toBeTruthy();

@@ -115,8 +115,7 @@ export class BotSyncer {
       this.config.isMinerReadyToInstall &&
       this.config.isMinerInstalled &&
       this.config.isMinerUpToDate &&
-      this.config.hasSavedBiddingRules &&
-      !this.config.isMinerWaitingForUpgradeApproval
+      this.config.hasSavedBiddingRules
     );
   }
 

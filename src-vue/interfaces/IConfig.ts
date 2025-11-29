@@ -138,7 +138,6 @@ export const ConfigSchema = z.object({
   isMiningMachineCreated: z.boolean(), // isMiningMachineCreated
   isMinerInstalled: z.boolean(), // isNewServer
   isMinerUpToDate: z.boolean(), // isInstalling
-  isMinerWaitingForUpgradeApproval: z.boolean(), // isRequiringUpgrade
 
   hasReadVaultingInstructions: z.boolean(),
   isPreparingVaultSetup: z.boolean(),
@@ -203,7 +202,6 @@ export interface IConfigDefaults {
   isMiningMachineCreated: () => IConfig['isMiningMachineCreated'];
   isMinerInstalled: () => IConfig['isMinerInstalled'];
   isMinerUpToDate: () => IConfig['isMinerUpToDate'];
-  isMinerWaitingForUpgradeApproval: () => IConfig['isMinerWaitingForUpgradeApproval'];
 
   hasReadVaultingInstructions: () => IConfig['hasReadVaultingInstructions'];
   isPreparingVaultSetup: () => IConfig['isPreparingVaultSetup'];

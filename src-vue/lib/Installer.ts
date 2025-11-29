@@ -124,21 +124,6 @@ export default class Installer {
       }
     }
 
-    console.log('LOADED INSTALLER', {
-      isReadyToRun: this.isReadyToRun,
-      isRunning: this.isRunning,
-      isRunningInBackground: this.isRunningInBackground,
-      isFreshInstall: this.isFreshInstall,
-      remoteFilesNeedUpdating: this.remoteFilesNeedUpdating,
-      reasonToSkipInstall: this.reasonToSkipInstall,
-      reasonToSkipInstallData: this.reasonToSkipInstallData,
-      isMinerWaitingForUpgradeApproval: this.config.isMinerWaitingForUpgradeApproval,
-      config: {
-        isMinerReadyToInstall: this.config.isMinerReadyToInstall,
-        isMiningMachineCreated: this.config.isMiningMachineCreated,
-        isMinerUpToDate: this.config.isMinerUpToDate,
-      },
-    });
     this.isLoaded = true;
     this.isLoadedDeferred.resolve();
   }
@@ -181,7 +166,6 @@ export default class Installer {
     console.log('RUNNING ACTUAL INSTALL');
     this.isRunning = true;
     this.isRunningInBackground = false;
-    this.config.isMinerWaitingForUpgradeApproval = false;
     this.config.isMinerUpToDate = false;
 
     if (this.remoteFilesNeedUpdating) {
@@ -328,7 +312,6 @@ export default class Installer {
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerNotConnected;
       this.reasonToSkipInstallData = { isMinerReadyToInstall: this.config.isMinerReadyToInstall };
       this.config.isMinerUpToDate = false;
-      this.config.isMinerWaitingForUpgradeApproval = false;
       await this.config.save();
       return false;
     }
@@ -350,7 +333,6 @@ export default class Installer {
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerUpToDate;
       this.reasonToSkipInstallData = { isServerInstallComplete, remoteFilesNeedUpdating };
       this.config.isMinerUpToDate = true;
-      this.config.isMinerWaitingForUpgradeApproval = false;
       await this.config.save();
       return false;
     }
@@ -375,7 +357,6 @@ export default class Installer {
       this.isReadyToRun = true;
       this.removeReasonsToSkipInstall();
       this.config.resetField('installDetails');
-      this.config.isMinerWaitingForUpgradeApproval = false;
       await this.config.save();
       return true;
     }

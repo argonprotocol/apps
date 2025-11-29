@@ -90,7 +90,6 @@ export class Config implements IConfig {
       isMiningMachineCreated: Config.getDefault(dbFields.isMiningMachineCreated) as boolean,
       isMinerInstalled: Config.getDefault(dbFields.isMinerInstalled) as boolean,
       isMinerUpToDate: Config.getDefault(dbFields.isMinerUpToDate) as boolean,
-      isMinerWaitingForUpgradeApproval: Config.getDefault(dbFields.isMinerWaitingForUpgradeApproval) as boolean,
 
       hasReadVaultingInstructions: Config.getDefault(dbFields.hasReadVaultingInstructions) as boolean,
       isPreparingVaultSetup: Config.getDefault(dbFields.isPreparingVaultSetup) as boolean,
@@ -363,13 +362,6 @@ export class Config implements IConfig {
     this.setField('isMinerInstalled', value);
   }
 
-  public get isMinerWaitingForUpgradeApproval(): boolean {
-    return this.getField('isMinerWaitingForUpgradeApproval');
-  }
-  public set isMinerWaitingForUpgradeApproval(value: boolean) {
-    this.setField('isMinerWaitingForUpgradeApproval', value);
-  }
-
   public get hasReadVaultingInstructions(): boolean {
     return this.getField('hasReadVaultingInstructions');
   }
@@ -624,7 +616,6 @@ const dbFields = {
   isMiningMachineCreated: 'isMiningMachineCreated',
   isMinerInstalled: 'isMinerInstalled',
   isMinerUpToDate: 'isMinerUpToDate',
-  isMinerWaitingForUpgradeApproval: 'isMinerWaitingForUpgradeApproval',
 
   hasReadVaultingInstructions: 'hasReadVaultingInstructions',
   isPreparingVaultSetup: 'isPreparingVaultSetup',
@@ -684,7 +675,6 @@ const defaults: IConfigDefaults = {
   isMiningMachineCreated: () => false,
   isMinerInstalled: () => false,
   isMinerUpToDate: () => false,
-  isMinerWaitingForUpgradeApproval: () => false,
 
   hasReadVaultingInstructions: () => false,
   isPreparingVaultSetup: () => false,
