@@ -8,8 +8,8 @@
     <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
-        Argon Investor Console
-        <span class="font-light text-lg">({{ NETWORK_NAME }}<template v-if="INSTANCE_NAME !== 'default'">, {{ INSTANCE_NAME?.slice(0, 5) }}<template v-if="INSTANCE_NAME.length > 5">...</template></template>)</span>
+        <span class="hidden xl:inline">Argon</span> Investor Console
+        <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
       </div>
     </div>
 
@@ -56,10 +56,6 @@
   </div>
 </template>
 
-<script lang="ts">
-import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
-</script>
-
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { useController } from '../stores/controller';
@@ -67,10 +63,15 @@ import WindowControls from '../tauri-controls/WindowControls.vue';
 import FinancialsMenu from './FinancialsMenu.vue';
 import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
+import InstanceMenu from './InstanceMenu.vue';
 import { useWallets } from '../stores/wallets';
 import { useBot } from '../stores/bot';
 import { PanelKey } from '../interfaces/IConfig.ts';
 import { ITourPos, useTour } from '../stores/tour';
+import { appConfigDir } from '@tauri-apps/api/path';
+import { readDir } from '@tauri-apps/plugin-fs';
+import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
+import { IInstance } from './InstanceMenu.vue';
 
 const controller = useController();
 const wallets = useWallets();
@@ -81,6 +82,20 @@ const toggleRef = Vue.ref<HTMLElement | null>(null);
 
 const financialsMenuRef = Vue.ref<InstanceType<typeof FinancialsMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
+
+const instances = Vue.ref<IInstance[]>([]);
+
+async function fetchInstances() {
+  const configDir = await appConfigDir();
+
+  const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
+  instances.value = entries
+    .filter(entry => entry.isDirectory)
+    .map(entry => ({
+      name: entry.name,
+      isSelected: entry.name === INSTANCE_NAME,
+    }));
+}
 
 tour.registerPositionCheck('miningTab', (): ITourPos => {
   const rect = toggleRef.value?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
@@ -118,6 +133,10 @@ tour.registerPositionCheck('accountMenu', () => {
   rect.top -= 7;
   rect.bottom += 7;
   return { ...rect, blur: 5 };
+});
+
+Vue.onMounted(async () => {
+  await fetchInstances();
 });
 </script>
 

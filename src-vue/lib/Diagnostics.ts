@@ -1,13 +1,16 @@
 import { Config } from './Config';
 import { Server } from './Server';
 import { SSH } from './SSH';
+import { WalletKeys } from './WalletKeys.ts';
 
 export class Diagnostics {
   private server!: Server;
-  private config!: Config;
+  private config: Config;
+  private walletKeys: WalletKeys;
 
-  constructor(config: Config) {
+  constructor(config: Config, walletKeys: WalletKeys) {
     this.config = config;
+    this.walletKeys = walletKeys;
   }
 
   public async load() {
@@ -29,7 +32,7 @@ export class Diagnostics {
 
   public async accountAddressMatches() {
     const remoteAccountAddress = await this.server.downloadAccountAddress();
-    return remoteAccountAddress === this.config.miningAccountAddress;
+    return remoteAccountAddress === this.walletKeys.miningAddress;
   }
 
   public async remoteServerFilesAreUpToDate() {

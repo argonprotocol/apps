@@ -15,7 +15,7 @@
       <heading>Checking Argon Account Identifier Match</heading>
       <success>
         Your app database and the mining machine are correctly using the same wallet address of
-        {{ config.miningAccountAddress }}.
+        {{ walletKeys.miningAddress }}.
       </success>
       <failure>
         Your app database and the mining machine are using different wallet addresses. Somehow you connected a server
@@ -130,9 +130,12 @@ import DiagnosticStep from './components/DiagnosticStep.vue';
 import success from './components/DiagnosticSuccess.vue';
 import failure from './components/DiagnosticFailure.vue';
 import heading from './components/DiagnosticHeading.vue';
+import { useWalletKeys } from '../../stores/wallets.ts';
 
 const config = useConfig();
-const diagnostics = new Diagnostics(config as Config);
+const walletKeys = useWalletKeys();
+
+const diagnostics = new Diagnostics(config as Config, walletKeys);
 
 const containerRef = Vue.ref<HTMLElement>();
 const isAllSuccess = Vue.ref(false);

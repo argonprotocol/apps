@@ -30,13 +30,13 @@
         >
           <div class="min-w-40 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem @click="() => openFinancials()" class="py-2">
-              <div ItemWrapper>Financials</div>
+              <div MainItemWrapper ItemWrapper>Financials</div>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger class="relative py-2">
                 <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <div ItemWrapper>Default Currency</div>
+                <div MainItemWrapper ItemWrapper>Default Currency</div>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent class="relative -top-1 min-w-50">
                 <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
@@ -46,16 +46,19 @@
                     :key="key"
                     @click="setCurrencyKey(key)"
                     :class="currency?.record?.key === key ? '!text-argon-500' : '!text-slate-700'"
-                    class="group/item flex flex-row justify-between py-1 px-2 border-b last:border-b-0 border-argon-menu-hover hover:!text-argon-600 hover:bg-argon-menu-hover cursor-pointer"
+                    class="group/item flex flex-row items-center justify-between py-1 pr-2 border-b last:border-b-0 border-argon-menu-hover hover:!text-argon-600 hover:bg-argon-menu-hover cursor-pointer"
                   >
+                    <span class="w-8 text-center" v-html="record.symbol"></span>
                     <span
                       ItemWrapper
                       :class="currency?.record?.key === key ? 'opacity-100' : 'opacity-80'"
-                      class="font-medium group-hover/item:opacity-100 mr-4"
+                      class="font-medium group-hover/item:opacity-100"
                     >
                       {{ record.name }}
                     </span>
-                    <span class="w-8 text-center" v-html="record.symbol"></span>
+                    <span v-if="currency?.record?.key === key">
+                      <CheckIcon class="size-5" aria-hidden="true" />
+                    </span>
                   </DropdownMenuItem>
                 </div>
               </DropdownMenuSubContent>
@@ -97,6 +100,7 @@ import { useConfig } from '../stores/config';
 import { useWallets } from '../stores/wallets';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
+import { CheckIcon } from '@heroicons/vue/20/solid';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -172,21 +176,17 @@ function openFinancials() {
 @reference "../main.css";
 
 [data-reka-collection-item] {
-  @apply focus:bg-argon-menu-hover cursor-pointer px-4 focus:!text-indigo-600 focus:outline-none;
+  @apply focus:bg-argon-menu-hover cursor-pointer pr-3 focus:!text-indigo-600 focus:outline-none;
 
   &[data-disabled] {
     opacity: 0.3;
     pointer-events: none;
   }
-  div[ItemWrapper] {
-    @apply pl-10;
-  }
   [ItemWrapper] {
-    @apply text-right font-bold whitespace-nowrap text-gray-900;
+    @apply grow text-left font-bold whitespace-nowrap text-gray-900;
   }
-  p {
-    @apply text-right font-light whitespace-nowrap text-gray-700;
-    line-height: 1.4em;
+  [MainItemWrapper] {
+    @apply pl-10 text-right;
   }
 }
 </style>

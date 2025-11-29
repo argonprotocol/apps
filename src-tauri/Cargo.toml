@@ -1,7 +1,7 @@
 [package]
 name = "Argon"
 version = "0.1.0"
-description = "Desktop management app for Argon"
+description = "Desktop investor console for Argon"
 authors = ["Caleb Clark", "Blake Byrnes"]
 edition = "2024"
 build = "build.rs"
@@ -36,7 +36,7 @@ dotenvy = "0.15"
 
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "image-png"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"

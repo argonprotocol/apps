@@ -42,6 +42,7 @@ export class Config implements IConfig {
     return this._loadedDeferred.promise;
   }
   public hasDbMigrationError: boolean;
+  public isRestarting: boolean;
 
   private _loadedDeferred!: IDeferred<void>;
 
@@ -60,6 +61,7 @@ export class Config implements IConfig {
     ensureOnlyOneInstance(this.constructor);
     this._loadedDeferred = createDeferred<void>(false);
     this.hasDbMigrationError = false;
+    this.isRestarting = false;
 
     this._dbPromise = dbPromise;
     this._loadedData = {
@@ -76,7 +78,6 @@ export class Config implements IConfig {
       installDetails: Config.getDefault(dbFields.installDetails) as IConfig['installDetails'],
       oldestFrameIdToSync: Config.getDefault(dbFields.oldestFrameIdToSync) as number,
       latestFrameIdProcessed: Config.getDefault(dbFields.latestFrameIdProcessed) as number,
-      miningAccountAddress: Config.getDefault(dbFields.miningAccountAddress) as string,
       walletAccountsHadPreviousLife: Config.getDefault(dbFields.walletAccountsHadPreviousLife) as boolean,
       walletPreviousLifeRecovered: Config.getDefault(dbFields.walletPreviousLifeRecovered) as boolean,
       miningAccountPreviousHistory: Config.getDefault(
@@ -117,7 +118,6 @@ export class Config implements IConfig {
     const preserveFields: (keyof IConfig)[] = [
       'serverCreation',
       'serverDetails',
-      'miningAccountAddress',
       'biddingRules',
       'vaultingRules',
       'hasReadVaultingInstructions',
@@ -152,7 +152,7 @@ export class Config implements IConfig {
       const db = await this._dbPromise;
       const fieldsToSave: Set<string> = new Set();
       const loadedData: any = {};
-      const rawData = {} as IConfigStringified & { miningAccountAddress: string };
+      const rawData = {} as IConfigStringified;
 
       const dbRawData = await db.configTable.fetchAllAsObject();
 
@@ -220,16 +220,6 @@ export class Config implements IConfig {
       const dataToSave = Config.extractDataToSave(fieldsToSave, rawData);
       await db.configTable.insertOrReplace(dataToSave);
 
-      if (this._walletKeys.miningAddress !== loadedData.miningAccountAddress) {
-        await tauriMessage(
-          'Your database does not match your current mining account address. Something has corrupted your data.',
-          {
-            title: 'Mining Account Inconsistency',
-            kind: 'error',
-          },
-        );
-      }
-
       this._db = db;
       this._loadedData = loadedData as IConfig;
       this._rawData = rawData;
@@ -262,9 +252,6 @@ export class Config implements IConfig {
     return this.getField('miningAccountPreviousHistory');
   }
 
-  public get miningAccountAddress(): IConfig['miningAccountAddress'] {
-    return this.getField('miningAccountAddress');
-  }
   public set miningAccountPreviousHistory(value: IConfig['miningAccountPreviousHistory']) {
     this.setField('miningAccountPreviousHistory', value);
   }
@@ -293,7 +280,7 @@ export class Config implements IConfig {
   }
 
   public get showWelcomeOverlay(): boolean {
-    return this.getField('showWelcomeOverlay');
+    return this.getField('showWelcomeOverlay') && !this.isRestarting;
   }
   public set showWelcomeOverlay(value: boolean) {
     this.setField('showWelcomeOverlay', value);
@@ -536,11 +523,6 @@ export class Config implements IConfig {
     // We cannot use this._tryFieldsToSave because this._stringifiedData and this._fieldsToSave are not initialized yet. Instead
     // we can set the values to their temporary loadedData and stringifiedData objects
 
-    const miningAccountAddress = this._walletKeys.miningAddress;
-    loadedData.miningAccountAddress = miningAccountAddress;
-    stringifiedData[dbFields.miningAccountAddress] = JsonExt.stringify(miningAccountAddress, 2);
-    fieldsToSave.add(dbFields.miningAccountAddress);
-
     const walletHadPreviousLife = await this._walletKeys.didWalletHavePreviousLife();
     loadedData.walletAccountsHadPreviousLife = walletHadPreviousLife;
     stringifiedData[dbFields.walletAccountsHadPreviousLife] = JsonExt.stringify(walletHadPreviousLife, 2);
@@ -632,7 +614,6 @@ const dbFields = {
   installDetails: 'installDetails',
   oldestFrameIdToSync: 'oldestFrameIdToSync',
   latestFrameIdProcessed: 'latestFrameIdProcessed',
-  miningAccountAddress: 'miningAccountAddress',
   miningAccountPreviousHistory: 'miningAccountPreviousHistory',
   walletAccountsHadPreviousLife: 'walletAccountsHadPreviousLife',
   walletPreviousLifeRecovered: 'walletPreviousLifeRecovered',
@@ -693,7 +674,6 @@ const defaults: IConfigDefaults = {
   },
   oldestFrameIdToSync: () => 0,
   latestFrameIdProcessed: () => 0,
-  miningAccountAddress: () => '',
   miningAccountPreviousHistory: () => null,
   walletAccountsHadPreviousLife: () => false,
   walletPreviousLifeRecovered: () => false,

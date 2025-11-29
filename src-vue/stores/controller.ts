@@ -2,6 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import basicEmitter from '../emitters/basicEmitter';
 import { useConfig, type Config } from './config';
+import { useWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '../lib/Utils';
 import handleFatalError from './helpers/handleFatalError';
@@ -14,6 +15,7 @@ export const useController = defineStore('controller', () => {
 
   const dbPromise = getDbPromise();
   const config = useConfig();
+  const walletKeys = useWalletKeys();
   const panelKey = Vue.ref<PanelKey>('' as PanelKey);
 
   const isImporting = Vue.ref(false);
@@ -40,13 +42,13 @@ export const useController = defineStore('controller', () => {
 
   async function importFromFile(dataRaw: string) {
     isImporting.value = true;
-    const importer = new Importer(config as Config, dbPromise, () => (isImporting.value = false));
+    const importer = new Importer(config as Config, walletKeys, dbPromise);
     basicEmitter.emit('openImportingOverlay', { importer, dataRaw });
   }
 
   async function importFromMnemonic(mnemonic: string) {
     isImporting.value = true;
-    const importer = new Importer(config as Config, dbPromise, () => (isImporting.value = false));
+    const importer = new Importer(config as Config, walletKeys, dbPromise);
     await importer.importFromMnemonic(mnemonic);
     isImporting.value = false;
   }

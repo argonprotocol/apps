@@ -6,7 +6,7 @@ use sp_core::crypto::Ss58Codec;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
-use tauri::{AppHandle, Listener, Manager};
+use tauri::{AppHandle, Manager};
 use tauri::{Emitter, State};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use time::OffsetDateTime;
@@ -305,6 +305,21 @@ fn calculate_free_space(path: Option<String>) -> Result<u64, String> {
     fs2::available_space(&p).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
+    log::info!("Loading instance: {}", name);
+    unsafe {
+        std::env::set_var("ARGON_APP_INSTANCE", &name);
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
+    window
+        .eval("window.location.reload()")
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 ////////////////////////////////////////////////////////////
 
 fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_log::Builder {
@@ -375,19 +390,33 @@ pub fn run() {
     let migrations = migrations::get_migrations();
 
     let network_name_clone = network_name.clone();
-    let instance_name_clone = instance_name.clone();
     let env_vars = Utils::get_server_env_vars().unwrap_or_default();
     let env_vars_json = serde_json::to_string(&env_vars).unwrap_or_default();
 
     tauri::Builder::default()
-          .on_page_load(move |window, _payload| {
+        .on_page_load(move |window, _payload| {
             if window.label() != "main" {
               return;
             }
-            log::info!("Page loaded for instance '{}'", instance_name_clone);
+            let handle = window.app_handle();
+            let instance_name = Utils::get_instance_name();
+            let security = security::Security::load(handle);
+            let security_json = match security {
+                Ok(sec) => serde_json::to_string(&sec).unwrap_or_else(|e| {
+                    log::error!("Failed to serialize security config: {}", e);
+                    "null".to_string()
+                }),
+                Err(e) => {
+                    log::error!("Failed to load security config: {}", e);
+                    "null".to_string()
+                }
+            };
+
+            log::info!("Page loaded for instance '{}'", instance_name);
             window.emit("tauri://page-loaded", ()).unwrap();
             window.eval("window.__LOG_DEBUG__ = false".to_string()).expect("Failed to set instance name in window");
-            window.eval(format!("window.__ARGON_APP_INSTANCE__ = '{}'", instance_name_clone)).expect("Failed to set instance name in window");
+            window.eval(format!("window.__ARGON_APP_SECURITY__ = {}", security_json)).expect("Failed to set security in window");
+            window.eval(format!("window.__ARGON_APP_INSTANCE__ = '{}'", instance_name)).expect("Failed to set instance name in window");
             window.eval(format!("window.__ARGON_NETWORK_NAME__ = '{}'", network_name_clone)).expect("Failed to set network name in window");
             window.eval(format!("window.__ARGON_APP_ENABLE_AUTOUPDATE__ = {}", enable_auto_update)).expect("Failed to set experimental flag in window");
             window.eval(format!("window.__SERVER_ENV_VARS__ = {}", env_vars_json)).expect("Failed to set env vars in window");
@@ -403,19 +432,11 @@ pub fn run() {
                 config_path
             );
             log::info!("Database URL = {}", db_relative_path.display());
-            let security = security::Security::load(handle).map_err(|e| e.to_string())?;
-            let security_json = serde_json::to_string(&security).map_err(|e| e.to_string())?;
 
             let nosleep = NoSleep::new().map_err(|e| e.to_string())?;
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
 
-            let window = app.get_webview_window("main").unwrap();
-
-            app.listen("tauri://page-loaded", move |_event| {
-                window.eval(format!("window.__ARGON_APP_SECURITY__ = {}", security_json)).expect("Failed to set security in window");
-            });
             let app_id = &app.config().identifier;
-
             if app_id.to_lowercase().contains("experimental")  && option_env!("ARGON_EXPERIMENTAL").is_none()  {
                 panic!("Experimental app built without the ARGON_EXPERIMENTAL environment variable set. Please set it to 'true' to enable experimental features.");
             }
@@ -474,7 +495,8 @@ pub fn run() {
             expose_mnemonic,
             get_ssh_private_key,
             overwrite_mnemonic,
-            measure_latency
+            measure_latency,
+            load_instance,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
