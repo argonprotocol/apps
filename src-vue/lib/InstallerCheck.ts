@@ -82,11 +82,11 @@ export class InstallerCheck {
     );
   }
 
-  public getIncompleteSteps(): InstallStepErrorType[] {
-    const failedSteps: InstallStepErrorType[] = [];
+  public getIncompleteSteps(): InstallStepKey[] {
+    const failedSteps: InstallStepKey[] = [];
     for (const [stepKey, status] of Object.entries(this.cachedInstallStepStatuses)) {
       if (status !== InstallStepStatusType.Finished) {
-        failedSteps.push(stepKey as unknown as InstallStepErrorType);
+        failedSteps.push(stepKey as unknown as InstallStepKey);
       }
     }
     return failedSteps;

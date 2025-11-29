@@ -154,12 +154,12 @@ export default class Installer {
 
     if (this.remoteFilesNeedUpdating) {
       const stepsToClear = [
-        InstallStepErrorType.FileUpload,
-        InstallStepErrorType.UbuntuCheck,
-        InstallStepErrorType.DockerInstall,
-        InstallStepErrorType.BitcoinInstall,
-        InstallStepErrorType.ArgonInstall,
-        InstallStepErrorType.MiningLaunch,
+        InstallStepKey.FileUpload,
+        InstallStepKey.UbuntuCheck,
+        InstallStepKey.DockerInstall,
+        InstallStepKey.BitcoinInstall,
+        InstallStepKey.ArgonInstall,
+        InstallStepKey.MiningLaunch,
       ];
       console.info('Clearing step files');
       await this.clearStepFiles(stepsToClear);
@@ -238,7 +238,7 @@ export default class Installer {
     this.isReadyToRun = false;
   }
 
-  public async runFailedStep(stepKey: string): Promise<void> {
+  public async runFailedStep(stepKey: InstallStepKey | 'all'): Promise<void> {
     await this.isLoadedPromise;
 
     if ((this.isRunning ||= await this.calculateIsRunning())) {
@@ -325,7 +325,7 @@ export default class Installer {
 
     if (remoteFilesNeedUpdating) {
       console.info('Clearing step files');
-      const stepsToClear = [InstallStepErrorType.FileUpload, InstallStepErrorType.MiningLaunch];
+      const stepsToClear = [InstallStepKey.FileUpload, InstallStepKey.MiningLaunch];
       if (!this.isRunning) {
         // clear out any abandoned steps only if we're not currently running
         stepsToClear.push(...this.installerCheck.getIncompleteSteps());
@@ -543,7 +543,10 @@ export default class Installer {
     progressFn?.(4, 4);
   }
 
-  private async clearStepFiles(stepKeys: string[], options: { setFirstStepToWorking?: boolean } = {}): Promise<void> {
+  private async clearStepFiles(
+    stepKeys: (InstallStepKey | 'all')[],
+    options: { setFirstStepToWorking?: boolean } = {},
+  ): Promise<void> {
     const server = await this.getServer();
     if (stepKeys.includes('all')) {
       this.config.resetField('installDetails');
@@ -564,7 +567,7 @@ export default class Installer {
 
     for (const stepKey of stepKeys as InstallStepKey[]) {
       const stepObj = { ...defaultStepObj };
-      if (String(stepKey) === stepKeys[0] && options.setFirstStepToWorking) {
+      if (stepKey === stepKeys[0] && options.setFirstStepToWorking) {
         console.log('SETTING SERVER STEP TO WORKING', stepKey);
         stepObj.status = InstallStepStatus.Working;
         stepObj.startDate = dayjs.utc().toISOString();

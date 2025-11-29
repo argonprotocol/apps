@@ -232,6 +232,12 @@ async function connect(): Promise<IConfigServerCreationCustomServer> {
     throw new Error('The server has a different wallet address than your mining account.');
   }
 
+  if (serverMeta.biddingRules) {
+    config.biddingRules = serverMeta.biddingRules;
+    config.saveBiddingRules();
+    serverCreation.hasRunningBot = true;
+  }
+
   return serverCreation;
 }
 

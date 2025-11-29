@@ -1,8 +1,8 @@
 import { enable as enableAutostart } from '@tauri-apps/plugin-autostart';
-import { IConfigServerDetails, ServerType } from '../interfaces/IConfig';
+import { IConfigServerCreationCustomServer, IConfigServerDetails, ServerType } from '../interfaces/IConfig';
 import { Config } from './Config';
 import { LocalMachine } from './LocalMachine';
-import { SSH } from './SSH';
+import { ITryServerData, SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env';
 import { WalletKeys } from './WalletKeys.ts';
@@ -31,7 +31,7 @@ export class MiningMachine {
   public static async setup(
     config: Config,
     walletKeys: WalletKeys,
-    progressFn: (pct: number) => void,
+    progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
     const sshPublicKey = walletKeys.sshPublicKey;
 
@@ -45,8 +45,7 @@ export class MiningMachine {
         progressFn,
       );
     } else if (config.serverCreation?.customServer) {
-      const { port, sshUser, ipAddress } = config.serverCreation.customServer;
-      return await this.setupCustomServer(port, sshUser, ipAddress, walletKeys.miningAddress, progressFn);
+      return await this.setupCustomServer(config.serverCreation.customServer, walletKeys.miningAddress, progressFn);
     } else if (config.serverCreation?.localComputer) {
       return await this.setupLocalComputer(walletKeys.sshPublicKey, progressFn);
     } else {
@@ -119,20 +118,20 @@ export class MiningMachine {
     sshPublicKey: string,
     miningAccountAddress: string,
     userLocation: { latitude: string; longitude: string },
-    progressFn: (pct: number) => void,
+    progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
-    progressFn(5);
+    progressFn?.(5);
     const existing = await this.findExistingDigitalOceanDroplet(apiKey, miningAccountAddress);
     if (existing) {
-      progressFn(100);
+      progressFn?.(100);
       return existing;
     }
 
     const dropletName = `Argon-Investor-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
     const sshKey = await this.setupSshKeyOnDigitalOcean(dropletName, apiKey, sshPublicKey);
-    progressFn(25);
+    progressFn?.(25);
     const { region, size } = await this.chooseRegionAndSize(apiKey, userLocation);
-    progressFn(40);
+    progressFn?.(40);
 
     const createRes = await fetch('https://api.digitalocean.com/v2/droplets', {
       method: 'POST',
@@ -157,7 +156,7 @@ export class MiningMachine {
       const extraDetail = (createData as any).message ?? '';
       throw new MiningMachineError(`Failed to create DigitalOcean droplet${extraDetail ? ` - ${extraDetail}` : ''}`);
     }
-    progressFn(60);
+    progressFn?.(60);
 
     let progress = 60;
     while (true) {
@@ -174,14 +173,14 @@ export class MiningMachine {
       });
       const statusData = await statusRes.json();
       if (statusData.action.status === 'completed') {
-        progressFn(95);
+        progressFn?.(95);
         const result = await this.fetchDigitalOceanDroplet(apiKey, createData.droplet.id);
-        progressFn(100);
+        progressFn?.(100);
         return result;
       }
       progress += 1;
       progress = Math.min(90, progress);
-      progressFn(progress);
+      progressFn?.(progress);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
@@ -344,7 +343,7 @@ export class MiningMachine {
 
   public static async setupLocalComputer(
     sshPublicKey: string,
-    progressFn: (pct: number) => void,
+    progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
     const newServerDetails: IConfigServerDetails = {
       type: ServerType.LocalComputer,
@@ -354,7 +353,7 @@ export class MiningMachine {
       workDir: '/app',
     };
 
-    progressFn(5);
+    progressFn?.(5);
     const dockerChecks = await this.runDockerChecks();
     if (!dockerChecks.isDockerStarted) {
       throw new MiningMachineError('Docker is not running');
@@ -363,7 +362,7 @@ export class MiningMachine {
         `Required ports are in use by other applications: ${String(dockerChecks.blockedPorts.join(', '))})`,
       );
     }
-    progressFn(25);
+    progressFn?.(25);
     try {
       const { sshPort } = await LocalMachine.create(sshPublicKey);
       newServerDetails.port = sshPort;
@@ -372,23 +371,22 @@ export class MiningMachine {
         `Something went wrong trying to create your local Docker server. Try restarting Docker.`,
       );
     }
-    progressFn(75);
+    progressFn?.(75);
     if (!IS_TEST) {
       await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
       await enableAutostart();
     }
-    progressFn(100);
+    progressFn?.(100);
 
     return newServerDetails;
   }
 
   private static async setupCustomServer(
-    port: number,
-    sshUser: string,
-    ipAddress: string,
+    customServer: IConfigServerCreationCustomServer,
     miningAccountAddress: string,
-    progressFn: (pct: number) => void,
+    progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
+    const { port, sshUser, ipAddress, hasRunningBot } = customServer;
     const newServerDetails: IConfigServerDetails = {
       type: ServerType.CustomServer,
       port,
@@ -398,13 +396,14 @@ export class MiningMachine {
     };
 
     const serverMeta = await (async () => {
+      if (hasRunningBot) return {} as ITryServerData;
       try {
         return await SSH.tryConnection(newServerDetails);
       } catch {
         throw new MiningMachineError('A SSH connection could not be established to your server.');
       }
     })();
-    progressFn(100);
+    progressFn?.(100);
 
     if (serverMeta.walletAddress && serverMeta.walletAddress !== miningAccountAddress) {
       throw new MiningMachineError('The server has a different wallet address than your mining account.');

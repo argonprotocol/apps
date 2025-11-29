@@ -197,7 +197,6 @@ const wallets = useWallets();
 const currency = useCurrency();
 const controller = useController();
 const calculator = getBiddingCalculator();
-const calculatorData = getBiddingCalculatorData();
 const openBotCreate = Vue.ref(false);
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);

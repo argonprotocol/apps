@@ -88,7 +88,7 @@
           class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
           <div
             v-if="!config.isMinerInstalled && !hasVault"
-            class="flex w-110 flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80">
+            class="flex w-full flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80">
             <p>
               Once your mining bot has been setup, this is where you'll be notified of important alerts such as when
               your bot's capital runs low.
@@ -420,7 +420,7 @@ const miningMicrogonsNeeded = Vue.computed(() => {
 });
 
 const hasVault = Vue.computed(() => {
-  return myVault.data.createdVault;
+  return config.isVaultActivated;
 });
 
 const miningStatus = Vue.computed<Status>(() => {
