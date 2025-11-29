@@ -2,7 +2,7 @@
 <template>
   <BlankSlate v-if="!config.isPreparingMinerSetup && !config.miningAccountPreviousHistory" />
   <FinalSetupChecklist v-else-if="!config.isMinerReadyToInstall" />
-  <CloudMachineIsInstalling v-else-if="!config.isMinerInstalled" />
+  <CloudMachineIsInstalling v-else-if="!config.isMinerUpToDate" />
   <StartingBot v-else-if="!bot.isReady" />
   <Dashboard v-else-if="config.hasMiningSeats" />
   <FirstAuction v-else />

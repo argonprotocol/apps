@@ -51,6 +51,9 @@ baseConfig.build.devUrl = devUrl;
 const configJson = JSON.stringify(baseConfig);
 console.log(baseConfig);
 
+// Set env var to indicate local build
+process.env.ARGON_APP_BUILD_TYPE = "local";
+
 // Spawn `yarn tauri dev` with the merged config
 const child = spawn(
   "yarn",

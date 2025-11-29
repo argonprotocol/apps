@@ -4,7 +4,7 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
-        class="font-light inline-block text-md border border-slate-600/30 rounded-full text-slate-800/80 px-3 py-0.5 ml-1 focus:outline-none"
+        class="font-light inline-block text-md border border-slate-600/30 rounded-full text-slate-800/80 px-3 py-px ml-1 focus:outline-none"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
         <template v-if="networkName !== 'mainnet'">{{ networkName }}:</template>{{ INSTANCE_NAME?.slice(0, 10) }}<template v-if="INSTANCE_NAME.length > 10">...</template>

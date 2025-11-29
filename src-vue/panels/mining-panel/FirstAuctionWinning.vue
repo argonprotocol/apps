@@ -67,6 +67,9 @@
       <div class="flex flex-row justify-center items-center space-x-6 mt-10">
         <ActiveBidsOverlayButton />
         <BotHistoryOverlayButton />
+        <button @click="openBotConfig" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+          Open Bot Config
+        </button>
       </div>
     </div>
   </div>
@@ -88,6 +91,7 @@ import { useStats } from '../../stores/stats';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { useWallets } from '../../stores/wallets';
 import { bigIntMin } from '@argonprotocol/apps-core/src/utils';
+import basicEmitter from '../../emitters/basicEmitter.ts';
 
 dayjs.extend(utc);
 
@@ -128,6 +132,10 @@ function handleAuctionClosingTick(totalSecondsRemaining: number) {
   if (totalSecondsRemaining <= 0) {
     auctionIsClosing.value = true;
   }
+}
+
+function openBotConfig() {
+  basicEmitter.emit('openBotEditOverlay');
 }
 
 Vue.onMounted(async () => {

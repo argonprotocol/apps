@@ -1,8 +1,14 @@
 import { NetworkConfig, MiningFrames } from '@argonprotocol/apps-core';
 import type ISecurity from '../interfaces/ISecurity.ts';
 
-console.log('__ARGON_NETWORK_NAME__', __ARGON_NETWORK_NAME__);
+console.log('__ARGON_APP_BUILD_TYPE__', __ARGON_APP_BUILD_TYPE__);
 console.log('__ARGON_APP_INSTANCE__', __ARGON_APP_INSTANCE__);
+console.log('__ARGON_NETWORK_NAME__', __ARGON_NETWORK_NAME__);
+
+export const BUILD_TYPE = __ARGON_APP_BUILD_TYPE__ || 'local';
+export const IS_LOCAL_BUILD = BUILD_TYPE === 'local';
+export const IS_EXPERIMENTAL_BUILD = BUILD_TYPE === 'experimental';
+export const IS_STABLE_BUILD = BUILD_TYPE === 'stable';
 
 export const NETWORK_NAME = __ARGON_NETWORK_NAME__ || 'mainnet';
 MiningFrames.setNetwork(NETWORK_NAME as any);

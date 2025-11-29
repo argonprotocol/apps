@@ -12,12 +12,13 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { createDeferred, ensureOnlyOneInstance, resetOnlyOneInstance } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
-import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
+import { message as tauriMessage, ask as tauriAsk } from '@tauri-apps/plugin-dialog';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { Server } from './Server';
 import { invokeWithTimeout } from './tauriApi.ts';
-import { MiningMachine, MiningMachineError } from './MiningMachine.ts';
+import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
+import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
 
 dayjs.extend(utc);
 
@@ -55,10 +56,11 @@ export default class Installer {
   }
 
   private isLoadedDeferred!: IDeferred<void>;
-  private config: Config;
-  private walletKeys: WalletKeys;
   private installerCheck: InstallerCheck;
   private disableWrites = false;
+
+  private readonly config: Config;
+  private readonly walletKeys: WalletKeys;
 
   private _server?: Server;
 
@@ -99,7 +101,21 @@ export default class Installer {
         const isRunning = await this.calculateIsRunning();
         const isReadyToRun = !isRunning && (await this.calculateIsReadyToRun(false));
         if (isReadyToRun && !isRunning) {
-          await this.run(false);
+          let isAllowedToRun = true;
+          if (IS_LOCAL_BUILD && ['testnet', 'mainnet'].includes(NETWORK_NAME)) {
+            isAllowedToRun = await tauriAsk(
+              'Argon is about to push a software upgrade to your mining server. Would you like us to continue?',
+              {
+                title: 'Preparing to Upgrade Server',
+                kind: 'warning',
+              },
+            );
+          }
+          if (isAllowedToRun) {
+            await this.run(false);
+          } else {
+            this.config.isMinerUpToDate = true;
+          }
         } else {
           await this.activateInstallerCheck(false);
         }
@@ -108,6 +124,21 @@ export default class Installer {
       }
     }
 
+    console.log('LOADED INSTALLER', {
+      isReadyToRun: this.isReadyToRun,
+      isRunning: this.isRunning,
+      isRunningInBackground: this.isRunningInBackground,
+      isFreshInstall: this.isFreshInstall,
+      remoteFilesNeedUpdating: this.remoteFilesNeedUpdating,
+      reasonToSkipInstall: this.reasonToSkipInstall,
+      reasonToSkipInstallData: this.reasonToSkipInstallData,
+      isMinerWaitingForUpgradeApproval: this.config.isMinerWaitingForUpgradeApproval,
+      config: {
+        isMinerReadyToInstall: this.config.isMinerReadyToInstall,
+        isMiningMachineCreated: this.config.isMiningMachineCreated,
+        isMinerUpToDate: this.config.isMinerUpToDate,
+      },
+    });
     this.isLoaded = true;
     this.isLoadedDeferred.resolve();
   }
@@ -122,6 +153,7 @@ export default class Installer {
   }
 
   public async run(waitForLoaded: boolean = true): Promise<void> {
+    console.log('RUNNING INSTALLER!!!!!!!!!!!!!');
     if (waitForLoaded) {
       await this.isLoadedPromise;
     }
@@ -334,7 +366,6 @@ export default class Installer {
 
       this.installerCheck.clearCachedFilenames();
       this.installerCheck.shouldUseCachedInstallSteps = true;
-      this.config.isMinerInstalled = false;
       this.config.isMinerUpToDate = false;
     }
 

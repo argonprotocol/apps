@@ -411,14 +411,16 @@ pub fn run() {
                     "null".to_string()
                 }
             };
+            let build_type = option_env!("ARGON_APP_BUILD_TYPE").unwrap_or("");
 
             log::info!("Page loaded for instance '{}'", instance_name);
             window.emit("tauri://page-loaded", ()).unwrap();
             window.eval("window.__LOG_DEBUG__ = false".to_string()).expect("Failed to set instance name in window");
+            window.eval(format!("window.__ARGON_APP_BUILD_TYPE__ = '{}'", build_type)).expect("Failed to set build type in window");
             window.eval(format!("window.__ARGON_APP_SECURITY__ = {}", security_json)).expect("Failed to set security in window");
             window.eval(format!("window.__ARGON_APP_INSTANCE__ = '{}'", instance_name)).expect("Failed to set instance name in window");
-            window.eval(format!("window.__ARGON_NETWORK_NAME__ = '{}'", network_name_clone)).expect("Failed to set network name in window");
             window.eval(format!("window.__ARGON_APP_ENABLE_AUTOUPDATE__ = {}", enable_auto_update)).expect("Failed to set experimental flag in window");
+            window.eval(format!("window.__ARGON_NETWORK_NAME__ = '{}'", network_name_clone)).expect("Failed to set network name in window");
             window.eval(format!("window.__SERVER_ENV_VARS__ = {}", env_vars_json)).expect("Failed to set env vars in window");
             window.eval(format!("window.__IS_TEST__ = {}", is_test)).expect("Failed to set is test flag in window");
           })
@@ -437,8 +439,10 @@ pub fn run() {
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
 
             let app_id = &app.config().identifier;
-            if app_id.to_lowercase().contains("experimental")  && option_env!("ARGON_EXPERIMENTAL").is_none()  {
-                panic!("Experimental app built without the ARGON_EXPERIMENTAL environment variable set. Please set it to 'true' to enable experimental features.");
+            if option_env!("ARGON_APP_BUILD_TYPE").is_none()  {
+                panic!("The ARGON_APP_BUILD_TYPE environment variable must be set.");
+            } else if app_id.to_lowercase().contains("experimental")  && option_env!("ARGON_APP_BUILD_TYPE") != Some("experimental")  {
+                panic!("Experimental app built without the ARGON_APP_BUILD_TYPE environment variable set to 'experimental'.");
             }
 
             init_config_instance_dir(handle, &relative_config_dir)?;

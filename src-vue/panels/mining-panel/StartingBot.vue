@@ -7,7 +7,7 @@
         class="relative mx-auto inline-block w-6/10 h-full"
       >
         <div v-if="!bot.isSyncing && !installer.isRunning" class="fade-in-out text-[55px] font-bold text-gray-300 text-center mt-32 mb-4 whitespace-nowrap pt-16">
-          CONNECTING TO
+          CONNECTING TO {{}}
           <div class="text-7xl">BIDDING BOT</div>
         </div>
       </div>

@@ -22,9 +22,10 @@ export class Bot {
   public maxSeatsPossible: number;
   public maxSeatsReductionReason: IBidReductionReason | null;
 
+  private readonly config: Config;
+  private readonly dbPromise: Promise<Db>;
+
   private status: BotStatus | null;
-  private config: Config;
-  private dbPromise: Promise<Db>;
   private botSyncer!: BotSyncer;
   private isLoaded = false;
 

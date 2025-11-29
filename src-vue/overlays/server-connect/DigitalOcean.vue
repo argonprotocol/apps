@@ -334,7 +334,8 @@
                 &nbsp;
               </div>
               <div StepContent>
-                Enter a Token Name, select "Full Access" for the Scope, and click the "Generate Token" button.
+                Enter a Token Name (anything you want), select "Full Access" for the Scope, and click the "Generate
+                Token" button.
               </div>
             </div>
 
