@@ -14,10 +14,6 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
 
   const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-  const availableMicrogons = Vue.computed(() => {
-    return wallets.miningWallet.availableMicrogons;
-  });
-
   const unusedMicronots = Vue.computed(() => {
     const unused = wallets.miningWallet.availableMicronots - config.biddingRules.sidelinedMicronots;
     return unused > 0n ? unused : 0n;
@@ -26,6 +22,10 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   const unusedMicrogons = Vue.computed(() => {
     const unused = wallets.miningWallet.availableMicrogons - config.biddingRules.sidelinedMicrogons;
     return unused > 0n ? unused : 0n;
+  });
+
+  const biddingReserves = Vue.computed(() => {
+    return unusedMicrogons.value + currency.micronotToMicrogon(unusedMicronots.value);
   });
 
   const bidTotalCount = Vue.computed(() => {
@@ -69,7 +69,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   });
 
   const help = {
-    availableMicrogons: `<p class="break-words whitespace-normal">These argons are currently sitting unused.</p>`,
+    biddingReserves: `<p class="break-words whitespace-normal">These argons are currently sitting unused.</p>`,
     unusedMicrogons: `<p class="break-words whitespace-normal">
         These argons have been activated for mining, but your bot hasn't found a competitively priced bid.
       </p>`,
@@ -178,7 +178,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
 
   return {
     help,
-    availableMicrogons,
+    biddingReserves,
     unusedMicrogons,
     unusedMicronots,
     bidTotalCount,
