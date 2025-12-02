@@ -100,7 +100,7 @@ async function removeServer() {
   const isLocalDocker = config.serverDetails.type === ServerType.LocalComputer;
   config.isMinerReadyToInstall = false;
   config.isMinerInstalled = false;
-  config.isMinerUpToDate = false;
+  config.isMinerInstalling = false;
   config.serverDetails = { ...config.serverDetails, ipAddress: '', port: undefined };
   config.installDetails = Config.getDefault('installDetails') as IConfigInstallDetails;
   await config.save();

@@ -114,7 +114,7 @@ export default class Installer {
           if (isAllowedToRun) {
             await this.run(false);
           } else {
-            this.config.isMinerUpToDate = true;
+            this.config.isMinerInstalling = true;
           }
         } else {
           await this.activateInstallerCheck(false);
@@ -138,7 +138,6 @@ export default class Installer {
   }
 
   public async run(waitForLoaded: boolean = true): Promise<void> {
-    console.log('RUNNING INSTALLER!!!!!!!!!!!!!');
     if (waitForLoaded) {
       await this.isLoadedPromise;
     }
@@ -166,7 +165,7 @@ export default class Installer {
     console.log('RUNNING ACTUAL INSTALL');
     this.isRunning = true;
     this.isRunningInBackground = false;
-    this.config.isMinerUpToDate = false;
+    this.config.isMinerInstalling = false;
 
     if (this.remoteFilesNeedUpdating) {
       const stepsToClear = [
@@ -311,7 +310,7 @@ export default class Installer {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerNotConnected;
       this.reasonToSkipInstallData = { isMinerReadyToInstall: this.config.isMinerReadyToInstall };
-      this.config.isMinerUpToDate = false;
+      this.config.isMinerInstalling = false;
       await this.config.save();
       return false;
     }
@@ -332,7 +331,7 @@ export default class Installer {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerUpToDate;
       this.reasonToSkipInstallData = { isServerInstallComplete, remoteFilesNeedUpdating };
-      this.config.isMinerUpToDate = true;
+      this.config.isMinerInstalling = true;
       await this.config.save();
       return false;
     }
@@ -348,7 +347,7 @@ export default class Installer {
 
       this.installerCheck.clearCachedFilenames();
       this.installerCheck.shouldUseCachedInstallSteps = true;
-      this.config.isMinerUpToDate = false;
+      this.config.isMinerInstalling = false;
     }
 
     if (isFreshInstall || remoteFilesNeedUpdating) {
@@ -365,7 +364,7 @@ export default class Installer {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
       this.reasonToSkipInstallData = { hasInstallError: this.installerCheck.hasError };
-      this.config.isMinerUpToDate = false;
+      this.config.isMinerInstalling = false;
       await this.config.save();
       return false;
     }
@@ -379,7 +378,7 @@ export default class Installer {
       return false;
     }
 
-    this.config.isMinerUpToDate = remoteFilesNeedUpdating;
+    this.config.isMinerInstalling = remoteFilesNeedUpdating;
     this.isReadyToRun = true;
     return true;
   }
