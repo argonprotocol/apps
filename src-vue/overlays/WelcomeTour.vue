@@ -22,7 +22,7 @@ import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
 import { useConfig } from '../stores/config';
 import { useController } from '../stores/controller';
-import { PanelKey } from '../interfaces/IConfig';
+import { ScreenKey } from '../interfaces/IConfig';
 
 const controller = useController();
 const config = useConfig();
@@ -65,9 +65,9 @@ async function loadStep(step: number) {
     config.showWelcomeOverlay = false;
     await config.save();
   } else if (step === 2) {
-    controller.setPanelKey(PanelKey.Vaulting);
+    controller.setScreenKey(ScreenKey.Vaulting);
   } else {
-    controller.setPanelKey(PanelKey.Mining);
+    controller.setScreenKey(ScreenKey.Mining);
   }
 
   tour.currentStep = step;

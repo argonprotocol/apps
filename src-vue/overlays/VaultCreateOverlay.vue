@@ -9,7 +9,6 @@
       <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
         <VaultTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
         <div
-          ref="dialogPanel"
           class="VaultCreateOverlay absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
           style="box-shadow: 0 -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)">
           <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
@@ -212,8 +211,6 @@ const saveButtonElement = Vue.ref<HTMLElement | null>(null);
 
 const averageAPY = Vue.ref(0);
 const averageEpochEarnings = Vue.ref(0n);
-
-const dialogPanel = Vue.ref(null);
 
 const vaultLowUtilizationAPY = Vue.ref(0);
 const vaultHighUtilizationAPY = Vue.ref(0);

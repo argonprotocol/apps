@@ -7,7 +7,6 @@
 
       <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
-          ref="dialogPanel"
           class="inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-20 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none"
           style="
             box-shadow:

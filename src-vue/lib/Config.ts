@@ -7,7 +7,7 @@ import {
   IConfigStringified,
   InstallStepKey,
   InstallStepStatus,
-  PanelKey,
+  ScreenKey,
   ServerType,
 } from '../interfaces/IConfig';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
@@ -66,7 +66,7 @@ export class Config implements IConfig {
     this._dbPromise = dbPromise;
     this._loadedData = {
       version: packageJson.version,
-      panelKey: PanelKey.Mining,
+      screenKey: ScreenKey.Mining,
       requiresPassword: false,
       showWelcomeOverlay: false,
       serverDetails: {
@@ -264,11 +264,11 @@ export class Config implements IConfig {
     return Math.min(this._walletPreviousHistoryLoadPct, 100);
   }
 
-  public get panelKey(): PanelKey {
-    return this.getField('panelKey');
+  public get screenKey(): ScreenKey {
+    return this.getField('screenKey');
   }
-  public set panelKey(value: PanelKey) {
-    this.setField('panelKey', value);
+  public set screenKey(value: ScreenKey) {
+    this.setField('screenKey', value);
   }
 
   public get requiresPassword(): boolean {
@@ -597,7 +597,7 @@ export class Config implements IConfig {
 }
 
 const dbFields = {
-  panelKey: 'panelKey',
+  screenKey: 'screenKey',
   requiresPassword: 'requiresPassword',
   showWelcomeOverlay: 'showWelcomeOverlay',
 
@@ -631,7 +631,7 @@ const dbFields = {
 } as const;
 
 const defaults: IConfigDefaults = {
-  panelKey: () => PanelKey.Mining,
+  screenKey: () => ScreenKey.Mining,
   requiresPassword: () => false,
   showWelcomeOverlay: () => true,
 

@@ -14,12 +14,12 @@
 </template>
 
 <script setup lang="ts">
-import BlankSlate from './vaulting-panel/BlankSlate.vue';
-import FinalSetupChecklist from './vaulting-panel/FinalSetupChecklist.vue';
+import BlankSlate from './vaulting-screen/BlankSlate.vue';
+import FinalSetupChecklist from './vaulting-screen/FinalSetupChecklist.vue';
 import { useConfig } from '../stores/config';
-import VaultIsInstalling from './vaulting-panel/VaultIsInstalling.vue';
+import VaultIsInstalling from './vaulting-screen/VaultIsInstalling.vue';
 import { useMyVault } from '../stores/vaults.ts';
-import Dashboard from './vaulting-panel/Dashboard.vue';
+import Dashboard from './vaulting-screen/Dashboard.vue';
 import { onMounted } from 'vue';
 
 const myVault = useMyVault();

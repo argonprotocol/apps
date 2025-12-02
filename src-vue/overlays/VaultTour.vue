@@ -20,7 +20,7 @@ import TourStepFour from './vault-tour/StepFour.vue';
 import { ITourPos } from '../stores/tour';
 import { useConfig } from '../stores/config';
 import { useController } from '../stores/controller';
-import { PanelKey } from '../interfaces/IConfig';
+import { ScreenKey } from '../interfaces/IConfig';
 
 const props = defineProps<{
   getPositionCheck: (name: string) => ITourPos;
