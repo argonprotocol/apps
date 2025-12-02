@@ -439,9 +439,12 @@ pub fn run() {
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
 
             let app_id = &app.config().identifier;
-            if option_env!("ARGON_APP_BUILD_TYPE").is_none()  {
+            let build_type = option_env!("ARGON_APP_BUILD_TYPE");
+            if build_type.is_none()  {
                 panic!("The ARGON_APP_BUILD_TYPE environment variable must be set.");
-            } else if app_id.to_lowercase().contains("experimental")  && option_env!("ARGON_APP_BUILD_TYPE") != Some("experimental")  {
+            } else if build_type != Some("local") && build_type != Some("experimental") && build_type != Some("stable") {
+                panic!("ARGON_APP_BUILD_TYPE must be one of: local, experimental, stable.");
+            } else if app_id.to_lowercase().contains("experimental") && build_type != Some("experimental") {
                 panic!("Experimental app built without the ARGON_APP_BUILD_TYPE environment variable set to 'experimental'.");
             }
 
