@@ -28,15 +28,31 @@
           :sideOffset="-3"
           class="z-50 data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFad data-[state=open]:transition-all"
         >
-          <div class="min-w-40 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem @click="() => openFinancials()" class="py-2">
-              <div MainItemWrapper ItemWrapper>Financials</div>
+          <div class="w-80 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+            <DropdownMenuItem @click="() => openFinancials()">
+              <div class="flex flex-col grow space-y-2 py-3 px-4 whitespace-nowrap" style="text-shadow: 1px 1px 0 white">
+                <div class="flex flex-row items-center">
+                  <ArgonIcon class="h-14 w-14 mr-3 text-argon-500" />
+                  <div class="flex flex-col">
+                    <div class="text-[17px]">{{ microgonToArgonNm(wallets.totalWalletMicrogons).format('0,0.[00]') }} ARGN</div>
+                    <div class="font-light -mt-1">1 ARGN -> {{currency.symbol}}{{ microgonToMoneyNm(1_000_000n).format('0,0.00')}}</div>
+                  </div>
+                </div>
+                <div class="w-full h-px border-t border-dashed border-slate-600/30"></div>
+                <div class="flex flex-row items-center">
+                  <ArgonotIcon class="h-14 w-14 mr-3 text-argon-500" />
+                  <div class="flex flex-col">
+                    <div class="text-[17px]">{{ micronotToArgonotNm(wallets.totalWalletMicronots).format('0,0.[00]') }} ARGNOT</div>
+                    <div class="font-light -mt-1">1 ARGNOT -> {{currency.symbol}}{{ micronotToMoneyNm(1_000_000n).format('0,0.00')}}</div>
+                  </div>
+                </div>
+              </div>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger class="relative py-2">
-                <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <div MainItemWrapper ItemWrapper>Default Currency</div>
+                <div MainItemWrapper ItemWrapper>Change Default Currency</div>
+                <ChevronRightIcon class="absolute top-1/2 right-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent class="relative -top-1 min-w-50">
                 <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
@@ -99,8 +115,10 @@ import basicEmitter from '../emitters/basicEmitter';
 import { useConfig } from '../stores/config';
 import { useWallets } from '../stores/wallets';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
+import { ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { CheckIcon } from '@heroicons/vue/20/solid';
+import ArgonIcon from '../assets/resources/argon.svg?component';
+import ArgonotIcon from '../assets/resources/argonot.svg?component';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -114,7 +132,7 @@ const currency = useCurrency();
 const config = useConfig();
 const wallets = useWallets();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 
 const totalNetWorth = Vue.computed(() => {
   if (!currency.isLoaded) {
@@ -176,7 +194,7 @@ function openFinancials() {
 @reference "../main.css";
 
 [data-reka-collection-item] {
-  @apply focus:bg-argon-menu-hover cursor-pointer pr-3 focus:!text-indigo-600 focus:outline-none;
+  @apply focus:bg-argon-menu-hover/80 cursor-pointer pr-3 focus:outline-none;
 
   &[data-disabled] {
     opacity: 0.3;
@@ -186,7 +204,7 @@ function openFinancials() {
     @apply grow text-left font-bold whitespace-nowrap text-gray-900;
   }
   [MainItemWrapper] {
-    @apply pl-10 text-right;
+    @apply pr-7 pl-3 text-left;
   }
 }
 </style>

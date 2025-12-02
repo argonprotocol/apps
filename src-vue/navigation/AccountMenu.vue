@@ -23,6 +23,10 @@
               <header>About This App</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <DropdownMenuItem @click="() => openFinancialsOverlay()" class="py-2">
+              <header>Financials Panel</header>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openSecuritySettingsOverlay()" class="py-2">
               <header>Security and Recovery</header>
             </DropdownMenuItem>
@@ -156,6 +160,11 @@ function openSecuritySettingsOverlay() {
   isOpen.value = false;
 }
 
+function openFinancialsOverlay() {
+  basicEmitter.emit('openFinancialsOverlay');
+  isOpen.value = false;
+}
+
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
   isOpen.value = false;
@@ -181,7 +190,7 @@ function takeTheTour() {
 @reference "../main.css";
 
 [data-reka-collection-item] {
-  @apply focus:bg-argon-menu-hover cursor-pointer px-4 focus:!text-indigo-600 focus:outline-none;
+  @apply focus:bg-argon-menu-hover cursor-pointer px-4 focus:outline-none;
 
   &[data-disabled] {
     opacity: 0.3;
