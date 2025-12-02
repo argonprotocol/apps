@@ -58,6 +58,8 @@
           :spacerWidth="spacerWidth"
           :align="props.align"
           :showMoveButton="props.showMoveButtons"
+          :moveFrom="MoveFrom.VaultingSecurityUnused"
+          :moveTo="MoveTo.Holding"
         >
           {{ microgonToArgonNm(breakdown.waitingSecuritization).format('0,0.[00]') }} ARGN Unused
         </SubItem>
@@ -67,8 +69,6 @@
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          :moveFrom="MoveFrom.VaultingSecurityUnused"
-          :moveTo="MoveTo.Holding"
         >
           {{ microgonToArgonNm(breakdown.pendingSecuritization).format('0,0.[00]') }} ARGN Processing
         </SubItem>

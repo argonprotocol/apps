@@ -24,8 +24,8 @@
             class="relative pointer-events-auto"
           >
             <MoveCapitalButton
-              :moveFrom="moveFrom!"
-              :moveTo="moveTo!"
+              :moveFrom="moveFrom"
+              :moveTo="moveTo"
               class="opacity-50 transition-opacity duration-100 hover:opacity-100 bg-white"
             />
           </div>

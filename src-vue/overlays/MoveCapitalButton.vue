@@ -19,7 +19,7 @@
             <div class="grow">
               <div>Move From</div>
               <div class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-                {{ moveFromTitle[moveFrom] }} {{ moveFrom }}
+                {{ moveFromTitle[moveFrom] }}
               </div>
             </div>
             <div class="grow">
@@ -94,10 +94,12 @@ import InputArgon from '../components/InputArgon.vue';
 const props = withDefaults(
   defineProps<{
     class?: string;
-    moveFrom: MoveFrom;
-    moveTo: MoveTo;
+    moveFrom?: MoveFrom;
+    moveTo?: MoveTo;
   }>(),
-  {},
+  {
+    moveFrom: MoveFrom.Holding,
+  },
 );
 
 const isOpen = Vue.ref(false);
@@ -109,14 +111,5 @@ const moveTo = Vue.ref(props.moveTo);
 
 function cancel() {
   isOpen.value = false;
-}
-
-function clickTrigger(e: MouseEvent) {
-  // if (wasRecentlyClickedOutside) return;
-
-  if (!isOpen.value) {
-    // isClickedOpen.value = true;
-    isOpen.value = true;
-  }
 }
 </script>
