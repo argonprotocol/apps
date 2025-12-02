@@ -1,28 +1,35 @@
+<!-- prettier-ignore -->
 <template>
   <TooltipRoot :openDelay="200" :closeDelay="100">
     <TooltipTrigger
       as="div"
       :class="
-        twMerge('border-y border-gray-600/40', props.class, paddingClass, isRight ? 'flex-row-reverse' : 'flex-row')
+        twMerge('border-t border-gray-600/40', props.class, paddingClass, isRight ? 'flex-row-reverse' : 'flex-row')
       "
       :style="{ height }"
-      class="Row Total">
+      class="Row Total"
+    >
       <div class="Text grow" :class="[isRight ? 'text-right' : 'text-left']">
         <slot />
       </div>
       <div class="Value">
         <slot name="value" />
       </div>
+      <div v-if="spacerWidth" :style="{ width: spacerWidth }" />
     </TooltipTrigger>
     <TooltipContent
       align="start"
-      :alignOffset="props.tooltip.length < 100 ? -10 : -20"
-      :side="isRight ? 'left' : 'right'"
+      :alignOffset="tooltipSide === 'right' ? (tooltip.length < 120 ? -10 : -20) : 0"
+      :side="tooltipSide"
+      :sideOffset="tooltipSide === 'right' ? 0 : 4"
       :avoidCollisions="false"
-      :class="props.tooltip.length < 100 ? 'w-fit' : 'w-md'"
-      class="z-50 rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl">
-      <div v-html="props.tooltip" />
-      <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+      :class="tooltipSide === 'right' && tooltip.length < 120 ? 'w-fit' : 'w-md'"
+      class="z-50 rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl pointer-events-none">
+      <div v-html="tooltip" />
+      <TooltipArrow v-if="tooltipSide === 'right'" :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+      <div v-else :class="isRight ? 'right-12' : 'left-12'" class="absolute top-full pointer-events-none">
+        <CustomTooltipArrow />
+      </div>
     </TooltipContent>
   </TooltipRoot>
 </template>
@@ -30,7 +37,8 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
-import { TooltipProvider, TooltipArrow, TooltipContent, TooltipRoot, TooltipTrigger } from 'reka-ui';
+import { TooltipContent, TooltipRoot, TooltipTrigger, TooltipArrow } from 'reka-ui';
+import CustomTooltipArrow from './TooltipArrow.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -38,6 +46,8 @@ const props = withDefaults(
     class?: string;
     height: number | 'auto';
     align?: 'left' | 'right';
+    spacerWidth?: string;
+    tooltipSide?: 'right' | 'top';
   }>(),
   {
     align: 'left',

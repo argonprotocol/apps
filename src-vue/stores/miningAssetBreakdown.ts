@@ -44,19 +44,19 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
     return wallets.miningBidMicronots;
   });
 
-  const seatTotalCount = Vue.computed(() => {
+  const seatActiveCount = Vue.computed(() => {
     return stats.myMiningSeats.seatCount;
   });
 
-  const seatTotalCost = Vue.computed(() => {
+  const expectedSeatValue = Vue.computed(() => {
     return wallets.miningSeatValue;
   });
 
-  const seatMicrogons = Vue.computed(() => {
+  const expectedSeatMicrogons = Vue.computed(() => {
     return wallets.miningSeatMicrogons;
   });
 
-  const seatMicronots = Vue.computed(() => {
+  const expectedSeatMicronots = Vue.computed(() => {
     return wallets.miningSeatMicronots;
   });
 
@@ -164,12 +164,12 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
         released back into your wallet once the associated mining cycle completes.
       </p>
     `,
-    seatMicrogons: `
+    expectedSeatMicrogons: `
       <p class="break-words whitespace-normal">
         These argons have been activated for mining, but your bot hasn't found a competitively priced bid.
       </p>
     `,
-    seatMicronots: `
+    expectedSeatMicronots: `
       <p class="break-words whitespace-normal">
         These argonots are available for mining, but your bot hasn't found a competitively priced bid.
       </p>
@@ -185,10 +185,10 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
     bidTotalCost,
     bidMicrogons,
     bidMicronots,
-    seatTotalCount,
-    seatTotalCost,
-    seatMicrogons,
-    seatMicronots,
+    seatActiveCount,
+    expectedSeatValue,
+    expectedSeatMicrogons,
+    expectedSeatMicronots,
     transactionFeesTotal,
     totalMiningResources,
   };

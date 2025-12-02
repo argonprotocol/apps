@@ -7,78 +7,83 @@
 
     <div class="flex grow flex-col">
       <div class="relative flex flex-row">
-        <div class="relative flex h-full w-[30%] flex-col justify-end">
-          <div class="relative mt-10 grow">
+        <div class="relative z-10 flex h-full w-[30%] flex-col justify-end">
+          <div class="group pointer-events-none relative mt-10 grow">
             <div class="absolute top-0 left-3 flex h-3 w-[140%] flex-row items-center justify-center">
-              <div class="ml-3 h-3 grow bg-slate-600/13" />
-              <div class="relative z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+              <div class="pointer-events-auto ml-3 h-3 grow bg-slate-600/13 group-hover:bg-slate-600/30" />
+              <div class="bg-argon-menu-bg pointer-events-auto absolute top-1/2 right-32 z-10 -translate-y-1/2 px-2">
+                <MoveCapitalButton
+                  :moveFrom="MoveFrom.Holding"
+                  :moveTo="MoveTo.Mining"
+                  class="opacity-50 transition-opacity duration-100 hover:opacity-100" />
               </div>
-              <div class="mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/13 to-slate-600/0" />
+              <div
+                class="pointer-events-auto mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/13 to-slate-600/0 group-hover:from-slate-600/30" />
             </div>
-            <div class="absolute top-0 bottom-3 left-3 w-3 bg-slate-600/13">
-              <Arrow class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90" />
+            <div
+              class="pointer-events-auto absolute top-0 bottom-0.5 left-3 z-10 w-3 bg-slate-600/13 group-hover:bg-slate-600/30">
+              <LineArrow
+                class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13 group-hover:text-slate-600/30" />
             </div>
           </div>
-          <header class="text-lg font-bold">Mining Assets</header>
-          <div class="hover:text-argon-600/90 mb-3 cursor-pointer text-left">
+          <header class="relative pt-3 text-lg font-bold">
+            <div class="absolute top-0 left-0 h-px w-[110%] bg-gray-600/20" />
+            Mining Assets
+          </header>
+          <div class="hover:text-argon-600/90 mb-3 w-fit cursor-pointer text-left text-slate-800/60">
             {{ abbreviateAddress(wallets.miningWallet.address, 10) }}
-            <CopyIcon class="ml-1 inline-block h-5 w-5 text-slate-600/80" />
+            <CopyIcon class="ml-1 inline-block h-4 w-4 text-slate-600/60" />
           </div>
         </div>
         <div class="relative h-full w-[40%]">
           <div
             class="absolute top-[65%] left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center">
-            <CopyIcon class="h-5 w-5 cursor-pointer text-slate-600/80 hover:text-slate-600/90" />
+            <CopyIcon class="h-4.5 w-4.5 cursor-pointer text-slate-600/60 hover:text-slate-600/90" />
             <header class="mt-2 text-center text-lg font-bold">Holding Account</header>
-            <div class="mb-5 text-center">{{ abbreviateAddress(wallets.holdingWallet.address, 10) }}</div>
+            <div class="hover:text-argon-600/90 mb-5 cursor-pointer text-center text-slate-800/60">
+              {{ abbreviateAddress(wallets.holdingWallet.address, 10) }}
+            </div>
           </div>
           <BanklessTop1 class="w-full" />
         </div>
-        <div class="relative flex h-full w-[30%] flex-col justify-end">
-          <div class="relative mt-10 grow">
-            <div class="absolute top-0 right-3 flex h-3 w-[140%] flex-row items-center justify-center">
-              <div class="mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
-              <div class="relative z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
+        <div class="relative z-10 flex h-full w-[30%] flex-col justify-end">
+          <div class="group pointer-events-none relative grow pt-10">
+            <div class="absolute top-10 right-3 flex h-3 w-[140%] flex-row items-center justify-center">
+              <div
+                class="pointer-events-auto ml-1 h-3 w-32 bg-gradient-to-r from-slate-600/0 to-slate-600/13 group-hover:to-slate-600/30" />
+              <div class="bg-argon-menu-bg pointer-events-auto absolute top-1/2 left-32 z-10 -translate-y-1/2 px-2">
+                <MoveCapitalButton
+                  :moveFrom="MoveFrom.Holding"
+                  :moveTo="MoveTo.Vaulting"
+                  class="opacity-50 transition-opacity duration-100 hover:opacity-100" />
               </div>
-              <div class="mr-3 h-3 grow bg-slate-600/13" />
+              <div class="pointer-events-auto mr-3 h-3 grow bg-slate-600/13 group-hover:bg-slate-600/30" />
             </div>
-            <div class="absolute top-0 right-3 bottom-3 w-3 bg-slate-600/13">
-              <Arrow class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90" />
+            <div
+              class="pointer-events-auto absolute top-10 right-3 bottom-0.5 z-10 w-3 bg-slate-600/13 group-hover:bg-slate-600/30">
+              <LineArrow
+                class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13 group-hover:text-slate-600/30" />
             </div>
           </div>
-          <header class="text-right text-lg font-bold">Vaulting Assets</header>
-          <div class="hover:text-argon-600/90 mb-3 cursor-pointer text-right">
-            <CopyIcon class="mr-1 inline-block h-5 w-5 text-slate-600/80" />
+          <header class="relative pt-3 text-right text-lg font-bold">
+            <div class="absolute top-0 right-0 h-px w-[110%] bg-gray-600/20" />
+            Vaulting Assets
+          </header>
+          <div class="hover:text-argon-600/90 mb-3 ml-auto w-fit cursor-pointer text-right text-slate-800/60">
+            <CopyIcon class="mr-1 inline-block h-4 w-4 text-slate-600/60" />
             {{ abbreviateAddress(wallets.vaultingWallet.address, 10) }}
           </div>
         </div>
       </div>
 
       <div class="flex grow flex-row">
-        <div class="flex h-full w-[30%] flex-row">
+        <div class="relative z-30 mt-[-2px] flex h-full w-[30%] flex-row border-t border-gray-600/20">
           <MiningAssetBreakdown
-            class="h-full grow border-t border-slate-600/30"
+            class="relative h-[calc(100%+4px)] min-w-[105%] grow"
             show="AllExceptTotal"
-            :showArrows="true" />
-          <div class="flex min-w-20 flex-col">
-            <div class="h-[9.091%]"></div>
-            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
-              <div class="relative -left-5 z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
-              </div>
-              <div class="absolute top-1/2 -right-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
-              <Arrow class="absolute top-1/2 -right-13 translate-x-full -translate-y-1/2" />
-            </div>
-            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
-              <div class="relative -left-5 z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
-              </div>
-              <div class="absolute top-1/2 -right-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
-              <Arrow class="absolute top-1/2 -right-13 translate-x-full -translate-y-1/2" />
-            </div>
-          </div>
+            spacerWidth="0"
+            :showMoveButtons="true"
+            tooltipSide="top" />
         </div>
         <div class="flex h-full w-[40%] flex-col">
           <BanklessTop2 class="w-full" />
@@ -105,53 +110,32 @@
           </div>
           <BanklessBottom1 class="-mt-1.5 -mb-px w-full" />
         </div>
-        <div class="flex h-full w-[30%] flex-row">
-          <div class="min-w-20">
-            <div class="h-[9.091%]"></div>
-            <div class="h-[9.091%]"></div>
-            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
-              <div class="relative -right-5 z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
-              </div>
-              <div class="absolute top-1/2 -left-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
-              <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
-            </div>
-            <div class="h-[9.091%]"></div>
-            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
-              <div class="relative -right-5 z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
-              </div>
-              <div class="absolute top-1/2 -left-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
-              <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
-            </div>
-            <div class="h-[9.091%]"></div>
-            <div class="h-[9.091%]"></div>
-            <div class="h-[9.091%]"></div>
-            <div class="relative z-10 flex h-[9.091%] w-full flex-row items-center">
-              <div class="relative -right-5 z-10 bg-white px-2">
-                <button class="border-argon-600/50 text-argon-600/80 rounded border px-3 font-bold">Move</button>
-              </div>
-              <div class="absolute top-1/2 -left-14 h-3 w-full -translate-y-1/2 bg-slate-600/13" />
-              <Arrow class="absolute top-1/2 -left-13 -translate-x-full -translate-y-1/2 rotate-180" />
-            </div>
-          </div>
+        <div class="relative mt-[-2px] flex h-full w-[30%] flex-row border-t border-gray-600/20">
           <VaultingAssetBreakdown
             align="right"
-            class="h-full border-t border-slate-600/30"
+            class="right-[5%] h-[calc(100%+4px)] min-w-[105%] grow"
+            tooltipSide="top"
             show="AllExceptTotal"
-            :showArrows="true" />
+            :showMoveButtons="true" />
         </div>
       </div>
 
       <div class="flex flex-row">
-        <div class="text-md h-full w-[30%] pr-20">
-          <MiningAssetBreakdown class="h-full" show="OnlyTotal" />
+        <div class="relative mt-px h-full w-[30%]">
+          <MiningAssetBreakdown class="h-[calc(100%-3px)]" show="OnlyTotal" spacerWidth="20px" tooltipSide="top" />
+          <div class="absolute right-[15px] bottom-[2px] left-0 h-px bg-gray-800/30" />
         </div>
         <div class="h-full w-[40%]">
           <BanklessBottom2 class="w-full" />
         </div>
-        <div class="h-full w-[30%] pl-20">
-          <VaultingAssetBreakdown align="right" class="h-full" show="OnlyTotal" />
+        <div class="relative mt-px h-full w-[30%]">
+          <VaultingAssetBreakdown
+            align="right"
+            class="h-[calc(100%-3px)]"
+            show="OnlyTotal"
+            spacerWidth="20px"
+            tooltipSide="top" />
+          <div class="absolute right-0 bottom-[2px] left-[15px] h-px bg-gray-800/30" />
         </div>
       </div>
     </div>
@@ -171,7 +155,8 @@ import { abbreviateAddress } from '../../lib/Utils.ts';
 import { useCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import CopyIcon from '../../assets/copy.svg';
-import Arrow from './components/Arrow.vue';
+import LineArrow from '../../components/asset-breakdown/LineArrow.vue';
+import MoveCapitalButton, { MoveFrom, MoveTo } from '../MoveCapitalButton.vue';
 
 const wallets = useWallets();
 const currency = useCurrency();

@@ -1,10 +1,13 @@
+<!-- prettier-ignore -->
 <template>
   <TooltipProvider :disableHoverableContent="true">
-    <div class="text-md relative flex w-full flex-col items-center whitespace-nowrap">
+    <div :class="twMerge('text-md relative flex w-full flex-col items-center whitespace-nowrap', props.class)">
       <template v-if="props.show !== 'OnlyTotal'">
         <Header
           :tooltip="breakdown.help.vaultingAvailableMicrogons"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
+          :spacerWidth="spacerWidth"
           :align="props.align"
           class="border-0">
           Minting Pipeline
@@ -13,22 +16,35 @@
             {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.vaultingAvailableMicrogons).format('0,0.00') }}
           </template>
         </Header>
-        <SubItem :tooltip="breakdown.help.pendingMintingValue" :height="itemHeight" :align="props.align">
+        <SubItem
+          :tooltip="breakdown.help.pendingMintingValue"
+          :tooltipSide="tooltipSide"
+          :height="itemHeight"
+          :spacerWidth="spacerWidth"
+          :align="props.align">
           {{ microgonToArgonNm(breakdown.pendingMintingValue).format('0,0.[00]') }} ARGN to Mint
         </SubItem>
         <SubItem
           :tooltip="breakdown.help.alreadyMintedValue"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
+          :spacerWidth="spacerWidth"
           :align="props.align"
-          :showArrow="props.showArrows">
+          :showMoveButton="props.showMoveButtons"
+          :moveFrom="MoveFrom.VaultingMintedArgon"
+          :moveTo="MoveTo.Holding"
+        >
           {{ microgonToArgonNm(breakdown.alreadyMintedValue).format('0,0.[00]') }} ARGN Minted
         </SubItem>
 
         <Header
           :tooltip="breakdown.help.bitcoinSecurityTotal"
-          class="border-dashed"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
-          :align="props.align">
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+          class="border-dashed"
+        >
           Bitcoin Security
           <template #icon><ArgonotIcon class="h-7 w-7" /></template>
           <template #value>
@@ -37,23 +53,43 @@
         </Header>
         <SubItem
           :tooltip="breakdown.help.waitingSecuritization"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
+          :spacerWidth="spacerWidth"
           :align="props.align"
-          :showArrow="props.showArrows">
+          :showMoveButton="props.showMoveButtons"
+          :moveFrom="MoveFrom.VaultingSecurityUnused"
+          :moveTo="MoveTo.Holding"
+        >
           {{ microgonToArgonNm(breakdown.waitingSecuritization).format('0,0.[00]') }} ARGN Unused
         </SubItem>
-        <SubItem :tooltip="breakdown.help.pendingSecuritization" :height="itemHeight" :align="props.align">
+        <SubItem
+          :tooltip="breakdown.help.pendingSecuritization"
+          :tooltipSide="tooltipSide"
+          :height="itemHeight"
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+        >
           {{ microgonToArgonNm(breakdown.pendingSecuritization).format('0,0.[00]') }} ARGN Processing
         </SubItem>
-        <SubItem :tooltip="breakdown.help.activatedSecuritization" :height="itemHeight" :align="props.align">
+        <SubItem
+          :tooltip="breakdown.help.activatedSecuritization"
+          :tooltipSide="tooltipSide"
+          :height="itemHeight"
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+        >
           {{ microgonToArgonNm(breakdown.activatedSecuritization).format('0,0.[00]') }} ARGN Activated
         </SubItem>
 
         <Header
           :tooltip="breakdown.help.treasuryBondTotal"
-          class="border-dashed"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
-          :align="props.align">
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+          class="border-dashed"
+        >
           Treasury Bonds
           <template #icon><ArgonotIcon class="h-7 w-7" /></template>
           <template #value>
@@ -62,20 +98,34 @@
         </Header>
         <SubItem
           :tooltip="breakdown.help.pendingTreasuryPoolInvestment"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
+          :spacerWidth="spacerWidth"
           :align="props.align"
-          :showArrow="props.showArrows">
+          :showMoveButton="props.showMoveButtons"
+          :moveFrom="MoveFrom.VaultingTreasuryUnused"
+          :moveTo="MoveTo.Holding"
+        >
           {{ microgonToArgonNm(breakdown.pendingTreasuryPoolInvestment).format('0,0.[00]') }} ARGN Unused
         </SubItem>
-        <SubItem :tooltip="breakdown.help.activatedTreasuryPoolInvestment" :height="itemHeight" :align="props.align">
+        <SubItem
+          :tooltip="breakdown.help.activatedTreasuryPoolInvestment"
+          :tooltipSide="tooltipSide"
+          :height="itemHeight"
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+        >
           {{ microgonToArgonNm(breakdown.activatedTreasuryPoolInvestment).format('0,0.[00]') }} ARGN Activated
         </SubItem>
 
         <Expenses
           v-if="breakdown.hasLockedBitcoin"
           :tooltip="breakdown.help.unlockPrice"
+          :tooltipSide="tooltipSide"
           :height="itemHeight"
-          :align="props.align">
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+        >
           <span class="hidden xl:inline">Cost to</span>
           Unlock Bitcoin
           <template #value>
@@ -85,9 +135,12 @@
 
         <Expenses
           :tooltip="breakdown.help.operationalFeeMicrogons"
+          :tooltipSide="tooltipSide"
           :class="breakdown.hasLockedBitcoin ? 'border-dashed' : ''"
           :height="itemHeight"
-          :align="props.align">
+          :spacerWidth="spacerWidth"
+          :align="props.align"
+        >
           <span class="hidden xl:inline">Operational</span>
           Expenses
           <template #value>
@@ -99,9 +152,12 @@
       <Total
         v-if="props.show === 'All' || props.show === 'OnlyTotal'"
         :tooltip="breakdown.help.totalVaultValue"
-        :class="props.show === 'OnlyTotal' ? 'h-full' : ''"
+        :tooltipSide="tooltipSide"
         :height="itemHeight"
-        :align="props.align">
+        :spacerWidth="spacerWidth"
+        :align="props.align"
+        :class="props.show === 'OnlyTotal' ? 'h-full' : ''"
+      >
         Total Value
         <template #value>
           {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.totalVaultValue).format('0,0.00') }}
@@ -112,6 +168,8 @@
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
+import { twMerge } from 'tailwind-merge';
 import ArgonIcon from '../assets/resources/argon.svg?component';
 import ArgonotIcon from '../assets/resources/argonot.svg?component';
 import { TooltipProvider } from 'reka-ui';
@@ -122,17 +180,21 @@ import Header from './asset-breakdown/Header.vue';
 import SubItem from './asset-breakdown/SubItem.vue';
 import Expenses from './asset-breakdown/Expenses.vue';
 import Total from './asset-breakdown/Total.vue';
-import * as Vue from 'vue';
+import MoveCapitalButton, { MoveFrom, MoveTo } from '../overlays/MoveCapitalButton.vue';
 
 const props = withDefaults(
   defineProps<{
     show?: 'All' | 'AllExceptTotal' | 'OnlyTotal';
     align?: 'left' | 'right';
-    showArrows?: boolean;
+    showMoveButtons?: boolean;
+    spacerWidth?: string;
+    class?: string;
+    tooltipSide?: 'right' | 'top';
   }>(),
   {
     show: 'All',
     align: 'left',
+    tooltipSide: 'right',
   },
 );
 
