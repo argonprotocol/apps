@@ -13,23 +13,17 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import TourStepOne from './vault-tour/StepOne.vue';
-import TourStepTwo from './vault-tour/StepTwo.vue';
-import TourStepThree from './vault-tour/StepThree.vue';
-import TourStepFour from './vault-tour/StepFour.vue';
-import { ITourPos } from '../stores/tour';
-import { useConfig } from '../stores/config';
-import { useController } from '../stores/controller';
-import { ScreenKey } from '../interfaces/IConfig';
+import TourStepOne from './StepOne.vue';
+import TourStepTwo from './StepTwo.vue';
+import TourStepThree from './StepThree.vue';
+import TourStepFour from './StepFour.vue';
+import { ITourPos } from '../../stores/tour.ts';
 
 const props = defineProps<{
   getPositionCheck: (name: string) => ITourPos;
 }>();
 
 const emit = defineEmits(['close', 'changeStep']);
-
-const controller = useController();
-const config = useConfig();
 
 const stepVars = Vue.ref({});
 const tourPos = Vue.ref<ITourPos>({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });

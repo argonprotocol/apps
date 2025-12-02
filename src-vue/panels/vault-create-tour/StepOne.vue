@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
-import { ITourPos } from '../../stores/tour';
+import { ITourPos } from '../../stores/tour.ts';
 
 const isOpen = Vue.ref(true);
 

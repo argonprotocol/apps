@@ -13,11 +13,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import TourStepOne from './bot-tour/StepOne.vue';
-import TourStepTwo from './bot-tour/StepTwo.vue';
-import TourStepThree from './bot-tour/StepThree.vue';
-import TourStepFour from './bot-tour/StepFour.vue';
-import { ITourPos } from '../stores/tour';
+import TourStepOne from './StepOne.vue';
+import TourStepTwo from './StepTwo.vue';
+import TourStepThree from './StepThree.vue';
+import TourStepFour from './StepFour.vue';
+import { ITourPos } from '../../stores/tour.ts';
 
 const props = defineProps<{
   getPositionCheck: (name: string) => ITourPos;

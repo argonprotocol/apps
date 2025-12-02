@@ -2,10 +2,10 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="closeOverlay" />
+        <BgOverlay @close="closePanel" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
+      <DialogContent @escapeKeyDown="closePanel" :aria-describedby="undefined">
         <div
           class="inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-20 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none"
           style="
@@ -47,7 +47,7 @@
                 </TabsTrigger>
               </TabsList>
               <div
-                @click="closeOverlay"
+                @click="closePanel"
                 class="absolute top-[18px] right-5 z-10 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/70 hover:bg-[#D6D9DF] focus:outline-none">
                 <XMarkIcon class="h-5 w-5 stroke-4 text-[#B74CBA]" />
               </div>
@@ -80,11 +80,11 @@ const isLoaded = Vue.ref(false);
 
 const selectedTab = Vue.ref('assets');
 
-function closeOverlay() {
+function closePanel() {
   isOpen.value = false;
 }
 
-basicEmitter.on('openFinancialsOverlay', async () => {
+basicEmitter.on('openFinancialsPanel', async () => {
   if (isOpen.value) return;
   isLoaded.value = false;
 

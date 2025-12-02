@@ -23,7 +23,7 @@
               <header>About This App</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openFinancialsOverlay()" class="py-2">
+            <DropdownMenuItem @click="() => openFinancialsPanel()" class="py-2">
               <header>Financials Panel</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
@@ -160,8 +160,8 @@ function openSecuritySettingsOverlay() {
   isOpen.value = false;
 }
 
-function openFinancialsOverlay() {
-  basicEmitter.emit('openFinancialsOverlay');
+function openFinancialsPanel() {
+  basicEmitter.emit('openFinancialsPanel');
   isOpen.value = false;
 }
 

@@ -3,13 +3,13 @@
   <DialogRoot class="absolute inset-0 z-10" :open="true">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelOverlay" />
+        <BgOverlay @close="cancelPanel" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
+      <DialogContent @escapeKeyDown="cancelPanel" :aria-describedby="undefined">
         <VaultTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
         <div
-          class="VaultCreateOverlay absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
+          class="VaultCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
           style="box-shadow: 0 -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)">
           <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
           <div v-if="isSuggestingTour" class="absolute inset-0 bg-black/20 z-20 rounded-md"></div>
@@ -19,7 +19,7 @@
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
               <DialogTitle as="div" class="relative z-10">Configure Your Stabilization Vault</DialogTitle>
-              <div @click="cancelOverlay" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
+              <div @click="cancelPanel" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
                 <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
               </div>
             </h2>
@@ -37,7 +37,7 @@
                   </PopoverTrigger>
                   <PopoverPortal>
                     <PopoverContent @escapeKeyDown="stopSuggestingTour" side="bottom" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30 z-1000">
-                      <p class="text-gray-800 font-light">We recommend first-time vaulters start with a brief tour of how to use this overlay.</p>
+                      <p class="text-gray-800 font-light">We recommend first-time vaulters start with a brief tour of how to use this panel.</p>
                       <div class="flex flex-row space-x-2 mt-6">
                         <button @click="stopSuggestingTour" tabindex="-1" class="cursor-pointer grow rounded-md border border-slate-500/30 px-4 py-1 focus:outline-none">Not Now</button>
                         <button @click="startTour" tabindex="0" class="cursor-pointer grow rounded-md bg-argon-button border border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-4 py-1 focus:outline-none">Start Tour</button>
@@ -129,7 +129,7 @@
             <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
               <div class="flex flex-row space-x-4 justify-center items-center">
                 <ExistingNetworkVaultsOverlayButton class=" mr-10" />
-                <button @click="cancelOverlay" class="border border-argon-button/50 text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
+                <button @click="cancelPanel" class="border border-argon-button/50 text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
                   <span>Cancel</span>
                 </button>
                 <Tooltip asChild :calculateWidth="() => calculateElementWidth(saveButtonElement)" side="top" content="Clicking this button does not commit you to anything.">
@@ -163,23 +163,23 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from 'reka-ui';
-import { useConfig } from '../stores/config';
-import { getVaultCalculator } from '../stores/mainchain';
-import { useCurrency } from '../stores/currency';
-import numeral, { createNumeralHelpers } from '../lib/numeral';
+import { useConfig } from '../stores/config.ts';
+import { getVaultCalculator } from '../stores/mainchain.ts';
+import { useCurrency } from '../stores/currency.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { JsonExt } from '@argonprotocol/apps-core';
-import IVaultingRules from '../interfaces/IVaultingRules';
+import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import InputArgon from '../components/InputArgon.vue';
-import ExistingNetworkVaultsOverlayButton from './ExistingNetworkVaultsOverlayButton.vue';
-import CapitalOverlay from './vault/VaultCapital.vue';
-import ReturnsOverlay from './vault/VaultReturns.vue';
-import VaultTour from './VaultTour.vue';
+import ExistingNetworkVaultsOverlayButton from '../overlays/ExistingNetworkVaultsOverlayButton.vue';
+import CapitalOverlay from '../overlays/vault/VaultCapital.vue';
+import ReturnsOverlay from '../overlays/vault/VaultReturns.vue';
+import VaultTour from './vault-create-tour/Base.vue';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
-import { ITourPos } from '../stores/tour';
-import { useController } from '../stores/controller';
+import { ITourPos } from '../stores/tour.ts';
+import { useController } from '../stores/controller.ts';
 import VaultSettings from '../components/VaultSettings.vue';
 
 const config = useConfig();
@@ -274,7 +274,7 @@ function calculateElementWidth(element: HTMLElement | null) {
   return `${elementWidth}px`;
 }
 
-function cancelOverlay() {
+function cancelPanel() {
   if (hasEditBoxOverlay.value) return;
 
   if (previousVaultingRules) {
@@ -351,7 +351,7 @@ Vue.onMounted(async () => {
 <style>
 @reference "../main.css";
 
-.VaultCreateOverlay {
+.VaultCreatePanel {
   h2 {
     position: relative;
     &:before {

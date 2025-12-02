@@ -2,9 +2,9 @@
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
       <PopoverContent
-        @escapeKeyDown="previousStep"
+        @escapeKeyDown="cancelTour"
         ref="boxRef"
-        class="absolute z-[2001]"
+        class="absolute z-2001"
         :style="{ left, top, width: `${props.pos.width}px` }">
         <div Arrow ref="arrowRef" class="absolute top-0.5 left-6/12 z-1 -translate-y-full">
           <svg
@@ -31,24 +31,24 @@
           OverlayBox
           class="absolute flex w-[40rem] flex-col rounded-lg border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
-            <div class="text-lg font-bold text-slate-700">This Is Our Best Guestimate</div>
-            <div class="text-slate-500/40">Step 2 of 4</div>
+            <div class="text-lg font-bold text-slate-700">How Much Are You Wanting to Invest?</div>
+            <div class="text-slate-500/40">Step 1 of 4</div>
           </h3>
 
           <p>
-            This is our best estimate of your potential mining profits if you continue to reinvest your capital over the
-            next year. As you change your mining configuration, this APY will update in real-time. Similar to the
-            previous box, it's also designed to be exploratory -- use the pie chart icon to see more details or move
-            your mouse over the highlighted text.
+            This box controls how much capital you want your bot to invest in winning mining seats. It's designed for
+            exploration -- the pie chart icon opens a more detailed overlay, and the highlighted text opens tooltips
+            with more information. You can also directly change the capital you want to commit by clicking on the number
+            and typing in a new value.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">
             <button
-              @click="previousStep"
+              @click="cancelTour"
               type="button"
               tabindex="-1"
               class="mt-4 rounded-md border border-[#969AA5] bg-[#E6EAF3] px-8 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-slate-600 hover:bg-slate-200 focus:ring-1 focus:ring-fuchsia-500 focus:outline-none focus:ring-inset">
-              Previous Step
+              Cancel Tour
             </button>
             <button
               @click="nextStep"
@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
-import { ITourPos } from '../../stores/tour';
+import { ITourPos } from '../../stores/tour.ts';
 
 const isOpen = Vue.ref(true);
 
@@ -77,13 +77,13 @@ const props = defineProps<{
 const left = Vue.computed(() => `${props.pos.left}px`);
 const top = Vue.computed(() => `${props.pos.bottom + 5}px`);
 
-const emit = defineEmits(['nextStep', 'previousStep']);
+const emit = defineEmits(['nextStep', 'cancelTour']);
 
 function nextStep() {
   emit('nextStep');
 }
 
-function previousStep() {
-  emit('previousStep');
+function cancelTour() {
+  emit('cancelTour');
 }
 </script>

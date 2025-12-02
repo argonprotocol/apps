@@ -107,7 +107,7 @@
       </button>
     </div>
   </div>
-  <VaultCreateOverlay v-if="openCreateOverlay" @close="openCreateOverlay = false" />
+  <VaultCreatePanel v-if="openCreateOverlay" @close="openCreateOverlay = false" />
 </template>
 
 <script setup lang="ts">
@@ -124,7 +124,7 @@ import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getVaultCalculator } from '../../stores/mainchain.ts';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
-import VaultCreateOverlay from '../../overlays/VaultCreateOverlay.vue';
+import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
 import { useController } from '../../stores/controller';
 
 dayjs.extend(utc);

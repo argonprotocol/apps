@@ -13,7 +13,7 @@
       </div>
     </div>
     <template v-if="config.isLoaded">
-      <FinancialsOverlay />
+      <FinancialsPanel />
       <template v-if="showMiningScreen">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
@@ -69,7 +69,7 @@ import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
-import FinancialsOverlay from './overlays/FinancialsOverlay.vue';
+import FinancialsPanel from './panels/FinancialsPanel.vue';
 
 const controller = useController();
 const config = useConfig();
