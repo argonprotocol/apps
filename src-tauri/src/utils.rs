@@ -24,9 +24,9 @@ impl Utils {
         "default".to_string()
     }
 
-    pub fn is_experimental() -> bool {
+    pub fn is_experimental_build() -> bool {
         // baked into runtime via build.rs
-        option_env!("ARGON_EXPERIMENTAL").map_or(false, |v| v == "true")
+        option_env!("ARGON_APP_BUILD_TYPE") == Some("experimental")
     }
 
     pub fn get_server_env_vars() -> Result<HashMap<String, String>, String> {
@@ -48,7 +48,7 @@ impl Utils {
 
     pub fn get_network_name() -> String {
         std::env::var("ARGON_NETWORK_NAME").unwrap_or(
-            if Self::is_experimental() {
+            if Self::is_experimental_build() {
                 "testnet"
             } else {
                 #[cfg(debug_assertions)]

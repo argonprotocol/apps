@@ -163,7 +163,7 @@ export class InstallerCheck {
     this.config.installDetails = installDetailsPending;
     if (this.isServerInstallComplete) {
       this.config.isMinerInstalled = true;
-      this.config.isMinerUpToDate = true;
+      this.config.isMinerInstalling = true;
       this.config.walletAccountsHadPreviousLife = false;
       this.config.walletPreviousLifeRecovered = false;
       this.config.miningAccountPreviousHistory = null;

@@ -212,7 +212,7 @@ async function connect() {
       config.hasReadMiningInstructions = true;
       config.isMinerInstalled = true;
       config.isMinerReadyToInstall = true;
-      config.isMinerUpToDate = true;
+      config.isMinerInstalling = true;
       config.isMiningMachineCreated = true;
       config.isPreparingMinerSetup = true;
     }

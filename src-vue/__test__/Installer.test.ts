@@ -58,7 +58,7 @@ it('should install if all conditions are met', async () => {
 
   config.isMinerReadyToInstall = true;
   config.isMinerInstalled = false;
-  config.isMinerUpToDate = false;
+  config.isMinerInstalling = false;
   config.serverDetails = {
     ...config.serverDetails,
     ipAddress: '127.0.0.1',

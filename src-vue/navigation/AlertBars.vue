@@ -148,7 +148,7 @@ clients.events.on('degraded', () => {
 const hideInstallerInBackgroundAlert = Vue.ref(false);
 
 const showInstallerInBackgroundAlert = Vue.computed(() => {
-  if (config.isMinerInstalled) return false;
+  if (config.isMinerInstalling) return false;
   return installer.isRunning && installer.isRunningInBackground && !hideInstallerInBackgroundAlert.value;
 });
 

@@ -3,7 +3,7 @@
   <div class="flex flex-col h-full w-full">
     <div class="grow relative bg-white rounded border border-[#CCCEDA] shadow text-center m-3 overflow-hidden">
       <div
-        v-if="!bot.isBroken && !config.isMinerWaitingForUpgradeApproval"
+        v-if="!bot.isBroken"
         class="relative mx-auto inline-block w-6/10 h-full"
       >
         <div v-if="!bot.isSyncing && !installer.isRunning" class="fade-in-out text-[55px] font-bold text-gray-300 text-center mt-32 mb-4 whitespace-nowrap pt-16">
@@ -18,12 +18,10 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { useStats } from '../../stores/stats';
-import { useConfig } from '../../stores/config';
 import { useBot } from '../../stores/bot';
 import { useInstaller } from '../../stores/installer';
 
 const stats = useStats();
-const config = useConfig();
 const bot = useBot();
 const installer = useInstaller();
 

@@ -19,7 +19,7 @@ concurrency:
 env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
   TAURI_CONFIG: ${{ github.workspace }}/src-tauri/tauri.conf.json
-  ARGON_EXPERIMENTAL: ${{ contains(github.event.inputs.version || github.ref_name, '-rc') }}
+  ARGON_APP_BUILD_TYPE: ${{ contains(github.event.inputs.version || github.ref_name, '-rc') && 'experimental' || 'stable' }}
   RELEASE_NOTES: ''
 
 jobs:
@@ -87,7 +87,7 @@ jobs:
         run: yarn build:server
 
       - name: Override vars
-        if: ${{ env.ARGON_EXPERIMENTAL == 'true' }}
+        if: ${{ env.ARGON_APP_BUILD_TYPE == 'experimental' }}
         shell: bash
         run: |
           echo "TAURI_CONFIG=$GITHUB_WORKSPACE/src-tauri/tauri.experimental.conf.json" >> "$GITHUB_ENV"
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Publish to channel release
-        if: ${{ env.ARGON_EXPERIMENTAL == 'true'}}
+        if: ${{ env.ARGON_APP_BUILD_TYPE == 'experimental' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

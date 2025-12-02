@@ -76,10 +76,6 @@ const config = useConfig();
 const tour = useTour();
 const bot = useBot();
 
-const isNeedingUpgrade = Vue.computed(() => {
-  return config.isMinerWaitingForUpgradeApproval || (config.isMinerInstalled && !config.isMinerUpToDate);
-});
-
 const showMiningPanel = Vue.computed(() => {
   return controller.panelKey === PanelKey.Mining;
 });
