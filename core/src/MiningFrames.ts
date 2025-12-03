@@ -79,12 +79,14 @@ export class MiningFrames {
           .then(x => JSON.parse(x ?? '[]') as IFramesHistory)
           .catch(() => []);
         if (updates.length > 0) {
-          this.frameHistory = updates;
+          for (const frame of updates) {
+            this.frameHistory[frame.frameId] = frame;
+          }
           this.currentFrameId = Math.max(...this.frameIds);
         }
       }
       console.log(
-        `Loading Mining Frames, current frame ID: ${this.currentFrameId} of known frames ${this.frameIds.length}`,
+        `[Mining Frames] Loading with current frame ID: ${this.currentFrameId} of known frames ${this.frameIds.length}`,
       );
       const client = await this.clients.prunedClientOrArchivePromise;
       const genesisHash = client.genesisHash.toHex();

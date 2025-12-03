@@ -3,7 +3,14 @@ import * as fs from 'node:fs';
 import * as path from 'path';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { JsonExt, MainchainClients, MiningFrames, NetworkConfigSettings, PriceIndex } from '@argonprotocol/apps-core';
+import {
+  JsonExt,
+  MainchainClients,
+  MiningFrames,
+  NetworkConfig,
+  NetworkConfigSettings,
+  PriceIndex,
+} from '@argonprotocol/apps-core';
 import { Vaults } from '../src-vue/lib/Vaults.ts';
 import { setMainchainClients } from '../src-vue/stores/mainchain.ts';
 
@@ -13,6 +20,7 @@ const rebuildBaseline = Boolean(JSON.parse(process.env.REBUILD_BASELINE ?? '0'))
 
 export default async function fetchVaultRevenue() {
   for (const chain of ['testnet', 'mainnet'] as const) {
+    NetworkConfig.networkName = chain;
     const mainchain = new MainchainClients(NetworkConfigSettings[chain].archiveUrl);
     const priceIndex = new PriceIndex(mainchain);
     await priceIndex.fetchMicrogonExchangeRatesTo();
@@ -21,6 +29,8 @@ export default async function fetchVaultRevenue() {
     setMainchainClients(mainchain);
     const vaults = new Vaults(chain, priceIndex, miningFrames);
     await vaults.load();
+    // @ts-expect-error -- Override saveStats to prevent writing to DB during data fetch
+    vaults.saveStats = () => Promise.resolve(); // Disable saving stats during data fetch
     const data = await vaults.refreshRevenue(mainchain);
     await miningFrames.stop();
 

@@ -31,8 +31,8 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
       const changesProps = {} as any;
       for (const key of Object.keys(this.defaults) as (keyof T)[]) {
         newData[key] = data[key];
-        const oldValue = this.data?.[key];
         if (this.shouldLog) {
+          const oldValue = this.data?.[key];
           if (oldValue !== newData[key] && JsonExt.stringify(oldValue) !== JsonExt.stringify(newData[key])) {
             changesProps[key] = [oldValue, newData[key]];
           }

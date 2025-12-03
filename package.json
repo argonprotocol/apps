@@ -27,7 +27,7 @@
     "eslint": "eslint bot core cli src-vue --ext .ts --cache --fix",
     "test": "vitest --run",
     "typecheck": "vue-tsc --noEmit && yarn workspaces foreach --all run tsc --noEmit",
-    "update-data": "yarn workspace @argonprotocol/core run update-frames && tsx data-generators/all.ts",
+    "update-data": "yarn workspace @argonprotocol/apps-core run update-frames && tsx data-generators/all.ts",
     "docker:config": "tsx e2e/argon/updateConfig.ts",
     "docker:argon:download": "tsx e2e/argon/download.ts",
     "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml",

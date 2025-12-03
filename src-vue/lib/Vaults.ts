@@ -18,8 +18,6 @@ import testnetVaultRevenueHistory from '../data/vaultRevenue.testnet.json';
 import { NETWORK_NAME } from './Env.ts';
 import BigNumber from 'bignumber.js';
 
-const REVENUE_STATS_FILE = `${NETWORK_NAME}/vaultRevenue.json`;
-
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
   public stats?: IAllVaultStats;
@@ -319,19 +317,23 @@ export class Vaults {
     return poolApy + feeApr;
   }
 
+  private statsFile() {
+    return `${this.network}/vaultStats.json`;
+  }
+
   private async saveStats(): Promise<void> {
     if (!this.stats) return;
     if (this.isSavingStats) return;
     this.isSavingStats = true;
     try {
       const statsJson = JsonExt.stringify(this.stats, 2);
-      await mkdir(`${NETWORK_NAME}`, { baseDir: BaseDirectory.AppConfig, recursive: true }).catch(() => null);
-      await writeTextFile(REVENUE_STATS_FILE + '.tmp', statsJson, {
+      await mkdir(`${this.network}`, { baseDir: BaseDirectory.AppConfig, recursive: true }).catch(() => null);
+      await writeTextFile(this.statsFile() + '.tmp', statsJson, {
         baseDir: BaseDirectory.AppConfig,
       }).catch(error => {
         console.error('Error saving vault stats:', error);
       });
-      await rename(REVENUE_STATS_FILE + '.tmp', REVENUE_STATS_FILE, {
+      await rename(this.statsFile() + '.tmp', this.statsFile(), {
         oldPathBaseDir: BaseDirectory.AppConfig,
         newPathBaseDir: BaseDirectory.AppConfig,
       }).catch(error => {
@@ -343,8 +345,8 @@ export class Vaults {
   }
 
   private async loadStatsFromFile(): Promise<IAllVaultStats> {
-    console.log('load stats from file', REVENUE_STATS_FILE);
-    const state = await readTextFile(REVENUE_STATS_FILE, {
+    console.log('load stats from file', this.statsFile());
+    const state = await readTextFile(this.statsFile(), {
       baseDir: BaseDirectory.AppConfig,
     }).catch(() => undefined);
     if (state) {

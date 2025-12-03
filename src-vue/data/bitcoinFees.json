@@ -1314,5 +1314,21 @@
   {
     "date": "2025-11-28",
     "feeInBitcoins": 0.00000561
+  },
+  {
+    "date": "2025-11-29",
+    "feeInBitcoins": 0.00000557
+  },
+  {
+    "date": "2025-11-30",
+    "feeInBitcoins": 0.00000412
+  },
+  {
+    "date": "2025-12-01",
+    "feeInBitcoins": 0.0000102
+  },
+  {
+    "date": "2025-12-02",
+    "feeInBitcoins": 0.00000945
   }
 ]

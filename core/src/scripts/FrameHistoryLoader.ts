@@ -73,7 +73,11 @@ export class FrameHistoryLoader {
         if (this.doesApiSupportFrameStartBlocks(specVersion)) {
           console.log(`Looking up additional frame start blocks...`);
           const frameStartBlockNumbers = await this.getFrameStartBlockNumbers(blockNumber);
-          queue.push(...frameStartBlockNumbers);
+          for (const bn of frameStartBlockNumbers) {
+            if (bn < currentBlockNumber) {
+              queue.push(bn);
+            }
+          }
         }
       }
     } while (queue.length > 0);
@@ -113,7 +117,12 @@ export class FrameHistoryLoader {
       Object.assign(existing, newEntry);
       return;
     }
-    this.frameHistory.push(newEntry);
+    const index = this.frameHistory.findIndex(f => f.frameId > newEntry.frameId);
+    if (index >= 0) {
+      this.frameHistory.splice(index, 0, newEntry);
+    } else {
+      this.frameHistory.push(newEntry);
+    }
   }
 
   private async getStartOfFrame(frameIdToFind: number, blockNumber: number) {
