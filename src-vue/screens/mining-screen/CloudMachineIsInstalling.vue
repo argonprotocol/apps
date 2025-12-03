@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div :class="hasError ? 'pt-16' : 'pt-20'" class="Panel CloudMachineIsInstalling flex flex-col px-[15%] h-full pb-16">
+  <div :class="hasError ? 'pt-16' : 'pt-20'" class="Screen CloudMachineIsInstalling flex flex-col px-[15%] h-full pb-16">
     <h1 class="text-4xl font-bold">{{ installer.isFreshInstall ? 'Installing' : 'Upgrading' }} Your {{ serverType() }} Machine...</h1>
 
     <p v-if="hasError" class="pt-3 font-light">

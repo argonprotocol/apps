@@ -93,7 +93,7 @@ export default class Importer {
       throw new Error('Wallet address mismatch');
     }
 
-    // TODO: We might want to return this data to the caller (BotCreateOverlay) so they can hold it in case the user
+    // TODO: We might want to return this data to the caller (BotCreatePanel) so they can hold it in case the user
     // wants to click the Cancel button.
     this.config.biddingRules = serverData.biddingRules!;
     this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync!;

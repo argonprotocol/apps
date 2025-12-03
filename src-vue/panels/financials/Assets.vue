@@ -156,7 +156,7 @@ import { useCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import CopyIcon from '../../assets/copy.svg';
 import LineArrow from '../../components/asset-breakdown/LineArrow.vue';
-import MoveCapitalButton, { MoveFrom, MoveTo } from '../MoveCapitalButton.vue';
+import MoveCapitalButton, { MoveFrom, MoveTo } from '../../overlays/MoveCapitalButton.vue';
 
 const wallets = useWallets();
 const currency = useCurrency();

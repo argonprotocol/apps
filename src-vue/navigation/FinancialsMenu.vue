@@ -185,7 +185,7 @@ function clickOutside(e: PointerDownOutsideEvent) {
 }
 
 function openFinancials() {
-  basicEmitter.emit('openFinancialsOverlay');
+  basicEmitter.emit('openFinancialsPanel');
   isOpen.value = false;
 }
 </script>

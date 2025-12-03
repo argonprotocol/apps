@@ -33,7 +33,7 @@ export enum InstallStepStatus {
   Hidden = 'Hidden',
 }
 
-export enum PanelKey {
+export enum ScreenKey {
   Mining = 'Mining',
   Vaulting = 'Vaulting',
 }
@@ -117,7 +117,7 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 // ---- Main Schema ---- //
 
 export const ConfigSchema = z.object({
-  panelKey: z.nativeEnum(PanelKey),
+  screenKey: z.nativeEnum(ScreenKey),
   version: z.string(),
   requiresPassword: z.boolean(),
   showWelcomeOverlay: z.boolean(),
@@ -183,7 +183,7 @@ export type IConfigStringified = {
 };
 
 export interface IConfigDefaults {
-  panelKey: () => IConfig['panelKey'];
+  screenKey: () => IConfig['screenKey'];
   requiresPassword: () => IConfig['requiresPassword'];
   showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
 

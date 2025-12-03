@@ -54,13 +54,12 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { useCurrency } from '../stores/currency';
-import { getMainchainClient, getMining } from '../stores/mainchain';
+import { getMainchainClient } from '../stores/mainchain';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { useStats } from '../stores/stats';
-import { Accountset, getRange, type IBidsFile, Mining } from '@argonprotocol/apps-core';
+import { type IBidsFile, Mining } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral';
 import { TICK_MILLIS } from '../lib/Env.ts';
-import { useConfig } from '../stores/config.ts';
 import { useWalletKeys } from '../stores/wallets.ts';
 
 dayjs.extend(utc);

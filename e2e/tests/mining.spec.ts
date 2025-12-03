@@ -14,7 +14,7 @@ it('should be able to start a miner', async () => {
   // open the bot rules
   await waitAndClick('FinalSetupChecklist.openBotCreateOverlay()');
   // cancel the tour
-  await waitAndClick('BotCreateOverlay.stopSuggestingTour()');
+  await waitAndClick('BotCreatePanel.stopSuggestingTour()');
   // set starting bid to 0
   await waitAndClick("BotSettings.openEditBoxOverlay('startingBid')");
   await waitAndClick('input-menu-trigger');
@@ -29,7 +29,7 @@ it('should be able to start a miner', async () => {
   expect(text).toBe('0.00');
   await waitAndClick('EditBoxOverlay.saveOverlay()');
 
-  await waitAndClick('BotCreateOverlay.saveRules()');
+  await waitAndClick('BotCreatePanel.saveRules()');
   // fund the wallet
   await waitAndClick('FinalSetupChecklist.openFundMiningAccountOverlay()');
   const micronotsNeededElem = await waitForVisible('Receive.micronotsNeeded');
@@ -39,8 +39,8 @@ it('should be able to start a miner', async () => {
   const address = clipboard.readSync();
   expect(address).toBeTruthy();
 
-  const micronotsNeeded = BigInt(await micronotsNeededElem.getAttribute('data-value'));
-  const microgonsNeeded = BigInt(await microgonsNeededElem.getAttribute('data-value'));
+  const micronotsNeeded = BigInt(micronotsNeededElem.getAttribute('data-value'));
+  const microgonsNeeded = BigInt(microgonsNeededElem.getAttribute('data-value'));
   expect(micronotsNeeded).toBeGreaterThan(0n);
   expect(microgonsNeeded).toBeGreaterThan(0n);
 

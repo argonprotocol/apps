@@ -1,5 +1,5 @@
 <template>
-  <div class="BotTour Component" :style="stepVars">
+  <div class="VaultTour Component" :style="stepVars">
     <div class="screen-overlay">
       <div class="cutout"></div>
     </div>
@@ -13,23 +13,17 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import TourStepOne from './bot-tour/StepOne.vue';
-import TourStepTwo from './bot-tour/StepTwo.vue';
-import TourStepThree from './bot-tour/StepThree.vue';
-import TourStepFour from './bot-tour/StepFour.vue';
-import { ITourPos } from '../stores/tour';
-import { useConfig } from '../stores/config';
-import { useController } from '../stores/controller';
-import { PanelKey } from '../interfaces/IConfig';
+import TourStepOne from './StepOne.vue';
+import TourStepTwo from './StepTwo.vue';
+import TourStepThree from './StepThree.vue';
+import TourStepFour from './StepFour.vue';
+import { ITourPos } from '../../stores/tour.ts';
 
 const props = defineProps<{
   getPositionCheck: (name: string) => ITourPos;
 }>();
 
 const emit = defineEmits(['close', 'changeStep']);
-
-const controller = useController();
-const config = useConfig();
 
 const stepVars = Vue.ref({});
 const tourPos = Vue.ref<ITourPos>({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
@@ -90,7 +84,7 @@ Vue.onBeforeUnmount(() => {
 <style lang="scss">
 @reference "../main.css";
 
-.BotTour.Component {
+.VaultTour.Component {
   .screen-overlay {
     @apply rounded-lg;
     position: fixed;

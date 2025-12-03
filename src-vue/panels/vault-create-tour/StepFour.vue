@@ -4,9 +4,9 @@
       <PopoverContent
         @escapeKeyDown="previousStep"
         ref="boxRef"
-        class="absolute z-[2001] -translate-y-full"
+        class="absolute z-[2001] -translate-x-full -translate-y-full"
         :style="{ left, top, width: `${props.pos.width}px` }">
-        <div Arrow ref="arrowRef" class="absolute bottom-0.5 left-1/2 z-1 translate-y-full rotate-180">
+        <div Arrow ref="arrowRef" class="absolute bottom-4.5 -left-1.75 z-1 -translate-y-full rotate-90">
           <svg
             class="relative z-10"
             width="24"
@@ -29,15 +29,16 @@
 
         <div
           OverlayBox
-          class="relative mx-auto flex w-[40rem] flex-col rounded-lg border border-black/60 bg-white px-4 font-light shadow-lg">
+          class="relative flex w-[35rem] -translate-x-full flex-col rounded-lg border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
-            <div class="text-lg font-bold text-slate-700">You Control Every Detail</div>
-            <div class="text-slate-500/40">Step 3 of 4</div>
+            <div class="text-lg font-bold text-slate-700">Save Without Committing</div>
+            <div class="text-slate-500/40">Step 4 of 4</div>
           </h3>
 
           <p>
-            These six boxes contain all the configuration settings for your mining operations. Click on any box to see
-            more details or make adjustments. We've set some defaults to get you started.
+            When you're ready, click the "Initialize" button. This simply saves your settings. It doesn't commit you to
+            anything, nor does it create your vault. You can always reopen this overlay to continue making changes
+            before (and after) you start vaulting.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">
@@ -52,7 +53,7 @@
               @click="nextStep"
               tabindex="0"
               class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow mt-4 cursor-pointer rounded-md border px-8 py-2 text-sm font-bold text-white shadow-sm focus:outline-none">
-              Next Step
+              Finish Tour
             </button>
           </div>
         </div>
@@ -64,7 +65,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
-import { ITourPos } from '../../stores/tour';
+import { ITourPos } from '../../stores/tour.ts';
 
 const isOpen = Vue.ref(true);
 
@@ -72,8 +73,8 @@ const props = defineProps<{
   pos: ITourPos;
 }>();
 
-const left = Vue.computed(() => `${props.pos.left}px`);
-const top = Vue.computed(() => `${props.pos.top - 10}px`);
+const left = Vue.computed(() => `${props.pos.right + 3}px`);
+const top = Vue.computed(() => `${props.pos.bottom + 7}px`);
 
 const emit = defineEmits(['nextStep', 'previousStep']);
 

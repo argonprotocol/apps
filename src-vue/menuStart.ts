@@ -6,7 +6,7 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { useController } from './stores/controller';
 import { useInstaller } from './stores/installer';
 import { useBot } from './stores/bot';
-import { PanelKey } from './interfaces/IConfig';
+import { ScreenKey } from './interfaces/IConfig';
 import { useConfig } from './stores/config';
 import { useTour } from './stores/tour';
 
@@ -75,7 +75,7 @@ export default async function menuStart() {
       {
         id: 'mining-dashboard',
         text: 'Open Mining',
-        action: () => controller.setPanelKey(PanelKey.Mining),
+        action: () => controller.setScreenKey(ScreenKey.Mining),
       },
       {
         id: 'token-transfer-to-mining',
@@ -91,7 +91,7 @@ export default async function menuStart() {
       {
         id: 'vaulting-dashboard',
         text: 'Open Vaulting',
-        action: () => controller.setPanelKey(PanelKey.Vaulting),
+        action: () => controller.setScreenKey(ScreenKey.Vaulting),
       },
       {
         id: 'token-transfer-to-vaulting',

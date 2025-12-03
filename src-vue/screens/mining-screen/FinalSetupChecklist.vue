@@ -165,7 +165,7 @@
       </button>
     </div>
   </div>
-  <BotCreateOverlay @close="openBotCreate = false" v-if="openBotCreate" />
+  <BotCreatePanel @close="openBotCreate = false" v-if="openBotCreate" />
   <BotCreatePriceChangeOverlay v-if="!openBotCreate" />
 </template>
 
@@ -185,7 +185,7 @@ import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
 import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
-import BotCreateOverlay from '../../overlays/BotCreateOverlay.vue';
+import BotCreatePanel from '../../panels/BotCreatePanel.vue';
 import { useController } from '../../stores/controller';
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 

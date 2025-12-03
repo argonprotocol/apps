@@ -7,7 +7,7 @@ import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '../lib/Utils';
 import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
-import { PanelKey } from '../interfaces/IConfig';
+import { ScreenKey } from '../interfaces/IConfig';
 
 export const useController = defineStore('controller', () => {
   const isLoaded = Vue.ref(false);
@@ -16,7 +16,7 @@ export const useController = defineStore('controller', () => {
   const dbPromise = getDbPromise();
   const config = useConfig();
   const walletKeys = useWalletKeys();
-  const panelKey = Vue.ref<PanelKey>('' as PanelKey);
+  const screenKey = Vue.ref<ScreenKey>('' as ScreenKey);
 
   const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(false);
@@ -24,18 +24,18 @@ export const useController = defineStore('controller', () => {
 
   const walletOverlayIsOpen = Vue.ref(false);
 
-  function setPanelKey(value: PanelKey) {
-    if (panelKey.value === value) return;
+  function setScreenKey(value: ScreenKey) {
+    if (screenKey.value === value) return;
 
     basicEmitter.emit('closeAllOverlays');
-    panelKey.value = value;
-    config.panelKey = value;
+    screenKey.value = value;
+    config.screenKey = value;
     void config.save();
   }
 
   async function load() {
     await config.isLoadedPromise;
-    panelKey.value = config.panelKey;
+    screenKey.value = config.screenKey;
     isLoaded.value = true;
     isLoadedResolve();
   }
@@ -56,7 +56,7 @@ export const useController = defineStore('controller', () => {
   load().catch(handleFatalError.bind('useController'));
 
   return {
-    panelKey,
+    screenKey,
     isLoaded,
     isLoadedPromise,
     isImporting,
@@ -65,6 +65,6 @@ export const useController = defineStore('controller', () => {
     walletOverlayIsOpen,
     importFromFile,
     importFromMnemonic,
-    setPanelKey,
+    setScreenKey: setScreenKey,
   };
 });

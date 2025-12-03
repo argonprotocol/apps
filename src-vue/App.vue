@@ -4,8 +4,8 @@
     <TopBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
       <AlertBars />
-      <MiningPanel v-if="showMiningPanel" />
-      <VaultingPanel v-else-if="controller.panelKey === PanelKey.Vaulting" />
+      <MiningScreen v-if="showMiningScreen" />
+      <VaultingScreen v-else-if="controller.screenKey === ScreenKey.Vaulting" />
     </main>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
@@ -13,8 +13,8 @@
       </div>
     </div>
     <template v-if="config.isLoaded">
-      <FinancialsOverlay />
-      <template v-if="showMiningPanel">
+      <FinancialsPanel />
+      <template v-if="showMiningScreen">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
@@ -42,8 +42,8 @@
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import menuStart from './menuStart.ts';
-import MiningPanel from './panels/MiningPanel.vue';
-import VaultingPanel from './panels/VaultingPanel.vue';
+import MiningScreen from './screens/MiningScreen.vue';
+import VaultingScreen from './screens/VaultingScreen.vue';
 import ServerConnectOverlay from './overlays/ServerConnectOverlay.vue';
 import WalletOverlay from './overlays/WalletOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
@@ -64,32 +64,32 @@ import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from './navigation/AlertBars.vue';
 import HowMiningWorksOverlay from './overlays/bot/HowMiningWorks.vue';
 import HowVaultingWorksOverlay from './overlays/vault/HowVaultingWorks.vue';
-import { PanelKey } from './interfaces/IConfig.ts';
+import { ScreenKey } from './interfaces/IConfig.ts';
 import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
-import FinancialsOverlay from './overlays/FinancialsOverlay.vue';
+import FinancialsPanel from './panels/FinancialsPanel.vue';
 
 const controller = useController();
 const config = useConfig();
 const tour = useTour();
 const bot = useBot();
 
-const showMiningPanel = Vue.computed(() => {
-  return controller.panelKey === PanelKey.Mining;
+const showMiningScreen = Vue.computed(() => {
+  return controller.screenKey === ScreenKey.Mining;
 });
 
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)
   if (event.metaKey && event.shiftKey && event.key === '[') {
     event.preventDefault();
-    controller.setPanelKey(PanelKey.Mining);
+    controller.setScreenKey(ScreenKey.Mining);
   }
   // Check for CMD+Shift+] (vaulting panel)
   else if (event.metaKey && event.shiftKey && event.key === ']') {
     event.preventDefault();
-    controller.setPanelKey(PanelKey.Vaulting);
+    controller.setScreenKey(ScreenKey.Vaulting);
   }
 }
 

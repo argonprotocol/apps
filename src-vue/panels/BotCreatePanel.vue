@@ -3,10 +3,10 @@
   <DialogRoot class="absolute inset-0 z-10" :open="true">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelOverlay" />
+        <BgOverlay @close="cancelPanel" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
+      <DialogContent @escapeKeyDown="cancelPanel" :aria-describedby="undefined">
         <BotTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
         <div
           :ref="draggable.setModalRef"
@@ -17,7 +17,7 @@
             // transform: 'translate(-50%, -50%)',
             // cursor: draggable.isDragging ? 'grabbing' : 'default',
           }"
-          class="BotCreateOverlay absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
+          class="BotCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
           style="box-shadow: 0px -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)"
         >
           <BgOverlay v-if="hasEditBoxOverlay" @close="cancelEditOverlay" :showWindowControls="false" rounded="md" class="z-100" />
@@ -29,7 +29,7 @@
               style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
             >
               <DialogTitle as="div" class="relative z-10">Configure Your Mining Bot</DialogTitle>
-              <div @click="cancelOverlay" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
+              <div @click="cancelPanel" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
                 <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
               </div>
             </h2>
@@ -141,7 +141,7 @@
                 <ActiveBidsOverlayButton :loadFromMainchain="true" class="mr-10">
                   <span class="text-argon-600/70 cursor-pointer">Show Existing Mining Bids</span>
                 </ActiveBidsOverlayButton>
-                <button @click="cancelOverlay" tabindex="-1" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
+                <button @click="cancelPanel" tabindex="-1" class="border border-argon-button/50 hover:border-argon-button text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
                   <span>Cancel</span>
                 </button>
                 <tooltip asChild :calculateWidth="() => calculateElementWidth(saveButtonElement)" side="top" content="Clicking this button does not commit you to anything.">
@@ -175,10 +175,10 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from 'reka-ui';
-import { useConfig } from '../stores/config';
-import { useCurrency } from '../stores/currency';
-import { getBiddingCalculator, getBiddingCalculatorData } from '../stores/mainchain';
-import numeral, { createNumeralHelpers } from '../lib/numeral';
+import { useConfig } from '../stores/config.ts';
+import { useCurrency } from '../stores/currency.ts';
+import { getBiddingCalculator, getBiddingCalculatorData } from '../stores/mainchain.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import {
@@ -188,19 +188,19 @@ import {
   type IBiddingRules,
   JsonExt,
 } from '@argonprotocol/apps-core';
-import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
-import { bigIntCeil, bigNumberToInteger } from '@argonprotocol/apps-core/src/utils';
+import ActiveBidsOverlayButton from '../overlays/ActiveBidsOverlayButton.vue';
+import { bigIntCeil, bigNumberToInteger } from '@argonprotocol/apps-core/src/utils.ts';
 import InputArgon from '../components/InputArgon.vue';
-import NeedMoreCapitalHover from './bot/NeedMoreCapitalHover.vue';
-import ReturnsOverlay from './bot/BotReturns.vue';
-import CapitalOverlay from './bot/BotCapital.vue';
+import NeedMoreCapitalHover from '../overlays/bot/NeedMoreCapitalHover.vue';
+import ReturnsOverlay from '../overlays/bot/BotReturns.vue';
+import CapitalOverlay from '../overlays/bot/BotCapital.vue';
 import { useBot } from '../stores/bot.ts';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
-import BotTour from './BotTour.vue';
-import { useController } from '../stores/controller';
-import Draggable from './helpers/Draggable.ts';
+import BotTour from './bot-create-tour/Base.vue';
+import { useController } from '../stores/controller.ts';
+import Draggable from '../overlays/helpers/Draggable.ts';
 import BotSettings from '../components/BotSettings.vue';
 
 const emit = defineEmits<{
@@ -313,7 +313,7 @@ function cancelEditOverlay() {
   botSettings.value?.closeEditBoxOverlay();
 }
 
-function cancelOverlay() {
+function cancelPanel() {
   if (hasEditBoxOverlay.value) return;
 
   if (previousBiddingRules) {
@@ -489,7 +489,7 @@ Vue.onMounted(async () => {
 <style>
 @reference "../main.css";
 
-.BotCreateOverlay {
+.BotCreatePanel {
   h2 {
     position: relative;
     &:before {
@@ -537,7 +537,7 @@ Vue.onMounted(async () => {
         @apply text-argon-600 cursor-help;
       }
       [PiechartIcon] {
-        animation: BotCreateOverlay-fadeToArgon 2s ease-in-out 1;
+        animation: BotCreatePanel-fadeToArgon 2s ease-in-out 1;
       }
     }
 
@@ -616,7 +616,7 @@ Vue.onMounted(async () => {
   }
 }
 
-@keyframes BotCreateOverlay-fadeToArgon {
+@keyframes BotCreatePanel-fadeToArgon {
   0% {
     color: rgb(209 213 219); /* text-gray-300 */
     transform: scale(1);
