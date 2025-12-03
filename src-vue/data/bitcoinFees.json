@@ -1226,5 +1226,93 @@
   {
     "date": "2025-11-03",
     "feeInBitcoins": 0.00000698
+  },
+  {
+    "date": "2025-11-04",
+    "feeInBitcoins": 0.00001052
+  },
+  {
+    "date": "2025-11-05",
+    "feeInBitcoins": 0.00001056
+  },
+  {
+    "date": "2025-11-06",
+    "feeInBitcoins": 0.000008
+  },
+  {
+    "date": "2025-11-07",
+    "feeInBitcoins": 0.00000708
+  },
+  {
+    "date": "2025-11-08",
+    "feeInBitcoins": 0.00000743
+  },
+  {
+    "date": "2025-11-09",
+    "feeInBitcoins": 0.00000492
+  },
+  {
+    "date": "2025-11-10",
+    "feeInBitcoins": 0.00000859
+  },
+  {
+    "date": "2025-11-11",
+    "feeInBitcoins": 0.00000558
+  },
+  {
+    "date": "2025-11-12",
+    "feeInBitcoins": 0.00000578
+  },
+  {
+    "date": "2025-11-16",
+    "feeInBitcoins": 0.00000448
+  },
+  {
+    "date": "2025-11-17",
+    "feeInBitcoins": 0.00001077
+  },
+  {
+    "date": "2025-11-18",
+    "feeInBitcoins": 0.00001174
+  },
+  {
+    "date": "2025-11-19",
+    "feeInBitcoins": 0.0000092
+  },
+  {
+    "date": "2025-11-20",
+    "feeInBitcoins": 0.00000877
+  },
+  {
+    "date": "2025-11-21",
+    "feeInBitcoins": 0.0000088
+  },
+  {
+    "date": "2025-11-22",
+    "feeInBitcoins": 0.00000624
+  },
+  {
+    "date": "2025-11-23",
+    "feeInBitcoins": 0.00000732
+  },
+  {
+    "date": "2025-11-24",
+    "feeInBitcoins": 0.00000646
+  },
+  {
+    "date": "2025-11-25",
+    "feeInBitcoins": 0.00000895
+  },
+  {
+    "date": "2025-11-26",
+    "feeInBitcoins": 0.00000607
+  },
+  {
+    "date": "2025-11-27",
+    "feeInBitcoins": 0.00000724
+  },
+  {
+    "date": "2025-11-28",
+    "feeInBitcoins": 0.00000561
   }
 ]

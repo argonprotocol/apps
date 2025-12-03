@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { teardown } from '@argonprotocol/testing';
 import BitcoinLocksStore from '../lib/BitcoinLocksStore';
 import { createTestDb } from './helpers/db.ts';
-import { MainchainClients, MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
+import { MainchainClients, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -11,8 +11,8 @@ import { BitcoinLockStatus, IBitcoinLockRecord } from '../lib/db/BitcoinLocksTab
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BITCOIN_BLOCK_MILLIS } from '../lib/Env.ts';
-import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 dayjs.extend(utc);
 
@@ -30,7 +30,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
     setMainchainClients(clients);
-    MiningFrames.setNetwork('dev-docker');
+    NetworkConfig.setNetwork('dev-docker');
   }, 60e3);
 
   it('getLockProcessingDetails should update progress ', async () => {
@@ -38,9 +38,11 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const db = await createTestDb();
     const transactionTracker = new TransactionTracker(Promise.resolve(db));
     const walletKeys = createMockWalletKeys();
+    const blockWatch = new BlockWatch(clients);
     const bitcoinLocksStore = new BitcoinLocksStore(
       Promise.resolve(createTestDb()),
       walletKeys,
+      blockWatch,
       priceIndex,
       transactionTracker,
     );

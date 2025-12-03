@@ -1,6 +1,6 @@
 import { IMiningAccountPreviousHistoryBid, IMiningAccountPreviousHistoryRecord } from '../interfaces/IConfig.ts';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
-import { ArgonClient, FrameIterator, MainchainClients } from '@argonprotocol/apps-core';
+import { ArgonClient, FrameIterator, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { WalletBalances } from './WalletBalances.ts';
@@ -13,6 +13,7 @@ export class WalletRecovery {
     private readonly walletKeys: WalletKeys,
     private readonly walletBalances: WalletBalances,
     private readonly clients: MainchainClients,
+    private readonly miningFrames: MiningFrames,
   ) {}
 
   public async findHistory(onLoadHistoryProgress?: (loadPct: number) => void): Promise<{
@@ -21,6 +22,7 @@ export class WalletRecovery {
   }> {
     const walletBalances = this.walletBalances;
     await walletBalances.load();
+    await this.miningFrames.load();
 
     const hasVaultHistory = walletBalances.vaultingWallet.hasValue();
     const hasMiningHistory = walletBalances.miningWallet.hasValue();
@@ -65,7 +67,7 @@ export class WalletRecovery {
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
     const latestFrameId = await liveClient.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-    const earliestPossibleFrameId = 150; // this is hard coded based on the spec version needing to be > 124. Doesn't need to be exact.
+    const earliestPossibleFrameId = this.miningFrames.earliestWithSpec(140);
 
     const bidsRaw = await liveClient.query.miningSlot.bidsForNextSlotCohort();
     for (const [bidPosition, bidRaw] of bidsRaw.entries()) {
@@ -81,8 +83,12 @@ export class WalletRecovery {
     }
 
     const framesToProcess = latestFrameId - earliestPossibleFrameId;
-    await new FrameIterator(this.clients, 'MiningHistory').iterateFramesByEpoch(
-      async (frameId, _firstBlockMeta, api, _abortController) => {
+    await new FrameIterator(this.clients, this.miningFrames).iterateFramesByEpoch(
+      async (frameId, firstBlockMeta, api, abortController) => {
+        if (firstBlockMeta.specVersion < 140) {
+          console.log(`[MiningHistory] Reached spec version < 140 at frame ${frameId}, stopping history load`);
+          return abortController.abort();
+        }
         console.log(`[MiningHistory] Loading frame ${frameId} (oldest ${earliestPossibleFrameId})`);
         const minersByCohort = await api.query.miningSlot.minersByCohort.entries();
         for (const [frameIdRaw, seatsInFrame] of minersByCohort) {
@@ -103,6 +109,9 @@ export class WalletRecovery {
         const progress = Math.max((100 * framesProcessed) / framesToProcess, 0);
         onProgress(progress);
         console.log(`[MiningHistory] Progress: ${progress}`);
+        if (frameId < earliestPossibleFrameId) {
+          abortController.abort();
+        }
       },
     );
     if (currentFrameBids.length) {

@@ -5,19 +5,24 @@ import {
   type IBiddingRules,
   MainchainClients,
   Mining,
+  MiningFrames,
   PriceIndex,
 } from '@argonprotocol/apps-core';
 import { ApiDecoration } from '@argonprotocol/mainchain';
-import { LOG_DEBUG, NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
+import { LOG_DEBUG, NETWORK_NAME, NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
 import { useConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
 import { useBot } from './bot.ts';
 import { VaultCalculator } from '../lib/VaultCalculator.ts';
 import { SSH } from '../lib/SSH.ts';
+import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 let mainchainClients: MainchainClients;
 let mining: Mining;
+let miningFrames: MiningFrames;
+let blockWatch: BlockWatch;
 let priceIndex: PriceIndex;
 let biddingCalculator: BiddingCalculator;
 let biddingCalculatorData: BiddingCalculatorData;
@@ -78,6 +83,34 @@ export function getMainchainClients(): MainchainClients {
   return mainchainClients;
 }
 
+export function getBlockWatch(): BlockWatch {
+  if (blockWatch) {
+    return blockWatch;
+  }
+  const clients = getMainchainClients();
+  blockWatch = new BlockWatch(clients);
+  return blockWatch;
+}
+
+export function getMiningFrames(): MiningFrames {
+  if (!miningFrames) {
+    console.log('Initializing MiningFrames');
+    const clients = getMainchainClients();
+    const storageFile = `${NETWORK_NAME}/miningFrames.json`;
+    miningFrames = new MiningFrames(clients, getBlockWatch(), {
+      read: () =>
+        readTextFile(storageFile, {
+          baseDir: BaseDirectory.AppConfig,
+        }),
+      write: data =>
+        writeTextFile(storageFile, data, {
+          baseDir: BaseDirectory.AppConfig,
+        }),
+    });
+  }
+  return miningFrames;
+}
+
 export function getMining(): Mining {
   if (!mining) {
     mining = new Mining(getMainchainClients());
@@ -104,7 +137,7 @@ export function getBiddingCalculator(): BiddingCalculator {
 }
 
 export function getBiddingCalculatorData(): BiddingCalculatorData {
-  biddingCalculatorData ??= new BiddingCalculatorData(getMining());
+  biddingCalculatorData ??= new BiddingCalculatorData(getMining(), getMiningFrames());
   return biddingCalculatorData;
 }
 

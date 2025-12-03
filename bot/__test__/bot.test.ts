@@ -1,11 +1,22 @@
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
-import { getClient, getTickFromHeader, mnemonicGenerate } from '@argonprotocol/mainchain';
+import {
+  getClient,
+  getTickFromHeader,
+  Keyring,
+  mnemonicGenerate,
+  toFixedNumber,
+  TxSubmitter,
+} from '@argonprotocol/mainchain';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
-import * as BiddingCalculator from '@argonprotocol/apps-core';
-import { MiningFrames } from '@argonprotocol/apps-core';
+import {
+  BidAmountAdjustmentType,
+  BidAmountFormulaType,
+  type IBiddingRules,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import { Dockers } from '../src/Dockers.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 
@@ -14,7 +25,7 @@ afterAll(teardown);
 
 let clientAddress: string;
 beforeAll(async () => {
-  MiningFrames.setNetwork('localnet');
+  NetworkConfig.setNetwork('dev-docker');
   const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
@@ -23,23 +34,55 @@ it('can autobid and store stats', async () => {
   const client = await getClient(clientAddress);
 
   const botDataDir = fs.mkdtempSync('/tmp/bot-');
+  await fs.promises.rm(botDataDir, { recursive: true, force: true });
+  // submit a price index
+
+  const currentTick = await client.query.ticks.currentTick();
+  const res = await new TxSubmitter(
+    client,
+    client.tx.priceIndex.submit({
+      btcUsdPrice: toFixedNumber(60_000.5, 18),
+      argonUsdPrice: toFixedNumber(1.0, 18),
+      argonotUsdPrice: toFixedNumber(2.0, 18),
+      argonUsdTargetPrice: toFixedNumber(1.0, 18),
+      argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
+      tick: currentTick.toBigInt(),
+    }),
+    new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
+  ).submit();
+  await res.waitForInFirstBlock;
 
   runOnTeardown(() => fs.promises.rm(botDataDir, { recursive: true, force: true }));
 
-  vi.spyOn(BiddingCalculator, 'createBidderParams').mockImplementation(async () => {
-    return {
-      maxSeats: 10,
-      bidDelay: 0,
-      maxBudget: 100_000_000n,
-      maxBid: 1_000_000n,
-      minBid: 10_000n,
-      bidIncrement: 10_000n,
-    };
-  });
-
   vi.spyOn(Bot.prototype as any, 'loadBiddingRules').mockImplementation(() => {
     /* return an empty object so it's not undefined */
-    return {};
+    return {
+      argonCirculationGrowthPctMin: 0,
+      argonCirculationGrowthPctMax: 0,
+      argonotPriceChangeType: 'Between',
+      argonotPriceChangePctMin: 0,
+      argonotPriceChangePctMax: 0,
+      startingBidFormulaType: BidAmountFormulaType.Custom,
+      startingBidAdjustmentType: BidAmountAdjustmentType.Absolute,
+      startingBidCustom: 10_000n,
+      startingBidAdjustAbsolute: 0n,
+      startingBidAdjustRelative: 0,
+      rebiddingDelay: 0,
+      rebiddingIncrementBy: 10_000n,
+      maximumBidFormulaType: BidAmountFormulaType.Custom,
+      maximumBidAdjustmentType: 'Relative',
+      maximumBidCustom: 100_000_000n,
+      maximumBidAdjustAbsolute: 0n,
+      maximumBidAdjustRelative: 0,
+      seatGoalType: 'Max',
+      seatGoalCount: 10,
+      seatGoalPercent: 0,
+      seatGoalInterval: 'Frame',
+      initialMicrogonRequirement: 0n,
+      initialMicronotRequirement: 0n,
+      sidelinedMicrogons: 0n,
+      sidelinedMicronots: 0n,
+    } as IBiddingRules;
   });
 
   vi.spyOn(Dockers, 'getArgonBlockNumbers').mockImplementation(async () => {
@@ -65,6 +108,7 @@ it('can autobid and store stats', async () => {
     sessionMiniSecret: mnemonicGenerate(),
     shouldSkipDockerSync: true,
   });
+  runOnTeardown(() => bot.shutdown());
 
   await expect(bot.start()).resolves.toBeUndefined();
   const status = await bot.blockSync.state();
@@ -102,8 +146,8 @@ it('can autobid and store stats', async () => {
       lastSeenBlockNumber = x.number.toNumber();
       if (isVoteBlock) {
         console.log(`Block ${x.number.toNumber()} is vote block`);
-        const tick = getTickFromHeader(client, x);
-        const frameId = MiningFrames.getForTick(tick!);
+        const tick = getTickFromHeader(x);
+        const frameId = bot.miningFrames.getForTick(tick!);
         frameIdsWithVoteBlocks.add(frameId);
         voteBlocks++;
         if (voteBlocks > 5) {
@@ -161,8 +205,8 @@ it('can autobid and store stats', async () => {
   for (const frameId of frameIdsWithVoteBlocks) {
     const earningsData = await bot.storage.earningsFile(frameId).get();
     expect(earningsData).toBeDefined();
-    expect(Object.keys(earningsData!.earningsByBlock).length).toBeGreaterThanOrEqual(1);
-    for (const blockEarnings of Object.values(earningsData!.earningsByBlock)) {
+    expect(Object.keys(earningsData.earningsByBlock).length).toBeGreaterThanOrEqual(1);
+    for (const blockEarnings of Object.values(earningsData.earningsByBlock)) {
       expect(blockEarnings.authorCohortActivationFrameId).toBeGreaterThan(0);
       cohortActivationFrameIds.add(blockEarnings.authorCohortActivationFrameId);
       expect(blockEarnings.microgonsMined).toBeGreaterThan(0n);
@@ -213,6 +257,6 @@ it('can autobid and store stats', async () => {
     console.info('Checking bidding for cohort', cohortActivationFrameId);
     expect(bidsFile1).toBeTruthy();
     expect(bidsFile2).toBeTruthy();
-    expect(bidsFile1!).toEqual(bidsFile2!);
+    expect(bidsFile1).toEqual(bidsFile2);
   }
 });

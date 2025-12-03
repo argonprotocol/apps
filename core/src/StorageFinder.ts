@@ -1,6 +1,6 @@
 import { type ArgonClient, getTickFromHeader } from '@argonprotocol/mainchain';
 import { MainchainClients } from './MainchainClients.js';
-import { MiningFrames } from './MiningFrames.js';
+import { NetworkConfig } from './NetworkConfig.js';
 
 export class StorageFinder {
   public static async iterateFindStorageAddition(args: {
@@ -27,7 +27,7 @@ export class StorageFinder {
       if (storageExists) {
         const blockHash = await client.rpc.chain.getBlockHash(i);
         const header = await client.rpc.chain.getHeader(blockHash);
-        const tick = getTickFromHeader(client, header)!;
+        const tick = getTickFromHeader(header)!;
 
         return {
           blocksChecked,
@@ -58,7 +58,7 @@ export class StorageFinder {
       throw new Error('Storage not found');
     }
     let maxBlockNumberForExistence = currentBlock.number.toNumber();
-    oldestBlockNumber ??= Math.max(0, maxBlockNumberForExistence - MiningFrames.ticksPerFrame * 365); // default to one year
+    oldestBlockNumber ??= Math.max(0, maxBlockNumberForExistence - NetworkConfig.rewardTicksPerFrame * 365); // default to one year
     if (oldestBlockNumber > 0) oldestBlockNumber -= 1; // go one before to ensure we find the first block without storage
     // make sure it doesn't exist at the oldest block
     const existsAtOldest = await this.checkIfStorageExists({
@@ -89,7 +89,7 @@ export class StorageFinder {
     }
     const header = await client.rpc.chain.getHeader(blockHash);
     console.log(`[${name}] Found in block ${blockNumber}`);
-    const tick = getTickFromHeader(client, header)!;
+    const tick = getTickFromHeader(header)!;
     return {
       blocksChecked,
       blockHash,

@@ -160,12 +160,18 @@ function deepProxy<T extends object>(
   if (seen.has(obj)) return seen.get(obj) as T;
   const prox = new Proxy(obj as unknown as Record<PropertyKey, unknown>, {
     get(target, prop, _receiver) {
+      const childPath = path ? `${path}.${String(prop)}` : String(prop);
+      if (callbacks.propRedirect) {
+        const redirect = callbacks.propRedirect(childPath);
+        if (redirect?.newProp) {
+          prop = redirect.newProp;
+        }
+      }
       // ✅ use the real instance as `this` for accessors
       const value = Reflect.get(target, prop, target);
 
       if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return value;
 
-      const childPath = path ? `${path}.${String(prop)}` : String(prop);
       if (typeof value === 'function') {
         if (prop === 'then' || prop === 'catch' || prop === 'finally') {
           const fn = value as AnyFn;
@@ -195,6 +201,7 @@ function deepProxy<T extends object>(
 }
 
 export interface ICallbacks {
+  propRedirect?: (fnPath: string) => { newProp: string } | null;
   onSuccess?: (fnPath: string, result: unknown, ...args: unknown[]) => unknown;
   onError?: (fnPath: string, error: Error, ...args: unknown[]) => unknown;
 }

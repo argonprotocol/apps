@@ -1,11 +1,11 @@
-import { AccountEventsFilter, MainchainClients, PriceIndex } from '@argonprotocol/apps-core';
+import { AccountEventsFilter, MainchainClients, PriceIndex, SingleFileQueue } from '@argonprotocol/apps-core';
 import { createDeferred } from './Utils';
 import { WalletKeys } from './WalletKeys.ts';
 import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
 import { Db } from './Db.ts';
-import { ArgonClient, FrameSystemEventRecord, Header } from '@argonprotocol/mainchain';
-import Queue from 'p-queue';
+import { ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
+import { BlockWatch, IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 export interface IBlockToProcess {
   blockNumber: number;
@@ -30,7 +30,8 @@ export class WalletBalances {
 
   private isClosed = false;
   private blockHistory: IBlockToProcess[] = [];
-  private blockQueue = new Queue({ concurrency: 1 });
+  private blockQueue = new SingleFileQueue();
+  private blockWatch: BlockWatch;
 
   public get wallets(): Wallet[] {
     return [this.miningWallet, this.vaultingWallet, this.holdingWallet];
@@ -48,14 +49,20 @@ export class WalletBalances {
     return this.wallets.reduce((sum, w) => sum + w.totalMicronots, 0n);
   }
 
-  private tablePromise: Promise<WalletLedgerTable>;
+  private readonly tablePromise: Promise<WalletLedgerTable>;
 
-  constructor(mainchainClients: MainchainClients, walletKeys: WalletKeys, dbPromise: Promise<Db>) {
+  constructor(
+    mainchainClients: MainchainClients,
+    walletKeys: WalletKeys,
+    dbPromise: Promise<Db>,
+    blockWatch: BlockWatch,
+  ) {
     this.clients = mainchainClients;
     this.miningWallet = new Wallet(walletKeys.miningAddress, 'mining', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
     this.holdingWallet = new Wallet(walletKeys.holdingAddress, 'holding', dbPromise);
     this.tablePromise = dbPromise.then(db => new WalletLedgerTable(db));
+    this.blockWatch = blockWatch;
   }
 
   public async load() {
@@ -63,16 +70,17 @@ export class WalletBalances {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
-
-    const client = await this.clients.prunedClientOrArchivePromise;
-    const bestHeader = await client.rpc.chain.getHeader();
-    await this.loadBalancesAt(bestHeader);
-    await client.rpc.chain.subscribeNewHeads(x => this.loadBalancesAt(x));
+    this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
+      const latestBlock = blocks[blocks.length - 1];
+      await this.loadBalancesAt(latestBlock);
+    });
+    await this.blockWatch.start();
+    await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
     this.deferredLoading.resolve();
   }
 
   public async close() {
-    this.blockQueue.pause();
+    await this.blockQueue.stop();
     this.isClosed = true;
   }
 
@@ -85,35 +93,33 @@ export class WalletBalances {
     return false;
   }
 
-  public async loadBalancesAt(header: Header) {
+  public async loadBalancesAt(header: IBlockHeaderInfo) {
     if (this.isClosed) {
       return;
     }
     await this.blockQueue.add(async () => {
-      console.log(`Loading wallet balances at block #${header.number.toNumber()} (${header.hash.toHex()})`);
-      const archiveClient = await this.clients.archiveClientPromise;
+      console.log(`Loading wallet balances at block #${header.blockNumber} (${header.blockHash})`);
 
       ///// UPDATE FINALIZED
-      const finalizedBlockHash = await archiveClient.rpc.chain.getFinalizedHead().then(x => x.toHex());
-      const finalizedBlockHeader = await archiveClient.rpc.chain.getHeader(finalizedBlockHash);
-      const finalizedBlockNumber = finalizedBlockHeader.number.toNumber();
+      const finalizedBlock = this.blockWatch.finalizedBlockHeader;
+      const finalizedBlockNumber = finalizedBlock.blockNumber;
 
       const oldestBlock = Math.min(...this.blockHistory.map(x => x.blockNumber), finalizedBlockNumber);
 
       /// PROCESS UP TO CURRENT BLOCK
       let historyHeader = header;
-      for (let blockNumber = header.number.toNumber(); blockNumber >= oldestBlock; blockNumber--) {
-        if (historyHeader.number.toNumber() !== blockNumber) {
+      for (let blockNumber = header.blockNumber; blockNumber >= oldestBlock; blockNumber--) {
+        if (historyHeader.blockNumber !== blockNumber) {
           throw new Error(
-            `Inconsistent block numbers when loading wallet balances history. (Expected=${blockNumber}, actual=${historyHeader.number.toNumber()})`,
+            `Inconsistent block numbers when loading wallet balances history. (Expected=${blockNumber}, actual=${historyHeader.blockNumber})`,
           );
         }
         const entry = {
           blockNumber,
-          blockHash: historyHeader.hash.toHex(),
+          blockHash: historyHeader.blockHash,
           isFinalized: blockNumber >= finalizedBlockNumber,
           isProcessed: false,
-          parentHash: historyHeader.parentHash.toHex(),
+          parentHash: historyHeader.parentHash,
         };
         const inHistory = this.blockHistory.find(b => b.blockNumber === entry.blockNumber);
 
@@ -134,7 +140,7 @@ export class WalletBalances {
         if (blockNumber === 0) {
           break;
         }
-        historyHeader = await archiveClient.rpc.chain.getHeader(historyHeader.parentHash);
+        historyHeader = await this.blockWatch.getParentHeader(historyHeader);
       }
 
       let firstBlockNeeded = 0;
@@ -145,7 +151,7 @@ export class WalletBalances {
         if (block.blockNumber <= finalizedBlockNumber) {
           block.isFinalized = true;
         }
-        if (block.blockHash === finalizedBlockHash) {
+        if (block.blockHash === finalizedBlock.blockHash) {
           firstBlockNeeded = i;
           break;
         }
@@ -161,12 +167,13 @@ export class WalletBalances {
       }
       for (const block of this.blockHistory) {
         if (!block.isProcessed) {
-          await this.loadFromApi(archiveClient, block);
+          const client = await this.blockWatch.getRpcClient(block.blockNumber);
+          await this.loadFromApi(client, block);
           block.isProcessed = true;
         }
         if (this.isClosed) break;
       }
-    });
+    }).promise;
   }
 
   private async rollbackBlock(block: IBlockToProcess) {

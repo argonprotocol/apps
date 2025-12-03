@@ -372,7 +372,10 @@ function updateAPYs() {
   epochPercentageYield.value =
     (epochStartingSlowYield + epochStartingFastYield + epochMaximumSlowYield + epochMaximumFastYield) / 4;
 
-  const maxAffordableSeats = rules.value.initialMicronotRequirement / calculatorData.maximumMicronotsForBid;
+  const maxAffordableSeats =
+    calculatorData.maximumMicronotsForBid === 0n
+      ? 0n
+      : rules.value.initialMicronotRequirement / calculatorData.maximumMicronotsForBid;
 
   const probableMinSeatsBn =
     calculator.maximumBidAmount === 0n
@@ -448,8 +451,6 @@ function stopSuggestingTour() {
   isSuggestingTour.value = false;
 }
 
-Vue.watch(rules, () => updateAPYs(), { deep: true });
-
 Vue.onMounted(async () => {
   isLoaded.value = false;
   isBrandNew.value = !config.hasSavedBiddingRules;
@@ -457,6 +458,7 @@ Vue.onMounted(async () => {
 
   calculator.onLoad(() => updateCapitalRequirements());
   await calculator.load();
+  Vue.watch(rules, () => updateAPYs(), { deep: true });
 
   previousBiddingRules = JsonExt.stringify(config.biddingRules);
 

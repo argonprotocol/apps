@@ -37,7 +37,7 @@
             </thead>
             <tbody class="selectable-text">
               <tr>
-                <td data-testid="Receive.microgonsNeeded" :data-value="minimumMicrogonsNeeded">{{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]')
+                <td data-testid="WalletOverlay.microgonsNeeded" :data-value="minimumMicrogonsNeeded">{{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]')
                   }} ARGN</td>
                 <td>{{ microgonToArgonNm(wallet.availableMicrogons).format('0,0.[00000000]') }}</td>
                 <td>{{ microgonToArgonNm(lockedMicrogons).format('0,0.[00000000]') }}</td>
@@ -51,7 +51,7 @@
                 </td>
               </tr>
               <tr>
-                <td data-testid="Receive.micronotsNeeded" :data-value="minimumMicronotsNeeded">{{ micronotToArgonotNm(minimumMicronotsNeeded).format('0,0.[00000000]')
+                <td data-testid="WalletOverlay.micronotsNeeded" :data-value="minimumMicronotsNeeded">{{ micronotToArgonotNm(minimumMicronotsNeeded).format('0,0.[00000000]')
                   }} ARGNOT</td>
                 <td>{{ micronotToArgonotNm(wallet.availableMicronots).format('0,0.[00000000]') }}</td>
                 <td>{{ micronotToArgonotNm(lockedMicronots).format('0,0.[00000000]') }}</td>

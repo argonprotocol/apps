@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'path';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { JsonExt, MainchainClients, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
+import { JsonExt, MainchainClients, MiningFrames, NetworkConfigSettings, PriceIndex } from '@argonprotocol/apps-core';
 import { Vaults } from '../src-vue/lib/Vaults.ts';
 import { setMainchainClients } from '../src-vue/stores/mainchain.ts';
 
@@ -13,13 +13,16 @@ const rebuildBaseline = Boolean(JSON.parse(process.env.REBUILD_BASELINE ?? '0'))
 
 export default async function fetchVaultRevenue() {
   for (const chain of ['testnet', 'mainnet'] as const) {
-    const mainchain = new MainchainClients(NetworkConfig[chain].archiveUrl);
+    const mainchain = new MainchainClients(NetworkConfigSettings[chain].archiveUrl);
     const priceIndex = new PriceIndex(mainchain);
     await priceIndex.fetchMicrogonExchangeRatesTo();
+    const miningFrames = new MiningFrames(mainchain);
+    await miningFrames.load();
     setMainchainClients(mainchain);
-    const vaults = new Vaults(chain, priceIndex);
+    const vaults = new Vaults(chain, priceIndex, miningFrames);
     await vaults.load();
     const data = await vaults.refreshRevenue(mainchain);
+    await miningFrames.stop();
 
     // Write data to JSON file
     const filePath = path.join(process.cwd(), 'src-vue', 'data', `vaultRevenue.${chain}.json`);

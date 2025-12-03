@@ -32,15 +32,15 @@ it('should be able to start a miner', async () => {
   await waitAndClick('BotCreatePanel.saveRules()');
   // fund the wallet
   await waitAndClick('FinalSetupChecklist.openFundMiningAccountOverlay()');
-  const micronotsNeededElem = await waitForVisible('Receive.micronotsNeeded');
-  const microgonsNeededElem = await waitForVisible('Receive.microgonsNeeded');
+  const micronotsNeededElem = await waitForVisible('WalletOverlay.micronotsNeeded');
+  const microgonsNeededElem = await waitForVisible('WalletOverlay.microgonsNeeded');
   await waitAndClick('CopyToClipboard.copyContent()');
   await new Promise(resolve => setTimeout(resolve, 1000));
   const address = clipboard.readSync();
   expect(address).toBeTruthy();
 
-  const micronotsNeeded = BigInt(micronotsNeededElem.getAttribute('data-value'));
-  const microgonsNeeded = BigInt(microgonsNeededElem.getAttribute('data-value'));
+  const micronotsNeeded = BigInt(await micronotsNeededElem.getAttribute('data-value'));
+  const microgonsNeeded = BigInt(await microgonsNeededElem.getAttribute('data-value'));
   expect(micronotsNeeded).toBeGreaterThan(0n);
   expect(microgonsNeeded).toBeGreaterThan(0n);
 

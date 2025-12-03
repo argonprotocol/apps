@@ -3,7 +3,7 @@ import { getDbPromise } from './helpers/dbPromise';
 import { MyVault } from '../lib/MyVault.ts';
 import { reactive } from 'vue';
 import { NETWORK_NAME } from './config.ts';
-import { getPriceIndex } from './mainchain.ts';
+import { getMiningFrames, getPriceIndex } from './mainchain.ts';
 import { useTransactionTracker } from './transactions.ts';
 import { useBitcoinLocks } from './bitcoin.ts';
 import { useWalletKeys } from './wallets.ts';
@@ -15,7 +15,7 @@ let myVault: MyVault;
 
 export function useVaults(): Vaults {
   if (!vaults) {
-    vaults = new Vaults(NETWORK_NAME, getPriceIndex());
+    vaults = new Vaults(NETWORK_NAME, getPriceIndex(), getMiningFrames());
   }
 
   return vaults;
@@ -28,7 +28,8 @@ export function useMyVault(): MyVault {
     const transactionTracker = useTransactionTracker();
     const bitcoinLocks = useBitcoinLocks();
     const keys = useWalletKeys();
-    myVault = new MyVault(dbPromise, vaults, keys, transactionTracker, bitcoinLocks);
+    const miningFrames = getMiningFrames();
+    myVault = new MyVault(dbPromise, vaults, keys, transactionTracker, bitcoinLocks, miningFrames);
     myVault.data = reactive(myVault.data) as any;
   }
 

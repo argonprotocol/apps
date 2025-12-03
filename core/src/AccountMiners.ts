@@ -1,41 +1,46 @@
 import { Accountset, type IMiningIndex, type ISubaccountMiner } from './Accountset.js';
 import { GenericEvent } from '@argonprotocol/mainchain';
-import { MiningFrames } from './MiningFrames.js';
+import type { IBlock } from './interfaces/index.ts';
 
+interface IMinerStartingFrameInfo {
+  [address: string]: number;
+}
 export class AccountMiners {
-  private trackedAccountsByAddress: {
-    [address: string]: {
-      startingFrameId: number;
-      subaccountIndex: number;
-    };
+  private startingFrameIdByAddress: IMinerStartingFrameInfo = {};
+
+  private startingFrameIdsByBlock: {
+    [blockNumber: number]: IMinerStartingFrameInfo;
   } = {};
+
+  private currentBlockNumber: number = 0;
 
   constructor(
     private accountset: Accountset,
     registeredMiners: (ISubaccountMiner & { seat: IMiningIndex })[],
   ) {
     for (const miner of registeredMiners) {
-      this.trackedAccountsByAddress[miner.address] = {
-        startingFrameId: miner.seat.startingFrameId,
-        subaccountIndex: miner.subaccountIndex,
-      };
+      this.startingFrameIdByAddress[miner.address] = miner.seat.startingFrameId;
     }
   }
 
-  public async onBlock(digests: { author: string; tick: number }, events: GenericEvent[]) {
-    const { author, tick } = digests;
+  public async onBlock(blockInfo: IBlock, events: GenericEvent[]) {
+    const { author, number: blockNumber } = blockInfo;
+    if (blockNumber < this.currentBlockNumber) {
+      const previousStartingFrameIds = this.startingFrameIdsByBlock[blockNumber - 1];
+      if (previousStartingFrameIds) {
+        this.startingFrameIdByAddress = previousStartingFrameIds;
+      }
+    }
 
     const client = this.accountset.client;
-    const currentFrameId = MiningFrames.getForTick(tick);
     let newMiners: { frameId: number; addresses: string[] } | undefined;
     const dataByCohort: {
-      duringFrameId: number;
       [cohortStartingFrameId: number]: {
         argonsMinted: bigint;
         argonsMined: bigint;
         argonotsMined: bigint;
       };
-    } = { duringFrameId: currentFrameId };
+    } = {};
     for (const event of events) {
       if (client.events.miningSlot.NewMiners.is(event)) {
         newMiners = {
@@ -48,15 +53,15 @@ export class AccountMiners {
         for (const reward of rewards) {
           const { argons, ownership } = reward;
 
-          const entry = this.trackedAccountsByAddress[author];
-          if (entry) {
-            dataByCohort[entry.startingFrameId] ??= {
+          const startingFrameId = this.startingFrameIdByAddress[author];
+          if (startingFrameId) {
+            dataByCohort[startingFrameId] ??= {
               argonsMinted: 0n,
               argonsMined: 0n,
               argonotsMined: 0n,
             };
-            dataByCohort[entry.startingFrameId].argonotsMined += ownership.toBigInt();
-            dataByCohort[entry.startingFrameId].argonsMined += argons.toBigInt();
+            dataByCohort[startingFrameId].argonotsMined += ownership.toBigInt();
+            dataByCohort[startingFrameId].argonsMined += argons.toBigInt();
           }
         }
       }
@@ -64,8 +69,7 @@ export class AccountMiners {
         const { perMiner } = event.data;
         const amountPerMiner = perMiner.toBigInt();
         if (amountPerMiner > 0n) {
-          for (const [_address, info] of Object.entries(this.trackedAccountsByAddress)) {
-            const { startingFrameId } = info;
+          for (const [_address, startingFrameId] of Object.entries(this.startingFrameIdByAddress)) {
             dataByCohort[startingFrameId] ??= {
               argonsMinted: 0n,
               argonsMined: 0n,
@@ -77,25 +81,27 @@ export class AccountMiners {
       }
     }
     if (newMiners) {
-      this.newCohortMiners(newMiners.frameId, newMiners.addresses);
+      for (const [address, startingFrameId] of Object.entries(this.startingFrameIdByAddress)) {
+        if (startingFrameId === newMiners.frameId - 10) {
+          delete this.startingFrameIdByAddress[address];
+        }
+      }
+      for (const address of newMiners.addresses) {
+        if (this.accountset.subAccountsByAddress[address]) {
+          this.startingFrameIdByAddress[address] = newMiners.frameId;
+        }
+      }
     }
-    return dataByCohort;
-  }
+    this.startingFrameIdsByBlock[blockNumber] = { ...this.startingFrameIdByAddress };
+    // only keep latest 10 blocks to save memory
+    const keys = Object.keys(this.startingFrameIdsByBlock).map(x => parseInt(x, 10));
+    for (const key of keys) {
+      if (key < blockNumber - 10 || key > blockNumber) {
+        delete this.startingFrameIdsByBlock[key];
+      }
+    }
 
-  private newCohortMiners(frameId: number, addresses: string[]) {
-    for (const [address, info] of Object.entries(this.trackedAccountsByAddress)) {
-      if (info.startingFrameId === frameId - 10) {
-        delete this.trackedAccountsByAddress[address];
-      }
-    }
-    for (const address of addresses) {
-      const entry = this.accountset.subAccountsByAddress[address];
-      if (entry) {
-        this.trackedAccountsByAddress[address] = {
-          startingFrameId: frameId,
-          subaccountIndex: entry.index,
-        };
-      }
-    }
+    this.currentBlockNumber = blockNumber;
+    return dataByCohort;
   }
 }

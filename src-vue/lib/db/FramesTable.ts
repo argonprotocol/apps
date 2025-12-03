@@ -1,7 +1,7 @@
 import { IFrameRecord } from '../../interfaces/db/IFrameRecord';
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
-import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt, NetworkConfig } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -26,58 +26,70 @@ export class FramesTable extends BaseTable {
     ],
   };
 
-  public async insertOrUpdate(
-    id: number,
-    firstTick: number,
-    lastTick: number,
-    firstBlockNumber: number,
-    lastBlockNumber: number,
-    microgonToUsd: bigint[],
-    microgonToBtc: bigint[],
-    microgonToArgonot: bigint[],
-    progress: number,
-    isProcessed: boolean,
-  ): Promise<void> {
+  public async insertOrUpdate(data: {
+    id: number;
+    firstTick: number;
+    rewardTicksRemaining: number;
+    firstBlockNumber: number;
+    lastBlockNumber: number;
+    microgonToUsd: bigint[];
+    microgonToBtc: bigint[];
+    microgonToArgonot: bigint[];
+    accruedMicrogonProfits: bigint;
+    accruedMicronotProfits: bigint;
+    progress: number;
+  }): Promise<void> {
+    const {
+      id,
+      firstTick,
+      rewardTicksRemaining,
+      firstBlockNumber,
+      lastBlockNumber,
+      microgonToUsd,
+      microgonToBtc,
+      microgonToArgonot,
+      accruedMicrogonProfits,
+      accruedMicronotProfits,
+      progress,
+    } = data;
     await this.db.execute(
       `INSERT INTO Frames (
-          id, firstTick, lastTick, firstBlockNumber, lastBlockNumber, microgonToUsd, microgonToBtc, microgonToArgonot, progress, isProcessed
+          id, firstTick, rewardTicksRemaining, firstBlockNumber, lastBlockNumber, microgonToUsd, microgonToBtc, microgonToArgonot,
+          accruedMicrogonProfits, accruedMicronotProfits, progress, isProcessed
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         ) ON CONFLICT(id) DO UPDATE SET 
-          firstTick = excluded.firstTick, 
-          lastTick = excluded.lastTick, 
+          firstTick = excluded.firstTick,
+          rewardTicksRemaining = excluded.rewardTicksRemaining, 
           firstBlockNumber = excluded.firstBlockNumber, 
           lastBlockNumber = excluded.lastBlockNumber, 
           microgonToUsd = excluded.microgonToUsd, 
           microgonToBtc = excluded.microgonToBtc, 
-          microgonToArgonot = excluded.microgonToArgonot, 
+          microgonToArgonot = excluded.microgonToArgonot,
+          accruedMicrogonProfits = excluded.accruedMicrogonProfits,
+          accruedMicronotProfits = excluded.accruedMicronotProfits,
           progress = excluded.progress, 
           isProcessed = excluded.isProcessed
       `,
       toSqlParams([
         id,
         firstTick,
-        lastTick,
+        rewardTicksRemaining,
         firstBlockNumber,
         lastBlockNumber,
         microgonToUsd,
         microgonToBtc,
         microgonToArgonot,
+        accruedMicrogonProfits,
+        accruedMicronotProfits,
         progress,
-        isProcessed,
+        false,
       ]),
     );
   }
 
   public async update(args: {
     id: number;
-    firstTick: number;
-    lastTick: number;
-    firstBlockNumber: number;
-    lastBlockNumber: number;
-    microgonToUsd: bigint[];
-    microgonToBtc: bigint[];
-    microgonToArgonot: bigint[];
     allMinersCount: number;
     seatCountActive: number;
     seatCostTotalFramed: bigint;
@@ -86,20 +98,10 @@ export class FramesTable extends BaseTable {
     microgonsMinedTotal: bigint;
     microgonsMintedTotal: bigint;
     microgonFeesCollectedTotal: bigint;
-    accruedMicrogonProfits: bigint;
-    accruedMicronotProfits: bigint;
-    progress: number;
     isProcessed: boolean;
   }): Promise<void> {
     const {
       id,
-      firstTick,
-      lastTick,
-      firstBlockNumber,
-      lastBlockNumber,
-      microgonToUsd,
-      microgonToBtc,
-      microgonToArgonot,
       allMinersCount,
       seatCountActive,
       seatCostTotalFramed,
@@ -108,20 +110,10 @@ export class FramesTable extends BaseTable {
       microgonsMinedTotal,
       microgonsMintedTotal,
       microgonFeesCollectedTotal,
-      accruedMicrogonProfits,
-      accruedMicronotProfits,
-      progress,
       isProcessed,
     } = args;
     await this.db.execute(
       `UPDATE Frames SET 
-        firstTick = ?, 
-        lastTick = ?, 
-        firstBlockNumber = ?, 
-        lastBlockNumber = ?, 
-        microgonToUsd = ?, 
-        microgonToBtc = ?, 
-        microgonToArgonot = ?,
         allMinersCount = ?,
         seatCountActive = ?, 
         seatCostTotalFramed = ?,
@@ -130,19 +122,9 @@ export class FramesTable extends BaseTable {
         microgonsMinedTotal = ?,
         microgonsMintedTotal = ?,
         microgonFeesCollectedTotal = ?,
-        accruedMicrogonProfits = ?,
-        accruedMicronotProfits = ?,
-        progress = ?, 
         isProcessed = ? 
       WHERE id = ?`,
       toSqlParams([
-        firstTick,
-        lastTick,
-        firstBlockNumber,
-        lastBlockNumber,
-        microgonToUsd,
-        microgonToBtc,
-        microgonToArgonot,
         allMinersCount,
         seatCountActive,
         seatCostTotalFramed,
@@ -151,26 +133,23 @@ export class FramesTable extends BaseTable {
         microgonsMinedTotal,
         microgonsMintedTotal,
         microgonFeesCollectedTotal,
-        accruedMicrogonProfits,
-        accruedMicronotProfits,
-        progress,
         isProcessed,
         id,
       ]),
     );
   }
 
-  public async fetchExistingSince(frameId: number, limit = 10): Promise<number[]> {
-    const frames = await this.db.select<{ id: number }[]>('SELECT id FROM Frames WHERE id >= ? LIMIT ?', [
-      frameId,
-      limit + 1,
-    ]);
+  public async fetchExistingCompleteSince(frameId: number, limit = 10): Promise<number[]> {
+    const frames = await this.db.select<{ id: number }[]>(
+      'SELECT id FROM Frames WHERE id >= ? AND rewardTicksRemaining = 0 LIMIT ?',
+      [frameId, limit + 1],
+    );
     return frames.map(frame => frame.id);
   }
 
   public async fetchLastYear(currency: Currency): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
-      id, firstTick, lastTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
+      id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
     FROM Frames ORDER BY id DESC LIMIT 365`);
 
     const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
@@ -194,7 +173,6 @@ export class FramesTable extends BaseTable {
           id: x.id,
           date,
           firstTick: x.firstTick,
-          lastTick: x.lastTick,
           allMinersCount: x.allMinersCount,
           seatCountActive: x.seatCountActive,
           seatCostTotalFramed: x.seatCostTotalFramed,
@@ -216,7 +194,7 @@ export class FramesTable extends BaseTable {
       })
       .reverse();
 
-    const ticksPerFrame = MiningFrames.ticksPerFrame;
+    const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;
 
     while (records.length < 365) {
       const earliestRecord = records[0];
@@ -230,7 +208,6 @@ export class FramesTable extends BaseTable {
         id: 0,
         date: previousDay.format('YYYY-MM-DD'),
         firstTick: earliestRecord.firstTick - ticksPerFrame,
-        lastTick: earliestRecord.lastTick - ticksPerFrame,
         allMinersCount: 0,
         seatCountActive: 0,
         seatCostTotalFramed: 0n,

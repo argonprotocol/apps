@@ -1,21 +1,33 @@
-import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import { type ApiDecoration, type ArgonClient, type BlockHash, getClient } from '@argonprotocol/mainchain';
 import { wrapApi } from './ClientWrapper.js';
-import { createNanoEvents } from './utils.js';
+import { createTypedEventEmitter } from './utils.js';
+import { LRU } from 'tiny-lru';
+
+interface ILastErrorInfo {
+  errors: Error[];
+  lastErrorTime: number;
+}
 
 export class MainchainClients {
-  public events = createNanoEvents<{
+  public events = createTypedEventEmitter<{
     degraded: (error: Error | undefined, clientType: 'archive' | 'pruned') => void;
     working: (apiPath: string, clientType: 'archive' | 'pruned') => void;
+    'on-pruned-client': (client: ArgonClient, url: string) => void;
   }>();
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
     return this.prunedClientPromise ?? this.archiveClientPromise;
   }
+  private cachedApiByBlock = new LRU<ApiDecoration<'promise'>>(200);
 
   archiveUrl: string;
   archiveClientPromise: Promise<ArgonClient>;
 
   prunedUrl?: string;
   prunedClientPromise?: Promise<ArgonClient>;
+  lastErrorByClient: { archive: ILastErrorInfo; pruned: ILastErrorInfo } = {
+    archive: { errors: [], lastErrorTime: 0 },
+    pruned: { errors: [], lastErrorTime: 0 },
+  };
 
   constructor(
     archiveUrl: string,
@@ -50,7 +62,21 @@ export class MainchainClients {
     const client = await getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'pruned'));
     this.prunedClientPromise = Promise.resolve(client);
     this.prunedUrl = url;
+    this.events.emit('on-pruned-client', client, url);
     return this.prunedClientPromise;
+  }
+
+  public async apiAt(blockHash: string | BlockHash, useCache = true): Promise<ApiDecoration<'promise'>> {
+    if (typeof blockHash !== 'string') {
+      blockHash = blockHash.toHex();
+    }
+    let api = useCache ? this.cachedApiByBlock.get(blockHash) : null;
+    if (!api) {
+      const client = await this.prunedClientOrArchivePromise;
+      api = await client.at(blockHash);
+      if (useCache) this.cachedApiByBlock.set(blockHash, api);
+    }
+    return api;
   }
 
   public get(needsHistoricalBlocks: boolean): Promise<ArgonClient> {
@@ -74,7 +100,12 @@ export class MainchainClients {
       onError: (path, error, ...args) => {
         if (apiError === error) return;
         apiError = error;
-        this.events.emit('degraded', error, clientType);
+        const errorTracker = this.lastErrorByClient[clientType];
+        errorTracker.errors.push(error);
+        errorTracker.lastErrorTime = Date.now();
+        if (errorTracker.errors.length > 5) {
+          this.events.emit('degraded', error, clientType);
+        }
 
         const argsJson = args.map(getJson);
         console.error(`[${name}] ${path}(${JSON.stringify(argsJson)}) Error:`, error);
@@ -84,6 +115,9 @@ export class MainchainClients {
           return; // not api calls
         }
         apiError = undefined;
+        if (this.lastErrorByClient[clientType]) {
+          this.lastErrorByClient[clientType] = { errors: [], lastErrorTime: 0 };
+        }
         this.events.emit('working', path, clientType);
         if (this.enableApiLogging()) {
           const resultJson = path.endsWith('.system.events') ? `${(result as any).length} events` : getJson(result);

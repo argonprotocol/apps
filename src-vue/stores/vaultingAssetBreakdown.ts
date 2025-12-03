@@ -83,14 +83,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const alreadyMintedValue = Vue.computed(() => {
-    if (pendingAllocateTxMetadata.value) {
-      return (
-        pendingAllocateTxMetadata.value.addedSecuritizationMicrogons +
-        pendingAllocateTxMetadata.value.addedTreasuryMicrogons
-      );
-    } else {
-      return sidelinedMicrogons.value;
-    }
+    return bitcoinLocks.totalMinted;
   });
 
   const vaultingAvailableMicrogons = Vue.computed(() => {

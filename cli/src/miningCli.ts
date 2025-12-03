@@ -51,7 +51,7 @@ export default function miningCli() {
             await stopBidder(cohortStartingFrameId, unsubscribe);
           },
           async onBiddingStart(cohortStartingFrameId) {
-            const seatsToWin = maxSeats ?? (await miningBids.getNextCohortSize());
+            const seatsToWin = maxSeats ?? (await miningBids.fetchNextCohortSize());
             const balance = await accountset.balance();
             const feeWiggleRoom = BigInt(25e3);
             const amountAvailable = balance - feeWiggleRoom;

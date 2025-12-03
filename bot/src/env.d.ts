@@ -10,6 +10,8 @@ declare global {
       DATADIR: string;
       SESSION_MINI_SECRET: string;
       OLDEST_FRAME_ID_TO_SYNC?: string;
+      ARGON_LOG_STORAGE?: string;
+      ARGON_LOG_APIS?: string;
     }
   }
 }

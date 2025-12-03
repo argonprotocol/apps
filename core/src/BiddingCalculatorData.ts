@@ -1,10 +1,11 @@
 import BigNumber from 'bignumber.js';
 import { Mining } from './Mining.js';
-import { MiningFrames } from './MiningFrames.js';
 import { PriceIndex } from './PriceIndex.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
+import { NetworkConfig } from './NetworkConfig.js';
+import type { MiningFrames } from './MiningFrames.ts';
 
 export default class BiddingCalculatorData {
   public microgonsToMineThisSeat: bigint = 0n;
@@ -35,7 +36,24 @@ export default class BiddingCalculatorData {
 
   public loadedFrameIdPromise?: Promise<number>;
 
-  constructor(public mining: Mining) {}
+  constructor(
+    public mining: Mining,
+    public miningFrames: MiningFrames,
+  ) {}
+
+  public getMaxFrameSeats(rules: IBiddingRules): number {
+    const maxSeats = this.nextCohortSize;
+
+    if (rules.seatGoalType === SeatGoalType.Max) {
+      return rules.seatGoalCount || 0;
+    }
+
+    if (rules.seatGoalType === SeatGoalType.MaxPercent) {
+      return Math.floor((maxSeats * (rules.seatGoalPercent || 0)) / 100);
+    }
+
+    return maxSeats;
+  }
 
   public getEpochSeatGoalCount(rules: IBiddingRules): number {
     if (rules.seatGoalType === SeatGoalType.MaxPercent || rules.seatGoalType === SeatGoalType.MinPercent) {
@@ -48,47 +66,61 @@ export default class BiddingCalculatorData {
     return seats;
   }
 
-  public async load(frameId: number): Promise<void> {
-    if (this.loadingFrameId !== frameId) {
-      this.loadingFrameId = frameId;
+  public async load(biddingFrameId: number): Promise<void> {
+    if (this.loadingFrameId !== biddingFrameId) {
+      this.loadingFrameId = biddingFrameId;
       // wait for any previous load to finish
       void (await this.loadedFrameIdPromise);
       this.loadedFrameIdPromise = new Promise<number>(async (resolve, reject) => {
         const mining = this.mining;
+        await this.miningFrames.waitForFrameId(biddingFrameId);
+        const client = await mining.clients.prunedClientOrArchivePromise;
+        const currentBlockHash = await client.rpc.chain.getBlockHash();
+        let api = await client.at(currentBlockHash);
+        const nextFrameId = await this.mining.fetchNextFrameId(api);
+        if (biddingFrameId !== nextFrameId - 1) {
+          // need to go back to the start of the bidding frame
+          const frameStartBlockHash = this.miningFrames.frameHistory[biddingFrameId].firstBlockHash;
+          if (!frameStartBlockHash) {
+            return reject(new Error(`No starting block for frame ${biddingFrameId}`));
+          }
+          api = await client.at(frameStartBlockHash);
+        }
+
         const priceIndex = new PriceIndex(mining.clients);
         try {
-          const tickAtStartOfNextCohort = await mining.getTickAtStartOfNextCohort();
-          const tickAtEndOfNextCohort = tickAtStartOfNextCohort + MiningFrames.ticksPerCohort;
+          const tickAtStartOfNextCohort = await mining.fetchTickAtStartOfNextCohort(api);
+          const tickAtEndOfNextCohort = tickAtStartOfNextCohort + NetworkConfig.ticksPerCohort;
 
-          this.nextCohortSize = await mining.getNextCohortSize();
-          const maxPossibleMinersInNextEpoch = await mining.getNextEpochMaxMiners();
+          this.nextCohortSize = await mining.fetchNextCohortSize(api);
+          const maxPossibleMinersInNextEpoch = await mining.getNextEpochMaxMiners(api);
 
-          const previousDayWinningBids = await mining.fetchPreviousDayWinningBidAmounts();
+          const previousDayWinningBids = await mining.fetchPreviousDayWinningBidAmounts(api);
           this.previousDayHighBid = previousDayWinningBids.length > 0 ? bigIntMax(...previousDayWinningBids) : 0n;
           this.previousDayLowBid = previousDayWinningBids.length > 0 ? bigIntMin(...previousDayWinningBids) : 0n;
           this.previousDayMidBid = bigNumberToBigInt(
             BigNumber(this.previousDayHighBid).plus(this.previousDayLowBid).dividedBy(2),
           );
 
-          const microgonsMinedPerBlock = await mining.fetchMicrogonsMinedPerBlockDuringNextCohort();
+          const microgonsMinedPerBlock = await mining.fetchMicrogonsMinedPerBlockDuringNextCohort(api);
           this.microgonsToMineThisSeat =
-            (microgonsMinedPerBlock * BigInt(MiningFrames.ticksPerCohort)) / BigInt(maxPossibleMinersInNextEpoch);
-          this.microgonsInCirculation = await priceIndex.fetchMicrogonsInCirculation();
+            (microgonsMinedPerBlock * BigInt(NetworkConfig.ticksPerCohort)) / BigInt(maxPossibleMinersInNextEpoch);
+          this.microgonsInCirculation = await priceIndex.fetchMicrogonsInCirculation(api);
 
-          this.currentMicronotsForBid = await mining.getCurrentMicronotsForBid();
-          this.maximumMicronotsForBid = await mining.getMaximumMicronotsForEndOfEpochBid();
+          this.currentMicronotsForBid = await mining.fetchCurrentMicronotsForBid(api);
+          this.maximumMicronotsForBid = await mining.fetchMaximumMicronotsForEndOfEpochBid(api);
 
-          const micronotsMinedDuringNextCohort = await mining.getMinimumMicronotsMinedDuringTickRange(
+          const micronotsMinedDuringNextCohort = await mining.minimumMicronotsMinedDuringTickRange(
             tickAtStartOfNextCohort,
             tickAtEndOfNextCohort,
+            api,
           );
           this.micronotsToMineThisSeat = micronotsMinedDuringNextCohort / BigInt(maxPossibleMinersInNextEpoch);
 
-          this.microgonExchangeRateTo = await priceIndex.fetchMicrogonExchangeRatesTo();
+          this.microgonExchangeRateTo = await priceIndex.fetchMicrogonExchangeRatesTo(api);
           this.maxPossibleMiningSeatCount = maxPossibleMinersInNextEpoch;
-          const client = await mining.clients.prunedClientOrArchivePromise;
           this.allowedBidIncrementMicrogons = client.consts.miningSlot.bidIncrements.toBigInt();
-          resolve(frameId);
+          resolve(biddingFrameId);
         } catch (error) {
           console.error('Error initializing BiddingCalculatorData', error);
           reject(error);

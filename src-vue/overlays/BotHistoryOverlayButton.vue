@@ -136,7 +136,7 @@ const activities = Vue.computed(() => {
         bidderAddress = activity.data.bidderAddress;
         isMine = subaccounts.value.has(bidderAddress);
       }
-      const timestamp = activity.tick * MiningFrames.tickMillis;
+      const timestamp = MiningFrames.getTickDate(activity.tick);
       const message = extractMessage(activity);
       return {
         id,

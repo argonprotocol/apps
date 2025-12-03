@@ -7,21 +7,40 @@ import {
   type IBotStateFile,
   type IEarningsFile,
   type IHistoryFile,
-  MiningFrames,
 } from '@argonprotocol/apps-core';
 import { JsonStore } from './JsonStore.ts';
+import { RewardTicksMigration } from './migrations/01-RewardTicks.ts';
+import type { IMigration } from './migrations/IMigration.ts';
 
 export class Storage {
+  public get botBidsDir(): string {
+    return Path.join(this.basedir, 'bot-bids');
+  }
+
+  public get botEarningsDir(): string {
+    return Path.join(this.basedir, 'bot-earnings');
+  }
+
+  public get botHistoryDir(): string {
+    return Path.join(this.basedir, 'bot-history');
+  }
+
+  public get version(): Promise<number> {
+    return this.storageVersion.get().then(x => x.version);
+  }
+
   private lruCache = new LRU<JsonStore<any>>(100);
   private readonly botState: JsonStore<IBotStateFile>;
   private readonly blockSync: JsonStore<IBlockSyncFile>;
+  private readonly storageVersion: JsonStore<{ version: number }>;
+  private migrations: IMigration[] = [new RewardTicksMigration()];
 
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });
-    fs.mkdirSync(Path.join(this.basedir, 'bot-bids'), { recursive: true });
-    fs.mkdirSync(Path.join(this.basedir, 'bot-earnings'), { recursive: true });
-    fs.mkdirSync(Path.join(this.basedir, 'bot-history'), { recursive: true });
-    this.botState = new JsonStore<IBotStateFile>(Path.join(this.basedir, 'bot-state.json'), () => {
+    fs.mkdirSync(this.botBidsDir, { recursive: true });
+    fs.mkdirSync(this.botEarningsDir, { recursive: true });
+    fs.mkdirSync(this.botHistoryDir, { recursive: true });
+    this.botState = new JsonStore(this.basedir, 'bot-state.json', () => {
       return {
         hasMiningBids: false,
         hasMiningSeats: false,
@@ -29,18 +48,52 @@ export class Storage {
         earningsLastModifiedAt: new Date(),
         oldestFrameIdToSync: 0,
         currentFrameId: 0,
-        currentFrameTickRange: [0, 0],
+        currentFrameFirstTick: 0,
+        currentFrameRewardTicksRemaining: 0,
         currentTick: 0,
         syncProgress: 0,
         lastBlockNumberByFrameId: {},
       };
     });
-    this.blockSync = new JsonStore<IBlockSyncFile>(Path.join(this.basedir, 'bot-blocks.json'), () => ({
+    this.blockSync = new JsonStore(this.basedir, 'bot-blocks.json', () => ({
       blocksByNumber: {},
       syncedToBlockNumber: 0,
       finalizedBlockNumber: 0,
       bestBlockNumber: 0,
     }));
+    this.storageVersion = new JsonStore(this.basedir, 'storage-version.json', () => ({
+      version: 0,
+    }));
+  }
+
+  public async close(): Promise<void> {
+    console.log('STORAGE SHUTTING DOWN');
+    const promises: Promise<void>[] = [];
+    for (const entry of this.lruCache.values()) {
+      promises.push(entry.close());
+    }
+    promises.push(this.botState.close());
+    promises.push(this.blockSync.close());
+    promises.push(this.storageVersion.close());
+    await Promise.all(promises);
+    console.log('STORAGE SHUTDOWN COMPLETE');
+  }
+
+  public async migrate(): Promise<void> {
+    const storageVersion = await this.storageVersion.get();
+
+    for (const migration of this.migrations) {
+      if (migration.version <= storageVersion.version) continue;
+      await migration.up(this);
+      await this.storageVersion.mutate(x => {
+        x.version = migration.version;
+        return true;
+      });
+    }
+  }
+
+  public getPath(path: string): string {
+    return Path.join(this.basedir, path);
   }
 
   public botBlockSyncFile(): JsonStore<IBlockSyncFile> {
@@ -58,11 +111,11 @@ export class Storage {
     const key = `bot-earnings/frame-${frameId}.json`;
     let entry = this.lruCache.get(key) as JsonStore<IEarningsFile> | undefined;
     if (!entry) {
-      entry = new JsonStore<IEarningsFile>(Path.join(this.basedir, key), () => {
-        const tickRange = MiningFrames.getTickRangeForFrame(frameId);
+      entry = new JsonStore<IEarningsFile>(this.basedir, key, () => {
         return {
           frameId,
-          frameTickRange: tickRange,
+          frameFirstTick: 0,
+          frameRewardTicksRemaining: 0,
           firstBlockNumber: 0,
           lastBlockNumber: 0,
           microgonToUsd: [],
@@ -85,12 +138,12 @@ export class Storage {
     const key = `bot-bids/frame-${cohortBiddingFrameId}-${cohortActivationFrameId}.json`;
     let entry = this.lruCache.get(key) as JsonStore<IBidsFile> | undefined;
     if (!entry) {
-      entry = new JsonStore<IBidsFile>(Path.join(this.basedir, key), () => {
-        const tickRange = MiningFrames.getTickRangeForFrame(cohortBiddingFrameId);
+      entry = new JsonStore<IBidsFile>(this.basedir, key, () => {
         return {
           cohortBiddingFrameId,
           cohortActivationFrameId,
-          biddingFrameTickRange: tickRange,
+          biddingFrameFirstTick: 0,
+          biddingFrameRewardTicksRemaining: 0,
           lastBlockNumber: 0,
           seatCountWon: 0,
           allMinersCount: 0,
@@ -110,7 +163,7 @@ export class Storage {
     const key = `bot-history/frame-${frameId}.json`;
     let entry = this.lruCache.get(key) as JsonStore<IHistoryFile> | undefined;
     if (!entry) {
-      entry = new JsonStore<IHistoryFile>(Path.join(this.basedir, key), () => {
+      entry = new JsonStore<IHistoryFile>(this.basedir, key, () => {
         return {
           activities: [],
         };

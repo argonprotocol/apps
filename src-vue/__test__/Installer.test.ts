@@ -54,6 +54,7 @@ it('should install if all conditions are met', async () => {
   await config.load();
 
   const installer = new Installer(config, walletKeys);
+  installer.ensureIpAddressIsWhitelisted = vi.fn().mockResolvedValue(null);
   await installer.load();
 
   config.isMinerReadyToInstall = true;
@@ -109,6 +110,8 @@ it('should run through entire install process', async () => {
     [InstallStepKey.MiningLaunch, InstallStepStatusType.Finished],
   ];
   const installStepStatusCompleted: IInstallStepStatuses = {};
+
+  installer.ensureIpAddressIsWhitelisted = vi.fn().mockResolvedValue(null);
 
   // @ts-ignore
   installer.installerCheck.fetchInstallStepStatuses = vi.fn(() => {

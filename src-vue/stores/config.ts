@@ -8,7 +8,7 @@ import { SSH } from '../lib/SSH';
 import { useMyVault } from './vaults.ts';
 import { useWalletBalances, useWalletKeys } from './wallets.ts';
 import { WalletRecovery } from '../lib/WalletRecovery.ts';
-import { getMainchainClients } from './mainchain.ts';
+import { getMainchainClients, getMiningFrames } from './mainchain.ts';
 
 let config: Vue.Reactive<Config>;
 
@@ -19,13 +19,14 @@ export function useConfig(): Vue.Reactive<Config> {
   if (!config) {
     console.log('Initializing config');
     const dbPromise = getDbPromise();
+    const walletKeys = useWalletKeys();
     config = Vue.reactive(
-      new Config(dbPromise, useWalletKeys(), async onProgress => {
+      new Config(dbPromise, walletKeys, async onProgress => {
         const myVault = useMyVault();
         const clients = getMainchainClients();
-        const walletKeys = useWalletKeys();
         const walletBalances = useWalletBalances();
-        const walletRecover = new WalletRecovery(myVault, walletKeys, walletBalances, clients);
+        const miningFrames = getMiningFrames();
+        const walletRecover = new WalletRecovery(myVault, walletKeys, walletBalances, clients, miningFrames);
         return await walletRecover.findHistory(onProgress);
       }),
     );

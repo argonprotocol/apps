@@ -5,6 +5,8 @@ import {
   JsonExt,
   MainchainClients,
   Mining,
+  MiningFrames,
+  NetworkConfig,
   PriceIndex,
 } from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
@@ -20,12 +22,12 @@ const REVENUE_STATS_FILE = `${NETWORK_NAME}/vaultRevenue.json`;
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
-  public tickDuration?: number;
   public stats?: IAllVaultStats;
 
   constructor(
     public network = NETWORK_NAME,
     public priceIndex: PriceIndex,
+    public miningFrames: MiningFrames,
   ) {}
 
   private waitForLoad?: IDeferred;
@@ -38,14 +40,14 @@ export class Vaults {
     this.waitForLoad ??= createDeferred();
     try {
       const client = await getMainchainClient(false);
-      this.tickDuration ??= await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis.toNumber());
+      await this.miningFrames.load();
       const vaults = await client.query.vaults.vaultsById.entries();
       for (const [vaultIdRaw, vaultRaw] of vaults) {
         const id = vaultIdRaw.args[0].toNumber();
-        this.vaultsById[id] = new Vault(id, vaultRaw.unwrap(), this.tickDuration);
+        this.vaultsById[id] = new Vault(id, vaultRaw.unwrap(), NetworkConfig.tickMillis);
       }
-
       this.stats ??= await this.loadStatsFromFile();
+
       this.waitForLoad.resolve();
     } catch (error) {
       this.waitForLoad.reject(error as Error);
@@ -155,7 +157,7 @@ export class Vaults {
         .then(header => header.number.toNumber());
       const currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
       console.log(`Syncing vault revenue stats from ${oldestFrameToGet}->${currentFrameId}`);
-      await new FrameIterator(clients, 'VaultHistory').iterateFramesLimited(
+      await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
         async (frameId, firstBlockMeta, api, abortController) => {
           console.log(`[VaultHistory] Loading frame ${frameId} (oldest ${oldestFrameToGet})`);
           if (firstBlockMeta.specVersion < 129) {
@@ -405,7 +407,7 @@ export class Vaults {
   ): Promise<{ totalPoolRewards: bigint; totalActivatedCapital: bigint; participatingVaults: number }> {
     const client = await clients.prunedClientOrArchivePromise;
     const bidBurnPercent = (100 - client.consts.treasury.bidPoolBurnPercent.toNumber()) / 100;
-    const totalMicrogonsBid = await new Mining(clients).getAggregateBidCosts();
+    const totalMicrogonsBid = await new Mining(clients).fetchAggregateBidCosts();
     const vaultRevenue = await client.query.vaults.revenuePerFrameByVault.entries();
     let totalActivatedCapital = 0n;
     let participatingVaults = 0;

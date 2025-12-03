@@ -1,5 +1,11 @@
 import BigNumber from 'bignumber.js';
-import { bigNumberToBigInt, type IBidsFile, IBotActivity, type IWinningBid } from '@argonprotocol/apps-core';
+import {
+  bigNumberToBigInt,
+  type IBidsFile,
+  IBotActivity,
+  type IWinningBid,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
 import { Config } from './Config';
@@ -8,7 +14,7 @@ import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import { botEmitter } from './Bot';
 import { createDeferred, ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
-import { MiningFrames } from '@argonprotocol/apps-core/src/MiningFrames';
+import { MiningFrames } from '../../core/src/MiningFrames.ts';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 import { Currency } from './Currency.ts';
 
@@ -35,7 +41,6 @@ export class Stats {
   public latestFrameId: number;
   public activeFrames: number;
   public selectedFrameId!: number;
-  public selectedCohortTickRange!: [number, number];
 
   public myMiningSeats: IMyMiningSeats;
   public myMiningBids: IMyMiningBids;
@@ -69,16 +74,18 @@ export class Stats {
   private activityHasUpdates: boolean = true;
 
   private currency: Currency;
+  private miningFrames: MiningFrames;
 
-  constructor(dbPromise: Promise<Db>, config: Config, currency: Currency) {
+  constructor(dbPromise: Promise<Db>, config: Config, currency: Currency, miningFrames: MiningFrames) {
     ensureOnlyOneInstance(this.constructor);
 
     this.isLoaded = false;
 
     this.allWinningBids = [];
 
-    this.latestFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
-    this.selectFrameId(this.latestFrameId, true);
+    this.miningFrames = miningFrames;
+    this.latestFrameId = miningFrames.currentFrameId;
+    this.selectedFrameId = miningFrames.currentFrameId;
     this.activeFrames = 0;
 
     this.myMiningSeats = {
@@ -154,10 +161,7 @@ export class Stats {
   }
 
   public selectFrameId(frameId: number, skipDashboardUpdate: boolean = false) {
-    const firstFrameTickRange = MiningFrames.getTickRangeForFrame(frameId);
-    const lastFrameTickRange = MiningFrames.getTickRangeForFrame(frameId + 9);
     this.selectedFrameId = frameId;
-    this.selectedCohortTickRange = [firstFrameTickRange[0], lastFrameTickRange[1]];
     if (skipDashboardUpdate) return;
 
     this.updateDashboard().catch(console.error);
@@ -170,6 +174,7 @@ export class Stats {
     await this.config.isLoadedPromise;
     this.db = await this.dbPromise;
     await this.currency.load();
+    await this.miningFrames.load();
 
     await this.updateDashboard();
 
@@ -422,7 +427,7 @@ export class Stats {
         );
         const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
         const percentOfMiners = getPercent(cohort.seatCountWon, frame.allMinersCount);
-        const elapsedTicks = percentOf(MiningFrames.ticksPerFrame, frame.progress);
+        const elapsedTicks = percentOf(NetworkConfig.rewardTicksPerFrame, frame.progress);
         frame.expected.blocksMinedTotal += Number(percentOf(elapsedTicks, percentOfMiners));
         const seatsN = BigInt(cohort.seatCountWon);
         frame.expected.micronotsMinedTotal += micronotsToBeMined * seatsN;

@@ -1,4 +1,4 @@
-import { NetworkConfig, MiningFrames } from '@argonprotocol/apps-core';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import type ISecurity from '../interfaces/ISecurity.ts';
 
 console.log('__ARGON_APP_BUILD_TYPE__', __ARGON_APP_BUILD_TYPE__);
@@ -11,11 +11,11 @@ export const IS_EXPERIMENTAL_BUILD = BUILD_TYPE === 'experimental';
 export const IS_STABLE_BUILD = BUILD_TYPE === 'stable';
 
 export const NETWORK_NAME = __ARGON_NETWORK_NAME__ || 'mainnet';
-MiningFrames.setNetwork(NETWORK_NAME as any);
+NetworkConfig.setNetwork(NETWORK_NAME as any);
 export const ENABLE_AUTO_UPDATE = __ARGON_APP_ENABLE_AUTOUPDATE__ ?? false;
 
 export const SERVER_ENV_VARS = __SERVER_ENV_VARS__ ?? {};
-const networkConfig = NetworkConfig[NETWORK_NAME as keyof typeof NetworkConfig] ?? NetworkConfig.mainnet;
+const networkConfig = NetworkConfig.get();
 export const NETWORK_URL = networkConfig.archiveUrl;
 export const [INSTANCE_NAME, INSTANCE_PORT] = (__ARGON_APP_INSTANCE__ || 'default:1420').split(':');
 

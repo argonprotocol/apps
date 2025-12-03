@@ -204,11 +204,13 @@ import BitcoinIcon from '../../../assets/wallets/bitcoin-thin.svg?component';
 import { BitcoinLockStatus } from '../../../lib/db/BitcoinLocksTable.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import { useWalletKeys } from '../../../stores/wallets.ts';
+import { getMiningFrames } from '../../../stores/mainchain.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
 const myVault = useMyVault();
+const miningFrames = getMiningFrames();
 const vaults = useVaults();
 const bitcoinLocks = useBitcoinLocks();
 const currency = useCurrency();
@@ -254,7 +256,7 @@ const releasingBitcoinDetails = Vue.computed<{ progressPct: number; confirmation
 const requestBitcoinReleaseByVaultProgress = Vue.computed(() => {
   const lock = personalLock.value;
   if (!lock) return 0;
-  return bitcoinLocks.getRequestReleaseByVaultPercent(lock);
+  return bitcoinLocks.getRequestReleaseByVaultPercent(lock, miningFrames);
 });
 
 const btcMarketRate = Vue.ref(0n);

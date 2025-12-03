@@ -3,7 +3,7 @@ import accountCli from './accountCli.js';
 import { configDotenv } from 'dotenv';
 import Path from 'node:path';
 import miningCli from './miningCli.js';
-import { Accountset, MiningFrames } from '@argonprotocol/apps-core';
+import { Accountset, NetworkConfig } from '@argonprotocol/apps-core';
 import { getClient, keyringFromSuri, type KeyringPair } from '@argonprotocol/mainchain';
 import { keyringFromFile, saveKeyringPair } from './keyringStore.js';
 
@@ -112,7 +112,7 @@ export async function accountsetFromCli(program: Command, proxyForAddress?: stri
     }
     process.env.ARGON_NETWORK_NAME = opts.network;
     process.env.ARGON_CHAIN = opts.network;
-    MiningFrames.setNetwork(opts.network);
+    NetworkConfig.setNetwork(opts.network);
   }
 
   if (proxyForAddress) {

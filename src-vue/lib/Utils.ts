@@ -1,8 +1,9 @@
-import { bigNumberToBigInt, JsonExt } from '@argonprotocol/apps-core';
+import { createDeferred, getPercent, IDeferred, JsonExt, percentOf } from '@argonprotocol/apps-core';
 import { IFieldTypes } from './db/BaseTable.ts';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
-import BigNumber from 'bignumber.js';
 import { appConfigDir, join } from '@tauri-apps/api/path';
+
+export { createDeferred, type IDeferred, getPercent, percentOf };
 
 export function isInt(n: any) {
   if (typeof n === 'string') return !n.includes('.');
@@ -15,15 +16,6 @@ export async function getInstanceConfigDir(): Promise<string> {
 
 export function abbreviateAddress(address: string, length = 4) {
   return address.slice(0, 6) + '...' + address.slice(-length);
-}
-
-export function getPercent(value: bigint | number, total: bigint | number): number {
-  if (total === 0n || total === 0 || value === 0n || value === 0) return 0;
-  return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
-}
-
-export function percentOf(value: bigint | number, percentOf100: number | bigint): bigint {
-  return bigNumberToBigInt(BigNumber(value).multipliedBy(percentOf100).dividedBy(100));
 }
 
 export function calculateProfitPct(costs: bigint, rewards: bigint): number {
@@ -170,60 +162,6 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
   }
   return obj as T;
 }
-
-export function createDeferred<T = void>(isRunning: boolean = true): IDeferred<T> {
-  let resolve!: (value: T | Promise<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  let isResolved = false;
-  let isRejected = false;
-
-  const promise = new Promise<T>((res, rej) => {
-    resolve = (value: T | Promise<T>) => {
-      isResolved = true;
-      isRunning = false;
-      res(value);
-    };
-    reject = (reason?: unknown) => {
-      isRejected = true;
-      isRunning = false;
-      rej(reason);
-    };
-  });
-
-  const setIsRunning = (x: boolean) => (isRunning = x);
-
-  // Create the object with arrow functions to avoid 'this' binding issues
-
-  return {
-    resolve: (value: T | Promise<T>) => resolve(value),
-    reject: (reason?: unknown) => reject(reason),
-    promise,
-    setIsRunning,
-    get isResolved() {
-      return isResolved;
-    },
-    get isRejected() {
-      return isRejected;
-    },
-    get isRunning() {
-      return isRunning;
-    },
-    get isSettled() {
-      return isResolved || isRejected;
-    },
-  };
-}
-
-export type IDeferred<T = void> = {
-  resolve(this: void, value: T | Promise<T>): void;
-  reject(this: void, reason?: unknown): void;
-  setIsRunning(this: void, isRunning: boolean): void;
-  promise: Promise<T>;
-  readonly isResolved: boolean;
-  readonly isRejected: boolean;
-  readonly isRunning: boolean;
-  readonly isSettled: boolean;
-};
 
 export const instanceChecks = new WeakSet<any>();
 

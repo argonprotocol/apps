@@ -8,9 +8,9 @@ import {
   type u64,
 } from '@argonprotocol/mainchain';
 import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
-import { MiningFrames } from './MiningFrames.js';
 import type { IWinningBid } from './interfaces/index.js';
 import type { IMiningIndex } from './Accountset.ts';
+import { NetworkConfig } from './NetworkConfig.js';
 
 export const BLOCK_REWARD_INCREASE_PER_INTERVAL = BigInt(1_000);
 export const BLOCK_REWARD_MAX = BigInt(5_000_000);
@@ -26,10 +26,10 @@ export class Mining {
 
   constructor(public readonly clients: MainchainClients) {}
 
-  public async getRecentSeatSummaries(): Promise<
-    { biddingFrameId: number; seats: number; lowestWinningBid: bigint; highestWinningBid: bigint }[]
-  > {
-    const client = await this.prunedClientOrArchivePromise;
+  public async getRecentSeatSummaries(
+    api?: ApiDecoration<'promise'>,
+  ): Promise<{ biddingFrameId: number; seats: number; lowestWinningBid: bigint; highestWinningBid: bigint }[]> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const bidsPerFrame = await client.query.miningSlot.minersByCohort.entries();
 
     const summaries = [];
@@ -48,30 +48,29 @@ export class Mining {
     return summaries.sort((a, b) => b.biddingFrameId - a.biddingFrameId);
   }
 
-  public async getAggregateBlockRewards(): Promise<{
+  public async getAggregateBlockRewards(api?: ApiDecoration<'promise'>): Promise<{
     microgons: bigint;
     micronots: bigint;
   }> {
-    const client = await this.prunedClientOrArchivePromise;
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const blockRewards = await client.query.blockRewards.blockRewardsByCohort();
     const nextCohortId = blockRewards.pop()?.[0].toNumber() ?? 1;
     const currentCohortId = nextCohortId - 1;
 
-    const currentTick = await this.getCurrentTick();
-    const tickAtStartOfCurrentSlot = await this.getTickAtStartOfCurrentSlot();
-    const ticksElapsedToday = currentTick - tickAtStartOfCurrentSlot;
+    const currentTick = await this.fetchCurrentTick(api);
+    const ticksBetweenFrames = NetworkConfig.rewardTicksPerFrame;
+    const ticksElapsedThisFrame = ticksBetweenFrames - (await this.fetchFrameRewardTicksRemaining(api));
 
     const rewards = { microgons: 0n, micronots: 0n };
 
     for (const [cohortId, blockReward] of blockRewards) {
       const fullRotationsSinceCohortStart = currentCohortId - cohortId.toNumber();
-      const ticksSinceCohortStart =
-        fullRotationsSinceCohortStart * MiningFrames.getConfig().ticksBetweenFrames + ticksElapsedToday;
+      const ticksSinceCohortStart = fullRotationsSinceCohortStart * ticksBetweenFrames + ticksElapsedThisFrame;
       const startingTick = currentTick - ticksSinceCohortStart;
-      const endingTick = startingTick + MiningFrames.ticksPerCohort;
-      const microgonsMinedInCohort = (blockReward.toBigInt() * BigInt(MiningFrames.ticksPerCohort)) / 10n;
+      const endingTick = startingTick + NetworkConfig.ticksPerCohort;
+      const microgonsMinedInCohort = (blockReward.toBigInt() * BigInt(NetworkConfig.ticksPerCohort)) / 10n;
       const micronotsMinedInCohort =
-        (await this.getMinimumMicronotsMinedDuringTickRange(startingTick, endingTick)) / 10n;
+        (await this.minimumMicronotsMinedDuringTickRange(startingTick, endingTick, api)) / 10n;
       rewards.microgons += microgonsMinedInCohort;
       rewards.micronots += micronotsMinedInCohort;
     }
@@ -79,15 +78,8 @@ export class Mining {
     return rewards;
   }
 
-  public async getNextSlotRange(): Promise<[number, number]> {
-    const client = await this.prunedClientOrArchivePromise;
-    const nextSlotRangeBytes = await client.rpc.state.call('MiningSlotApi_next_slot_era', '');
-    const nextSlotRangeRaw = client.createType('(u64, u64)', nextSlotRangeBytes);
-    return [nextSlotRangeRaw[0].toNumber(), nextSlotRangeRaw[1].toNumber()];
-  }
-
-  public async fetchPreviousDayWinningBidAmounts(): Promise<bigint[]> {
-    const startingFrameId = MiningFrames.calculateCurrentFrameIdFromSystemTime();
+  public async fetchPreviousDayWinningBidAmounts(api?: ApiDecoration<'promise'>): Promise<bigint[]> {
+    const startingFrameId = (await this.fetchNextFrameId(api)) - 1;
     let frameIdToCheck = startingFrameId;
     while (true) {
       // We must loop backwards until we find a frame with winning bids
@@ -95,7 +87,7 @@ export class Mining {
         // We've checked the last 10 frames and found no winning bids, so we're done
         return [];
       }
-      const winningBids = await this.fetchWinningBidAmountsForFrame(frameIdToCheck);
+      const winningBids = await this.fetchWinningBidAmountsForFrame(frameIdToCheck, api);
       if (winningBids.length > 0) {
         return winningBids;
       }
@@ -103,22 +95,24 @@ export class Mining {
     }
   }
 
-  public async getTickAtStartOfNextCohort(): Promise<number> {
-    return (await this.getNextSlotRange())[0];
+  public async fetchFrameRewardTicksRemaining(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.clients.prunedClientOrArchivePromise);
+    return client.query.miningSlot.frameRewardTicksRemaining().then(x => x.toNumber());
   }
 
-  public async getTickAtStartOfAuctionClosing(): Promise<number> {
-    const client = await this.prunedClientOrArchivePromise;
-    const tickAtStartOfNextCohort = await this.getTickAtStartOfNextCohort();
+  public async fetchTickAtStartOfNextCohort(api?: ApiDecoration<'promise'>): Promise<number> {
+    const currentTick = await this.fetchCurrentTick(api);
+    const remainingFrameTicks = await this.fetchFrameRewardTicksRemaining(api);
+    return currentTick + remainingFrameTicks;
+  }
+
+  public async fetchTickAtStartOfAuctionClosing(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
+    const tickAtStartOfNextCohort = await this.fetchTickAtStartOfNextCohort(api);
     const ticksBeforeBidEndForVrfClose = (
       await client.query.miningSlot.miningConfig()
     ).ticksBeforeBidEndForVrfClose.toNumber();
     return tickAtStartOfNextCohort - ticksBeforeBidEndForVrfClose;
-  }
-
-  public async getTickAtStartOfCurrentSlot(): Promise<number> {
-    const tickAtStartOfNextCohort = await this.getTickAtStartOfNextCohort();
-    return tickAtStartOfNextCohort - MiningFrames.ticksPerFrame;
   }
 
   public static async fetchWinningBids(
@@ -175,9 +169,9 @@ export class Mining {
     return addressToMiningIndex;
   }
 
-  public async fetchWinningBidAmountsForFrame(frameId: number): Promise<bigint[]> {
+  public async fetchWinningBidAmountsForFrame(frameId: number, api?: ApiDecoration<'promise'>): Promise<bigint[]> {
     if (frameId < 1) return [];
-    const client = await this.prunedClientOrArchivePromise;
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const winningBids = await client.query.miningSlot.minersByCohort(frameId);
     return winningBids.map(bid => bid.bid.toBigInt());
   }
@@ -209,10 +203,21 @@ export class Mining {
     return { unsubscribe };
   }
 
-  public async getNextEpochMaxMiners(): Promise<number> {
-    const client = await this.prunedClientOrArchivePromise;
-    const nextFrameId = (await this.getCurrentFrameId()) + 1;
-    const nextCohortSize = await this.getNextCohortSize();
+  public async fetchNextFrameId(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
+    const nextFrameId = await client.query.miningSlot.nextFrameId();
+    return nextFrameId.toNumber();
+  }
+
+  public async fetchCurrentTick(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.clients.prunedClientOrArchivePromise);
+    return (await client.query.ticks.currentTick()).toNumber();
+  }
+
+  public async getNextEpochMaxMiners(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
+    const nextFrameId = await this.fetchNextFrameId(api);
+    const nextCohortSize = await this.fetchNextCohortSize(api);
     const scheduledChanges = await client.query.miningSlot.scheduledCohortSizeChangeByFrame();
     const scheduledChangesByFrame: { [frameId: number]: number } = {};
     for (const [rawFrameId, newCohortSize] of scheduledChanges) {
@@ -230,19 +235,19 @@ export class Mining {
     return maxMiners;
   }
 
-  public async getNextCohortSize(): Promise<number> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async fetchNextCohortSize(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     return (await client.query.miningSlot.nextCohortSize()).toNumber();
   }
 
-  public async getActiveMinersCount(): Promise<number> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async fetchActiveMinersCount(api?: ApiDecoration<'promise'>): Promise<number> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const activeMiners = (await client.query.miningSlot.activeMinersCount()).toNumber();
     return Math.max(activeMiners, 100);
   }
 
-  public async getAggregateBidCosts(): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async fetchAggregateBidCosts(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const bidsPerFrame = await client.query.miningSlot.minersByCohort.entries();
 
     let aggregateBidCosts = 0n;
@@ -253,23 +258,23 @@ export class Mining {
     return aggregateBidCosts;
   }
 
-  public async getCurrentMicronotsForBid(): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async fetchCurrentMicronotsForBid(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     return await client.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
   }
 
-  public async getMaximumMicronotsForBid(): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async fetchMaximumMicronotsForBid(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const ownershipCirculation = await client.query.ownership.totalIssuance().then(x => x.toBigInt());
-    const currentMaxMiners = await this.getNextEpochMaxMiners();
+    const currentMaxMiners = await this.getNextEpochMaxMiners(api);
     const baseOwnershipTokens = ownershipCirculation / BigInt(currentMaxMiners);
     const maxValue = Math.ceil(MAXIMUM_ARGONOT_PRORATA_PERCENT * Number(baseOwnershipTokens));
 
     return BigInt(maxValue);
   }
 
-  public async getMaximumMicronotsForEndOfEpochBid(): Promise<bigint> {
-    const currentMicronots = await this.getCurrentMicronotsForBid();
+  public async fetchMaximumMicronotsForEndOfEpochBid(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const currentMicronots = await this.fetchCurrentMicronotsForBid(api);
 
     const adjustmentFactorNumerator = BigInt(ARGONOTS_PERCENT_ADJUSTMENT_DAMPER * 100);
     const adjustmentFactorDenominator = 100n;
@@ -277,19 +282,19 @@ export class Mining {
     const compoundedDenominator = adjustmentFactorDenominator ** 10n;
     const adjustedMicronots = (currentMicronots * compoundedNumerator) / compoundedDenominator;
 
-    const maximumPossible = await this.getMaximumMicronotsForBid();
+    const maximumPossible = await this.fetchMaximumMicronotsForBid(api);
     const maximumMicronots = Math.min(Number(adjustedMicronots), Number(maximumPossible));
 
     return BigInt(maximumMicronots);
   }
 
-  public async fetchMicrogonsMinedPerBlockDuringNextCohort(): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
-    return this.getMicrogonsPerBlockForMiner(client);
+  public async fetchMicrogonsMinedPerBlockDuringNextCohort(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
+    return this.fetchMicrogonsPerBlockForMiner(client);
   }
 
-  public async getMicrogonsPerBlockForMiner(api: ApiDecoration<'promise'>, frameId?: number): Promise<bigint> {
-    frameId ??= await this.getNextFrameId();
+  public async fetchMicrogonsPerBlockForMiner(api: ApiDecoration<'promise'>, frameId?: number): Promise<bigint> {
+    frameId ??= await this.fetchNextFrameId(api);
     if (frameId <= 1) {
       return api.consts.blockRewards.startingArgonsPerBlock.toBigInt();
     }
@@ -305,9 +310,10 @@ export class Mining {
 
   public async minimumBlockRewardsAtTick(
     currentTick: number,
+    api?: ApiDecoration<'promise'>,
   ): Promise<{ rewardsPerBlock: bigint; amountToMinerPercent: BigNumber; ticksSinceGenesis: number }> {
-    const client = await this.prunedClientOrArchivePromise;
-    const ticksSinceGenesis = await this.getTicksSinceGenesis(currentTick);
+    const client = api ?? (await this.prunedClientOrArchivePromise);
+    const ticksSinceGenesis = this.getTicksSinceGenesis(currentTick);
     const initialReward = 500_000n; // Initial microgons reward per block
     const amountToMiner = fromFixedNumber(
       client.consts.blockRewards.minerPayoutPercent.toBigInt(),
@@ -323,15 +329,20 @@ export class Mining {
     return { rewardsPerBlock: reward, amountToMinerPercent: amountToMiner, ticksSinceGenesis };
   }
 
-  public async getMinimumMicronotsMinedDuringTickRange(tickStart: number, tickEnd: number): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async minimumMicronotsMinedDuringTickRange(
+    tickStart: number,
+    tickEnd: number,
+    api?: ApiDecoration<'promise'>,
+  ): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const halvingStartTick = client.consts.blockRewards.halvingBeginTick.toNumber();
     const halvingTicks = client.consts.blockRewards.halvingTicks.toNumber();
     // eslint-disable-next-line prefer-const
-    let { rewardsPerBlock, amountToMinerPercent } = await this.minimumBlockRewardsAtTick(tickStart);
+    let { rewardsPerBlock, amountToMinerPercent } = await this.minimumBlockRewardsAtTick(tickStart, api);
+
     let totalRewards = 0n;
     for (let i = tickStart; i < tickEnd; i++) {
-      const elapsedTicks = await this.getTicksSinceGenesis(i);
+      const elapsedTicks = this.getTicksSinceGenesis(i);
       if (elapsedTicks >= halvingStartTick) {
         const halvings = Math.floor((elapsedTicks - halvingStartTick) / halvingTicks);
         rewardsPerBlock = BigInt(Math.floor(Number(BLOCK_REWARD_MAX) / (halvings + 1)));
@@ -344,52 +355,8 @@ export class Mining {
     return bigNumberToBigInt(amountToMinerPercent.times(totalRewards));
   }
 
-  public async onTick(callback: (tick: number) => Promise<void> | void): Promise<{ unsubscribe: () => void }> {
-    const client = await this.prunedClientOrArchivePromise;
-    const unsubscribe = await client.query.ticks.currentTick(async tick => {
-      try {
-        await callback(tick.toNumber());
-      } catch (err) {
-        console.error(`Error in onTick(${tick.toNumber()}) callback:`, err);
-      }
-    });
-    return { unsubscribe };
-  }
-
-  public async onFrameId(callback: (frameId: number) => Promise<void> | void): Promise<{ unsubscribe: () => void }> {
-    const client = await this.prunedClientOrArchivePromise;
-    const unsubscribe = await client.query.miningSlot.nextFrameId(async frameId => {
-      const currentFrameId = frameId.toNumber() - 1;
-      try {
-        await callback(currentFrameId);
-      } catch (err) {
-        console.error(`Error in onFrameId(${currentFrameId}) callback:`, err);
-      }
-    });
-    return { unsubscribe };
-  }
-
-  public async getNextFrameId(): Promise<number> {
-    const client = await this.prunedClientOrArchivePromise;
-    const nextFrameId = await client.query.miningSlot.nextFrameId();
-    return nextFrameId.toNumber();
-  }
-
-  public async getCurrentFrameId(): Promise<number> {
-    const nextFrameId = await this.getNextFrameId();
-    if (nextFrameId === 0) {
-      return 0;
-    }
-    return nextFrameId - 1; // Subtract 1 to get the current frame ID
-  }
-
-  public async getCurrentTick(): Promise<number> {
-    const client = await this.prunedClientOrArchivePromise;
-    return (await client.query.ticks.currentTick()).toNumber();
-  }
-
-  private async getTicksSinceGenesis(currentTick: number): Promise<number> {
-    const { genesisTick } = MiningFrames.getConfig();
+  private getTicksSinceGenesis(currentTick: number): number {
+    const { genesisTick } = NetworkConfig.get();
     return currentTick - genesisTick;
   }
 }

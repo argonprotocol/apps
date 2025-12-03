@@ -1,31 +1,48 @@
 import * as fs from 'node:fs';
-import { JsonExt, type ILastModifiedAt } from '@argonprotocol/apps-core';
+import { type ILastModifiedAt, JsonExt } from '@argonprotocol/apps-core';
 import Queue from 'p-queue';
+import Path from 'node:path';
 
 export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
   private data: T | undefined;
   private defaults!: Omit<T, 'lastModified'>;
   private saveQueue = new Queue({ concurrency: 1 });
+  private readonly path: string;
 
   constructor(
-    private path: string,
+    private basedir: string,
+    public key: string,
     private defaultsFn: () => Omit<T, 'lastModified'> | Promise<Omit<T, 'lastModified'>>,
-  ) {}
+    private shouldLog = Boolean(JSON.parse(process.env.ARGON_LOG_STORAGE ?? '0')),
+  ) {
+    const keyPath = key.endsWith('.json') ? key : `${key}.json`;
+    this.path = Path.join(this.basedir, keyPath);
+  }
 
   public async mutate(mutateFn: (data: T) => boolean | void | Promise<boolean | void>): Promise<boolean> {
     const result = await this.saveQueue.add(async () => {
       await this.load();
-      const data = this.data ?? (structuredClone(this.defaults) as T);
+      const data = structuredClone(this.data ?? this.defaults) as T;
       const result = await mutateFn(data);
       if (result === false) return false;
       data.lastModifiedAt = new Date();
       // filter non properties
       const newData = {} as any;
-      for (const key of Object.keys(this.defaults)) {
+      const changesProps = {} as any;
+      for (const key of Object.keys(this.defaults) as (keyof T)[]) {
         newData[key] = data[key];
+        const oldValue = this.data?.[key];
+        if (this.shouldLog) {
+          if (oldValue !== newData[key] && JsonExt.stringify(oldValue) !== JsonExt.stringify(newData[key])) {
+            changesProps[key] = [oldValue, newData[key]];
+          }
+        }
+      }
+      if (this.shouldLog) {
+        console.log(`[JsonStore]: Saving changes to ${this.key}:`, changesProps);
       }
       this.data = newData;
-      await this.atomicWrite(this.path, JsonExt.stringify(this.data, 2));
+      await atomicWrite(this.path, JsonExt.stringify(this.data, 2));
       return true;
     });
     return result ?? false;
@@ -40,7 +57,7 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
     }
   }
 
-  public async get(): Promise<T | undefined> {
+  public async get(): Promise<T> {
     await this.load();
     return structuredClone(this.data || (this.defaults as T));
   }
@@ -67,18 +84,18 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
       } catch {}
     }
   }
+}
 
-  private async atomicWrite(path: string, contents: string) {
-    const tmp = `${path}.tmp`;
-    await fs.promises.writeFile(tmp, contents);
-    try {
-      await fs.promises.rename(tmp, path);
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-        console.log(`It seems ${tmp} was already saved... nothing to worry about `);
-      } else {
-        throw e;
-      }
+export async function atomicWrite(path: string, contents: string) {
+  const tmp = `${path}.tmp`;
+  await fs.promises.writeFile(tmp, contents);
+  try {
+    await fs.promises.rename(tmp, path);
+  } catch (e: unknown) {
+    if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+      console.log(`It seems ${tmp} was already saved... nothing to worry about `);
+    } else {
+      throw e;
     }
   }
 }

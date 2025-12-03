@@ -53,6 +53,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
     ui: 'bdd',
     timeout: 60000,
   },
+  logLevel: 'warn',
 
   // ensure the rust project is built since we expect this binary to exist for the webdriver sessions
   async onPrepare() {
@@ -89,6 +90,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
         CI: 'true',
         ARCHIVE_URL: ARGON_RPC_URL,
         ARGON_NETWORK_NAME: ARGON_CHAIN,
+        ARGON_APP_BUILD_TYPE: 'local',
       },
       shell: true,
     });
@@ -105,6 +107,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
       env: {
         ARGON_APP_INSTANCE,
         ARGON_NETWORK_NAME: ARGON_CHAIN,
+        ARGON_APP_BUILD_TYPE: 'local',
         ...process.env,
       },
     });

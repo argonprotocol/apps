@@ -11,7 +11,6 @@ import {
   ApiDecoration,
   BitcoinLock,
   formatArgons,
-  Header,
   type IBitcoinLockConfig,
   ITxProgressCallback,
   KeyringPair,
@@ -25,13 +24,14 @@ import { createDeferred, getPercent, IDeferred } from './Utils.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { type AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/addresses';
 import { type TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
-import { MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
+import { MiningFrames, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
+import { BlockWatch, IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 dayjs.extend(utc);
 
@@ -83,6 +83,13 @@ export default class BitcoinLocksStore {
     );
   }
 
+  public get totalMinted() {
+    return Object.values(this.locksByUtxoId).reduce(
+      (sum, lock) => sum + lock.ratchets.reduce((sum, ratchet) => sum + ratchet.mintAmount - ratchet.mintPending, 0n),
+      0n,
+    );
+  }
+
   #config!: IBitcoinLockConfig;
 
   #lockTicksPerDay!: number;
@@ -94,6 +101,7 @@ export default class BitcoinLocksStore {
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
+    private readonly blockWatch: BlockWatch,
     priceIndex: PriceIndex,
     transactionTracker: TransactionTracker,
   ) {
@@ -167,7 +175,8 @@ export default class BitcoinLocksStore {
 
       const finalizedHash = await client.rpc.chain.getFinalizedHead();
       const latestArgonHeader = await client.rpc.chain.getHeader(finalizedHash);
-      await this.checkIncomingArgonBlock(latestArgonHeader);
+
+      await this.checkIncomingArgonBlock(BlockWatch.readHeader(latestArgonHeader));
       this.#waitForLoad.resolve();
     } catch (error) {
       console.error('Error loading BitcoinLocksStore:', error);
@@ -177,8 +186,10 @@ export default class BitcoinLocksStore {
   }
 
   public async subscribeToArgonBlocks() {
-    const client = await getMainchainClient(false);
-    this.#subscription ??= await client.rpc.chain.subscribeFinalizedHeads(h => this.checkIncomingArgonBlock(h));
+    this.#subscription = this.blockWatch.events.on('best-blocks', async headers => {
+      await this.checkIncomingArgonBlock(headers.at(-1)!);
+    });
+    await this.checkIncomingArgonBlock(this.blockWatch.bestBlockHeader);
   }
 
   public unsubscribeFromArgonBlocks() {
@@ -554,13 +565,13 @@ export default class BitcoinLocksStore {
     }
   }
 
-  public getRequestReleaseByVaultPercent(lock: IBitcoinLockRecord): number {
+  public getRequestReleaseByVaultPercent(lock: IBitcoinLockRecord, miningFrames: MiningFrames): number {
     if (lock.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
       const startTick = lock.requestedReleaseAtTick!;
-      const startFrame = MiningFrames.getForTick(startTick);
+      const startFrame = miningFrames.getForTick(startTick);
       const dueFrame = startFrame + this.#config.lockReleaseCosignDeadlineFrames;
-      const tickRangeOfDue = MiningFrames.getTickRangeForFrame(dueFrame);
-      const totalTicks = tickRangeOfDue[1] - startTick;
+      const startTickOfDue = miningFrames.estimateTickForFrame(dueFrame);
+      const totalTicks = startTickOfDue + NetworkConfig.rewardTicksPerFrame - startTick;
       const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
       return getPercent(currentTick - startTick, totalTicks);
     }
@@ -662,17 +673,17 @@ export default class BitcoinLocksStore {
     return db.bitcoinLocksTable;
   }
 
-  private async checkIncomingArgonBlock(header: Header): Promise<void> {
+  private async checkIncomingArgonBlock(header: Pick<IBlockHeaderInfo, 'blockHash' | 'blockNumber'>): Promise<void> {
     const table = await this.getTable();
     const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
-    this.data.latestArgonBlockHeight = header.number.toNumber();
+    this.data.latestArgonBlockHeight = header.blockNumber;
 
-    const generalClient = await getMainchainClient(true);
-    const clientAt = await generalClient.at(header.hash);
+    const generalClient = await this.blockWatch.getRpcClient(header.blockNumber);
+    const clientAt = await generalClient.at(header.blockHash);
 
     this.data.oracleBitcoinBlockHeight = await clientAt.query.bitcoinUtxos
       .confirmedBitcoinBlockTip()
-      .then(x => x.value?.blockHeight.toNumber() ?? 0);
+      .then(x => (x.isSome ? (x.value?.blockHeight.toNumber() ?? 0) : 0));
 
     const hasNewOracleBitcoinBlockHeight = archivedBitcoinBlockHeight !== this.data.oracleBitcoinBlockHeight;
 

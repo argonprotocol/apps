@@ -14,7 +14,7 @@
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
-    "clean:dev:docker": "rm -rf \"$HOME/Library/Application Support/com.argon.apps/dev-docker\"",
+    "clean:dev:docker": "rm -rf \"$HOME/Library/Application Support/com.argon.apps.local/dev-docker\"",
     "dev": "yarn build:config && vite",
     "dev:docker": "yarn clean:dev:docker && yarn docker:up && yarn tauri:dev:docker",
     "preview": "vite preview",
@@ -27,7 +27,7 @@
     "eslint": "eslint bot core cli src-vue --ext .ts --cache --fix",
     "test": "vitest --run",
     "typecheck": "vue-tsc --noEmit && yarn workspaces foreach --all run tsc --noEmit",
-    "update-data": "tsx data-generators/all.ts",
+    "update-data": "yarn workspace @argonprotocol/core run update-frames && tsx data-generators/all.ts",
     "docker:config": "tsx e2e/argon/updateConfig.ts",
     "docker:argon:download": "tsx e2e/argon/download.ts",
     "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml",
@@ -43,8 +43,8 @@
   "dependencies": {
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "^1.3.21",
-    "@argonprotocol/mainchain": "^1.3.21",
+    "@argonprotocol/bitcoin": "^1.3.22",
+    "@argonprotocol/mainchain": "^1.3.22",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@flaticon/flaticon-uicons": "^3.3.1",
     "@headlessui/vue": "^1.7.23",
@@ -96,7 +96,7 @@
     "cli"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "^1.3.21",
+    "@argonprotocol/testing": "^1.3.22",
     "@tauri-apps/cli": "^2.8.2",
     "@types/bun": "^1.2.22",
     "@types/node": "^22.18.0",

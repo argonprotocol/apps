@@ -1,6 +1,6 @@
-import { Keyring, mnemonicGenerate, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
+import { Keyring, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, PriceIndex } from '@argonprotocol/apps-core';
+import { MainchainClients, MiningFrames, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
@@ -8,7 +8,7 @@ import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { Config } from '../lib/Config.ts';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
-import { bip39, BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { MyVaultRecovery } from '../lib/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { Db } from '../lib/Db.ts';
@@ -16,8 +16,8 @@ import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { IAllVaultStats } from '../interfaces/IVaultStats.ts';
 import Path from 'path';
-import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 afterAll(teardown);
 
@@ -61,7 +61,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
     await txSubmitter.submit().then(res => res.waitForInFirstBlock);
 
     setMainchainClients(clients);
-    MiningFrames.setNetwork('dev-docker');
+    NetworkConfig.setNetwork('dev-docker');
   }, 60e3);
 
   it('should work when no vault is found', async () => {
@@ -97,10 +97,24 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
       const priceIndex = new PriceIndex(clients);
       await priceIndex.fetchMicrogonExchangeRatesTo();
-      const vaults = new Vaults('dev-docker', priceIndex);
+      const miningFrames = new MiningFrames(clients);
+      const vaults = new Vaults('dev-docker', priceIndex, miningFrames);
       const transactionTracker = new TransactionTracker(Promise.resolve(db));
-      const bitcoinLocksStore = new BitcoinLocksStore(Promise.resolve(db), walletKeys, priceIndex, transactionTracker);
-      myVault = new MyVault(Promise.resolve(db), vaults, walletKeys, transactionTracker, bitcoinLocksStore);
+      const bitcoinLocksStore = new BitcoinLocksStore(
+        Promise.resolve(db),
+        walletKeys,
+        miningFrames.blockWatch,
+        priceIndex,
+        transactionTracker,
+      );
+      myVault = new MyVault(
+        Promise.resolve(db),
+        vaults,
+        walletKeys,
+        transactionTracker,
+        bitcoinLocksStore,
+        miningFrames,
+      );
       vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
       vi.spyOn(myVault.vaults, 'refreshRevenue').mockImplementation(async () => {
         return {} as IAllVaultStats;
@@ -187,9 +201,11 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       // check bitcoin
       const newDb = await createTestDb();
       const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb));
+      const blockWatch = new BlockWatch(clients);
       const bitcoinLocksStoreRecovery = new BitcoinLocksStore(
         Promise.resolve(newDb),
         walletKeys,
+        blockWatch,
         myVault.vaults.priceIndex,
         transactionTracker2,
       );

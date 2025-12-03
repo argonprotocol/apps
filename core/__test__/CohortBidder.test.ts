@@ -535,7 +535,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const bobMinePromise = new Promise(resolve => {
       bob.client.rpc.chain.subscribeNewHeads(h => {
-        const author = getAuthorFromHeader(bob.client, h)!;
+        const author = getAuthorFromHeader(h)!;
         if (bob.subAccountsByAddress[author]) {
           resolve(true);
         }
@@ -543,7 +543,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     });
     const aliceMinePromise = new Promise(resolve => {
       alice.client.rpc.chain.subscribeNewHeads(h => {
-        const author = getAuthorFromHeader(alice.client, h)!;
+        const author = getAuthorFromHeader(h)!;
         if (alice.subAccountsByAddress[author]) {
           resolve(true);
         }
