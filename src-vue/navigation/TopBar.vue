@@ -14,29 +14,7 @@
     </div>
 
     <div class="flex w-1/3 justify-center pointer-events-none">
-      <ul
-        ref="toggleRef"
-        class="TOGGLE flex flex-row fit-content bg-[#E9EBF1] border border-[#b8b9bd] rounded text-center text-slate-600 pointer-events-auto"
-      >
-        <li
-          class="border-r border-slate-400"
-          @click="controller.setScreenKey(ScreenKey.Mining)"
-          :class="{ selected: controller.screenKey === ScreenKey.Mining }"
-        >
-          <span class="relative px-2 text-center">
-            <div :class="{ invisible: controller.screenKey === ScreenKey.Mining }">Mining</div>
-            <div v-if="controller.screenKey === ScreenKey.Mining" class="absolute top-0 left-0 w-full h-full font-bold">Mining</div>
-          </span>
-        </li>
-        <li @click="controller.setScreenKey(ScreenKey.Vaulting)" :class="{ selected: controller.screenKey === ScreenKey.Vaulting }">
-          <span class="relative px-1 text-center">
-            <div :class="{ invisible: controller.screenKey === ScreenKey.Vaulting }">Vaulting</div>
-            <div v-if="controller.screenKey === ScreenKey.Vaulting" class="absolute top-0 left-0 w-full h-full font-bold">
-              Vaulting
-            </div>
-          </span>
-        </li>
-      </ul>
+      <TabSwitcher />
     </div>
 
     <div v-if="controller.isLoaded"
@@ -67,18 +45,17 @@ import InstanceMenu from './InstanceMenu.vue';
 import { useWallets } from '../stores/wallets';
 import { useBot } from '../stores/bot';
 import { ScreenKey } from '../interfaces/IConfig.ts';
-import { ITourPos, useTour } from '../stores/tour';
+import { useTour } from '../stores/tour';
 import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
 import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { IInstance } from './InstanceMenu.vue';
+import TabSwitcher from './TabSwitcher.vue';
 
 const controller = useController();
 const wallets = useWallets();
 const tour = useTour();
 const bot = useBot();
-
-const toggleRef = Vue.ref<HTMLElement | null>(null);
 
 const financialsMenuRef = Vue.ref<InstanceType<typeof FinancialsMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
@@ -96,24 +73,6 @@ async function fetchInstances() {
       isSelected: entry.name === INSTANCE_NAME,
     }));
 }
-
-tour.registerPositionCheck('miningTab', (): ITourPos => {
-  const rect = toggleRef.value?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 20;
-  rect.right += 20;
-  rect.top -= 10;
-  rect.bottom += 10;
-  return rect;
-});
-
-tour.registerPositionCheck('vaultingTab', () => {
-  const rect = toggleRef.value?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 20;
-  rect.right += 20;
-  rect.top -= 10;
-  rect.bottom += 10;
-  return rect;
-});
 
 tour.registerPositionCheck('currencyMenu', () => {
   const currencyMenuElem = financialsMenuRef.value?.$el;
@@ -139,57 +98,3 @@ Vue.onMounted(async () => {
   await fetchInstances();
 });
 </script>
-
-<style scoped>
-@reference "../main.css";
-
-ul.TOGGLE {
-  position: relative;
-  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.2);
-  white-space: nowrap;
-  &[disabled='true'] {
-    pointer-events: none;
-  }
-  &[isRunning='true'] li {
-    opacity: 0.5 !important;
-  }
-  li {
-    z-index: 1;
-    cursor: pointer;
-    padding: 4px 30px;
-    transition: opacity 0.3s ease;
-    position: relative;
-    span {
-      display: block;
-      width: 100%;
-      height: 100%;
-      position: relative;
-      z-index: 2;
-    }
-  }
-  li.selected {
-    color: #99009d;
-  }
-  li.selected:after {
-    content: '';
-    width: calc(100% + 2px);
-    height: calc(100% + 2px);
-    position: absolute;
-    top: -1px;
-    left: -1px;
-    background: white;
-    border-radius: 5px;
-    border: 1px solid #979797;
-    box-shadow: 0 1px rgba(0, 0, 0, 0.1);
-    cursor: default;
-    transition: left 0.3s ease;
-    z-index: 1;
-  }
-  li:not(.selected) {
-    opacity: 0.3;
-  }
-  li:last-child.selected:after {
-    left: -1px;
-  }
-}
-</style>

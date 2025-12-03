@@ -4,6 +4,7 @@
     <TopBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
       <AlertBars />
+      <HomeScreen v-if="showHomeScreen" />
       <MiningScreen v-if="showMiningScreen" />
       <VaultingScreen v-else-if="controller.screenKey === ScreenKey.Vaulting" />
     </main>
@@ -42,6 +43,7 @@
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import menuStart from './menuStart.ts';
+import HomeScreen from './screens/HomeScreen.vue';
 import MiningScreen from './screens/MiningScreen.vue';
 import VaultingScreen from './screens/VaultingScreen.vue';
 import ServerConnectOverlay from './overlays/ServerConnectOverlay.vue';
@@ -75,6 +77,10 @@ const controller = useController();
 const config = useConfig();
 const tour = useTour();
 const bot = useBot();
+
+const showHomeScreen = Vue.computed(() => {
+  return controller.screenKey === ScreenKey.Home;
+});
 
 const showMiningScreen = Vue.computed(() => {
   return controller.screenKey === ScreenKey.Mining;

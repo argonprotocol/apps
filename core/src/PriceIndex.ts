@@ -36,6 +36,11 @@ export class PriceIndex {
     return (await client.query.balances.totalIssuance()).toBigInt();
   }
 
+  public async fetchMicronotsInCirculation(): Promise<bigint> {
+    const client = await this.clients.prunedClientOrArchivePromise;
+    return (await client.query.ownership.totalIssuance()).toBigInt();
+  }
+
   public async fetchMicrogonExchangeRatesTo(api?: ApiDecoration<'promise'>): Promise<IMainchainExchangeRates> {
     api ??= await this.clients.prunedClientOrArchivePromise;
     const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);

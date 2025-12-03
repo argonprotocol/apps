@@ -203,6 +203,12 @@ export class Vaults {
     return this.stats?.synchedToFrame ?? 0;
   }
 
+  public activatedSecuritization(vaultId: number): bigint {
+    const vault = this.vaultsById[vaultId];
+    if (!vault) return 0n;
+    return vault.activatedSecuritization();
+  }
+
   public contributedTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
     if (!this.stats) return 0n;
     const vaultRevenue = this.stats?.vaultsById[vaultId];
