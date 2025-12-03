@@ -372,7 +372,10 @@ function updateAPYs() {
   epochPercentageYield.value =
     (epochStartingSlowYield + epochStartingFastYield + epochMaximumSlowYield + epochMaximumFastYield) / 4;
 
-  const maxAffordableSeats = rules.value.initialMicronotRequirement / calculatorData.maximumMicronotsForBid;
+  const maxAffordableSeats =
+    calculatorData.maximumMicronotsForBid === 0n
+      ? 0n
+      : rules.value.initialMicronotRequirement / calculatorData.maximumMicronotsForBid;
 
   const probableMinSeatsBn =
     calculator.maximumBidAmount === 0n

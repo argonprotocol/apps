@@ -5,7 +5,7 @@ import svgLoader from 'vite-svg-loader';
 import wasm from 'vite-plugin-wasm';
 import vitePluginTopLevelAwait from 'vite-plugin-top-level-await';
 import { createServer } from 'node:net';
-import { resolve, basename } from 'node:path';
+import { resolve } from 'node:path';
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -129,6 +129,7 @@ export default defineConfig(async ({ mode }) => {
           popup: resolve(__dirname, 'popup-youtube.html'), // 👈 add this
         },
       },
+      sourcemap: true,
     },
     // Define environment variables for the frontend
     define: {

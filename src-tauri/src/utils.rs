@@ -50,7 +50,8 @@ impl Utils {
         match option_env!("ARGON_APP_BUILD_TYPE") {
             Some("local") | Some("experimental") => "testnet",
             _ => "mainnet",
-        }.into()
+        }
+        .into()
     }
 
     pub fn get_relative_config_instance_dir() -> PathBuf {
