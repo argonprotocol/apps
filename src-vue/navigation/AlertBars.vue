@@ -116,7 +116,6 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { useConfig } from '../stores/config';
-import { useWallets } from '../stores/wallets';
 import AlertIcon from '../assets/alert.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
 import { useStats } from '../stores/stats';
@@ -131,7 +130,6 @@ const stats = useStats();
 const config = useConfig();
 const bot = useBot();
 const installer = useInstaller();
-const wallets = useWallets();
 const dbPromise = getDbPromise();
 const clients = getMainchainClients();
 

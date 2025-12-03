@@ -2,7 +2,7 @@ export interface IFrameRecord {
   id: number;
   progress: number;
   firstTick: number;
-  lastTick: number;
+  rewardTicksRemaining: number;
   microgonToUsd: bigint[];
   microgonToBtc: bigint[];
   microgonToArgonot: bigint[];

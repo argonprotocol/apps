@@ -177,7 +177,7 @@
           <PersonalBitcoin ref="personalBitcoin" />
 
           <section box class="flex flex-col grow text-center px-2">
-            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30">
+            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                 <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
                 PREV
@@ -238,7 +238,7 @@
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-left text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
-                    This progress of the current frame, which is equivalent to 24 hours.
+                    This progress of the current frame, which is equivalent to approximately 24 hours.
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
                 </TooltipRoot>
@@ -325,7 +325,6 @@ export interface IVaultFrameRecord {
   id: number;
   date: string;
   firstTick: number;
-  lastTick: number;
   progress: number;
   totalTreasuryPayout: bigint;
   myTreasuryPayout: bigint;
@@ -342,7 +341,6 @@ const currentFrame = Vue.ref({
   id: 0,
   date: '',
   firstTick: 0,
-  lastTick: 0,
   progress: 0,
   bitcoinChangeMicrogons: 0n,
   treasuryChangeMicrogons: 0n,
@@ -379,10 +377,10 @@ import FrameSlider, { IChartItem } from '../../components/FrameSlider.vue';
 import SuccessIcon from '../../assets/success.svg?component';
 import VaultIcon from '../../assets/vault.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import { MiningFrames, TreasuryPool } from '@argonprotocol/apps-core';
+import { MiningFrames, NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { IVaultFrameStats } from '../../interfaces/IVaultStats.ts';
-import { getMainchainClient, getMining } from '../../stores/mainchain.ts';
+import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { calculateAPY, getPercent, percentOf } from '../../lib/Utils.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { useBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -513,10 +511,11 @@ const currentFrameStartDate = Vue.computed(() => {
 });
 
 const currentFrameEndDate = Vue.computed(() => {
-  if (!currentFrame.value.lastTick) {
+  const lastTick = miningFrames.getTickEnd(currentFrame.value.id);
+  if (!lastTick) {
     return '-----';
   }
-  const date = dayjs.utc(currentFrame.value.lastTick * TICK_MILLIS);
+  const date = dayjs.utc(lastTick * TICK_MILLIS);
   return date.local().add(1, 'minute').format('MMMM D, h:mm A');
 });
 
@@ -537,30 +536,27 @@ function openVaultEditOverlay() {
   showEditOverlay.value = true;
 }
 
+const miningFrames = getMiningFrames();
+
 function updateLatestFrameProgress() {
   if (frameRecords.value.length === 0) return;
   const latestFrame = frameRecords.value.at(-1);
   if (!latestFrame) return;
   if (currentFrame.value.id === latestFrame.id) {
-    const ticksPerFrame = MiningFrames.ticksPerFrame;
-    const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
-    const tickRange = MiningFrames.getTickRangeForFrame(latestFrame.id);
-    latestFrame.progress = ((currentTick - tickRange[0]) / ticksPerFrame) * 100;
+    const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;
+    const rewardTicksRemaining = ticksPerFrame - miningFrames.getFrameRewardTicksRemaining();
+    latestFrame.progress = (rewardTicksRemaining / ticksPerFrame) * 100;
     if (latestFrame.progress > 100) {
       latestFrame.progress = 100;
     }
   }
 }
 
-const mining = getMining();
-
 let frameIdLoaded: number | undefined = undefined;
 async function loadChartData(currentFrameId?: number) {
   const revenue = myVault.data.stats;
 
-  const ticksPerFrame = MiningFrames.ticksPerFrame;
-  const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
-  currentFrameId ??= await mining.getCurrentFrameId();
+  currentFrameId ??= miningFrames.currentFrameId;
   if (frameIdLoaded === currentFrameId) {
     return;
   }
@@ -598,15 +594,14 @@ async function loadChartData(currentFrameId?: number) {
   let bitcoinPercentUsed = 0;
   for (const frameId of frameIds) {
     const treasuryAtFrame = treasuryPoolCapitalByFrame[frameId];
-    const tickRange = MiningFrames.getTickRangeForFrame(frameId);
-    const [startingDate] = MiningFrames.frameToDateRange(frameId);
+    const startTick = miningFrames.getTickStart(frameId);
+    const startingDate = MiningFrames.getTickDate(startTick);
 
     const myFrameRevenue = myVaultRevenueByFrame[frameId];
     const record = {
       id: frameId,
       date: dayjs.utc(startingDate).toISOString(),
-      firstTick: tickRange[0],
-      lastTick: tickRange[1],
+      firstTick: startTick,
       progress: 100,
       totalTreasuryPayout: treasuryAtFrame.payout,
       myTreasuryPayout: 0n,
@@ -624,7 +619,7 @@ async function loadChartData(currentFrameId?: number) {
     }, 0n);
     const rollingTreasuryCapital = trailingTreasuryCapitalTotal + (trailingTreasuryCapitalAmounts[9]?.[0] ?? 0n);
     if (frameId === currentFrameId && myVault.createdVault) {
-      record.progress = Math.min(((currentTick - tickRange[0]) / ticksPerFrame) * 100, 100);
+      record.progress = miningFrames.getCurrentFrameProgress();
       const client = await getMainchainClient(false);
       record.totalTreasuryPayout = await TreasuryPool.getTreasuryPayoutPotential(client);
       const securitization = myVault.createdVault.securitization;
@@ -717,6 +712,7 @@ let onFrameSubscription: { unsubscribe: () => void };
 let onTickSubscription: { unsubscribe: () => void };
 
 Vue.onMounted(async () => {
+  await miningFrames.load();
   await myVault.load();
   await myVault.subscribe();
   await bitcoinLocks.load();
@@ -727,12 +723,12 @@ Vue.onMounted(async () => {
     { deep: true },
   );
 
-  onFrameSubscription = await mining.onFrameId(async frameId => {
+  onFrameSubscription = miningFrames.onFrameId(async frameId => {
     await loadChartData(frameId);
   });
 
-  onTickSubscription = await mining.onTick(() => {
-    updateLatestFrameProgress();
+  onTickSubscription = miningFrames.onTick(() => {
+    void updateLatestFrameProgress();
   });
 
   await loadChartData();

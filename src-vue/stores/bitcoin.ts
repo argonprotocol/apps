@@ -4,7 +4,7 @@ import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { reactive } from 'vue';
 import handleFatalError from './helpers/handleFatalError.ts';
-import { getPriceIndex } from './mainchain.ts';
+import { getBlockWatch, getPriceIndex } from './mainchain.ts';
 import { useTransactionTracker } from './transactions.ts';
 import { useWalletKeys } from './wallets.ts';
 
@@ -26,7 +26,8 @@ export function useBitcoinLocks(): BitcoinLocksStore {
     const dbPromise = getDbPromise();
     const transactionTracker = useTransactionTracker();
     const keys = useWalletKeys();
-    locks = new BitcoinLocksStore(dbPromise, keys, getPriceIndex(), transactionTracker);
+    const blockWatch = getBlockWatch();
+    locks = new BitcoinLocksStore(dbPromise, keys, blockWatch, getPriceIndex(), transactionTracker);
     locks.data = reactive(locks.data) as any;
     locks.load().catch(handleFatalError.bind('useBitcoinLocks'));
   }

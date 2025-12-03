@@ -10,4 +10,7 @@ export interface IBlock {
   hash: string;
   author: string;
   tick: number;
+  frameId?: number;
+  frameRewardTicksRemaining?: number;
+  isNewFrame?: boolean;
 }

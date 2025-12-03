@@ -1,11 +1,10 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import dayjs, { extend as dayJsExtend, Dayjs } from 'dayjs';
+import dayjs, { Dayjs, extend as dayJsExtend } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { type ArgonClient } from '@argonprotocol/apps-core';
-import { getMining, getMainchainClient } from './mainchain.ts';
-import { getAuthorFromHeader, Header } from '@argonprotocol/mainchain';
+import { getBlockWatch, getMining } from './mainchain.ts';
+import { IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 dayJsExtend(utc);
 dayJsExtend(relativeTime);
@@ -28,6 +27,11 @@ export type IBlock = {
 };
 
 export const useBlockchainStore = defineStore('blockchain', () => {
+  const activeMiningSeatCount = Vue.ref(0);
+  const aggregatedBidCosts = Vue.ref(0n);
+  const aggregatedBlockRewards = Vue.ref({ microgons: 0n, micronots: 0n });
+  const blockWatch = getBlockWatch();
+
   const cachedBlockLoading = { hash: null } as unknown as IBlock;
   const cachedBlocks = Vue.ref<IBlock[]>([
     cachedBlockLoading,
@@ -41,9 +45,10 @@ export const useBlockchainStore = defineStore('blockchain', () => {
     cachedBlockLoading,
   ]);
 
-  async function fetchBlock(client: ArgonClient, header: Header) {
-    const author = getAuthorFromHeader(client, header);
-    const clientAt = await client.at(header.hash);
+  async function fetchBlock(header: IBlockHeaderInfo) {
+    const { author, blockNumber, blockHash } = header;
+    const client = await blockWatch.getRpcClient(header.blockNumber);
+    const clientAt = await client.at(blockHash);
     const events = await clientAt.query.system.events();
     let microgons = 0n;
     let micronots = 0n;
@@ -60,8 +65,8 @@ export const useBlockchainStore = defineStore('blockchain', () => {
     });
     const timestamp = (await clientAt.query.timestamp.now()).toNumber();
     const newBlock: IBlock = {
-      number: header.number.toNumber(),
-      hash: header.hash.toHex(),
+      number: blockNumber,
+      hash: blockHash,
       author: author ?? '',
       microgons,
       micronots,
@@ -72,20 +77,13 @@ export const useBlockchainStore = defineStore('blockchain', () => {
   }
 
   async function fetchBlocks(lastBlockNumber: number | null, maxBlockCount: number) {
-    const client = await getMainchainClient(true);
     const blocks: IBlock[] = [];
+    await blockWatch.start();
 
-    if (lastBlockNumber === null) {
-      const latestBlock = await client.rpc.chain.getHeader();
-      lastBlockNumber = latestBlock.number.toNumber();
-    }
-
-    let blockNumber = lastBlockNumber;
+    let blockNumber = lastBlockNumber ?? blockWatch.bestBlockHeader.blockNumber;
     while (blocks.length < maxBlockCount) {
-      const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
-      if (!blockHash) break;
-      const header = await client.rpc.chain.getHeader(blockHash);
-      const block = await fetchBlock(client, header);
+      const headerInfo = await blockWatch.getHeader(blockNumber);
+      const block = await fetchBlock(headerInfo);
       blocks.push(block);
       blockNumber--;
     }
@@ -94,19 +92,43 @@ export const useBlockchainStore = defineStore('blockchain', () => {
   }
 
   async function subscribeToBlocks(onBlock: (block: IBlock) => void) {
-    const client = await getMainchainClient(false);
+    await blockWatch.start();
 
     // Subscribe to new blocks
-    return await client.rpc.chain.subscribeNewHeads(async header => {
-      const blockHash = header.hash;
-      const block = await fetchBlock(client, header);
+    for (const header of blockWatch.latestHeaders) {
+      const block = await fetchBlock(header);
       onBlock(block);
+    }
+    return blockWatch.events.on('best-blocks', async headers => {
+      for (const header of headers) {
+        const block = await fetchBlock(header);
+        onBlock(block);
+      }
     });
   }
 
+  async function updateActiveMiningSeatCount() {
+    const mainchain = getMining();
+    activeMiningSeatCount.value = await mainchain.fetchActiveMinersCount();
+  }
+
+  async function updateAggregateBidCosts() {
+    aggregatedBidCosts.value = await getMining().fetchAggregateBidCosts();
+  }
+
+  async function updateAggregateBlockRewards() {
+    aggregatedBlockRewards.value = await getMining().getAggregateBlockRewards();
+  }
+
   return {
+    aggregatedBidCosts,
+    aggregatedBlockRewards,
+    activeMiningSeatCount,
     cachedBlocks,
     subscribeToBlocks,
+    updateAggregateBidCosts,
+    updateAggregateBlockRewards,
+    updateActiveMiningSeatCount,
     fetchBlocks,
   };
 });

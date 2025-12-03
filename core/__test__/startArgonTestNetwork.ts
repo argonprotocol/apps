@@ -1,7 +1,7 @@
 import Path from 'path';
 import docker from 'docker-compose';
 import { runOnTeardown } from '@argonprotocol/testing';
-import { MiningFrames, NetworkConfig } from '../src/index.js';
+import { NetworkConfig, NetworkConfigSettings } from '../src/index.js';
 import { getClient } from '@argonprotocol/mainchain';
 
 export async function startArgonTestNetwork(
@@ -16,7 +16,7 @@ export async function startArgonTestNetwork(
   notaryUrl: string;
   getPort: (service: 'miner-1' | 'miner-2' | 'bitcoin', internalPort: number) => Promise<number>;
 }> {
-  MiningFrames.setNetwork('dev-docker' as any);
+  NetworkConfig.setNetwork('dev-docker');
   const config = [
     Path.join(Path.dirname(require.resolve('@argonprotocol/testing')), 'docker-compose.yml'),
     // Path.resolve(__dirname, '..', '..', 'miners.docker-compose.yml'),
@@ -30,7 +30,7 @@ export async function startArgonTestNetwork(
     COMPOSE_PROJECT_NAME: `argon-test-${uniqueTestName.replace('.test.ts', '').replace(/\W+/g, '-').toLowerCase()}`,
     ...(options?.dockerEnv ?? {}),
   };
-  runOnTeardown(async () => {
+  async function cleanup() {
     await docker.downAll({
       log: options?.shouldLog ?? false,
       commandOptions: [`--volumes`, '--timeout=0'],
@@ -38,10 +38,12 @@ export async function startArgonTestNetwork(
       config,
       env,
     });
-  });
+  }
+  runOnTeardown(cleanup);
+  await cleanup();
   await docker.upAll({
     log: options?.shouldLog ?? false,
-    commandOptions: [`--force-recreate`, `--remove-orphans`, '--pull=always'],
+    commandOptions: [`--force-recreate`, `--remove-orphans`], //, '--pull=always'],
     composeOptions: options?.profiles ? options.profiles.map(p => `--profile=${p}`) : [],
     config,
     env,
@@ -54,9 +56,9 @@ export async function startArgonTestNetwork(
   while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
     await new Promise(res => setTimeout(res, 100));
   }
-  const miningConfig = await MiningFrames.loadConfigs(client);
+  const miningConfig = await NetworkConfig.loadConfigs(client);
   console.log('Loaded mining config:', miningConfig);
-  Object.assign(NetworkConfig['dev-docker'], {
+  Object.assign(NetworkConfigSettings['dev-docker'], {
     ...miningConfig,
     archiveUrl,
     bitcoinBlockMillis: miningConfig.tickMillis * 10,

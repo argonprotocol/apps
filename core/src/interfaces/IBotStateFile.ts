@@ -44,7 +44,8 @@ export interface IBotStateFile {
   hasMiningSeats: boolean;
   currentTick: number;
   currentFrameId: number;
-  currentFrameTickRange: [number, number];
+  currentFrameFirstTick: number;
+  currentFrameRewardTicksRemaining: number;
   lastBlockNumberByFrameId: {
     [frameId: number]: number;
   };

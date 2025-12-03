@@ -81,7 +81,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { useConfig } from '../../stores/config';
 import { useCurrency } from '../../stores/currency';
-import { BiddingParamsHelper, type IBiddingRules, type IWinningBid, MiningFrames } from '@argonprotocol/apps-core';
+import { type IBiddingRules, type IWinningBid, NetworkConfig } from '@argonprotocol/apps-core';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
@@ -123,7 +123,6 @@ const priceTextSize = Vue.computed(() => {
 });
 
 const calculator = getBiddingCalculator();
-const biddingParamsHelper = new BiddingParamsHelper(config.biddingRules as IBiddingRules, calculator);
 
 const startOfAuctionClosing: Vue.Ref<dayjs.Dayjs | null> = Vue.ref(null);
 const startOfNextCohort: Vue.Ref<dayjs.Dayjs | null> = Vue.ref(null);
@@ -144,14 +143,14 @@ Vue.onMounted(async () => {
   await calculator.load();
 
   if (!startOfAuctionClosing.value || !startOfNextCohort.value) {
-    const tickAtStartOfAuctionClosing = await mainchain.getTickAtStartOfAuctionClosing();
-    const tickAtStartOfNextCohort = await mainchain.getTickAtStartOfNextCohort();
-    const tickMillis = MiningFrames.tickMillis;
+    const tickAtStartOfAuctionClosing = await mainchain.fetchTickAtStartOfAuctionClosing();
+    const tickAtStartOfNextCohort = await mainchain.fetchTickAtStartOfNextCohort();
+    const tickMillis = NetworkConfig.tickMillis;
     startOfAuctionClosing.value = dayjs.utc(tickAtStartOfAuctionClosing * tickMillis);
     startOfNextCohort.value = dayjs.utc(tickAtStartOfNextCohort * tickMillis);
   }
 
-  const seatCount = await biddingParamsHelper.getMaxSeats();
+  const seatCount = calculator.data.getMaxFrameSeats(config.biddingRules);
   maxPossibleBiddingBudget.value = calculator.maximumBidAmount * BigInt(seatCount);
 });
 </script>

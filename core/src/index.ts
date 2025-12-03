@@ -1,6 +1,6 @@
 import BiddingCalculator from './BiddingCalculator.js';
-import createBidderParams, { Helper as BiddingParamsHelper } from './createBidderParams.js';
 import BiddingCalculatorData from './BiddingCalculatorData.js';
+
 export { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 export * from './interfaces/index.js';
@@ -11,6 +11,7 @@ export * from './FrameIterator.js';
 export * from './Mining.js';
 export * from './MiningFrames.js';
 export * from './NetworkConfig.js';
+export * from './Deferred.js';
 export * from './Accountset.js';
 export * from './AccountMiners.js';
 export * from './TreasuryPool.js';
@@ -20,4 +21,4 @@ export * from './TransactionEvents.js';
 
 export * from './utils.js';
 
-export { BiddingParamsHelper, createBidderParams, BiddingCalculatorData, BiddingCalculator };
+export { BiddingCalculatorData, BiddingCalculator };

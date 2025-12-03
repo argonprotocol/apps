@@ -63,17 +63,10 @@ import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
-import {
-  BiddingCalculator,
-  type IBiddingRules,
-  BiddingCalculatorData,
-  BiddingParamsHelper,
-  MiningFrames,
-} from '@argonprotocol/apps-core';
+import { MiningFrames } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain';
 import { useCurrency } from '../../stores/currency';
-import { useStats } from '../../stores/stats';
 import { createNumeralHelpers } from '../../lib/numeral';
 
 dayjs.extend(utc);
@@ -90,7 +83,6 @@ const startOfNextCohort: Vue.Ref<dayjs.Dayjs | null> = Vue.ref(null);
 const maxSeatCount = Vue.ref(0);
 
 const calculator = getBiddingCalculator();
-const biddingParamsHelper = new BiddingParamsHelper(config.biddingRules as IBiddingRules, calculator);
 
 const maxBidPerSeat = Vue.ref(0n);
 
@@ -108,15 +100,14 @@ Vue.onMounted(async () => {
   if (!config.biddingRules) return;
 
   await calculator.load();
-  maxSeatCount.value = await biddingParamsHelper.getMaxSeats();
+  maxSeatCount.value = calculator.data.getMaxFrameSeats(config.biddingRules);
   maxBidPerSeat.value = calculator.maximumBidAmount;
 
   if (!startOfAuctionClosing.value || !startOfNextCohort.value) {
-    const tickAtStartOfAuctionClosing = await mainchain.getTickAtStartOfAuctionClosing();
-    const tickAtStartOfNextCohort = await mainchain.getTickAtStartOfNextCohort();
-    const tickMillis = MiningFrames.tickMillis;
-    startOfAuctionClosing.value = dayjs.utc(tickAtStartOfAuctionClosing * tickMillis);
-    startOfNextCohort.value = dayjs.utc(tickAtStartOfNextCohort * tickMillis);
+    const tickAtStartOfAuctionClosing = await mainchain.fetchTickAtStartOfAuctionClosing();
+    const tickAtStartOfNextCohort = await mainchain.fetchTickAtStartOfNextCohort();
+    startOfAuctionClosing.value = dayjs.utc(MiningFrames.getTickDate(tickAtStartOfAuctionClosing));
+    startOfNextCohort.value = dayjs.utc(MiningFrames.getTickDate(tickAtStartOfNextCohort));
   }
 });
 </script>

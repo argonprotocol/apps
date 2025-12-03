@@ -23,7 +23,7 @@ import BigNumber from 'bignumber.js';
 import { Vaults } from './Vaults.ts';
 import { IVaultStats } from '../interfaces/IVaultStats.ts';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { bigIntMax, bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
+import { bigIntMax, bigNumberToBigInt, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
@@ -65,10 +65,6 @@ export class MyVault {
     return this.data.metadata;
   }
 
-  public get tickDuration(): number {
-    return this.vaults?.tickDuration ?? 0;
-  }
-
   #bitcoinNetwork?: BitcoinNetwork;
   #waitForLoad?: IDeferred;
   #table?: VaultsTable;
@@ -84,6 +80,7 @@ export class MyVault {
     public readonly walletKeys: WalletKeys,
     transactionTracker: TransactionTracker,
     public readonly bitcoinLocksStore: BitcoinLocksStore,
+    private readonly miningFrames: MiningFrames,
   ) {
     this.data = {
       isReady: false,
@@ -129,6 +126,7 @@ export class MyVault {
     this.#waitForLoad ??= createDeferred();
     try {
       console.log('Loading MyVault...');
+      await this.miningFrames.load();
       await this.vaults.load(reload);
 
       void this.vaults.refreshRevenue().then(() => {
@@ -239,7 +237,7 @@ export class MyVault {
     }
     nextCollectFrame = Math.max(this.data.currentFrameId + 1, nextCollectFrame);
 
-    this.data.nextCollectDueDate = MiningFrames.frameToDateRange(nextCollectFrame)[0].getTime();
+    this.data.nextCollectDueDate = this.miningFrames.getFrameDate(nextCollectFrame).getTime();
   }
 
   private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>) {
@@ -495,7 +493,7 @@ export class MyVault {
         treasuryProfitSharing: rules.profitSharingPct / 100,
         disableAutomaticTxTracking: true,
       },
-      { tickDurationMillis: this.vaults.tickDuration },
+      { tickDurationMillis: NetworkConfig.tickMillis },
     );
 
     const txInfo = await this.#transactionTracker.trackTxResult({

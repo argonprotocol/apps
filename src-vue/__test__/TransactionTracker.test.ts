@@ -1,6 +1,6 @@
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { JsonExt, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
+import { JsonExt, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
@@ -24,7 +24,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
     setMainchainClients(clients);
-    MiningFrames.setNetwork('dev-docker');
+    NetworkConfig.setNetwork('dev-docker');
   }, 60e3);
 
   it('should get and store errors on submission', async () => {

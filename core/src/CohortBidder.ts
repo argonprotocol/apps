@@ -10,8 +10,8 @@ import {
   u64,
   Vec,
 } from '@argonprotocol/mainchain';
-import { MiningFrames } from './MiningFrames.js';
 import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
+import { NetworkConfig } from './NetworkConfig.js';
 
 interface IBidDetail {
   address: string;
@@ -247,7 +247,7 @@ export class CohortBidder {
     this.latestBlockNumber = blockNumber;
 
     if (nextFrameId.toNumber() === this.cohortStartingFrameId) {
-      const tick = getTickFromHeader(client, header);
+      const tick = getTickFromHeader(header);
       // check if it changed first
       const latestHash = await client.rpc.state
         .getStorageHash(this.bidsForNextSlotCohortKey, header.hash)
@@ -567,7 +567,7 @@ export class CohortBidder {
 
   private scheduleEvaluation() {
     if (this.isStopped) return;
-    const millisPerTick = MiningFrames.tickMillis;
+    const millisPerTick = NetworkConfig.tickMillis;
     const delayTicks = Math.max(this.options.bidDelay, 1);
     const randomDelay = Math.floor(Math.random() * millisPerTick);
     const delay = delayTicks * millisPerTick + randomDelay;

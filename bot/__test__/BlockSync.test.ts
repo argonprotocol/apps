@@ -7,6 +7,7 @@ import {
   type IBotSyncStatus,
   MainchainClients,
   MiningFrames,
+  NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
@@ -14,13 +15,14 @@ import { Storage } from '../src/Storage.js';
 import { Dockers } from '../src/Dockers.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
+import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 afterEach(teardown);
 afterAll(teardown);
 
 let clientAddress: string;
 beforeAll(async () => {
-  MiningFrames.setNetwork('dev-docker');
+  NetworkConfig.setNetwork('dev-docker');
   const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
@@ -43,7 +45,12 @@ it('can backfill sync data', async () => {
   });
   const mainchainClients = new MainchainClients(clientAddress);
   void mainchainClients.setPrunedClient(clientAddress);
-  const blockSync = new BlockSync(botStatus, accountset, storage, mainchainClients, 0);
+  const blockWatch = new BlockWatch(mainchainClients);
+  const miningFrames = new MiningFrames(mainchainClients, blockWatch);
+  await miningFrames.load();
+  // don't auto-progress during test
+  blockWatch.stop();
+  const blockSync = new BlockSync(botStatus, accountset, storage, mainchainClients, miningFrames, blockWatch, 0);
   // @ts-expect-error - it's private
   blockSync.localClient = await mainchainClients.archiveClientPromise;
   // @ts-expect-error - it's private
@@ -77,8 +84,14 @@ it('can backfill sync data', async () => {
   const latest = await client.rpc.chain.getHeader();
   const bestBlock = latest.number.toNumber();
   expect(bestBlock).gte(blockNumber);
-  blockSync.latestFinalizedBlockNumber = finalizedHeader.number.toNumber();
-  const result = await blockSync.backfillBestBlockHeader(latest);
+
+  // @ts-expect-error - it's private
+  await blockWatch.setFinalizedHeader(finalizedHeader);
+  console.log('[BlockWatch]: After finalized', ...blockWatch.latestHeaders);
+
+  expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(finalizedHeader.number.toNumber());
+
+  const result = await blockSync.backfillBestBlockHeader(blockWatch.bestBlockHeader);
   expect(result).toBeDefined();
   expect(result!.finalizedBlockNumber).toBeGreaterThanOrEqual(finalizedHeader.number.toNumber());
   expect(result!.bestBlockNumber).toBeGreaterThanOrEqual(latest.number.toNumber());

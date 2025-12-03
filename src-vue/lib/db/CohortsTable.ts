@@ -2,7 +2,7 @@ import { ICohortRecord } from '../../interfaces/db/ICohortRecord';
 import { BaseTable } from './BaseTable';
 import { convertSqliteBigInts, fromSqliteBigInt, toSqlParams } from '../Utils';
 import BigNumber from 'bignumber.js';
-import { bigNumberToBigInt, MiningFrames } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt } from '@argonprotocol/apps-core';
 
 export class CohortsTable extends BaseTable {
   private bigIntFields: string[] = [
@@ -28,21 +28,25 @@ export class CohortsTable extends BaseTable {
     return rawRecords.map(record => record.id);
   }
 
-  public async updateProgress(currentTick: number, cohortTicks: number): Promise<void> {
+  public async updateProgress(): Promise<void> {
     // update the progress percentages of all frames by joining frames
     await this.db.execute(
       `
-      UPDATE Cohorts AS c
-      SET progress = COALESCE((
-        SELECT ROUND(
-               MIN(100.0, MAX(0.0, ((CAST(? AS REAL) - f.firstTick) * 100.0) / ?))
+        UPDATE Cohorts AS c
+        SET progress = COALESCE((
+          SELECT ROUND(
+            MIN(100.0,
+              (
+                SELECT SUM(f.progress) / 10.0
+                FROM Frames f
+                WHERE f.id >= c.id
+                  AND f.id < c.id + 10
+              )
+            )
           )
-        FROM Frames f
-        WHERE f.id = c.id
-      ), c.progress, 0)
-      WHERE c.progress < 100
+        ), c.progress, 0)
+        WHERE c.progress < 100
     `,
-      [currentTick, cohortTicks],
     );
   }
 

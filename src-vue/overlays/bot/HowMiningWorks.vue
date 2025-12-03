@@ -259,7 +259,7 @@ import { type IWinningBid, Mining } from '@argonprotocol/apps-core';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 
 const config = useConfig();
-const mainchain = getMining();
+const mining = getMining();
 
 const currency = useCurrency();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -278,10 +278,10 @@ const seatSummaries = Vue.ref<
 const winningBids = Vue.ref<(IWinningBid & { micronotsStakedPerSeat: bigint })[]>([]);
 
 async function load() {
-  mainchain.getActiveMinersCount().then(x => (miningSeats.value = x));
-  mainchain.getCurrentMicronotsForBid().then(x => (micronotsForBid.value = x));
-  mainchain.getCurrentFrameId().then(x => (currentFrameId.value = x));
-  mainchain.getRecentSeatSummaries().then(x => (seatSummaries.value = x));
+  mining.fetchActiveMinersCount().then(x => (miningSeats.value = x));
+  mining.fetchCurrentMicronotsForBid().then(x => (micronotsForBid.value = x));
+  mining.fetchNextFrameId().then(x => (currentFrameId.value = x - 1));
+  mining.getRecentSeatSummaries().then(x => (seatSummaries.value = x));
 
   getMainchainClient(false)
     .then(client => Mining.fetchWinningBids(client))

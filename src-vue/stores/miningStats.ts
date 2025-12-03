@@ -16,12 +16,12 @@ export const useMiningStats = defineStore('miningStats', () => {
   });
 
   async function updateActiveMiningSeatCount() {
-    const mainchain = getMining();
-    activeMiningSeatCount.value = await mainchain.getActiveMinersCount();
+    const mining = getMining();
+    activeMiningSeatCount.value = await mining.fetchActiveMinersCount();
   }
 
   async function updateAggregateBidCosts() {
-    aggregatedBidCosts.value = await getMining().getAggregateBidCosts();
+    aggregatedBidCosts.value = await getMining().fetchAggregateBidCosts();
   }
 
   async function updateAggregateBlockRewards() {

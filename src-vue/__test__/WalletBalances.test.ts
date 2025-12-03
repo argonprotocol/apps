@@ -1,5 +1,5 @@
 import { closeOnTeardown, teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
+import { MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
@@ -10,6 +10,7 @@ import { createTestWallet } from './helpers/wallet.ts';
 import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
 import { createDeferred } from '../lib/Utils.ts';
 import { WalletLedgerTable } from '../lib/db/WalletLedgerTable.ts';
+import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 afterAll(teardown);
 
@@ -26,13 +27,14 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
     setMainchainClients(clients);
-    MiningFrames.setNetwork('dev-docker');
+    NetworkConfig.setNetwork('dev-docker');
   }, 60e3);
 
   it('should track balances', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
-    const walletBalances = new WalletBalances(clients, walletKeys, Promise.resolve(db));
+    const blockWatch = new BlockWatch(clients);
+    const walletBalances = new WalletBalances(clients, walletKeys, Promise.resolve(db), blockWatch);
     await walletBalances.load();
     closeOnTeardown(walletBalances);
     const onBalanceChange = vi.fn();

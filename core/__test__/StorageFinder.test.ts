@@ -1,7 +1,7 @@
 import { type ArgonClient, getClient, Keyring, mnemonicGenerate, Vault } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, it, expect, describe } from 'vitest';
+import { MainchainClients, NetworkConfig, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';
 import Path from 'path';
@@ -17,7 +17,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
 
     mainchainUrl = network.archiveUrl;
     client = await getClient(mainchainUrl);
-    MiningFrames.setNetwork('dev-docker');
+    NetworkConfig.setNetwork('dev-docker');
   });
 
   it('can find a transaction and its fees', async () => {
@@ -55,7 +55,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     expect(Buffer.from(binarySearch.blockHash).toString('hex')).toStrictEqual(
       Buffer.from(await txResult.waitForFinalizedBlock).toString('hex'),
     );
-    expect(binarySearch.blocksChecked.length).toBeLessThan(MiningFrames.ticksPerFrame / 2);
+    expect(binarySearch.blocksChecked.length).toBeLessThan(NetworkConfig.rewardTicksPerFrame / 2);
 
     const iterateSearch = await StorageFinder.iterateFindStorageAddition({
       client,

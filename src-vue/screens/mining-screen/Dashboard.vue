@@ -170,7 +170,7 @@
           </section>
 
           <section box class="flex flex-col grow text-center px-2">
-            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30">
+            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                 <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
                 PREV
@@ -235,7 +235,7 @@
                       </label>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      You were expected to collect {{ microgonToArgonNm(currentFrame.expected.microgonsMinedTotal).format('0,0.00') }} argons by this point. You are at {{ numeral(getPercent(currentFrame.microgonsMinedTotal + currentFrame.microgonsMintedTotal, currentFrame.expected.microgonsMinedTotal)).format('0.[00]') }}% of goal.
+                      You were expected to collect {{ microgonToArgonNm(currentFrame.expected.microgonsMinedTotal + currentFrame.expected.microgonsMintedTotal).format('0,0.00') }} argons by this point. You are at {{ numeral(getPercent(currentFrame.microgonsMinedTotal + currentFrame.microgonsMintedTotal, currentFrame.expected.microgonsMinedTotal + currentFrame.expected.microgonsMintedTotal)).format('0.[00]') }}% of goal.
                       <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                     </TooltipContent>
                   </TooltipRoot>
@@ -278,7 +278,7 @@
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      In the world of Argon, a frame represents 24 hours. This shows how much of the frame is complete.
+                      In the world of Argon, a frame represents ~24 hours. This shows how much of the frame is complete.
                       <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                     </TooltipContent>
                   </TooltipRoot>
@@ -368,7 +368,6 @@ const currentFrame = Vue.ref<IDashboardFrameStats>({
   id: 0,
   date: '',
   firstTick: 0,
-  lastTick: 0,
   allMinersCount: 0,
   seatCountActive: 0,
   seatCostTotalFramed: 0n,
@@ -424,9 +423,11 @@ import { IChartItem } from '../../components/FrameSlider.vue';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
+import { getMiningFrames } from '../../stores/mainchain.ts';
 
 const stats = useStats();
 const currency = useCurrency();
+const miningFrames = getMiningFrames();
 
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -502,10 +503,11 @@ const currentFrameStartDate = Vue.computed(() => {
 });
 
 const currentFrameEndDate = Vue.computed(() => {
-  if (!currentFrame.value.lastTick) {
+  const frameEndTick = miningFrames.getTickEnd(currentFrame.value.id);
+  if (!frameEndTick) {
     return '-----';
   }
-  const date = dayjs.utc(currentFrame.value.lastTick * TICK_MILLIS);
+  const date = dayjs.utc(frameEndTick * TICK_MILLIS);
   return date.local().add(1, 'minute').format('MMMM D, h:mm A');
 });
 
@@ -585,10 +587,11 @@ Vue.watch(
   { deep: true },
 );
 
-Vue.onMounted(() => {
+Vue.onMounted(async () => {
   stats.subscribeToDashboard();
   stats.subscribeToActivity();
   loadChartData();
+  await miningFrames.load();
 });
 
 Vue.onUnmounted(() => {

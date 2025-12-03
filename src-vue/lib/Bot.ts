@@ -2,7 +2,7 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { IBidReductionReason, type IBidsFile } from '@argonprotocol/apps-core';
+import { IBidReductionReason, type IBidsFile, MiningFrames } from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
@@ -41,11 +41,11 @@ export class Bot {
     this.dbPromise = dbPromise;
   }
 
-  public async load(installer: Installer): Promise<void> {
+  public async load(installer: Installer, miningFrames: MiningFrames): Promise<void> {
     if (this.isLoaded) return;
     this.isLoaded = true;
     const db = await this.dbPromise;
-    this.botSyncer = new BotSyncer(this.config, db, installer, {
+    this.botSyncer = new BotSyncer(this.config, db, installer, miningFrames, {
       onEvent: (type: keyof IBotEmitter, payload?: any) => botEmitter.emit(type, payload),
       setStatus: (x: BotStatus) => {
         if (this.status === x) return;

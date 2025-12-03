@@ -2,7 +2,8 @@ import type { ILastModifiedAt } from './ILastModified.ts';
 
 export interface IEarningsFile extends ILastModifiedAt {
   frameId: number;
-  frameTickRange: [number, number];
+  frameFirstTick: number;
+  frameRewardTicksRemaining: number;
   firstBlockNumber: number;
   lastBlockNumber: number;
   microgonToUsd: bigint[];

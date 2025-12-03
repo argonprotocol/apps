@@ -54,7 +54,8 @@ body {
   background-color: #f9f2fa;
 }
 
-button {
+button,
+a {
   @apply select-none;
 }
 

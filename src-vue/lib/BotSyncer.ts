@@ -6,8 +6,10 @@ import {
   type IBidsFile,
   type IBotState,
   type IBotStateStarting,
+  IEarningsFile,
   type IFrameEarningsRollup,
   MiningFrames,
+  NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { getMining } from '../stores/mainchain';
 import { BotServerIsLoading, BotServerIsSyncing } from '../interfaces/BotErrors';
@@ -33,7 +35,6 @@ export type IBotFns = {
 };
 
 export class BotSyncer {
-  public isMissingCurrentFrame: boolean = false;
   public isPaused: boolean = false;
 
   private db: Db;
@@ -46,15 +47,17 @@ export class BotSyncer {
   private isSyncingThePast: boolean = false;
 
   private mainchain = getMining();
+  private miningFrames: MiningFrames;
 
   private bidsFileCacheByActivationFrameId: Record<number, [number, IBidsFile]> = {};
   private lastModifiedDate: Date | null = null;
 
-  constructor(config: Config, db: Db, installer: Installer, botFn: IBotFns) {
+  constructor(config: Config, db: Db, installer: Installer, miningFrames: MiningFrames, botFn: IBotFns) {
     this.config = config;
     this.db = db;
     this.installer = installer;
     this.botFns = botFn;
+    this.miningFrames = miningFrames;
   }
 
   public async load(): Promise<void> {
@@ -63,6 +66,7 @@ export class BotSyncer {
     console.log('BotSyncer: Loading...');
     await this.config.isLoadedPromise;
     await this.installer.isLoadedPromise;
+    await this.miningFrames.load();
 
     console.log('BotSyncer: Running...');
     void this.runContinuously();
@@ -121,7 +125,7 @@ export class BotSyncer {
 
   private async syncCurrentBids() {
     const activeBidsFile = await BotFetch.fetchBidsFile();
-    console.log('BotSyncer: Syncing bids for bids...', activeBidsFile.cohortBiddingFrameId);
+    console.log('BotSyncer: Syncing bids for bidding frame...', activeBidsFile.cohortBiddingFrameId);
     await this.db.frameBidsTable.insertOrUpdate(
       activeBidsFile.cohortBiddingFrameId,
       activeBidsFile.lastBlockNumber,
@@ -140,7 +144,7 @@ export class BotSyncer {
     this.botFns.onEvent('updated-bids-data', activeBidsFile.winningBids);
   }
 
-  private async updateBotState(retries: number = 0): Promise<void> {
+  private async updateBotState(): Promise<void> {
     this.botState = await BotFetch.fetchBotState();
     console.log('BotState: Updating bot state...', this.botState);
 
@@ -173,7 +177,13 @@ export class BotSyncer {
   }
 
   private async syncCurrentFrame(): Promise<void> {
-    await this.syncDbFrame(this.botState.currentFrameId, this.botState.currentTick);
+    const currentFrameId = this.botState.currentFrameId;
+    const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10);
+    for (let frameId = currentFrameId - 10; frameId <= currentFrameId; frameId++) {
+      if (!completedFrames.includes(frameId)) {
+        await this.syncDbFrame(frameId, this.botState.currentTick);
+      }
+    }
   }
 
   private async syncThePast(progress: number): Promise<void> {
@@ -214,23 +224,17 @@ export class BotSyncer {
 
   public async syncDbFrame(frameId: number, currentTick: number): Promise<void> {
     const earningsFile = await BotFetch.fetchEarningsFile(frameId);
-    const frameProgress = this.calculateProgress(earningsFile.frameTickRange, currentTick);
+    const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
 
-    await this.db.framesTable.insertOrUpdate(
-      frameId,
-      earningsFile.frameTickRange[0],
-      earningsFile.frameTickRange[1],
-      earningsFile.firstBlockNumber,
-      earningsFile.lastBlockNumber,
-      earningsFile.microgonToUsd,
-      earningsFile.microgonToBtc,
-      earningsFile.microgonToArgonot,
-      frameProgress,
-      false,
-    );
+    await this.db.framesTable.insertOrUpdate({
+      ...earningsFile,
+      id: frameId,
+      firstTick: earningsFile.frameFirstTick,
+      rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
+      progress: frameProgress,
+    });
     console.info('INSERTING FRAME', frameId);
     const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
-    const getSyncedFrames = await this.db.framesTable.fetchExistingSince(frameId - 10);
     // Every frame should have a corresponding cohort, even if it has no seats
 
     const earningsByCohortActivationFrameId: { [frameId: number]: IFrameEarningsRollup } = {};
@@ -238,10 +242,7 @@ export class BotSyncer {
       if (i < this.config.oldestFrameIdToSync) continue;
       if (i > frameId) continue;
       if (!cohortIdsInDb.includes(i)) {
-        if (!getSyncedFrames.includes(i)) {
-          await this.syncDbFrame(i, currentTick);
-        }
-        await this.syncDbCohort(i, currentTick);
+        await this.syncDbCohort(i, earningsFile);
       }
       earningsByCohortActivationFrameId[i] = {
         lastBlockMinedAt: '',
@@ -265,6 +266,12 @@ export class BotSyncer {
       const cohortActivationFrameId = earningsOfBlock.authorCohortActivationFrameId;
 
       const earningsDuringFrame = earningsByCohortActivationFrameId[cohortActivationFrameId];
+      if (!earningsDuringFrame) {
+        console.warn(
+          `Earnings for block ${blockNumber} has cohortActivationFrameId ${cohortActivationFrameId} which is not tracked in frame ${frameId}`,
+        );
+        continue;
+      }
       earningsDuringFrame.blocksMinedTotal += 1;
       if (blockNumber > maxBlockNumber) {
         earningsDuringFrame.lastBlockMinedAt = earningsOfBlock.blockMinedAt;
@@ -292,7 +299,8 @@ export class BotSyncer {
           microgonFeesCollectedTotal += cohortEarningsDuringFrame.microgonFeesCollectedTotal;
         },
       ),
-      this.db.cohortsTable.updateProgress(currentTick, MiningFrames.ticksPerCohort),
+      // NOTE: must update frame progress before cohortFrames are updated
+      this.db.cohortsTable.updateProgress(),
     ]);
 
     const { seatCountActive, seatCostTotalFramed } = await this.db.cohortsTable.fetchActiveSeatData(
@@ -302,21 +310,14 @@ export class BotSyncer {
     const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId });
     const allMinersCount = bidsFile.allMinersCount;
 
-    const yesterdaysFrameId = this.botState.currentFrameId - 1;
-    const isProcessed = frameProgress === 100.0 || frameId < yesterdaysFrameId;
+    const botLastFrame = this.botState.currentFrameId - 1;
+    const isProcessed = frameProgress === 100.0 || frameId < botLastFrame;
     if (!isProcessed) {
       console.log('EARNINGS FILE: ', frameId, earningsFile);
     }
 
     await this.db.framesTable.update({
       id: frameId,
-      firstTick: earningsFile.frameTickRange[0],
-      lastTick: earningsFile.frameTickRange[1],
-      firstBlockNumber: earningsFile.firstBlockNumber,
-      lastBlockNumber: earningsFile.lastBlockNumber,
-      microgonToUsd: earningsFile.microgonToUsd,
-      microgonToBtc: earningsFile.microgonToBtc,
-      microgonToArgonot: earningsFile.microgonToArgonot,
 
       allMinersCount,
       seatCountActive,
@@ -326,10 +327,7 @@ export class BotSyncer {
       microgonsMinedTotal,
       microgonsMintedTotal,
       microgonFeesCollectedTotal,
-      accruedMicrogonProfits: earningsFile.accruedMicrogonProfits,
-      accruedMicronotProfits: earningsFile.accruedMicronotProfits,
 
-      progress: frameProgress,
       isProcessed,
     });
     if (frameId > this.config.latestFrameIdProcessed) {
@@ -338,28 +336,28 @@ export class BotSyncer {
     }
   }
 
-  private async syncDbCohort(cohortActivationFrameId: number, currentTick: number): Promise<void> {
+  private async syncDbCohort(cohortActivationFrameId: number, earningsFile: IEarningsFile): Promise<void> {
     console.info('syncDbCohort', cohortActivationFrameId);
     const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId });
-    const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameTickRange, currentTick);
+    const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameRewardTicksRemaining);
     if (biddingFrameProgress < 100.0) {
       console.info('syncDbCohort SKIPPING', cohortActivationFrameId, bidsFile);
       return;
     }
 
-    const ticksPerCohort = BigInt(MiningFrames.ticksPerCohort);
+    const ticksPerCohort = BigInt(NetworkConfig.ticksPerCohort);
 
     try {
-      const [cohortStartingTick] = MiningFrames.getTickRangeForFrame(cohortActivationFrameId);
-      const cohortEndingTick = cohortStartingTick + MiningFrames.ticksPerCohort;
+      await this.miningFrames.waitForFrameId(cohortActivationFrameId);
+      const cohortStartingTick = this.miningFrames.getTickStart(cohortActivationFrameId);
       const miningSeatCount = BigInt(bidsFile.allMinersCount) || 1n;
 
-      const progress = this.calculateProgress([cohortStartingTick, cohortEndingTick], currentTick);
+      const progress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
 
       const microgonsToBeMinedDuringCohort = bidsFile.microgonsToBeMinedPerBlock * ticksPerCohort;
-      const micronotsToBeMinedDuringCohort = await this.mainchain.getMinimumMicronotsMinedDuringTickRange(
+      const micronotsToBeMinedDuringCohort = await this.mainchain.minimumMicronotsMinedDuringTickRange(
         cohortStartingTick,
-        cohortEndingTick,
+        cohortStartingTick + Number(ticksPerCohort),
       );
 
       const microgonsToBeMinedPerSeat = microgonsToBeMinedDuringCohort / miningSeatCount;
@@ -398,7 +396,7 @@ export class BotSyncer {
     }
 
     const isCurrentFrame = cohortActivationFrameId === this.botState.currentFrameId;
-    const millisecondsToCache = isCurrentFrame ? 1e3 : 10 * MiningFrames.ticksPerFrame;
+    const millisecondsToCache = isCurrentFrame ? 1e3 : 10 * NetworkConfig.rewardTicksPerFrame;
 
     timeoutId = setTimeout(() => {
       delete this.bidsFileCacheByActivationFrameId[cohortActivationFrameId];
@@ -425,7 +423,7 @@ export class BotSyncer {
       savedState?.argonLocalNodeBlockNumber !== latestArgonBlockNumbers.localNode ||
       savedState?.argonMainNodeBlockNumber !== latestArgonBlockNumbers.mainNode;
     const lastActivityTick = history.activities.at(0)?.tick;
-    const lastActivityDate = lastActivityTick ? new Date(MiningFrames.tickMillis * lastActivityTick) : null;
+    const lastActivityDate = lastActivityTick ? new Date(NetworkConfig.tickMillis * lastActivityTick) : null;
     const hasBotActivityChanges =
       savedState?.botActivities?.length !== history.activities.length ||
       lastActivityDate !== savedState?.botActivityLastUpdatedAt;
@@ -491,13 +489,11 @@ export class BotSyncer {
     return new Date(timestamp);
   }
 
-  private calculateProgress(tickRange: [number, number], currentTick: number): number {
-    const [firstTick, lastTick] = tickRange;
-    if (currentTick < firstTick) {
-      return 0;
-    } else if (currentTick > lastTick) {
+  private calculateProgress(rewardTicksRemaining: number): number {
+    if (rewardTicksRemaining <= 0) {
       return 100;
     }
-    return Math.min(((currentTick - firstTick) / (lastTick - firstTick)) * 100, 100);
+    const totalRewardTicks = NetworkConfig.rewardTicksPerFrame;
+    return Math.min(((totalRewardTicks - rewardTicksRemaining) / totalRewardTicks) * 100, 100);
   }
 }

@@ -9,8 +9,8 @@ import {
   type IBlockNumbers,
   type IBotStateError,
   type IBotStateStarting,
-  MiningFrames,
   NetworkConfig,
+  NetworkConfigSettings,
 } from '@argonprotocol/apps-core';
 import os from 'node:os';
 import { promises as Fs } from 'node:fs';
@@ -33,19 +33,19 @@ let pair: KeyringPair;
   pair.decodePkcs8(process.env.KEYPAIR_PASSPHRASE);
 }
 
-let networkName: keyof typeof NetworkConfig & string = (process.env.ARGON_CHAIN as any) ?? 'mainnet';
+let networkName: keyof typeof NetworkConfigSettings & string = (process.env.ARGON_CHAIN as any) ?? 'mainnet';
 if ((networkName as any) === 'local') {
   networkName = 'localnet';
 }
-if (!(networkName in NetworkConfig)) {
+if (!(networkName in NetworkConfigSettings)) {
   throw new Error(`${networkName} is not a valid Network chain name`);
 }
 // set archive url from env since we might be in docker and can't use localhost
-NetworkConfig[networkName].archiveUrl = requireEnv('ARCHIVE_NODE_URL');
-MiningFrames.setNetwork(networkName);
+NetworkConfigSettings[networkName].archiveUrl = requireEnv('ARCHIVE_NODE_URL');
+NetworkConfig.setNetwork(networkName);
 if (networkName === 'localnet' || networkName === 'dev-docker') {
-  const client = await getClient(NetworkConfig[networkName].archiveUrl);
-  await MiningFrames.updateConfig(client);
+  const client = await getClient(NetworkConfigSettings[networkName].archiveUrl);
+  await NetworkConfig.updateConfig(client);
   await client.disconnect();
 }
 

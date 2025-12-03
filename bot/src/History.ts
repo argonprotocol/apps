@@ -37,7 +37,7 @@ export class History {
       const activities: IBotActivity[] = [];
       let lastModifiedAt: Date | undefined;
       try {
-        const historyFile = (await this.storage.historyFile(this.cohortStartingFrameId).get())!;
+        const historyFile = await this.storage.historyFile(this.cohortStartingFrameId).get();
         lastModifiedAt = historyFile.lastModifiedAt;
         activities.push(...historyFile.activities.slice(-20));
         resolve({
@@ -50,7 +50,7 @@ export class History {
     });
   }
 
-  public async initCohort(cohortStartingFrameId: number, myAddresses: Set<string>) {
+  public initCohort(cohortStartingFrameId: number, myAddresses: Set<string>) {
     this.cohortStartingFrameId = cohortStartingFrameId;
     this.myAddresses = myAddresses;
     this.maxSeatsInPlay = this.myAddresses.size;

@@ -11,7 +11,7 @@ import { SECURITY } from '../lib/Env.ts';
 import { IBalanceChange, IWallet, Wallet } from '../lib/Wallet.ts';
 import { IBlockToProcess, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getMainchainClients } from './mainchain.ts';
+import { getBlockWatch, getMainchainClients } from './mainchain.ts';
 
 let walletKeys: WalletKeys;
 export function useWalletKeys() {
@@ -25,7 +25,7 @@ export function useWalletKeys() {
 
 let walletBalances: WalletBalances;
 export function useWalletBalances() {
-  walletBalances ??= new WalletBalances(getMainchainClients(), useWalletKeys(), getDbPromise());
+  walletBalances ??= new WalletBalances(getMainchainClients(), useWalletKeys(), getDbPromise(), getBlockWatch());
   return walletBalances;
 }
 

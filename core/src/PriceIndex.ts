@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { type ApiDecoration, MICROGONS_PER_ARGON, PriceIndex as PriceIndexModel } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt } from './utils.js';
 import type { MainchainClients } from './MainchainClients.js';
-import { MiningFrames } from './MiningFrames.js';
+import { NetworkConfig } from './NetworkConfig.js';
 
 export type ICurrencyKey = CurrencyKey.ARGN | CurrencyKey.USD | CurrencyKey.EUR | CurrencyKey.GBP | CurrencyKey.INR;
 export type IExchangeRates = Record<ICurrencyKey | 'ARGNOT' | 'BTC', bigint>;
@@ -31,8 +31,8 @@ export class PriceIndex {
     };
   }
 
-  public async fetchMicrogonsInCirculation(): Promise<bigint> {
-    const client = await this.clients.prunedClientOrArchivePromise;
+  public async fetchMicrogonsInCirculation(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.clients.prunedClientOrArchivePromise);
     return (await client.query.balances.totalIssuance()).toBigInt();
   }
 
@@ -52,7 +52,7 @@ export class PriceIndex {
 
     if (
       priceIndex.argonotUsdPrice! === BigNumber(0) &&
-      (MiningFrames.networkName === 'dev-docker' || MiningFrames.networkName === 'localnet')
+      (NetworkConfig.networkName === 'dev-docker' || NetworkConfig.networkName === 'localnet')
     ) {
       microgonsForArgnot = microgonsForArgnot / 10n;
     }

@@ -24,11 +24,6 @@ impl Utils {
         "default".to_string()
     }
 
-    pub fn is_experimental_build() -> bool {
-        // baked into runtime via build.rs
-        option_env!("ARGON_APP_BUILD_TYPE") == Some("experimental")
-    }
-
     pub fn get_server_env_vars() -> Result<HashMap<String, String>, String> {
         let env_text = match Self::get_network_name().as_str() {
             "dev-docker" => ENV_DOCKER,
@@ -47,21 +42,15 @@ impl Utils {
     }
 
     pub fn get_network_name() -> String {
-        std::env::var("ARGON_NETWORK_NAME").unwrap_or(
-            if Self::is_experimental_build() {
-                "testnet"
-            } else {
-                #[cfg(debug_assertions)]
-                {
-                    "testnet"
-                }
-                #[cfg(not(debug_assertions))]
-                {
-                    "mainnet"
-                }
-            }
-            .to_string(),
-        )
+        // explicit override always wins
+        if let Ok(name) = std::env::var("ARGON_NETWORK_NAME") {
+            return name;
+        }
+
+        match option_env!("ARGON_APP_BUILD_TYPE") {
+            Some("local") | Some("experimental") => "testnet",
+            _ => "mainnet",
+        }.into()
     }
 
     pub fn get_relative_config_instance_dir() -> PathBuf {

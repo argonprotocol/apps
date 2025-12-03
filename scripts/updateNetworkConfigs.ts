@@ -1,15 +1,14 @@
 import * as fs from 'node:fs';
 import * as Path from 'path';
-import NetworkConfig from '../core/network.config.json';
 import { ArgonClient, getClient } from '@argonprotocol/mainchain';
-import { MiningFrames } from '@argonprotocol/apps-core';
+import { NetworkConfig, NetworkConfigSettings } from '@argonprotocol/apps-core';
 
 const ARGON_NETWORK_NAME = process.env.ARGON_NETWORK_NAME;
 const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
 
 (async () => {
   const dirname = Path.join(import.meta.dirname, '..', 'core');
-  for (const [name, config] of Object.entries(NetworkConfig)) {
+  for (const [name, config] of Object.entries(NetworkConfigSettings)) {
     if (ARGON_NETWORK_NAME && ARGON_NETWORK_NAME !== name) {
       continue;
     }
@@ -26,14 +25,14 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
         await new Promise(res => setTimeout(res, 100));
         process.stdout.write('..');
       }
-      const miningConfig = await MiningFrames.loadConfigs(client);
-      Object.assign(config, miningConfig);
+      const updates = await NetworkConfig.loadConfigs(client);
+      Object.assign(config, updates);
       await client.disconnect();
     } catch (e) {
       console.warn(`[${name}]: ${e}`);
     }
   }
-  fs.writeFileSync(Path.join(dirname, 'network.config.json'), JSON.stringify(NetworkConfig, null, 2), 'utf-8');
+  fs.writeFileSync(Path.join(dirname, 'network.config.json'), JSON.stringify(NetworkConfigSettings, null, 2), 'utf-8');
   console.log('Updated network.config.json with latest mining configuration');
   process.exit(0);
 })();

@@ -56,7 +56,7 @@ if [ "$SYNC_ONLY" -eq 1 ]; then
   exit 0
 fi
 
-limactl shell tauri-webdriver -- bash -lc "sudo rm -rf ~/.config/com.argon.apps"
+limactl shell tauri-webdriver -- bash -lc "sudo rm -rf ~/.config/com.argon.apps.local"
 echo "Running tests inside Lima VM..."
 # Install deps + run tests
 limactl shell tauri-webdriver -- bash -lc "

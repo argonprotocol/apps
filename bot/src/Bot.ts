@@ -1,4 +1,5 @@
 import * as Fs from 'node:fs';
+import { promises as fs } from 'node:fs';
 import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
 import { Storage } from './Storage.ts';
 import { AutoBidder } from './AutoBidder.ts';
@@ -6,15 +7,18 @@ import { BlockSync } from './BlockSync.ts';
 import { Dockers } from './Dockers.ts';
 import {
   Accountset,
+  createDeferred,
+  FatalError,
+  getRange,
   type IBiddingRules,
+  type IBidReductionReason,
   type IBotSyncStatus,
   JsonExt,
-  FatalError,
   MainchainClients,
-  type IBidReductionReason,
-  getRange,
+  MiningFrames,
 } from '@argonprotocol/apps-core';
 import { History } from './History.ts';
+import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 interface IBotOptions {
   datadir: string;
@@ -32,6 +36,8 @@ export default class Bot implements IBotSyncStatus {
   public accountset!: Accountset;
   public blockSync!: BlockSync;
   public storage!: Storage;
+  public miningFrames!: MiningFrames;
+  public blockWatch!: BlockWatch;
 
   public isStarting: boolean = false;
   public isWaitingForBiddingRules: boolean = false;
@@ -52,6 +58,7 @@ export default class Bot implements IBotSyncStatus {
   private biddingRules: IBiddingRules | null = null;
   private localClient!: ArgonClient;
   private mainchainClients!: MainchainClients;
+  private shutdownDeferred = createDeferred(false);
 
   constructor(options: IBotOptions) {
     this.options = options;
@@ -76,7 +83,7 @@ export default class Bot implements IBotSyncStatus {
       let currentFrameId = await this.currentFrameId.catch(() => 0);
       try {
         this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl, () =>
-          Boolean(JSON.parse(process.env.LOG_APIS ?? '0')),
+          Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
         );
         const client = await this.mainchainClients.archiveClientPromise;
         currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
@@ -86,6 +93,7 @@ export default class Bot implements IBotSyncStatus {
       }
 
       this.storage = new Storage(this.options.datadir);
+      await this.storage.migrate();
       this.history = new History(this.storage, currentFrameId);
       this.history.handleStarting();
 
@@ -115,18 +123,28 @@ export default class Bot implements IBotSyncStatus {
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
         subaccountRange: getRange(0, 144),
       });
+      const miningFramesPath = this.storage.getPath('miningFrames.json');
+      this.blockWatch = new BlockWatch(this.mainchainClients, true);
+      this.miningFrames = new MiningFrames(this.mainchainClients, this.blockWatch, {
+        read: () => fs.readFile(miningFramesPath, 'utf8'),
+        write: data => fs.writeFile(miningFramesPath, data, 'utf8'),
+      });
+      await this.miningFrames.load();
       this.autobidder = new AutoBidder(
         this.accountset,
         this.mainchainClients,
         this.storage,
         this.history,
         this.biddingRules || ({} as IBiddingRules),
+        this.miningFrames,
       );
       this.blockSync = new BlockSync(
         this,
         this.accountset,
         this.storage,
         this.mainchainClients,
+        this.miningFrames,
+        this.blockWatch,
         this.options.oldestFrameIdToSync,
       );
 
@@ -185,10 +203,21 @@ export default class Bot implements IBotSyncStatus {
   }
 
   public async shutdown() {
+    if (this.shutdownDeferred.isSettled || this.shutdownDeferred.isRunning) {
+      return this.shutdownDeferred.promise;
+    }
+    this.shutdownDeferred.setIsRunning(true);
+    console.log('SHUTTING DOWN BOT');
     await this.autobidder.stop();
+    this.blockWatch.stop();
+    await this.miningFrames.stop();
     await this.blockSync.stop();
-    await this.mainchainClients.disconnect();
     await this.history.handleShutdown();
+    await this.storage.close();
+    await this.mainchainClients.disconnect();
+    console.log('BOT SHUT DOWN');
+    this.shutdownDeferred.resolve();
+    return this.shutdownDeferred.promise;
   }
 
   private loadBiddingRules(): IBiddingRules {

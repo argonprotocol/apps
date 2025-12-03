@@ -27,7 +27,7 @@
             </tr>
           </thead>
           <tbody class="text-left font-light">
-            <tr v-for="block in blocks" :key="block.number" class="text-gray-500">
+            <tr v-for="block in Object.values(blocks)" :key="block.number" class="text-gray-500">
               <td class="border-t border-slate-400/30 text-left">
                 {{ numeral(block.number).format('0,0') }}
               </td>
@@ -57,7 +57,7 @@
             </tr>
           </tbody>
         </table>
-        <div v-if="!blocks.length" class="flex grow flex-col items-center justify-center pt-8">
+        <div v-if="!Object.keys(blocks).length" class="flex grow flex-col items-center justify-center pt-8">
           <span>
             <img src="/mining.gif" class="relative -left-1 inline-block w-16 opacity-20" />
           </span>
@@ -87,7 +87,7 @@ const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const blockchainStore = useBlockchainStore();
 
-const blocks = Vue.ref<IBlock[]>([]);
+const blocks = Vue.ref<{ [number: number]: IBlock }>({});
 const isOpen = Vue.ref(false);
 
 const subaccounts = Vue.ref(new Set<string>());
@@ -141,13 +141,16 @@ async function onOpen(open: boolean) {
 }
 
 async function load() {
-  blocks.value = await blockchainStore.fetchBlocks(null, 10);
+  const startingBlocks = await blockchainStore.fetchBlocks(null, 10);
+  for (const block of startingBlocks) {
+    blocks.value[block.number] = block;
+  }
 
   unsubscribeFromBlocks = await blockchainStore.subscribeToBlocks(newBlock => {
-    if (newBlock.number === blocks.value[0]?.number) return;
-    blocks.value.unshift(newBlock);
-    if (blocks.value.length > 8) {
-      blocks.value.pop();
+    blocks.value[newBlock.number] = newBlock;
+    if (Object.keys(blocks.value).length > 10) {
+      const toRemove = Math.min(...Object.keys(blocks.value).map(Number));
+      delete blocks.value[toRemove];
     }
   });
 }

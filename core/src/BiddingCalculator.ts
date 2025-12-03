@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import BiddingCalculatorData from './BiddingCalculatorData.js';
 import { bigIntAbs, bigIntCeil, bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import { BidAmountAdjustmentType, BidAmountFormulaType, type IBiddingRules } from './interfaces/IBiddingRules.js';
-import { MICROGONS_PER_ARGON } from './index.js';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 const MICRONOTS_PER_ARGONOT = MICROGONS_PER_ARGON;
 
@@ -62,9 +62,16 @@ export default class BiddingCalculator {
     };
   }
 
+  public unload(): void {
+    void this.onFrameSubscription?.then(x => x.unsubscribe());
+    this.onFrameSubscription = null;
+    this.onLoadSubscribers.clear();
+  }
+
   public async load(): Promise<void> {
+    await this.data.miningFrames.load();
     this.onFrameSubscription ??= new Promise(async (resolve, reject) => {
-      const { unsubscribe } = await this.data.mining.onFrameId(async frameId => {
+      const { unsubscribe } = this.data.miningFrames.onFrameId(async frameId => {
         try {
           await this.data.load(frameId);
           this.calculateBidAmounts();
@@ -248,9 +255,6 @@ export default class BiddingCalculator {
       price = this.breakevenBidAtFastGrowth;
     } else if (bidDetails.formulaType === BidAmountFormulaType.BreakevenAtMediumGrowth) {
       price = this.breakevenBidAtMediumGrowth;
-    } else if (bidDetails.formulaType !== BidAmountFormulaType.Custom) {
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-      throw new Error(`Invalid price formula type: ${bidDetails.formulaType}`);
     }
 
     return bigIntMax(price, 0n);
@@ -286,8 +290,8 @@ export default class BiddingCalculator {
   }
 
   public calculateTenDayYield(bidType: IBidType, growthType: IGrowthType): number {
-    const startingBidAmount = this.startingBidAmountOverride ?? this.startingBidAmount;
-    const maximumBidAmount = this.maximumBidAmountOverride ?? this.maximumBidAmount;
+    const startingBidAmount = this.startingBidAmountOverride ?? this.startingBidAmount ?? 0n;
+    const maximumBidAmount = this.maximumBidAmountOverride ?? this.maximumBidAmount ?? 0n;
     const microgonsBid = bidType === 'starting' ? startingBidAmount : maximumBidAmount;
 
     const transactionFee = this.data.estimatedTransactionFee;
