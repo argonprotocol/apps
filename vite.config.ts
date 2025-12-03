@@ -126,7 +126,6 @@ export default defineConfig(async ({ mode }) => {
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
-          popup: resolve(__dirname, 'popup-youtube.html'), // 👈 add this
         },
       },
       sourcemap: true,
