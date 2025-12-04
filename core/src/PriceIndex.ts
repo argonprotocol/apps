@@ -15,7 +15,15 @@ export enum CurrencyKey {
   INR = 'INR',
 }
 
-export type IMainchainExchangeRates = Omit<IExchangeRates, 'EUR' | 'GBP' | 'INR'>;
+export type IMainchainExchangeRates = Omit<IExchangeRates, 'EUR' | 'GBP' | 'INR'> & { USDTarget: bigint };
+
+export const defaultExchangeRates: IMainchainExchangeRates = {
+  USD: BigInt(MICROGONS_PER_ARGON),
+  USDTarget: BigInt(MICROGONS_PER_ARGON),
+  ARGNOT: BigInt(MICROGONS_PER_ARGON),
+  ARGN: BigInt(MICROGONS_PER_ARGON),
+  BTC: BigInt(MICROGONS_PER_ARGON),
+};
 
 export class PriceIndex {
   public current: PriceIndexModel;
@@ -23,12 +31,7 @@ export class PriceIndex {
 
   constructor(public clients: MainchainClients) {
     this.current = new PriceIndexModel();
-    this.exchangeRates = {
-      USD: BigInt(MICROGONS_PER_ARGON),
-      ARGNOT: BigInt(MICROGONS_PER_ARGON),
-      ARGN: BigInt(MICROGONS_PER_ARGON),
-      BTC: BigInt(MICROGONS_PER_ARGON),
-    };
+    this.exchangeRates = { ...defaultExchangeRates };
   }
 
   public async fetchMicrogonsInCirculation(api?: ApiDecoration<'promise'>): Promise<bigint> {
@@ -41,18 +44,45 @@ export class PriceIndex {
     return (await client.query.ownership.totalIssuance()).toBigInt();
   }
 
+  public async bitcoinLiquidityReceived(): Promise<bigint> {
+    const client = await this.clients.prunedClientOrArchivePromise;
+    return (await client.query.mint.mintedBitcoinMicrogons()).toBigInt();
+  }
+
   public async fetchMicrogonExchangeRatesTo(api?: ApiDecoration<'promise'>): Promise<IMainchainExchangeRates> {
     api ??= await this.clients.prunedClientOrArchivePromise;
-    const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
-    const priceIndex = await this.current.load(api as any);
+    await this.current.load(api as any);
+    const exchangeRates = PriceIndex.extractMicrogonExchangeRatesTo(this.current);
 
+    if (exchangeRates) {
+      this.exchangeRates = exchangeRates;
+    }
+
+    return this.exchangeRates;
+  }
+
+  private static calculateExchangeRateInMicrogons(usdAmount: BigNumber, usdForArgon: BigNumber): bigint {
+    const oneArgonInMicrogons = BigInt(MICROGONS_PER_ARGON);
+    const usdAmountBn = BigNumber(usdAmount);
+    const usdForArgonBn = BigNumber(usdForArgon);
+    if (usdAmountBn.isZero() || usdForArgonBn.isZero()) return oneArgonInMicrogons;
+
+    const argonsRequired = usdAmountBn.dividedBy(usdForArgonBn);
+    return bigNumberToBigInt(argonsRequired.multipliedBy(MICROGONS_PER_ARGON));
+  }
+
+  public static extractMicrogonExchangeRatesTo(priceIndex: PriceIndexModel): IMainchainExchangeRates | null {
+    const microgonsForArgon = BigInt(MICROGONS_PER_ARGON);
     if (priceIndex.argonUsdPrice === undefined) {
-      return this.exchangeRates;
+      return null;
     }
 
     // These exchange rates should be relative to the argon
     const usdForArgonBn = priceIndex.argonUsdPrice;
     const microgonsForUsd = this.calculateExchangeRateInMicrogons(BigNumber(1), usdForArgonBn);
+    const microgonsForUsdTarget = this.calculateExchangeRateInMicrogons(BigNumber(1), priceIndex.argonUsdTargetPrice!);
+    const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgonBn);
+
     let microgonsForArgnot = this.calculateExchangeRateInMicrogons(priceIndex.argonotUsdPrice!, usdForArgonBn);
 
     if (
@@ -61,24 +91,13 @@ export class PriceIndex {
     ) {
       microgonsForArgnot = microgonsForArgnot / 10n;
     }
-    const microgonsForBtc = this.calculateExchangeRateInMicrogons(priceIndex.btcUsdPrice!, usdForArgonBn);
-    this.exchangeRates = {
+
+    return {
       ARGN: microgonsForArgon,
       USD: microgonsForUsd,
+      USDTarget: microgonsForUsdTarget,
       ARGNOT: microgonsForArgnot,
       BTC: microgonsForBtc,
     };
-
-    return this.exchangeRates;
-  }
-
-  private calculateExchangeRateInMicrogons(usdAmount: BigNumber, usdForArgon: BigNumber): bigint {
-    const oneArgonInMicrogons = BigInt(MICROGONS_PER_ARGON);
-    const usdAmountBn = BigNumber(usdAmount);
-    const usdForArgonBn = BigNumber(usdForArgon);
-    if (usdAmountBn.isZero() || usdForArgonBn.isZero()) return oneArgonInMicrogons;
-
-    const argonsRequired = usdAmountBn.dividedBy(usdForArgonBn);
-    return bigNumberToBigInt(argonsRequired.multipliedBy(MICROGONS_PER_ARGON));
   }
 }

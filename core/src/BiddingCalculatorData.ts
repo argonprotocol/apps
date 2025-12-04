@@ -80,7 +80,7 @@ export default class BiddingCalculatorData {
         const nextFrameId = await this.mining.fetchNextFrameId(api);
         if (biddingFrameId !== nextFrameId - 1) {
           // need to go back to the start of the bidding frame
-          const frameStartBlockHash = this.miningFrames.frameHistory[biddingFrameId].firstBlockHash;
+          const frameStartBlockHash = this.miningFrames.framesById[biddingFrameId].firstBlockHash;
           if (!frameStartBlockHash) {
             return reject(new Error(`No starting block for frame ${biddingFrameId}`));
           }

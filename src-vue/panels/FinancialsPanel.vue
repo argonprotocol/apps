@@ -35,12 +35,6 @@
                 </TabsTrigger>
                 <TabsTrigger
                   class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
-                  value="stats">
-                  <span class="invisible font-bold">Network Stats</span>
-                  <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Basic Stats</span>
-                </TabsTrigger>
-                <TabsTrigger
-                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
                   value="projections">
                   <span class="invisible font-bold">Personal Projections</span>
                   <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Projections</span>
@@ -56,9 +50,6 @@
             <TabsContent value="assets" class="mx-5 flex grow flex-col p-3">
               <Assets />
             </TabsContent>
-            <TabsContent value="stats" class="mx-5 flex grow flex-col p-3">
-              <Stats />
-            </TabsContent>
           </TabsRoot>
         </div>
       </DialogContent>
@@ -73,7 +64,6 @@ import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import Assets from './financials/Assets.vue';
-import Stats from './financials/Stats.vue';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);

@@ -32,7 +32,7 @@ export class FrameIterator {
     let frameId = this.miningFrames.currentFrameId;
     do {
       const { firstBlockSpecVersion, firstBlockNumber, firstBlockHash, firstBlockTick } =
-        this.miningFrames.frameHistory[frameId];
+        this.miningFrames.framesById[frameId];
       if (firstBlockHash) {
         console.log(`[${this.name}] Exploring epoch frame ${frameId} (blockNumber = ${firstBlockNumber})`);
         const meta = {
@@ -64,7 +64,7 @@ export class FrameIterator {
     frameIds.sort((a, b) => b - a); // Descending order
     for (const frameId of frameIds) {
       const { firstBlockSpecVersion, firstBlockNumber, firstBlockHash, firstBlockTick } =
-        this.miningFrames.frameHistory[frameId];
+        this.miningFrames.framesById[frameId];
       if (firstBlockHash) {
         console.log(`[${this.name}] Exploring frame ${frameId} (blockNumber = ${firstBlockNumber})`);
 
