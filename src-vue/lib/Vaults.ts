@@ -145,8 +145,8 @@ export class Vaults {
       }, 30e3);
     };
     try {
-      const revenue = this.stats ?? { synchedToFrame: 0, vaultsById: {} };
-      const oldestFrameToGet = revenue.synchedToFrame;
+      this.stats ??= { synchedToFrame: 0, vaultsById: {} };
+      const oldestFrameToGet = this.stats.synchedToFrame;
 
       const client = await getMainchainClient(false);
       const finalizedHead = await client.rpc.chain.getFinalizedHead();
@@ -182,12 +182,13 @@ export class Vaults {
           }
         },
       );
-      revenue.synchedToFrame = currentFrameId - 1;
+      this.stats.synchedToFrame = currentFrameId - 1;
       void this.saveStats();
-      refreshingDeferred.resolve(revenue);
+      refreshingDeferred.resolve(this.stats);
       scheduleClearance();
-      return revenue;
+      return this.stats;
     } catch (error) {
+      console.error('Error refreshing vault revenue stats:', error);
       refreshingDeferred.reject(error as Error);
       scheduleClearance();
       throw error;

@@ -120,6 +120,15 @@ export class BlockWatch {
     this.isLoaded = createDeferred(false);
   }
 
+  public isSafeForPrunedClient(blockNumber: number): boolean {
+    if (!this.isPrunedClientSubscription) {
+      return false;
+    }
+    const finalizedNumber = this.finalizedBlockHeader.blockNumber;
+    // TODO: we could add 256 blocks if we obtain the first block synced by the pruned client
+    return blockNumber >= finalizedNumber;
+  }
+
   /**
    * Gets an appropriate client for this header. The local node will be pruned to 256 finalized blocks.
    * @param headerOrNumber
@@ -128,7 +137,7 @@ export class BlockWatch {
     const headerNumber = typeof headerOrNumber === 'number' ? headerOrNumber : headerOrNumber.number.toNumber();
 
     if (this.isPrunedClientSubscription) {
-      if (headerNumber > (this.finalizedBlockHeader?.blockNumber ?? Number.MAX_SAFE_INTEGER)) {
+      if (this.isSafeForPrunedClient(headerNumber)) {
         return this.clients.prunedClientPromise!;
       }
     }

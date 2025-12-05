@@ -1,7 +1,6 @@
-import { type ApiDecoration, type ArgonClient, type BlockHash, getClient } from '@argonprotocol/mainchain';
+import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
 import { wrapApi } from './ClientWrapper.js';
 import { createTypedEventEmitter } from './utils.js';
-import { LRU } from 'tiny-lru';
 
 interface ILastErrorInfo {
   errors: Error[];
@@ -17,7 +16,6 @@ export class MainchainClients {
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
     return this.prunedClientPromise ?? this.archiveClientPromise;
   }
-  private cachedApiByBlock = new LRU<ApiDecoration<'promise'>>(200);
 
   archiveUrl: string;
   archiveClientPromise: Promise<ArgonClient>;
@@ -64,19 +62,6 @@ export class MainchainClients {
     this.prunedUrl = url;
     this.events.emit('on-pruned-client', client, url);
     return this.prunedClientPromise;
-  }
-
-  public async apiAt(blockHash: string | BlockHash, useCache = true): Promise<ApiDecoration<'promise'>> {
-    if (typeof blockHash !== 'string') {
-      blockHash = blockHash.toHex();
-    }
-    let api = useCache ? this.cachedApiByBlock.get(blockHash) : null;
-    if (!api) {
-      const client = await this.prunedClientOrArchivePromise;
-      api = await client.at(blockHash);
-      if (useCache) this.cachedApiByBlock.set(blockHash, api);
-    }
-    return api;
   }
 
   public get(needsHistoricalBlocks: boolean): Promise<ArgonClient> {

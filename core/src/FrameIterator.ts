@@ -41,7 +41,7 @@ export class FrameIterator {
           blockHash: firstBlockHash,
           blockTick: firstBlockTick!,
         };
-        const api = await this.clients.apiAt(firstBlockHash);
+        const api = await this.miningFrames.clientAt({ blockHash: firstBlockHash, blockNumber: firstBlockNumber! });
         await callback(frameId, meta, api, abortController);
       }
 
@@ -74,7 +74,10 @@ export class FrameIterator {
           blockHash: firstBlockHash,
           blockTick: firstBlockTick!,
         };
-        const api = await this.clients.apiAt(firstBlockHash);
+        const api = await this.miningFrames.clientAt({
+          blockHash: firstBlockHash,
+          blockNumber: firstBlockNumber!,
+        });
         const result = await callback(frameId, firstBlockMeta, api, abortController);
         results.push(result);
       }

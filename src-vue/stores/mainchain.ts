@@ -94,7 +94,7 @@ export function getBlockWatch(): BlockWatch {
 
 export function getMiningFrames(): MiningFrames {
   if (!miningFrames) {
-    console.log('Initializing MiningFrames');
+    console.log('Initializing MiningFrames', NETWORK_NAME);
     const clients = getMainchainClients();
     const storageFile = `${NETWORK_NAME}/miningFrames.json`;
     miningFrames = new MiningFrames(clients, getBlockWatch(), {

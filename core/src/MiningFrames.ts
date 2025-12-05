@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { getFrameInfoFromHeader, getTickFromHeader } from '@argonprotocol/mainchain';
+import { type ApiDecoration, getFrameInfoFromHeader, getTickFromHeader } from '@argonprotocol/mainchain';
 import type { IFrameHistory, IFrameHistoryMap, IFramesHistory } from './interfaces/IFramesHistory.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import FramesHistoryTestnet from './data/frames.testnet.json' with { type: 'json' };
@@ -73,11 +73,16 @@ export class MiningFrames {
     if (this.loadDeferred.isResolved || this.loadDeferred.isRunning) return this.loadDeferred.promise;
     this.loadDeferred.setIsRunning(true);
     try {
+      console.log('[Mining Frames] Loading frame history...');
       if (this.updatesWriter) {
         const updates = await this.updatesWriter
           .read()
           .then(x => JSON.parse(x ?? '[]') as IFramesHistory)
-          .catch(() => []);
+          .catch(err => {
+            console.error(`Error reading from mining frames file`, err);
+            return [];
+          });
+        console.log('[Mining Frames] Loaded frame updates:', updates.length);
         if (updates.length > 0) {
           for (const frame of updates) {
             this.frameHistory[frame.frameId] = frame;
@@ -117,6 +122,12 @@ export class MiningFrames {
     return this.loadDeferred.promise;
   }
 
+  public async clientAt(block: { blockHash: string; blockNumber: number }): Promise<ApiDecoration<'promise'>> {
+    const isPruneSafe = this.blockWatch.isSafeForPrunedClient(block.blockNumber);
+    const client = await (isPruneSafe ? this.clients.prunedClientOrArchivePromise : this.clients.archiveClientPromise);
+    return client.at(block.blockHash);
+  }
+
   private async onBestBlocks(headers: IBlockHeaderInfo[]): Promise<void> {
     const result = this.updateQueue.add(async () => {
       await this.checkForFrameChange(headers);
@@ -130,7 +141,7 @@ export class MiningFrames {
         if (latest.frameRewardTicksRemaining !== undefined) {
           this.currentFrameRewardTicksRemaining = latest.frameRewardTicksRemaining;
         } else {
-          const client = await this.clients.apiAt(latest.blockHash, false);
+          const client = await this.clientAt(latest);
           this.currentFrameRewardTicksRemaining = await client.query.miningSlot
             .frameRewardTicksRemaining()
             .then(x => x.toNumber());
@@ -314,7 +325,8 @@ export class MiningFrames {
   private async safeSaveUpdates() {
     if (!this.updatesWriter) return;
     try {
-      await this.updatesWriter.write(JSON.stringify(this.frameHistory));
+      const json = JSON.stringify(Object.values(this.frameHistory));
+      await this.updatesWriter.write(json);
     } catch (error) {
       console.error('[Mining Frames] Error saving frame updates', error);
     }
