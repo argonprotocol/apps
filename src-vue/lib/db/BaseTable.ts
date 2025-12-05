@@ -6,6 +6,10 @@ export class BaseTable {
   constructor(db: Db) {
     this.db = db;
   }
+
+  public async loadState(): Promise<void> {
+    // Base load method can be overridden by subclasses
+  }
 }
 
 export interface IFieldTypes {

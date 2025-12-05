@@ -11,6 +11,7 @@ import { VaultsTable } from './db/VaultsTable.ts';
 import { BitcoinLocksTable } from './db/BitcoinLocksTable.ts';
 import { TransactionsTable } from './db/TransactionsTable.ts';
 import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
+import { BaseTable } from './db/BaseTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -46,7 +47,13 @@ export class Db {
   public static async load(retries: number = 0): Promise<Db> {
     try {
       const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
-      return new Db(sql, !!retries);
+      const db = new Db(sql, !!retries);
+      for (const table of Object.values(db)) {
+        if (table instanceof BaseTable) {
+          await table.loadState();
+        }
+      }
+      return db;
     } catch (error) {
       if (typeof error == 'string' && error.startsWith('migration ') && retries < 1) {
         return this.load(retries + 1);
