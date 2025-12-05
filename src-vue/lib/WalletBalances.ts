@@ -216,7 +216,7 @@ export class WalletBalances {
       const hasChange = wallet.addDiffs(entry);
       if (hasChange) {
         events ??= await api.query.system.events();
-        const filter = new AccountEventsFilter(wallet.address, wallet.type);
+        const filter = new AccountEventsFilter(wallet.address, wallet.type, this.addresses);
         filter.process(client, events);
         entry.extrinsicEvents = filter.eventsByExtrinsic;
         entry.inboundTransfers = filter.inboundTransfers;

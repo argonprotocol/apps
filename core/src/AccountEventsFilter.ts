@@ -26,6 +26,7 @@ export class AccountEventsFilter {
   constructor(
     public readonly address: string,
     public type: 'mining' | 'vaulting' | 'holding',
+    public myOtherAddresses: string[],
   ) {}
 
   public process(client: ArgonClient, events: FrameSystemEventRecord[]) {
@@ -60,8 +61,42 @@ export class AccountEventsFilter {
             }
           }
         }
-
-        if (client.events.balances.Transfer.is(event) && extrinsicIndex !== undefined) {
+        if (client.events.tokenGateway.AssetReceived.is(event) && extrinsicIndex !== undefined) {
+          const { beneficiary, amount } = event.data;
+          if (this.isAccountIdMe(beneficiary)) {
+            inboundTransfer = {
+              to: beneficiary.toHuman(),
+              from: 'tokenGateway',
+              amount: amount.toBigInt(),
+              isOwnership: false,
+              events: [],
+            };
+          }
+        }
+        // Watch for testnet drips (which occur via balance set)
+        else if (client.events.balances.BalanceSet.is(event) && extrinsicIndex !== undefined) {
+          const { who, free } = event.data;
+          if (this.isAccountIdMe(who)) {
+            inboundTransfer = {
+              to: who.toHuman(),
+              from: 'faucet',
+              amount: free.toBigInt(),
+              isOwnership: false,
+              events: [],
+            };
+          }
+        } else if (client.events.ownership.BalanceSet.is(event) && extrinsicIndex !== undefined) {
+          const { who, free } = event.data;
+          if (this.isAccountIdMe(who)) {
+            inboundTransfer = {
+              to: who.toHuman(),
+              from: 'faucet',
+              amount: free.toBigInt(),
+              isOwnership: true,
+              events: [],
+            };
+          }
+        } else if (client.events.balances.Transfer.is(event) && extrinsicIndex !== undefined) {
           const { to, from, amount } = event.data;
           if (this.isAccountIdMe(to)) {
             inboundTransfer = {
@@ -72,8 +107,7 @@ export class AccountEventsFilter {
               events: [],
             };
           }
-        }
-        if (client.events.ownership.Transfer.is(event) && extrinsicIndex !== undefined) {
+        } else if (client.events.ownership.Transfer.is(event) && extrinsicIndex !== undefined) {
           const { to, from, amount } = event.data;
           if (this.isAccountIdMe(to)) {
             inboundTransfer = {
@@ -103,7 +137,12 @@ export class AccountEventsFilter {
         }
         this.eventsByExtrinsic.push(eventGroup);
       }
-      if (inboundTransfer && this.isLikelyTransfer(events)) {
+      if (inboundTransfer && inboundTransfer.from !== 'faucet' && inboundTransfer.from !== 'tokenGateway') {
+        if (!this.isLikelyTransfer(client, events)) {
+          inboundTransfer = undefined;
+        }
+      }
+      if (inboundTransfer) {
         // do we just broadcast this? or store it?
         this.inboundTransfers.push({
           ...inboundTransfer,
@@ -149,7 +188,7 @@ export class AccountEventsFilter {
     return address === this.address;
   }
 
-  private isLikelyTransfer(events: GenericEvent[]): boolean {
+  private isLikelyTransfer(client: ArgonClient, events: GenericEvent[]): boolean {
     const allowedTransferEvents: Record<string, string | string[]> = {
       utility: '*', // allow via batch
       proxy: '*', // allow via proxy
@@ -168,7 +207,16 @@ export class AccountEventsFilter {
       if (allowed === '*') {
         return true;
       }
-      return allowed.includes(x.method);
+      if (!allowed.includes(x.method)) {
+        return false;
+      }
+      // don't count an internal transfer
+      if (client.events.balances.Transfer.is(x) || client.events.ownership.Transfer.is(x)) {
+        if (this.myOtherAddresses.includes(x.data.from.toHuman())) {
+          return false;
+        }
+      }
+      return true;
     });
   }
 }
