@@ -73,7 +73,7 @@ export class MiningFrames {
     if (this.loadDeferred.isResolved || this.loadDeferred.isRunning) return this.loadDeferred.promise;
     this.loadDeferred.setIsRunning(true);
     try {
-      console.log('[Mining Frames] Loading frame history...');
+      console.time('[Mining Frames] loaded');
       if (this.updatesWriter) {
         const updates = await this.updatesWriter
           .read()
@@ -113,9 +113,9 @@ export class MiningFrames {
       const realtimeWatch = this.blockWatch.events.on('best-blocks', headers => void this.onBestBlocks(headers));
       await this.blockWatch.start();
       await this.onBestBlocks(this.blockWatch.latestHeaders);
-      console.log('[Mining Frames] Loaded...');
       this.unsubscribes.push(realtimeWatch);
       this.loadDeferred.resolve();
+      console.timeLog('[Mining Frames] loaded');
     } catch (error) {
       this.loadDeferred.reject(error);
     }

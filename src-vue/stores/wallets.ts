@@ -29,7 +29,7 @@ export function useWalletBalances() {
   return walletBalances;
 }
 
-const defaultBalance = {
+const defaultBalance: IWallet = {
   address: '',
   availableMicrogons: 0n,
   availableMicronots: 0n,
@@ -50,9 +50,9 @@ export const useWallets = defineStore('wallets', () => {
   const walletKeys = useWalletKeys();
   const walletBalances = useWalletBalances();
   walletBalances.priceIndex = currency.priceIndex as any;
-  const miningWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.miningAddress });
-  const vaultingWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.vaultingAddress });
-  const holdingWallet = Vue.reactive({ ...defaultBalance, address: walletKeys.holdingAddress });
+  const miningWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.miningAddress });
+  const vaultingWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.vaultingAddress });
+  const holdingWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.holdingAddress });
 
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningAccountPreviousHistory) return;
@@ -166,7 +166,14 @@ export const useWallets = defineStore('wallets', () => {
     totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
     totalWalletMicronots.value = walletBalances.totalWalletMicronots;
 
-    for (const key of Object.keys(defaultBalance) as (keyof IWallet)[]) {
+    for (const key of [
+      'availableMicrogons',
+      'availableMicronots',
+      'reservedMicrogons',
+      'reservedMicronots',
+      'totalMicrogons',
+      'totalMicronots',
+    ] as const) {
       miningWallet[key] = walletBalances.miningWallet[key];
       vaultingWallet[key] = walletBalances.vaultingWallet[key];
       holdingWallet[key] = walletBalances.holdingWallet[key];

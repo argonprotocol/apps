@@ -12,6 +12,7 @@ import { Currency } from '../Currency.ts';
 dayjs.extend(utc);
 
 export class FramesTable extends BaseTable {
+  private processedFrames: { [frameId: number]: boolean } = {};
   private fieldTypes: IFieldTypes = {
     boolean: ['isProcessed'],
     bigintJson: ['microgonToUsd', 'microgonToBtc', 'microgonToArgonot'],
@@ -25,6 +26,15 @@ export class FramesTable extends BaseTable {
       'accruedMicronotProfits',
     ],
   };
+
+  public override async loadState(): Promise<void> {
+    const processedFrames = await this.db.select<{ id: number }[]>(
+      `SELECT id from Frames WHERE isProcessed = 1 ORDER BY id ASC`,
+    );
+    for (const frame of processedFrames) {
+      this.processedFrames[frame.id] = true;
+    }
+  }
 
   public async insertOrUpdate(data: {
     id: number;
@@ -112,6 +122,9 @@ export class FramesTable extends BaseTable {
       microgonFeesCollectedTotal,
       isProcessed,
     } = args;
+    if (isProcessed) {
+      this.processedFrames[id] = true;
+    }
     await this.db.execute(
       `UPDATE Frames SET 
         allMinersCount = ?,
@@ -139,9 +152,28 @@ export class FramesTable extends BaseTable {
     );
   }
 
+  public async fetchLastProcessedFrame(): Promise<number> {
+    const latest = await this.db.select<{ maxId: number }[]>(
+      'SELECT MAX(id) as maxId FROM Frames WHERE isProcessed = 1',
+    );
+    return latest[0]?.maxId || 0;
+  }
+
   public async fetchExistingCompleteSince(frameId: number, limit = 10): Promise<number[]> {
+    if (this.processedFrames[frameId]) {
+      const completedFrames = [];
+
+      for (let id = frameId; id < frameId + limit + 1; id++) {
+        if (!this.processedFrames[id]) {
+          break;
+        }
+        completedFrames.push(id);
+      }
+      return completedFrames;
+    }
+
     const frames = await this.db.select<{ id: number }[]>(
-      'SELECT id FROM Frames WHERE id >= ? AND rewardTicksRemaining = 0 LIMIT ?',
+      'SELECT id FROM Frames WHERE id >= ? AND isProcessed = 1 ORDER BY id ASC LIMIT ?',
       [frameId, limit + 1],
     );
     return frames.map(frame => frame.id);
@@ -230,23 +262,11 @@ export class FramesTable extends BaseTable {
     return records;
   }
 
-  public async fetchById(id: number): Promise<IFrameRecord> {
-    const [rawRecord] = await this.db.select<[any]>('SELECT * FROM Frames WHERE id = ?', [id]);
-    if (!rawRecord) throw new Error(`Frame ${id} not found`);
-
-    return convertFromSqliteFields(rawRecord, this.fieldTypes);
-  }
-
   public async fetchProcessedCount(): Promise<number> {
     const [result] = await this.db.select<[{ count: number }]>(
       'SELECT COUNT(*) as count FROM Frames WHERE isProcessed = 1',
     );
     return result.count;
-  }
-
-  public async latestId(): Promise<number> {
-    const [rawRecord] = await this.db.select<[{ maxId: number }]>('SELECT COALESCE(MAX(id), 0) as maxId FROM Frames');
-    return rawRecord.maxId;
   }
 
   public async fetchAccruedProfits(): Promise<{ accruedMicrogonProfits: bigint; accruedMicronotProfits: bigint }> {

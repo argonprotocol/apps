@@ -129,7 +129,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
       expect(vaultCreation.tx.metadataJson.masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
       vaultCreatedBlockNumber = vaultCreation.txResult.blockNumber!;
-      await vaultCreation.isProcessed.promise;
+      await vaultCreation.waitForPostProcessing;
       const createdVault = myVault.createdVault!;
       expect(createdVault).toBeTruthy();
       expect(createdVault.vaultId).toBe(1);
@@ -173,7 +173,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       console.log('finalized at', rulesSavedBlockNumber);
       const tick = await api.query.ticks.currentTick();
 
-      await vaultSave!.isProcessed.promise;
+      await vaultSave!.waitForPostProcessing;
       expect(Object.keys(bitcoinLocksStore.data.locksByUtxoId)).toHaveLength(1);
       const bitcoinStored = Object.values(bitcoinLocksStore.data.locksByUtxoId)[0];
 

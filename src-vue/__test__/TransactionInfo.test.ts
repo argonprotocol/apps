@@ -2,7 +2,6 @@ import { expect, it } from 'vitest';
 import { TransactionInfo } from '../lib/TransactionInfo';
 import { ITransactionRecord } from '../lib/db/TransactionsTable';
 import { TxResult } from '@argonprotocol/mainchain';
-import { createDeferred } from '../lib/Utils';
 
 it('should update progress before the transaction has been added to a block', async () => {
   const progressUpdates: { progressPct: number; confirmations: number }[] = [];
@@ -11,7 +10,6 @@ it('should update progress before the transaction has been added to a block', as
       blockHeight: undefined,
     } as ITransactionRecord,
     txResult: {} as TxResult,
-    isProcessed: createDeferred(),
   });
   txInfo.finalizedBlockHeight = 95;
   const unsubscribe = txInfo.subscribeToProgress(
@@ -36,8 +34,8 @@ it('should update progress throughout the entire finalization process', async ()
       blockHeight: undefined,
     } as ITransactionRecord,
     txResult: {} as TxResult,
-    isProcessed: createDeferred(),
   });
+  const postProcessor = txInfo.createPostProcessor();
 
   let resolve: (value: unknown) => void | undefined;
   let finalizedBlockHeight: number | undefined = undefined;
@@ -48,7 +46,7 @@ it('should update progress throughout the entire finalization process', async ()
 
       if (progressPct === 99) {
         txInfo.tx.isFinalized = true;
-        txInfo.isProcessed.resolve();
+        postProcessor.resolve();
       } else if (progressPct === 100) {
         resolve?.(undefined);
       } else if (isMaxed) {

@@ -16,10 +16,13 @@ export type IBalanceChange = {
 };
 
 export type IWallet = {
+  address: string;
   availableMicrogons: bigint;
   availableMicronots: bigint;
   reservedMicrogons: bigint;
   reservedMicronots: bigint;
+  totalMicrogons: bigint;
+  totalMicronots: bigint;
 };
 
 export type IWalletType = 'mining' | 'vaulting' | 'holding';

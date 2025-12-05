@@ -181,7 +181,7 @@ export class BotSyncer {
     const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10);
     for (let frameId = currentFrameId - 10; frameId <= currentFrameId; frameId++) {
       if (!completedFrames.includes(frameId)) {
-        await this.syncDbFrame(frameId, this.botState.currentTick);
+        await this.syncDbFrame(frameId);
       }
     }
   }
@@ -196,17 +196,21 @@ export class BotSyncer {
     const currentTick = this.botState.currentTick;
     const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
 
+    const latestDbProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
+    const startFrameToSync = Math.min(latestDbProcessedFrame, latestFrameIdProcessed);
+
     console.log('Syncing the past frames...', {
       oldestFrameIdToSync,
       latestFrameIdProcessed,
+      startFrameToSync,
       currentFrameId,
       framesToSync,
       currentTick,
     });
 
     const promise = new Promise<void>(async resolve => {
-      for (let frameId = latestFrameIdProcessed; frameId <= currentFrameId; frameId++) {
-        await this.syncDbFrame(frameId, currentTick);
+      for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
+        await this.syncDbFrame(frameId);
         progress = await this.calculateDbSyncProgress(this.botState);
         this.botFns.setDbSyncProgress(progress);
       }
@@ -222,7 +226,7 @@ export class BotSyncer {
     }
   }
 
-  public async syncDbFrame(frameId: number, currentTick: number): Promise<void> {
+  public async syncDbFrame(frameId: number): Promise<void> {
     const earningsFile = await BotFetch.fetchEarningsFile(frameId);
     const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
 
@@ -233,7 +237,7 @@ export class BotSyncer {
       rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
       progress: frameProgress,
     });
-    console.info('INSERTING FRAME', frameId);
+    console.info('PROCESSING FRAME', frameId);
     const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
     // Every frame should have a corresponding cohort, even if it has no seats
 
@@ -312,9 +316,6 @@ export class BotSyncer {
 
     const botLastFrame = this.botState.currentFrameId - 1;
     const isProcessed = frameProgress === 100.0 || frameId < botLastFrame;
-    if (!isProcessed) {
-      console.log('EARNINGS FILE: ', frameId, earningsFile);
-    }
 
     await this.db.framesTable.update({
       id: frameId,

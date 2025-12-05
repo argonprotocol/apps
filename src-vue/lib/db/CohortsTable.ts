@@ -5,6 +5,7 @@ import BigNumber from 'bignumber.js';
 import { bigNumberToBigInt } from '@argonprotocol/apps-core';
 
 export class CohortsTable extends BaseTable {
+  private storedCohorts: { [id: number]: boolean } = {};
   private bigIntFields: string[] = [
     'transactionFeesTotal',
     'microgonsBidPerSeat',
@@ -13,19 +14,22 @@ export class CohortsTable extends BaseTable {
     'micronotsToBeMinedPerSeat',
   ];
 
-  public async fetchLatestActiveId(): Promise<number | null> {
-    const result = await this.db.select<{ id: number }[]>(
-      'SELECT id FROM Cohorts WHERE seatCountWon > 0 ORDER BY id DESC LIMIT 1',
-    );
-    return result.length > 0 ? result[0].id : null;
+  public override async loadState(): Promise<void> {
+    const allCohorts = await this.db.select<{ id: number }[]>(`SELECT id from Cohorts ORDER BY id ASC`);
+    for (const cohort of allCohorts) {
+      this.storedCohorts[cohort.id] = true;
+    }
   }
 
-  public async fetchCohortIdsSince(id: number, limit = 10): Promise<number[]> {
-    const rawRecords = await this.db.select<{ id: number }[]>(`SELECT id from Cohorts WHERE id >= ? LIMIT ?`, [
-      id,
-      limit + 1,
-    ]);
-    return rawRecords.map(record => record.id);
+  public async fetchCohortIdsSince(idStart: number, limit = 10): Promise<number[]> {
+    const ids = [];
+    for (let id = idStart; id < idStart + limit; id++) {
+      if (!this.storedCohorts[id]) {
+        break;
+      }
+      ids.push(id);
+    }
+    return ids;
   }
 
   public async updateProgress(): Promise<void> {
@@ -135,6 +139,7 @@ export class CohortsTable extends BaseTable {
     microgonsToBeMinedPerSeat: bigint;
     micronotsToBeMinedPerSeat: bigint;
   }): Promise<void> {
+    this.storedCohorts[args.id] = true;
     const {
       id,
       progress,
