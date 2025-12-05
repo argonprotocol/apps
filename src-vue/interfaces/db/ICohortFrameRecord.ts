@@ -5,6 +5,7 @@ export interface ICohortFrameRecord {
   micronotsMinedTotal: bigint;
   microgonsMinedTotal: bigint;
   microgonsMintedTotal: bigint;
+  microgonFeesCollectedTotal: bigint;
   createdAt: string;
   updatedAt: string;
 }

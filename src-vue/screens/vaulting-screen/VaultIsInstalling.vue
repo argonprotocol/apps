@@ -90,7 +90,7 @@ async function createVault() {
         }
       },
     );
-    void txInfo.isProcessed.promise.then(activateVault);
+    void txInfo.waitForPostProcessing.then(activateVault);
   } catch (error: any) {
     console.error('Error creating vault:', error);
     errorMessage.value = error.message || 'Unknown error occurred while creating vault.';
@@ -125,7 +125,7 @@ async function activateVault() {
         }
       },
     );
-    void txInfo.isProcessed.promise.then(finalizeVault);
+    void txInfo.waitForPostProcessing.then(finalizeVault);
   } catch (error) {
     console.error('Error prebonding treasury pool:', error);
     errorMessage.value = error instanceof Error ? error.message : `${error}`;

@@ -96,17 +96,14 @@ export class TransactionTracker {
           }
         }
 
-        const isProcessed = createDeferred();
         if (tx.isFinalized || txResult.extrinsicError || txResult.submissionError) {
           txResult.setFinalized();
-          isProcessed.resolve();
         }
         // Mark txResult as non-reactive to avoid issues with private fields
         Vue.markRaw(txResult);
         const txInfo = new TransactionInfo({
           tx,
           txResult,
-          isProcessed,
         });
         this.data.txInfos.push(txInfo);
         this.data.txInfosByType[tx.extrinsicType] = txInfo;
@@ -171,7 +168,7 @@ export class TransactionTracker {
 
     // Mark txResult as non-reactive to avoid issues with private fields
     Vue.markRaw(txResult);
-    const txInfo = new TransactionInfo<T>({ tx: record, txResult, isProcessed: createDeferred() });
+    const txInfo = new TransactionInfo<T>({ tx: record, txResult });
     this.data.txInfos.unshift(txInfo);
     this.data.txInfosByType[extrinsicType] = txInfo;
     if (txResult.submissionError) {

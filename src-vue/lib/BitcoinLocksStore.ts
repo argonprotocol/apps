@@ -352,7 +352,7 @@ export default class BitcoinLocksStore {
     void this.onBitcoinLockFinalized(txInfo);
     return {
       getUtxoId: async () => {
-        await txInfo.isProcessed.promise;
+        await txInfo.waitForPostProcessing;
         const utxoId = await this.getUtxoForBitcoinLockUuid(bitcoinMeta.uuid);
         if (!utxoId) {
           throw new Error('Unable to get UTXO ID for pending bitcoin lock');
@@ -365,6 +365,7 @@ export default class BitcoinLocksStore {
   public async onBitcoinLockFinalized(
     txInfo: TransactionInfo<{ bitcoin: { uuid: string; vaultId: number; hdPath: string; satoshis: bigint } }>,
   ) {
+    const postProcessor = txInfo.createPostProcessor();
     const typeClient = await getMainchainClient(false);
     const txResult = txInfo.txResult;
     const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
@@ -382,7 +383,7 @@ export default class BitcoinLocksStore {
     if (this.data.pendingLock?.uuid === uuid) {
       this.data.pendingLock = undefined;
     }
-    txInfo.isProcessed.resolve();
+    postProcessor.resolve();
 
     return record;
   }
