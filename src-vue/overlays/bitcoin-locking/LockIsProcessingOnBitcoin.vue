@@ -28,7 +28,7 @@
       start to finish.
     </p>
 
-    <p class="font-italic mb-2">NOTE: You can close this overlay without disrupting the process.</p>
+    <p class="mb-2 italic">NOTE: You can close this overlay without disrupting the process.</p>
 
     <div class="mt-16">
       <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>

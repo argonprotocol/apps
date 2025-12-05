@@ -88,7 +88,7 @@
           five minutes to complete.
         </p>
 
-        <p class="font-italic mb-2 font-light opacity-80">
+        <p class="mb-2 font-light italic opacity-80">
           NOTE: You can close this overlay without disrupting the process.
         </p>
 
