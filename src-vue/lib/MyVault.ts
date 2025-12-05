@@ -816,7 +816,7 @@ export class MyVault {
     metadata.prebondedMicrogonsAtTick = tick;
     if (bitcoin) {
       // create a separate tx info since we want to chain
-      const bitcoinTxInfo = new TransactionInfo<any>({ ...txInfo });
+      const bitcoinTxInfo = new TransactionInfo<any>({ tx, txResult });
       const { getUtxoId } = await this.bitcoinLocksStore.createPendingBitcoinLock(bitcoinTxInfo);
       metadata.personalUtxoId = await getUtxoId();
       await bitcoinTxInfo?.waitForPostProcessing;

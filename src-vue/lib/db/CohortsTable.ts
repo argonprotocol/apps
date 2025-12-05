@@ -23,7 +23,7 @@ export class CohortsTable extends BaseTable {
 
   public async fetchCohortIdsSince(idStart: number, limit = 10): Promise<number[]> {
     const ids = [];
-    for (let id = idStart; id < id + limit; id++) {
+    for (let id = idStart; id < idStart + limit; id++) {
       if (!this.storedCohorts[id]) {
         break;
       }

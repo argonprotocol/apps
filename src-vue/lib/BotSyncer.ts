@@ -196,20 +196,20 @@ export class BotSyncer {
     const currentTick = this.botState.currentTick;
     const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
 
-    const lastProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
-    const lastFrameToSync = Math.min(lastProcessedFrame, latestFrameIdProcessed);
+    const latestDbProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
+    const startFrameToSync = Math.min(latestDbProcessedFrame, latestFrameIdProcessed);
 
     console.log('Syncing the past frames...', {
       oldestFrameIdToSync,
       latestFrameIdProcessed,
-      lastFrameToSync,
+      startFrameToSync,
       currentFrameId,
       framesToSync,
       currentTick,
     });
 
     const promise = new Promise<void>(async resolve => {
-      for (let frameId = lastFrameToSync; frameId <= currentFrameId; frameId++) {
+      for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
         await this.syncDbFrame(frameId);
         progress = await this.calculateDbSyncProgress(this.botState);
         this.botFns.setDbSyncProgress(progress);
