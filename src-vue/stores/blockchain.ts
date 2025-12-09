@@ -46,7 +46,8 @@ export const useBlockchainStore = defineStore('blockchain', () => {
   ]);
 
   async function fetchBlock(header: IBlockHeaderInfo) {
-    const { author, blockNumber, blockHash } = header;
+    await blockWatch.start();
+    const { author, blockNumber, blockHash, blockTime } = header;
     const client = await blockWatch.getRpcClient(header.blockNumber);
     const clientAt = await client.at(blockHash);
     const events = await clientAt.query.system.events();
@@ -63,14 +64,13 @@ export const useBlockchainStore = defineStore('blockchain', () => {
         return true;
       }
     });
-    const timestamp = (await clientAt.query.timestamp.now()).toNumber();
     const newBlock: IBlock = {
       number: blockNumber,
       hash: blockHash,
       author: author ?? '',
       microgons,
       micronots,
-      timestamp: dayjs.utc(timestamp),
+      timestamp: dayjs.utc(blockTime),
     };
 
     return newBlock;

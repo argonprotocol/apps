@@ -353,8 +353,6 @@ export class BotSyncer {
       const cohortStartingTick = this.miningFrames.getTickStart(cohortActivationFrameId);
       const miningSeatCount = BigInt(bidsFile.allMinersCount) || 1n;
 
-      const progress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
-
       const microgonsToBeMinedDuringCohort = bidsFile.microgonsToBeMinedPerBlock * ticksPerCohort;
       const micronotsToBeMinedDuringCohort = await this.mainchain.minimumMicronotsMinedDuringTickRange(
         cohortStartingTick,
@@ -369,7 +367,6 @@ export class BotSyncer {
 
       await this.db.cohortsTable.insertOrUpdate({
         id: cohortActivationFrameId,
-        progress,
         transactionFeesTotal,
         micronotsStakedPerSeat: bidsFile.micronotsStakedPerSeat,
         microgonsBidPerSeat,
@@ -483,11 +480,7 @@ export class BotSyncer {
   }
 
   private async getArgonTimestamp(atBlock: number): Promise<Date> {
-    const client = await this.mainchain.prunedClientOrArchivePromise;
-    const hash = await client.rpc.chain.getBlockHash(atBlock);
-    const clientAt = await client.at(hash);
-    const timestamp = (await clientAt.query.timestamp.now()).toNumber();
-    return new Date(timestamp);
+    return this.miningFrames.blockWatch.getBlockTime(atBlock);
   }
 
   private calculateProgress(rewardTicksRemaining: number): number {

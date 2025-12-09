@@ -115,7 +115,6 @@ export class WalletLedgerTable extends BaseTable {
   }
 
   public async deleteBlock(blockHash: string): Promise<void> {
-    console.log('deleting block from wallet ledger', blockHash);
     await this.db.execute(`DELETE FROM WalletLedger WHERE blockHash = ?`, toSqlParams([blockHash]));
   }
 }

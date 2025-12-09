@@ -24,7 +24,7 @@
       :avoidCollisions="false"
       class="z-50 w-md rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl pointer-events-none"
     >
-      <div v-html="props.tooltip" />
+      <slot name="tooltip" />
       <TooltipArrow v-if="tooltipSide === 'right'" :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
       <div v-else :class="isRight ? 'right-12' : 'left-12'" class="absolute top-full pointer-events-none">
         <CustomTooltipArrow />
@@ -41,7 +41,6 @@ import CustomTooltipArrow from './TooltipArrow.vue';
 
 const props = withDefaults(
   defineProps<{
-    tooltip: string;
     class?: string;
     height: number | 'auto';
     align?: 'left' | 'right';

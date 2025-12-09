@@ -103,8 +103,6 @@ export class WalletBalances {
       return;
     }
     await this.blockQueue.add(async () => {
-      console.log(`Loading wallet balances at block #${header.blockNumber} (${header.blockHash})`);
-
       ///// UPDATE FINALIZED
       const finalizedBlock = this.blockWatch.finalizedBlockHeader;
       const finalizedBlockNumber = finalizedBlock.blockNumber;

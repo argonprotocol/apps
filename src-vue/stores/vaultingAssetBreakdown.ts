@@ -114,67 +114,6 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return myVault.metadata?.operationalFeeMicrogons ?? 0n;
   });
 
-  const help = Vue.computed(() => {
-    return {
-      vaultingAvailableMicrogons: `<p class="break-words whitespace-normal">This is the amount of argons you have available and unallocated in your account.</p>`,
-      mintPipelineMicrogons: `<p class="break-words whitespace-normal">These argons are minted to your account via liquid locked bitcoins.</p>`,
-      pendingMintingValue: pendingMintingValue.value
-        ? `<p class="break-words whitespace-normal">
-          These have been earned, but they have not yet been minted. Minting is determined by supply and demand,
-          which means, although you're guaranteed to get them, the timeframe is unknown.
-        </p>`
-        : `<p class="break-words whitespace-normal">
-          This is where you'll see argons that are earned but not yet minted. You currently have zero argons waiting
-          in the minting queue.
-        </p>`,
-      alreadyMintedValue: mintedValueInAccount.value
-        ? `<p class="break-words whitespace-normal">
-              These argons are minted to your account and available for use. They will be needed to unlock your Bitcoin, but can be used freely in the interim.
-            </p>`
-        : `<p class="break-words whitespace-normal">
-              This is where you'll see argons that have been minted as a result of locking bitcoin into your vault. You currently have zero argons minted.
-            </p>`,
-      bitcoinSecurityTotal: `<p class="break-words whitespace-normal">
-            This is the total capital applied to your vault's bitcoin securitization. It insures that anyone who locks
-            bitcoin in your vault will be able to claim their bitcoin back in full.
-          </p>`,
-      waitingSecuritization: `<p class="break-words whitespace-normal">
-              These argons have not yet been applied to your vault's securitization. They are waiting for new bitcoins
-              to be added to your vault.
-            </p>`,
-      pendingSecuritization: `<p class="break-words whitespace-normal">
-              These argons are already committed to bitcoins pending in your vault. However, these bitcoins are still in
-              the process of locking. Once completed, these argons will move to "Activated".
-            </p>`,
-      activatedSecuritization: activatedSecuritization.value
-        ? `<p v-if="breakdown.activatedSecuritization" class="break-words whitespace-normal">
-              These argons are currently being used to securitize your vault's bitcoin.
-            </p>`
-        : `<p v-else class="break-words whitespace-normal">
-              You have no argons actively being used to securitize bitcoins.
-            </p>`,
-      treasuryBondTotal: `<p class="break-words whitespace-normal">
-            This is the capital that has been allocated to your vault's treasury bonds.
-          </p>`,
-      pendingTreasuryPoolInvestment: `<p class="break-words whitespace-normal">
-              This capital is sitting idle because your vault does not have enough bitcoin. The amount in treasury bonds
-              cannot exceed the bitcoin value in your vault.
-            </p>`,
-      activatedTreasuryPoolInvestment: activatedTreasuryPoolInvestment.value
-        ? `<p class="break-words whitespace-normal">
-              These argons are actively generating yield for your vault through treasury bond investments.
-            </p>`
-        : `<p v-else class="break-words whitespace-normal">
-              You have no argons actively being applied to treasury bond investments.
-            </p>`,
-      unlockPrice: `<p class="break-words whitespace-normal">This is what it will cost to unlock your personal bitcoin.</p>`,
-      operationalFeeMicrogons: `<p class="break-words whitespace-normal">
-            The summation of all operational expenses that have been paid since your vault's inception.
-          </p>`,
-      totalVaultValue: `<p class="font-normal break-words whitespace-normal">The total value of your vault's assets.</p>`,
-    };
-  });
-
   async function updateBitcoinUnlockPrices() {
     const lock = personalLock.value;
     if (!lock) return;
@@ -223,6 +162,5 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     unlockPrice,
     operationalFeeMicrogons,
     totalVaultValue,
-    help,
   };
 });

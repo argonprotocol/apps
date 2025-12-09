@@ -248,6 +248,7 @@ export class TransactionTracker {
       }
       const blockHeader = await this.blockWatch.getHeader(blockHeight);
       const blockHash = blockHeader.blockHash;
+      const blockTime = blockHeader.blockTime;
       const client = await this.blockWatch.getRpcClient(blockHeight);
       const block = await this.getBlock(client, blockHash);
       console.log(`Searching block with ${block.block.extrinsics.length} extrinsics`, {
@@ -257,9 +258,8 @@ export class TransactionTracker {
       });
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) === extrinsicHash) {
-          const api = await this.blockWatch.getRpcClient(blockHeight);
+          const api = await client.at(blockHash);
           const events = await api.query.system.events();
-          const blockTime = (await api.query.timestamp.now()).toNumber();
           const result = await TransactionEvents.getErrorAndFeeForTransaction({
             client,
             extrinsicIndex: index,
@@ -288,11 +288,8 @@ export class TransactionTracker {
 
   private async updatePendingStatuses(bestBlockInfo: IBlockHeaderInfo): Promise<void> {
     const table = await this.getTable();
-    const finalizedDetails = this.blockWatch.finalizedBlockHeader;
-    const clientAt = await this.blockWatch.getRpcClient(finalizedDetails.blockNumber);
-    const finalizedBlockTime = new Date((await clientAt.query.timestamp.now()).toNumber());
+    const { blockNumber: finalizedHeight, blockTime: finalizedBlockTime } = this.blockWatch.finalizedBlockHeader;
     const bestBlockNumber = bestBlockInfo.blockNumber;
-    const finalizedHeight = finalizedDetails.blockNumber;
 
     for (const txInfo of this.data.txInfos) {
       const { tx, txResult } = txInfo;
@@ -375,7 +372,7 @@ export class TransactionTracker {
       if (txInfo.tx.status === TransactionStatus.Finalized || txInfo.tx.status === TransactionStatus.Error) continue;
       await table.updateLastFinalizedBlock(txInfo.tx, {
         blockNumber: finalizedHeight,
-        blockTime: finalizedBlockTime,
+        blockTime: new Date(finalizedBlockTime),
       });
       txInfo.finalizedBlockHeight = finalizedHeight;
     }

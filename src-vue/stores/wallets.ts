@@ -79,15 +79,26 @@ export const useWallets = defineStore('wallets', () => {
     if (previousHistory) {
       return previousHistory.seats.microgons;
     }
-    return stats.myMiningSeats.microgonValueRemaining;
+    return stats.myMiningSeats.microgonsToBeMined;
   });
 
   const miningSeatMicronots = Vue.computed(() => {
+    return stats.myMiningSeats.micronotsToBeMined;
+  });
+
+  const miningSeatStakedMicronots = Vue.computed(() => {
     const previousHistory = previousHistoryValue.value;
     if (previousHistory) {
       return previousHistory.seats.micronots;
     }
     return stats.myMiningSeats.micronotsStakedTotal;
+  });
+
+  const miningSeatValue = Vue.computed(() => {
+    return (
+      miningSeatMicrogons.value +
+      currency.micronotToMicrogon(miningSeatMicronots.value + miningSeatStakedMicronots.value)
+    );
   });
 
   const miningBidMicrogons = Vue.computed(() => {
@@ -104,10 +115,6 @@ export const useWallets = defineStore('wallets', () => {
       return previousHistory.bids.micronots;
     }
     return stats.myMiningBids.micronotsStakedTotal;
-  });
-
-  const miningSeatValue = Vue.computed(() => {
-    return miningSeatMicrogons.value + currency.micronotToMicrogon(miningSeatMicronots.value);
   });
 
   const miningBidValue = Vue.computed(() => {
@@ -217,6 +224,7 @@ export const useWallets = defineStore('wallets', () => {
     miningBidValue,
     miningSeatMicrogons,
     miningSeatMicronots,
+    miningSeatStakedMicronots,
     miningBidMicrogons,
     miningBidMicronots,
     totalMiningMicrogons,

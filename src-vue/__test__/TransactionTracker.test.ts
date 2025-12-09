@@ -146,6 +146,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
         parentHash: '0xdef',
         tick: 0,
         author: '0x123',
+        blockTime: new Date().getTime(),
       },
     ];
 

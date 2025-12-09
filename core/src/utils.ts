@@ -118,6 +118,10 @@ export class SingleFileQueue {
     return deferred;
   }
 
+  public clear(): void {
+    this.queue.length = 0;
+  }
+
   public async stop(waitForCompletion: boolean = false): Promise<void> {
     this.isStopped = true;
     if (waitForCompletion) {
