@@ -16,14 +16,14 @@ import {
 import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
-import { createDeferred, IDeferred } from './Utils.ts';
+import { createDeferred, IDeferred, percentOf } from './Utils.ts';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import { Vaults } from './Vaults.ts';
 import { IVaultStats } from '../interfaces/IVaultStats.ts';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { bigIntMax, bigNumberToBigInt, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import { bigIntMax, bigNumberToBigInt, MiningFrames, MoveFrom, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
@@ -48,7 +48,12 @@ export class MyVault {
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
     currentFrameId: number;
     prebondedMicrogons: bigint;
-    pendingCollectTxInfo: TransactionInfo<{ expectedCollectRevenue: bigint; cosignedUtxoIds: number[] }> | null;
+    pendingCollectTxInfo: TransactionInfo<{
+      expectedCollectRevenue: bigint;
+      cosignedUtxoIds: number[];
+      moveTo: MoveTo;
+      allocationPercents?: { treasury: number; securitization: number };
+    }> | null;
     pendingAllocateTxInfo: TransactionInfo<{
       prebondedMicrogons: bigint;
       addedSecuritizationMicrogons: bigint;
@@ -165,6 +170,12 @@ export class MyVault {
           const { utxoId } = tx.metadataJson!;
           const lock = this.bitcoinLocksStore.data.locksByUtxoId[utxoId];
           void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
+        } else if (tx.extrinsicType === ExtrinsicType.VaultCollect) {
+          void this.onVaultCollect(txInfo);
+        } else if (tx.extrinsicType === ExtrinsicType.Transfer) {
+          if (tx.metadataJson.moveFrom === MoveFrom.VaultingMintedArgon) {
+            void this.onTransferOutOfMint(txInfo);
+          }
         }
       }
 
@@ -424,7 +435,10 @@ export class MyVault {
     postProcessor.resolve();
   }
 
-  public async collect(): Promise<TransactionInfo> {
+  public async collect(afterCollect: {
+    moveTo: MoveTo;
+    allocationPercents?: { treasury: number; securitization: number };
+  }): Promise<TransactionInfo> {
     if (!this.createdVault) {
       throw new Error('No vault created to collect revenue');
     }
@@ -457,16 +471,92 @@ export class MyVault {
       tx: client.tx.utility.batchAll([...txs, client.tx.vaults.collect(this.createdVault.vaultId)]),
       signer: argonKeyring,
       extrinsicType: ExtrinsicType.VaultCollect,
-      metadata: { vaultId: this.createdVault.vaultId, cosignedUtxoIds: toCollect, expectedCollectRevenue },
+      metadata: {
+        vaultId: this.createdVault.vaultId,
+        cosignedUtxoIds: toCollect,
+        expectedCollectRevenue,
+        ...afterCollect,
+      },
       useLatestNonce: true,
     });
-    this.data.pendingCollectTxInfo = txInfo;
-    void txInfo.txResult.waitForFinalizedBlock.then(async () => {
-      await this.trackTxResultFee(txInfo.txResult, true);
-      await txInfo.txResult.waitForFinalizedBlock;
-      this.data.pendingCollectTxInfo = null;
-    });
+    void this.onVaultCollect(txInfo);
     return txInfo;
+  }
+
+  public async getCollectedAmount(txInfo: TransactionInfo<{ vaultId: number }>): Promise<bigint | undefined> {
+    const { txResult, tx } = txInfo;
+    const { vaultId } = tx.metadataJson;
+    await txResult.waitForInFirstBlock;
+    const client = await getMainchainClient(false);
+
+    for (const event of txResult.events) {
+      if (client.events.vaults.VaultCollected.is(event)) {
+        const { vaultId: eventVaultId, revenue: eventRevenue } = event.data;
+        if (eventVaultId.toNumber() === vaultId) {
+          return eventRevenue.toBigInt();
+        }
+      }
+    }
+    return undefined;
+  }
+
+  public async onVaultCollect(
+    txInfo: TransactionInfo<{
+      vaultId: number;
+      cosignedUtxoIds: number[];
+      expectedCollectRevenue: bigint;
+      moveTo: MoveTo;
+      allocationPercents?: { treasury: number; securitization: number };
+    }>,
+  ): Promise<void> {
+    this.data.pendingCollectTxInfo = txInfo;
+    const { tx, txResult } = txInfo;
+    const postProcessor = txInfo.createPostProcessor();
+    const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
+    const { moveTo, allocationPercents } = tx.metadataJson;
+    if (!followOnTx.isSettled) {
+      const argonKeyring = await this.walletKeys.getVaultingKeypair();
+      const revenue = await this.getCollectedAmount(txInfo);
+      if (revenue === undefined) {
+        throw new Error('Failed to determine collected revenue from vault collect events');
+      }
+      if (moveTo === MoveTo.Vaulting) {
+        const treasuryAmount = percentOf(revenue, allocationPercents!.treasury);
+        const securitizationAmount = revenue - treasuryAmount;
+        const allocateTxInfo = await this.increaseVaultAllocations({
+          addedSecuritizationMicrogons: securitizationAmount,
+          addedTreasuryMicrogons: treasuryAmount,
+        });
+        followOnTx.resolve(allocateTxInfo);
+      } else {
+        const moveToAddress = {
+          [MoveTo.Holding]: this.walletKeys.holdingAddress,
+          [MoveTo.Mining]: this.walletKeys.miningAddress,
+          // this should not be possible, but move to holding if it somehow happens
+          [MoveTo.External]: this.walletKeys.holdingAddress,
+        }[moveTo];
+        const client = await getMainchainClient(false);
+        const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
+          tx: client.tx.balances.transferKeepAlive(moveToAddress, revenue),
+          signer: argonKeyring,
+          extrinsicType: ExtrinsicType.Transfer,
+          metadata: {
+            moveFrom: MoveFrom.VaultingUnusedArgon,
+            moveTo,
+            amount: revenue,
+          },
+          useLatestNonce: true,
+        });
+        followOnTx.resolve(followOnTxInfo);
+      }
+    }
+    await txInfo.followOnTxInfo;
+    await txResult.waitForFinalizedBlock;
+    await this.trackTxResultFee(txInfo.txResult, true);
+    await txInfo.txResult.waitForFinalizedBlock;
+    this.data.pendingCollectTxInfo = null;
+
+    postProcessor.resolve();
   }
 
   public async createNew(args: {
@@ -569,7 +659,7 @@ export class MyVault {
     this.#subscriptions.length = 0;
   }
 
-  public async activeMicrogonsForTreasuryPool(): Promise<{ maxAmountPerFrame?: bigint; active: bigint }> {
+  public async activeMicrogonsForTreasuryPool(): Promise<bigint> {
     if (!this.createdVault) {
       throw new Error('No vault created to get active treasury pool funds');
     }
@@ -583,10 +673,21 @@ export class MyVault {
         .filter(change => change.frameId >= oldestFrame)
         .reduce((total, change) => total + change.treasuryPool.vaultCapital, 0n) ?? 0n;
 
-    const maxAmountPerFrame = prebondedToPool.isSome
-      ? prebondedToPool.unwrap().maxAmountPerFrame.toBigInt()
-      : undefined;
-    return { active: activePoolFunds, maxAmountPerFrame };
+    return prebondedToPool.isSome ? prebondedToPool.unwrap().maxAmountPerFrame.toBigInt() * 10n : activePoolFunds;
+  }
+
+  public async incrementMintAmountMovedOut(mintAmountMovedOut: bigint): Promise<void> {
+    this.metadata!.personalBitcoinMintAmountMovedOut ??= 0n;
+    this.metadata!.personalBitcoinMintAmountMovedOut += mintAmountMovedOut;
+    await this.saveMetadata();
+  }
+
+  public async onTransferOutOfMint(txInfo: TransactionInfo<{ amount: bigint }>): Promise<void> {
+    const postProcessor = txInfo.createPostProcessor();
+    await txInfo.txResult.waitForFinalizedBlock;
+    const { amount } = txInfo.tx.metadataJson;
+    await this.incrementMintAmountMovedOut(amount);
+    postProcessor.resolve();
   }
 
   public async recoverAccountVault(args: {
@@ -653,6 +754,19 @@ export class MyVault {
       if (myBitcoins.length) {
         bitcoin = myBitcoins[0];
         this.metadata!.personalUtxoId = bitcoin.utxoId;
+        const availableBalance = await client.query.system
+          .account(vault.operatorAccountId)
+          .then(x => x.data.free.toBigInt());
+        let totalAmountMinted = 0n;
+        for (const btc of myBitcoins) {
+          totalAmountMinted += btc.ratchets.reduce((sum, r) => sum + (r.mintAmount - r.mintPending), 0n);
+        }
+
+        // if we minted more than we have, we'll record the difference as moved out
+        if (totalAmountMinted > availableBalance) {
+          const movedOut = totalAmountMinted - availableBalance;
+          await this.incrementMintAmountMovedOut(movedOut);
+        }
       }
     }
 
@@ -885,25 +999,20 @@ export class MyVault {
     if (!vault) {
       throw new Error('No vault created to get allocations');
     }
-    const { microgonsForSecuritization, microgonsForTreasury } = MyVault.getMicrogonSplit(
-      {
-        ...rules,
-        baseMicrogonCommitment: rules.baseMicrogonCommitment + unusedBalance,
-      },
-      this.metadata?.operationalFeeMicrogons ?? 0n,
-    );
-
     const activeTreasuryFunds = await this.activeMicrogonsForTreasuryPool();
-    const amountAllocatedToTreasury = activeTreasuryFunds.maxAmountPerFrame
-      ? activeTreasuryFunds.maxAmountPerFrame * 10n
-      : activeTreasuryFunds.active;
+
+    const newMicrogonsForVaulting = vault.securitization + activeTreasuryFunds + unusedBalance;
+    const microgonsForSecuritization = bigNumberToBigInt(
+      BigNumber(rules.capitalForSecuritizationPct).div(100).times(newMicrogonsForVaulting),
+    );
+    const microgonsForTreasury = newMicrogonsForVaulting - microgonsForSecuritization;
     const securitizationShortage = bigIntMax(0n, microgonsForSecuritization - vault.securitization);
-    const treasuryShortage = bigIntMax(0n, microgonsForTreasury - amountAllocatedToTreasury);
+    const treasuryShortage = bigIntMax(0n, microgonsForTreasury - activeTreasuryFunds);
 
     return {
       securitizationMicrogons: vault.securitization,
-      treasuryMicrogons: amountAllocatedToTreasury,
-      proposedTreasuryMicrogons: amountAllocatedToTreasury + treasuryShortage,
+      treasuryMicrogons: activeTreasuryFunds,
+      proposedTreasuryMicrogons: activeTreasuryFunds + treasuryShortage,
       proposedSecuritizationMicrogons: vault.securitization + securitizationShortage,
     };
   }
@@ -929,9 +1038,6 @@ export class MyVault {
     const client = await getMainchainClient(false);
 
     const activeTreasuryFunds = await this.activeMicrogonsForTreasuryPool();
-    const amountAllocatedToTreasury = activeTreasuryFunds.maxAmountPerFrame
-      ? activeTreasuryFunds.maxAmountPerFrame * 10n
-      : activeTreasuryFunds.active;
 
     const txs = [];
 
@@ -944,12 +1050,10 @@ export class MyVault {
       txs.push(tx);
     }
 
-    let prebondedMicrogons = this.metadata?.prebondedMicrogons ?? 0n;
     if (addedTreasuryMicrogons > 0n) {
-      prebondedMicrogons += addedTreasuryMicrogons;
       const tx = client.tx.treasury.vaultOperatorPrebond(
         vault.vaultId,
-        (amountAllocatedToTreasury + addedTreasuryMicrogons) / 10n,
+        (activeTreasuryFunds + addedTreasuryMicrogons) / 10n,
       );
       txs.push(tx);
     }
@@ -959,7 +1063,7 @@ export class MyVault {
       metadata: {
         addedSecuritizationMicrogons,
         addedTreasuryMicrogons,
-        prebondedMicrogons,
+        prebondedMicrogons: activeTreasuryFunds + addedTreasuryMicrogons,
         vaultId: vault.vaultId,
       },
     };

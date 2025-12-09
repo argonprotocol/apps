@@ -4,7 +4,39 @@
     <div
       class="MiningAssetBreakdown"
       :class="twMerge('text-md relative flex w-full flex-col items-center whitespace-nowrap', props.class)">
-      <template v-if="props.show !== 'OnlyTotal'">
+      <template v-if="props.show !== 'OnlyTotal' && !config.isMinerInstalled">
+        <NeedsSetup
+          :tooltipSide="tooltipSide"
+          :spacerWidth="spacerWidth"
+          :align="props.align">
+          Your mining account is still waiting to be setup.
+          <template #value>
+            <SubItem
+              :tooltip="breakdown.help.unusedMicrogons"
+              :tooltipSide="tooltipSide"
+              :height="itemHeight"
+              :showMoveButton="props.showMoveButtons"
+              :spacerWidth="spacerWidth"
+              :moveFrom="MoveFrom.MiningReserveArgon"
+              :moveTo="MoveTo.Holding"
+            >
+              {{ microgonToArgonNm(breakdown.unusedMicrogons).format('0,0.[00]') }} ARGN Available
+            </SubItem>
+            <SubItem
+              :tooltip="breakdown.help.unusedMicronots"
+              :tooltipSide="tooltipSide"
+              :height="itemHeight"
+              :showMoveButton="props.showMoveButtons"
+              :spacerWidth="spacerWidth"
+              :moveFrom="MoveFrom.MiningReserveArgonot"
+              :moveTo="MoveTo.Holding"
+            >
+              {{ microgonToArgonNm(breakdown.unusedMicronots).format('0,0.[00]') }} ARGNOT Available
+            </SubItem>
+          </template>
+        </NeedsSetup>
+      </template>
+      <template v-else-if="props.show !== 'OnlyTotal'">
         <Header
           :tooltip="breakdown.help.biddingReserves"
           :tooltipSide="tooltipSide"
@@ -153,7 +185,10 @@ import SubItem from './asset-breakdown/SubItem.vue';
 import Expenses from './asset-breakdown/Expenses.vue';
 import Total from './asset-breakdown/Total.vue';
 import { TooltipProvider } from 'reka-ui';
-import { MoveFrom, MoveTo } from '../overlays/MoveCapitalButton.vue';
+import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { useConfig } from '../stores/config.ts';
+import { useWallets } from '../stores/wallets.ts';
+import NeedsSetup from './asset-breakdown/NeedsSetup.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -173,6 +208,8 @@ const props = withDefaults(
 
 const currency = useCurrency();
 const breakdown = useMiningAssetBreakdown();
+const config = useConfig();
+const wallets = useWallets();
 
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 

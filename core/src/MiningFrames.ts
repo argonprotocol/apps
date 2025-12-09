@@ -115,7 +115,7 @@ export class MiningFrames {
       await this.onBestBlocks(this.blockWatch.latestHeaders);
       this.unsubscribes.push(realtimeWatch);
       this.loadDeferred.resolve();
-      console.timeLog('[Mining Frames] loaded');
+      console.timeEnd('[Mining Frames] loaded');
     } catch (error) {
       this.loadDeferred.reject(error);
     }

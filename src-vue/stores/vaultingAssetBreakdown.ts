@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { bigIntMax } from '@argonprotocol/apps-core';
+import { bigIntMax, bigNumberToBigInt } from '@argonprotocol/apps-core';
 import { MyVault } from '../lib/MyVault.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { useWalletKeys, useWallets } from './wallets.ts';
@@ -28,8 +28,11 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const waitingSecuritization = Vue.computed(() => {
-    const securitization = myVault.createdVault?.securitization ?? 0n;
-    return securitization - (activatedSecuritization.value + pendingSecuritization.value);
+    const vault = myVault.createdVault;
+    if (!vault) return 0n;
+    const securitization = vault.securitization;
+    const everActivatedSecuritization = bigNumberToBigInt(vault.securitizationRatioBN().times(vault.argonsLocked));
+    return securitization - everActivatedSecuritization;
   });
 
   const hasLockedBitcoin = Vue.computed(() => {
@@ -39,11 +42,14 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const activatedSecuritization = Vue.computed(() => {
+    // TODO: this value is wrong when there are pending activations and relocks
     return myVault.createdVault?.activatedSecuritization() ?? 0n;
   });
 
   const pendingSecuritization = Vue.computed(() => {
-    return myVault.createdVault?.argonsPendingActivation ?? 0n;
+    const vault = myVault.createdVault;
+    if (!vault) return 0n;
+    return bigNumberToBigInt(vault.securitizationRatioBN().times(vault.argonsPendingActivation));
   });
 
   const sidelinedMicrogons = Vue.computed(() => {
@@ -53,10 +59,13 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const internalTreasuryPoolBonds = Vue.computed(() => {
     const revenue = myVault.data.stats;
     if (!revenue) return 0n;
-    return revenue.changesByFrame
-      .slice(0, 10)
-      .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
-      .reduce((acc, change) => acc + (change.treasuryPool.vaultCapital ?? 0n), 0n);
+    return (
+      myVault.data.prebondedMicrogons +
+      revenue.changesByFrame
+        .slice(0, 10)
+        .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
+        .reduce((acc, change) => acc + (change.treasuryPool.vaultCapital ?? 0n), 0n)
+    );
   });
 
   const activatedTreasuryPoolInvestment = Vue.computed(() => {
@@ -64,7 +73,10 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const pendingTreasuryPoolInvestment = Vue.computed(() => {
-    return myVault.data.prebondedMicrogons ?? 0n;
+    return bigIntMax(
+      0n,
+      internalTreasuryPoolBonds.value - ((myVault.createdVault?.securitization ?? 0n) - waitingSecuritization.value),
+    );
   });
 
   const totalVaultValue = Vue.computed(() => {
@@ -75,15 +87,15 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const bitcoinSecurityTotal = Vue.computed(() => {
-    return activatedSecuritization.value + pendingSecuritization.value + waitingSecuritization.value;
+    return myVault.createdVault?.securitization ?? 0n;
   });
 
   const pendingMintingValue = Vue.computed<bigint>(() => {
     return bitcoinLocks.totalMintPending;
   });
 
-  const alreadyMintedValue = Vue.computed(() => {
-    return bitcoinLocks.totalMinted;
+  const mintedValueInAccount = Vue.computed(() => {
+    return bitcoinLocks.totalMinted - (myVault.metadata?.personalBitcoinMintAmountMovedOut ?? 0n);
   });
 
   const vaultingAvailableMicrogons = Vue.computed(() => {
@@ -104,7 +116,8 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const help = Vue.computed(() => {
     return {
-      vaultingAvailableMicrogons: `<p class="break-words whitespace-normal">These argons are not currently being used.</p>`,
+      vaultingAvailableMicrogons: `<p class="break-words whitespace-normal">This is the amount of argons you have available and unallocated in your account.</p>`,
+      mintPipelineMicrogons: `<p class="break-words whitespace-normal">These argons are minted to your account via liquid locked bitcoins.</p>`,
       pendingMintingValue: pendingMintingValue.value
         ? `<p class="break-words whitespace-normal">
           These have been earned, but they have not yet been minted. Minting is determined by supply and demand,
@@ -114,14 +127,12 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
           This is where you'll see argons that are earned but not yet minted. You currently have zero argons waiting
           in the minting queue.
         </p>`,
-      alreadyMintedValue: pendingAllocateTxMetadata.value
+      alreadyMintedValue: mintedValueInAccount.value
         ? `<p class="break-words whitespace-normal">
-              These argons are available for use. Click the Activate button to distribute them between bitcoin
-              securitization and treasury bonds.
+              These argons are minted to your account and available for use. They will be needed to unlock your Bitcoin, but can be used freely in the interim.
             </p>`
         : `<p class="break-words whitespace-normal">
-              These argons are currently being activated. Once the activation transaction is finalized, they will be
-              distributed between bitcoin securitization and treasury bonds.
+              This is where you'll see argons that have been minted as a result of locking bitcoin into your vault. You currently have zero argons minted.
             </p>`,
       bitcoinSecurityTotal: `<p class="break-words whitespace-normal">
             This is the total capital applied to your vault's bitcoin securitization. It insures that anyone who locks
@@ -133,7 +144,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
             </p>`,
       pendingSecuritization: `<p class="break-words whitespace-normal">
               These argons are already committed to bitcoins pending in your vault. However, these bitcoins are still in
-              the process of locking. Once completed, these argons will move to "Actively In Use".
+              the process of locking. Once completed, these argons will move to "Activated".
             </p>`,
       activatedSecuritization: activatedSecuritization.value
         ? `<p v-if="breakdown.activatedSecuritization" class="break-words whitespace-normal">
@@ -198,11 +209,11 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   return {
     vaultingAvailableMicrogons,
     pendingMintingValue,
-    alreadyMintedValue,
+    mintedValueInAccount,
     pendingAllocateTxMetadata,
     sidelinedMicrogons,
     bitcoinSecurityTotal,
-    waitingSecuritization,
+    waitingSecuritization: waitingSecuritization,
     pendingSecuritization,
     activatedSecuritization,
     treasuryBondTotal,

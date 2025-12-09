@@ -15,7 +15,7 @@ import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { createDeferred, IDeferred } from './Utils.ts';
-import { TransactionEvents } from '@argonprotocol/apps-core';
+import { BlockWatch, IBlockHeaderInfo, TransactionEvents } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -34,7 +34,10 @@ export class TransactionTracker {
   #bestBlockNumber?: number;
   #watchUnsubscribe?: () => void;
 
-  constructor(private readonly dbPromise: Promise<Db>) {
+  constructor(
+    private readonly dbPromise: Promise<Db>,
+    private blockWatch: BlockWatch,
+  ) {
     this.data = {
       txInfos: [],
       txInfosByType: {},
@@ -54,7 +57,8 @@ export class TransactionTracker {
     try {
       const table = await this.getTable();
       const txs = await table.fetchAll();
-      const client = await getMainchainClient(true);
+      const client = await getMainchainClient(false);
+      await this.blockWatch.start();
 
       this.data.txInfos.length = 0;
       for (const tx of txs) {
@@ -108,6 +112,14 @@ export class TransactionTracker {
         this.data.txInfos.push(txInfo);
         this.data.txInfosByType[tx.extrinsicType] = txInfo;
       }
+      for (const txInfo of this.data.txInfos) {
+        if (txInfo.tx.followOnTxId) {
+          const followOnTx = this.data.txInfos.find(x => x.tx.id === txInfo.tx.followOnTxId);
+          if (followOnTx) {
+            txInfo.registerDeferredFollowOnTx().resolve(followOnTx);
+          }
+        }
+      }
       if (this.data.txInfos.some(x => PENDING_STATUSES.includes(x.tx.status))) {
         await this.watchForUpdates();
       }
@@ -143,6 +155,16 @@ export class TransactionTracker {
     });
   }
 
+  public createIntentForFollowOnTx<T>(txInfo: TransactionInfo): IDeferred<TransactionInfo<T>> {
+    const deferred = txInfo.registerDeferredFollowOnTx<T>();
+    void deferred.promise.then(async x => {
+      const table = await this.getTable();
+      await table.recordFollowOnTxId(txInfo.tx, x.tx.id);
+    });
+
+    return deferred;
+  }
+
   public async trackTxResult<T>(
     args: {
       txResult: TxResult;
@@ -164,7 +186,6 @@ export class TransactionTracker {
       submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
       submittedAtTime: txResult.extrinsic.submittedTime,
     });
-    await this.watchForUpdates();
 
     // Mark txResult as non-reactive to avoid issues with private fields
     Vue.markRaw(txResult);
@@ -174,21 +195,21 @@ export class TransactionTracker {
     if (txResult.submissionError) {
       await table.recordSubmissionError(record, txResult.submissionError);
     }
+    await this.watchForUpdates();
 
     return txInfo;
   }
 
   private async watchForUpdates() {
-    const client = await getMainchainClient(false);
-    this.#bestBlockNumber = (await client.rpc.chain.getHeader()).number.toNumber();
-    await this.updatePendingStatuses(this.#bestBlockNumber);
+    this.#bestBlockNumber = this.blockWatch.bestBlockHeader.blockNumber;
+    await this.updatePendingStatuses(this.blockWatch.bestBlockHeader);
 
-    this.#watchUnsubscribe ??= await client.rpc.chain.subscribeNewHeads(async bestHeader => {
+    this.#watchUnsubscribe ??= this.blockWatch.events.on('best-blocks', async best => {
       try {
-        const bestBlockNumber = bestHeader.number.toNumber();
+        const bestBlockNumber = best.at(-1)!.blockNumber;
         if (bestBlockNumber !== this.#bestBlockNumber) {
           this.#bestBlockNumber = bestBlockNumber;
-          await this.updatePendingStatuses(bestBlockNumber);
+          await this.updatePendingStatuses(best.at(-1)!);
         }
       } catch (error) {
         console.error('Error watching for transaction updates:', error);
@@ -203,13 +224,13 @@ export class TransactionTracker {
 
   private async findTransactionInBlocks(
     tx: ITransactionRecord,
-    client: ArgonClient,
     maxBlocksToCheck: number,
     bestBlockHeight: number,
   ): Promise<
     | {
         blockNumber: number;
         blockHash: string;
+        blockTime: number;
         extrinsicError?: ExtrinsicError;
         extrinsicIndex: number;
         txFeePlusTip: bigint;
@@ -225,17 +246,20 @@ export class TransactionTracker {
       if (blockHeight > bestBlockHeight) {
         return undefined;
       }
-      const blockHash = await client.rpc.chain.getBlockHash(blockHeight);
+      const blockHeader = await this.blockWatch.getHeader(blockHeight);
+      const blockHash = blockHeader.blockHash;
+      const client = await this.blockWatch.getRpcClient(blockHeight);
       const block = await this.getBlock(client, blockHash);
       console.log(`Searching block with ${block.block.extrinsics.length} extrinsics`, {
         blockHeight,
-        blockHash: u8aToHex(blockHash),
+        blockHash,
         submittedAtBlockHeight,
       });
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) === extrinsicHash) {
-          const api = await client.at(blockHash);
+          const api = await this.blockWatch.getRpcClient(blockHeight);
           const events = await api.query.system.events();
+          const blockTime = (await api.query.timestamp.now()).toNumber();
           const result = await TransactionEvents.getErrorAndFeeForTransaction({
             client,
             extrinsicIndex: index,
@@ -244,39 +268,30 @@ export class TransactionTracker {
 
           console.log(`Found extrinsic`, {
             blockHeight,
-            blockHash: u8aToHex(blockHash),
+            blockHash,
             extrinsicHash,
           });
           return {
             blockNumber: blockHeight,
-            blockHash: u8aToHex(blockHash),
+            blockHash,
             extrinsicError: result.error,
             txFeePlusTip: result.fee + result.tip,
             tip: result.tip,
             transactionEvents: result.extrinsicEvents,
             extrinsicIndex: index,
+            blockTime,
           };
         }
       }
     }
   }
 
-  private async getFinalizedBlockDetails(client: ArgonClient): Promise<{ blockNumber: number; blockTime: Date }> {
-    const finalizedHash = await client.rpc.chain.getFinalizedHead();
-    const finalizedHeader = await client.rpc.chain.getHeader(finalizedHash);
-    const blockNumber = finalizedHeader.number.toNumber();
-    const clientAt = await client.at(finalizedHash);
-    const blockTime = new Date((await clientAt.query.timestamp.now()).toNumber());
-    return {
-      blockNumber,
-      blockTime,
-    };
-  }
-
-  private async updatePendingStatuses(bestBlockNumber: number): Promise<void> {
+  private async updatePendingStatuses(bestBlockInfo: IBlockHeaderInfo): Promise<void> {
     const table = await this.getTable();
-    const client = await getMainchainClient(true);
-    const finalizedDetails = await this.getFinalizedBlockDetails(client);
+    const finalizedDetails = this.blockWatch.finalizedBlockHeader;
+    const clientAt = await this.blockWatch.getRpcClient(finalizedDetails.blockNumber);
+    const finalizedBlockTime = new Date((await clientAt.query.timestamp.now()).toNumber());
+    const bestBlockNumber = bestBlockInfo.blockNumber;
     const finalizedHeight = finalizedDetails.blockNumber;
 
     for (const txInfo of this.data.txInfos) {
@@ -287,8 +302,8 @@ export class TransactionTracker {
       try {
         if (tx.blockHeight && tx.blockHeight <= finalizedHeight) {
           // ensure this block hash is still valid
-          const finalizedHash = await client.rpc.chain.getBlockHash(tx.blockHeight).catch(() => null);
-          if (u8aToHex(finalizedHash) === tx.blockHash) {
+          const finalizedHash = await this.blockWatch.getFinalizedHash(tx.blockHeight);
+          if (finalizedHash === tx.blockHash) {
             await table.markFinalized(tx);
             txResult.setFinalized();
             continue;
@@ -307,9 +322,8 @@ export class TransactionTracker {
 
         const findTransactionResult = await this.findTransactionInBlocks(
           tx,
-          client,
           MAX_BLOCKS_TO_CHECK,
-          bestBlockNumber,
+          bestBlockInfo.blockNumber,
         );
         if (findTransactionResult) {
           const originalBlockHash = tx.blockHash;
@@ -318,10 +332,16 @@ export class TransactionTracker {
             console.log('No change in block', { info: txInfo, findTransactionResult });
             continue;
           }
-          const { blockHash, blockNumber, txFeePlusTip, tip, extrinsicError, transactionEvents, extrinsicIndex } =
-            findTransactionResult;
-          const api = await client.at(findTransactionResult.blockHash);
-          const blockTime = (await api.query.timestamp.now()).toNumber();
+          const {
+            blockHash,
+            blockNumber,
+            blockTime,
+            txFeePlusTip,
+            tip,
+            extrinsicError,
+            transactionEvents,
+            extrinsicIndex,
+          } = findTransactionResult;
           const u8aBlockHash = hexToU8a(blockHash);
           await table.recordInBlock(tx, {
             blockNumber: blockNumber,
@@ -353,7 +373,10 @@ export class TransactionTracker {
     }
     for (const txInfo of this.data.txInfos) {
       if (txInfo.tx.status === TransactionStatus.Finalized || txInfo.tx.status === TransactionStatus.Error) continue;
-      await table.updateLastFinalizedBlock(txInfo.tx, finalizedDetails);
+      await table.updateLastFinalizedBlock(txInfo.tx, {
+        blockNumber: finalizedHeight,
+        blockTime: finalizedBlockTime,
+      });
       txInfo.finalizedBlockHeight = finalizedHeight;
     }
     if (this.data.txInfos.every(x => !PENDING_STATUSES.includes(x.tx.status))) {
@@ -366,14 +389,13 @@ export class TransactionTracker {
     return this.#table;
   }
 
-  private async getBlock(client: ArgonClient, blockHash: Uint8Array): Promise<SignedBlock> {
-    const cacheKey = u8aToHex(blockHash);
-    const cached = this.#blockCache.get(cacheKey);
+  private async getBlock(client: ArgonClient, blockHash: string): Promise<SignedBlock> {
+    const cached = this.#blockCache.get(blockHash);
     if (cached) {
       return cached;
     }
     const block = await client.rpc.chain.getBlock(blockHash);
-    this.#blockCache.set(cacheKey, block);
+    this.#blockCache.set(blockHash, block);
     return block;
   }
 }

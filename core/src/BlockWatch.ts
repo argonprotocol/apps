@@ -39,6 +39,7 @@ export class BlockWatch {
   // Tracks all best block headers seen since latest finalized block
 
   public latestHeaders: IBlockHeaderInfo[] = [];
+  public finalizedHashes: { [blockNumber: number]: string } = {};
   public isLoaded = createDeferred(false);
   private processingQueue = new SingleFileQueue();
 
@@ -54,6 +55,7 @@ export class BlockWatch {
     if (this.isLoaded.isRunning || this.isLoaded.isResolved) {
       return this.isLoaded.promise;
     }
+    console.time('[BlockWatch] start');
     let client = await this.clients.prunedClientPromise;
     if (this.forcePrunedClientSubscriptions) {
       if (!client) {
@@ -108,6 +110,7 @@ export class BlockWatch {
       this.isLoaded.reject(err);
       throw err;
     }
+    console.timeEnd('[BlockWatch] start');
     this.isLoaded.resolve();
     return this.isLoaded.promise;
   }
@@ -144,7 +147,20 @@ export class BlockWatch {
     return this.clients.archiveClientPromise;
   }
 
+  public async getFinalizedHash(blockNumber: number): Promise<string> {
+    const finalizedHash = this.finalizedHashes[blockNumber];
+    if (finalizedHash) {
+      return finalizedHash;
+    }
+    const client = await this.getRpcClient(blockNumber);
+    return await client.rpc.chain.getBlockHash(blockNumber).then(x => x.toHex());
+  }
+
   public async getHeader(blockNumber: number): Promise<IBlockHeaderInfo> {
+    const best = this.latestHeaders.find(x => x.blockNumber === blockNumber);
+    if (best) {
+      return best;
+    }
     const client = await this.getRpcClient(blockNumber);
     const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
     const header = await client.rpc.chain.getHeader(blockHash);
@@ -195,6 +211,7 @@ export class BlockWatch {
     for (let i = 0; i < this.latestHeaders.length; i++) {
       const h = this.latestHeaders[i];
       if (h.blockNumber <= finalizedNumber) {
+        this.finalizedHashes[h.blockNumber] = h.blockHash;
         if (h.blockNumber < finalizedNumber) {
           toDeleteCount++;
         }

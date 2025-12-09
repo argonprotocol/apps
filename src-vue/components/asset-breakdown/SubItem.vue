@@ -7,7 +7,7 @@
       :class="twMerge(props.class, isRight ? 'flex-row-reverse' : 'flex-row')"
       :style="{ height }"
     >
-      <div class="Connector" :isReversed="isRight" />
+      <div class="Connector" :isReversed="isRight" v-if="!props.hideConnector" />
       <div class="Text relative group pointer-events-none" :class="[isRight ? 'flex-row-reverse' : 'flex-row', paddingClass]">
         <slot />
         <div
@@ -77,6 +77,7 @@ const props = withDefaults(
     tooltipSide?: 'right' | 'top';
     moveFrom?: MoveFrom;
     moveTo?: MoveTo;
+    hideConnector?: boolean;
   }>(),
   {
     align: 'left',

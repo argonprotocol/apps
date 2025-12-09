@@ -1,6 +1,6 @@
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { JsonExt, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
+import { BlockWatch, JsonExt, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
@@ -30,7 +30,8 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   it('should get and store errors on submission', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
-    const transactionTracker = new TransactionTracker(Promise.resolve(db));
+    const blockwatch = new BlockWatch(clients);
+    const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     expect(transactionTracker.data.txInfos).toHaveLength(0);
     const newMnemonic = mnemonicGenerate();
@@ -57,7 +58,8 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     console.time('test');
     const client = await clients.get(false);
     const db = await createTestDb();
-    const transactionTracker = new TransactionTracker(Promise.resolve(db));
+    const blockwatch = new BlockWatch(clients);
+    const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
     const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockImplementation(() => null);
@@ -91,7 +93,8 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     expect(tx.status).toBe(TransactionStatus.InBlock);
     expect(transactionTracker.data.txInfos).toHaveLength(1);
     {
-      const transactionTracker2 = new TransactionTracker(Promise.resolve(db));
+      const blockwatch = new BlockWatch(clients);
+      const transactionTracker2 = new TransactionTracker(Promise.resolve(db), blockwatch);
       vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
       await transactionTracker2.load();
       expect(transactionTracker2.data.txInfos).toHaveLength(1);
@@ -107,7 +110,8 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     // doesn't change the starting load status
     expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(1);
     {
-      const transactionTracker2 = new TransactionTracker(Promise.resolve(db));
+      const blockwatch = new BlockWatch(clients);
+      const transactionTracker2 = new TransactionTracker(Promise.resolve(db), blockwatch);
       vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
       await transactionTracker2.load();
       expect(transactionTracker2.data.txInfos).toHaveLength(1);
@@ -119,7 +123,8 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   it('should record expired watching transactions', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
-    const transactionTracker = new TransactionTracker(Promise.resolve(db));
+    const blockwatch = new BlockWatch(clients);
+    const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockImplementation(() => null);
 
@@ -133,10 +138,16 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     });
     expect(tx.status).toBe(TransactionStatus.Submitted);
     expect(watchSpy).toHaveBeenCalledTimes(1);
-    vi.spyOn(transactionTracker, 'getFinalizedBlockDetails' as any).mockImplementation(async () => ({
-      blockNumber: tx.submittedAtBlockHeight + 65,
-      blockTime: new Date(tx.submittedAtTime.getTime() + 65 * 1000),
-    }));
+    blockwatch.latestHeaders = [
+      {
+        isFinalized: true,
+        blockNumber: tx.submittedAtBlockHeight + 65,
+        blockHash: '0xabc',
+        parentHash: '0xdef',
+        tick: 0,
+        author: '0x123',
+      },
+    ];
 
     // @ts-expect-error Now actually watch for updates
     await transactionTracker.updatePendingStatuses(70);

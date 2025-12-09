@@ -28,6 +28,7 @@ export enum TransactionStatus {
 export interface ITransactionRecord<MetadataType = any> {
   id: number; // Auto-incrementing primary key since extrinsic hash isn't implicitly unique and can overlap
   status: TransactionStatus;
+  followOnTxId?: number;
   extrinsicHash: string;
   extrinsicMethodJson: any;
   extrinsicType: ExtrinsicType;
@@ -73,6 +74,15 @@ export class TransactionsTable extends BaseTable {
       json: this.jsonFields,
       boolean: this.booleanFields,
     };
+  }
+
+  public async recordFollowOnTxId(record: ITransactionRecord, followOnTxId: number): Promise<ITransactionRecord> {
+    record.followOnTxId = followOnTxId;
+    await this.db.execute(
+      `UPDATE Transactions SET followOnTxId = ? WHERE id = ?`,
+      toSqlParams([record.followOnTxId, record.id]),
+    );
+    return record;
   }
 
   public async fetchAll(): Promise<ITransactionRecord[]> {

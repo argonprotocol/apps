@@ -7,6 +7,7 @@ export interface IVaultRecord {
   createdAtBlockHeight: number;
   lastTermsUpdateHeight?: number;
   personalUtxoId?: number;
+  personalBitcoinMintAmountMovedOut: bigint;
   operationalFeeMicrogons?: bigint;
   /**
    * The amount of microgons that have been prebonded to this vault as well as tip and fee
@@ -21,7 +22,7 @@ export interface IVaultRecord {
 export class VaultsTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
     date: ['createdAt', 'updatedAt'],
-    bigint: ['prebondedMicrogons', 'operationalFeeMicrogons'],
+    bigint: ['prebondedMicrogons', 'operationalFeeMicrogons', 'personalBitcoinMintAmountMovedOut'],
   };
 
   public async insert(
@@ -43,13 +44,14 @@ export class VaultsTable extends BaseTable {
   public async save(record: IVaultRecord): Promise<void> {
     await this.db.execute(
       'UPDATE Vaults SET operationalFeeMicrogons = ?, prebondedMicrogons = ?, prebondedMicrogonsAtTick = ?, lastTermsUpdateHeight = ?, ' +
-        'personalUtxoId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+        'personalUtxoId = ?, personalBitcoinMintAmountMovedOut = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
       toSqlParams([
         record.operationalFeeMicrogons,
         record.prebondedMicrogons,
         record.prebondedMicrogonsAtTick,
         record.lastTermsUpdateHeight,
         record.personalUtxoId,
+        record.personalBitcoinMintAmountMovedOut,
         record.id,
       ]),
     );

@@ -1,10 +1,15 @@
 import { Db } from './Db.ts';
 import { IBlockToProcess } from './WalletBalances.ts';
-import { IExtrinsicEvent, IInboundTransfer, IMainchainExchangeRates } from '@argonprotocol/apps-core';
-import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
+import {
+  IBalanceTransfer,
+  IExtrinsicEvent,
+  IMainchainExchangeRates,
+  IVaultRevenueEvent,
+} from '@argonprotocol/apps-core';
 
 export type IBalanceChange = {
   block: IBlockToProcess;
+  vaultRevenueEvents: IVaultRevenueEvent[];
   microgonsAdded: bigint;
   micronotsAdded: bigint;
   availableMicrogons: bigint;
@@ -12,7 +17,7 @@ export type IBalanceChange = {
   reservedMicrogons: bigint;
   reservedMicronots: bigint;
   extrinsicEvents: IExtrinsicEvent[];
-  inboundTransfers: IInboundTransfer[];
+  transfers: IBalanceTransfer[];
 };
 
 export type IWallet = {
@@ -119,8 +124,8 @@ export class Wallet implements IWallet {
     this.balanceHistory.push(newBalance);
     const hasChange = this.hasDiff(prev, newBalance);
     if (hasChange) {
-      const table = await this.getTable();
-      await table.insert({
+      const database = await this.db;
+      await database.walletLedgerTable.insert({
         walletAddress: this.address,
         walletName: this.type,
         availableMicrogons: newBalance.availableMicrogons,
@@ -131,19 +136,35 @@ export class Wallet implements IWallet {
         micronotChange: newBalance.micronotsAdded,
         microgonsForUsd: prices?.USD ?? 0n,
         microgonsForArgonot: prices?.ARGNOT ?? 0n,
-        inboundTransfersJson: newBalance.inboundTransfers,
         extrinsicEventsJson: newBalance.extrinsicEvents,
         blockNumber: newBalance.block.blockNumber,
         blockHash: newBalance.block.blockHash,
         isFinalized: newBalance.block.isFinalized,
       });
+      for (const transfer of newBalance.transfers) {
+        await database.walletTransfersTable.insert({
+          walletAddress: this.address,
+          walletName: this.type,
+          amount: transfer.isInbound ? transfer.amount : -transfer.amount,
+          isInternal: transfer.isInternal,
+          currency: transfer.isOwnership ? 'argonot' : 'argon',
+          extrinsicIndex: transfer.extrinsicIndex,
+          otherParty: transfer.isInbound ? transfer.from : transfer.to,
+          transferType: transfer.transferType,
+          blockNumber: newBalance.block.blockNumber,
+          blockHash: newBalance.block.blockHash,
+        });
+      }
+      for (const revenueEvent of newBalance.vaultRevenueEvents) {
+        await database.vaultRevenueEventsTable.insert({
+          amount: revenueEvent.amount,
+          source: revenueEvent.source,
+          blockNumber: newBalance.block.blockNumber,
+          blockHash: newBalance.block.blockHash,
+        });
+      }
     }
 
     return hasChange;
-  }
-
-  private async getTable(): Promise<WalletLedgerTable> {
-    const database = await this.db;
-    return new WalletLedgerTable(database);
   }
 }

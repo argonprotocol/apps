@@ -1,6 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
-import { IExtrinsicEvent, IInboundTransfer } from '@argonprotocol/apps-core';
+import { IEventInfo, IExtrinsicEvent } from '@argonprotocol/apps-core';
 
 export interface IWalletLedgerRecord {
   id: number;
@@ -14,7 +14,14 @@ export interface IWalletLedgerRecord {
   micronotChange: bigint;
   microgonsForUsd: bigint;
   microgonsForArgonot: bigint;
-  inboundTransfersJson: IInboundTransfer[];
+  // @deprecated - this was moved to it's own table
+  inboundTransfersJson: {
+    to: string;
+    from: string;
+    amount: bigint;
+    isOwnership: boolean;
+    events: IEventInfo[];
+  }[];
   extrinsicEventsJson: IExtrinsicEvent[];
   blockNumber: number;
   blockHash: string;
@@ -54,7 +61,9 @@ export class WalletLedgerTable extends BaseTable {
     return convertFromSqliteFields(records, this.fields);
   }
 
-  public async insert(args: Omit<IWalletLedgerRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<IWalletLedgerRecord> {
+  public async insert(
+    args: Omit<IWalletLedgerRecord, 'id' | 'createdAt' | 'updatedAt' | 'inboundTransfersJson'>,
+  ): Promise<IWalletLedgerRecord> {
     const {
       walletAddress,
       walletName,
@@ -66,7 +75,6 @@ export class WalletLedgerTable extends BaseTable {
       micronotChange,
       microgonsForUsd,
       microgonsForArgonot,
-      inboundTransfersJson,
       extrinsicEventsJson,
       blockNumber,
       blockHash,
@@ -89,7 +97,7 @@ export class WalletLedgerTable extends BaseTable {
         micronotChange,
         microgonsForUsd,
         microgonsForArgonot,
-        inboundTransfersJson,
+        [], // inboundTransfersJson is deprecated
         extrinsicEventsJson,
         blockNumber,
         blockHash,
@@ -100,7 +108,10 @@ export class WalletLedgerTable extends BaseTable {
   }
 
   public async markFinalizedUpToBlock(blockNumber: number): Promise<void> {
-    await this.db.execute(`UPDATE WalletLedger SET isFinalized = 1 WHERE blockNumber <= ?`, toSqlParams([blockNumber]));
+    await this.db.execute(
+      `UPDATE WalletLedger SET isFinalized = 1 WHERE blockNumber <= ? and isFinalized = 0`,
+      toSqlParams([blockNumber]),
+    );
   }
 
   public async deleteBlock(blockHash: string): Promise<void> {

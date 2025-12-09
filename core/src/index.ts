@@ -8,6 +8,7 @@ export * from './PriceIndex.js';
 export * from './AccountEventsFilter.js';
 export * from './MainchainClients.js';
 export * from './FrameIterator.js';
+export * from './BlockWatch.js';
 export * from './Mining.js';
 export * from './MiningFrames.js';
 export * from './NetworkConfig.js';

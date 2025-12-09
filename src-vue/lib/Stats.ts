@@ -9,12 +9,11 @@ import {
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
 import { Config } from './Config';
-import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
+import { bigIntMax, MiningFrames } from '@argonprotocol/apps-core';
 import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import { botEmitter } from './Bot';
 import { createDeferred, ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
-import { MiningFrames } from '../../core/src/MiningFrames.ts';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 import { Currency } from './Currency.ts';
 

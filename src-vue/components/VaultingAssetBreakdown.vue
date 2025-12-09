@@ -2,9 +2,32 @@
 <template>
   <TooltipProvider :disableHoverableContent="true">
     <div :class="twMerge('text-md relative flex w-full flex-col items-center whitespace-nowrap', props.class)">
-      <template v-if="props.show !== 'OnlyTotal'">
+      <template v-if="!config.isVaultReadyToCreate && props.show !== 'OnlyTotal'">
+        <NeedsSetup
+          :tooltipSide="tooltipSide"
+          :spacerWidth="spacerWidth"
+          :align="props.align">
+          Your vault account is still waiting to be setup.
+          <template #value>
+            <SubItem
+              class="h-10"
+              :tooltip="breakdown.help.vaultingAvailableMicrogons"
+              :tooltipSide="tooltipSide"
+              :height="itemHeight"
+              :hide-connector="true"
+              :spacerWidth="spacerWidth"
+              :align="props.align"
+              :showMoveButton="props.showMoveButtons"
+              :moveFrom="MoveFrom.VaultingUnusedArgon"
+              :moveTo="MoveTo.Holding">
+              {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).format('0,0.[00]') }} ARGN
+            </SubItem>
+          </template>
+        </NeedsSetup>
+      </template>
+      <template v-else-if="props.show !== 'OnlyTotal'">
         <Header
-          :tooltip="breakdown.help.vaultingAvailableMicrogons"
+          :tooltip="breakdown.help.mintPipelineMicrogons"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
@@ -13,7 +36,7 @@
           Minting Pipeline
           <template #icon><ArgonIcon class="h-7 w-7" /></template>
           <template #value>
-            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.vaultingAvailableMicrogons).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.mintedValueInAccount + breakdown.pendingMintingValue).format('0,0.00') }}
           </template>
         </Header>
         <SubItem
@@ -34,7 +57,7 @@
           :moveFrom="MoveFrom.VaultingMintedArgon"
           :moveTo="MoveTo.Holding"
         >
-          {{ microgonToArgonNm(breakdown.alreadyMintedValue).format('0,0.[00]') }} ARGN Minted
+          {{ microgonToArgonNm(breakdown.mintedValueInAccount).format('0,0.[00]') }} ARGN Minted
         </SubItem>
 
         <Header
@@ -180,7 +203,12 @@ import Header from './asset-breakdown/Header.vue';
 import SubItem from './asset-breakdown/SubItem.vue';
 import Expenses from './asset-breakdown/Expenses.vue';
 import Total from './asset-breakdown/Total.vue';
-import MoveCapitalButton, { MoveFrom, MoveTo } from '../overlays/MoveCapitalButton.vue';
+import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { useConfig } from '../stores/config.ts';
+import { useWallets } from '../stores/wallets.ts';
+import NeedsSetup from './asset-breakdown/NeedsSetup.vue';
+import { useMyVault, useVaults } from '../stores/vaults.ts';
+import { useBitcoinLocks } from '../stores/bitcoin.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -199,7 +227,19 @@ const props = withDefaults(
 );
 
 const currency = useCurrency();
+const config = useConfig();
+const wallets = useWallets();
+const myVault = useMyVault();
+const vaults = useVaults();
+const miningFrames = vaults.miningFrames;
+const bitcoinLocks = useBitcoinLocks();
 
+Vue.onMounted(async () => {
+  await miningFrames.load();
+  await myVault.load();
+  await myVault.subscribe();
+  await bitcoinLocks.load();
+});
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 
 const breakdown = useVaultingAssetBreakdown();

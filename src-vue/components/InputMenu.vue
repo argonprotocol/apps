@@ -18,7 +18,7 @@
 
     <SelectPortal>
       <SelectContent
-        class="bg-white cursor-default data-[side=bottom]:rounded-b-md data-[side=top]:rounded-t-md data-[side=bottom]:border-t-gray-400 data-[side=top]:border-b-gray-400 border border-slate-700/50 shadow-sm will-change-[opacity,transform] data-[side=top]:animate-slideDownAndFade data-[side=right]:animate-slideLeftAndFade data-[side=bottom]:animate-slideUpAndFade data-[side=left]:animate-slideRightAndFade z-[100]"
+        class="bg-white cursor-default data-[side=bottom]:rounded-b-md data-[side=top]:rounded-t-md data-[side=bottom]:border-t-gray-400 data-[side=top]:border-b-gray-400 border border-slate-700/50 shadow-sm will-change-[opacity,transform] data-[side=top]:animate-slideDownAndFade data-[side=right]:animate-slideLeftAndFade data-[side=bottom]:animate-slideUpAndFade data-[side=left]:animate-slideRightAndFade z-[2000]"
         position="popper"
         :style="{ minWidth: menuWidth, maxHeight: 'var(--reka-select-content-available-height)' }"
         :avoidCollisions="true"

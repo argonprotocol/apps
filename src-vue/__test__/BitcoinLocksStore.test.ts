@@ -36,9 +36,9 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   it('getLockProcessingDetails should update progress ', async () => {
     const priceIndex = new PriceIndex(clients);
     const db = await createTestDb();
-    const transactionTracker = new TransactionTracker(Promise.resolve(db));
-    const walletKeys = createMockWalletKeys();
     const blockWatch = new BlockWatch(clients);
+    const transactionTracker = new TransactionTracker(Promise.resolve(db), blockWatch);
+    const walletKeys = createMockWalletKeys();
     const bitcoinLocksStore = new BitcoinLocksStore(
       Promise.resolve(createTestDb()),
       walletKeys,

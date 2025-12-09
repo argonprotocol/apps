@@ -11,7 +11,6 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
 
 const props = defineProps<{
