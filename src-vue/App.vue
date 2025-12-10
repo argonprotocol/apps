@@ -86,16 +86,20 @@ const showMiningScreen = Vue.computed(() => {
   return controller.screenKey === ScreenKey.Mining;
 });
 
+const order = [ScreenKey.Home, ScreenKey.Mining, ScreenKey.Vaulting];
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)
+  const currentOrder = order.indexOf(controller.screenKey);
   if (event.metaKey && event.shiftKey && event.key === '[') {
     event.preventDefault();
-    controller.setScreenKey(ScreenKey.Mining);
+    const left = (currentOrder - 1 + order.length) % order.length;
+    controller.setScreenKey(order[left]);
   }
   // Check for CMD+Shift+] (vaulting panel)
   else if (event.metaKey && event.shiftKey && event.key === ']') {
     event.preventDefault();
-    controller.setScreenKey(ScreenKey.Vaulting);
+    const right = (currentOrder + 1) % order.length;
+    controller.setScreenKey(order[right]);
   }
 }
 

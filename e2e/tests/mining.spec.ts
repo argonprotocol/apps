@@ -8,6 +8,7 @@ import { getArchiveUrl } from '../wdio.conf';
 it('should be able to start a miner', async () => {
   await $('#app').waitForDisplayed();
   await waitAndClick('WelcomeOverlay.closeOverlay()');
+  await waitAndClick('TabSwitcher.goto(ScreenKey.Mining)');
   await waitAndClick('BlankSlate.startSettingUpMiner()');
   await waitAndClick('FinalSetupChecklist.openHowMiningWorksOverlay()'); // click for tour
   await waitAndClick('HowMiningWorks.closeOverlay()');

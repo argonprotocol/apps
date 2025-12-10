@@ -439,55 +439,18 @@ const bitcoinLockedValue = Vue.computed<bigint>(() => {
 });
 
 const currentApy = Vue.computed(() => {
-  const stats = myVault.data.stats;
-  if (!stats) return 0;
-
-  const capitalDeployed: bigint[] = [];
-  let sum = 0n;
-  let startingFrame: number | undefined = undefined;
-  let mostRecentFrame: number | undefined = undefined;
-  let lastSecuritization = 0n;
-  for (const change of stats.changesByFrame) {
-    if (change.uncollectedEarnings === 0n) {
-      sum += change.bitcoinFeeRevenue ?? 0n;
-      sum += change.treasuryPool.vaultEarnings ?? 0n;
-    }
-    // if there's a change record, the vault did something
-    startingFrame = Math.max(startingFrame ?? change.frameId, change.frameId);
-    mostRecentFrame = Math.min(mostRecentFrame ?? change.frameId, change.frameId);
-    if (change.securitization) {
-      lastSecuritization = change.securitization;
-    }
-    capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
-  }
-
-  if (lastSecuritization > 0n && mostRecentFrame !== undefined) {
-    mostRecentFrame = Math.max(myVault.data.currentFrameId, mostRecentFrame);
-  }
-
-  const averageCapitalDeployed =
-    capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length || 1);
-  const frames =
-    mostRecentFrame !== undefined && startingFrame !== undefined ? startingFrame - mostRecentFrame + 1 : undefined;
-  return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + revenueMicrogons.value, frames);
+  const { earnings, activeFrames, averageCapitalDeployed } = myVault.revenue();
+  if (earnings === 0n) return 0;
+  return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + earnings, activeFrames);
 });
 
 const revenueMicrogons = Vue.computed(() => {
-  const stats = myVault.data.stats;
-  if (!stats) return 0n;
-  let sum = stats.baseline.feeRevenue ?? 0n;
-  for (const change of stats.changesByFrame) {
-    if (change.uncollectedEarnings === 0n) {
-      sum += change.bitcoinFeeRevenue ?? 0n;
-      sum += change.treasuryPool.vaultEarnings ?? 0n;
-    }
-  }
-  return sum;
+  const { earnings } = myVault.revenue();
+  return earnings;
 });
 
 const showCollectOverlay = Vue.ref(false);
 const showEditOverlay = Vue.ref(false);
-const showActivateOverlay = Vue.ref(false);
 
 const hasNextFrame = Vue.computed(() => {
   return sliderFrameIndex.value < frameRecords.value.length - 1;

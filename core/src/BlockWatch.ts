@@ -49,7 +49,7 @@ export class BlockWatch {
   private isPrunedClientSubscription: boolean = false;
 
   constructor(
-    private clients: MainchainClients,
+    public clients: MainchainClients,
     private forcePrunedClientSubscriptions = false,
   ) {}
 

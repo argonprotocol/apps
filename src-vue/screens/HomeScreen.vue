@@ -16,45 +16,92 @@
             <MinerIcon class="mr-3 ml-2 h-7" />
             <span>My Mining Operations</span>
           </header>
-          <div class="flex grow flex-col gap-y-2 pt-2 text-center">
+          <div class="flex grow flex-col gap-y-2 pt-2 text-center" v-if="config.isMinerInstalled">
             <div class="flex h-1/2 flex-row items-center gap-x-2">
               <div StatWrapper class="flex w-1/2 flex-col">
-                <div Stat>{{ currency.symbol }}5,000</div>
+                <div Stat>
+                  {{ currency.symbol
+                  }}{{ microgonToMoneyNm(miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
+                </div>
                 <label>External Capital Invested</label>
               </div>
               <div StatWrapper class="flex w-1/2 flex-col">
-                <div Stat>{{ currency.symbol }}5,000</div>
+                <div Stat>
+                  {{ currency.symbol
+                  }}{{ microgonToMoneyNm(myMiningEarnings).formatIfElse('<1000', '0,0.[00]', '0,0') }}
+                </div>
                 <label>Total Earnings</label>
               </div>
             </div>
             <div class="flex h-1/2 flex-row items-center gap-x-2">
               <div StatWrapper class="flex w-1/2 flex-col">
-                <div Stat>56%</div>
+                <div Stat>{{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
                 <label>Return On Investment</label>
               </div>
               <div StatWrapper class="flex w-1/2 flex-col">
-                <div Stat>763%</div>
+                <div Stat>{{ numeral(myMiningApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
                 <label>Annual Percentage Yield</label>
               </div>
             </div>
           </div>
+          <template v-else>
+            <p class="px-3 py-3 font-light text-slate-900/80">
+              Argon's Miners secure the network by processing transactions and maintaining consensus. Miners are also
+              granted rights to print any new Argons needed to keep the stablecoin pegged to its target price. This puts
+              miners in a unique position to profit from the growth of the Argon ecosystem.
+            </p>
+            <button
+              @click="controller.setScreenKey(ScreenKey.Mining)"
+              class="text-argon-600 border-argon-600 mt-2 ml-3 min-w-7/12 cursor-pointer rounded border px-5 py-1">
+              Open Mining Screen to Activate
+            </button>
+          </template>
         </section>
         <section box class="w-1/2 px-2">
           <header class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80">
             <VaultSmallIcon class="mr-3 ml-2 h-7" />
             <span>My Vaulting Operations</span>
           </header>
-          <p class="px-3 py-3 font-light text-slate-900/80">
-            Argon's Stabilization Vaults lock Bitcoins into special contracts that generate unencumbered shorts against
-            the Argon stablecoin. These shorts give Argon its price stability and make it impossible to death-spiral. In
-            return for operating vaults and managing the related treasury pools, Vaulters are able to earn substantial
-            rewards.
-          </p>
-          <button
-            @click="controller.setScreenKey(ScreenKey.Vaulting)"
-            class="text-argon-600 border-argon-600 mt-2 ml-3 min-w-7/12 rounded border px-5 py-1">
-            Open Vaulting Screen to Activate
-          </button>
+          <div class="flex grow flex-col gap-y-2 pt-2 text-center" v-if="config.isVaultActivated">
+            <div class="flex h-1/2 flex-row items-center gap-x-2">
+              <div StatWrapper class="flex w-1/2 flex-col">
+                <div Stat>
+                  {{ currency.symbol
+                  }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
+                </div>
+                <label>External Capital Invested</label>
+              </div>
+              <div StatWrapper class="flex w-1/2 flex-col">
+                <div Stat>
+                  {{ currency.symbol }}{{ microgonToMoneyNm(myVaultEarnings).formatIfElse('<1000', '0,0.[00]', '0,0') }}
+                </div>
+                <label>Total Earnings</label>
+              </div>
+            </div>
+            <div class="flex h-1/2 flex-row items-center gap-x-2">
+              <div StatWrapper class="flex w-1/2 flex-col">
+                <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <label>Return On Investment</label>
+              </div>
+              <div StatWrapper class="flex w-1/2 flex-col">
+                <div Stat>{{ numeral(myVaultApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <label>Annual Percentage Yield</label>
+              </div>
+            </div>
+          </div>
+          <template v-else>
+            <p class="px-3 py-3 font-light text-slate-900/80">
+              Argon's Stabilization Vaults lock Bitcoins into special contracts that generate unencumbered shorts
+              against the Argon stablecoin. These shorts give Argon its price stability and make it impossible to
+              death-spiral. In return for operating vaults and managing the related treasury pools, Vaulters are able to
+              earn substantial rewards.
+            </p>
+            <button
+              @click="controller.setScreenKey(ScreenKey.Vaulting)"
+              class="text-argon-600 border-argon-600 mt-2 ml-3 min-w-7/12 cursor-pointer rounded border px-5 py-1">
+              Open Vaulting Screen to Activate
+            </button>
+          </template>
         </section>
       </div>
 
@@ -65,7 +112,7 @@
             <div StatWrapper class="h-1/4">
               <div Stat>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Mining Bids this Epoch</label>
             </div>
@@ -76,7 +123,7 @@
             <div class="h-1/4" StatWrapper>
               <div Stat>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(miningStats.aggregatedBlockRewards).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(miningStats.aggregatedBlockRewards).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Base Mining Rewards</label>
             </div>
@@ -109,7 +156,7 @@
             <div StatWrapper class="h-1/4">
               <div Stat>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(vaultingStats.treasuryPoolEarnings).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(vaultingStats.epochEarnings).formatIfElse('< 1_000', '0,0.00', '0,0') }}
               </div>
               <label>Vaulting Revenue this Epoch</label>
             </div>
@@ -149,7 +196,7 @@
 import * as Vue from 'vue';
 import { useCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import { useVaults } from '../stores/vaults.ts';
+import { useMyVault, useVaults } from '../stores/vaults.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { TooltipProvider } from 'reka-ui';
@@ -157,19 +204,67 @@ import MinerIcon from '../assets/miner.svg?component';
 import VaultSmallIcon from '../assets/vault-small.svg?component';
 import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useController } from '../stores/controller.ts';
+import { getDbPromise } from '../stores/helpers/dbPromise.ts';
+import { useWalletBalances, useWalletKeys } from '../stores/wallets.ts';
+import { useStats } from '../stores/stats.ts';
+import { calculateAPY, calculateProfitPct } from '../lib/Utils.ts';
+import { useConfig } from '../stores/config.ts';
 
 const vaults = useVaults();
 const currency = useCurrency();
 const controller = useController();
 const vaultingStats = useVaultingStats();
 const miningStats = useMiningStats();
+const dbPromise = getDbPromise();
+const walletKeys = useWalletKeys();
+const myMinerStats = useStats();
+const myVault = useMyVault();
+const config = useConfig();
+const walletBalances = useWalletBalances();
 
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const microgonsPerArgonot = Vue.ref(0n);
 const microgonsPerBitcoin = Vue.ref(0n);
+const miningExternalInvested = Vue.ref(0n);
+
+const myMiningEarnings = Vue.computed(() => {
+  const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
+  return microgonsMintedTotal + microgonsMinedTotal + currency.micronotToMicrogon(micronotsMinedTotal) - framedCost;
+});
+
+const myMiningRoi = Vue.computed(() => {
+  return calculateProfitPct(miningExternalInvested.value, miningExternalInvested.value + myMiningEarnings.value) * 100;
+});
+
+const myMiningApy = Vue.computed(() => {
+  return calculateAPY(
+    miningExternalInvested.value,
+    miningExternalInvested.value + myMiningEarnings.value,
+    myMinerStats.activeFrames,
+  );
+});
+
+const myVaultEarnings = Vue.computed(() => {
+  return myVault.revenue().earnings;
+});
+
+const myVaultApy = Vue.computed(() => {
+  const { earnings, activeFrames } = myVault.revenue();
+  if (earnings === 0n) return 0;
+  return calculateAPY(vaultingExternalInvested.value, vaultingExternalInvested.value + earnings, activeFrames);
+});
+
+const myVaultRoi = Vue.computed(() => {
+  const revenue = myVaultEarnings.value;
+  const costs = vaultingExternalInvested.value;
+  if (costs === 0n) return 0;
+  return calculateProfitPct(costs, costs + revenue) * 100;
+});
 
 const activatedSecuritization = Vue.ref(0n);
+
+const vaultingExternalInvested = Vue.ref(0n);
 
 const dollarsPerArgon = Vue.ref(0);
 const dollarsPerArgonFormatted = Vue.computed(() => {
@@ -219,10 +314,49 @@ async function loadNetworkStats() {
   }
 }
 
+async function updateExternalFunding() {
+  const db = await dbPromise;
+
+  const miningFunding = await db.walletTransfersTable.fetchExternal(walletKeys.miningAddress);
+  miningExternalInvested.value = 0n;
+  for (const transfer of miningFunding) {
+    if (transfer.currency === 'argon') {
+      miningExternalInvested.value += transfer.amount;
+    } else {
+      miningExternalInvested.value += currency.micronotToMicrogon(transfer.amount, transfer.microgonsForArgonot);
+    }
+  }
+
+  const vaultFunding = await db.walletTransfersTable.fetchExternal(walletKeys.vaultingAddress);
+  vaultingExternalInvested.value = 0n;
+  for (const transfer of vaultFunding) {
+    vaultingExternalInvested.value += transfer.amount;
+  }
+}
+
+let unsubscribe: (() => void) | undefined;
+
+Vue.onUnmounted(() => {
+  unsubscribe?.();
+  unsubscribe = undefined;
+  void myMinerStats.unsubscribeFromDashboard();
+});
+
 Vue.onMounted(async () => {
+  await config.isLoadedPromise;
   await currency.isLoadedPromise;
   await vaults.load();
+  await vaultingStats.isLoadedPromise;
   await loadNetworkStats();
+  await miningStats.isLoadedPromise;
+  await myVault.load();
+  await updateExternalFunding();
+  unsubscribe = walletBalances.events.on('transfer-in', async () => {
+    await updateExternalFunding();
+  });
+
+  await myMinerStats.subscribeToDashboard();
+  await myMinerStats.load();
 
   microgonsPerArgonot.value = currency.microgonExchangeRateTo.ARGNOT;
   microgonsPerBitcoin.value = currency.microgonExchangeRateTo.BTC;
