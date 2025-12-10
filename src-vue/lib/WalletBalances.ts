@@ -1,11 +1,17 @@
-import { AccountEventsFilter, MainchainClients, PriceIndex, SingleFileQueue } from '@argonprotocol/apps-core';
+import {
+  AccountEventsFilter,
+  BlockWatch,
+  createTypedEventEmitter,
+  IBlockHeaderInfo,
+  PriceIndex,
+  SingleFileQueue,
+} from '@argonprotocol/apps-core';
 import { createDeferred } from './Utils';
 import { WalletKeys } from './WalletKeys.ts';
 import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
 import { Db } from './Db.ts';
 import { ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
-import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
-import { BlockWatch, IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import { MyVault } from './MyVault.ts';
 
 export interface IBlockToProcess {
   blockNumber: number;
@@ -15,13 +21,16 @@ export interface IBlockToProcess {
   isProcessed: boolean;
 }
 
+export interface IWalletEvents {
+  'balance-change': (balanceChange: IBalanceChange, type: IWalletType) => void;
+  'transfer-in': (wallet: Wallet, balanceChange: IBalanceChange) => void;
+  'block-deleted': (block: IBlockToProcess) => void;
+}
+
 export class WalletBalances {
   private deferredLoading = createDeferred<void>(false);
-  private clients: MainchainClients;
 
-  public onBalanceChange?: (balanceChange: IBalanceChange, type: IWalletType) => void;
-  public onTransferIn?: (wallet: Wallet, balanceChange: IBalanceChange) => void;
-  public onBlockDeleted?: (block: IBlockToProcess) => void;
+  public events = createTypedEventEmitter<IWalletEvents>();
   public priceIndex?: PriceIndex;
 
   public miningWallet: Wallet;
@@ -32,6 +41,7 @@ export class WalletBalances {
   private blockHistory: IBlockToProcess[] = [];
   private blockQueue = new SingleFileQueue();
   private blockWatch: BlockWatch;
+  private myVault?: MyVault;
 
   public get wallets(): Wallet[] {
     return [this.miningWallet, this.vaultingWallet, this.holdingWallet];
@@ -49,20 +59,15 @@ export class WalletBalances {
     return this.wallets.reduce((sum, w) => sum + w.totalMicronots, 0n);
   }
 
-  private readonly tablePromise: Promise<WalletLedgerTable>;
+  private readonly dbPromise: Promise<Db>;
 
-  constructor(
-    mainchainClients: MainchainClients,
-    walletKeys: WalletKeys,
-    dbPromise: Promise<Db>,
-    blockWatch: BlockWatch,
-  ) {
-    this.clients = mainchainClients;
+  constructor(walletKeys: WalletKeys, dbPromise: Promise<Db>, blockWatch: BlockWatch, myVault?: MyVault) {
     this.miningWallet = new Wallet(walletKeys.miningAddress, 'mining', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
     this.holdingWallet = new Wallet(walletKeys.holdingAddress, 'holding', dbPromise);
-    this.tablePromise = dbPromise.then(db => new WalletLedgerTable(db));
+    this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
+    this.myVault = myVault;
   }
 
   public async load() {
@@ -70,12 +75,12 @@ export class WalletBalances {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
+    await this.blockWatch.start();
+    await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
     this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
       const latestBlock = blocks[blocks.length - 1];
       await this.loadBalancesAt(latestBlock);
     });
-    await this.blockWatch.start();
-    await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
     this.deferredLoading.resolve();
   }
 
@@ -98,8 +103,6 @@ export class WalletBalances {
       return;
     }
     await this.blockQueue.add(async () => {
-      console.log(`Loading wallet balances at block #${header.blockNumber} (${header.blockHash})`);
-
       ///// UPDATE FINALIZED
       const finalizedBlock = this.blockWatch.finalizedBlockHeader;
       const finalizedBlockNumber = finalizedBlock.blockNumber;
@@ -144,8 +147,8 @@ export class WalletBalances {
       }
 
       let firstBlockNeeded = 0;
-      const table = await this.tablePromise;
-      await table.markFinalizedUpToBlock(finalizedBlockNumber);
+      const db = await this.dbPromise;
+      const table = db.walletLedgerTable;
       for (let i = 0; i < this.blockHistory.length; i++) {
         const block = this.blockHistory[i];
         if (block.blockNumber <= finalizedBlockNumber) {
@@ -156,6 +159,15 @@ export class WalletBalances {
           break;
         }
       }
+      for (const block of this.blockHistory) {
+        if (!block.isProcessed) {
+          const client = await this.blockWatch.getRpcClient(block.blockNumber);
+          await this.loadFromApi(client, block);
+          block.isProcessed = true;
+        }
+        if (this.isClosed) break;
+      }
+      await table.markFinalizedUpToBlock(finalizedBlockNumber);
       ////// PRUNE UNNEEDED BLOCKS
       if (firstBlockNeeded > 0) {
         const toDelete = this.blockHistory.splice(0, firstBlockNeeded);
@@ -165,15 +177,18 @@ export class WalletBalances {
           }
         }
       }
-      for (const block of this.blockHistory) {
-        if (!block.isProcessed) {
-          const client = await this.blockWatch.getRpcClient(block.blockNumber);
-          await this.loadFromApi(client, block);
-          block.isProcessed = true;
-        }
-        if (this.isClosed) break;
-      }
     }).promise;
+  }
+
+  public getVaultUnallocatedFunds(): bigint {
+    const wallet = this.vaultingWallet;
+    if (wallet.availableMicrogons > 0n && this.myVault) {
+      const mintInWallet =
+        this.myVault.bitcoinLocksStore.totalMinted - (this.myVault.metadata?.personalBitcoinMintAmountMovedOut ?? 0n);
+      // what's left at this point is just anything collected plus
+      return wallet.totalMicrogons - mintInWallet - MyVault.OperationalReserves;
+    }
+    return 0n;
   }
 
   private async rollbackBlock(block: IBlockToProcess) {
@@ -185,12 +200,16 @@ export class WalletBalances {
       wallet.dropBlock(block.blockHash);
     }
     await this.deleteBlock(block.blockHash);
-    this.onBlockDeleted?.(block);
+    this.events.emit('block-deleted', block);
   }
 
   private async deleteBlock(blockHash: string): Promise<void> {
-    const table = await this.tablePromise;
-    await table.deleteBlock(blockHash);
+    const db = await this.dbPromise;
+    await Promise.all([
+      db.vaultRevenueEventsTable.deleteBlock(blockHash),
+      db.walletTransfersTable.deleteBlock(blockHash),
+      db.walletLedgerTable.deleteBlock(blockHash),
+    ]);
   }
 
   private async loadFromApi(client: ArgonClient, block: IBlockToProcess) {
@@ -210,27 +229,37 @@ export class WalletBalances {
         reservedMicronots: micronots[i]?.reserved.toBigInt() ?? 0n,
         microgonsAdded: 0n,
         micronotsAdded: 0n,
+        vaultRevenueEvents: [],
         extrinsicEvents: [],
-        inboundTransfers: [],
+        transfers: [],
       };
       const hasChange = wallet.addDiffs(entry);
       if (hasChange) {
         events ??= await api.query.system.events();
-        const filter = new AccountEventsFilter(wallet.address, wallet.type, this.addresses);
+        const filter = new AccountEventsFilter(
+          wallet.address,
+          wallet.type,
+          this.addresses,
+          this.myVault?.createdVault?.vaultId,
+        );
         filter.process(client, events);
         entry.extrinsicEvents = filter.eventsByExtrinsic;
-        entry.inboundTransfers = filter.inboundTransfers;
+        entry.transfers = filter.transfers;
+        entry.vaultRevenueEvents = filter.vaultRevenueEvents;
         const changed = await wallet.onBalanceChange(entry, this.priceIndex?.exchangeRates);
         if (changed) {
-          this.onBalanceChange?.(entry, wallet.type);
-          if (entry.inboundTransfers.length) {
-            this.onTransferIn?.(wallet, entry);
+          this.events.emit('balance-change', entry, wallet.type);
+          if (entry.transfers.some(x => x.isInbound)) {
+            this.events.emit('transfer-in', wallet, entry);
           }
-          if (entry.inboundTransfers.length || entry.extrinsicEvents.length) {
-            console.log(`Found ${wallet.type} wallet balance updates`, {
-              events: entry.extrinsicEvents,
-              transfers: entry.inboundTransfers,
-            });
+          if (entry.transfers.length || entry.extrinsicEvents.length) {
+            console.log(
+              `Found ${entry.extrinsicEvents.length} ${wallet.type} wallet balance updates at ${block.blockNumber}`,
+              {
+                events: entry.extrinsicEvents,
+                transfers: entry.transfers,
+              },
+            );
           }
         }
       }

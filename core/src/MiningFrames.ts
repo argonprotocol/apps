@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { type ApiDecoration, getFrameInfoFromHeader, getTickFromHeader } from '@argonprotocol/mainchain';
+import { type ApiDecoration } from '@argonprotocol/mainchain';
 import type { IFrameHistory, IFrameHistoryMap, IFramesHistory } from './interfaces/IFramesHistory.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import FramesHistoryTestnet from './data/frames.testnet.json' with { type: 'json' };
@@ -115,7 +115,7 @@ export class MiningFrames {
       await this.onBestBlocks(this.blockWatch.latestHeaders);
       this.unsubscribes.push(realtimeWatch);
       this.loadDeferred.resolve();
-      console.timeLog('[Mining Frames] loaded');
+      console.timeEnd('[Mining Frames] loaded');
     } catch (error) {
       this.loadDeferred.reject(error);
     }
@@ -364,19 +364,17 @@ export class MiningFrames {
     do {
       const blockNumber = queue.shift()!;
       const blockClient = await this.blockWatch.getRpcClient(blockNumber);
-      const blockHash = await blockClient.rpc.chain.getBlockHash(blockNumber).then(x => x.toHex());
-      const header = await blockClient.rpc.chain.getHeader(blockHash);
-      const api = await blockClient.at(blockHash);
-      const frameInfo = getFrameInfoFromHeader(header);
-      const startingTick = getTickFromHeader(header)!;
-      const frameId: number =
-        frameInfo?.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
+      const header = await this.blockWatch.getHeader(blockNumber);
+      const blockHash = header.blockHash;
+      const api = await blockClient.at(header.blockHash);
+      const frameId: number = header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
 
       const existing = this.frameHistory[frameId];
       if (existing && existing.firstBlockHash === blockHash) {
         break;
       }
 
+      const startingTick = header.tick;
       const isChanged = this.setFrameHistory({
         frameId,
         frameStartTick: startingTick,

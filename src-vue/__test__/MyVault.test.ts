@@ -99,7 +99,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       await priceIndex.fetchMicrogonExchangeRatesTo();
       const miningFrames = new MiningFrames(clients);
       const vaults = new Vaults('dev-docker', priceIndex, miningFrames);
-      const transactionTracker = new TransactionTracker(Promise.resolve(db));
+      const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
       const bitcoinLocksStore = new BitcoinLocksStore(
         Promise.resolve(db),
         walletKeys,
@@ -200,8 +200,8 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
       // check bitcoin
       const newDb = await createTestDb();
-      const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb));
       const blockWatch = new BlockWatch(clients);
+      const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb), blockWatch);
       const bitcoinLocksStoreRecovery = new BitcoinLocksStore(
         Promise.resolve(newDb),
         walletKeys,

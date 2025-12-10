@@ -187,6 +187,8 @@ export class MyVaultRecovery {
     }
 
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
+    const table = await bitcoinLocksStore.getTable();
+    let totalAmountMinted = 0n;
     for (const [utxoId, utxoMaybe] of myBitcoins) {
       const utxo = utxoMaybe.unwrap();
       if (utxo.ownerAccount.toHuman() === vaultingAddress) {
@@ -225,7 +227,6 @@ export class MyVaultRecovery {
         }
 
         const uuid = BitcoinLocksTable.createUuid();
-        const table = await bitcoinLocksStore.getTable();
         await bitcoinLocksStore.insertPending({
           uuid,
           vaultId,
@@ -238,6 +239,7 @@ export class MyVaultRecovery {
           createdAtArgonBlockHeight: addedAtBlockNumber,
           finalFee: bitcoinTxFee,
         });
+        totalAmountMinted += record.ratchets.reduce((sum, r) => sum + r.mintAmount - r.mintPending, 0n);
 
         records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
       }

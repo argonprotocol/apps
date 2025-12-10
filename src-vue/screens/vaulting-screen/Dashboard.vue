@@ -314,10 +314,6 @@
     @close="showEditOverlay = false"
   />
 
-  <VaultActivateOverlay
-    v-if="showActivateOverlay"
-    @close="showActivateOverlay = false"
-  />
 </template>
 
 <script lang="ts">
@@ -370,7 +366,6 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultCollectOverlay from '../../overlays/VaultCollectOverlay.vue';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
-import VaultActivateOverlay from '../../overlays/VaultActivateOverlay.vue';
 import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
 import FrameSlider, { IChartItem } from '../../components/FrameSlider.vue';

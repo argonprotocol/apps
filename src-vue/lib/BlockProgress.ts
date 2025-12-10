@@ -5,11 +5,10 @@ dayjs.extend(utc);
 export class BlockProgress {
   public isMaxed: boolean = false;
 
+  public blockHeightCurrent: number | undefined;
   private minimumConfirmations: number;
   private millisPerBlock: number;
-
   private blockHeightGoal: number | undefined;
-  private blockHeightCurrent: number | undefined;
 
   private timeOfLastBlock: dayjs.Dayjs;
 

@@ -32,7 +32,14 @@ export class TransactionInfo<MetadataType = unknown> {
     return this.postProcessor?.promise ?? this.txResult.waitForFinalizedBlock.then(() => undefined);
   }
 
+  public get followOnTxInfo(): Promise<TransactionInfo | undefined> {
+    return this.followOnTxInfoDeferred?.promise ?? Promise.resolve(undefined);
+  }
+
   private postProcessor?: IDeferred;
+  private followOnTxInfoDeferred?: IDeferred<TransactionInfo>;
+  private resolvedFollowOnTxInfo?: TransactionInfo;
+
   private progressCallbacks: { runFn: IProgressCallback; unsubscribeFn: () => void }[] = [];
   private blockProgress: BlockProgress;
 
@@ -54,39 +61,24 @@ export class TransactionInfo<MetadataType = unknown> {
 
   public createPostProcessor(): IDeferred {
     if (!this.postProcessor) {
-      this.postProcessor = createDeferred();
+      this.postProcessor = createDeferred(false);
       void this.postProcessor.promise.finally(() => this.updateProgress());
     }
 
     return this.postProcessor;
   }
 
-  public getWaitingForFinalizationMessage(): string {
-    if (this.tx.isFinalized) {
-      return `Finalized in Block #${this.tx.blockHeight}`;
+  public registerDeferredFollowOnTx<L>(): IDeferred<TransactionInfo<L>> {
+    if (!this.followOnTxInfoDeferred) {
+      this.followOnTxInfoDeferred = createDeferred<TransactionInfo<L>>(false);
+      void this.followOnTxInfoDeferred.promise
+        .then(x => {
+          this.resolvedFollowOnTxInfo = x;
+        })
+        .finally(() => this.updateProgress());
     }
-    const expectedConfirmations = this.blockProgress.expectedConfirmations;
-    const blockConfirmations = this.blockProgress.getConfirmations();
 
-    if (blockConfirmations === -1) {
-      return 'Waiting for 1st Block...';
-    } else if (blockConfirmations === 0 && expectedConfirmations > 0) {
-      return 'Waiting for 2nd Block...';
-    } else if (blockConfirmations === 1 && expectedConfirmations > 1) {
-      return 'Waiting for 3rd Block...';
-    } else if (blockConfirmations === 2 && expectedConfirmations > 2) {
-      return 'Waiting for 4th Block...';
-    } else if (blockConfirmations === 3 && expectedConfirmations > 3) {
-      return 'Waiting for 5th Block...';
-    } else if (blockConfirmations === 4 && expectedConfirmations > 4) {
-      return 'Waiting for 6th Block...';
-    } else if (blockConfirmations === 5 && expectedConfirmations > 5) {
-      return 'Waiting for 7th Block...';
-    } else if (blockConfirmations === 6 && expectedConfirmations > 6) {
-      return 'Waiting for 8th Block...';
-    } else {
-      return 'Waiting for Finalization...';
-    }
+    return this.followOnTxInfoDeferred as IDeferred<TransactionInfo<L>>;
   }
 
   public subscribeToProgress(callback: IProgressCallback): () => void {
@@ -125,60 +117,116 @@ export class TransactionInfo<MetadataType = unknown> {
         try {
           const parsed = JSON.parse(errorCode);
           errorCode = Object.values(parsed)[0] as string;
+
+          if (errorCode === 'FundsUnavailable') {
+            return 'Transaction failed due to insufficient funds. Please ensure your account has enough balance to cover the transaction fees.';
+          }
+          if (errorCode === 'BelowMinimum') {
+            return 'Transaction failed because this change would leave too little balance in your account afterwards to preserve it.';
+          }
+          if (errorCode === 'BadOrigin') {
+            return 'Transaction failed due to bad origin. Please check your permissions and try again.';
+          }
+          if (errorCode === 'NonceTooLow') {
+            return 'Transaction nonce is too low. This may be due to a pending transaction. Please wait a moment and try again.';
+          }
+          if (errorCode === 'PriorityTooLow') {
+            return 'Transaction priority is too low. Please try increasing the transaction fee or tip to prioritize it.';
+          }
+          return `Transaction failed with error code: ${errorCode}`;
         } catch (_e) {
           // ignore
         }
       }
-
-      if (errorCode === 'FundsUnavailable') {
-        return 'Transaction failed due to insufficient funds. Please ensure your account has enough balance to cover the transaction fees.';
-      }
-      if (errorCode === 'BelowMinimum') {
-        return 'Transaction failed because this change would leave too little balance in your account afterwards to preserve it.';
-      }
-      if (errorCode === 'BadOrigin') {
-        return 'Transaction failed due to bad origin. Please check your permissions and try again.';
-      }
-      if (errorCode === 'NonceTooLow') {
-        return 'Transaction nonce is too low. This may be due to a pending transaction. Please wait a moment and try again.';
-      }
-      if (errorCode === 'PriorityTooLow') {
-        return 'Transaction priority is too low. Please try increasing the transaction fee or tip to prioritize it.';
-      }
-      return `Transaction failed with error code: ${errorCode}`;
+      return error.details || `Transaction failed with error code: ${errorCode}`;
     }
     return error.message;
+  }
+
+  private getWaitingForFinalizationMessage(status: {
+    expectedConfirmations: number;
+    confirmations: number;
+    isFinalized: boolean;
+  }): string {
+    const { expectedConfirmations, confirmations, isFinalized } = status;
+    if (isFinalized) {
+      return `Finalized in Block #${this.tx.blockHeight}`;
+    }
+
+    if (confirmations === -1) {
+      return 'Waiting for 1st Block...';
+    } else if (confirmations === 0 && expectedConfirmations > 0) {
+      return 'Waiting for 2nd Block...';
+    } else if (confirmations === 1 && expectedConfirmations > 1) {
+      return 'Waiting for 3rd Block...';
+    } else if (confirmations === 2 && expectedConfirmations > 2) {
+      return 'Waiting for 4th Block...';
+    } else if (confirmations === 3 && expectedConfirmations > 3) {
+      return 'Waiting for 5th Block...';
+    } else if (confirmations === 4 && expectedConfirmations > 4) {
+      return 'Waiting for 6th Block...';
+    } else if (confirmations === 5 && expectedConfirmations > 5) {
+      return 'Waiting for 7th Block...';
+    } else if (confirmations === 6 && expectedConfirmations > 6) {
+      return 'Waiting for 8th Block...';
+    } else {
+      return 'Waiting for Finalization...';
+    }
+  }
+
+  public getStatus() {
+    this.blockProgress.setIsFinalized(this.tx.isFinalized);
+    this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
+    const progressPct = this.blockProgress.getProgress();
+    const confirmations = this.blockProgress.getConfirmations();
+    const expectedConfirmations = this.blockProgress.expectedConfirmations;
+
+    const error = this.txResult.submissionError ?? this.txResult.extrinsicError;
+
+    return {
+      progressPct,
+      confirmations,
+      expectedConfirmations,
+      error,
+      isFinalized: this.tx.isFinalized,
+      isMaxed: this.blockProgress.isMaxed,
+    };
   }
 
   private updateProgress() {
     if (!this.progressCallbacks.length) return;
 
-    this.blockProgress.setIsFinalized(this.tx.isFinalized);
-    this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
+    const status = this.getStatus();
 
-    let progressPct = this.blockProgress.getProgress();
-    const confirmations = this.blockProgress.getConfirmations();
-    const expectedConfirmations = this.blockProgress.expectedConfirmations;
-
-    if (progressPct > 99 && this.postProcessor && !this.postProcessor.isSettled) {
-      progressPct = 99;
+    if (this.followOnTxInfoDeferred && this.resolvedFollowOnTxInfo) {
+      const currentBlockHeight = this.blockProgress.blockHeightCurrent;
+      if (currentBlockHeight !== undefined) this.resolvedFollowOnTxInfo.finalizedBlockHeight = currentBlockHeight;
+      const followOnStatus = this.resolvedFollowOnTxInfo.getStatus();
+      console.log('Merging follow-on tx status', { followOnStatus, status });
+      if (followOnStatus) {
+        status.progressPct = (followOnStatus.progressPct + status.progressPct) / 2;
+        status.confirmations = followOnStatus.confirmations;
+        status.expectedConfirmations = followOnStatus.expectedConfirmations;
+        status.isFinalized &&= followOnStatus.isFinalized;
+      }
     }
 
+    if (status.progressPct > 99 && this.postProcessor && !this.postProcessor.isSettled) {
+      status.progressPct = 99;
+    }
+
+    const progressMessage = this.getWaitingForFinalizationMessage(status);
+    const error = status.error;
+    const errorMessage = error ? this.translateCommonErrors(error) : undefined;
     for (const { runFn } of this.progressCallbacks) {
       try {
-        const error = this.txResult.submissionError ?? this.txResult.extrinsicError;
-        const errorMessage = error ? this.translateCommonErrors(error) : undefined;
-        const progressMessage = this.getWaitingForFinalizationMessage();
-        void runFn(
-          { progressPct, progressMessage, confirmations, expectedConfirmations, isMaxed: this.blockProgress.isMaxed },
-          errorMessage ? new Error(errorMessage) : undefined,
-        );
+        void runFn({ ...status, progressMessage }, errorMessage ? new Error(errorMessage) : undefined);
       } catch (e) {
         console.error('Error in transaction progress callback', e);
       }
     }
 
-    if (progressPct === 100) {
+    if (status.progressPct === 100) {
       this.unsubscribeFromProgress();
     } else {
       const milliPerInterval = Math.max(100, Math.ceil(TICK_MILLIS / 60));

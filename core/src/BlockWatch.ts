@@ -2,6 +2,7 @@ import {
   type ArgonClient,
   getAuthorFromHeader,
   getFrameInfoFromHeader,
+  getOfflineRegistry,
   getTickFromHeader,
   type Header,
 } from '@argonprotocol/mainchain';
@@ -13,6 +14,7 @@ export interface IBlockHeaderInfo {
   isFinalized: boolean;
   blockNumber: number;
   blockHash: string;
+  blockTime: number;
   parentHash: string;
   author: string;
   tick: number;
@@ -39,6 +41,7 @@ export class BlockWatch {
   // Tracks all best block headers seen since latest finalized block
 
   public latestHeaders: IBlockHeaderInfo[] = [];
+  public finalizedHashes: { [blockNumber: number]: string } = {};
   public isLoaded = createDeferred(false);
   private processingQueue = new SingleFileQueue();
 
@@ -51,22 +54,25 @@ export class BlockWatch {
   ) {}
 
   public async start(): Promise<void> {
-    if (this.isLoaded.isRunning || this.isLoaded.isResolved) {
+    if (this.isLoaded.isRunning || this.isLoaded.isSettled) {
       return this.isLoaded.promise;
     }
-    let client = await this.clients.prunedClientPromise;
-    if (this.forcePrunedClientSubscriptions) {
-      if (!client) {
-        throw new Error('No pruned client available for BlockWatch subscriptions');
-      }
-    }
-    if (client) {
-      this.isPrunedClientSubscription = true;
-    }
-    client ??= await this.clients.archiveClientPromise;
-
     this.isLoaded.setIsRunning(true);
+
     try {
+      this.processingQueue.clear();
+      this.latestHeaders.length = 1;
+      console.time('[BlockWatch] start');
+      let client = await this.clients.prunedClientPromise;
+      if (this.forcePrunedClientSubscriptions) {
+        if (!client) {
+          throw new Error('No pruned client available for BlockWatch subscriptions');
+        }
+      }
+      if (client) {
+        this.isPrunedClientSubscription = true;
+      }
+      client ??= await this.clients.archiveClientPromise;
       const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
       this.latestHeaders = [BlockWatch.readHeader(finalizedHeader)];
       const hasBlockData = createDeferred();
@@ -108,6 +114,7 @@ export class BlockWatch {
       this.isLoaded.reject(err);
       throw err;
     }
+    console.timeEnd('[BlockWatch] start');
     this.isLoaded.resolve();
     return this.isLoaded.promise;
   }
@@ -144,7 +151,20 @@ export class BlockWatch {
     return this.clients.archiveClientPromise;
   }
 
+  public async getFinalizedHash(blockNumber: number): Promise<string> {
+    const finalizedHash = this.finalizedHashes[blockNumber];
+    if (finalizedHash) {
+      return finalizedHash;
+    }
+    const client = await this.getRpcClient(blockNumber);
+    return await client.rpc.chain.getBlockHash(blockNumber).then(x => x.toHex());
+  }
+
   public async getHeader(blockNumber: number): Promise<IBlockHeaderInfo> {
+    const best = this.latestHeaders.find(x => x.blockNumber === blockNumber);
+    if (best) {
+      return best;
+    }
     const client = await this.getRpcClient(blockNumber);
     const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
     const header = await client.rpc.chain.getHeader(blockHash);
@@ -156,6 +176,11 @@ export class BlockWatch {
     const client = await this.getRpcClient(parentNumber);
     const parentHeader = await client.rpc.chain.getHeader(header.parentHash);
     return BlockWatch.readHeader(parentHeader);
+  }
+
+  public async getBlockTime(blockNumber: number): Promise<Date> {
+    const header = await this.getHeader(blockNumber);
+    return new Date(header.blockTime);
   }
 
   private async setFinalizedHeader(header: Header): Promise<void> {
@@ -195,6 +220,7 @@ export class BlockWatch {
     for (let i = 0; i < this.latestHeaders.length; i++) {
       const h = this.latestHeaders[i];
       if (h.blockNumber <= finalizedNumber) {
+        this.finalizedHashes[h.blockNumber] = h.blockHash;
         if (h.blockNumber < finalizedNumber) {
           toDeleteCount++;
         }
@@ -229,8 +255,21 @@ export class BlockWatch {
 
   public static readHeader(header: Header, isFinalized = false): IBlockHeaderInfo {
     const frameInfo = getFrameInfoFromHeader(header);
+    let blockTime = 0;
+    for (const x of header.digest.logs) {
+      if (x.isConsensus) {
+        const [engineId, data] = x.asConsensus;
+        if (engineId.toString() === 'ISTM') {
+          const blockTimeRaw = getOfflineRegistry().createType('u64', data);
+          // timestamp is in seconds
+          blockTime = blockTimeRaw.toNumber() * 1000;
+          break;
+        }
+      }
+    }
     return {
       isFinalized,
+      blockTime,
       blockNumber: header.number.toNumber(),
       blockHash: header.hash.toHex(),
       parentHash: header.parentHash.toHex(),

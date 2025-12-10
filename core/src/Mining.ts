@@ -12,10 +12,6 @@ import type { IWinningBid } from './interfaces/index.js';
 import type { IMiningIndex } from './Accountset.ts';
 import { NetworkConfig } from './NetworkConfig.js';
 
-export const BLOCK_REWARD_INCREASE_PER_INTERVAL = BigInt(1_000);
-export const BLOCK_REWARD_MAX = BigInt(5_000_000);
-export const BLOCK_REWARD_INTERVAL = 118;
-
 const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.8;
 const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.2;
 
@@ -313,7 +309,13 @@ export class Mining {
     api?: ApiDecoration<'promise'>,
   ): Promise<{ rewardsPerBlock: bigint; amountToMinerPercent: BigNumber; ticksSinceGenesis: number }> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
+    const halvingStartTick = client.consts.blockRewards.halvingBeginTicks.toNumber();
     const ticksSinceGenesis = this.getTicksSinceGenesis(currentTick);
+    const [incrementAmount, incrementTicks, maxMicrogonsPerBlock] = client.consts.blockRewards.incrementalGrowth;
+    const blockRewardMax = maxMicrogonsPerBlock.toBigInt();
+    const incrementIntervalTicks = incrementTicks.toNumber();
+    const increasePerIntervalMicrogons = incrementAmount.toBigInt();
+
     const initialReward = 500_000n; // Initial microgons reward per block
     const amountToMiner = fromFixedNumber(
       client.consts.blockRewards.minerPayoutPercent.toBigInt(),
@@ -321,11 +323,14 @@ export class Mining {
     );
 
     // Calculate the number of intervals
-    const numIntervals = Math.floor(ticksSinceGenesis / BLOCK_REWARD_INTERVAL);
+    let reward = blockRewardMax;
+    if (ticksSinceGenesis < halvingStartTick) {
+      const numIntervals = Math.floor(ticksSinceGenesis / incrementIntervalTicks);
 
-    // Calculate the current reward per block
-    const currentReward = initialReward + BigInt(numIntervals) * BLOCK_REWARD_INCREASE_PER_INTERVAL;
-    const reward = bigIntMin(currentReward, BLOCK_REWARD_MAX);
+      // Calculate the current reward per block
+      const currentReward = initialReward + BigInt(numIntervals) * increasePerIntervalMicrogons;
+      reward = bigIntMin(currentReward, blockRewardMax);
+    }
     return { rewardsPerBlock: reward, amountToMinerPercent: amountToMiner, ticksSinceGenesis };
   }
 
@@ -335,20 +340,24 @@ export class Mining {
     api?: ApiDecoration<'promise'>,
   ): Promise<bigint> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
-    const halvingStartTick = client.consts.blockRewards.halvingBeginTick.toNumber();
+    const halvingStartTick = client.consts.blockRewards.halvingBeginTicks.toNumber();
     const halvingTicks = client.consts.blockRewards.halvingTicks.toNumber();
     // eslint-disable-next-line prefer-const
     let { rewardsPerBlock, amountToMinerPercent } = await this.minimumBlockRewardsAtTick(tickStart, api);
+    const [incrementAmount, incrementTicks, maxMicrogonsPerBlock] = client.consts.blockRewards.incrementalGrowth;
+    const blockRewardMax = maxMicrogonsPerBlock.toBigInt();
+    const incrementIntervalTicks = incrementTicks.toNumber();
+    const increasePerIntervalMicrogons = incrementAmount.toBigInt();
 
     let totalRewards = 0n;
     for (let i = tickStart; i < tickEnd; i++) {
       const elapsedTicks = this.getTicksSinceGenesis(i);
       if (elapsedTicks >= halvingStartTick) {
         const halvings = Math.floor((elapsedTicks - halvingStartTick) / halvingTicks);
-        rewardsPerBlock = BigInt(Math.floor(Number(BLOCK_REWARD_MAX) / (halvings + 1)));
-      } else if (elapsedTicks % BLOCK_REWARD_INTERVAL === 0) {
-        rewardsPerBlock += BLOCK_REWARD_INCREASE_PER_INTERVAL;
-        rewardsPerBlock = bigIntMin(rewardsPerBlock, BLOCK_REWARD_MAX);
+        rewardsPerBlock = BigInt(Math.floor(Number(blockRewardMax) / (halvings + 1)));
+      } else if (elapsedTicks % incrementIntervalTicks === 0) {
+        rewardsPerBlock += increasePerIntervalMicrogons;
+        rewardsPerBlock = bigIntMin(rewardsPerBlock, blockRewardMax);
       }
       totalRewards += rewardsPerBlock;
     }

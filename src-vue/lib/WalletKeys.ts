@@ -82,6 +82,12 @@ export class WalletKeys {
     return new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
   }
 
+  // TODO: move signing to backend instead of passing around key
+  public async getMiningKeypair(): Promise<KeyringPair> {
+    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
+  }
+
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {
     const bip32Version = getBip32Version(network) ?? BITCOIN_VERSIONS[network as keyof typeof BITCOIN_VERSIONS];
     if (!bip32Version) {

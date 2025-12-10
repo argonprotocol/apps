@@ -1,5 +1,5 @@
 import { closeOnTeardown, teardown } from '@argonprotocol/testing';
-import { MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
+import { IBalanceTransfer, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
@@ -11,6 +11,7 @@ import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
 import { createDeferred } from '../lib/Utils.ts';
 import { WalletLedgerTable } from '../lib/db/WalletLedgerTable.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import { WalletTransfersTable } from '../lib/db/WalletTransfersTable.ts';
 
 afterAll(teardown);
 
@@ -34,7 +35,7 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     const client = await clients.get(false);
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
-    const walletBalances = new WalletBalances(clients, walletKeys, Promise.resolve(db), blockWatch);
+    const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
     await walletBalances.load();
     closeOnTeardown(walletBalances);
     const onBalanceChange = vi.fn();
@@ -43,20 +44,20 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     const didBlockGetDeleted = createDeferred<string>();
     let blocksDeleted = 0;
     let balanceChanges = 0;
-    walletBalances.onBlockDeleted = block => {
+    walletBalances.events.on('block-deleted', block => {
       console.log('Block deleted:', block);
       didBlockGetDeleted.resolve(block.blockHash);
       onBlockDeleted(block);
       blocksDeleted++;
-    };
+    });
     const didGetBalanceChange = createDeferred();
-    walletBalances.onBalanceChange = (balanceChange, type) => {
+    walletBalances.events.on('balance-change', (balanceChange, type) => {
       console.log('Balance Change:', balanceChange);
       onBalanceChange(type);
       didGetBalanceChange.resolve();
       balanceChanges++;
-    };
-    walletBalances.onTransferIn = onTransferIn;
+    });
+    walletBalances.events.on('transfer-in', onTransferIn);
     expect(walletBalances.miningWallet.totalMicrogons).toBe(0n);
     expect(walletBalances.vaultingWallet.totalMicrogons).toBe(0n);
 
@@ -74,24 +75,16 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     expect(onBalanceChange).toHaveBeenCalledWith('mining');
     expect(onTransferIn).toHaveBeenCalledTimes(1);
     expect(onTransferIn.mock.calls[0][1].microgonsAdded).toBe(5_000_000n);
-    expect(onTransferIn.mock.calls[0][1].inboundTransfers).toHaveLength(1);
-    expect(onTransferIn.mock.calls[0][1].inboundTransfers[0]).toMatchObject(
+    expect(onTransferIn.mock.calls[0][1].transfers).toHaveLength(1);
+    expect(onTransferIn.mock.calls[0][1].transfers[0]).toMatchObject(
       expect.objectContaining({
         to: miningAccount.address,
         from: alice.address,
         amount: 5_000_000n,
-        isOwnership: false,
-        events: expect.arrayContaining([
-          expect.objectContaining({
-            method: 'Transfer',
-            pallet: 'balances',
-            data: expect.objectContaining({
-              to: miningAccount.address,
-              from: alice.address,
-            }),
-          }),
-        ]),
-      }),
+        isInbound: true,
+        transferType: 'transfer',
+        isInternal: false,
+      } as IBalanceTransfer),
     );
     expect(walletBalances.vaultingWallet.totalMicrogons).toBe(0n);
     await result.waitForFinalizedBlock;
@@ -138,17 +131,19 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     await new Promise(setImmediate);
     expect(walletBalances.miningWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(deletedBlockHash);
 
-    const table = new WalletLedgerTable(db);
+    const table = new WalletTransfersTable(db);
     const entries = await table.fetchAll();
-    const inboundTransfers = entries.reduce((tot, x) => tot + x.inboundTransfersJson.length, 0);
+    const inboundTransfers = entries.length;
     console.log(`Total TransfersIn - ${inboundTransfers}`, {
-      byBlock: entries.map(x => ({
-        blockNumber: x.blockNumber,
-        nbr: x.inboundTransfersJson.length,
-      })),
+      entries,
       callbacks: { balanceChanges, blocksDeleted },
     });
     // should have cleaned up duplicate entries from reorgs
-    expect(entries.every(x => x.isFinalized)).toBe(true);
+
+    const walletLedger = new WalletLedgerTable(db);
+    const ledgerEntries = await walletLedger.fetchAll();
+    console.log('Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
+    expect(ledgerEntries.length).toBeLessThanOrEqual(inboundTransfers); // some transfers may be in same block
+    expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
   });
 });

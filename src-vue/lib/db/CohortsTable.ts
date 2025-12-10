@@ -37,18 +37,12 @@ export class CohortsTable extends BaseTable {
     await this.db.execute(
       `
         UPDATE Cohorts AS c
-        SET progress = COALESCE((
-          SELECT ROUND(
-            MIN(100.0,
-              (
-                SELECT SUM(f.progress) / 10.0
-                FROM Frames f
-                WHERE f.id >= c.id
-                  AND f.id < c.id + 10
-              )
-            )
-          )
-        ), c.progress, 0)
+        SET progress = (
+          SELECT SUM(f.progress) / 10.0
+          FROM Frames f
+          WHERE f.id >= c.id
+            AND f.id < c.id + 10
+        )
         WHERE c.progress < 100
     `,
     );
@@ -129,9 +123,34 @@ export class CohortsTable extends BaseTable {
     return convertSqliteBigInts(records, this.bigIntFields);
   }
 
+  public async fetchNetMiningResults(): Promise<{
+    cohortId: number;
+    totalCost: number;
+    minedMicrogons: bigint;
+    minedMicronots: bigint;
+  }> {
+    const [{ totalCost, cohortId, minedMicrogons, minedMicronots }] = await this.db.select<
+      [{ cohortId: number; totalCost: number; minedMicrogons: bigint; minedMicronots: bigint }]
+    >(
+      `SELECT
+         c.id as cohortId,
+         (c.microgonsBidPerSeat * c.seatCountWon) + c.transactionFeesTotal as totalCost,
+         SUM(microgonsMinedTotal + microgonsMintedTotal) as minedMicrogons,
+         SUM(micronotsMinedTotal) as minedMicronots
+       FROM Cohorts c JOIN CohortFrames cf ON c.id = cf.cohortId
+       WHERE c.progress = 100 AND c.seatCountWon > 0
+       GROUP BY cf.cohortId`,
+    );
+    return {
+      cohortId,
+      totalCost,
+      minedMicronots,
+      minedMicrogons,
+    };
+  }
+
   public async insertOrUpdate(args: {
     id: number;
-    progress: number;
     transactionFeesTotal: bigint;
     micronotsStakedPerSeat: bigint;
     microgonsBidPerSeat: bigint;
@@ -142,7 +161,6 @@ export class CohortsTable extends BaseTable {
     this.storedCohorts[args.id] = true;
     const {
       id,
-      progress,
       transactionFeesTotal,
       micronotsStakedPerSeat,
       microgonsBidPerSeat,
@@ -173,7 +191,7 @@ export class CohortsTable extends BaseTable {
       `,
       toSqlParams([
         id,
-        progress,
+        0,
         transactionFeesTotal,
         micronotsStakedPerSeat,
         microgonsBidPerSeat,

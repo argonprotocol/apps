@@ -2,9 +2,32 @@
 <template>
   <TooltipProvider :disableHoverableContent="true">
     <div :class="twMerge('text-md relative flex w-full flex-col items-center whitespace-nowrap', props.class)">
-      <template v-if="props.show !== 'OnlyTotal'">
+      <template v-if="!config.isVaultReadyToCreate && props.show !== 'OnlyTotal'">
+        <NeedsSetup :tooltipSide="tooltipSide" :spacerWidth="spacerWidth" :align="props.align">
+          Your vault account is still waiting to be setup.
+          <template #value>
+            <SubItem
+              class="h-10"
+              :tooltipSide="tooltipSide"
+              :height="itemHeight"
+              :hide-connector="true"
+              :spacerWidth="spacerWidth"
+              :align="props.align"
+              :showMoveButton="props.showMoveButtons"
+              :moveFrom="MoveFrom.VaultingUnusedArgon"
+              :moveTo="MoveTo.Holding">
+              {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).format('0,0.[00]') }} ARGN
+              <template #tooltip>
+                <p class="break-words whitespace-normal">
+                  This is the amount of argons you have available and unallocated in your account.
+                </p>
+              </template>
+            </SubItem>
+          </template>
+        </NeedsSetup>
+      </template>
+      <template v-else-if="props.show !== 'OnlyTotal'">
         <Header
-          :tooltip="breakdown.help.vaultingAvailableMicrogons"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
@@ -13,154 +36,203 @@
           Minting Pipeline
           <template #icon><ArgonIcon class="h-7 w-7" /></template>
           <template #value>
-            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.vaultingAvailableMicrogons).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.mintedValueInAccount + breakdown.pendingMintingValue).format('0,0.00') }}
+          </template>
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              These argons are minted to your account via liquid locked bitcoins.
+            </p>
           </template>
         </Header>
-        <SubItem
-          :tooltip="breakdown.help.pendingMintingValue"
-          :tooltipSide="tooltipSide"
-          :height="itemHeight"
-          :spacerWidth="spacerWidth"
-          :align="props.align">
+        <SubItem :tooltipSide="tooltipSide" :height="itemHeight" :spacerWidth="spacerWidth" :align="props.align">
           {{ microgonToArgonNm(breakdown.pendingMintingValue).format('0,0.[00]') }} ARGN to Mint
+
+          <template #tooltip>
+            <p v-if="breakdown.pendingMintingValue" class="break-words whitespace-normal">
+              These have been earned, but they have not yet been minted. Minting is determined by supply and demand,
+              which means, although you're guaranteed to get them, the timeframe is unknown.
+            </p>
+            <p v-else class="break-words whitespace-normal">
+              This is where you'll see argons that are earned but not yet minted. You currently have zero argons waiting
+              in the minting queue.
+            </p>
+          </template>
         </SubItem>
         <SubItem
-          :tooltip="breakdown.help.alreadyMintedValue"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
           :showMoveButton="props.showMoveButtons"
           :moveFrom="MoveFrom.VaultingMintedArgon"
-          :moveTo="MoveTo.Holding"
-        >
-          {{ microgonToArgonNm(breakdown.alreadyMintedValue).format('0,0.[00]') }} ARGN Minted
+          :moveTo="MoveTo.Holding">
+          {{ microgonToArgonNm(breakdown.mintedValueInAccount).format('0,0.[00]') }} ARGN Minted
+
+          <template #tooltip>
+            <p v-if="breakdown.mintedValueInAccount" class="break-words whitespace-normal">
+              These argons are minted to your account and available for use. They will be needed to unlock your Bitcoin,
+              but can be used freely in the interim.
+            </p>
+            <p v-else class="break-words whitespace-normal">
+              This is where you'll see argons that have been minted as a result of locking bitcoin into your vault. You
+              currently have zero argons minted.
+            </p>
+          </template>
         </SubItem>
 
         <Header
-          :tooltip="breakdown.help.bitcoinSecurityTotal"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          class="border-dashed"
-        >
+          class="border-dashed">
           Bitcoin Security
           <template #icon><ArgonotIcon class="h-7 w-7" /></template>
           <template #value>
             {{ currency.symbol }}{{ micronotToMoneyNm(breakdown.bitcoinSecurityTotal).format('0,0.00') }}
           </template>
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              This is the total capital applied to your vault's bitcoin securitization. It insures that anyone who locks
+              bitcoin in your vault will be able to claim their bitcoin back in full.
+            </p>
+          </template>
         </Header>
         <SubItem
-          :tooltip="breakdown.help.waitingSecuritization"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
           :showMoveButton="props.showMoveButtons"
           :moveFrom="MoveFrom.VaultingSecurityUnused"
-          :moveTo="MoveTo.Holding"
-        >
+          :moveTo="MoveTo.Holding">
           {{ microgonToArgonNm(breakdown.waitingSecuritization).format('0,0.[00]') }} ARGN Unused
+
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              These argons have not yet been applied to your vault's securitization. They are waiting for new bitcoins
+              to be added to your vault.
+            </p>
+          </template>
         </SubItem>
-        <SubItem
-          :tooltip="breakdown.help.pendingSecuritization"
-          :tooltipSide="tooltipSide"
-          :height="itemHeight"
-          :spacerWidth="spacerWidth"
-          :align="props.align"
-        >
+        <SubItem :tooltipSide="tooltipSide" :height="itemHeight" :spacerWidth="spacerWidth" :align="props.align">
           {{ microgonToArgonNm(breakdown.pendingSecuritization).format('0,0.[00]') }} ARGN Processing
+
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              These argons are already committed to bitcoins pending in your vault. However, these bitcoins are still in
+              the process of locking. Once completed, these argons will move to "Activated".
+            </p>
+          </template>
         </SubItem>
-        <SubItem
-          :tooltip="breakdown.help.activatedSecuritization"
-          :tooltipSide="tooltipSide"
-          :height="itemHeight"
-          :spacerWidth="spacerWidth"
-          :align="props.align"
-        >
+        <SubItem :tooltipSide="tooltipSide" :height="itemHeight" :spacerWidth="spacerWidth" :align="props.align">
           {{ microgonToArgonNm(breakdown.activatedSecuritization).format('0,0.[00]') }} ARGN Activated
+
+          <template #tooltip>
+            <p v-if="breakdown.activatedSecuritization" class="break-words whitespace-normal">
+              These argons are currently being used to securitize your vault's bitcoin.
+            </p>
+            <p v-else class="break-words whitespace-normal">
+              You have no argons actively being used to securitize bitcoins.
+            </p>
+          </template>
         </SubItem>
 
         <Header
-          :tooltip="breakdown.help.treasuryBondTotal"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          class="border-dashed"
-        >
+          class="border-dashed">
           Treasury Bonds
           <template #icon><ArgonotIcon class="h-7 w-7" /></template>
           <template #value>
             {{ currency.symbol }}{{ micronotToMoneyNm(breakdown.treasuryBondTotal).format('0,0.00') }}
           </template>
+
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              This is the capital that has been allocated to your vault's treasury bonds.
+            </p>
+          </template>
         </Header>
         <SubItem
-          :tooltip="breakdown.help.pendingTreasuryPoolInvestment"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
           :showMoveButton="props.showMoveButtons"
           :moveFrom="MoveFrom.VaultingTreasuryUnused"
-          :moveTo="MoveTo.Holding"
-        >
+          :moveTo="MoveTo.Holding">
           {{ microgonToArgonNm(breakdown.pendingTreasuryPoolInvestment).format('0,0.[00]') }} ARGN Unused
+
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              This capital is sitting idle because your vault does not have enough bitcoin. The amount in treasury bonds
+              cannot exceed the bitcoin value in your vault.
+            </p>
+          </template>
         </SubItem>
-        <SubItem
-          :tooltip="breakdown.help.activatedTreasuryPoolInvestment"
-          :tooltipSide="tooltipSide"
-          :height="itemHeight"
-          :spacerWidth="spacerWidth"
-          :align="props.align"
-        >
+        <SubItem :tooltipSide="tooltipSide" :height="itemHeight" :spacerWidth="spacerWidth" :align="props.align">
           {{ microgonToArgonNm(breakdown.activatedTreasuryPoolInvestment).format('0,0.[00]') }} ARGN Activated
+          <template #tooltip>
+            <p class="break-words whitespace-normal" v-if="breakdown.activatedTreasuryPoolInvestment">
+              These argons are actively generating yield for your vault through treasury bond investments.
+            </p>
+            <p v-else class="break-words whitespace-normal">
+              You have no argons actively being applied to treasury bond investments.
+            </p>
+          </template>
         </SubItem>
 
         <Expenses
           v-if="breakdown.hasLockedBitcoin"
-          :tooltip="breakdown.help.unlockPrice"
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
-          :align="props.align"
-        >
+          :align="props.align">
           <span class="hidden xl:inline">Cost to</span>
           Unlock Bitcoin
           <template #value>
             -{{ currency.symbol }}{{ microgonToMoneyNm(breakdown.unlockPrice).format('0,0.00') }}
           </template>
+          <template #tooltip>
+            <p class="break-words whitespace-normal">This is what it will cost to unlock your personal bitcoin.</p>
+          </template>
         </Expenses>
 
         <Expenses
-          :tooltip="breakdown.help.operationalFeeMicrogons"
           :tooltipSide="tooltipSide"
           :class="breakdown.hasLockedBitcoin ? 'border-dashed' : ''"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
-          :align="props.align"
-        >
+          :align="props.align">
           <span class="hidden xl:inline">Operational</span>
           Expenses
           <template #value>
             -{{ currency.symbol }}{{ microgonToMoneyNm(breakdown.operationalFeeMicrogons ?? 0n).format('0,0.00') }}
+          </template>
+          <template #tooltip>
+            <p class="break-words whitespace-normal">
+              The summation of all operational expenses that have been paid since your vault's inception.
+            </p>
           </template>
         </Expenses>
       </template>
 
       <Total
         v-if="props.show === 'All' || props.show === 'OnlyTotal'"
-        :tooltip="breakdown.help.totalVaultValue"
         :tooltipSide="tooltipSide"
         :height="itemHeight"
         :spacerWidth="spacerWidth"
         :align="props.align"
-        :class="props.show === 'OnlyTotal' ? 'h-full' : ''"
-      >
+        :class="props.show === 'OnlyTotal' ? 'h-full' : ''">
         Total Value
         <template #value>
           {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.totalVaultValue).format('0,0.00') }}
+        </template>
+        <template #tooltip>
+          <p class="font-normal break-words whitespace-normal">The total value of your vault's assets.</p>
         </template>
       </Total>
     </div>
@@ -180,7 +252,12 @@ import Header from './asset-breakdown/Header.vue';
 import SubItem from './asset-breakdown/SubItem.vue';
 import Expenses from './asset-breakdown/Expenses.vue';
 import Total from './asset-breakdown/Total.vue';
-import MoveCapitalButton, { MoveFrom, MoveTo } from '../overlays/MoveCapitalButton.vue';
+import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { useConfig } from '../stores/config.ts';
+import { useWallets } from '../stores/wallets.ts';
+import NeedsSetup from './asset-breakdown/NeedsSetup.vue';
+import { useMyVault, useVaults } from '../stores/vaults.ts';
+import { useBitcoinLocks } from '../stores/bitcoin.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -199,7 +276,22 @@ const props = withDefaults(
 );
 
 const currency = useCurrency();
+const config = useConfig();
+const wallets = useWallets();
+const myVault = useMyVault();
+const vaults = useVaults();
+const miningFrames = vaults.miningFrames;
+const bitcoinLocks = useBitcoinLocks();
 
+Vue.onMounted(async () => {
+  await miningFrames.load();
+  await myVault.load();
+  if (!myVault.createdVault) {
+    return;
+  }
+  await myVault.subscribe();
+  await bitcoinLocks.load();
+});
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 
 const breakdown = useVaultingAssetBreakdown();

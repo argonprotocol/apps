@@ -126,7 +126,7 @@ export default class Bot implements IBotSyncStatus {
       const miningFramesPath = this.storage.getPath('miningFrames.json');
       this.blockWatch = new BlockWatch(this.mainchainClients, true);
       this.miningFrames = new MiningFrames(this.mainchainClients, this.blockWatch, {
-        read: () => fs.readFile(miningFramesPath, 'utf8'),
+        read: () => fs.readFile(miningFramesPath, 'utf8').catch(() => '[]'),
         write: data => fs.writeFile(miningFramesPath, data, 'utf8'),
       });
       await this.miningFrames.load();

@@ -24,14 +24,13 @@ import { createDeferred, getPercent, IDeferred } from './Utils.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { type AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/addresses';
 import { type TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
-import { MiningFrames, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
+import { BlockWatch, IBlockHeaderInfo, MiningFrames, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
-import { BlockWatch, IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 dayjs.extend(utc);
 

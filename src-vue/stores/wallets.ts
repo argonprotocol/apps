@@ -8,10 +8,11 @@ import { useStats } from './stats.ts';
 import { useCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { SECURITY } from '../lib/Env.ts';
-import { IBalanceChange, IWallet, Wallet } from '../lib/Wallet.ts';
-import { IBlockToProcess, WalletBalances } from '../lib/WalletBalances.ts';
+import { IWallet } from '../lib/Wallet.ts';
+import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getBlockWatch, getMainchainClients } from './mainchain.ts';
+import { getBlockWatch } from './mainchain.ts';
+import { useMyVault } from './vaults.ts';
 
 let walletKeys: WalletKeys;
 export function useWalletKeys() {
@@ -25,7 +26,7 @@ export function useWalletKeys() {
 
 let walletBalances: WalletBalances;
 export function useWalletBalances() {
-  walletBalances ??= new WalletBalances(getMainchainClients(), useWalletKeys(), getDbPromise(), getBlockWatch());
+  walletBalances ??= new WalletBalances(useWalletKeys(), getDbPromise(), getBlockWatch(), useMyVault());
   return walletBalances;
 }
 
@@ -78,15 +79,26 @@ export const useWallets = defineStore('wallets', () => {
     if (previousHistory) {
       return previousHistory.seats.microgons;
     }
-    return stats.myMiningSeats.microgonValueRemaining;
+    return stats.myMiningSeats.microgonsToBeMined;
   });
 
   const miningSeatMicronots = Vue.computed(() => {
+    return stats.myMiningSeats.micronotsToBeMined;
+  });
+
+  const miningSeatStakedMicronots = Vue.computed(() => {
     const previousHistory = previousHistoryValue.value;
     if (previousHistory) {
       return previousHistory.seats.micronots;
     }
     return stats.myMiningSeats.micronotsStakedTotal;
+  });
+
+  const miningSeatValue = Vue.computed(() => {
+    return (
+      miningSeatMicrogons.value +
+      currency.micronotToMicrogon(miningSeatMicronots.value + miningSeatStakedMicronots.value)
+    );
   });
 
   const miningBidMicrogons = Vue.computed(() => {
@@ -103,10 +115,6 @@ export const useWallets = defineStore('wallets', () => {
       return previousHistory.bids.micronots;
     }
     return stats.myMiningBids.micronotsStakedTotal;
-  });
-
-  const miningSeatValue = Vue.computed(() => {
-    return miningSeatMicrogons.value + currency.micronotToMicrogon(miningSeatMicronots.value);
   });
 
   const miningBidValue = Vue.computed(() => {
@@ -160,33 +168,20 @@ export const useWallets = defineStore('wallets', () => {
 
   const totalWalletMicrogons = Vue.ref(0n);
   const totalWalletMicronots = Vue.ref(0n);
+  const unallocatedVaultMicrogons = Vue.ref(0n);
 
   //////////////////////////////////////////////////////////////////////////////
-  walletBalances.onBalanceChange = () => {
+  walletBalances.events.on('balance-change', (entry, type) => {
     totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
     totalWalletMicronots.value = walletBalances.totalWalletMicronots;
-
-    for (const key of [
-      'availableMicrogons',
-      'availableMicronots',
-      'reservedMicrogons',
-      'reservedMicronots',
-      'totalMicrogons',
-      'totalMicronots',
-    ] as const) {
-      miningWallet[key] = walletBalances.miningWallet[key];
-      vaultingWallet[key] = walletBalances.vaultingWallet[key];
-      holdingWallet[key] = walletBalances.holdingWallet[key];
-    }
-  };
-
-  function registerWalletBalanceChangeEvents(callbacks: {
-    onTransferIn: (wallet: Wallet, balanceChange: IBalanceChange) => void;
-    onBlockDeleted: (block: IBlockToProcess) => void;
-  }) {
-    walletBalances.onTransferIn = callbacks.onTransferIn;
-    walletBalances.onBlockDeleted = callbacks.onBlockDeleted;
-  }
+    unallocatedVaultMicrogons.value = walletBalances.getVaultUnallocatedFunds();
+    const wallet = {
+      mining: miningWallet,
+      vaulting: vaultingWallet,
+      holding: holdingWallet,
+    }[type];
+    Object.assign(wallet, entry);
+  });
 
   async function load() {
     while (!isLoaded.value) {
@@ -196,6 +191,7 @@ export const useWallets = defineStore('wallets', () => {
         await Promise.all([stats.isLoadedPromise, currency.isLoadedPromise]);
         isLoadedResolve();
         isLoaded.value = true;
+        break;
       } catch (error) {
         console.error(`Error loading wallets`, error);
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {
@@ -221,12 +217,14 @@ export const useWallets = defineStore('wallets', () => {
     miningWallet,
     vaultingWallet,
     holdingWallet,
+    unallocatedVaultMicrogons,
     totalWalletMicrogons,
     totalWalletMicronots,
     miningSeatValue,
     miningBidValue,
     miningSeatMicrogons,
     miningSeatMicronots,
+    miningSeatStakedMicronots,
     miningBidMicrogons,
     miningBidMicronots,
     totalMiningMicrogons,
@@ -235,6 +233,8 @@ export const useWallets = defineStore('wallets', () => {
     totalMiningResources,
     totalVaultingResources,
     totalNetWorth,
-    registerWalletBalanceChangeEvents,
+    on: function <K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
+      return walletBalances.events.on(event, cb);
+    },
   };
 });

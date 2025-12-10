@@ -1,5 +1,6 @@
 import BigNumber from 'bignumber.js';
 import { createDeferred, type IDeferred } from './Deferred.js';
+import { isAddress } from '@polkadot/util-crypto';
 
 export { formatArgons } from '@argonprotocol/mainchain';
 
@@ -117,6 +118,10 @@ export class SingleFileQueue {
     return deferred;
   }
 
+  public clear(): void {
+    this.queue.length = 0;
+  }
+
   public async stop(waitForCompletion: boolean = false): Promise<void> {
     this.isStopped = true;
     if (waitForCompletion) {
@@ -182,4 +187,8 @@ export function filterUndefined<T extends Record<string, any>>(obj: Partial<T>):
   return Object.fromEntries(
     Object.entries(obj).filter(([_, value]) => value !== undefined && value !== null),
   ) as NonNullableProps<T>;
+}
+
+export function isValidArgonAccountAddress(address: string): boolean {
+  return isAddress(address);
 }
