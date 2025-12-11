@@ -34,6 +34,8 @@ jobs:
             args: '--target universal-apple-darwin'
           - platform: 'windows-latest'
             args: ''
+          - platform: 'ubuntu-22.04'
+            args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -44,6 +46,37 @@ jobs:
         with:
           node-version: 22
           cache: yarn
+
+      - name: install Rust stable (macOS)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Ensure Rust macOS targets
+        if: ${{ matrix.platform == 'macos-latest' }}
+        run: |
+          set -euxo pipefail
+          rustup show active-toolchain
+          rustup target list --installed || true
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustup target list --installed
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
+
+      - name: Install SQLite on Windows
+        if: runner.os == 'Windows'
+        run: choco install sqlite
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - name: install frontend dependencies
         run: yarn install
@@ -62,27 +95,6 @@ jobs:
             echo '__EOF__'
           } >> "$GITHUB_ENV"
 
-      - name: install Rust stable (macOS)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Ensure Rust macOS targets
-        if: ${{ matrix.platform == 'macos-latest' }}
-        run: |
-          set -euxo pipefail
-          rustup show active-toolchain
-          rustup target list --installed || true
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          rustup target list --installed
-
-      - if: runner.os == 'Windows'
-        shell: bash
-        run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
       - name: build server
         run: yarn build:server
 
@@ -93,7 +105,7 @@ jobs:
           echo "TAURI_CONFIG=$GITHUB_WORKSPACE/src-tauri/tauri.experimental.conf.json" >> "$GITHUB_ENV"
 
       - name: build and publish
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -110,7 +122,7 @@ jobs:
           prerelease: true
           updaterJsonKeepUniversal: true
           includeUpdaterJson: true
-          args: ${{ matrix.args }} --config "${{ env.TAURI_CONFIG }}"
+          args: ${{ matrix.args }} --config '${{ env.TAURI_CONFIG }}'
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}
