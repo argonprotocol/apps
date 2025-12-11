@@ -338,11 +338,10 @@ export class MiningFrames {
     for (const header of headers) {
       if (header.frameId === undefined) {
         hasNewFrame = true;
-      } else if (header.isNewFrame) {
+      } else {
         if (header.frameId > this.currentFrameId) {
           hasNewFrame = true;
-        }
-        if (this.frameHistory[header.frameId]?.firstBlockHash !== header.blockHash) {
+        } else if (this.frameHistory[header.frameId]?.firstBlockHash !== header.blockHash) {
           hasNewFrame = true;
         }
       }
