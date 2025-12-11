@@ -26,7 +26,9 @@ export interface IFrameUpdatesWriter {
 export class MiningFrames {
   public currentFrameId: number;
   public currentFrameRewardTicksRemaining;
-  public frames: IFrameHistory[] = [];
+  public get frames(): IFrameHistory[] {
+    return Object.values(this.framesById).sort((a, b) => a.frameId - b.frameId);
+  }
   public framesById: IFrameHistoryMap;
   public readonly blockWatch: BlockWatch;
   public currentTick: number;
@@ -58,13 +60,15 @@ export class MiningFrames {
     this.blockWatch = blockWatch ?? new BlockWatch(this.clients);
     this.currentTick = 0;
     this.currentFrameRewardTicksRemaining = NetworkConfig.rewardTicksPerFrame;
+
     if (NetworkConfig.networkName === 'mainnet') {
-      this.frames = [...FramesHistoryMainnet] as unknown as IFrameHistory[];
+      for (const frame of FramesHistoryMainnet as any) {
+        this.framesById[frame.frameId] = frame;
+      }
     } else if (NetworkConfig.networkName === 'testnet') {
-      this.frames = [...FramesHistoryTestnet] as unknown as IFrameHistory[];
-    }
-    for (const frame of this.frames) {
-      this.framesById[frame.frameId] = frame;
+      for (const frame of FramesHistoryTestnet as any) {
+        this.framesById[frame.frameId] = frame;
+      }
     }
     this.currentFrameId = Math.max(...this.frameIds, 0);
   }

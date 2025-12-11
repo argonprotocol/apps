@@ -11,7 +11,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   const bitcoinLocked = Vue.ref(0);
   const microgonValueInVaults = Vue.ref(0n);
 
-  const treasuryPoolEarnings = Vue.ref(0n);
+  const epochEarnings = Vue.ref(0n);
   const averageVaultAPY = Vue.ref(0);
 
   async function load() {
@@ -21,7 +21,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     const list = Object.values(vaultsStore.vaultsById);
     for (const vault of list) {
       const earnings = vaultsStore.treasuryPoolEarnings(vault.vaultId, 10);
-      treasuryPoolEarnings.value += earnings;
+      epochEarnings.value += earnings;
       const apy = vaultsStore.calculateVaultApy(vault.vaultId);
       vaultApys.push(apy);
     }
@@ -53,6 +53,6 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     bitcoinLocked,
     averageVaultAPY,
     isLoadedPromise,
-    treasuryPoolEarnings,
+    epochEarnings,
   };
 });

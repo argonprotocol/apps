@@ -11,6 +11,8 @@ export interface IWalletTransferRecord {
   transferType: 'transfer' | 'faucet' | 'tokenGateway';
   isInternal: boolean;
   extrinsicIndex: number;
+  microgonsForArgonot: bigint;
+  microgonsForUsd: bigint;
   blockNumber: number;
   blockHash: string;
   createdAt: Date;
@@ -20,7 +22,7 @@ export interface IWalletTransferRecord {
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 type IWalletTransferRecordKey = keyof IWalletTransferRecord & string;
 export class WalletTransfersTable extends BaseTable {
-  private bigIntFields: IWalletTransferRecordKey[] = ['amount'];
+  private bigIntFields: IWalletTransferRecordKey[] = ['amount', 'microgonsForArgonot', 'microgonsForUsd'];
   private dateFields: IWalletTransferRecordKey[] = ['createdAt', 'updatedAt'];
   private jsonFields: IWalletTransferRecordKey[] = [];
   private booleanFields: IWalletTransferRecordKey[] = ['isInternal'];
@@ -39,13 +41,13 @@ export class WalletTransfersTable extends BaseTable {
     return convertFromSqliteFields(records, this.fields);
   }
 
-  public async fetchSum(walletAddress: string, fromExternal: boolean = true): Promise<bigint> {
-    const rows = await this.db.select<{ amount: bigint }[]>(
-      `SELECT COALESCE(sum(amount), 0) as amount from WalletTransfers WHERE walletAddress = ? 
+  public async fetchExternal(walletAddress: string): Promise<IWalletTransferRecord[]> {
+    const rows = await this.db.select<IWalletTransferRecord[]>(
+      `SELECT * from WalletTransfers WHERE walletAddress = ? 
                  AND isInternal = ?`,
-      toSqlParams([walletAddress, !fromExternal]),
+      toSqlParams([walletAddress, false]),
     );
-    return rows[0]?.amount || 0n;
+    return convertFromSqliteFields<IWalletTransferRecord[]>(rows, this.fields);
   }
 
   public async insert(
@@ -60,12 +62,15 @@ export class WalletTransfersTable extends BaseTable {
       isInternal,
       otherParty,
       transferType,
+      microgonsForArgonot,
+      microgonsForUsd,
       blockNumber,
       blockHash,
     } = args;
     const records = await this.db.select<IWalletTransferRecord[]>(
-      `INSERT INTO WalletTransfers (walletAddress, walletName, amount, currency, extrinsicIndex, isInternal, otherParty, transferType, blockNumber, blockHash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`,
+      `INSERT INTO WalletTransfers (walletAddress, walletName, amount, currency, extrinsicIndex, isInternal,
+                                    microgonsForArgonot, microgonsForUsd, otherParty, transferType, blockNumber, blockHash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       toSqlParams([
         walletAddress,
         walletName,
@@ -73,6 +78,8 @@ export class WalletTransfersTable extends BaseTable {
         currency,
         extrinsicIndex,
         isInternal,
+        microgonsForArgonot,
+        microgonsForUsd,
         otherParty,
         transferType,
         blockNumber,

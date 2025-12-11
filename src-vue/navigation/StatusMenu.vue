@@ -388,7 +388,6 @@ import { Motion } from 'motion-v';
 import basicEmitter from '../emitters/basicEmitter';
 import { createNumeralHelpers } from '../lib/numeral';
 import { useInstaller } from '../stores/installer';
-import { useMyVault } from '../stores/vaults';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
 
@@ -412,7 +411,6 @@ const config = useConfig();
 const wallets = useWallets();
 const currency = useCurrency();
 const installer = useInstaller();
-const calculator = getBiddingCalculator();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -556,6 +554,7 @@ Vue.onMounted(async () => {
   document.addEventListener('mousemove', handleMouseMove);
   await config.isLoadedPromise;
 
+  const calculator = getBiddingCalculator();
   loadSubscription = calculator.onLoad(() => {
     const projections = calculator.runProjections(config.biddingRules, 'maximum');
     requiredMicrogonsForGoal.value = projections.microgonRequirement;

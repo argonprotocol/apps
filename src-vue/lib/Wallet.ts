@@ -1,11 +1,6 @@
 import { Db } from './Db.ts';
 import { IBlockToProcess } from './WalletBalances.ts';
-import {
-  IBalanceTransfer,
-  IExtrinsicEvent,
-  IMainchainExchangeRates,
-  IVaultRevenueEvent,
-} from '@argonprotocol/apps-core';
+import { IBalanceTransfer, IExtrinsicEvent, IVaultRevenueEvent } from '@argonprotocol/apps-core';
 
 export type IBalanceChange = {
   block: IBlockToProcess;
@@ -110,7 +105,7 @@ export class Wallet implements IWallet {
     );
   }
 
-  public async onBalanceChange(newBalance: IBalanceChange, prices?: IMainchainExchangeRates): Promise<boolean> {
+  public async onBalanceChange(newBalance: IBalanceChange, prices: { USD: bigint; ARGNOT: bigint }): Promise<boolean> {
     const prev = this.latestBalanceChange;
     if (!prev) {
       this.balanceHistory.push(newBalance);
@@ -134,8 +129,8 @@ export class Wallet implements IWallet {
         reservedMicronots: newBalance.reservedMicronots,
         microgonChange: newBalance.microgonsAdded,
         micronotChange: newBalance.micronotsAdded,
-        microgonsForUsd: prices?.USD ?? 0n,
-        microgonsForArgonot: prices?.ARGNOT ?? 0n,
+        microgonsForUsd: prices.USD,
+        microgonsForArgonot: prices.ARGNOT,
         extrinsicEventsJson: newBalance.extrinsicEvents,
         blockNumber: newBalance.block.blockNumber,
         blockHash: newBalance.block.blockHash,
@@ -148,6 +143,8 @@ export class Wallet implements IWallet {
           amount: transfer.isInbound ? transfer.amount : -transfer.amount,
           isInternal: transfer.isInternal,
           currency: transfer.isOwnership ? 'argonot' : 'argon',
+          microgonsForArgonot: prices.ARGNOT,
+          microgonsForUsd: prices.USD,
           extrinsicIndex: transfer.extrinsicIndex,
           otherParty: transfer.isInbound ? transfer.from : transfer.to,
           transferType: transfer.transferType,

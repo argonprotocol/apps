@@ -246,7 +246,10 @@ export class WalletBalances {
         entry.extrinsicEvents = filter.eventsByExtrinsic;
         entry.transfers = filter.transfers;
         entry.vaultRevenueEvents = filter.vaultRevenueEvents;
-        const changed = await wallet.onBalanceChange(entry, this.priceIndex?.exchangeRates);
+        const prices =
+          this.priceIndex?.exchangeRates ??
+          (await new PriceIndex(this.blockWatch.clients).fetchMicrogonExchangeRatesTo(api));
+        const changed = await wallet.onBalanceChange(entry, prices);
         if (changed) {
           this.events.emit('balance-change', entry, wallet.type);
           if (entry.transfers.some(x => x.isInbound)) {
