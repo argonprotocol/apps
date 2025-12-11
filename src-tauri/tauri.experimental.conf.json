@@ -2,7 +2,13 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Investor Console - Experimental",
   "identifier": "com.argon.apps.experimental",
+  "version": "1.0.0-rc1",
   "bundle": {
+    "windows": {
+      "nsis": {
+        "version": "1.0.0.1"
+      }
+    },
     "icon": [
       "icons/experimental/mainnet/32x32.png",
       "icons/experimental/mainnet/128x128.png",
@@ -18,6 +24,5 @@
         "https://github.com/argonprotocol/apps/releases/download/channel-experimental/latest-experimental.json"
       ]
     }
-  },
-  "version": "1.0.0-rc1"
+  }
 }

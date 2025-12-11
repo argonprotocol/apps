@@ -44,9 +44,6 @@
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
       <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
-        <StatusMenu />
-      </div>
-      <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <FinancialsMenu ref="financialsMenuRef" />
       </div>
       <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
