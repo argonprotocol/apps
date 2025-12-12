@@ -7,12 +7,16 @@
             Argon is the stablecoin that’s built to last for a thousand years. It uses the natural tension between
             mining and vaulting to create an eternal balance in the ecosystem.
           </p>
-          <div class="grow justify-center text-right">Watch Welcome Video</div>
+          <div class="grow cursor-pointer justify-center text-right font-semibold text-slate-500">
+            Watch Welcome Video
+          </div>
+          <PlayCircleIcon class="text-argon-600/60 h-10 w-10 cursor-pointer pl-2" />
         </div>
       </section>
       <div class="flex flex-row items-stretch gap-x-2">
         <section box class="flex min-h-60 w-1/2 flex-col px-2">
-          <header class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80">
+          <header
+            class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
             <MinerIcon class="mr-3 ml-2 h-7" />
             <span>My Mining Operations</span>
           </header>
@@ -52,13 +56,14 @@
             </p>
             <button
               @click="controller.setScreenKey(ScreenKey.Mining)"
-              class="text-argon-600 border-argon-600 mt-2 ml-3 min-w-7/12 cursor-pointer rounded border px-5 py-1">
+              class="bg-argon-600 my-4 ml-3 w-5/9 cursor-pointer rounded-md border px-5 py-3 text-lg font-bold text-white">
               Open Mining Screen to Activate
             </button>
           </template>
         </section>
         <section box class="w-1/2 px-2">
-          <header class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80">
+          <header
+            class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
             <VaultSmallIcon class="mr-3 ml-2 h-7" />
             <span>My Vaulting Operations</span>
           </header>
@@ -98,15 +103,23 @@
             </p>
             <button
               @click="controller.setScreenKey(ScreenKey.Vaulting)"
-              class="text-argon-600 border-argon-600 mt-2 ml-3 min-w-7/12 cursor-pointer rounded border px-5 py-1">
+              class="bg-argon-600 my-4 ml-3 w-5/9 cursor-pointer rounded-md border px-5 py-3 text-lg font-bold text-white">
               Open Vaulting Screen to Activate
             </button>
           </template>
         </section>
       </div>
 
-      <section box class="flex grow flex-col items-center justify-center gap-x-2 px-2">
-        <header class="h-1/5 pt-6 text-[18px] font-bold text-slate-900/80">Global Ecosystem</header>
+      <section StatsBox box class="flex grow flex-col justify-center gap-x-2 px-2">
+        <div>
+          <header class="relative flex h-1/5 flex-row items-start justify-stretch px-15 pt-6 text-slate-500 uppercase">
+            <div class="h-10 w-2 bg-gray-600/20" />
+            <div class="mr-5 h-2 flex-grow bg-gray-600/20" />
+            <div class="-mt-2.5 text-2xl font-extrabold">Global Ecosystem</div>
+            <div class="ml-5 h-2 flex-grow bg-gray-600/20" />
+            <div class="h-10 w-2 bg-gray-600/20" />
+          </header>
+        </div>
         <div class="flex h-4/5 w-full flex-row px-10">
           <div class="flex w-1/3 flex-col">
             <div StatWrapper class="h-1/4">
@@ -116,10 +129,12 @@
               </div>
               <label>Mining Bids this Epoch</label>
             </div>
+            <div class="h-0.5 w-full bg-gradient-to-l from-slate-600/0 to-slate-600/13" />
             <div class="h-1/4" StatWrapper>
               <div Stat>{{ miningStats.activeMiningSeatCount }}</div>
               <label>Active Miners</label>
             </div>
+            <div class="h-0.5 w-full bg-gradient-to-l from-slate-600/0 to-slate-600/13" />
             <div class="h-1/4" StatWrapper>
               <div Stat>
                 {{ currency.symbol
@@ -127,12 +142,13 @@
               </div>
               <label>Base Mining Rewards</label>
             </div>
+            <div class="h-0.5 w-full bg-gradient-to-l from-slate-600/0 to-slate-600/13" />
             <div class="flex h-1/4 flex-row items-center space-x-4">
               <div StatWrapper>
                 <div Stat>{{ micronotToArgonotNm(micronotsInCirculation).format('0,0') }}</div>
                 <label>Argonot Circulation</label>
               </div>
-              <div>+</div>
+              <div class="text-argon-600/40 text-4xl font-bold">+</div>
               <div StatWrapper>
                 <div Stat>{{ microgonToArgonNm(microgonsInCirculation).format('0,0') }}</div>
                 <label>Argon Circulation</label>
@@ -140,15 +156,46 @@
             </div>
           </div>
 
-          <div class="flex w-1/3 flex-col">
-            <div class="flex h-3/4 grow flex-col text-center">
-              <div class="grow"></div>
-              <div ArgonPrice>{{ currency.symbol }}{{ dollarsPerArgonFormatted }}</div>
-              <div class="grow"></div>
+          <div class="-mt-5 flex w-1/3 flex-col items-center">
+            <div class="flex h-1/4 w-1/2 flex-col items-stretch px-5">
+              <div
+                class="flex grow flex-row"
+                v-for="target in aboveTargetAmounts"
+                :key="target.earningsPotentialPercent">
+                <div class="grow text-left text-slate-500/50">${{ target.usdPrice }}</div>
+                <div class="grow text-right font-semibold text-green-700/50">
+                  +{{ target.earningsPotentialPercent }}%
+                </div>
+              </div>
             </div>
-            <div class="h-1/4 text-center" StatWrapper>
-              <div Stat>{{ currency.symbol }}{{ numeral(unlockValueInArgons).format('0,0') }}</div>
-              <label>Argon Burn from Bitcoin Shorts</label>
+            <div class="-mb-2 flex h-1/4 w-full flex-col">
+              <div
+                ArgonPrice
+                class="rounded-md border-2 border-slate-600/40 p-5 text-center shadow-md shadow-slate-600/20">
+                ${{ dollarsPerArgonFormatted }}
+              </div>
+            </div>
+            <div class="flex h-1/4 w-1/2 flex-col px-5">
+              <div
+                class="flex flex-row pt-1"
+                v-for="target in belowTargetAmounts"
+                :key="target.earningsPotentialPercent">
+                <div class="grow text-left text-slate-500/50">${{ target.usdPrice }}</div>
+                <div class="grow text-right font-semibold text-green-700/50">
+                  +{{ numeral(target.earningsPotentialPercent).format('0,0') }}%
+                </div>
+              </div>
+              <div class="-mt-3 -mb-2 w-1/2 pr-3 text-center text-2xl text-slate-500/40">...</div>
+              <div class="flex flex-row pt-1">
+                <div class="grow text-left text-slate-500/50">${{ terraCollapsePriceUsd }}</div>
+                <div class="grow text-right font-semibold text-green-700/50">+{{ terraPercentReturn }}</div>
+              </div>
+            </div>
+            <div class="mt-2 flex h-1/4 flex-col text-center" StatWrapper>
+              <div class="mx-10 rounded-t-md border-2 border-b-0 border-slate-400/40 px-4 pt-4 pb-2">
+                <div Stat>{{ currency.symbol }}{{ numeral(unlockValueInArgons).format('0,0') }}</div>
+                <label>Argon Burn from Bitcoin Shorts</label>
+              </div>
             </div>
           </div>
 
@@ -156,31 +203,34 @@
             <div StatWrapper class="h-1/4">
               <div Stat>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(vaultingStats.epochEarnings).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(vaultingStats.epochEarnings).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Vaulting Revenue this Epoch</label>
             </div>
+            <div class="h-0.5 w-full bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
             <div StatWrapper class="h-1/4">
               <div Stat>{{ vaultingStats.vaultCount }}</div>
               <label>Active Vaults</label>
             </div>
+            <div class="h-0.5 w-full bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
             <div StatWrapper class="h-1/4">
               <div Stat>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(activatedSecuritization).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(activatedSecuritization).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Bitcoin Security</label>
             </div>
+            <div class="h-0.5 w-full bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
             <div class="flex h-1/4 flex-row items-center justify-end space-x-4">
               <div StatWrapper>
                 <div Stat>{{ vaultingStats.bitcoinLocked }}</div>
                 <label>Vaulted Bitcoins</label>
               </div>
-              <div>+</div>
+              <div class="text-argon-600/40 text-4xl font-bold">+</div>
               <div StatWrapper>
                 <div Stat>
                   {{ currency.symbol
-                  }}{{ microgonToMoneyNm(liquidityReceived).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                  }}{{ microgonToMoneyNm(liquidityReceived).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Liquidity Received</label>
               </div>
@@ -209,6 +259,8 @@ import { useWalletBalances, useWalletKeys } from '../stores/wallets.ts';
 import { useStats } from '../stores/stats.ts';
 import { calculateAPY, calculateProfitPct } from '../lib/Utils.ts';
 import { useConfig } from '../stores/config.ts';
+import { PlayCircleIcon } from '@heroicons/vue/24/outline';
+import BigNumber from 'bignumber.js';
 
 const vaults = useVaults();
 const currency = useCurrency();
@@ -275,6 +327,28 @@ const dollarTargetPerArgon = Vue.ref(0);
 const dollarTargetPerArgonFormatted = Vue.computed(() => {
   return numeral(dollarTargetPerArgon.value).format('0,0.000');
 });
+
+const finalPriceAfterTerraCollapse = 0.001;
+
+const terraCollapsePriceUsd = Vue.computed(() => {
+  return numeral(finalPriceAfterTerraCollapse).format('0,0.000');
+});
+
+function getBitcoinReturnAsPercent(simulateArgonUsdPrice: number): number {
+  const r = BigNumber(simulateArgonUsdPrice).div(dollarTargetPerArgon.value).toNumber();
+  const multiplier = calculateUnlockBurnPerBitcoinDollar(r);
+
+  return (multiplier - 1) * 100;
+}
+
+const terraPercentReturn = Vue.computed(() => {
+  const percentReturn = getBitcoinReturnAsPercent(finalPriceAfterTerraCollapse);
+  return `${numeral(percentReturn).format('0,0')}%`;
+});
+
+const aboveTargetAmounts = Vue.ref<{ usdPrice: string; earningsPotentialPercent: number }[]>([]);
+
+const belowTargetAmounts = Vue.ref<{ usdPrice: string; earningsPotentialPercent: number }[]>([]);
 
 const microgonsInCirculation = Vue.ref(0n);
 const micronotsInCirculation = Vue.ref(0n);
@@ -368,9 +442,31 @@ Vue.onMounted(async () => {
 
   const bitcoinsMicrogonValueInVault = await fetchBitcoinsMicrogonValueInVault();
   const bitcoinDollarValueInVault = dollarsPerArgon.value * currency.microgonToArgon(bitcoinsMicrogonValueInVault);
-  const finalPriceAfterTerraCollapse = 0.001;
   const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(finalPriceAfterTerraCollapse);
   unlockValueInArgons.value = burnPerBitcoinDollar * bitcoinDollarValueInVault;
+
+  const targets: { usdPrice: string; earningsPotentialPercent: number }[] = [];
+  const currentOffset = ((dollarsPerArgon.value - dollarTargetPerArgon.value) / dollarTargetPerArgon.value) * 100;
+  const nextTier = 10 + Math.ceil(currentOffset / 10) * 10;
+  const adjustedOffset = nextTier - currentOffset;
+  for (let i = 1; i <= 4; i++) {
+    const earningsPotentialPercent = adjustedOffset + (i - 1) * 10;
+    const targetPrice = dollarTargetPerArgon.value * (1 + earningsPotentialPercent / 100);
+    targets.push({
+      usdPrice: numeral(targetPrice).format('0,0.000'),
+      earningsPotentialPercent,
+    });
+  }
+  aboveTargetAmounts.value = targets.reverse();
+
+  for (const percentOffTarget of [10, 20, 30]) {
+    const actualPrice = dollarTargetPerArgon.value * ((100 - percentOffTarget) / 100);
+    const earningsPotentialPercent = getBitcoinReturnAsPercent(actualPrice);
+    belowTargetAmounts.value.push({
+      usdPrice: numeral(actualPrice).format('0,0.000'),
+      earningsPotentialPercent,
+    });
+  }
 });
 </script>
 
@@ -384,11 +480,17 @@ Vue.onMounted(async () => {
 [StatWrapper] {
   @apply flex flex-col justify-center gap-y-1;
   [Stat] {
-    @apply text-2xl font-bold;
+    @apply text-argon-600 text-3xl font-extrabold;
+  }
+  header {
+    @apply text-3xl;
+  }
+  label {
+    @apply text-argon-600 -mt-1 text-sm font-medium;
   }
 }
 
 [ArgonPrice] {
-  @apply text-5xl font-bold;
+  @apply text-argon-600 text-6xl font-extrabold;
 }
 </style>
