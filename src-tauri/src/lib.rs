@@ -311,6 +311,7 @@ async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
     unsafe {
         std::env::set_var("ARGON_APP_INSTANCE", &name);
     }
+    run_db_migrations(app.clone()).await?;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
