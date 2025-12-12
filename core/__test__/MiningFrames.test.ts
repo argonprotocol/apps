@@ -54,7 +54,7 @@ describe.skipIf(skipE2E)('Mining Frames tests', () => {
     console.log('blockNumberByFrame', blockNumberByFrame);
     console.log('blockTickByFrame', blockTickByFrame);
     for (let i = 0; i <= waitForFrame; i++) {
-      const frame = miningFrames.frameHistory[i];
+      const frame = miningFrames.framesById[i];
       expect(frame.firstBlockNumber).toBe(blockNumberByFrame[i]);
       expect(frame.firstBlockTick).toBe(blockTickByFrame[i]);
       await expect(miningFrames.waitForTick(frame.firstBlockTick!)).resolves.toBeUndefined();

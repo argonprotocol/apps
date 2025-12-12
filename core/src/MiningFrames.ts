@@ -26,7 +26,10 @@ export interface IFrameUpdatesWriter {
 export class MiningFrames {
   public currentFrameId: number;
   public currentFrameRewardTicksRemaining;
-  public frameHistory: IFrameHistoryMap;
+  public get frames(): IFrameHistory[] {
+    return Object.values(this.framesById).sort((a, b) => a.frameId - b.frameId);
+  }
+  public framesById: IFrameHistoryMap;
   public readonly blockWatch: BlockWatch;
   public currentTick: number;
 
@@ -36,7 +39,7 @@ export class MiningFrames {
   }>();
 
   public get frameIds(): number[] {
-    return Object.keys(this.frameHistory)
+    return Object.keys(this.framesById)
       .map(Number)
       .sort((a, b) => a - b);
   }
@@ -53,17 +56,18 @@ export class MiningFrames {
     if (!NetworkConfig.networkName) {
       throw new Error('NetworkConfig.networkName is not set');
     }
-    this.frameHistory = {};
+    this.framesById = {};
     this.blockWatch = blockWatch ?? new BlockWatch(this.clients);
     this.currentTick = 0;
     this.currentFrameRewardTicksRemaining = NetworkConfig.rewardTicksPerFrame;
+
     if (NetworkConfig.networkName === 'mainnet') {
       for (const frame of FramesHistoryMainnet as any) {
-        this.frameHistory[frame.frameId] = frame;
+        this.framesById[frame.frameId] = frame;
       }
     } else if (NetworkConfig.networkName === 'testnet') {
       for (const frame of FramesHistoryTestnet as any) {
-        this.frameHistory[frame.frameId] = frame;
+        this.framesById[frame.frameId] = frame;
       }
     }
     this.currentFrameId = Math.max(...this.frameIds, 0);
@@ -85,7 +89,7 @@ export class MiningFrames {
         console.log('[Mining Frames] Loaded frame updates:', updates.length);
         if (updates.length > 0) {
           for (const frame of updates) {
-            this.frameHistory[frame.frameId] = frame;
+            this.framesById[frame.frameId] = frame;
           }
           this.currentFrameId = Math.max(...this.frameIds);
         }
@@ -96,7 +100,7 @@ export class MiningFrames {
       const client = await this.clients.prunedClientOrArchivePromise;
       const genesisHash = client.genesisHash.toHex();
 
-      if (!this.frameHistory[0]) {
+      if (!this.framesById[0]) {
         const spec = client.runtimeVersion;
         const genesisTick = NetworkConfig.get().genesisTick;
 
@@ -164,7 +168,7 @@ export class MiningFrames {
   public earliestWithSpec(specVersion: number): number {
     const frameIds = [...this.frameIds];
     for (const frameId of frameIds) {
-      const frame = this.frameHistory[frameId];
+      const frame = this.framesById[frameId];
       if (frame.firstBlockSpecVersion && frame.firstBlockSpecVersion >= specVersion) {
         return frameId;
       }
@@ -218,9 +222,9 @@ export class MiningFrames {
 
   public getForTick(tick: number) {
     for (let frameId = this.currentFrameId; frameId >= 0; frameId--) {
-      const frame = this.frameHistory[frameId];
+      const frame = this.framesById[frameId];
       if (!frame) continue;
-      const nextFrame = this.frameHistory[frameId + 1];
+      const nextFrame = this.framesById[frameId + 1];
       if (!nextFrame && tick >= frame.frameStartTick) {
         return frameId;
       }
@@ -231,7 +235,7 @@ export class MiningFrames {
         }
       }
     }
-    console.warn('[MiningFrames] Tick not found in frame history:', tick, this.currentFrameId, this.frameHistory);
+    console.warn('[MiningFrames] Tick not found in frame history:', tick, this.currentFrameId, this.framesById);
     throw new Error(`Tick ${tick} is not present in frame history`);
   }
 
@@ -272,7 +276,7 @@ export class MiningFrames {
 
   public getTickEnd(frameId: number): number {
     if (frameId === undefined) return 0;
-    const nextFrame = this.frameHistory[frameId + 1];
+    const nextFrame = this.framesById[frameId + 1];
     if (nextFrame) {
       return nextFrame.frameStartTick - 1;
     } else {
@@ -281,7 +285,7 @@ export class MiningFrames {
   }
 
   public getTickStart(frameId: number): number {
-    const frame = this.frameHistory[frameId];
+    const frame = this.framesById[frameId];
     if (!frame) {
       throw new Error(`Frame ID ${frameId} is not present in frame history`);
     }
@@ -289,7 +293,7 @@ export class MiningFrames {
   }
 
   public estimateTickForFrame(frameId: number): number {
-    const latestFrame = this.frameHistory[this.currentFrameId];
+    const latestFrame = this.framesById[this.currentFrameId];
     if (!latestFrame) {
       throw new Error('No latest frame data available for tick estimation');
     }
@@ -299,7 +303,7 @@ export class MiningFrames {
   }
 
   private setFrameHistory(data: IFrameHistory): boolean {
-    const existing = this.frameHistory[data.frameId];
+    const existing = this.framesById[data.frameId];
     if (existing) {
       const hasChanges = Object.entries(data).filter(([key, value]) => {
         if (value instanceof Date) {
@@ -314,7 +318,7 @@ export class MiningFrames {
       console.log('[Mining Frames] Updating existing frame history entry', data.frameId, hasChanges, existing);
       Object.assign(existing, data);
     } else {
-      this.frameHistory[data.frameId] = data;
+      this.framesById[data.frameId] = data;
     }
     if (data.frameId > this.currentFrameId) {
       this.currentFrameId = data.frameId;
@@ -325,7 +329,7 @@ export class MiningFrames {
   private async safeSaveUpdates() {
     if (!this.updatesWriter) return;
     try {
-      const json = JSON.stringify(Object.values(this.frameHistory));
+      const json = JSON.stringify(Object.values(this.framesById));
       await this.updatesWriter.write(json);
     } catch (error) {
       console.error('[Mining Frames] Error saving frame updates', error);
@@ -342,7 +346,7 @@ export class MiningFrames {
         if (header.frameId > this.currentFrameId) {
           hasNewFrame = true;
         }
-        if (this.frameHistory[header.frameId]?.firstBlockHash !== header.blockHash) {
+        if (this.framesById[header.frameId]?.firstBlockHash !== header.blockHash) {
           hasNewFrame = true;
         }
       }
@@ -369,7 +373,7 @@ export class MiningFrames {
       const api = await blockClient.at(header.blockHash);
       const frameId: number = header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
 
-      const existing = this.frameHistory[frameId];
+      const existing = this.framesById[frameId];
       if (existing && existing.firstBlockHash === blockHash) {
         break;
       }

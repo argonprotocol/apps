@@ -44,6 +44,7 @@ export function calculateAPR(costs: bigint, rewards: bigint): number {
  * @param activeDays - The number of days this investment reflects
  */
 export function calculateAPY(costs: bigint, rewards: bigint, activeDays?: number): number {
+  if (rewards === 0n) return 0;
   const roi = calculateProfitPct(costs, rewards);
   const elapsedDenominator = activeDays ? activeDays : 1;
   const dailyRate = Math.pow(1 + roi, 1 / elapsedDenominator) - 1;

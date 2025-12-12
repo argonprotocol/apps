@@ -77,7 +77,7 @@
           <MiningAssetBreakdown />
           <div class="grow flex flex-col items-center justify-end">
             <div @click="openBotEditOverlay" class="relative text-center mb-5 text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <MinerIcon class="w-20 h-20 mt-5 inline-block mb-1" />
+              <MiningIcon class="w-20 h-20 mt-5 inline-block mb-1" />
               <div>Configure Bot Settings</div>
             </div>
           </div>
@@ -414,7 +414,7 @@ import BlocksIcon from '../../assets/blocks.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { TICK_MILLIS } from '../../lib/Env.ts';
-import MinerIcon from '../../assets/miner.svg?component';
+import MiningIcon from '../../assets/mining.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
 import ArgonBlocksOverlay from '../../overlays/ArgonBlocksOverlay.vue';
 import BitcoinBlocksOverlay from '../../overlays/BitcoinBlocksOverlay.vue';

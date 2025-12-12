@@ -45,6 +45,8 @@ CREATE TABLE WalletTransfers  (
   transferType TEXT NOT NULL,
   isInternal INTEGER NOT NULL,
   extrinsicIndex INTEGER NOT NULL,
+  microgonsForArgonot TEXT NOT NULL,
+  microgonsForUsd TEXT NOT NULL,
   blockNumber INTEGER NOT NULL,
   blockHash TEXT NOT NULL,
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,

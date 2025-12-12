@@ -351,13 +351,16 @@ export class Mining {
 
     let totalRewards = 0n;
     for (let i = tickStart; i < tickEnd; i++) {
-      const elapsedTicks = this.getTicksSinceGenesis(i);
-      if (elapsedTicks >= halvingStartTick) {
-        const halvings = Math.floor((elapsedTicks - halvingStartTick) / halvingTicks);
-        rewardsPerBlock = BigInt(Math.floor(Number(blockRewardMax) / (halvings + 1)));
-      } else if (elapsedTicks % incrementIntervalTicks === 0) {
-        rewardsPerBlock += increasePerIntervalMicrogons;
-        rewardsPerBlock = bigIntMin(rewardsPerBlock, blockRewardMax);
+      // Update rewardsPerBlock at each frame
+      if (i % NetworkConfig.rewardTicksPerFrame === 0) {
+        const elapsedTicks = this.getTicksSinceGenesis(i);
+        if (elapsedTicks >= halvingStartTick) {
+          const halvings = Math.floor((elapsedTicks - halvingStartTick) / halvingTicks);
+          rewardsPerBlock = BigInt(Math.floor(Number(blockRewardMax) / (halvings + 1)));
+        } else if (elapsedTicks % incrementIntervalTicks === 0) {
+          rewardsPerBlock += increasePerIntervalMicrogons;
+          rewardsPerBlock = bigIntMin(rewardsPerBlock, blockRewardMax);
+        }
       }
       totalRewards += rewardsPerBlock;
     }

@@ -4,6 +4,7 @@
     <TopBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
       <AlertBars />
+      <HomeScreen v-if="showHomeScreen" />
       <MiningScreen v-if="showMiningScreen" />
       <VaultingScreen v-else-if="controller.screenKey === ScreenKey.Vaulting" />
     </main>
@@ -42,6 +43,7 @@
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import menuStart from './menuStart.ts';
+import HomeScreen from './screens/HomeScreen.vue';
 import MiningScreen from './screens/MiningScreen.vue';
 import VaultingScreen from './screens/VaultingScreen.vue';
 import ServerConnectOverlay from './overlays/ServerConnectOverlay.vue';
@@ -76,20 +78,28 @@ const config = useConfig();
 const tour = useTour();
 const bot = useBot();
 
+const showHomeScreen = Vue.computed(() => {
+  return controller.screenKey === ScreenKey.Home;
+});
+
 const showMiningScreen = Vue.computed(() => {
   return controller.screenKey === ScreenKey.Mining;
 });
 
+const order = [ScreenKey.Home, ScreenKey.Mining, ScreenKey.Vaulting];
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)
+  const currentOrder = order.indexOf(controller.screenKey);
   if (event.metaKey && event.shiftKey && event.key === '[') {
     event.preventDefault();
-    controller.setScreenKey(ScreenKey.Mining);
+    const left = (currentOrder - 1 + order.length) % order.length;
+    controller.setScreenKey(order[left]);
   }
   // Check for CMD+Shift+] (vaulting panel)
   else if (event.metaKey && event.shiftKey && event.key === ']') {
     event.preventDefault();
-    controller.setScreenKey(ScreenKey.Vaulting);
+    const right = (currentOrder + 1) % order.length;
+    controller.setScreenKey(order[right]);
   }
 }
 

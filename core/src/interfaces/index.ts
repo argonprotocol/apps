@@ -7,6 +7,7 @@ export * from './IBlockNumbers.js';
 export * from './IBlockSyncFile.js';
 export * from './IBotStateFile.js';
 export * from './IEarningsFile.js';
+export * from './IFramesHistory.js';
 export * from './IHistoryFile.js';
 export * from './ILastModified.js';
 export * from './ITransferSources.js';

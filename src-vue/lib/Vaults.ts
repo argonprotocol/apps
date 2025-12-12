@@ -146,18 +146,13 @@ export class Vaults {
     };
     try {
       this.stats ??= { synchedToFrame: 0, vaultsById: {} };
-      const oldestFrameToGet = this.stats.synchedToFrame;
+      // re-sync the last 10 frames to catch updates to revenue collection
+      const oldestFrameToGet = this.stats.synchedToFrame - 10;
+      const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
+      const framesSeen = new Set<number>();
 
-      const client = await getMainchainClient(false);
-      const finalizedHead = await client.rpc.chain.getFinalizedHead();
-      const finalizedBlockNumber = await client.rpc.chain
-        .getHeader(finalizedHead)
-        .then(header => header.number.toNumber());
-      const currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-      console.log(`Syncing vault revenue stats from ${oldestFrameToGet}->${currentFrameId}`);
       await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
         async (frameId, firstBlockMeta, api, abortController) => {
-          console.log(`[VaultHistory] Loading frame ${frameId} (oldest ${oldestFrameToGet})`);
           if (firstBlockMeta.specVersion < 129) {
             console.log(
               `[VaultHistory] Aborting iteration at frame ${frameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
@@ -165,13 +160,19 @@ export class Vaults {
             return abortController.abort();
           }
           // don't process until finalized
-          if (firstBlockMeta.blockNumber > finalizedBlockNumber) {
+          if (firstBlockMeta.blockNumber > finalizedHead.blockNumber) {
             return;
           }
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
           for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
             const vaultId = vaultIdRaw.args[0].toNumber();
-            await this.updateVaultRevenue(vaultId, frameRevenues, true);
+            for (const frameRevenue of frameRevenues) {
+              const frameId = frameRevenue.frameId.toNumber();
+              if (!framesSeen.has(frameId)) {
+                await this.updateVaultRevenue(vaultId, [frameRevenue], true);
+                framesSeen.add(frameRevenue.frameId.toNumber());
+              }
+            }
           }
 
           if (frameId <= oldestFrameToGet) {
@@ -182,7 +183,8 @@ export class Vaults {
           }
         },
       );
-      this.stats.synchedToFrame = currentFrameId - 1;
+
+      this.stats.synchedToFrame = Math.max(...framesSeen, this.stats.synchedToFrame);
       void this.saveStats();
       refreshingDeferred.resolve(this.stats);
       scheduleClearance();
@@ -195,12 +197,14 @@ export class Vaults {
     }
   }
 
-  private get oldestActiveFrameId(): number {
-    return Math.max(0, this.syncedToFrame - 10);
-  }
-
   private get syncedToFrame(): number {
     return this.stats?.synchedToFrame ?? 0;
+  }
+
+  public activatedSecuritization(vaultId: number): bigint {
+    const vault = this.vaultsById[vaultId];
+    if (!vault) return 0n;
+    return vault.activatedSecuritization();
   }
 
   public contributedTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
@@ -208,9 +212,10 @@ export class Vaults {
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
 
+    const oldestFrameId = this.syncedToFrame - maxFrames + 1;
     return vaultRevenue.changesByFrame
       .slice(0, maxFrames)
-      .filter(x => x.frameId >= this.oldestActiveFrameId)
+      .filter(x => x.frameId >= oldestFrameId)
       .reduce((total, change) => total + change.treasuryPool.externalCapital + change.treasuryPool.vaultCapital, 0n);
   }
 
@@ -218,13 +223,14 @@ export class Vaults {
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
 
+    const oldestFrameId = this.syncedToFrame - maxFrames + 1;
     return vaultRevenue.changesByFrame
       .slice(0, maxFrames)
-      .filter(x => x.frameId >= this.oldestActiveFrameId)
+      .filter(x => x.frameId >= oldestFrameId)
       .reduce((total, change) => total + change.treasuryPool.totalEarnings, 0n);
   }
 
-  public getTrailingYearVaultRevenue(vaultId: number): bigint {
+  public getTrailingYearFeeRevenue(vaultId: number): bigint {
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
 
@@ -305,7 +311,7 @@ export class Vaults {
   public calculateVaultApy(vaultId: number): number {
     const vault = this.vaultsById[vaultId];
 
-    const yearFeeRevenue = Number(this.getTrailingYearVaultRevenue(vaultId));
+    const yearFeeRevenue = Number(this.getTrailingYearFeeRevenue(vaultId));
 
     const epochPoolCapital = Number(this.contributedTreasuryCapital(vaultId, 10));
 
@@ -349,15 +355,19 @@ export class Vaults {
     console.log('load stats from file', this.statsFile());
     const state = await readTextFile(this.statsFile(), {
       baseDir: BaseDirectory.AppConfig,
-    }).catch(() => undefined);
+    }).catch(err => console.warn(`No existing vault stats file found: ${err}`));
     if (state) {
       return JsonExt.parse(state);
     }
 
     const { synchedToFrame, vaultsById } =
-      this.network === 'mainnet' ? mainnetVaultRevenueHistory : testnetVaultRevenueHistory;
+      {
+        testnet: testnetVaultRevenueHistory,
+        mainnet: mainnetVaultRevenueHistory,
+      }[this.network]! ?? {};
+
     const stats: (typeof this)['stats'] = { synchedToFrame, vaultsById: {} };
-    for (const [vaultId, entry] of Object.entries(vaultsById)) {
+    for (const [vaultId, entry] of Object.entries(vaultsById ?? {})) {
       const { changesByFrame, openedTick, baseline } = entry;
       const id = parseInt(vaultId, 10);
       stats.vaultsById[id] = {

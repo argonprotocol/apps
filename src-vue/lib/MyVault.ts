@@ -659,6 +659,29 @@ export class MyVault {
     this.#subscriptions.length = 0;
   }
 
+  public revenue(): { earnings: bigint; activeFrames: number; averageCapitalDeployed: bigint } {
+    const vaultRevenue = this.data.stats;
+    if (!vaultRevenue || !this.createdVault) return { earnings: 0n, activeFrames: 0, averageCapitalDeployed: 0n };
+
+    let startingFrame = this.data.currentFrameId;
+    let earnings = 0n;
+    const capitalDeployed: bigint[] = [];
+
+    for (const change of vaultRevenue.changesByFrame ?? []) {
+      earnings += change.treasuryPool.vaultEarnings + change.bitcoinFeeRevenue - change.uncollectedEarnings;
+
+      // if there's a change record, the vault did something
+      startingFrame = Math.min(startingFrame, change.frameId);
+      capitalDeployed.push(change.securitization + 10n * change.treasuryPool.vaultCapital);
+    }
+
+    const averageCapitalDeployed = capitalDeployed.length
+      ? capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length)
+      : 0n;
+    const activeFrames = this.data.currentFrameId - startingFrame;
+    return { earnings, activeFrames, averageCapitalDeployed };
+  }
+
   public async activeMicrogonsForTreasuryPool(): Promise<bigint> {
     if (!this.createdVault) {
       throw new Error('No vault created to get active treasury pool funds');

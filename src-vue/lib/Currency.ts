@@ -144,10 +144,10 @@ export class Currency {
     }
   }
 
-  public micronotToMicrogon(micronots: bigint): bigint {
+  public micronotToMicrogon(micronots: bigint, microgonsPerArgonot?: bigint): bigint {
     if (!micronots) return 0n;
     const argonotsBn = BigNumber(micronots).dividedBy(MICRONOTS_PER_ARGONOT);
-    const microgonsBn = argonotsBn.multipliedBy(this.microgonExchangeRateTo.ARGNOT);
+    const microgonsBn = argonotsBn.multipliedBy(microgonsPerArgonot ?? this.microgonExchangeRateTo.ARGNOT);
     return BigInt(Math.round(microgonsBn.toNumber()));
   }
 

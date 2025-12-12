@@ -66,7 +66,7 @@ export class Config implements IConfig {
     this._dbPromise = dbPromise;
     this._loadedData = {
       version: packageJson.version,
-      screenKey: ScreenKey.Mining,
+      screenKey: ScreenKey.Home,
       requiresPassword: false,
       showWelcomeOverlay: false,
       serverDetails: {
@@ -631,7 +631,7 @@ const dbFields = {
 } as const;
 
 const defaults: IConfigDefaults = {
-  screenKey: () => ScreenKey.Mining,
+  screenKey: () => ScreenKey.Home,
   requiresPassword: () => false,
   showWelcomeOverlay: () => true,
 

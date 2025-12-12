@@ -61,7 +61,7 @@ export class CohortsTable extends BaseTable {
         `SELECT 
         COALESCE(sum(transactionFeesTotal), 0) as transactionFeesTotal, 
         COALESCE(sum(microgonsBidPerSeat), 0) as microgonsBidTotal,
-        COALESCE(sum((transactionFeesTotal + (microgonsBidPerSeat * seatCountWon)) * (progress / 100)), 0) as framedCost
+        COALESCE(sum((transactionFeesTotal + (microgonsBidPerSeat * seatCountWon)) * (progress / 100.0)), 0) as framedCost
       FROM Cohorts`,
       );
 

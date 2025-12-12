@@ -34,6 +34,7 @@ export enum InstallStepStatus {
 }
 
 export enum ScreenKey {
+  Home = 'Home',
   Mining = 'Mining',
   Vaulting = 'Vaulting',
 }
