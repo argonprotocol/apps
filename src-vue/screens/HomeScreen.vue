@@ -7,10 +7,6 @@
             Argon is the stablecoin that’s built to last for a thousand years. It uses the natural tension between
             mining and vaulting to create an eternal balance in the ecosystem.
           </p>
-          <!--          <div class="grow cursor-pointer justify-center text-right font-semibold text-slate-500">-->
-          <!--            Watch Welcome Video-->
-          <!--          </div>-->
-          <!--          <PlayCircleIcon class="text-argon-600/60 h-10 w-10 cursor-pointer pl-2" />-->
         </div>
       </section>
       <div class="flex flex-row items-stretch gap-x-2">
@@ -57,7 +53,7 @@
             </p>
             <button
               @click="controller.setScreenKey(ScreenKey.Mining)"
-              class="bg-argon-600 my-4 ml-3 w-200 cursor-pointer rounded-md border px-5 py-2 text-lg font-bold text-white">
+              class="bg-argon-600 my-4 w-full max-w-180 cursor-pointer rounded-md border px-5 py-2 text-lg font-bold text-white">
               Open Mining Screen
             </button>
           </div>
@@ -75,7 +71,7 @@
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
-                <label>External Capital Invested</label>
+                <label>Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
@@ -216,7 +212,7 @@
             </div>
           </div>
 
-          <div class="-mt-0 flex w-1/3 flex-col items-center">
+          <div class="flex w-1/3 flex-col items-center">
             <div class="flex h-1/4 w-1/2 flex-col items-stretch px-5">
               <div
                 class="flex grow flex-row"
@@ -380,7 +376,6 @@ import { useWalletBalances, useWalletKeys } from '../stores/wallets.ts';
 import { useStats } from '../stores/stats.ts';
 import { calculateAPY, calculateProfitPct } from '../lib/Utils.ts';
 import { useConfig } from '../stores/config.ts';
-import { PlayCircleIcon } from '@heroicons/vue/24/outline';
 import BigNumber from 'bignumber.js';
 import LineArrow from '../components/asset-breakdown/LineArrow.vue';
 
