@@ -7,10 +7,10 @@
             Argon is the stablecoin that’s built to last for a thousand years. It uses the natural tension between
             mining and vaulting to create an eternal balance in the ecosystem.
           </p>
-          <div class="grow cursor-pointer justify-center text-right font-semibold text-slate-500">
-            Watch Welcome Video
-          </div>
-          <PlayCircleIcon class="text-argon-600/60 h-10 w-10 cursor-pointer pl-2" />
+          <!--          <div class="grow cursor-pointer justify-center text-right font-semibold text-slate-500">-->
+          <!--            Watch Welcome Video-->
+          <!--          </div>-->
+          <!--          <PlayCircleIcon class="text-argon-600/60 h-10 w-10 cursor-pointer pl-2" />-->
         </div>
       </section>
       <div class="flex flex-row items-stretch gap-x-2">
@@ -20,143 +20,203 @@
             <MinerIcon class="mr-3 ml-2 h-7" />
             <span>My Mining Operations</span>
           </header>
-          <div class="flex grow flex-col gap-y-2 pt-2 text-center" v-if="config.isMinerInstalled">
-            <div class="flex h-1/2 flex-row items-center gap-x-2">
-              <div StatWrapper class="flex w-1/2 flex-col">
+          <div class="flex grow flex-row pt-2 text-center" v-if="config.isMinerInstalled">
+            <div class="flex w-1/2 flex-col items-center gap-x-2">
+              <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20">
                 <div Stat>
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
-                <label>External Capital Invested</label>
+                <label>Capital Invested</label>
               </div>
-              <div StatWrapper class="flex w-1/2 flex-col">
+              <div StatWrapper class="flex h-1/2 w-full flex-col">
+                <div Stat>{{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <label>Return On Investment</label>
+              </div>
+            </div>
+            <div class="mx-2 h-full w-px bg-slate-600/20" />
+            <div class="flex w-1/2 flex-col items-center gap-x-2">
+              <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20">
                 <div Stat>
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(myMiningEarnings).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Total Earnings</label>
               </div>
-            </div>
-            <div class="flex h-1/2 flex-row items-center gap-x-2">
-              <div StatWrapper class="flex w-1/2 flex-col">
-                <div Stat>{{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
-                <label>Return On Investment</label>
-              </div>
-              <div StatWrapper class="flex w-1/2 flex-col">
+              <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myMiningApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
                 <label>Annual Percentage Yield</label>
               </div>
             </div>
           </div>
-          <template v-else>
-            <p class="px-3 py-3 font-light text-slate-900/80">
+          <div v-else class="px-3">
+            <p class="py-3 font-light text-slate-900/80">
               Argon's Miners secure the network by processing transactions and maintaining consensus. Miners are also
               granted rights to print any new Argons needed to keep the stablecoin pegged to its target price. This puts
               miners in a unique position to profit from the growth of the Argon ecosystem.
             </p>
             <button
               @click="controller.setScreenKey(ScreenKey.Mining)"
-              class="bg-argon-600 my-4 ml-3 w-5/9 cursor-pointer rounded-md border px-5 py-3 text-lg font-bold text-white">
-              Open Mining Screen to Activate
+              class="bg-argon-600 my-4 ml-3 w-200 cursor-pointer rounded-md border px-5 py-2 text-lg font-bold text-white">
+              Open Mining Screen
             </button>
-          </template>
+          </div>
         </section>
-        <section box class="w-1/2 px-2">
+        <section box class="flex min-h-60 w-1/2 flex-col px-2">
           <header
             class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
             <VaultSmallIcon class="mr-3 ml-2 h-7" />
             <span>My Vaulting Operations</span>
           </header>
-          <div class="flex grow flex-col gap-y-2 pt-2 text-center" v-if="config.isVaultActivated">
-            <div class="flex h-1/2 flex-row items-center gap-x-2">
-              <div StatWrapper class="flex w-1/2 flex-col">
+          <div class="flex grow flex-row pt-2 text-center" v-if="config.isVaultActivated">
+            <div class="flex w-1/2 flex-col items-center gap-x-2">
+              <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20">
                 <div Stat>
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>External Capital Invested</label>
               </div>
-              <div StatWrapper class="flex w-1/2 flex-col">
+              <div StatWrapper class="flex h-1/2 w-full flex-col">
+                <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <label>Return On Investment</label>
+              </div>
+            </div>
+            <div class="mx-2 h-full w-px bg-slate-600/20" />
+            <div class="flex w-1/2 flex-col items-center gap-x-2">
+              <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20">
                 <div Stat>
                   {{ currency.symbol }}{{ microgonToMoneyNm(myVaultEarnings).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Total Earnings</label>
               </div>
-            </div>
-            <div class="flex h-1/2 flex-row items-center gap-x-2">
-              <div StatWrapper class="flex w-1/2 flex-col">
-                <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
-                <label>Return On Investment</label>
-              </div>
-              <div StatWrapper class="flex w-1/2 flex-col">
+              <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myVaultApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
                 <label>Annual Percentage Yield</label>
               </div>
             </div>
           </div>
-          <template v-else>
-            <p class="px-3 py-3 font-light text-slate-900/80">
+          <div v-else class="px-3">
+            <p class="py-3 font-light text-slate-900/80">
               Argon's Stabilization Vaults lock Bitcoins into special contracts that generate unencumbered shorts
               against the Argon stablecoin. These shorts give Argon its price stability and make it impossible to
-              death-spiral. In return for operating vaults and managing the related treasury pools, Vaulters are able to
-              earn substantial rewards.
+              death-spiral. In return, vaults earn all revenue generated by mining bids.
             </p>
             <button
               @click="controller.setScreenKey(ScreenKey.Vaulting)"
-              class="bg-argon-600 my-4 ml-3 w-5/9 cursor-pointer rounded-md border px-5 py-3 text-lg font-bold text-white">
-              Open Vaulting Screen to Activate
+              class="bg-argon-600 my-4 w-full max-w-180 cursor-pointer rounded-md border px-5 py-2 text-lg font-bold text-white">
+              Open Vaulting Screen
             </button>
-          </template>
+          </div>
         </section>
       </div>
 
-      <section StatsBox box class="flex grow flex-col justify-center gap-x-2 px-2">
-        <div>
-          <header class="relative flex h-1/5 flex-row items-start justify-stretch px-15 pt-6 text-slate-500 uppercase">
-            <div class="h-10 w-2 bg-gray-600/20" />
-            <div class="mr-5 h-2 flex-grow bg-gray-600/20" />
-            <div class="-mt-2.5 text-2xl font-extrabold">Global Ecosystem</div>
-            <div class="ml-5 h-2 flex-grow bg-gray-600/20" />
-            <div class="h-10 w-2 bg-gray-600/20" />
-          </header>
-        </div>
-        <div class="flex h-4/5 w-full flex-row px-10">
+      <section StatsBox box class="flex grow flex-col justify-center px-2 !pb-0">
+        <header
+          class="relative mx-1 mt-6 flex flex-row items-start justify-stretch px-12 text-[20px] font-bold text-slate-900/80 uppercase">
+          <div class="relative top-5 mr-2 h-10 w-3 bg-gray-600/13">
+            <div class="absolute -top-5 h-5 w-5 rounded-tl-xl border-t-12 border-l-12 border-gray-600/13" />
+          </div>
+          <div class="mr-5 h-3 flex-grow bg-gray-600/13" />
+          <div class="-mt-2">The Global Ecosystem</div>
+          <div class="ml-5 h-3 flex-grow bg-gray-600/13" />
+          <div class="relative top-5 ml-2 h-10 w-3 bg-gray-600/13">
+            <div class="absolute -top-5 right-0 h-5 w-5 rounded-tr-xl border-t-12 border-r-12 border-gray-600/13" />
+            <LineArrow
+              class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
+          </div>
+        </header>
+        <div class="flex w-full grow flex-row">
           <div class="flex w-1/3 flex-col">
-            <div StatWrapper class="h-1/4">
+            <div class="relative h-px w-full bg-gradient-to-l from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-3 left-12 bg-white px-1"><div class="relative h-7 w-3 bg-gray-600/13" /></div>
+            </div>
+            <div StatWrapper class="ml-10 h-1/4">
               <div Stat>
                 {{ currency.symbol
                 }}{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Mining Bids this Epoch</label>
             </div>
-            <div class="h-0.5 w-full bg-gradient-to-l from-slate-600/0 to-slate-600/13" />
-            <div class="h-1/4" StatWrapper>
-              <div Stat>{{ miningStats.activeMiningSeatCount }}</div>
+            <div class="relative h-px w-full bg-gradient-to-l from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-4 left-12 bg-white px-1">
+                <div class="relative h-9 w-3 bg-gray-600/13" />
+                <LineArrow
+                  class="absolute bottom-full left-1/2 z-10 -translate-x-1/2 translate-y-1/2 -rotate-90 text-slate-600/13" />
+              </div>
+            </div>
+            <div StatWrapper class="ml-10 h-1/4">
+              <div class="flex flex-row items-center">
+                <div Stat>{{ miningStats.activeMiningSeatCount }}</div>
+                <div class="relative mr-5 ml-7 h-3 flex-grow bg-gray-600/13">
+                  <LineArrow class="absolute top-1/2 right-full z-10 -translate-y-1/2 -rotate-180 text-slate-600/13" />
+                </div>
+              </div>
               <label>Active Miners</label>
             </div>
-            <div class="h-0.5 w-full bg-gradient-to-l from-slate-600/0 to-slate-600/13" />
-            <div class="h-1/4" StatWrapper>
+            <div class="relative h-px w-full bg-gradient-to-l from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-4 left-12 bg-white px-1">
+                <div class="relative h-9 w-3 bg-gray-600/13" />
+                <LineArrow
+                  class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
+              </div>
+            </div>
+            <div StatWrapper class="ml-10 h-1/4">
               <div Stat>
                 {{ currency.symbol
                 }}{{ microgonToMoneyNm(miningStats.aggregatedBlockRewards).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Base Mining Rewards</label>
             </div>
-            <div class="h-0.5 w-full bg-gradient-to-l from-slate-600/0 to-slate-600/13" />
-            <div class="flex h-1/4 flex-row items-center space-x-4">
+            <div class="relative h-px w-full bg-gradient-to-l from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-4 left-12 bg-white px-1">
+                <div class="relative h-9 w-3 bg-gray-600/13" />
+                <LineArrow
+                  class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
+              </div>
+            </div>
+
+            <div class="ml-10 flex h-1/4 flex-row items-center space-x-4">
               <div StatWrapper>
                 <div Stat>{{ micronotToArgonotNm(micronotsInCirculation).format('0,0') }}</div>
                 <label>Argonot Circulation</label>
               </div>
-              <div class="text-argon-600/40 text-4xl font-bold">+</div>
-              <div StatWrapper>
-                <div Stat>{{ microgonToArgonNm(microgonsInCirculation).format('0,0') }}</div>
-                <label>Argon Circulation</label>
+              <div class="pb-6 text-4xl font-bold text-slate-600/20">+</div>
+              <div class="relative flex h-full flex-col">
+                <div class="absolute bottom-full left-1/2 h-[calc(150%-30px)] -translate-x-1/2 bg-white px-1">
+                  <div class="relative h-full w-3 bg-gray-600/13" />
+                </div>
+                <div class="absolute bottom-[calc(250%-22px)] left-1/2 z-10 w-1/2 translate-x-[5px] bg-white">
+                  <div
+                    class="absolute top-0 left-[-11px] h-5 w-5 rounded-tl-xl border-t-12 border-l-12 border-gray-600/13" />
+                  <div class="relative ml-[9px] h-3 w-full bg-gray-600/13" />
+                </div>
+                <div class="relative grow">
+                  <div class="absolute bottom-2 left-1/2 h-full -translate-x-1/2 bg-white px-1">
+                    <div class="relative h-full w-3 bg-gray-600/13" />
+                  </div>
+                </div>
+                <div StatWrapper>
+                  <div Stat>{{ microgonToArgonNm(microgonsInCirculation).format('0,0') }}</div>
+                  <label>Argon Circulation</label>
+                </div>
+                <div class="grow" />
+              </div>
+              <div class="relative flex h-full grow flex-col">
+                <div class="absolute bottom-[calc(250%-22px)] -left-6 z-10 w-[calc(100%-4px)] bg-white">
+                  <div class="relative h-3 w-full bg-gray-600/13" />
+                  <LineArrow class="absolute top-1/2 left-full z-10 -translate-y-1/2 text-slate-600/13" />
+                </div>
+                <div class="grow" />
+                <div class="relative -top-2.5 mr-3 ml-3 h-3 bg-gray-600/13">
+                  <LineArrow class="absolute top-1/2 right-full z-10 -translate-y-1/2 -rotate-180 text-slate-600/13" />
+                </div>
+                <div class="grow" />
               </div>
             </div>
           </div>
 
-          <div class="-mt-5 flex w-1/3 flex-col items-center">
+          <div class="-mt-0 flex w-1/3 flex-col items-center">
             <div class="flex h-1/4 w-1/2 flex-col items-stretch px-5">
               <div
                 class="flex grow flex-row"
@@ -168,11 +228,12 @@
                 </div>
               </div>
             </div>
-            <div class="-mb-2 flex h-1/4 w-full flex-col">
+            <div class="-mb-1 flex h-1/4 w-full flex-col">
               <div
                 ArgonPrice
-                class="rounded-md border-2 border-slate-600/40 p-5 text-center shadow-md shadow-slate-600/20">
-                ${{ dollarsPerArgonFormatted }}
+                class="rounded-lg border border-slate-600/50 px-5 pt-5 pb-4 text-center shadow-md shadow-slate-600/20">
+                ${{ numeral(dollarsPerArgon).format('0,0.00') }}
+                <label class="mt-1 block text-sm font-medium text-slate-700/50">Price Per Argon</label>
               </div>
             </div>
             <div class="flex h-1/4 w-1/2 flex-col px-5">
@@ -191,42 +252,102 @@
                 <div class="grow text-right font-semibold text-green-700/50">+{{ terraPercentReturn }}</div>
               </div>
             </div>
-            <div class="mt-2 flex h-1/4 flex-col text-center" StatWrapper>
-              <div class="mx-10 rounded-t-md border-2 border-b-0 border-slate-400/40 px-4 pt-4 pb-2">
-                <div Stat>{{ currency.symbol }}{{ numeral(unlockValueInArgons).format('0,0') }}</div>
-                <label>Argon Burn from Bitcoin Shorts</label>
+            <div StatWrapper class="mt-2 flex h-1/4 w-full flex-col text-center">
+              <div
+                class="relative mx-2 mt-3 mb-5 grow rounded-t-lg border border-b-0 border-slate-400/50 px-4 pt-4 pb-2">
+                <div class="absolute top-1/4 -right-0.5 -left-0.5 h-3/4 bg-gradient-to-b from-transparent to-white" />
+                <div Stat class="relative z-10">
+                  {{ currency.symbol }}{{ numeral(unlockValueInArgons).format('0,0') }}
+                </div>
+                <label class="relative z-10">Argon Burn Potential from Bitcoin</label>
               </div>
             </div>
           </div>
 
           <div class="flex w-1/3 flex-col text-right">
-            <div StatWrapper class="h-1/4">
+            <div class="relative h-px w-full bg-gradient-to-r from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-3 right-12 bg-white px-1"><div class="relative h-7 w-3 bg-gray-600/13" /></div>
+            </div>
+            <div StatWrapper class="mr-10 h-1/4">
               <div Stat>
                 {{ currency.symbol
                 }}{{ microgonToMoneyNm(vaultingStats.epochEarnings).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Vaulting Revenue this Epoch</label>
             </div>
-            <div class="h-0.5 w-full bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
-            <div StatWrapper class="h-1/4">
-              <div Stat>{{ vaultingStats.vaultCount }}</div>
+            <div class="relative h-px w-full bg-gradient-to-r from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-4 right-12 bg-white px-1">
+                <div class="relative h-9 w-3 bg-gray-600/13" />
+                <LineArrow
+                  class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
+              </div>
+            </div>
+            <div StatWrapper class="mr-10 h-1/4">
+              <div class="flex flex-row items-center">
+                <div class="relative mr-7 ml-5 h-3 flex-grow bg-gray-600/13">
+                  <LineArrow class="absolute top-1/2 left-full z-10 -translate-y-1/2 text-slate-600/13" />
+                </div>
+                <div Stat>{{ vaultingStats.vaultCount }}</div>
+              </div>
               <label>Active Vaults</label>
             </div>
-            <div class="h-0.5 w-full bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
-            <div StatWrapper class="h-1/4">
+            <div class="relative h-px w-full bg-gradient-to-r from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-4 right-12 bg-white px-1">
+                <div class="relative h-9 w-3 bg-gray-600/13" />
+                <LineArrow
+                  class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
+              </div>
+            </div>
+            <div StatWrapper class="mr-10 h-1/4">
               <div Stat>
                 {{ currency.symbol
                 }}{{ microgonToMoneyNm(activatedSecuritization).formatIfElse('< 1_000', '0,0.[00]', '0,0') }}
               </div>
               <label>Bitcoin Security</label>
             </div>
-            <div class="h-0.5 w-full bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
-            <div class="flex h-1/4 flex-row items-center justify-end space-x-4">
-              <div StatWrapper>
-                <div Stat>{{ vaultingStats.bitcoinLocked }}</div>
-                <label>Vaulted Bitcoins</label>
+            <div class="relative h-px w-full bg-gradient-to-r from-slate-600/0 to-slate-600/20 to-[50%]">
+              <div class="absolute -top-4 right-12 bg-white px-1">
+                <div class="relative h-9 w-3 bg-gray-600/13" />
+                <LineArrow
+                  class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
               </div>
-              <div class="text-argon-600/40 text-4xl font-bold">+</div>
+            </div>
+
+            <div class="mr-10 flex h-1/4 flex-row items-center justify-end space-x-4">
+              <div class="relative flex h-full grow flex-col">
+                <div class="absolute -right-6 bottom-[calc(250%-22px)] z-10 w-[calc(100%-4px)] bg-white">
+                  <div class="relative h-3 w-full bg-gray-600/13" />
+                  <LineArrow class="absolute top-1/2 right-full z-10 -translate-y-1/2 -rotate-180 text-slate-600/13" />
+                </div>
+                <div class="grow" />
+                <div class="relative -top-2.5 mr-3 ml-5 h-3 bg-gray-600/13">
+                  <LineArrow class="absolute top-1/2 right-full z-10 -translate-y-1/2 -rotate-180 text-slate-600/13" />
+                </div>
+                <div class="grow" />
+              </div>
+
+              <div class="relative flex h-full flex-col">
+                <div class="absolute bottom-full left-1/2 h-[calc(150%-30px)] -translate-x-1/2 bg-white px-1">
+                  <div class="relative h-full w-3 bg-gray-600/13" />
+                </div>
+                <div class="absolute right-1/2 bottom-[calc(250%-22px)] z-10 w-1/2 translate-x-[-14px] bg-white">
+                  <div
+                    class="absolute top-0 right-[-20px] h-5 w-5 rounded-tr-xl border-t-12 border-r-12 border-gray-600/13" />
+                  <div class="relative mr-[9px] h-3 w-full bg-gray-600/13" />
+                </div>
+                <div class="relative grow">
+                  <div class="absolute bottom-2 left-1/2 h-full -translate-x-1/2 bg-white px-1">
+                    <div class="relative h-full w-3 bg-gray-600/13" />
+                  </div>
+                </div>
+                <div StatWrapper>
+                  <div Stat>{{ vaultingStats.bitcoinLocked }}</div>
+                  <label>Vaulted Bitcoins</label>
+                </div>
+                <div class="grow" />
+              </div>
+
+              <div class="relative left-1 pb-6 text-4xl font-bold text-slate-600/20">+</div>
               <div StatWrapper>
                 <div Stat>
                   {{ currency.symbol
@@ -261,6 +382,7 @@ import { calculateAPY, calculateProfitPct } from '../lib/Utils.ts';
 import { useConfig } from '../stores/config.ts';
 import { PlayCircleIcon } from '@heroicons/vue/24/outline';
 import BigNumber from 'bignumber.js';
+import LineArrow from '../components/asset-breakdown/LineArrow.vue';
 
 const vaults = useVaults();
 const currency = useCurrency();
@@ -319,9 +441,6 @@ const activatedSecuritization = Vue.ref(0n);
 const vaultingExternalInvested = Vue.ref(0n);
 
 const dollarsPerArgon = Vue.ref(0);
-const dollarsPerArgonFormatted = Vue.computed(() => {
-  return numeral(dollarsPerArgon.value).format('0,0.000');
-});
 
 const dollarTargetPerArgon = Vue.ref(0);
 const dollarTargetPerArgonFormatted = Vue.computed(() => {
@@ -486,7 +605,7 @@ Vue.onMounted(async () => {
     @apply text-3xl;
   }
   label {
-    @apply text-argon-600 -mt-1 text-sm font-medium;
+    @apply -mt-1 text-sm font-medium text-slate-700/50;
   }
 }
 

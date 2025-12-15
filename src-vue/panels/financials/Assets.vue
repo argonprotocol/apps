@@ -9,11 +9,12 @@
       <div class="relative flex flex-row">
         <div class="relative z-10 flex h-full w-[30%] flex-col justify-end">
           <div class="group pointer-events-none relative mt-10 grow">
-            <div class="absolute top-0 left-3 flex h-3 w-[140%] flex-row items-center justify-center">
+            <div class="absolute top-0 left-5 flex h-3 w-[140%] flex-row items-center justify-center">
               <div class="pointer-events-auto ml-3 h-3 grow bg-slate-600/13" />
               <div class="pointer-events-auto mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/13 to-slate-600/0" />
             </div>
-            <div class="pointer-events-auto absolute top-0 bottom-0.5 left-3 z-10 w-3 bg-slate-600/13">
+            <div class="absolute left-3 h-5 w-5 rounded-tl-xl border-t-12 border-l-12 border-gray-600/13"></div>
+            <div class="pointer-events-auto absolute top-5 bottom-0.5 left-3 z-10 w-3 bg-slate-600/13">
               <LineArrow
                 class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
             </div>
@@ -59,13 +60,13 @@
           <BanklessTop1 class="w-full" />
         </div>
         <div class="relative z-10 flex h-full w-[30%] flex-col justify-end">
-          <div class="group pointer-events-none relative grow pt-10">
-            <div class="absolute top-10 right-3 flex h-3 w-[140%] flex-row items-center justify-center">
+          <div class="group pointer-events-none relative mt-10 grow">
+            <div class="absolute top-0 right-5 flex h-3 w-[140%] flex-row items-center justify-center">
               <div class="pointer-events-auto ml-1 h-3 w-32 bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
-
               <div class="pointer-events-auto mr-3 h-3 grow bg-slate-600/13" />
             </div>
-            <div class="pointer-events-auto absolute top-10 right-3 bottom-0.5 z-10 w-3 bg-slate-600/13">
+            <div class="absolute right-3 h-5 w-5 rounded-tr-xl border-t-12 border-r-12 border-gray-600/13"></div>
+            <div class="pointer-events-auto absolute top-5 right-3 bottom-0.5 z-10 w-3 bg-slate-600/13">
               <LineArrow
                 class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
             </div>
