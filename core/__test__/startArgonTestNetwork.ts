@@ -17,10 +17,7 @@ export async function startArgonTestNetwork(
   getPort: (service: 'miner-1' | 'miner-2' | 'bitcoin', internalPort: number) => Promise<number>;
 }> {
   NetworkConfig.setNetwork('dev-docker');
-  const config = [
-    Path.join(Path.dirname(require.resolve('@argonprotocol/testing')), 'docker-compose.yml'),
-    Path.resolve(__dirname, '..', '..', 'e2e/argon/indexer.docker-compose.yml'),
-  ];
+  const config = [Path.join(Path.dirname(require.resolve('@argonprotocol/testing')), 'docker-compose.yml')];
   const env = {
     VERSION: 'dev',
     ARGON_CHAIN: 'dev-docker',
@@ -31,13 +28,23 @@ export async function startArgonTestNetwork(
     ...(options?.dockerEnv ?? {}),
   };
   async function cleanup() {
-    await docker.downAll({
-      log: options?.shouldLog ?? false,
-      commandOptions: [`--volumes`, '--timeout=0'],
-      composeOptions: options?.profiles ? options.profiles.map(p => `--profile=${p}`) : [],
-      config,
-      env,
-    });
+    await Promise.all([
+      docker.downAll({
+        log: options?.shouldLog ?? false,
+        commandOptions: [`--volumes`, '--timeout=0'],
+        composeOptions: options?.profiles ? options.profiles.map(p => `--profile=${p}`) : [],
+        config,
+        env,
+      }),
+      docker.downAll({
+        log: options?.shouldLog ?? false,
+        commandOptions: [`--volumes`, '--timeout=0'],
+        composeOptions: options?.profiles ? options.profiles.map(p => `--profile=${p}`) : [],
+        config: 'indexer.docker-compose.yml',
+        cwd: Path.resolve(__dirname, '..', '..', 'e2e/argon'),
+        env,
+      }),
+    ]);
   }
   runOnTeardown(cleanup);
   await cleanup();
@@ -47,6 +54,13 @@ export async function startArgonTestNetwork(
     composeOptions: options?.profiles ? options.profiles.map(p => `--profile=${p}`) : [],
     config,
     env,
+  });
+  await docker.upAll({
+    log: options?.shouldLog ?? false,
+    commandOptions: [],
+    env,
+    config: 'indexer.docker-compose.yml',
+    cwd: Path.resolve(__dirname, '..', '..', 'e2e/argon'),
   });
   const portResult = await docker.port('archive-node', '9944', { config, env });
   const notaryPortResult = await docker.port('notary', '9925', { config, env });

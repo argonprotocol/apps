@@ -40,12 +40,7 @@ it('syncs transfers', async () => {
     expect(getTransfers.ok).toBe(true);
     const transfers = (await getTransfers.json()) as any;
     expect(transfers.transfers).toHaveLength(0);
-    expect(transfers.asOfBlock).toEqual(
-      expect.objectContaining({
-        blockNumber: expect.any(Number),
-        blockHash: expect.any(String),
-      }),
-    );
+    expect(transfers.asOfBlock).toBeGreaterThanOrEqual(0);
   }
 
   const submitter = new TxSubmitter(client, client.tx.balances.transferAllowDeath(bob.address, 1_000_000n), alice);

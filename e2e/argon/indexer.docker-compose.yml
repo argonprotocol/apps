@@ -4,6 +4,7 @@ services:
   indexer:
     build:
       context: ../../indexer
+      dockerfile: Dockerfile
     environment:
       - MAINCHAIN_URL=${MAINCHAIN_URL:-ws://archive-node:9944}
       - ARGON_CHAIN=${ARGON_CHAIN:-dev-docker}
@@ -16,3 +17,7 @@ services:
       - indexer-data:/indexer
 volumes:
   indexer-data:
+
+networks:
+  default:
+    name: ${COMPOSE_PROJECT_NAME:-argon}-net
