@@ -18,11 +18,24 @@
             You can use any polkadot/substrate compatible wallet to add funds to your account. Just scan the
             QR code shown on the right, or copy and paste the address that's printed below it.
           </p>
+
+          <div class="flex flex-col my-4 border border-slate-400 border-dashed rounded px-2 py-2">
+            <div v-if="showJurisdictionAlert">
+              <AlertIcon class="w-5 h-5 inline-block mr-1.5 text-red-600" /> Uh oh... Instructions for acquiring tokens
+              is only available to those outside the United States. It seems
+              <span @click="openJurisdictionOverlay" class="text-argon-800/80 cursor-pointer hover:text-argon-600 hover:font-bold underline decoration-dashed">your chosen jurisdiction</span> is not yet supported.
+            </div>
+            <div v-else @click="openUniswapInstructions" class="flex flex-row gap-x-2 items-center cursor-pointer text-argon-800/60 hover:text-argon-600">
+              <InstructionsIcon class="w-6 h-6 inline-block" />
+              View Step-by-Step Instructions for Acquiring Argons and Argonots
+            </div>
+          </div>
+
           <p v-if="walletId === 'mining'" class="mt-2 font-light">
-            Based on the rules configured, your Mining Bot needs the following tokens in order to operate.
+            Based on the rules you set, your Mining Bot needs the following tokens in order to operate.
           </p>
           <p v-else class="mt-2 font-light">
-            Based on the rules configured in your account, your Vault needs the following tokens in order to operate.
+            Based on the rules you set, your Vault needs the following tokens in order to operate.
           </p>
 
           <table class="w-full">
@@ -109,12 +122,15 @@ import { abbreviateAddress } from '../lib/Utils';
 import Overlay from './Overlay.vue';
 import CopyIcon from '../assets/copy.svg?component';
 import CopyToClipboard from '../components/CopyToClipboard.vue';
+import AlertIcon from '../assets/alert.svg?component';
 import { createNumeralHelpers } from '../lib/numeral';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import basicEmitter from '../emitters/basicEmitter';
 import { useController } from '../stores/controller';
 import { IWalletType } from '../lib/Wallet.ts';
+import InstructionsIcon from '../assets/instructions.svg?component';
+import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -132,6 +148,7 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const qrCode = Vue.ref('');
 const requiredMicrogonsForGoal = Vue.ref(0n);
 const requiredMicronotsForGoal = Vue.ref(0n);
+const showJurisdictionAlert = Vue.ref(false);
 
 const minimumMicrogonsNeeded = Vue.computed(() => {
   if (walletId.value === 'mining') {
@@ -221,6 +238,19 @@ const requiresRulesToBeSet = Vue.computed(() => {
   return false;
 });
 
+async function openUniswapInstructions() {
+  if (config.isValidJurisdiction) {
+    await tauriOpen('https://argon.network/documentation/from-uniswap');
+  } else {
+    showJurisdictionAlert.value = !showJurisdictionAlert.value;
+  }
+}
+
+function openJurisdictionOverlay() {
+  closeOverlay();
+  basicEmitter.emit('openComplianceOverlay');
+}
+
 let calculatorIsSubscribed = false;
 
 async function load() {
@@ -262,6 +292,7 @@ basicEmitter.on('openWalletOverlay', async data => {
   await load();
   isOpen.value = true;
   isLoaded.value = true;
+  showJurisdictionAlert.value = false;
   controller.walletOverlayIsOpen = true;
 });
 </script>
