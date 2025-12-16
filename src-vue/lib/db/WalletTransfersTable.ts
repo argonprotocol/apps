@@ -41,6 +41,17 @@ export class WalletTransfersTable extends BaseTable {
     return convertFromSqliteFields(records, this.fields);
   }
 
+  public async firstTransferBlockNumber(address: string): Promise<number | null> {
+    const rows = await this.db.select<{ blockNumber: number }[]>(
+      `SELECT blockNumber FROM WalletTransfers WHERE walletAddress = ? ORDER BY blockNumber ASC LIMIT 1`,
+      [address],
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return rows[0].blockNumber;
+  }
+
   public async fetchExternal(walletAddress: string): Promise<IWalletTransferRecord[]> {
     const rows = await this.db.select<IWalletTransferRecord[]>(
       `SELECT * from WalletTransfers WHERE walletAddress = ? 

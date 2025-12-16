@@ -1,5 +1,6 @@
 import {
   type AccountId32,
+  type ApiDecoration,
   type ArgonClient,
   type FrameSystemEventRecord,
   type GenericEvent,
@@ -16,10 +17,10 @@ export type IBalanceTransfer = {
   to: string;
   from?: string;
   transferType: 'transfer' | 'faucet' | 'tokenGateway';
+  currency: 'argon' | 'argonot';
   isInternal: boolean;
   isInbound: boolean;
   amount: bigint;
-  isOwnership: boolean;
   extrinsicIndex: number;
 };
 
@@ -57,12 +58,12 @@ export class AccountEventsFilter {
       }
     }
 
-    const groupedEvents = this.groupEventsByExtrinsic(allEvents);
+    const groupedEvents = AccountEventsFilter.groupEventsByExtrinsic(allEvents);
 
-    for (const { events, extrinsicIndex } of groupedEvents) {
+    for (const { extrinsicEvents, extrinsicIndex } of groupedEvents) {
       let isMine = false;
       let transfer: IBalanceTransfer | undefined;
-      for (const event of events) {
+      for (const event of extrinsicEvents) {
         // these cover transfers in, mint, mining, etc
         for (const key of ['who', 'accountId', 'from', 'to', 'operatorAccountId', 'beneficiary'] as const) {
           if (key in event.data) {
@@ -73,95 +74,16 @@ export class AccountEventsFilter {
             }
           }
         }
-        if (client.events.tokenGateway.AssetReceived.is(event) && extrinsicIndex !== undefined) {
-          const { beneficiary, amount } = event.data;
-          if (this.isAccountIdMe(beneficiary)) {
-            transfer = {
-              to: beneficiary.toHuman(),
-              transferType: 'tokenGateway',
-              isInbound: true,
-              amount: amount.toBigInt(),
-              isInternal: false,
-              isOwnership: events.some(x => x.section === 'ownership'),
-              extrinsicIndex,
-            };
-          }
-        }
-        if (client.events.tokenGateway.AssetTeleported.is(event) && extrinsicIndex !== undefined) {
-          const { from, to, amount } = event.data;
-          if (this.isAccountIdMe(from)) {
-            transfer = {
-              to: to.toHex(),
-              from: from.toHuman(),
-              transferType: 'tokenGateway',
-              isInbound: false,
-              amount: amount.toBigInt(),
-              isInternal: false,
-              isOwnership: events.some(x => x.section === 'ownership'),
-              extrinsicIndex,
-            };
-          }
-        }
-        // Watch for testnet drips (which occur via balance set)
-        else if (client.events.balances.BalanceSet.is(event) && extrinsicIndex !== undefined) {
-          const { who, free } = event.data;
-          if (this.isAccountIdMe(who)) {
-            transfer = {
-              to: who.toHuman(),
-              transferType: 'faucet',
-              isInbound: true,
-              amount: free.toBigInt(),
-              isInternal: false,
-              isOwnership: false,
-              extrinsicIndex,
-            };
-          }
-        } else if (client.events.ownership.BalanceSet.is(event) && extrinsicIndex !== undefined) {
-          const { who, free } = event.data;
-          if (this.isAccountIdMe(who)) {
-            transfer = {
-              to: who.toHuman(),
-              transferType: 'faucet',
-              isInbound: true,
-              amount: free.toBigInt(),
-              isInternal: false,
-              isOwnership: true,
-              extrinsicIndex,
-            };
-          }
-        }
-        // NOTE: a balance transfer can be emitted as part of lots of operations. It's not necessarily a "user transfer". Will check later
-        else if (client.events.balances.Transfer.is(event) && extrinsicIndex !== undefined) {
-          const { to, from, amount } = event.data;
-          if (this.isAccountIdMe(to) || this.isAccountIdMe(from)) {
-            const isInbound = this.isAccountIdMe(to);
-            transfer = {
-              to: to.toHuman(),
-              from: from.toHuman(),
-              transferType: 'transfer',
-              isInbound,
-              amount: amount.toBigInt(),
-              isInternal: this.myOtherAddresses.includes(from.toHuman()),
-              isOwnership: false,
-              extrinsicIndex,
-            };
-          }
-        } else if (client.events.ownership.Transfer.is(event) && extrinsicIndex !== undefined) {
-          const { to, from, amount } = event.data;
-          if (this.isAccountIdMe(to) || this.isAccountIdMe(from)) {
-            const isInbound = this.isAccountIdMe(to);
-            transfer = {
-              to: to.toHuman(),
-              from: from.toHuman(),
-              transferType: 'transfer',
-              amount: amount.toBigInt(),
-              isInternal: this.myOtherAddresses.includes(from.toHuman()),
-              isInbound,
-              isOwnership: true,
-              extrinsicIndex,
-            };
-          }
-        }
+
+        transfer ??= AccountEventsFilter.isTransfer({
+          client,
+          event,
+          extrinsicIndex,
+          accountFilter: x => this.isAccountIdMe(x),
+          extrinsicEvents: extrinsicEvents,
+          isFromInternal: from => this.myOtherAddresses.includes(from.toHuman()),
+        });
+
         if (iAmMiner) {
           if (client.events.blockRewards.RewardCreated.is(event)) {
             isMine = true;
@@ -188,7 +110,7 @@ export class AccountEventsFilter {
             const { vaultId } = event.data;
             if (vaultId.toNumber() === this.vaultId) {
               isMine = true;
-              const burnAmount = events
+              const burnAmount = extrinsicEvents
                 .filter(x => client.events.balances.Burned.is(x))
                 .reduce((acc, x) => {
                   if (x.data.who.toHuman() === this.address) {
@@ -211,12 +133,9 @@ export class AccountEventsFilter {
         }
       }
 
-      if (transfer?.transferType === 'transfer' && !this.isBalanceTransferEventset(client, events)) {
-        transfer = undefined;
-      }
       if (isMine || transfer) {
         const eventGroup: IExtrinsicEvent = [extrinsicIndex ?? null];
-        for (const event of events) {
+        for (const event of extrinsicEvents) {
           eventGroup.push(this.toEventInfo(event));
         }
         this.eventsByExtrinsic.push(eventGroup);
@@ -236,8 +155,13 @@ export class AccountEventsFilter {
     };
   }
 
-  private groupEventsByExtrinsic(events: FrameSystemEventRecord[]) {
-    const groupedEvents: { events: GenericEvent[]; extrinsicIndex?: number }[] = [];
+  private isAccountIdMe(accountId: AccountId32): boolean {
+    const address = accountId.toHuman();
+    return address === this.address;
+  }
+
+  public static groupEventsByExtrinsic(events: FrameSystemEventRecord[]) {
+    const groupedEvents: { extrinsicEvents: GenericEvent[]; extrinsicIndex?: number }[] = [];
     const categorizedEvents: Set<GenericEvent> = new Set();
     for (const event of events) {
       if (categorizedEvents.has(event.event)) {
@@ -247,24 +171,155 @@ export class AccountEventsFilter {
         const subEvents = events
           .filter(e2 => e2.phase.isApplyExtrinsic && e2.phase.asApplyExtrinsic.eq(event.phase.asApplyExtrinsic))
           .map(e3 => e3.event);
-        groupedEvents.push({ events: subEvents, extrinsicIndex: event.phase.asApplyExtrinsic.toNumber() });
+        groupedEvents.push({ extrinsicEvents: subEvents, extrinsicIndex: event.phase.asApplyExtrinsic.toNumber() });
         for (const subEvent of subEvents) {
           categorizedEvents.add(subEvent);
         }
       } else {
-        groupedEvents.push({ events: [event.event] });
+        groupedEvents.push({ extrinsicEvents: [event.event] });
         categorizedEvents.add(event.event);
       }
     }
     return groupedEvents;
   }
 
-  private isAccountIdMe(accountId: AccountId32): boolean {
-    const address = accountId.toHuman();
-    return address === this.address;
+  public static hasArgonotTransfer(
+    client: ArgonClient | ApiDecoration<'promise'>,
+    extrinsicEvents: GenericEvent[],
+    amount: bigint,
+  ): boolean {
+    for (const event of extrinsicEvents) {
+      if (client.events.ownership.Transfer.is(event)) {
+        const { amount: eventAmount } = event.data;
+        if (eventAmount.toBigInt() === amount) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
-  private isBalanceTransferEventset(client: ArgonClient, events: GenericEvent[]): boolean {
+  public static isTransfer(data: {
+    client: ArgonClient | ApiDecoration<'promise'>;
+    event: GenericEvent;
+    extrinsicEvents: GenericEvent[];
+    extrinsicIndex?: number;
+    accountFilter?: (accountId: AccountId32) => boolean;
+    isFromInternal?: (from: AccountId32) => boolean;
+  }): IBalanceTransfer | undefined {
+    const {
+      client,
+      event,
+      extrinsicIndex,
+      extrinsicEvents,
+      accountFilter = () => true,
+      isFromInternal = () => false,
+    } = data;
+    if (client.events.tokenGateway.AssetReceived.is(event) && extrinsicIndex !== undefined) {
+      const { beneficiary, amount } = event.data;
+      if (accountFilter(beneficiary)) {
+        return {
+          to: beneficiary.toHuman(),
+          transferType: 'tokenGateway',
+          isInbound: true,
+          amount: amount.toBigInt(),
+          isInternal: false,
+          currency: AccountEventsFilter.hasArgonotTransfer(client, extrinsicEvents, amount.toBigInt())
+            ? 'argonot'
+            : 'argon',
+          extrinsicIndex,
+        };
+      }
+    }
+    if (client.events.tokenGateway.AssetTeleported.is(event) && extrinsicIndex !== undefined) {
+      const { from, to, amount } = event.data;
+      if (accountFilter(from)) {
+        return {
+          to: to.toHex(),
+          from: from.toHuman(),
+          transferType: 'tokenGateway',
+          isInbound: false,
+          amount: amount.toBigInt(),
+          isInternal: false,
+          currency: AccountEventsFilter.hasArgonotTransfer(client, extrinsicEvents, amount.toBigInt())
+            ? 'argonot'
+            : 'argon',
+          extrinsicIndex,
+        };
+      }
+    }
+    // Watch for testnet drips (which occur via balance set)
+    else if (client.events.balances.BalanceSet.is(event) && extrinsicIndex !== undefined) {
+      const { who, free } = event.data;
+      if (accountFilter(who)) {
+        return {
+          to: who.toHuman(),
+          transferType: 'faucet',
+          isInbound: true,
+          amount: free.toBigInt(),
+          isInternal: false,
+          currency: 'argon',
+          extrinsicIndex,
+        };
+      }
+    } else if (client.events.ownership.BalanceSet.is(event) && extrinsicIndex !== undefined) {
+      const { who, free } = event.data;
+      if (accountFilter(who)) {
+        return {
+          to: who.toHuman(),
+          transferType: 'faucet',
+          isInbound: true,
+          amount: free.toBigInt(),
+          isInternal: false,
+          currency: 'argonot',
+          extrinsicIndex,
+        };
+      }
+    }
+    // NOTE: a balance transfer can be emitted as part of lots of operations. It's not necessarily a "user transfer". Will check later
+    else if (client.events.balances.Transfer.is(event) && extrinsicIndex !== undefined) {
+      const { to, from, amount } = event.data;
+      const isValidTransfer = AccountEventsFilter.isBalanceTransferEventset(extrinsicEvents);
+      if (!isValidTransfer) {
+        return undefined;
+      }
+      if (accountFilter(to) || accountFilter(from)) {
+        const isInbound = accountFilter(to);
+        return {
+          to: to.toHuman(),
+          from: from.toHuman(),
+          transferType: 'transfer',
+          isInbound,
+          amount: amount.toBigInt(),
+          isInternal: isFromInternal(from),
+          currency: 'argon',
+          extrinsicIndex,
+        };
+      }
+    } else if (client.events.ownership.Transfer.is(event) && extrinsicIndex !== undefined) {
+      const { to, from, amount } = event.data;
+      const isValidTransfer = AccountEventsFilter.isBalanceTransferEventset(extrinsicEvents);
+      if (!isValidTransfer) {
+        return undefined;
+      }
+      if (accountFilter(to) || accountFilter(from)) {
+        const isInbound = accountFilter(to);
+        return {
+          to: to.toHuman(),
+          from: from.toHuman(),
+          transferType: 'transfer',
+          amount: amount.toBigInt(),
+          isInternal: isFromInternal(from),
+          isInbound,
+          currency: 'argonot',
+          extrinsicIndex,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  private static isBalanceTransferEventset(events: GenericEvent[]): boolean {
     const allowedTransferEvents: Record<string, string | string[]> = {
       utility: '*', // allow via batch
       proxy: '*', // allow via proxy
@@ -283,16 +338,7 @@ export class AccountEventsFilter {
       if (allowed === '*') {
         return true;
       }
-      if (!allowed.includes(x.method)) {
-        return false;
-      }
-      // don't count an internal transfer
-      if (client.events.balances.Transfer.is(x) || client.events.ownership.Transfer.is(x)) {
-        if (this.myOtherAddresses.includes(x.data.from.toHuman())) {
-          return false;
-        }
-      }
-      return true;
+      return allowed.includes(x.method);
     });
   }
 }

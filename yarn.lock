@@ -43,6 +43,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@argonprotocol/apps-indexer@workspace:indexer":
+  version: 0.0.0-use.local
+  resolution: "@argonprotocol/apps-indexer@workspace:indexer"
+  dependencies:
+    "@argonprotocol/apps-core": "workspace:*"
+    "@argonprotocol/mainchain": "npm:^1.3.24"
+    "@argonprotocol/testing": "npm:^1.3.24"
+    "@types/express": "npm:^5.0.3"
+    bignumber.js: "npm:^9.3.1"
+    cors: "npm:^2.8.5"
+    express: "npm:^5.2.0"
+    p-queue: "npm:^8.1.0"
+    source-map-support: "npm:^0.5.21"
+    tsup: "npm:^8.5.0"
+    tsx: "npm:^4.20.5"
+    typescript: "npm:^5.9.2"
+  languageName: unknown
+  linkType: soft
+
 "@argonprotocol/bitcoin@npm:^1.3.23":
   version: 1.3.23
   resolution: "@argonprotocol/bitcoin@npm:1.3.23"
@@ -96,6 +115,25 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@argonprotocol/mainchain@npm:1.3.24, @argonprotocol/mainchain@npm:^1.3.24":
+  version: 1.3.24
+  resolution: "@argonprotocol/mainchain@npm:1.3.24"
+  dependencies:
+    "@polkadot/api": "npm:^16.4.4"
+    "@polkadot/api-base": "npm:^16.4.4"
+    "@polkadot/keyring": "npm:^13.5.5"
+    "@polkadot/rpc-core": "npm:^16.4.4"
+    "@polkadot/rpc-provider": "npm:^16.4.4"
+    "@polkadot/types": "npm:^16.4.4"
+    "@polkadot/types-codec": "npm:^16.4.4"
+    "@polkadot/util": "npm:^13.5.5"
+    "@polkadot/util-crypto": "npm:^13.5.5"
+    bignumber.js: "npm:^9.3.1"
+    bs58check: "npm:^4.0.0"
+  checksum: 10c0/2ad0f15886617cd6c45e57d48edee58f10efa0e6abc7c0a4ca2ceaaa8cfa935266987e4d1482ef80b29ee05d446a5788ed65895d443a3094ddf2d9155f42d674
+  languageName: node
+  linkType: hard
+
 "@argonprotocol/testing@npm:^1.3.23":
   version: 1.3.23
   resolution: "@argonprotocol/testing@npm:1.3.23"
@@ -110,6 +148,23 @@ __metadata:
     proper-lockfile: "npm:^4.1.2"
     vitest: "npm:^4.0.5"
   checksum: 10c0/42a450b210178229a468235a7d8f25b411dbd6639809446d81c22f2fad06a7aa576de89299bc9b4d2ccb5dbe6764e979f26212454c5accdd2a9233c65be21711
+  languageName: node
+  linkType: hard
+
+"@argonprotocol/testing@npm:^1.3.24":
+  version: 1.3.24
+  resolution: "@argonprotocol/testing@npm:1.3.24"
+  dependencies:
+    "@argonprotocol/mainchain": "npm:1.3.24"
+    bitcoin-core: "npm:^5.0.0"
+    detect-port: "npm:^2.1.0"
+    docker-compose: "npm:^1.2.0"
+    http-proxy: "npm:^1.18.1"
+    nanoid: "npm:^5.1.6"
+    pg: "npm:^8.16.3"
+    proper-lockfile: "npm:^4.1.2"
+    vitest: "npm:^4.0.5"
+  checksum: 10c0/3b7a3e8965712729220e3270e5131d807a525357eff20629753120d0782fa9a6fcc918583efc5daac3e5ece56de78875dfc891c4794916eec095cab52c0daad5
   languageName: node
   linkType: hard
 

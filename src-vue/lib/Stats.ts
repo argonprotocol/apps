@@ -1,21 +1,23 @@
 import BigNumber from 'bignumber.js';
 import {
+  bigIntMax,
   bigNumberToBigInt,
   type IBidsFile,
   IBotActivity,
   type IWinningBid,
+  MiningFrames,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
 import { Config } from './Config';
-import { bigIntMax, MiningFrames } from '@argonprotocol/apps-core';
 import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import { botEmitter } from './Bot';
 import { createDeferred, ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
 import IDeferred from '../interfaces/IDeferred';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 import { Currency } from './Currency.ts';
+import { SyncStateKeys } from './db/SyncStateTable.ts';
 
 interface IMyMiningSeats {
   seatCount: number;
@@ -130,8 +132,6 @@ export class Stats {
       botActivityLastUpdatedAt: null as any,
       botActivityLastBlockNumber: 0,
       latestFrameId: 0,
-      createdAt: new Date(),
-      insertedAt: new Date(),
     };
 
     this.biddingActivity = [];
@@ -280,7 +280,7 @@ export class Stats {
   }
 
   private async updateServerState(): Promise<void> {
-    const state = await this.db.serverStateTable.get();
+    const state = await this.db.syncStateTable.get(SyncStateKeys.Server);
     if (state) {
       this.serverState = state;
       this.biddingActivity = state.botActivities;

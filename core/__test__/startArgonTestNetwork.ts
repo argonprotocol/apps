@@ -19,7 +19,7 @@ export async function startArgonTestNetwork(
   NetworkConfig.setNetwork('dev-docker');
   const config = [
     Path.join(Path.dirname(require.resolve('@argonprotocol/testing')), 'docker-compose.yml'),
-    // Path.resolve(__dirname, '..', '..', 'miners.docker-compose.yml'),
+    Path.resolve(__dirname, '..', '..', 'e2e/argon/indexer.docker-compose.yml'),
   ];
   const env = {
     VERSION: 'dev',

@@ -67,7 +67,7 @@ export const config: Options.Testrunner & { capabilities: any } = {
       await docker.upAll({
         log: DOCKER_LOG,
         commandOptions: [`--force-recreate`, '--pull=always', '--wait'],
-        config: ARGON_DOCKER_COMPOSE,
+        config: [ARGON_DOCKER_COMPOSE, Path.resolve(Path.dirname(ARGON_DOCKER_COMPOSE), 'indexer.docker-compose.yml')],
         env: DOCKER_ENV,
       });
       console.log('Argon started. Waiting for chain to start. Archive RPC URL:', ARGON_RPC_URL);

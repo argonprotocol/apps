@@ -20,6 +20,8 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeout: 60e3 }, () => {
   let clients: MainchainClients;
   let mainchainUrl: string;
+  let transferBlocks: number[] = [];
+  let transferCount = 0;
   const { walletKeys, miningAccount } = createTestWallet('//Alice');
 
   beforeAll(async () => {
@@ -31,7 +33,7 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     NetworkConfig.setNetwork('dev-docker');
   }, 60e3);
 
-  it('should track balances', async () => {
+  it.sequential('should track balances', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
@@ -140,10 +142,94 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     });
     // should have cleaned up duplicate entries from reorgs
 
+    transferBlocks = Array.from(new Set(entries.map(x => x.blockNumber)));
+    transferCount = entries.length;
     const walletLedger = new WalletLedgerTable(db);
     const ledgerEntries = await walletLedger.fetchAll();
     console.log('Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
-    expect(ledgerEntries.length).toBeLessThanOrEqual(inboundTransfers); // some transfers may be in same block
+    expect(ledgerEntries.length).toBe(transferBlocks.length);
     expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
+  });
+
+  it.sequential('should recover wallet balances on restart', async () => {
+    // 1. Test that it will fill gap from last synced to latest block
+    const db = await createTestDb();
+    const blockWatch = new BlockWatch(clients);
+    const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
+    const spy = vi.spyOn(walletBalances, 'lookupTransferOrClaimBlocks').mockImplementation(async (address, blocks) => {
+      const mostRecentBlock = Math.max(...transferBlocks);
+      for (const block of transferBlocks) {
+        if (address === walletKeys.miningAddress) {
+          blocks.add(block);
+        }
+      }
+      return { asOfBlock: mostRecentBlock };
+    });
+    // @ts-expect-error set a small backlog to force using indexer
+    walletBalances.blockBacklogBeforeUsingIndexer = 10;
+    await blockWatch.start();
+    await walletBalances.resumeWalletSync();
+    // @ts-expect-error - private
+    expect(walletBalances.blockHistory).toHaveLength(1);
+    // @ts-expect-error - private
+    expect(walletBalances.blockHistory[0].blockNumber).toBe(Math.max(...transferBlocks));
+    expect(walletBalances.miningWallet.balanceHistory).toHaveLength(1);
+    expect(walletBalances.miningWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+    expect(walletBalances.miningWallet.balanceHistory[0].availableMicrogons).toBe(5_000_000n + 10n * 1_000_000n);
+    expect(walletBalances.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+    expect(walletBalances.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+    expect(walletBalances.holdingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+    expect(walletBalances.holdingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    closeOnTeardown(walletBalances);
+    expect(walletBalances.miningWallet.totalMicrogons).toBeGreaterThan(0n);
+    expect(walletBalances.miningWallet.balanceHistory.length).toBeGreaterThan(0);
+    const walletLedger = new WalletLedgerTable(db);
+    const ledgerEntries = await walletLedger.fetchAll();
+    console.log('Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
+    expect(ledgerEntries.length).toBeLessThanOrEqual(transferBlocks.length); // some transfers may be in same block
+    expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
+
+    const transfers = await new WalletTransfersTable(db).fetchAll();
+    console.log('Total Transfer Entries - ', transfers.length, transfers);
+    expect(transfers).toHaveLength(transferCount);
+  });
+
+  it.sequential('should recover wallet balances on restart without indexer', async () => {
+    // 1. Test that it will fill gap from last synced to latest block
+    const db = await createTestDb();
+    const blockWatch = new BlockWatch(clients);
+    const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
+    closeOnTeardown(walletBalances);
+    // @ts-expect-error set a small backlog to force using indexer
+    walletBalances.blockBacklogBeforeUsingIndexer = 1000;
+    await blockWatch.start();
+    await walletBalances.resumeWalletSync();
+    // @ts-expect-error - private
+    expect(walletBalances.blockHistory).toHaveLength(1);
+    // @ts-expect-error - private
+    expect(walletBalances.blockHistory[0].blockNumber).toBe(0);
+    expect(walletBalances.miningWallet.balanceHistory).toHaveLength(1);
+    // nothing will load during resume sync, but it will start at 0 and sync back up after
+    expect(walletBalances.miningWallet.balanceHistory[0].block.blockNumber).toBe(0);
+    expect(walletBalances.miningWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+    expect(walletBalances.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(0);
+    expect(walletBalances.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+    expect(walletBalances.holdingWallet.balanceHistory[0].block.blockNumber).toBe(0);
+    expect(walletBalances.holdingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+
+    await walletBalances.loadBalancesAt(blockWatch.bestBlockHeader);
+
+    expect(walletBalances.miningWallet.totalMicrogons).toBe(15_000_000n);
+    const walletLedger = new WalletLedgerTable(db);
+    const ledgerEntries = await walletLedger.fetchAll();
+    console.log('Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
+    expect(ledgerEntries.length).toBeLessThanOrEqual(transferBlocks.length); // some transfers may be in same block
+    expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
+
+    const transfers = await new WalletTransfersTable(db).fetchAll();
+    console.log('Total Transfer Entries - ', transfers.length, transfers);
+    expect(transfers).toHaveLength(transferCount);
   });
 });
