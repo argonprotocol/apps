@@ -42,17 +42,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Ensure the channel tag points at this version
-          git fetch origin "refs/tags/$VERSION:refs/tags/$VERSION" || true
-          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-            SHA=$(git rev-list -n1 "refs/tags/$VERSION")
-          else
-            SHA=$(git rev-parse HEAD)   # fallback when running from a manual dispatch without the tag
-          fi
-
-          git tag -f "$CHANNEL_NAME" "$SHA"
-          git push origin -f "refs/tags/$CHANNEL_NAME"
-
           ACTION=create
           if gh release view "$CHANNEL_NAME" >/dev/null 2>&1; then
             ACTION=edit
