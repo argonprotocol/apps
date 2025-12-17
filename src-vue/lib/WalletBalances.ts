@@ -10,8 +10,10 @@ import { createDeferred } from './Utils';
 import { WalletKeys } from './WalletKeys.ts';
 import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
 import { Db } from './Db.ts';
-import { ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
+import { ApiDecoration, ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import { MyVault } from './MyVault.ts';
+import { findAddressTransferBlocks, findAddressVaultCollects } from './IndexerClient.ts';
+import { SyncStateKeys } from './db/SyncStateTable.ts';
 
 export interface IBlockToProcess {
   blockNumber: number;
@@ -27,16 +29,29 @@ export interface IWalletEvents {
   'block-deleted': (block: IBlockToProcess) => void;
 }
 
+type IWalletEventKeys = keyof IWalletEvents;
+type IWalletFlatList<T extends IWalletEventKeys = IWalletEventKeys> = Parameters<IWalletEvents[T]>;
+
 export class WalletBalances {
-  private deferredLoading = createDeferred<void>(false);
-
+  public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
-  public priceIndex?: PriceIndex;
 
+  public priceIndex?: PriceIndex;
   public miningWallet: Wallet;
+
   public vaultingWallet: Wallet;
+
   public holdingWallet: Wallet;
 
+  private blockBacklogBeforeUsingIndexer = 100;
+
+  private loadEvents: {
+    [K in IWalletEventKeys]: IWalletFlatList<K>[];
+  } = {
+    'balance-change': [],
+    'transfer-in': [],
+    'block-deleted': [],
+  };
   private isClosed = false;
   private blockHistory: IBlockToProcess[] = [];
   private blockQueue = new SingleFileQueue();
@@ -70,18 +85,35 @@ export class WalletBalances {
     this.myVault = myVault;
   }
 
+  public getLoadEvents<KEY extends IWalletEventKeys>(key: KEY): IWalletFlatList<KEY>[] {
+    return this.loadEvents[key] as IWalletFlatList<KEY>[];
+  }
+
   public async load() {
     if (this.deferredLoading.isRunning || this.deferredLoading.isSettled) {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
-    await this.blockWatch.start();
-    await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
-    this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
-      const latestBlock = blocks[blocks.length - 1];
-      await this.loadBalancesAt(latestBlock);
-    });
-    this.deferredLoading.resolve();
+    console.time('[WalletBalances] Load and sync wallets');
+    try {
+      await this.blockWatch.start();
+      await this.resumeWalletSync();
+      await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
+      console.log('[WalletBalances] Loaded and synced wallets', {
+        mining: this.miningWallet.totalMicronots,
+        vaulting: this.vaultingWallet.totalMicronots,
+        holding: this.holdingWallet.totalMicronots,
+      });
+      this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
+        const latestBlock = blocks[blocks.length - 1];
+        await this.loadBalancesAt(latestBlock);
+      });
+      this.deferredLoading.resolve();
+    } catch (err) {
+      this.deferredLoading.reject(err);
+    }
+    console.timeLog('[WalletBalances] Load and sync wallets');
+    return this.deferredLoading.promise;
   }
 
   public async close() {
@@ -148,7 +180,6 @@ export class WalletBalances {
 
       let firstBlockNeeded = 0;
       const db = await this.dbPromise;
-      const table = db.walletLedgerTable;
       for (let i = 0; i < this.blockHistory.length; i++) {
         const block = this.blockHistory[i];
         if (block.blockNumber <= finalizedBlockNumber) {
@@ -161,34 +192,130 @@ export class WalletBalances {
       }
       for (const block of this.blockHistory) {
         if (!block.isProcessed) {
-          const client = await this.blockWatch.getRpcClient(block.blockNumber);
-          await this.loadFromApi(client, block);
-          block.isProcessed = true;
+          await this.processBlock(block);
         }
         if (this.isClosed) break;
       }
-      await table.markFinalizedUpToBlock(finalizedBlockNumber);
+      await db.walletLedgerTable.markFinalizedUpToBlock(finalizedBlockNumber);
+      await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
+        blockNumber: finalizedBlock.blockNumber,
+        blockHash: finalizedBlock.blockHash,
+        parentHash: finalizedBlock.parentHash,
+        isFinalized: true,
+        isProcessed: true,
+      });
       ////// PRUNE UNNEEDED BLOCKS
       if (firstBlockNeeded > 0) {
-        const toDelete = this.blockHistory.splice(0, firstBlockNeeded);
-        for (const wallet of this.wallets) {
-          for (const block of toDelete) {
-            wallet.dropBlock(block.blockHash);
-          }
-        }
+        this.blockHistory.splice(0, firstBlockNeeded);
+      }
+      for (const wallet of this.wallets) {
+        wallet.trimTo(finalizedBlock);
       }
     }).promise;
   }
 
-  public getVaultUnallocatedFunds(): bigint {
-    const wallet = this.vaultingWallet;
-    if (wallet.availableMicrogons > 0n && this.myVault) {
-      const mintInWallet =
-        this.myVault.bitcoinLocksStore.totalMinted - (this.myVault.metadata?.personalBitcoinMintAmountMovedOut ?? 0n);
-      // what's left at this point is just anything collected plus
-      return wallet.totalMicrogons - mintInWallet - MyVault.OperationalReserves;
+  public async lookupTransferOrClaimBlocks(
+    address: string,
+    blockNumberSet: Set<number>,
+    blockRange: [minBlock: number, maxBlock: number],
+  ): Promise<{ asOfBlock: number }> {
+    const [minBlock, maxBlock] = blockRange;
+    let asOfBlock = minBlock;
+    const transfers = await findAddressTransferBlocks(address);
+    for (const { blockNumber } of transfers.transfers) {
+      if (blockNumber > minBlock && blockNumber <= maxBlock) {
+        blockNumberSet.add(blockNumber);
+      }
     }
-    return 0n;
+    asOfBlock = Math.max(asOfBlock, transfers.asOfBlock);
+    if (address === this.vaultingWallet.address) {
+      const vaultCollects = await findAddressVaultCollects(address);
+      for (const { blockNumber } of vaultCollects.vaultCollects) {
+        if (blockNumber > minBlock && blockNumber <= maxBlock) {
+          blockNumberSet.add(blockNumber);
+        }
+      }
+      asOfBlock = Math.max(asOfBlock, vaultCollects.asOfBlock);
+    }
+    return { asOfBlock };
+  }
+
+  /**
+   * Returns the blocks processed
+   */
+  public async resumeWalletSync(): Promise<void> {
+    const db = await this.dbPromise;
+    const lastSyncedBlock = await db.syncStateTable.get(SyncStateKeys.Wallet);
+    const lastSyncedBlockNumber = lastSyncedBlock?.blockNumber ?? 0;
+    const bestBlockNumber = this.blockWatch.bestBlockHeader.blockNumber;
+    // delete any unfinalized balance changes from last time
+    const unfinalizedBlocks = await db.walletLedgerTable.findUnfinalizedBlocks();
+    for (const record of unfinalizedBlocks) {
+      console.log('Rolling back unfinalized wallet ledger block:', record.blockNumber, record.blockHash);
+      await this.deleteBlock(record.blockHash);
+    }
+
+    console.info(`Resuming wallet sync from block ${lastSyncedBlockNumber} to ${bestBlockNumber}.`);
+
+    let latestBlockNumberSynced = lastSyncedBlockNumber;
+    const latestFinalizedNumber = this.blockWatch.finalizedBlockHeader.blockNumber;
+    // if we're far behind, recover history from indexer instead of going block-by-block
+    if (bestBlockNumber - lastSyncedBlockNumber > this.blockBacklogBeforeUsingIndexer) {
+      const addresses = this.addresses;
+      const { balances } = await this.readBalances(addresses, this.blockWatch.finalizedBlockHeader);
+      const neededBlockNumbers = new Set<number>();
+      for (let i = 0; i < addresses.length; i++) {
+        const balance = balances[i];
+        const address = addresses[i];
+        if (
+          balance.availableMicrogons === 0n &&
+          balance.availableMicronots === 0n &&
+          balance.reservedMicrogons === 0n &&
+          balance.reservedMicronots === 0n
+        ) {
+          continue;
+        }
+        const { asOfBlock } = await this.lookupTransferOrClaimBlocks(address, neededBlockNumbers, [
+          lastSyncedBlockNumber,
+          latestFinalizedNumber,
+        ]);
+
+        latestBlockNumberSynced = Math.max(latestBlockNumberSynced, asOfBlock);
+      }
+
+      const blocks = [...neededBlockNumbers].sort((a, b) => a - b);
+      console.info('Recovering wallet history from blocks with transfers', blocks);
+      for (const blockNumber of blocks) {
+        const blockHeader = await this.blockWatch.getHeader(blockNumber);
+        await this.processBlock({
+          blockNumber: blockHeader.blockNumber,
+          blockHash: blockHeader.blockHash,
+          parentHash: blockHeader.parentHash,
+          isFinalized: latestFinalizedNumber >= blockHeader.blockNumber,
+          isProcessed: false,
+        });
+      }
+    }
+
+    const syncStartBlock = Math.min(latestFinalizedNumber, latestBlockNumberSynced);
+    const syncedToBlock = await this.blockWatch.getHeader(syncStartBlock);
+    const addresses = this.addresses;
+    const { balances } = await this.readBalances(addresses, syncedToBlock);
+    for (let i = 0; i < addresses.length; i++) {
+      const balance = balances[i];
+      const wallet = this.wallets[i];
+      if (!wallet) continue;
+      wallet.balanceHistory = [balance];
+    }
+    this.blockHistory = [
+      {
+        blockNumber: syncedToBlock.blockNumber,
+        blockHash: syncedToBlock.blockHash,
+        parentHash: syncedToBlock.parentHash,
+        isFinalized: latestFinalizedNumber >= syncedToBlock.blockNumber,
+        isProcessed: true,
+      },
+    ];
   }
 
   private async rollbackBlock(block: IBlockToProcess) {
@@ -212,27 +339,43 @@ export class WalletBalances {
     ]);
   }
 
-  private async loadFromApi(client: ArgonClient, block: IBlockToProcess) {
+  private async readBalances(
+    addresses: string[],
+    block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'isFinalized'>,
+  ): Promise<{
+    balances: IBalanceChange[];
+    api: ApiDecoration<'promise'>;
+    client: ArgonClient;
+  }> {
+    const client = await this.blockWatch.getRpcClient(block.blockNumber);
     const api = await client.at(block.blockHash);
-    const addresses = this.wallets.map(wallet => wallet.address);
     const microgons = await api.query.system.account.multi(addresses).then(x => x.map(acc => acc.data));
     const micronots = await api.query.ownership.account.multi(addresses);
+
+    const balances = addresses.map((_, i) => ({
+      block,
+      availableMicrogons: microgons[i]?.free.toBigInt() ?? 0n,
+      reservedMicrogons: microgons[i]?.reserved.toBigInt() ?? 0n,
+      availableMicronots: micronots[i]?.free.toBigInt() ?? 0n,
+      reservedMicronots: micronots[i]?.reserved.toBigInt() ?? 0n,
+      microgonsAdded: 0n,
+      micronotsAdded: 0n,
+      vaultRevenueEvents: [],
+      extrinsicEvents: [],
+      transfers: [],
+    }));
+    return { balances, api, client };
+  }
+
+  private async processBlock(block: IBlockToProcess) {
+    if (!block) return;
     let events: FrameSystemEventRecord[] | undefined;
 
+    const { balances, client, api } = await this.readBalances(this.addresses, block);
     for (let i = 0; i < this.addresses.length; i++) {
       const wallet = this.wallets[i];
-      const entry: IBalanceChange = {
-        block,
-        availableMicrogons: microgons[i]?.free.toBigInt() ?? 0n,
-        reservedMicrogons: microgons[i]?.reserved.toBigInt() ?? 0n,
-        availableMicronots: micronots[i]?.free.toBigInt() ?? 0n,
-        reservedMicronots: micronots[i]?.reserved.toBigInt() ?? 0n,
-        microgonsAdded: 0n,
-        micronotsAdded: 0n,
-        vaultRevenueEvents: [],
-        extrinsicEvents: [],
-        transfers: [],
-      };
+      const entry: IBalanceChange = balances[i];
+
       const hasChange = wallet.addDiffs(entry);
       if (hasChange) {
         events ??= await api.query.system.events();
@@ -252,8 +395,18 @@ export class WalletBalances {
         const changed = await wallet.onBalanceChange(entry, prices);
         if (changed) {
           this.events.emit('balance-change', entry, wallet.type);
+          if (!this.deferredLoading.isSettled) {
+            this.loadEvents['balance-change'].push([entry, wallet.type]);
+          }
           if (entry.transfers.some(x => x.isInbound)) {
             this.events.emit('transfer-in', wallet, entry);
+            if (!this.deferredLoading.isSettled) {
+              for (const transfer of entry.transfers) {
+                if (transfer.isInbound) {
+                  this.loadEvents['transfer-in'].push([wallet, entry]);
+                }
+              }
+            }
           }
           if (entry.transfers.length || entry.extrinsicEvents.length) {
             console.log(

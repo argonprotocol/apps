@@ -1,4 +1,3 @@
-import { IFrameRecord } from '../../interfaces/db/IFrameRecord';
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
 import { bigNumberToBigInt, NetworkConfig } from '@argonprotocol/apps-core';

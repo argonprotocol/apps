@@ -168,7 +168,7 @@ export class BlockWatch {
     const client = await this.getRpcClient(blockNumber);
     const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
     const header = await client.rpc.chain.getHeader(blockHash);
-    return BlockWatch.readHeader(header);
+    return BlockWatch.readHeader(header, blockNumber <= this.finalizedBlockHeader.blockNumber);
   }
 
   public async getParentHeader(header: IBlockHeaderInfo): Promise<IBlockHeaderInfo> {

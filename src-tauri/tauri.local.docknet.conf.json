@@ -8,5 +8,11 @@
       "icons/local/docknet/icon.icns",
       "icons/local/docknet/icon.ico"
     ]
+  },
+  "app": {
+    "security": {
+      "csp": null,
+      "capabilities": ["default", "dev"]
+    }
   }
 }

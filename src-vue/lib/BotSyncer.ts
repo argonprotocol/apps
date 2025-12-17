@@ -16,6 +16,7 @@ import { BotServerIsLoading, BotServerIsSyncing } from '../interfaces/BotErrors'
 import { IBotEmitter } from './Bot';
 import Installer from './Installer';
 import { IBidEntry } from './db/FrameBidsTable.ts';
+import { SyncStateKeys } from './db/SyncStateTable.ts';
 
 export enum BotStatus {
   Starting = 'Starting',
@@ -408,7 +409,7 @@ export class BotSyncer {
   private async syncServerState(): Promise<void> {
     const latestBitcoinBlockNumbers = this.botState.bitcoinBlockNumbers;
     const latestArgonBlockNumbers = this.botState.argonBlockNumbers;
-    const savedState = await this.db.serverStateTable.get();
+    const savedState = await this.db.syncStateTable.get(SyncStateKeys.Server);
     const history = await BotFetch.fetchHistory().then(x => {
       x.activities.sort((a, b) => b.id - a.id);
       return x;
@@ -446,7 +447,7 @@ export class BotSyncer {
       }
     }
 
-    await this.db.serverStateTable.insertOrUpdateBlocks({
+    await this.db.syncStateTable.upsert(SyncStateKeys.Server, {
       latestFrameId: this.botState.currentFrameId,
       argonBlocksLastUpdatedAt,
       argonLocalNodeBlockNumber: this.botState.argonBlockNumbers.localNode,

@@ -3,7 +3,7 @@ import { CohortFramesTable } from './db/CohortFramesTable';
 import { CohortsTable } from './db/CohortsTable';
 import { ConfigTable } from './db/ConfigTable';
 import { FramesTable } from './db/FramesTable';
-import { ServerStateTable } from './db/ServerStateTable.ts';
+import { SyncStateTable } from './db/SyncStateTable.ts';
 import { INSTANCE_NAME, NETWORK_NAME } from './Env';
 import { ensureOnlyOneInstance } from './Utils';
 import { FrameBidsTable } from './db/FrameBidsTable';
@@ -18,7 +18,7 @@ import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
 export class Db {
   public sql: PluginSql;
   public hasMigrationError: boolean;
-  public serverStateTable: ServerStateTable;
+  public syncStateTable: SyncStateTable;
   public cohortFramesTable: CohortFramesTable;
   public cohortsTable: CohortsTable;
   public configTable: ConfigTable;
@@ -36,7 +36,7 @@ export class Db {
 
     this.sql = sql;
     this.hasMigrationError = hasMigrationError;
-    this.serverStateTable = new ServerStateTable(this);
+    this.syncStateTable = new SyncStateTable(this);
     this.cohortFramesTable = new CohortFramesTable(this);
     this.cohortsTable = new CohortsTable(this);
     this.configTable = new ConfigTable(this);
