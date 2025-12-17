@@ -42,7 +42,7 @@
 <script setup lang="ts">
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
-import menuStart from './menuStart.ts';
+import { createMenu } from './AppMenu.ts';
 import HomeScreen from './screens/HomeScreen.vue';
 import MiningScreen from './screens/MiningScreen.vue';
 import VaultingScreen from './screens/VaultingScreen.vue';
@@ -121,5 +121,5 @@ Vue.onErrorCaptured((error, instance) => {
   return false;
 });
 
-menuStart();
+createMenu();
 </script>

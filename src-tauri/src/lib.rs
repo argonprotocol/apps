@@ -451,9 +451,27 @@ pub fn run() {
 
             init_config_instance_dir(handle, &relative_config_dir)?;
 
-            #[cfg(target_os = "macos")]{
-                let window = app.get_webview_window("main").unwrap();
+            let window = app.get_webview_window("main").unwrap();
 
+            // Adjust window height if it exceeds available screen space
+            if let Some(monitor) = window.current_monitor().ok().flatten() {
+                let screen_size = monitor.size();
+                let work_area = monitor.position();
+                let current_size = window.outer_size().unwrap_or(tauri::PhysicalSize { width: 1400, height: 1000 });
+
+                // Calculate available height (screen size minus any system UI)
+                // work_area.y gives us the offset from top (menubar height on macOS)
+                let available_height = screen_size.height.saturating_sub(work_area.y as u32);
+                let new_height = current_size.height.min(available_height);
+
+                if new_height != current_size.height {
+                    log::info!("Adjusting window height from {} to {} (available height: {}, menubar offset: {})",
+                        current_size.height, new_height, available_height, work_area.y);
+                    let _ = window.set_size(tauri::PhysicalSize { width: current_size.width, height: new_height });
+                }
+            }
+
+            #[cfg(target_os = "macos")]{
                 apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, Some(16.0))
                     .expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
             }
