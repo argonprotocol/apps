@@ -63,7 +63,7 @@ export class WalletTransfersTable extends BaseTable {
 
   public async insert(
     args: Omit<IWalletTransferRecord, 'id' | 'createdAt' | 'updatedAt'>,
-  ): Promise<IWalletTransferRecord> {
+  ): Promise<IWalletTransferRecord | undefined> {
     const {
       walletAddress,
       walletName,
@@ -81,7 +81,9 @@ export class WalletTransfersTable extends BaseTable {
     const records = await this.db.select<IWalletTransferRecord[]>(
       `INSERT INTO WalletTransfers (walletAddress, walletName, amount, currency, extrinsicIndex, isInternal,
                                     microgonsForArgonot, microgonsForUsd, otherParty, transferType, blockNumber, blockHash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(walletAddress, otherParty, extrinsicIndex, amount, currency, blockHash) DO NOTHING
+         RETURNING *`,
       toSqlParams([
         walletAddress,
         walletName,

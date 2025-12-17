@@ -81,7 +81,7 @@ export class WalletLedgerTable extends BaseTable {
 
   public async insert(
     args: Omit<IWalletLedgerRecord, 'id' | 'createdAt' | 'updatedAt' | 'inboundTransfersJson'>,
-  ): Promise<IWalletLedgerRecord> {
+  ): Promise<IWalletLedgerRecord | undefined> {
     const {
       walletAddress,
       walletName,
@@ -103,7 +103,9 @@ export class WalletLedgerTable extends BaseTable {
         walletAddress, walletName, availableMicrogons, availableMicronots, reservedMicrogons,
         reservedMicronots,microgonChange, micronotChange, microgonsForUsd, microgonsForArgonot,
         inboundTransfersJson, extrinsicEventsJson, blockNumber, blockHash, isFinalized) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(walletAddress, blockHash) DO NOTHING
+        RETURNING *`,
       toSqlParams([
         walletAddress,
         walletName,

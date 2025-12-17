@@ -3,6 +3,7 @@ import {
   BlockWatch,
   createTypedEventEmitter,
   IBlockHeaderInfo,
+  IMainchainExchangeRates,
   PriceIndex,
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
@@ -98,6 +99,7 @@ export class WalletBalances {
     try {
       await this.blockWatch.start();
       await this.resumeWalletSync();
+      console.timeLog('[WalletBalances] Load and sync wallets', 'Synced within range of indexer');
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
       console.log('[WalletBalances] Loaded and synced wallets', {
         mining: this.miningWallet.totalMicronots,
@@ -112,7 +114,7 @@ export class WalletBalances {
     } catch (err) {
       this.deferredLoading.reject(err);
     }
-    console.timeLog('[WalletBalances] Load and sync wallets');
+    console.timeEnd('[WalletBalances] Load and sync wallets');
     return this.deferredLoading.promise;
   }
 
@@ -264,6 +266,7 @@ export class WalletBalances {
       const addresses = this.addresses;
       const { balances } = await this.readBalances(addresses, this.blockWatch.finalizedBlockHeader);
       const neededBlockNumbers = new Set<number>();
+      let hadBalance = false;
       for (let i = 0; i < addresses.length; i++) {
         const balance = balances[i];
         const address = addresses[i];
@@ -275,6 +278,8 @@ export class WalletBalances {
         ) {
           continue;
         }
+        hadBalance = true;
+        // TODO: if the indexer is down, we need to record the gap in sync and inform the user
         const { asOfBlock } = await this.lookupTransferOrClaimBlocks(address, neededBlockNumbers, [
           lastSyncedBlockNumber,
           latestFinalizedNumber,
@@ -282,22 +287,30 @@ export class WalletBalances {
 
         latestBlockNumberSynced = Math.max(latestBlockNumberSynced, asOfBlock);
       }
+      if (!hadBalance) {
+        // no balances, nothing to recover
+        latestBlockNumberSynced = latestFinalizedNumber;
+      }
 
       const blocks = [...neededBlockNumbers].sort((a, b) => a - b);
       console.info('Recovering wallet history from blocks with transfers', blocks);
       for (const blockNumber of blocks) {
         const blockHeader = await this.blockWatch.getHeader(blockNumber);
-        await this.processBlock({
-          blockNumber: blockHeader.blockNumber,
-          blockHash: blockHeader.blockHash,
-          parentHash: blockHeader.parentHash,
-          isFinalized: latestFinalizedNumber >= blockHeader.blockNumber,
-          isProcessed: false,
-        });
+        await this.processBlock(
+          {
+            blockNumber: blockHeader.blockNumber,
+            blockHash: blockHeader.blockHash,
+            parentHash: blockHeader.parentHash,
+            isFinalized: latestFinalizedNumber >= blockHeader.blockNumber,
+            isProcessed: false,
+          },
+          true,
+        );
       }
     }
 
     const syncStartBlock = Math.min(latestFinalizedNumber, latestBlockNumberSynced);
+    console.info(`[WalletBalances] Resumed wallet sync to block ${syncStartBlock}. Latest is ${bestBlockNumber}.`);
     const syncedToBlock = await this.blockWatch.getHeader(syncStartBlock);
     const addresses = this.addresses;
     const { balances } = await this.readBalances(addresses, syncedToBlock);
@@ -367,11 +380,15 @@ export class WalletBalances {
     return { balances, api, client };
   }
 
-  private async processBlock(block: IBlockToProcess) {
+  private async processBlock(block: IBlockToProcess, isCatchup = false) {
     if (!block) return;
     let events: FrameSystemEventRecord[] | undefined;
 
     const { balances, client, api } = await this.readBalances(this.addresses, block);
+    let prices: IMainchainExchangeRates | undefined;
+    if (!isCatchup && this.priceIndex?.exchangeRates) {
+      prices = this.priceIndex.exchangeRates;
+    }
     for (let i = 0; i < this.addresses.length; i++) {
       const wallet = this.wallets[i];
       const entry: IBalanceChange = balances[i];
@@ -389,9 +406,8 @@ export class WalletBalances {
         entry.extrinsicEvents = filter.eventsByExtrinsic;
         entry.transfers = filter.transfers;
         entry.vaultRevenueEvents = filter.vaultRevenueEvents;
-        const prices =
-          this.priceIndex?.exchangeRates ??
-          (await new PriceIndex(this.blockWatch.clients).fetchMicrogonExchangeRatesTo(api));
+
+        prices ??= await new PriceIndex(this.blockWatch.clients).fetchMicrogonExchangeRatesTo(api);
         const changed = await wallet.onBalanceChange(entry, prices);
         if (changed) {
           this.events.emit('balance-change', entry, wallet.type);
@@ -401,11 +417,7 @@ export class WalletBalances {
           if (entry.transfers.some(x => x.isInbound)) {
             this.events.emit('transfer-in', wallet, entry);
             if (!this.deferredLoading.isSettled) {
-              for (const transfer of entry.transfers) {
-                if (transfer.isInbound) {
-                  this.loadEvents['transfer-in'].push([wallet, entry]);
-                }
-              }
+              this.loadEvents['transfer-in'].push([wallet, entry]);
             }
           }
           if (entry.transfers.length || entry.extrinsicEvents.length) {
