@@ -6,6 +6,6 @@ RUN apt-get update && \
   apt-get install -y curl
 
 COPY . .
+COPY seeds ./seeds
 
-EXPOSE 3000
-ENTRYPOINT [ "node", "src/server.js" ]
+ENTRYPOINT [ "node", "lib/index.js" ]

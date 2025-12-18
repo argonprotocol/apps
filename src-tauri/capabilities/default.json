@@ -38,7 +38,10 @@
           "url": "http://*:3261/*"
         },
         {
-          "url": "http://127.0.0.1:*/*"
+          "url": "https://*.argonprotocol.org/*"
+        },
+        {
+          "url": "https://*.argon.network/*"
         }
       ],
       "deny": []

@@ -11,6 +11,7 @@
     "tsc:watch": "tsc --watch",
     "build": "yarn build:config && yarn build:version && yarn build:server && vue-tsc --noEmit && vite build",
     "build:workspace": "yarn workspaces foreach --all run build",
+    "build:indexer": "yarn workspace @argonprotocol/apps-indexer run build",
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
@@ -30,7 +31,7 @@
     "update-data": "yarn workspace @argonprotocol/apps-core run update-frames && tsx data-generators/all.ts",
     "docker:config": "tsx e2e/argon/updateConfig.ts",
     "docker:argon:download": "tsx e2e/argon/download.ts",
-    "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml",
+    "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml -f indexer.docker-compose.yml",
     "docker:down": "yarn docker:argon down -v --timeout=0",
     "docker:pull": "yarn docker:argon pull",
     "docker:up:workspace": "yarn docker:down && yarn docker:argon -f miners.workspace.docker-compose.yml up -d --wait && yarn docker:config",
@@ -93,7 +94,8 @@
   "workspaces": [
     "bot",
     "core",
-    "cli"
+    "cli",
+    "indexer"
   ],
   "devDependencies": {
     "@argonprotocol/testing": "^1.3.24",

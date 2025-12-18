@@ -30,12 +30,14 @@ export class VaultRevenueEventsTable extends BaseTable {
 
   public async insert(
     args: Omit<IVaultRevenueEventsRecord, 'id' | 'createdAt' | 'updatedAt'>,
-  ): Promise<IVaultRevenueEventsRecord> {
+  ): Promise<IVaultRevenueEventsRecord | undefined> {
     const { amount, source, blockNumber, blockHash } = args;
     const records = await this.db.select<IVaultRevenueEventsRecord[]>(
       `INSERT INTO VaultRevenueEvents
         (amount, source, blockNumber, blockHash)
-        VALUES (?, ?, ?, ?) RETURNING *;`,
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(amount, source, blockHash) DO NOTHING
+        RETURNING *;`,
       toSqlParams([amount, source, blockNumber, blockHash]),
     );
     return convertFromSqliteFields<IVaultRevenueEventsRecord[]>(records, this.fields)[0];

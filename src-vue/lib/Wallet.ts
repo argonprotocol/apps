@@ -3,7 +3,7 @@ import { IBlockToProcess } from './WalletBalances.ts';
 import { IBalanceTransfer, IExtrinsicEvent, IVaultRevenueEvent } from '@argonprotocol/apps-core';
 
 export type IBalanceChange = {
-  block: IBlockToProcess;
+  block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'isFinalized'>;
   vaultRevenueEvents: IVaultRevenueEvent[];
   microgonsAdded: bigint;
   micronotsAdded: bigint;
@@ -78,6 +78,28 @@ export class Wallet implements IWallet {
     return false;
   }
 
+  public trimTo(block: { blockNumber: number; blockHash: string }) {
+    const newHistory = this.balanceHistory.filter(b => b.block.blockNumber >= block.blockNumber);
+    if (newHistory.length === 0 || !newHistory.some(x => x.block.isFinalized)) {
+      // need at least one finalized entry
+      const finalized = this.balanceHistory.reverse().find(x => x.block.isFinalized);
+      if (finalized) {
+        newHistory.unshift(finalized);
+      }
+      if (!newHistory.length) {
+        console.warn(
+          'Cannot trim wallet balance history, no finalized block found',
+          { block, wallet: this.address },
+          this.balanceHistory,
+        );
+        throw new Error(
+          `Cannot trim wallet ${this.address} balance history to block ${block.blockNumber}, no finalized block found`,
+        );
+      }
+    }
+    this.balanceHistory = newHistory;
+  }
+
   public dropBlock(blockHash: string) {
     const index = this.balanceHistory.findIndex(b => b.block.blockHash === blockHash);
     if (index === -1) {
@@ -88,12 +110,9 @@ export class Wallet implements IWallet {
 
   public addDiffs(newBalance: IBalanceChange): boolean {
     const last = this.latestBalanceChange;
-    if (!last) {
-      return true;
-    }
     newBalance.microgonsAdded = newBalance.availableMicrogons + newBalance.reservedMicrogons - this.totalMicrogons;
     newBalance.micronotsAdded = newBalance.availableMicronots + newBalance.reservedMicronots - this.totalMicronots;
-    return this.hasDiff(last, newBalance);
+    return !last || this.hasDiff(last, newBalance);
   }
 
   public hasDiff(balance1: IBalanceChange, balance2: IBalanceChange): boolean {
@@ -105,63 +124,79 @@ export class Wallet implements IWallet {
     );
   }
 
+  public async firstFundingBlockNumber(address: string): Promise<number | null> {
+    const db = await this.db;
+    return await db.walletTransfersTable.firstTransferBlockNumber(address);
+  }
+
   public async onBalanceChange(newBalance: IBalanceChange, prices: { USD: bigint; ARGNOT: bigint }): Promise<boolean> {
     const prev = this.latestBalanceChange;
-    if (!prev) {
-      this.balanceHistory.push(newBalance);
-      return true;
-    }
-
-    if (prev.block.blockHash === newBalance.block.blockHash || prev.block.blockNumber >= newBalance.block.blockNumber) {
-      return false;
+    let hasChange = true;
+    if (prev) {
+      if (
+        prev.block.blockHash === newBalance.block.blockHash ||
+        prev.block.blockNumber >= newBalance.block.blockNumber
+      ) {
+        return false;
+      }
+      hasChange = this.hasDiff(prev, newBalance);
     }
 
     this.balanceHistory.push(newBalance);
-    const hasChange = this.hasDiff(prev, newBalance);
-    if (hasChange) {
-      const database = await this.db;
-      await database.walletLedgerTable.insert({
-        walletAddress: this.address,
-        walletName: this.type,
-        availableMicrogons: newBalance.availableMicrogons,
-        availableMicronots: newBalance.availableMicronots,
-        reservedMicrogons: newBalance.reservedMicrogons,
-        reservedMicronots: newBalance.reservedMicronots,
-        microgonChange: newBalance.microgonsAdded,
-        micronotChange: newBalance.micronotsAdded,
-        microgonsForUsd: prices.USD,
-        microgonsForArgonot: prices.ARGNOT,
-        extrinsicEventsJson: newBalance.extrinsicEvents,
-        blockNumber: newBalance.block.blockNumber,
-        blockHash: newBalance.block.blockHash,
-        isFinalized: newBalance.block.isFinalized,
-      });
-      for (const transfer of newBalance.transfers) {
-        await database.walletTransfersTable.insert({
-          walletAddress: this.address,
-          walletName: this.type,
-          amount: transfer.isInbound ? transfer.amount : -transfer.amount,
-          isInternal: transfer.isInternal,
-          currency: transfer.isOwnership ? 'argonot' : 'argon',
-          microgonsForArgonot: prices.ARGNOT,
-          microgonsForUsd: prices.USD,
-          extrinsicIndex: transfer.extrinsicIndex,
-          otherParty: transfer.isInbound ? transfer.from : transfer.to,
-          transferType: transfer.transferType,
-          blockNumber: newBalance.block.blockNumber,
-          blockHash: newBalance.block.blockHash,
-        });
-      }
-      for (const revenueEvent of newBalance.vaultRevenueEvents) {
-        await database.vaultRevenueEventsTable.insert({
-          amount: revenueEvent.amount,
-          source: revenueEvent.source,
-          blockNumber: newBalance.block.blockNumber,
-          blockHash: newBalance.block.blockHash,
-        });
-      }
+    if (!hasChange) return false;
+    // skip writing to db if this is an empty account
+    if (
+      !prev &&
+      newBalance.availableMicrogons === 0n &&
+      newBalance.availableMicronots === 0n &&
+      newBalance.reservedMicrogons === 0n &&
+      newBalance.reservedMicronots === 0n
+    ) {
+      // no change from zero balance
+      return false;
     }
 
-    return hasChange;
+    const database = await this.db;
+    const didWrite = await database.walletLedgerTable.insert({
+      walletAddress: this.address,
+      walletName: this.type,
+      availableMicrogons: newBalance.availableMicrogons,
+      availableMicronots: newBalance.availableMicronots,
+      reservedMicrogons: newBalance.reservedMicrogons,
+      reservedMicronots: newBalance.reservedMicronots,
+      microgonChange: newBalance.microgonsAdded,
+      micronotChange: newBalance.micronotsAdded,
+      microgonsForUsd: prices.USD,
+      microgonsForArgonot: prices.ARGNOT,
+      extrinsicEventsJson: newBalance.extrinsicEvents,
+      blockNumber: newBalance.block.blockNumber,
+      blockHash: newBalance.block.blockHash,
+      isFinalized: newBalance.block.isFinalized,
+    });
+    for (const transfer of newBalance.transfers) {
+      await database.walletTransfersTable.insert({
+        walletAddress: this.address,
+        walletName: this.type,
+        amount: transfer.isInbound ? transfer.amount : -transfer.amount,
+        isInternal: transfer.isInternal,
+        currency: transfer.currency,
+        microgonsForArgonot: prices.ARGNOT,
+        microgonsForUsd: prices.USD,
+        extrinsicIndex: transfer.extrinsicIndex,
+        otherParty: transfer.isInbound ? transfer.from : transfer.to,
+        transferType: transfer.transferType,
+        blockNumber: newBalance.block.blockNumber,
+        blockHash: newBalance.block.blockHash,
+      });
+    }
+    for (const revenueEvent of newBalance.vaultRevenueEvents) {
+      await database.vaultRevenueEventsTable.insert({
+        amount: revenueEvent.amount,
+        source: revenueEvent.source,
+        blockNumber: newBalance.block.blockNumber,
+        blockHash: newBalance.block.blockHash,
+      });
+    }
+    return !!didWrite;
   }
 }

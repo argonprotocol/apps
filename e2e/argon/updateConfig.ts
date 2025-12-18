@@ -3,6 +3,7 @@ import Path from 'node:path';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'fs';
 import { writeFileSync } from 'node:fs';
+import { type INetworkConfig } from '@argonprotocol/apps-core';
 
 const __dirname = Path.dirname(new URL(import.meta.url).pathname);
 
@@ -22,10 +23,19 @@ const esploraPort = execSync('docker compose port bitcoin-electrs 3002', {
   .split(':')
   .pop();
 
+const indexerPort = execSync('docker compose port indexer 3262', {
+  cwd: __dirname,
+  encoding: 'utf-8',
+})
+  .trim()
+  .split(':')
+  .pop();
+
 const configPath = Path.join(__dirname, '../../core/network.config.json');
 const networkJson = readFileSync(configPath, 'utf-8');
-const networkConfig = JSON.parse(networkJson);
+const networkConfig = JSON.parse(networkJson) as INetworkConfig;
 networkConfig[networkName].esploraHost = `http://localhost:${esploraPort}`;
+networkConfig[networkName].indexerHost = `http://localhost:${indexerPort}`;
 writeFileSync(configPath, JSON.stringify(networkConfig, null, 2) + '\n', 'utf-8');
 
 if (networkName === 'dev-docker') {

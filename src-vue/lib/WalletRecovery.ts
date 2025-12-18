@@ -62,12 +62,16 @@ export class WalletRecovery {
     onProgress: (progressPct: number) => void,
   ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
     const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
-
+    const minerFirstFundedBlock = await this.walletBalances.miningWallet.firstFundingBlockNumber(
+      this.walletKeys.miningAddress,
+    );
     const accountSubaccounts = await this.walletKeys.getMiningSubaccounts();
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
-    const latestFrameId = await liveClient.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
-    const earliestPossibleFrameId = this.miningFrames.earliestWithSpec(140);
+    const latestFrameId = this.miningFrames.currentFrameId;
+    const earliestFundingFrameId = minerFirstFundedBlock
+      ? await this.miningFrames.getForBlock(minerFirstFundedBlock)
+      : latestFrameId - 1;
 
     const bidsRaw = await liveClient.query.miningSlot.bidsForNextSlotCohort();
     for (const [bidPosition, bidRaw] of bidsRaw.entries()) {
@@ -82,14 +86,14 @@ export class WalletRecovery {
       });
     }
 
-    const framesToProcess = latestFrameId - earliestPossibleFrameId;
+    const framesToProcess = latestFrameId - earliestFundingFrameId;
     await new FrameIterator(this.clients, this.miningFrames).iterateFramesByEpoch(
       async (frameId, firstBlockMeta, api, abortController) => {
         if (firstBlockMeta.specVersion < 140) {
           console.log(`[MiningHistory] Reached spec version < 140 at frame ${frameId}, stopping history load`);
           return abortController.abort();
         }
-        console.log(`[MiningHistory] Loading frame ${frameId} (oldest ${earliestPossibleFrameId})`);
+        console.log(`[MiningHistory] Loading frame ${frameId} (oldest ${earliestFundingFrameId})`);
         const minersByCohort = await api.query.miningSlot.minersByCohort.entries();
         for (const [frameIdRaw, seatsInFrame] of minersByCohort) {
           const frameId = frameIdRaw.args[0].toNumber();
@@ -109,7 +113,7 @@ export class WalletRecovery {
         const progress = Math.max((100 * framesProcessed) / framesToProcess, 0);
         onProgress(progress);
         console.log(`[MiningHistory] Progress: ${progress}`);
-        if (frameId < earliestPossibleFrameId) {
+        if (frameId < earliestFundingFrameId) {
           abortController.abort();
         }
       },

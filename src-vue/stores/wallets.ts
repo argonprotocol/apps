@@ -168,13 +168,11 @@ export const useWallets = defineStore('wallets', () => {
 
   const totalWalletMicrogons = Vue.ref(0n);
   const totalWalletMicronots = Vue.ref(0n);
-  const unallocatedVaultMicrogons = Vue.ref(0n);
 
   //////////////////////////////////////////////////////////////////////////////
   walletBalances.events.on('balance-change', (entry, type) => {
     totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
     totalWalletMicronots.value = walletBalances.totalWalletMicronots;
-    unallocatedVaultMicrogons.value = walletBalances.getVaultUnallocatedFunds();
     const wallet = {
       mining: miningWallet,
       vaulting: vaultingWallet,
@@ -184,14 +182,19 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   async function load() {
-    while (!isLoaded.value) {
+    for (let i = 0; i < 2; i++) {
       try {
         await config.isLoadedPromise;
         await walletBalances.load();
+        totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
+        totalWalletMicronots.value = walletBalances.totalWalletMicronots;
+        Object.assign(miningWallet, walletBalances.miningWallet.latestBalanceChange);
+        Object.assign(vaultingWallet, walletBalances.vaultingWallet.latestBalanceChange);
+        Object.assign(holdingWallet, walletBalances.holdingWallet.latestBalanceChange);
         await Promise.all([stats.isLoadedPromise, currency.isLoadedPromise]);
         isLoadedResolve();
         isLoaded.value = true;
-        break;
+        return;
       } catch (error) {
         console.error(`Error loading wallets`, error);
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {
@@ -217,7 +220,6 @@ export const useWallets = defineStore('wallets', () => {
     miningWallet,
     vaultingWallet,
     holdingWallet,
-    unallocatedVaultMicrogons,
     totalWalletMicrogons,
     totalWalletMicronots,
     miningSeatValue,
@@ -234,7 +236,18 @@ export const useWallets = defineStore('wallets', () => {
     totalVaultingResources,
     totalNetWorth,
     on: function <K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
-      return walletBalances.events.on(event, cb);
+      const unsub = walletBalances.events.on(event, cb);
+      // re-emit any load events that happened before we subscribed
+      if (!walletBalances.deferredLoading.isSettled) {
+        void walletBalances.deferredLoading.promise.then(() => {
+          const events = walletBalances.getLoadEvents(event);
+          for (const args of events) {
+            // @ts-expect-error ts can't understand this pattern
+            cb(...args);
+          }
+        });
+      }
+      return unsub;
     },
   };
 });

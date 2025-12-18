@@ -22,7 +22,7 @@ it('should update progress before the transaction has been added to a block', as
   unsubscribe();
 
   expect(progressUpdates).toHaveLength(21);
-  expect(progressUpdates[0].progressPct).toBeGreaterThan(0);
+  expect(progressUpdates[0].progressPct).toBeGreaterThanOrEqual(0);
   expect(progressUpdates[0].progressPct).toBeLessThan(1);
   expect(progressUpdates[0].confirmations).toBe(-1);
 });

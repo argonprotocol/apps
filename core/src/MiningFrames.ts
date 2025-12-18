@@ -239,6 +239,20 @@ export class MiningFrames {
     throw new Error(`Tick ${tick} is not present in frame history`);
   }
 
+  public async getForBlock(oldestMiningBlock: number): Promise<number> {
+    let frameId = 0;
+    for (let i = 0; i <= this.currentFrameId; i++) {
+      const frame = this.framesById[i];
+      if (!frame.firstBlockNumber) continue;
+      if (frame.firstBlockNumber <= oldestMiningBlock) {
+        frameId = i;
+      } else {
+        break;
+      }
+    }
+    return frameId;
+  }
+
   public static getTickDate(tick: number): Date {
     const tickMillis = NetworkConfig.tickMillis;
     return new Date(tick * tickMillis);

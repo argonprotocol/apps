@@ -61,9 +61,27 @@ export class WalletLedgerTable extends BaseTable {
     return convertFromSqliteFields(records, this.fields);
   }
 
+  public async fetchLatestFinalized(address: string): Promise<IWalletLedgerRecord | undefined> {
+    const finalized = await this.db.select<IWalletLedgerRecord[]>(
+      'SELECT * FROM WalletLedger WHERE walletAddress = ? AND isFinalized = ? ORDER BY blockNumber DESC LIMIT 1',
+      toSqlParams([address, true]),
+    );
+    const finalizedRecords = convertFromSqliteFields<IWalletLedgerRecord[]>(finalized, this.fields);
+
+    return finalizedRecords[0];
+  }
+
+  public async findUnfinalizedBlocks(): Promise<IWalletLedgerRecord[]> {
+    const records = await this.db.select<IWalletLedgerRecord[]>(
+      'SELECT * FROM WalletLedger WHERE isFinalized = 0 ORDER BY blockNumber ASC',
+      [],
+    );
+    return convertFromSqliteFields<IWalletLedgerRecord[]>(records, this.fields);
+  }
+
   public async insert(
     args: Omit<IWalletLedgerRecord, 'id' | 'createdAt' | 'updatedAt' | 'inboundTransfersJson'>,
-  ): Promise<IWalletLedgerRecord> {
+  ): Promise<IWalletLedgerRecord | undefined> {
     const {
       walletAddress,
       walletName,
@@ -85,7 +103,9 @@ export class WalletLedgerTable extends BaseTable {
         walletAddress, walletName, availableMicrogons, availableMicronots, reservedMicrogons,
         reservedMicronots,microgonChange, micronotChange, microgonsForUsd, microgonsForArgonot,
         inboundTransfersJson, extrinsicEventsJson, blockNumber, blockHash, isFinalized) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(walletAddress, blockHash) DO NOTHING
+        RETURNING *`,
       toSqlParams([
         walletAddress,
         walletName,

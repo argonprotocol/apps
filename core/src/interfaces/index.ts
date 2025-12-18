@@ -11,3 +11,4 @@ export * from './IFramesHistory.js';
 export * from './IHistoryFile.js';
 export * from './ILastModified.js';
 export * from './ITransferSources.js';
+export * from './IIndexerSpec.js';

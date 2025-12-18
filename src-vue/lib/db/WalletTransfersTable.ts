@@ -41,6 +41,17 @@ export class WalletTransfersTable extends BaseTable {
     return convertFromSqliteFields(records, this.fields);
   }
 
+  public async firstTransferBlockNumber(address: string): Promise<number | null> {
+    const rows = await this.db.select<{ blockNumber: number }[]>(
+      `SELECT blockNumber FROM WalletTransfers WHERE walletAddress = ? ORDER BY blockNumber ASC LIMIT 1`,
+      [address],
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return rows[0].blockNumber;
+  }
+
   public async fetchExternal(walletAddress: string): Promise<IWalletTransferRecord[]> {
     const rows = await this.db.select<IWalletTransferRecord[]>(
       `SELECT * from WalletTransfers WHERE walletAddress = ? 
@@ -52,7 +63,7 @@ export class WalletTransfersTable extends BaseTable {
 
   public async insert(
     args: Omit<IWalletTransferRecord, 'id' | 'createdAt' | 'updatedAt'>,
-  ): Promise<IWalletTransferRecord> {
+  ): Promise<IWalletTransferRecord | undefined> {
     const {
       walletAddress,
       walletName,
@@ -70,7 +81,9 @@ export class WalletTransfersTable extends BaseTable {
     const records = await this.db.select<IWalletTransferRecord[]>(
       `INSERT INTO WalletTransfers (walletAddress, walletName, amount, currency, extrinsicIndex, isInternal,
                                     microgonsForArgonot, microgonsForUsd, otherParty, transferType, blockNumber, blockHash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(walletAddress, otherParty, extrinsicIndex, amount, currency, blockHash) DO NOTHING
+         RETURNING *`,
       toSqlParams([
         walletAddress,
         walletName,

@@ -23,7 +23,8 @@
     "paths": {
       "@argonprotocol/apps-core": ["./core/src/index.ts"],
       "@argonprotocol/cli": ["./cli/src/index.ts"],
-      "@argonprotocol/apps-bot": ["./bot/src/index.ts"]
+      "@argonprotocol/apps-bot": ["./bot/src/index.ts"],
+      "@argonprotocol/apps-indexer": ["./indexer/src/index.ts"]
     }
   },
   "include": [
@@ -36,6 +37,7 @@
     "bot/**/*.ts",
     "cli/**/*.ts",
     "core/**/*.ts",
+    "indexer/**/*.ts"
   ],
   "exclude": [
     "**/*.js",

@@ -11,6 +11,4 @@ export interface IServerStateRecord {
   botActivities: IBotActivity[];
   botActivityLastUpdatedAt: Date;
   botActivityLastBlockNumber: number;
-  createdAt: Date;
-  insertedAt: Date;
 }
