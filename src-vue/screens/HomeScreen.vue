@@ -213,14 +213,14 @@
           </div>
 
           <div class="flex w-1/3 flex-col items-center">
-            <div class="flex h-1/4 w-1/2 flex-col items-stretch px-5">
+            <div class="relative -top-1 flex h-1/4 w-1/2 flex-col items-stretch px-5">
               <div
                 class="flex grow flex-row"
                 v-for="target in aboveTargetAmounts"
                 :key="target.earningsPotentialPercent">
-                <div class="grow text-left text-slate-500/50">${{ target.usdPrice }}</div>
+                <div class="grow text-left text-slate-500/50">${{ numeral(target.usdPrice).format('0,0.00') }}</div>
                 <div class="grow text-right font-semibold text-green-700/50">
-                  +{{ target.earningsPotentialPercent }}%
+                  +{{ numeral(target.earningsPotentialPercent).format('0,0') }}%
                 </div>
               </div>
             </div>
@@ -232,17 +232,20 @@
                 <label class="mt-1 block text-sm font-medium text-slate-700/50">Price Per Argon</label>
               </div>
             </div>
-            <div class="flex h-1/4 w-1/2 flex-col px-5">
+            <div class="relative top-2.5 flex h-1/4 w-1/2 flex-col px-5">
               <div
                 class="flex flex-row pt-1"
                 v-for="target in belowTargetAmounts"
                 :key="target.earningsPotentialPercent">
-                <div class="grow text-left text-slate-500/50">${{ target.usdPrice }}</div>
+                <div class="grow text-left text-slate-500/50">${{ numeral(target.usdPrice).format('0,0.00') }}</div>
                 <div class="grow text-right font-semibold text-green-700/50">
                   +{{ numeral(target.earningsPotentialPercent).format('0,0') }}%
                 </div>
               </div>
-              <div class="-mt-3 -mb-2 w-1/2 pr-3 text-center text-2xl text-slate-500/40">...</div>
+              <div class="-mt-4 -mb-2 flex flex-row text-2xl text-slate-500/40">
+                <div class="grow text-left">...</div>
+                <div class="grow text-right">...</div>
+              </div>
               <div class="flex flex-row pt-1">
                 <div class="grow text-left text-slate-500/50">${{ terraCollapsePriceUsd }}</div>
                 <div class="grow text-right font-semibold text-green-700/50">+{{ terraPercentReturn }}</div>
@@ -316,7 +319,7 @@
                   <LineArrow class="absolute top-1/2 right-full z-10 -translate-y-1/2 -rotate-180 text-slate-600/13" />
                 </div>
                 <div class="grow" />
-                <div class="relative -top-2.5 mr-3 ml-5 h-3 bg-gray-600/13">
+                <div class="relative -top-2.5 mr-1 ml-5 h-3 bg-gray-600/13">
                   <LineArrow class="absolute top-1/2 right-full z-10 -translate-y-1/2 -rotate-180 text-slate-600/13" />
                 </div>
                 <div class="grow" />
@@ -337,12 +340,13 @@
                   </div>
                 </div>
                 <div StatWrapper>
-                  <div Stat>{{ vaultingStats.bitcoinLocked }}</div>
+                  <div Stat>
+                    {{ numeral(vaultingStats.bitcoinLocked).formatIfElse('> 1', '0,0.[00]', '0.[000000]') }}
+                  </div>
                   <label>Vaulted Bitcoins</label>
                 </div>
                 <div class="grow" />
               </div>
-
               <div class="relative left-1 pb-6 text-4xl font-bold text-slate-600/20">+</div>
               <div StatWrapper>
                 <div Stat>
@@ -450,9 +454,10 @@ const terraCollapsePriceUsd = Vue.computed(() => {
 
 function getBitcoinReturnAsPercent(simulateArgonUsdPrice: number): number {
   const r = BigNumber(simulateArgonUsdPrice).div(dollarTargetPerArgon.value).toNumber();
-  const multiplier = calculateUnlockBurnPerBitcoinDollar(r);
-
-  return (multiplier - 1) * 100;
+  const argonsRequired = calculateUnlockBurnPerBitcoinDollar(r);
+  const argonCost = argonsRequired * simulateArgonUsdPrice;
+  const profitPercent = ((1 - argonCost) / argonCost) * 100;
+  return profitPercent;
 }
 
 const terraPercentReturn = Vue.computed(() => {
@@ -460,9 +465,9 @@ const terraPercentReturn = Vue.computed(() => {
   return `${numeral(percentReturn).format('0,0')}%`;
 });
 
-const aboveTargetAmounts = Vue.ref<{ usdPrice: string; earningsPotentialPercent: number }[]>([]);
+const aboveTargetAmounts = Vue.ref<{ usdPrice: number; earningsPotentialPercent: number }[]>([]);
 
-const belowTargetAmounts = Vue.ref<{ usdPrice: string; earningsPotentialPercent: number }[]>([]);
+const belowTargetAmounts = Vue.ref<{ usdPrice: number; earningsPotentialPercent: number }[]>([]);
 
 const microgonsInCirculation = Vue.ref(0n);
 const micronotsInCirculation = Vue.ref(0n);
@@ -480,7 +485,7 @@ function calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
   } else if (r >= 0.01) {
     return (0.5618 * r + 0.3944) / r;
   } else {
-    return (1 / r) * (0.576 * r + 0.4);
+    return (1 / r) * (0.702 * r + 0.274);
   }
 }
 
@@ -559,7 +564,7 @@ Vue.onMounted(async () => {
   const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(finalPriceAfterTerraCollapse);
   unlockValueInArgons.value = burnPerBitcoinDollar * bitcoinDollarValueInVault;
 
-  const targets: { usdPrice: string; earningsPotentialPercent: number }[] = [];
+  const targets: { usdPrice: number; earningsPotentialPercent: number }[] = [];
   const currentOffset = ((dollarsPerArgon.value - dollarTargetPerArgon.value) / dollarTargetPerArgon.value) * 100;
   const nextTier = 10 + Math.ceil(currentOffset / 10) * 10;
   const adjustedOffset = nextTier - currentOffset;
@@ -567,17 +572,17 @@ Vue.onMounted(async () => {
     const earningsPotentialPercent = adjustedOffset + (i - 1) * 10;
     const targetPrice = dollarTargetPerArgon.value * (1 + earningsPotentialPercent / 100);
     targets.push({
-      usdPrice: numeral(targetPrice).format('0,0.000'),
+      usdPrice: targetPrice,
       earningsPotentialPercent,
     });
   }
   aboveTargetAmounts.value = targets.reverse();
 
-  for (const percentOffTarget of [10, 20, 30]) {
+  for (const percentOffTarget of [5, 10, 20]) {
     const actualPrice = dollarTargetPerArgon.value * ((100 - percentOffTarget) / 100);
     const earningsPotentialPercent = getBitcoinReturnAsPercent(actualPrice);
     belowTargetAmounts.value.push({
-      usdPrice: numeral(actualPrice).format('0,0.000'),
+      usdPrice: actualPrice,
       earningsPotentialPercent,
     });
   }

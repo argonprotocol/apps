@@ -1,6 +1,7 @@
 import * as Vue from 'vue';
 import { Menu, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from './emitters/basicEmitter';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { useController } from './stores/controller';
@@ -14,7 +15,7 @@ function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
 }
 
-export default async function menuStart() {
+export async function createMenu() {
   const controller = useController();
   const installer = useInstaller();
   const config = useConfig();
@@ -104,8 +105,28 @@ export default async function menuStart() {
   const windowMenu = await Submenu.new({
     text: 'Window',
     items: [
-      await PredefinedMenuItem.new({ item: 'Minimize' }),
-      await PredefinedMenuItem.new({ item: 'Fullscreen' }),
+      {
+        id: 'minimize',
+        text: 'Minimize',
+        accelerator: 'CmdOrCtrl+M',
+        action: () => void getCurrentWindow().minimize(),
+      },
+      {
+        id: 'maximize',
+        text: 'Maximize',
+        accelerator: 'CmdOrCtrl+Shift+M',
+        action: () => void getCurrentWindow().toggleMaximize(),
+      },
+      {
+        id: 'fullscreen',
+        text: 'Fullscreen',
+        accelerator: 'CmdOrCtrl+Ctrl+F',
+        action: void (async () => {
+          const window = getCurrentWindow();
+          const isFullscreen = await window.isFullscreen();
+          await window.setFullscreen(!isFullscreen);
+        }),
+      },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'reload',
@@ -129,14 +150,14 @@ export default async function menuStart() {
     text: 'Troubleshooting',
     items: [
       {
-        id: 'server-diagnostics',
-        text: 'Server Diagnostics',
-        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'server-diagnostics' }),
-      },
-      {
         id: 'data-and-log-files',
         text: 'Data and Logging',
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'data-and-log-files' }),
+      },
+      {
+        id: 'server-diagnostics',
+        text: 'Server Diagnostics',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'server-diagnostics' }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
@@ -207,11 +228,5 @@ export default async function menuStart() {
       () => updateMiningMenu(),
       { immediate: true },
     );
-
-    //   // Update individual menu item text
-    //   const statusItem = await menu.get('status');
-    //   if (statusItem) {
-    //     await statusItem.setText('Status: Ready');
-    //   }
   });
 }
