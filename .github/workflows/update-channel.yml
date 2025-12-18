@@ -42,12 +42,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          ACTION=create
-          if gh release view "$CHANNEL_NAME" >/dev/null 2>&1; then
-            ACTION=edit
-          fi
+          # Delete release but keep tag
+          gh release delete "$CHANNEL_NAME" -y || true
 
-          gh release "$ACTION" "$CHANNEL_NAME" -t "$CHANNEL_TITLE" -n "Pinned feed for $CHANNEL_NAME updates"
+          gh release create "$CHANNEL_NAME" -t "$CHANNEL_TITLE" -n "Pinned feed for $CHANNEL_NAME updates"
   
           gh release download "$VERSION" -p "$UPDATER_FILE" -D .
           gh release upload "$CHANNEL_NAME" "$UPDATER_FILE"  --clobber
