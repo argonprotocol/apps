@@ -36,6 +36,12 @@
         },
         {
           "url": "http://*:3261/*"
+        },
+        {
+          "url": "https://*.argonprotocol.org/*"
+        },
+        {
+          "url": "https://*.argon.network/*"
         }
       ],
       "deny": []

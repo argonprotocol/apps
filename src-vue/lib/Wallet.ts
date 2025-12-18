@@ -157,7 +157,7 @@ export class Wallet implements IWallet {
     }
 
     const database = await this.db;
-    await database.walletLedgerTable.insert({
+    const didWrite = await database.walletLedgerTable.insert({
       walletAddress: this.address,
       walletName: this.type,
       availableMicrogons: newBalance.availableMicrogons,
@@ -197,6 +197,6 @@ export class Wallet implements IWallet {
         blockHash: newBalance.block.blockHash,
       });
     }
-    return true;
+    return !!didWrite;
   }
 }
