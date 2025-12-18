@@ -394,6 +394,13 @@ pub fn run() {
     let env_vars = Utils::get_server_env_vars().unwrap_or_default();
     let env_vars_json = serde_json::to_string(&env_vars).unwrap_or_default();
 
+    let mut updater_target = tauri_plugin_updater::target().unwrap_or_default();
+    if cfg!(debug_assertions) {
+        updater_target += "-debug";
+    }
+
+    println!("Updater target = {}", updater_target);
+
     tauri::Builder::default()
         .on_page_load(move |window, _payload| {
             if window.label() != "main" {
@@ -488,7 +495,7 @@ pub fn run() {
                 .app_name("Argon Investor Console")
                 .build(),
         )
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().target(updater_target).build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_sql::Builder::default()

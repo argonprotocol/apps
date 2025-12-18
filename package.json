@@ -42,6 +42,7 @@
     "postversion": "yarn update-data && yarn build:version"
   },
   "dependencies": {
+    "@actions/github": "^6.0.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
     "@argonprotocol/bitcoin": "^1.3.24",
