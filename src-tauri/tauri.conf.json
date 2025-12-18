@@ -62,7 +62,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ2NjE2QzAzOTJGMDQ4MzgKUldRNFNQQ1NBMnhoMW9IWDIrWDREOVpDZnpqYjhUdGM5RW01eDdsM3phYmRtQWVleCtFaXlJOWoK",
       "endpoints": [
-        "https://github.com/argonprotocol/apps/releases/download/channel-stable/latest.json"
+        "https://raw.githubusercontent.com/argonprotocol/apps/release-channels/stable.json"
       ]
     }
   }
