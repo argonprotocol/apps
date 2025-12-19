@@ -48,7 +48,7 @@ impl Utils {
         }
 
         match option_env!("ARGON_APP_BUILD_TYPE") {
-            Some("local") | Some("experimental") => "testnet",
+            Some("local") => "testnet",
             _ => "mainnet",
         }
         .into()

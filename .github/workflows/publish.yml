@@ -18,8 +18,7 @@ concurrency:
 
 env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
-  TAURI_CONFIG: ${{ github.workspace }}/src-tauri/tauri.conf.json
-  ARGON_APP_BUILD_TYPE: ${{ contains(github.event.inputs.version || github.ref_name, '-rc') && 'experimental' || 'stable' }}
+  BUILDS: ${{ contains(github.event.inputs.version || github.ref_name, '-rc') && 'experimental-only' || 'all' }}
   RELEASE_NOTES: ''
 
 jobs:
@@ -98,13 +97,8 @@ jobs:
       - name: build server
         run: yarn build:server
 
-      - name: Override vars
-        if: ${{ env.ARGON_APP_BUILD_TYPE == 'experimental' }}
-        shell: bash
-        run: |
-          echo "TAURI_CONFIG=$GITHUB_WORKSPACE/src-tauri/tauri.experimental.conf.json" >> "$GITHUB_ENV"
-
-      - name: build and publish
+      - name: Build and Publish Stable
+        if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,14 +109,32 @@ jobs:
           RUST_BACKTRACE: full
         with:
           includeDebug: true
+          includeRelease: true
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          updaterJsonKeepUniversal: true
-          includeUpdaterJson: true
-          args: ${{ matrix.args }} --config '${{ env.TAURI_CONFIG }}'
+          args: ${{ matrix.args }} --config '${{ github.workspace }}/src-tauri/tauri.conf.json'
+
+      - name: Build and Publish Experimental
+        uses: tauri-apps/tauri-action@v0.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ARGON_APP_ENABLE_AUTOUPDATE: true
+          NODE_ENV: production
+          RUST_BACKTRACE: full
+        with:
+          includeDebug: true
+          includeRelease: true
+          tagName: ${{ env.VERSION }}
+          releaseName: ${{ env.VERSION }}
+          releaseBody: ${{ env.RELEASE_NOTES }}
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }} --config '${{ github.workspace }}/src-tauri/tauri.experimental.conf.json'
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}
@@ -140,12 +152,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: install dependencies
+        run: yarn install
+
       - name: Publish to channel release
-        if: ${{ env.ARGON_APP_BUILD_TYPE == 'experimental' }}
+        run: yarn tsx scripts/updateReleaseChannels.ts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "$VERSION" -p latest.json -D .
-          cp latest.json latest-experimental.json
-          gh release upload "$VERSION" latest-experimental.json --clobber
-          gh release delete-asset "$VERSION" latest.json -y
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ env.VERSION }}
+          RELEASE_NOTES: ${{ env.RELEASE_NOTES }}
+
