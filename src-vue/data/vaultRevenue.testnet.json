@@ -1269,37 +1269,37 @@
       },
       "changesByFrame": [
         {
-          "satoshisAdded": "0n",
           "frameId": 332,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "999933893n",
+          "securitizationRelockable": "999933708n",
+          "securitizationActivated": "999933708n",
           "treasuryPool": {
             "totalEarnings": "0n",
             "vaultEarnings": "0n",
             "externalCapital": "0n",
             "vaultCapital": "99993370n"
           },
-          "securitization": "999933893n",
-          "securitizationActivated": "999933708n",
-          "securitizationRelockable": "999933708n",
           "uncollectedEarnings": "0n"
         },
         {
-          "satoshisAdded": "0n",
           "frameId": 331,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "999933893n",
+          "securitizationRelockable": "999933708n",
+          "securitizationActivated": "999933708n",
           "treasuryPool": {
             "totalEarnings": "0n",
             "vaultEarnings": "0n",
             "externalCapital": "0n",
             "vaultCapital": "99993370n"
           },
-          "securitization": "999933893n",
-          "securitizationActivated": "999933708n",
-          "securitizationRelockable": "999933708n",
           "uncollectedEarnings": "0n"
         },
         {
@@ -1618,10 +1618,10 @@
           "securitizationRelockable": "999933708n",
           "securitizationActivated": "999933708n",
           "treasuryPool": {
-            "totalEarnings": "0n",
-            "vaultEarnings": "0n",
             "externalCapital": "0n",
-            "vaultCapital": "99993370n"
+            "vaultCapital": "99993370n",
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n"
           },
           "uncollectedEarnings": "0n"
         },
@@ -1635,10 +1635,10 @@
           "securitizationRelockable": "999933708n",
           "securitizationActivated": "999933708n",
           "treasuryPool": {
-            "totalEarnings": "0n",
-            "vaultEarnings": "0n",
             "externalCapital": "0n",
-            "vaultCapital": "99993370n"
+            "vaultCapital": "99993370n",
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n"
           },
           "uncollectedEarnings": "0n"
         },
