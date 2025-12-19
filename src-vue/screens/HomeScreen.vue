@@ -23,7 +23,7 @@
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
-                <label>Capital Invested</label>
+                <label>External Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
@@ -71,7 +71,7 @@
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
-                <label>Capital Invested</label>
+                <label>External Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
