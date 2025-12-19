@@ -62,7 +62,6 @@ export class AccountEventsFilter {
 
     for (const { extrinsicEvents, extrinsicIndex } of groupedEvents) {
       let isMine = false;
-      let transfer: IBalanceTransfer | undefined;
       for (const event of extrinsicEvents) {
         // these cover transfers in, mint, mining, etc
         for (const key of ['who', 'accountId', 'from', 'to', 'operatorAccountId', 'beneficiary'] as const) {
@@ -75,7 +74,7 @@ export class AccountEventsFilter {
           }
         }
 
-        transfer ??= AccountEventsFilter.isTransfer({
+        const transfer = AccountEventsFilter.isTransfer({
           client,
           event,
           extrinsicIndex,
@@ -83,6 +82,10 @@ export class AccountEventsFilter {
           extrinsicEvents: extrinsicEvents,
           isFromInternal: from => this.myOtherAddresses.includes(from.toHuman()),
         });
+        if (transfer) {
+          this.transfers.push(transfer);
+          isMine = true;
+        }
 
         if (iAmMiner) {
           if (client.events.blockRewards.RewardCreated.is(event)) {
@@ -133,16 +136,12 @@ export class AccountEventsFilter {
         }
       }
 
-      if (isMine || transfer) {
+      if (isMine) {
         const eventGroup: IExtrinsicEvent = [extrinsicIndex ?? null];
         for (const event of extrinsicEvents) {
           eventGroup.push(this.toEventInfo(event));
         }
         this.eventsByExtrinsic.push(eventGroup);
-      }
-      if (transfer) {
-        // do we just broadcast this? or store it?
-        this.transfers.push(transfer);
       }
     }
   }
@@ -186,12 +185,13 @@ export class AccountEventsFilter {
   public static hasArgonotTransfer(
     client: ArgonClient | ApiDecoration<'promise'>,
     extrinsicEvents: GenericEvent[],
+    toAccount: string,
     amount: bigint,
   ): boolean {
     for (const event of extrinsicEvents) {
       if (client.events.ownership.Transfer.is(event)) {
-        const { amount: eventAmount } = event.data;
-        if (eventAmount.toBigInt() === amount) {
+        const { amount: eventAmount, to } = event.data;
+        if (eventAmount.toBigInt() === amount && to.toHuman() === toAccount) {
           return true;
         }
       }
@@ -224,7 +224,12 @@ export class AccountEventsFilter {
           isInbound: true,
           amount: amount.toBigInt(),
           isInternal: false,
-          currency: AccountEventsFilter.hasArgonotTransfer(client, extrinsicEvents, amount.toBigInt())
+          currency: AccountEventsFilter.hasArgonotTransfer(
+            client,
+            extrinsicEvents,
+            beneficiary.toHuman(),
+            amount.toBigInt(),
+          )
             ? 'argonot'
             : 'argon',
           extrinsicIndex,
@@ -234,16 +239,23 @@ export class AccountEventsFilter {
     if (client.events.tokenGateway.AssetTeleported.is(event) && extrinsicIndex !== undefined) {
       const { from, to, amount } = event.data;
       if (accountFilter(from)) {
+        const amountN = amount.toBigInt();
+        const fromAccount = from.toHuman();
+        const hasArgonotBurn = extrinsicEvents.some(x => {
+          if (client.events.ownership.Burned.is(x)) {
+            const { who, amount: burnAmount } = x.data;
+            return who.toHuman() === fromAccount && burnAmount.toBigInt() === amountN;
+          }
+          return false;
+        });
         return {
           to: to.toHex(),
-          from: from.toHuman(),
+          from: fromAccount,
           transferType: 'tokenGateway',
           isInbound: false,
-          amount: amount.toBigInt(),
+          amount: amountN,
           isInternal: false,
-          currency: AccountEventsFilter.hasArgonotTransfer(client, extrinsicEvents, amount.toBigInt())
-            ? 'argonot'
-            : 'argon',
+          currency: hasArgonotBurn ? 'argonot' : 'argon',
           extrinsicIndex,
         };
       }
@@ -327,7 +339,7 @@ export class AccountEventsFilter {
       system: ['ExtrinsicSuccess', 'NewAccount', 'KilledAccount'],
       // Withdraw/Deposit are for fees
       balances: ['Withdraw', 'Deposit', 'Transfer', 'Endowed'],
-      ownership: ['Transfer'],
+      ownership: ['Transfer', 'Endowed', 'Deposit', 'Withdraw'],
       transactionPayment: '*',
     };
     return events.every(x => {

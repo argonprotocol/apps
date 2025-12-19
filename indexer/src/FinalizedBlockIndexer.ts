@@ -1,11 +1,9 @@
 import { type IndexerDb, WalletTransferCurrency, WalletTransferSource } from './IndexerDb.js';
-import Queue from 'p-queue';
 import { AccountEventsFilter, BlockWatch, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
 import type { ArgonClient } from '@argonprotocol/mainchain';
 
 export class FinalizedBlockIndexer {
   private vaultOwners = new Map<number, string>();
-  private processingQueue = new Queue({ concurrency: 25 });
   private unsubscribes: (() => void)[] = [];
   private latestFinalizedHeader: IBlockHeaderInfo | null = null;
   private syncInProgress?: Promise<void>;
@@ -38,7 +36,6 @@ export class FinalizedBlockIndexer {
       unsub();
     }
     await this.syncInProgress;
-    await this.processingQueue.onIdle();
   }
 
   private async syncLatestHeaders(client: ArgonClient) {
@@ -49,7 +46,7 @@ export class FinalizedBlockIndexer {
     blockChunks.push(latestChunk);
     for (let i = lastSynchedNumber; i <= latestBlockNumber; i++) {
       latestChunk.push(i);
-      if (latestChunk.length >= 25) {
+      if (latestChunk.length >= 100) {
         latestChunk = [];
         blockChunks.push(latestChunk);
       }
@@ -58,6 +55,9 @@ export class FinalizedBlockIndexer {
       return;
     }
     for (const chunk of blockChunks) {
+      if (!chunk.length) {
+        continue;
+      }
       console.log(`Syncing finalized blocks ${chunk[0]} to ${chunk.at(-1)}...`);
       const blockDatasPromise = chunk.map(async i => {
         const currentHash = await client.rpc.chain.getBlockHash(i);

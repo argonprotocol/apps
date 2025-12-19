@@ -40,3 +40,4 @@ server/.env
 /e2e/argon/docker-compose.yml
 ./target
 /indexer/lib
+/indexer/seeds/*-old.db
