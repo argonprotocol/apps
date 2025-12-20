@@ -217,11 +217,14 @@
               <div
                 class="relative grow px-0.5 text-slate-500/50"
                 v-for="scenario in aboveTargetScenarios"
-                :key="scenario.earningsPotentialPercent"
-              >
-                <div class="absolute top-0 left-[-5%] h-px w-[55%] bg-linear-to-r from-transparent to-slate-600/20 to-10%" />
-                <div class="absolute top-0 right-[-5%] h-px w-[55%] bg-linear-to-l from-transparent to-slate-600/20 to-10%" />
-                <div :class="currencyFadeClass" class="flex flex-row h-full items-center justify-between transition-opacity duration-400 ease-in-out">
+                :key="scenario.earningsPotentialPercent">
+                <div
+                  class="absolute top-0 left-[-5%] h-px w-[55%] bg-linear-to-r from-transparent to-slate-600/20 to-10%" />
+                <div
+                  class="absolute top-0 right-[-5%] h-px w-[55%] bg-linear-to-l from-transparent to-slate-600/20 to-10%" />
+                <div
+                  :class="currencyFadeClass"
+                  class="flex h-full flex-row items-center justify-between transition-opacity duration-400 ease-in-out">
                   <div class="font-bold">IF</div>
                   <div>prices rise to</div>
                   <span class="font-mono font-bold text-red-700/50">
@@ -238,7 +241,9 @@
             <div class="-mb-1 flex h-1/4 w-full flex-col">
               <div
                 class="flex grow flex-col rounded-lg border border-slate-600/50 text-center shadow-md shadow-slate-600/20">
-                <div :class="currencyFadeClass" class="flex grow flex-col items-center justify-center transition-opacity duration-400 ease-in-out">
+                <div
+                  :class="currencyFadeClass"
+                  class="flex grow flex-col items-center justify-center transition-opacity duration-400 ease-in-out">
                   <div class="font-base text-slate-600/50">PRICE IS AT TARGET</div>
                   <div ArgonPrice class="flex flex-row items-center justify-center gap-x-4 font-mono">
                     {{ currencySymbol }}{{ microgonToNm(1_000_000n, currencyKey).format('0,0.00') }}
@@ -250,7 +255,7 @@
                 <ul class="relative flex flex-row items-center text-base font-light text-slate-600/70">
                   <div
                     :style="{ left: currencyLeftPos }"
-                    class="absolute pointer-events-none top-1 h-[calc(100%-8px)] w-[calc(25%-8px)] translate-x-[4px] rounded bg-slate-400/10 transition-[left] duration-150 ease-in-out" />
+                    class="pointer-events-none absolute top-1 h-[calc(100%-8px)] w-[calc(25%-8px)] translate-x-[4px] rounded bg-slate-400/10 transition-[left] duration-150 ease-in-out" />
                   <li
                     @mouseover="mouseoverCurrencyKey(CurrencyKey.USD)"
                     @mouseout="mouseoutCurrencyKey"
@@ -258,7 +263,7 @@
                     class="w-1/4 py-1">
                     {{ CurrencyKey.USD }}
                   </li>
-                  <li class="h-[calc(100%-8px)] w-px bg-slate-600/40 my-1" />
+                  <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
                     @mouseover="mouseoverCurrencyKey(CurrencyKey.EUR)"
                     @mouseout="mouseoutCurrencyKey"
@@ -266,7 +271,7 @@
                     class="w-1/4 py-1">
                     {{ CurrencyKey.EUR }}
                   </li>
-                  <li class="h-[calc(100%-8px)] w-px bg-slate-600/40 my-1" />
+                  <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
                     @mouseover="mouseoverCurrencyKey(CurrencyKey.GBP)"
                     @mouseout="mouseoutCurrencyKey"
@@ -274,7 +279,7 @@
                     class="w-1/4 py-1">
                     {{ CurrencyKey.GBP }}
                   </li>
-                  <li class="h-[calc(100%-8px)] w-px bg-slate-600/40 my-1" />
+                  <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
                     @mouseover="mouseoverCurrencyKey(CurrencyKey.INR)"
                     @mouseout="mouseoutCurrencyKey"
@@ -290,11 +295,14 @@
               <div
                 class="relative grow px-0.5 text-slate-500/50"
                 v-for="scenario in belowTargetScenarios"
-                :key="scenario.earningsPotentialPercent"
-              >
-                <div class="absolute bottom-0 left-[-5%] h-px w-[55%] bg-linear-to-r from-transparent to-slate-600/20 to-10%" />
-                <div class="absolute right-[-5%] bottom-0 h-px w-[55%] bg-linear-to-l from-transparent to-slate-600/20 to-10%" />
-                <div :class="currencyFadeClass" class="flex flex-row h-full items-center justify-between transition-opacity duration-400 ease-in-out">
+                :key="scenario.earningsPotentialPercent">
+                <div
+                  class="absolute bottom-0 left-[-5%] h-px w-[55%] bg-linear-to-r from-transparent to-slate-600/20 to-10%" />
+                <div
+                  class="absolute right-[-5%] bottom-0 h-px w-[55%] bg-linear-to-l from-transparent to-slate-600/20 to-10%" />
+                <div
+                  :class="currencyFadeClass"
+                  class="flex h-full flex-row items-center justify-between transition-opacity duration-400 ease-in-out">
                   <div class="font-bold">IF</div>
                   <div>prices fall to</div>
                   <span class="font-mono font-bold text-red-700/50">
@@ -307,17 +315,20 @@
                   </span>
                 </div>
               </div>
-              <div v-if="belowTargetScenarios.length" class="relative -mt-4 -mb-2 flex flex-row text-2xl text-slate-500/40">
-                <div class="absolute bottom-0 left-[-5%] h-px w-[55%] bg-linear-to-r from-transparent to-slate-600/20 to-10%" />
-                <div class="absolute right-[-5%] bottom-0 h-px w-[55%] bg-linear-to-l from-transparent to-slate-600/20 to-10%" />
+              <div
+                v-if="belowTargetScenarios.length"
+                class="relative -mt-4 -mb-2 flex flex-row text-2xl text-slate-500/40">
+                <div
+                  class="absolute bottom-0 left-[-5%] h-px w-[55%] bg-linear-to-r from-transparent to-slate-600/20 to-10%" />
+                <div
+                  class="absolute right-[-5%] bottom-0 h-px w-[55%] bg-linear-to-l from-transparent to-slate-600/20 to-10%" />
                 <div class="grow text-left">...</div>
                 <div class="grow text-right">...</div>
               </div>
               <div
                 v-if="belowTargetScenarios.length"
                 :class="currencyFadeClass"
-                class="relative top-1.5 flex flex-row items-center justify-between px-0.5 pt-1 text-slate-500/50 transition-opacity duration-400 ease-in-out"
-              >
+                class="relative top-1.5 flex flex-row items-center justify-between px-0.5 pt-1 text-slate-500/50 transition-opacity duration-400 ease-in-out">
                 <div class="font-bold">IF</div>
                 <div>prices fall to</div>
                 <span class="font-mono font-bold text-red-700/50">
@@ -486,12 +497,7 @@ const currencyKey = Vue.ref(CurrencyKey.USD);
 const currencyIsEngaged = Vue.ref(false);
 const currencyFadeClass = Vue.ref('');
 const currencyLeftPos = Vue.ref('0%');
-const currencyPositions = [
-  CurrencyKey.USD,
-  CurrencyKey.EUR,
-  CurrencyKey.GBP,
-  CurrencyKey.INR,
-];
+const currencyPositions = [CurrencyKey.USD, CurrencyKey.EUR, CurrencyKey.GBP, CurrencyKey.INR];
 
 const myMiningEarnings = Vue.computed(() => {
   const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
@@ -567,7 +573,7 @@ function mouseoutCurrencyKey() {
 function setCurrencyKey(key: CurrencyKey) {
   currencyKey.value = key;
   const posIndex = currencyPositions.indexOf(key);
-  currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`
+  currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`;
 
   valuePerArgon.value = currency.microgonExchangeRateTo[key];
   const targetValuePerArgonBn = BigNumber(1_000_000n);
