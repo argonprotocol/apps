@@ -1,5 +1,5 @@
 {
-  "synchedToFrame": 332,
+  "synchedToFrame": 333,
   "vaultsById": {
     "5": {
       "openedTick": 28996910,
@@ -1268,6 +1268,23 @@
         "satoshis": "0n"
       },
       "changesByFrame": [
+        {
+          "satoshisAdded": "0n",
+          "frameId": 333,
+          "microgonLiquidityAdded": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "treasuryPool": {
+            "totalEarnings": "0n",
+            "vaultEarnings": "0n",
+            "externalCapital": "0n",
+            "vaultCapital": "99993370n"
+          },
+          "securitization": "999933893n",
+          "securitizationActivated": "999933708n",
+          "securitizationRelockable": "999933708n",
+          "uncollectedEarnings": "0n"
+        },
         {
           "frameId": 332,
           "satoshisAdded": "0n",
