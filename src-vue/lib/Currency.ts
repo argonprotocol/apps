@@ -30,10 +30,12 @@ export class Currency {
     BTC: BigInt(MICROGONS_PER_ARGON),
   };
 
+  public microgonTargetForArgon: bigint;
+
   public usdForArgon: number;
   public usdTargetForArgon: number;
 
-  public records: Record<ICurrencyKey, ICurrencyRecord> = {
+  public recordsByKey: Record<ICurrencyKey, ICurrencyRecord> = {
     [CurrencyKey.ARGN]: { key: CurrencyKey.ARGN, symbol: '₳', name: 'Argon' },
     [CurrencyKey.USD]: { key: CurrencyKey.USD, symbol: '$', name: 'Dollar' },
     [CurrencyKey.EUR]: { key: CurrencyKey.EUR, symbol: '€', name: 'Euro' },
@@ -67,6 +69,7 @@ export class Currency {
     this.priceIndex = priceIndex;
     this.usdForArgon = 0;
     this.usdTargetForArgon = 0;
+    this.microgonTargetForArgon = BigInt(MICROGONS_PER_ARGON);
   }
 
   private async updateExchangeRates() {
@@ -97,6 +100,7 @@ export class Currency {
       const priceIndexRaw: PriceIndexModel = this.priceIndex.current;
       this.usdForArgon = priceIndexRaw.argonUsdPrice?.toNumber() ?? 0;
       this.usdTargetForArgon = priceIndexRaw.argonUsdTargetPrice?.toNumber() ?? 0;
+      this.microgonTargetForArgon = microgonExchangeRateTo.USDTarget;
 
       this.microgonExchangeRateTo.USD = microgonExchangeRateTo.USD;
       this.microgonExchangeRateTo.ARGNOT = microgonExchangeRateTo.ARGNOT;
@@ -119,7 +123,7 @@ export class Currency {
   }
 
   public setCurrencyKey(currencyKey: ICurrencyKey, saveToConfig: boolean = true) {
-    this.record = this.records[currencyKey];
+    this.record = this.recordsByKey[currencyKey];
     this.symbol = this.record.symbol;
     if (saveToConfig) this.config.defaultCurrencyKey = currencyKey;
   }
@@ -129,15 +133,16 @@ export class Currency {
     return Number(microgons) / MICROGONS_PER_ARGON;
   }
 
-  public microgonTo(microgons: bigint): number {
-    if (!this.record) throw new Error('Currency not loaded');
-    if (this.record.key === CurrencyKey.USD) {
+  public microgonTo(microgons: bigint, key?: CurrencyKey): number {
+    key ??= this.record?.key;
+    if (!key) throw new Error('Currency not loaded');
+    if (key === CurrencyKey.USD) {
       return BigNumber(microgons).dividedBy(this.microgonExchangeRateTo.USD).toNumber();
-    } else if (this.record.key === CurrencyKey.EUR) {
+    } else if (key === CurrencyKey.EUR) {
       return BigNumber(microgons).dividedBy(this.microgonExchangeRateTo.EUR).toNumber();
-    } else if (this.record.key === CurrencyKey.GBP) {
+    } else if (key === CurrencyKey.GBP) {
       return BigNumber(microgons).dividedBy(this.microgonExchangeRateTo.GBP).toNumber();
-    } else if (this.record.key === CurrencyKey.INR) {
+    } else if (key === CurrencyKey.INR) {
       return BigNumber(microgons).dividedBy(this.microgonExchangeRateTo.INR).toNumber();
     } else {
       return this.microgonToArgon(microgons);

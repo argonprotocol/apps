@@ -25,6 +25,9 @@
         <FinancialsMenu ref="financialsMenuRef" />
       </div>
       <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <CurrencyMenu ref="currencyMenuRef" />
+      </div>
+      <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <AccountMenu ref="accountMenuRef" />
       </div>
     </div>
@@ -36,6 +39,7 @@ import * as Vue from 'vue';
 import { useController } from '../stores/controller';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import FinancialsMenu from './FinancialsMenu.vue';
+import CurrencyMenu from './CurrencyMenu.vue';
 import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import InstanceMenu from './InstanceMenu.vue';

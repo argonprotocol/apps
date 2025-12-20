@@ -23,7 +23,7 @@
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
-                <label>Capital Invested</label>
+                <label>External Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
@@ -71,7 +71,7 @@
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
-                <label>Capital Invested</label>
+                <label>External Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col">
                 <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
@@ -109,20 +109,20 @@
 
       <section StatsBox box class="flex grow flex-col justify-center px-2 !pb-0">
         <header
-          class="relative mx-1 mt-6 flex flex-row items-start justify-stretch px-12 text-[20px] font-bold text-slate-900/80 uppercase">
-          <div class="relative top-5 mr-2 h-10 w-3 bg-gray-600/13">
+          class="relative mx-1 mt-4 flex flex-row items-start justify-stretch px-12 text-[20px] font-bold text-slate-900/80 uppercase">
+          <div class="relative top-5 mr-2 h-5 w-3 bg-gray-600/13">
             <div class="absolute -top-5 h-5 w-5 rounded-tl-xl border-t-12 border-l-12 border-gray-600/13" />
           </div>
           <div class="mr-5 h-3 flex-grow bg-gray-600/13" />
           <div class="-mt-2">The Global Ecosystem</div>
           <div class="ml-5 h-3 flex-grow bg-gray-600/13" />
-          <div class="relative top-5 ml-2 h-10 w-3 bg-gray-600/13">
+          <div class="relative top-5 ml-2 h-9 w-3 bg-gray-600/13">
             <div class="absolute -top-5 right-0 h-5 w-5 rounded-tr-xl border-t-12 border-r-12 border-gray-600/13" />
             <LineArrow
               class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
           </div>
         </header>
-        <div class="flex w-full grow flex-row">
+        <div class="-mb-2 flex w-full grow flex-row">
           <div class="flex w-1/3 flex-col">
             <div class="relative h-px w-full bg-gradient-to-l from-slate-600/0 to-slate-600/20 to-[50%]">
               <div class="absolute -top-3 left-12 bg-white px-1"><div class="relative h-7 w-3 bg-gray-600/13" /></div>
@@ -213,44 +213,116 @@
           </div>
 
           <div class="flex w-1/3 flex-col items-center">
-            <div class="relative -top-1 flex h-1/4 w-1/2 flex-col items-stretch px-5">
-              <div
-                class="flex grow flex-row"
-                v-for="target in aboveTargetAmounts"
-                :key="target.earningsPotentialPercent">
-                <div class="grow text-left text-slate-500/50">${{ numeral(target.usdPrice).format('0,0.00') }}</div>
-                <div class="grow text-right font-semibold text-green-700/50">
-                  +{{ numeral(target.earningsPotentialPercent).format('0,0') }}%
+            <div class="relative flex h-1/4 w-full flex-row">
+              <div class="relative z-10 h-full grow bg-linear-to-r from-white to-transparent"></div>
+              <div class="relative h-full w-fit">
+                <div ArgonPrice class="gap-x-4 opacity-0">
+                  {{ currencySymbol }}{{ microgonToNm(1_000_000n, currencyKey).format('0,0.00') }}
+                  <span>/</span>
+                  ARGN
                 </div>
+                <div class="absolute top-0 left-0 flex h-full w-full flex-col items-stretch">
+                  <div
+                    class="flex grow flex-row items-center"
+                    v-for="scenario in aboveTargetScenarios"
+                    :key="scenario.earningsPotentialPercent">
+                    <div class="grow text-left text-slate-500/50">
+                      {{ currencySymbol }}{{ microgonToNm(scenario.microgons, currencyKey).format('0,0.00') }}
+                    </div>
+                    <div class="grow text-right font-semibold text-green-700/50">
+                      +{{ numeral(scenario.earningsPotentialPercent).format('0,0') }}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="relative z-10 h-full grow bg-linear-to-l from-white to-transparent"></div>
+              <div class="absolute top-0 left-0 flex h-full w-full flex-col content-stretch">
+                <div
+                  class="flex-1 border-b border-slate-600/20 first:border-t last:border-b-0"
+                  v-for="scenario in aboveTargetScenarios"
+                  :key="scenario.earningsPotentialPercent" />
               </div>
             </div>
             <div class="-mb-1 flex h-1/4 w-full flex-col">
               <div
                 ArgonPrice
-                class="rounded-lg border border-slate-600/50 px-5 pt-5 pb-4 text-center shadow-md shadow-slate-600/20">
-                ${{ numeral(dollarsPerArgon).format('0,0.00') }}
-                <label class="mt-1 block text-sm font-medium text-slate-700/50">Price Per Argon</label>
+                class="flex grow flex-col rounded-lg border border-slate-600/50 px-2 text-center shadow-md shadow-slate-600/20">
+                <div class="flex grow flex-row items-center justify-center gap-x-4">
+                  {{ currencySymbol }}{{ microgonToNm(1_000_000n, currencyKey).format('0,0.00') }}
+                  <span>/</span>
+                  ARGN
+                </div>
+                <ul
+                  class="flex flex-row items-center divide-x divide-slate-600/40 border-t border-slate-600/20 py-1 text-base font-light text-slate-600">
+                  <li
+                    @mouseover="setCurrencyKey(CurrencyKey.USD)"
+                    :class="[currencyKey === CurrencyKey.USD ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4">
+                    {{ CurrencyKey.USD }}
+                  </li>
+                  <li
+                    @mouseover="setCurrencyKey(CurrencyKey.EUR)"
+                    :class="[currencyKey === CurrencyKey.EUR ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4">
+                    {{ CurrencyKey.EUR }}
+                  </li>
+                  <li
+                    @mouseover="setCurrencyKey(CurrencyKey.GBP)"
+                    :class="[currencyKey === CurrencyKey.GBP ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4">
+                    {{ CurrencyKey.GBP }}
+                  </li>
+                  <li
+                    @mouseover="setCurrencyKey(CurrencyKey.INR)"
+                    :class="[currencyKey === CurrencyKey.INR ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4">
+                    {{ CurrencyKey.INR }}
+                  </li>
+                </ul>
               </div>
             </div>
-            <div class="relative top-2.5 flex h-1/4 w-1/2 flex-col px-5">
-              <div
-                class="flex flex-row pt-1"
-                v-for="target in belowTargetAmounts"
-                :key="target.earningsPotentialPercent">
-                <div class="grow text-left text-slate-500/50">${{ numeral(target.usdPrice).format('0,0.00') }}</div>
-                <div class="grow text-right font-semibold text-green-700/50">
-                  +{{ numeral(target.earningsPotentialPercent).format('0,0') }}%
+
+            <div class="relative top-2.5 flex h-1/4 w-full flex-row">
+              <div class="relative z-10 h-full grow bg-linear-to-r from-white to-transparent"></div>
+              <div class="relative h-full w-fit">
+                <div ArgonPrice class="gap-x-4 opacity-0">
+                  {{ currencySymbol }}{{ microgonToNm(1_000_000n, currencyKey).format('0,0.00') }}
+                  <span>/</span>
+                  ARGN
+                </div>
+                <div class="absolute top-0 left-0 flex h-full w-full flex-col items-stretch">
+                  <div
+                    class="flex grow flex-row items-center"
+                    v-for="scenario in belowTargetScenarios"
+                    :key="scenario.earningsPotentialPercent">
+                    <div class="grow text-left text-slate-500/50">
+                      {{ currencySymbol }}{{ microgonToNm(scenario.microgons, currencyKey).format('0,0.00') }}
+                    </div>
+                    <div class="grow text-right font-semibold text-green-700/50">
+                      +{{ numeral(scenario.earningsPotentialPercent).format('0,0') }}%
+                    </div>
+                  </div>
+                  <div class="-mt-4 -mb-2 flex flex-row text-2xl text-slate-500/40">
+                    <div class="grow text-left">...</div>
+                    <div class="grow text-right">...</div>
+                  </div>
+                  <div class="relative top-1 flex flex-row items-center pt-1">
+                    <div class="grow text-left text-slate-500/50">{{ currencySymbol }}{{ terraCollapsePriceUsd }}</div>
+                    <div class="grow text-right font-semibold text-green-700/50">+{{ terraPercentReturn }}</div>
+                  </div>
                 </div>
               </div>
-              <div class="-mt-4 -mb-2 flex flex-row text-2xl text-slate-500/40">
-                <div class="grow text-left">...</div>
-                <div class="grow text-right">...</div>
-              </div>
-              <div class="flex flex-row pt-1">
-                <div class="grow text-left text-slate-500/50">${{ terraCollapsePriceUsd }}</div>
-                <div class="grow text-right font-semibold text-green-700/50">+{{ terraPercentReturn }}</div>
+              <div class="relative z-10 h-full grow bg-linear-to-l from-white to-transparent"></div>
+              <div class="absolute top-0 left-0 flex h-full w-full flex-col content-stretch">
+                <div
+                  class="flex-1 border-b border-slate-600/20"
+                  v-for="scenario in belowTargetScenarios"
+                  :key="scenario.earningsPotentialPercent" />
+                <div class="-mt-4 -mb-2 flex-1 border-b border-slate-600/20" />
+                <div class="flex-1" />
               </div>
             </div>
+
             <div StatWrapper class="mt-2 flex h-1/4 w-full flex-col text-center">
               <div
                 class="relative mx-2 mt-3 mb-5 grow rounded-t-lg border border-b-0 border-slate-400/50 px-4 pt-4 pb-2">
@@ -380,8 +452,10 @@ import { useWalletBalances, useWalletKeys } from '../stores/wallets.ts';
 import { useStats } from '../stores/stats.ts';
 import { calculateAPY, calculateProfitPct } from '../lib/Utils.ts';
 import { useConfig } from '../stores/config.ts';
+import { CurrencyKey } from '../lib/Currency';
 import BigNumber from 'bignumber.js';
 import LineArrow from '../components/asset-breakdown/LineArrow.vue';
+import { bigNumberToBigInt } from '@argonprotocol/apps-core';
 
 const vaults = useVaults();
 const currency = useCurrency();
@@ -395,11 +469,12 @@ const myVault = useMyVault();
 const config = useConfig();
 const walletBalances = useWalletBalances();
 
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToNm, microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const microgonsPerArgonot = Vue.ref(0n);
 const microgonsPerBitcoin = Vue.ref(0n);
 const miningExternalInvested = Vue.ref(0n);
+const currencyKey = Vue.ref(CurrencyKey.USD);
 
 const myMiningEarnings = Vue.computed(() => {
   const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
@@ -435,39 +510,28 @@ const myVaultRoi = Vue.computed(() => {
   return calculateProfitPct(costs, costs + revenue) * 100;
 });
 
+const currencySymbol = Vue.computed(() => {
+  return currency.recordsByKey[currencyKey.value].symbol;
+});
+
 const activatedSecuritization = Vue.ref(0n);
 
 const vaultingExternalInvested = Vue.ref(0n);
 
-const dollarsPerArgon = Vue.ref(0);
-
-const dollarTargetPerArgon = Vue.ref(0);
-const dollarTargetPerArgonFormatted = Vue.computed(() => {
-  return numeral(dollarTargetPerArgon.value).format('0,0.000');
-});
-
+const valuePerArgon = Vue.ref(0n);
 const finalPriceAfterTerraCollapse = 0.001;
 
 const terraCollapsePriceUsd = Vue.computed(() => {
   return numeral(finalPriceAfterTerraCollapse).format('0,0.000');
 });
 
-function getBitcoinReturnAsPercent(simulateArgonUsdPrice: number): number {
-  const r = BigNumber(simulateArgonUsdPrice).div(dollarTargetPerArgon.value).toNumber();
-  const argonsRequired = calculateUnlockBurnPerBitcoinDollar(r);
-  const argonCost = argonsRequired * simulateArgonUsdPrice;
-  const profitPercent = ((1 - argonCost) / argonCost) * 100;
-  return profitPercent;
-}
-
 const terraPercentReturn = Vue.computed(() => {
   const percentReturn = getBitcoinReturnAsPercent(finalPriceAfterTerraCollapse);
   return `${numeral(percentReturn).format('0,0')}%`;
 });
 
-const aboveTargetAmounts = Vue.ref<{ usdPrice: number; earningsPotentialPercent: number }[]>([]);
-
-const belowTargetAmounts = Vue.ref<{ usdPrice: number; earningsPotentialPercent: number }[]>([]);
+const aboveTargetScenarios = Vue.ref<{ microgons: bigint; earningsPotentialPercent: number }[]>([]);
+const belowTargetScenarios = Vue.ref<{ microgons: bigint; earningsPotentialPercent: number }[]>([]);
 
 const microgonsInCirculation = Vue.ref(0n);
 const micronotsInCirculation = Vue.ref(0n);
@@ -475,6 +539,51 @@ const micronotsInCirculation = Vue.ref(0n);
 const unlockValueInArgons = Vue.ref(0);
 
 const liquidityReceived = Vue.ref(0n);
+
+function setCurrencyKey(key: CurrencyKey) {
+  currencyKey.value = key;
+
+  valuePerArgon.value = currency.microgonExchangeRateTo[key];
+  const targetValuePerArgonBn = BigNumber(1_000_000n);
+
+  const currentOffset = 0; //((valuePerArgon.value - targetValuePerArgon) / targetValuePerArgon) * 100n;
+  const nextTier = 10 + Math.ceil(currentOffset / 10) * 10;
+  const adjustedOffset = nextTier - currentOffset;
+
+  aboveTargetScenarios.value = [];
+  belowTargetScenarios.value = [];
+
+  for (let i = 4; i >= 1; i--) {
+    const earningsPotentialPercent = adjustedOffset + (i - 1) * 10;
+    const adjustFactorBn = BigNumber(earningsPotentialPercent).dividedBy(100).plus(1);
+    const simulatedPriceBn = targetValuePerArgonBn.multipliedBy(adjustFactorBn);
+    const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
+    aboveTargetScenarios.value.push({
+      microgons: simulatedPrice,
+      earningsPotentialPercent,
+    });
+  }
+
+  for (const percentOffTarget of [5, 20, 40]) {
+    const adjustFactorBn = BigNumber(100).minus(percentOffTarget).dividedBy(100);
+    const simulatedPriceBn = targetValuePerArgonBn.multipliedBy(adjustFactorBn);
+    const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
+    const simulatedPriceInUsd = currency.microgonTo(simulatedPrice, CurrencyKey.USD);
+    const earningsPotentialPercent = getBitcoinReturnAsPercent(simulatedPriceInUsd);
+    belowTargetScenarios.value.push({
+      microgons: simulatedPrice,
+      earningsPotentialPercent,
+    });
+  }
+}
+
+function getBitcoinReturnAsPercent(simulatedPriceInUsd: number): number {
+  const r = BigNumber(simulatedPriceInUsd).div(currency.usdTargetForArgon).toNumber();
+  const argonsRequired = calculateUnlockBurnPerBitcoinDollar(r);
+  const argonCost = argonsRequired * simulatedPriceInUsd;
+  const profitPercent = ((1 - argonCost) / argonCost) * 100;
+  return profitPercent;
+}
 
 function calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
   const r = argonRatioPrice;
@@ -551,41 +660,17 @@ Vue.onMounted(async () => {
   await myMinerStats.subscribeToDashboard();
   await myMinerStats.load();
 
+  setCurrencyKey(currencyKey.value);
   microgonsPerArgonot.value = currency.microgonExchangeRateTo.ARGNOT;
   microgonsPerBitcoin.value = currency.microgonExchangeRateTo.BTC;
-  dollarsPerArgon.value = currency.usdForArgon;
-  dollarTargetPerArgon.value = currency.usdTargetForArgon;
   microgonsInCirculation.value = await currency.priceIndex.fetchMicrogonsInCirculation();
   micronotsInCirculation.value = await currency.priceIndex.fetchMicronotsInCirculation();
   liquidityReceived.value = await currency.priceIndex.bitcoinLiquidityReceived();
 
   const bitcoinsMicrogonValueInVault = await fetchBitcoinsMicrogonValueInVault();
-  const bitcoinDollarValueInVault = dollarsPerArgon.value * currency.microgonToArgon(bitcoinsMicrogonValueInVault);
+  const bitcoinDollarValueInVault = currency.usdForArgon * currency.microgonToArgon(bitcoinsMicrogonValueInVault);
   const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(finalPriceAfterTerraCollapse);
   unlockValueInArgons.value = burnPerBitcoinDollar * bitcoinDollarValueInVault;
-
-  const targets: { usdPrice: number; earningsPotentialPercent: number }[] = [];
-  const currentOffset = ((dollarsPerArgon.value - dollarTargetPerArgon.value) / dollarTargetPerArgon.value) * 100;
-  const nextTier = 10 + Math.ceil(currentOffset / 10) * 10;
-  const adjustedOffset = nextTier - currentOffset;
-  for (let i = 1; i <= 4; i++) {
-    const earningsPotentialPercent = adjustedOffset + (i - 1) * 10;
-    const targetPrice = dollarTargetPerArgon.value * (1 + earningsPotentialPercent / 100);
-    targets.push({
-      usdPrice: targetPrice,
-      earningsPotentialPercent,
-    });
-  }
-  aboveTargetAmounts.value = targets.reverse();
-
-  for (const percentOffTarget of [5, 10, 20]) {
-    const actualPrice = dollarTargetPerArgon.value * ((100 - percentOffTarget) / 100);
-    const earningsPotentialPercent = getBitcoinReturnAsPercent(actualPrice);
-    belowTargetAmounts.value.push({
-      usdPrice: actualPrice,
-      earningsPotentialPercent,
-    });
-  }
 });
 </script>
 
@@ -610,6 +695,9 @@ Vue.onMounted(async () => {
 }
 
 [ArgonPrice] {
-  @apply text-argon-600 text-6xl font-extrabold;
+  @apply text-argon-600 text-4xl font-extrabold whitespace-nowrap lg:text-[2.5rem] xl:text-5xl;
+  span {
+    @apply font-light opacity-30;
+  }
 }
 </style>
