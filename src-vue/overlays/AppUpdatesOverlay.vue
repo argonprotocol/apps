@@ -37,8 +37,8 @@
             </h2>
 
 
-            <div class="px-6 text-lg pb-3 mb-6 relative z-10 grid grid-col gap-2">
-              <p class="text-lg mb-2">
+            <div class="px-6 text-base pb-3 mb-6 relative z-10 grid grid-col gap-2">
+              <p class="mb-2">
                 <template v-if="update">
                   A new version of Argon Investor Console is ready to download and install
                 </template>
@@ -49,19 +49,19 @@
                   You are already on the latest version of Argon Investor. No updates available.
                 </template>
               </p>
-              <div class="grid grid-cols-2 grow-col">
+              <div class="flex flex-row gap-x-2">
                 <div class="text-md font-bold">Installed Version</div>
                 <div class="text-md font-light">{{version}}</div>
               </div>
-              <div class="grid grid-cols-2 grow-col" v-if="update">
+              <div class="flex flex-row gap-x-2" v-if="update">
                 <div class="text-md font-bold">New Version</div>
                 <div class="text-md font-light">{{update?.version}}</div>
               </div>
-              <div class="grid grid-cols-2 grow-col" v-if="update">
+              <div class="flex flex-row gap-x-2" v-if="update">
                 <div class="text-md font-bold">Release Date</div>
                 <div class="text-md font-light">{{dayjs(update?.date).fromNow()}}</div>
               </div>
-              <div class="grid grid-cols-2 grow-col" v-if="update">
+              <div class="flex flex-row gap-x-2" v-if="update">
                 <div class="text-md font-bold">Release Notes</div>
                 <div class="text-md font-bold"><a @click="openReleaseNotes" class="text-argon-500 hover:underline cursor-pointer">Read details ↗️</a></div>
               </div>
