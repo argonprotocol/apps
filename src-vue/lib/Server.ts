@@ -364,6 +364,8 @@ export class Server {
       return stepStatuses;
     }
 
+    stepStatuses[InstallStepKey.ServerConnect] = InstallStepStatusType.Finished;
+
     for (const filename of output.split('\n').filter(s => s)) {
       const [, key, newStatus] = filename.match(/step-(.+)\.(.+)/) || [];
       const prevStatus = stepStatuses[key] || InstallStepStatusType.Pending;
