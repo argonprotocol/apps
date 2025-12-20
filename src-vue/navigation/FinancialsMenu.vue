@@ -48,40 +48,7 @@
                 </div>
               </div>
             </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger class="relative py-2">
-                <div MainItemWrapper ItemWrapper>Change Default Currency</div>
-                <ChevronRightIcon class="absolute top-1/2 right-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent class="relative -top-1 min-w-50">
-                <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-
-                  <DropdownMenuItem
-                    v-for="(record, key) of currency?.records as Record<ICurrencyKey, ICurrencyRecord>"
-                    :key="key"
-                    @click="setCurrencyKey(key)"
-                    :class="currency?.record?.key === key ? '!text-argon-500' : '!text-slate-700'"
-                    class="group/item flex flex-row items-center justify-between py-1 pr-2 border-b last:border-b-0 border-argon-menu-hover hover:!text-argon-600 hover:bg-argon-menu-hover cursor-pointer"
-                  >
-                    <span class="w-8 text-center" v-html="record.symbol"></span>
-                    <span
-                      ItemWrapper
-                      :class="currency?.record?.key === key ? 'opacity-100' : 'opacity-80'"
-                      class="font-medium group-hover/item:opacity-100"
-                    >
-                      {{ record.name }}
-                    </span>
-                    <span v-if="currency?.record?.key === key">
-                      <CheckIcon class="size-5" aria-hidden="true" />
-                    </span>
-                  </DropdownMenuItem>
-                </div>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
           </div>
-
-
           <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
         </DropdownMenuContent>
       </DropdownMenuPortal>
@@ -97,26 +64,18 @@ import {
   DropdownMenuItem,
   DropdownMenuPortal,
   DropdownMenuRoot,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import { useCurrency } from '../stores/currency';
-import { CurrencyKey, ICurrencyRecord, type ICurrencyKey } from '../lib/Currency';
 import ArgonSign from '../assets/currencies/argon.svg?component';
 import DollarSign from '../assets/currencies/dollar.svg?component';
 import EuroSign from '../assets/currencies/euro.svg?component';
 import PoundSign from '../assets/currencies/pound.svg?component';
 import RupeeSign from '../assets/currencies/rupee.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
-import { useConfig } from '../stores/config';
 import { useWallets } from '../stores/wallets';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { ChevronRightIcon } from '@heroicons/vue/24/outline';
-import { CheckIcon } from '@heroicons/vue/20/solid';
 import ArgonIcon from '../assets/resources/argon.svg?component';
 import ArgonotIcon from '../assets/resources/argonot.svg?component';
 
@@ -129,7 +88,6 @@ defineExpose({
 });
 
 const currency = useCurrency();
-const config = useConfig();
 const wallets = useWallets();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);
@@ -141,14 +99,6 @@ const totalNetWorth = Vue.computed(() => {
   const value = microgonToMoneyNm(wallets.totalNetWorth).format('0,0.00');
   return value.split('.');
 });
-
-function setCurrencyKey(key: ICurrencyKey) {
-  if (key === CurrencyKey.ARGN || config.isValidJurisdiction) {
-    currency.setCurrencyKey(key);
-  } else {
-    basicEmitter.emit('openComplianceOverlay');
-  }
-}
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 

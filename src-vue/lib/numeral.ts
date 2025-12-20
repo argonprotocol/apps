@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import numeralOriginal, { Numeral } from 'numeral';
-import { Currency } from './Currency';
+import { Currency, CurrencyKey } from './Currency';
 
 // Extend the Numeral interface to include our custom method
 declare module 'numeral' {
@@ -76,6 +76,9 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
     },
     microgonToBtcNm(this: void, microgons: bigint): Numeral {
       return numeral(currency.microgonToBtc(microgons));
+    },
+    microgonToNm(this: void, microgons: bigint, key: CurrencyKey): Numeral {
+      return numeral(currency.microgonTo(microgons, key));
     },
   };
 }
