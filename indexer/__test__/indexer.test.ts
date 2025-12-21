@@ -48,7 +48,11 @@ it('syncs transfers', async () => {
   await result.waitForFinalizedBlock;
 
   await new Promise(async resolve => {
-    while (insertSpy.mock.calls.at(-1)![0].blockNumber < result.blockNumber!) {
+    while (true) {
+      const lastCall = insertSpy.mock.calls.at(-1);
+      if (lastCall && lastCall[0] && lastCall[0].blockNumber < result.blockNumber!) {
+        break;
+      }
       await new Promise(r => setTimeout(r, 500));
     }
     resolve(true);
