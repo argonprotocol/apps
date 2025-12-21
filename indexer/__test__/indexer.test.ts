@@ -50,7 +50,7 @@ it('syncs transfers', async () => {
   await new Promise(async resolve => {
     while (true) {
       const lastCall = insertSpy.mock.calls.at(-1);
-      if (lastCall && lastCall[0] && lastCall[0].blockNumber < result.blockNumber!) {
+      if (lastCall && lastCall[0] && lastCall[0].blockNumber >= result.blockNumber!) {
         break;
       }
       await new Promise(r => setTimeout(r, 500));

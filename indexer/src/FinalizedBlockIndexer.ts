@@ -39,73 +39,76 @@ export class FinalizedBlockIndexer {
   }
 
   private async syncLatestHeaders(client: ArgonClient) {
-    const lastSynchedNumber = this.db.latestSyncedBlock + 1;
-    const latestBlockNumber = this.latestFinalizedHeader!.blockNumber;
-    const blockChunks: number[][] = [];
-    let latestChunk: number[] = [];
-    blockChunks.push(latestChunk);
-    for (let i = lastSynchedNumber; i <= latestBlockNumber; i++) {
-      latestChunk.push(i);
-      if (latestChunk.length >= 100) {
-        latestChunk = [];
-        blockChunks.push(latestChunk);
+    try {
+      const lastSynchedNumber = this.db.latestSyncedBlock + 1;
+      const latestBlockNumber = this.latestFinalizedHeader!.blockNumber;
+      const blockChunks: number[][] = [];
+      let latestChunk: number[] = [];
+      blockChunks.push(latestChunk);
+      for (let i = lastSynchedNumber; i <= latestBlockNumber; i++) {
+        latestChunk.push(i);
+        if (latestChunk.length >= 100) {
+          latestChunk = [];
+          blockChunks.push(latestChunk);
+        }
       }
-    }
-    if (blockChunks.length === 0) {
-      return;
-    }
-    for (const chunk of blockChunks) {
-      if (!chunk.length) {
-        continue;
-      }
-      console.log(`Syncing finalized blocks ${chunk[0]} to ${chunk.at(-1)}...`);
-      const blockDatasPromise = chunk.map(async i => {
-        const currentHash = await client.rpc.chain.getBlockHash(i);
-        const events = await client.query.system.events.at(currentHash);
-        const groupedEvents = AccountEventsFilter.groupEventsByExtrinsic(events);
-        const blockData = { blockNumber: i, transfers: [], vaultCollects: [] } as Parameters<
-          IndexerDb['recordFinalizedBlock']
-        >[0];
-        for (const { extrinsicEvents, extrinsicIndex } of groupedEvents) {
-          for (const event of extrinsicEvents) {
-            const transfer = AccountEventsFilter.isTransfer({
-              extrinsicIndex,
-              extrinsicEvents,
-              client,
-              event,
-            });
-            if (transfer) {
-              blockData.transfers.push({
-                currency: { argonot: WalletTransferCurrency.Argonot, argon: WalletTransferCurrency.Argon }[
-                  transfer.currency
-                ],
-                source: {
-                  transfer: WalletTransferSource.Transfer,
-                  tokenGateway: WalletTransferSource.TokenGateway,
-                  faucet: WalletTransferSource.Faucet,
-                }[transfer.transferType],
-                toAddress: transfer.to,
-                fromAddress: transfer.from ?? null,
+
+      for (const chunk of blockChunks) {
+        if (!chunk.length) {
+          continue;
+        }
+        console.log(`Syncing finalized blocks ${chunk[0]} to ${chunk.at(-1)}...`);
+        const blockDatasPromise = chunk.map(async i => {
+          const currentHash = await client.rpc.chain.getBlockHash(i);
+          const events = await client.query.system.events.at(currentHash);
+          const groupedEvents = AccountEventsFilter.groupEventsByExtrinsic(events);
+          const blockData = { blockNumber: i, transfers: [], vaultCollects: [] } as Parameters<
+            IndexerDb['recordFinalizedBlock']
+          >[0];
+          for (const { extrinsicEvents, extrinsicIndex } of groupedEvents) {
+            for (const event of extrinsicEvents) {
+              const transfer = AccountEventsFilter.isTransfer({
+                extrinsicIndex,
+                extrinsicEvents,
+                client,
+                event,
               });
-            }
-            if (client.events.vaults.VaultCollected.is(event)) {
-              const [vaultId, _amount] = event.data;
-              const owner = this.vaultOwners.get(vaultId.toNumber()) ?? 'unknown';
-              blockData.vaultCollects.push({
-                vaultAddress: owner,
-              });
+              if (transfer) {
+                blockData.transfers.push({
+                  currency: { argonot: WalletTransferCurrency.Argonot, argon: WalletTransferCurrency.Argon }[
+                    transfer.currency
+                  ],
+                  source: {
+                    transfer: WalletTransferSource.Transfer,
+                    tokenGateway: WalletTransferSource.TokenGateway,
+                    faucet: WalletTransferSource.Faucet,
+                  }[transfer.transferType],
+                  toAddress: transfer.to,
+                  fromAddress: transfer.from ?? null,
+                });
+              }
+              if (client.events.vaults.VaultCollected.is(event)) {
+                const [vaultId, _amount] = event.data;
+                const owner = this.vaultOwners.get(vaultId.toNumber()) ?? 'unknown';
+                blockData.vaultCollects.push({
+                  vaultAddress: owner,
+                });
+              }
             }
           }
-        }
-        return blockData;
-      });
+          return blockData;
+        });
 
-      const blockDatas = await Promise.all(blockDatasPromise);
-      for (const blockData of blockDatas) {
-        this.db.recordFinalizedBlock(blockData);
+        const blockDatas = await Promise.all(blockDatasPromise);
+        for (const blockData of blockDatas) {
+          this.db.recordFinalizedBlock(blockData);
+        }
       }
+    } catch (err) {
+      console.error(`Error syncing blocks`, err);
+    } finally {
+      await new Promise(setImmediate);
+      this.syncInProgress = undefined;
     }
-    this.syncInProgress = undefined;
-    console.log('Finished syncing finalized blocks to ', latestBlockNumber);
   }
 }

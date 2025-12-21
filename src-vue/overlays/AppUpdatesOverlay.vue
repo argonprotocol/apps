@@ -67,7 +67,7 @@
               </div>
 
               <div class="border-t border-slate-300 pt-4" v-if="update">
-                <ProgressBar :progress="downloadProgress" class="mb-5" v-if="downloadProgress" :has-error="errorMessage != ''" />
+                <ProgressBar :progress="downloadProgress * 100" class="mb-5" v-if="downloadProgress" :has-error="errorMessage != ''" />
                 <p class="text-red-500 text-lg mb-5" v-if="errorMessage">{{ errorMessage }}</p>
                 <button
                   v-if="!isReadyToInstall"
