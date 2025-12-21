@@ -541,7 +541,6 @@ const activatedSecuritization = Vue.ref(0n);
 
 const vaultingExternalInvested = Vue.ref(0n);
 
-const valuePerArgon = Vue.ref(0n);
 const finalPriceAfterTerraCollapse = 1_000n;
 
 const terraPercentReturn = Vue.computed(() => {
@@ -571,24 +570,27 @@ function mouseoutCurrencyKey() {
 }
 
 function setCurrencyKey(key: CurrencyKey) {
+  if (!currency.isLoaded) return;
+
   currencyKey.value = key;
   const posIndex = currencyPositions.indexOf(key);
   currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`;
 
-  valuePerArgon.value = currency.microgonExchangeRateTo[key];
-  const targetValuePerArgonBn = BigNumber(1_000_000n);
+  const oneArgonBn = BigNumber(1_000_000n);
+  const argonUsdPrice = currency.usdForArgon;
+  const argonUsdTargetPrice = currency.usdTargetForArgon;
 
-  const currentOffset = 0; //((valuePerArgon.value - targetValuePerArgon) / targetValuePerArgon) * 100n;
-  const nextTier = 10 + Math.ceil(currentOffset / 10) * 10;
-  const adjustedOffset = nextTier - currentOffset;
+  const argonUsdOffset = ((argonUsdPrice - argonUsdTargetPrice) / argonUsdTargetPrice) * 100;
+  const nextTier = 10 + Math.ceil(argonUsdOffset / 10) * 10;
+  const startingOffset = nextTier - argonUsdOffset;
 
   aboveTargetScenarios.value = [];
   belowTargetScenarios.value = [];
 
   for (let i = 4; i >= 1; i--) {
-    const earningsPotentialPercent = adjustedOffset + (i - 1) * 10;
+    const earningsPotentialPercent = startingOffset + (i - 1) * 10;
     const adjustFactorBn = BigNumber(earningsPotentialPercent).dividedBy(100).plus(1);
-    const simulatedPriceBn = targetValuePerArgonBn.multipliedBy(adjustFactorBn);
+    const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
     const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
     aboveTargetScenarios.value.push({
       microgons: simulatedPrice,
@@ -598,7 +600,7 @@ function setCurrencyKey(key: CurrencyKey) {
 
   for (const percentOffTarget of [5, 20, 40]) {
     const adjustFactorBn = BigNumber(100).minus(percentOffTarget).dividedBy(100);
-    const simulatedPriceBn = targetValuePerArgonBn.multipliedBy(adjustFactorBn);
+    const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
     const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
     const simulatedPriceInUsd = currency.microgonTo(simulatedPrice, CurrencyKey.USD);
     const earningsPotentialPercent = getBitcoinReturnAsPercent(simulatedPriceInUsd);

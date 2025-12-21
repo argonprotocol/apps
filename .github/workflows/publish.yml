@@ -117,24 +117,24 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }} --config '${{ github.workspace }}/src-tauri/tauri.conf.json'
 
-      - name: Build and Publish Experimental
-        uses: tauri-apps/tauri-action@v0.6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          ARGON_APP_ENABLE_AUTOUPDATE: true
-          NODE_ENV: production
-          RUST_BACKTRACE: full
-        with:
-          includeDebug: true
-          includeRelease: true
-          tagName: ${{ env.VERSION }}
-          releaseName: ${{ env.VERSION }}
-          releaseBody: ${{ env.RELEASE_NOTES }}
-          releaseDraft: true
-          prerelease: true
-          args: ${{ matrix.args }} --config '${{ github.workspace }}/src-tauri/tauri.experimental.conf.json'
+#      - name: Build and Publish Experimental
+#        uses: tauri-apps/tauri-action@v0.6
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+#          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+#          ARGON_APP_ENABLE_AUTOUPDATE: true
+#          NODE_ENV: production
+#          RUST_BACKTRACE: full
+#        with:
+#          includeDebug: true
+#          includeRelease: true
+#          tagName: ${{ env.VERSION }}
+#          releaseName: ${{ env.VERSION }}
+#          releaseBody: ${{ env.RELEASE_NOTES }}
+#          releaseDraft: true
+#          prerelease: true
+#          args: ${{ matrix.args }} --config '${{ github.workspace }}/src-tauri/tauri.experimental.conf.json'
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}
