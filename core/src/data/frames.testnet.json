@@ -3121,5 +3121,14 @@
     "firstBlockSpecVersion": 143,
     "frameStartTick": 29436195,
     "dateStart": "2025-12-19T19:15:00.000Z"
+  },
+  {
+    "frameId": 335,
+    "firstBlockNumber": 576590,
+    "firstBlockHash": "0x708912a2e866e621161ca8cdfc566f88950a3cf93528240cbc42883baecafad0",
+    "firstBlockTick": 29437635,
+    "firstBlockSpecVersion": 143,
+    "frameStartTick": 29437635,
+    "dateStart": "2025-12-20T19:15:00.000Z"
   }
 ]

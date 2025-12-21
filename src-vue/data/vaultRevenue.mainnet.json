@@ -1360,20 +1360,20 @@
       },
       "changesByFrame": [
         {
-          "satoshisAdded": "0n",
           "frameId": 298,
+          "satoshisAdded": "0n",
+          "bitcoinLocksCreated": 0,
           "microgonLiquidityAdded": "0n",
           "bitcoinFeeRevenue": "0n",
-          "bitcoinLocksCreated": 0,
+          "securitization": "499433892n",
+          "securitizationRelockable": "0n",
+          "securitizationActivated": "499433743n",
           "treasuryPool": {
             "totalEarnings": "4752000000n",
             "vaultEarnings": "4752000000n",
             "externalCapital": "0n",
             "vaultCapital": "49943224n"
           },
-          "securitization": "499433892n",
-          "securitizationActivated": "499433743n",
-          "securitizationRelockable": "0n",
           "uncollectedEarnings": "4752000000n"
         },
         {
