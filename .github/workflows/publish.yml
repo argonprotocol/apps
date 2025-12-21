@@ -105,6 +105,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           ARGON_APP_ENABLE_AUTOUPDATE: true
+          ARGON_APP_BUILD_TYPE: stable
           NODE_ENV: production
           RUST_BACKTRACE: full
         with:
@@ -124,6 +125,7 @@ jobs:
 #          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 #          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 #          ARGON_APP_ENABLE_AUTOUPDATE: true
+#          ARGON_APP_BUILD_TYPE: experimental
 #          NODE_ENV: production
 #          RUST_BACKTRACE: full
 #        with:
