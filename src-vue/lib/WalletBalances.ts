@@ -58,6 +58,7 @@ export class WalletBalances {
   private blockQueue = new SingleFileQueue();
   private blockWatch: BlockWatch;
   private myVault?: MyVault;
+  private unsubscribe?: () => void;
 
   public get wallets(): Wallet[] {
     return [this.miningWallet, this.vaultingWallet, this.holdingWallet];
@@ -106,7 +107,7 @@ export class WalletBalances {
         vaulting: this.vaultingWallet.totalMicronots,
         holding: this.holdingWallet.totalMicronots,
       });
-      this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
+      this.unsubscribe = this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
         const latestBlock = blocks[blocks.length - 1];
         await this.loadBalancesAt(latestBlock);
       });
@@ -119,6 +120,8 @@ export class WalletBalances {
   }
 
   public async close() {
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
     await this.blockQueue.stop();
     this.isClosed = true;
   }

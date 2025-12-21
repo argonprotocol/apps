@@ -1,4 +1,4 @@
-import { closeOnTeardown, teardown } from '@argonprotocol/testing';
+import { closeOnTeardown, runOnTeardown, teardown } from '@argonprotocol/testing';
 import { IBalanceTransfer, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
@@ -37,6 +37,7 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     const client = await clients.get(false);
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
+    runOnTeardown(async () => blockWatch.stop());
     const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
     await walletBalances.load();
     closeOnTeardown(walletBalances);
@@ -156,6 +157,8 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
     const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
+    closeOnTeardown(walletBalances);
+    runOnTeardown(async () => blockWatch.stop());
     const spy = vi.spyOn(walletBalances, 'lookupTransferOrClaimBlocks').mockImplementation(async (address, blocks) => {
       const mostRecentBlock = Math.max(...transferBlocks);
       for (const block of transferBlocks) {
@@ -182,7 +185,6 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     expect(walletBalances.holdingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
     expect(spy).toHaveBeenCalledTimes(1);
-    closeOnTeardown(walletBalances);
     expect(walletBalances.miningWallet.totalMicrogons).toBeGreaterThan(0n);
     expect(walletBalances.miningWallet.balanceHistory.length).toBeGreaterThan(0);
     const walletLedger = new WalletLedgerTable(db);
@@ -200,6 +202,7 @@ describe.skipIf(skipE2E).sequential('Wallet balances monitoring tests', { timeou
     // 1. Test that it will fill gap from last synced to latest block
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
+    runOnTeardown(async () => blockWatch.stop());
     const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
     closeOnTeardown(walletBalances);
     // @ts-expect-error set a small backlog to force using indexer
