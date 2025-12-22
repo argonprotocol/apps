@@ -4,11 +4,12 @@
       <div class="cutout"></div>
     </div>
 
-    <TourStepOne @cancelTour="loadStep(0)" @nextStep="loadStep(2)" :pos="tourPos" v-if="tour.currentStep === 1" />
+    <TourStepOne @cancelTour="cancelTour" @nextStep="loadStep(2)" :pos="tourPos" v-if="tour.currentStep === 1" />
     <TourStepTwo @previousStep="loadStep(1)" @nextStep="loadStep(3)" :pos="tourPos" v-if="tour.currentStep === 2" />
     <TourStepThree @previousStep="loadStep(2)" @nextStep="loadStep(4)" :pos="tourPos" v-if="tour.currentStep === 3" />
     <TourStepFour @previousStep="loadStep(3)" @nextStep="loadStep(5)" :pos="tourPos" v-if="tour.currentStep === 4" />
     <TourStepFive @previousStep="loadStep(4)" @nextStep="loadStep(6)" :pos="tourPos" v-if="tour.currentStep === 5" />
+    <TourStepSix @previousStep="loadStep(5)" @nextStep="loadStep(7)" :pos="tourPos" v-if="tour.currentStep === 6" />
   </div>
 </template>
 
@@ -20,6 +21,7 @@ import TourStepTwo from './welcome-tour/StepTwo.vue';
 import TourStepThree from './welcome-tour/StepThree.vue';
 import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
+import TourStepSix from './welcome-tour/StepSix.vue';
 import { useConfig } from '../stores/config';
 import { useController } from '../stores/controller';
 import { ScreenKey } from '../interfaces/IConfig';
@@ -27,6 +29,8 @@ import { ScreenKey } from '../interfaces/IConfig';
 const controller = useController();
 const config = useConfig();
 const tour = useTour();
+
+const startingScreenKey = controller.screenKey;
 
 const stepVars = Vue.ref({});
 const tourPos = Vue.ref<ITourPos>({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
@@ -39,11 +43,13 @@ function updateStepVars() {
   } else if (tour.currentStep === 2) {
     rect = tour.getPositionCheck('vaultingTab');
   } else if (tour.currentStep === 3) {
-    rect = tour.getPositionCheck('currencyMenu');
+    rect = tour.getPositionCheck('financialsMenu');
   } else if (tour.currentStep === 4) {
-    rect = tour.getPositionCheck('accountMenu');
+    rect = tour.getPositionCheck('currencyMenu');
   } else if (tour.currentStep === 5) {
-    rect = tour.getPositionCheck('miningButton');
+    rect = tour.getPositionCheck('accountMenu');
+  } else if (tour.currentStep === 6) {
+    rect = tour.getPositionCheck('startButtons');
   }
 
   tourPos.value = rect;
@@ -60,20 +66,27 @@ function updateStepVars() {
 }
 
 async function loadStep(step: number) {
-  if (step === 6) {
+  if (step === 7) {
     step = 0;
     config.showWelcomeOverlay = false;
     await config.save();
+  } else if (step === 1) {
+    controller.setScreenKey(ScreenKey.Mining);
   } else if (step === 2) {
     controller.setScreenKey(ScreenKey.Vaulting);
-  } else {
-    controller.setScreenKey(ScreenKey.Mining);
+  } else if (step === 6) {
+    controller.setScreenKey(ScreenKey.Home);
   }
 
   tour.currentStep = step;
   if (step > 0) {
     updateStepVars();
   }
+}
+
+function cancelTour() {
+  tour.currentStep = 0;
+  controller.setScreenKey(startingScreenKey);
 }
 
 let interval: any = null;

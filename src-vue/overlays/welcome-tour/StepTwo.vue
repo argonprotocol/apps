@@ -2,7 +2,7 @@
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
       <PopoverContent ref="boxRef" class="absolute z-[2001]" :style="{ left, top, width: `${props.pos.width}px` }">
-        <div Arrow ref="arrowRef" class="absolute top-0.5 left-8/12 z-1 -translate-y-full">
+        <div Arrow ref="arrowRef" class="absolute top-0.5 left-[72%] z-1 -translate-y-full">
           <svg
             class="relative z-10"
             width="24"
@@ -28,13 +28,13 @@
           class="absolute flex w-[40rem] -translate-x-[12%] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
             <div class="text-lg font-bold text-slate-700">The Vaulting Tab</div>
-            <div class="text-slate-500/40">Step 2 of 5</div>
+            <div class="text-slate-500/40">Step 2 of 6</div>
           </h3>
 
           <p>
-            Vaulting is basically the other side of the mining coin. Miners bring new stablecoins into existence, and
-            Vaulters provide services to stabilize those stablecoins. Miners buy mining seats at auction, and vaulters
-            collect all the revenue generated from those auctions.
+            Vaulting is basically the other side of the mining coin. As miners bring new stablecoins into existence,
+            vaulters provide services to stabilize those stablecoins. In return, vaulters
+            collect as revenue all the mining bids from those auctions.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">
@@ -63,12 +63,9 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import dayjsUtc from 'dayjs/plugin/utc';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
-import { useController } from '../../stores/controller';
 import { ITourPos } from '../../stores/tour';
 
 dayjs.extend(dayjsUtc);
-
-const controller = useController();
 
 const isOpen = Vue.ref(true);
 

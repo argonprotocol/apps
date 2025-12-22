@@ -24,7 +24,6 @@
             Learn How Mining Works
           </button>
           <button
-          ref="miningButtonRef"
             @click="startSettingUpMiner"
             class="flex flex-row cursor-pointer items-center gap-x-2 bg-argon-500 hover:bg-argon-600 border border-argon-700 inner-button-shadow font-bold text-white px-12 py-2 rounded-md"
           >
@@ -104,11 +103,8 @@ import { useTour } from '../../stores/tour';
 const miningStats = useMiningStats();
 const currency = useCurrency();
 const config = useConfig();
-const tour = useTour();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
-
-const miningButtonRef = Vue.ref<HTMLElement | null>(null);
 
 function openHowMiningWorksOverlay() {
   basicEmitter.emit('openHowMiningWorksOverlay');
@@ -117,15 +113,6 @@ function openHowMiningWorksOverlay() {
 function startSettingUpMiner() {
   config.isPreparingMinerSetup = true;
 }
-
-tour.registerPositionCheck('miningButton', () => {
-  const rect = miningButtonRef.value?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 20;
-  rect.right += 20;
-  rect.top -= 20;
-  rect.bottom += 20;
-  return rect;
-});
 
 Vue.onMounted(async () => {
   Promise.all([

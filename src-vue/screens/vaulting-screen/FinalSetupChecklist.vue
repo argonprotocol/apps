@@ -4,7 +4,7 @@
     <div @click="goBack" class="absolute flex flex-row gap-x-2 z-10 top-3 pb-3 pr-10 left-5 items-center text-slate-400/50 hover:text-slate-600 cursor-pointer">
       <ArrowLeftIcon class="size-4 " />
       <div>
-        Back to Start
+        {{controller.backButtonTriggersHome ? 'Back to Home' : 'Back to Start'}}
       </div>
       <div class="absolute bottom-0 left-0 w-[200%] h-px bg-gradient-to-r from-slate-400/30 from-0% via-slate-400/30 via-50% to-transparent to-100%"></div>
     </div>
@@ -126,6 +126,7 @@ import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
 import { useController } from '../../stores/controller';
+import { ScreenKey } from '../../interfaces/IConfig.ts';
 
 dayjs.extend(utc);
 
@@ -216,6 +217,9 @@ function openHowVaultingWorksOverlay() {
 
 function goBack() {
   config.isPreparingVaultSetup = false;
+  if (controller.backButtonTriggersHome) {
+    controller.setScreenKey(ScreenKey.Home);
+  }
 }
 </script>
 

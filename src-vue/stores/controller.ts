@@ -22,6 +22,8 @@ export const useController = defineStore('controller', () => {
   const stopSuggestingBotTour = Vue.ref(false);
   const stopSuggestingVaultTour = Vue.ref(false);
 
+  const backButtonTriggersHome = Vue.ref(false);
+
   const walletOverlayIsOpen = Vue.ref(false);
 
   function setScreenKey(value: ScreenKey) {
@@ -63,6 +65,7 @@ export const useController = defineStore('controller', () => {
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
     walletOverlayIsOpen,
+    backButtonTriggersHome,
     importFromFile,
     importFromMnemonic,
     setScreenKey: setScreenKey,
