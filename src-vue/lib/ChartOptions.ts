@@ -17,15 +17,6 @@ import { getRelativePosition } from 'chart.js/helpers';
   return items;
 };
 
-export function createFillerPoints(chartPoints: any[]) {
-  if (chartPoints.length === 0 || chartPoints.length >= 365) return [];
-
-  const startDate = dayjs('2025-01-01').valueOf();
-  const fillerPoints = [{ x: startDate, y: 0 }];
-  fillerPoints.push({ x: chartPoints[0].x, y: 0 });
-  return fillerPoints;
-}
-
 export function createChartOptions(fillerPoints: any[], chartPoints: any[], pointRadius: number[], onTooltipFn: any) {
   return {
     type: 'line',

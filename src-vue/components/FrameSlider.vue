@@ -75,6 +75,7 @@ function startDrag(event: PointerEvent) {
   } else if (cursor === 'col-resize') {
     document.body.classList.add('isResizing');
   }
+  document.body.classList.add('select-none');
 }
 
 function onDrag(event: PointerEvent) {
@@ -100,6 +101,7 @@ function stopDrag(event: PointerEvent) {
 
   document.body.classList.remove('isGrabbing');
   document.body.classList.remove('isResizing');
+  document.body.classList.remove('select-none');
 }
 
 let isUserNavigatingHistory = false;

@@ -716,7 +716,7 @@ Vue.onUnmounted(() => {
     @apply top-0 right-0 bottom-0 left-0;
   }
   span {
-    @apply text-3xl font-bold;
+    @apply font-mono text-3xl font-bold;
   }
   label {
     @apply group-hover:text-argon-600/60 mt-1 text-sm text-gray-500;

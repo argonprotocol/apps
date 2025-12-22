@@ -610,7 +610,7 @@ Vue.onUnmounted(() => {
 [stat-box] {
   @apply text-argon-600 flex flex-col items-center justify-center;
   span {
-    @apply text-3xl font-bold;
+    @apply font-mono text-3xl font-bold;
   }
   label {
     @apply group-hover:text-argon-600/60 mt-1 text-sm text-gray-500;

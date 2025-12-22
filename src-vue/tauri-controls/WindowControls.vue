@@ -27,8 +27,7 @@ const customClass = twMerge(
 </script>
 
 <template>
-  <Windows v-if="platform === 'windows'" :class="twMerge(customClass, props.justify && 'ml-auto')" />
-  <MacOs v-else-if="platform === 'macos'" :class="twMerge(customClass, props.justify && 'ml-0')" />
+  <MacOs v-if="platform === 'macos'" :class="twMerge(customClass, props.justify && 'ml-0')" />
   <Gnome v-else-if="platform === 'gnome'" :class="twMerge(customClass, props.justify && 'ml-auto')" />
   <Windows v-else :class="twMerge(customClass, props.justify && 'ml-auto')" />
 </template>
