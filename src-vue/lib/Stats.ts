@@ -395,13 +395,14 @@ export class Stats {
   }
 
   private async fetchFramesFromDb(): Promise<IDashboardFrameStats[]> {
-    const lastYear = await this.db.framesTable.fetchLastYear(this.currency).then(x => x as IDashboardFrameStats[]);
-
+    const lastYear = await this.db.framesTable
+      .fetchLastYear(this.currency, this.miningFrames)
+      .then(x => x as IDashboardFrameStats[]);
     const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(lastYear.at(-1)?.id ?? 0);
     const framesById = new Map<number, IDashboardFrameStats>();
+
     this.activeFrames = 0;
     for (const frame of lastYear) {
-      if (frame.id === 0) continue;
       // count an active frame if we bid but didn't win any seats
       if (frame.accruedMicrogonProfits < 0n || frame.seatCountActive > 0) {
         this.activeFrames++;

@@ -238,7 +238,7 @@ export class BotSyncer {
       rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
       progress: frameProgress,
     });
-    console.info('PROCESSING FRAME', frameId);
+    console.info('PROCESSING FRAME', frameId, earningsFile);
     const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
     // Every frame should have a corresponding cohort, even if it has no seats
 

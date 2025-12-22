@@ -1,6 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
-import { bigNumberToBigInt, NetworkConfig } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -178,15 +178,19 @@ export class FramesTable extends BaseTable {
     return frames.map(frame => frame.id);
   }
 
-  public async fetchLastYear(currency: Currency): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
+  public async fetchLastYear(
+    currency: Currency,
+    miningFrames: MiningFrames,
+  ): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
-      id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
-    FROM Frames ORDER BY id DESC LIMIT 365`);
+      id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, 
+      seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
+      FROM Frames ORDER BY id DESC LIMIT 365
+    `);
 
     const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
       .map((x: any) => {
-        const date = dayjs.utc(x.firstTick * TICK_MILLIS).format('YYYY-MM-DD');
-
+        const miningFrame = miningFrames.framesById[x.id];
         const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
           .plus(x.microgonsMintedTotal)
           .plus(currency.micronotToMicrogon(x.micronotsMinedTotal));
@@ -202,8 +206,8 @@ export class FramesTable extends BaseTable {
 
         const record: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
           id: x.id,
-          date,
-          firstTick: x.firstTick,
+          date: dayjs.utc(miningFrame.dateStart).format('YYYY-MM-DD'),
+          firstTick: miningFrame.frameStartTick,
           allMinersCount: x.allMinersCount,
           seatCountActive: x.seatCountActive,
           seatCostTotalFramed: x.seatCostTotalFramed,
@@ -236,7 +240,7 @@ export class FramesTable extends BaseTable {
       }
 
       const blankRecord: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
-        id: 0,
+        id: earliestRecord.id - 1,
         date: previousDay.format('YYYY-MM-DD'),
         firstTick: earliestRecord.firstTick - ticksPerFrame,
         allMinersCount: 0,

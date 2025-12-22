@@ -252,39 +252,38 @@
                   </div>
                 </div>
                 <div class="mx-1 h-px bg-slate-600/20" />
-                <ul class="relative flex flex-row items-center text-base font-light text-slate-600/70">
+                <ul
+                  @mouseover="mouseoverCurrencyKey"
+                  @mouseout="mouseoutCurrencyKey"
+                  class="relative flex flex-row items-center text-base font-light text-slate-600/70">
                   <div
                     :style="{ left: currencyLeftPos }"
                     class="pointer-events-none absolute top-1 h-[calc(100%-8px)] w-[calc(25%-8px)] translate-x-[4px] rounded bg-slate-400/10 transition-[left] duration-150 ease-in-out" />
                   <li
-                    @mouseover="mouseoverCurrencyKey(CurrencyKey.USD)"
-                    @mouseout="mouseoutCurrencyKey"
-                    :class="[currencyKey === CurrencyKey.USD ? 'font-semibold' : 'opacity-70']"
-                    class="w-1/4 py-1">
+                    @click="startSetCurrencyKey(CurrencyKey.USD)"
+                    :class="[currencyKey === CurrencyKey.USD ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
                     {{ CurrencyKey.USD }}
                   </li>
                   <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
-                    @mouseover="mouseoverCurrencyKey(CurrencyKey.EUR)"
-                    @mouseout="mouseoutCurrencyKey"
-                    :class="[currencyKey === CurrencyKey.EUR ? 'font-semibold' : 'opacity-70']"
-                    class="w-1/4 py-1">
+                    @click="startSetCurrencyKey(CurrencyKey.EUR)"
+                    :class="[currencyKey === CurrencyKey.EUR ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
                     {{ CurrencyKey.EUR }}
                   </li>
                   <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
-                    @mouseover="mouseoverCurrencyKey(CurrencyKey.GBP)"
-                    @mouseout="mouseoutCurrencyKey"
-                    :class="[currencyKey === CurrencyKey.GBP ? 'font-semibold' : 'opacity-70']"
-                    class="w-1/4 py-1">
+                    @click="startSetCurrencyKey(CurrencyKey.GBP)"
+                    :class="[currencyKey === CurrencyKey.GBP ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
                     {{ CurrencyKey.GBP }}
                   </li>
                   <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
-                    @mouseover="mouseoverCurrencyKey(CurrencyKey.INR)"
-                    @mouseout="mouseoutCurrencyKey"
-                    :class="[currencyKey === CurrencyKey.INR ? 'font-semibold' : 'opacity-70']"
-                    class="w-1/4 py-1">
+                    @click="startSetCurrencyKey(CurrencyKey.INR)"
+                    :class="[currencyKey === CurrencyKey.INR ? 'font-semibold' : 'opacity-50']"
+                    class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
                     {{ CurrencyKey.INR }}
                   </li>
                 </ul>
@@ -558,23 +557,18 @@ const unlockValueInArgons = Vue.ref(0);
 
 const liquidityReceived = Vue.ref(0n);
 
-function mouseoverCurrencyKey(key: CurrencyKey) {
-  console.log('mouseoverCurrencyKey');
+function mouseoverCurrencyKey() {
   currencyIsEngaged.value = true;
-  setCurrencyKey(key);
 }
 
 function mouseoutCurrencyKey() {
-  console.log('mouseoutCurrencyKey');
   currencyIsEngaged.value = false;
 }
 
-function setCurrencyKey(key: CurrencyKey) {
-  if (!currency.isLoaded) return;
-
-  currencyKey.value = key;
+function finishSetCurrencyKey(key: CurrencyKey) {
   const posIndex = currencyPositions.indexOf(key);
   currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`;
+  currencyKey.value = key;
 
   const oneArgonBn = BigNumber(1_000_000n);
   const argonUsdPrice = currency.usdForArgon;
@@ -671,7 +665,20 @@ async function updateExternalFunding() {
 }
 
 let unsubscribe: (() => void) | undefined;
-let intervalId: ReturnType<typeof setTimeout> | undefined;
+let currencyRotationInterval: ReturnType<typeof setTimeout> | undefined;
+let setCurrencyKeyTimeout: ReturnType<typeof setTimeout> | undefined;
+
+function startSetCurrencyKey(key: CurrencyKey, shouldClearRotation: boolean = true) {
+  if (!currency.isLoaded) return;
+  if (setCurrencyKeyTimeout) clearTimeout(setCurrencyKeyTimeout);
+  if (shouldClearRotation) clearInterval(currencyRotationInterval);
+
+  currencyFadeClass.value = 'opacity-10';
+  setCurrencyKeyTimeout = setTimeout(() => {
+    finishSetCurrencyKey(key);
+    currencyFadeClass.value = 'opacity-100';
+  }, 400);
+}
 
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
@@ -689,7 +696,7 @@ Vue.onMounted(async () => {
   await myMinerStats.subscribeToDashboard();
   await myMinerStats.load();
 
-  setCurrencyKey(currencyKey.value);
+  finishSetCurrencyKey(currencyKey.value);
   microgonsPerArgonot.value = currency.microgonExchangeRateTo.ARGNOT;
   microgonsPerBitcoin.value = currency.microgonExchangeRateTo.BTC;
   microgonsInCirculation.value = await currency.priceIndex.fetchMicrogonsInCirculation();
@@ -702,18 +709,17 @@ Vue.onMounted(async () => {
   const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(usdPriceAfterTerraCollapse);
   unlockValueInArgons.value = burnPerBitcoinDollar * bitcoinDollarValueInVault;
 
-  intervalId = setInterval(() => {
+  currencyRotationInterval = setInterval(() => {
     if (currencyIsEngaged.value) return;
-    console.log('currencyIsEngaged: ', currencyIsEngaged.value);
 
     const currentIndex = currencyPositions.indexOf(currencyKey.value);
-    const nextIndex = currentIndex >= 3 ? 0 : currentIndex + 1;
+    const isLastIndex = currentIndex >= 3;
+    const nextIndex = isLastIndex ? 0 : currentIndex + 1;
     const nextKey = currencyPositions[nextIndex];
-    currencyFadeClass.value = 'opacity-10';
-    setTimeout(() => {
-      setCurrencyKey(nextKey);
-      currencyFadeClass.value = 'opacity-100';
-    }, 400);
+    startSetCurrencyKey(nextKey, false);
+    if (isLastIndex) {
+      clearInterval(currencyRotationInterval);
+    }
   }, 5e3);
 });
 
@@ -721,7 +727,7 @@ Vue.onUnmounted(() => {
   unsubscribe?.();
   unsubscribe = undefined;
   void myMinerStats.unsubscribeFromDashboard();
-  clearInterval(intervalId);
+  clearInterval(currencyRotationInterval);
 });
 </script>
 

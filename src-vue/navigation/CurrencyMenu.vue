@@ -24,7 +24,7 @@
               :key="key"
               @click="setCurrencyKey(key)"
               :class="currency?.record?.key === key ? '!text-argon-500' : '!text-slate-700'"
-              class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover flex cursor-pointer flex-row items-center justify-between border-b border-slate-400/30 py-3 pr-1 pl-8 font-bold text-gray-900 last:border-b-0">
+              class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover relative flex cursor-pointer flex-row items-center justify-between border-b border-slate-400/30 py-3 pr-1 pl-10 font-bold text-gray-900 last:border-b-0">
               <span v-if="currency?.record?.key === key" class="absolute top-1/2 left-3 -translate-y-1/2">
                 <CheckIcon class="size-5" aria-hidden="true" />
               </span>
