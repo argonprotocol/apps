@@ -59,7 +59,7 @@ export default async function fetchVaultRevenue() {
       }
     }
 
-    fs.writeFileSync(filePath, JsonExt.stringify(data, 2));
+    fs.writeFileSync(filePath, JsonExt.stringify(data, 2)+"\n");
     console.log(`Successfully saved Vault revenue data`);
   }
 }

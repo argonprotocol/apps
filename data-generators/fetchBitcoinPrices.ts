@@ -23,6 +23,6 @@ export default async function fetchBitcoinPrices() {
     fs.mkdirSync(fileDir, { recursive: true });
   }
 
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2)+"\n");
   console.log(`Successfully saved ${data.length} Bitcoin price data points to bitcoinPrices.json`);
 }

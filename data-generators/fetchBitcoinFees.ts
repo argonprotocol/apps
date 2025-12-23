@@ -16,6 +16,6 @@ export default async function fetchBitcoinFeeData() {
   if (!fs.existsSync(fileDir)) {
     fs.mkdirSync(fileDir, { recursive: true });
   }
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2)+"\n");
   console.log('Data saved to bitcoinFees.json');
 }
