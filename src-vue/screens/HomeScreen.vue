@@ -641,7 +641,7 @@ function calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
   } else if (r >= 0.01) {
     return (0.5618 * r + 0.3944) / r;
   } else {
-    return (1 / r) * (0.702 * r + 0.274);
+    return (1 / r) * (0.576 * r + 0.4);
   }
 }
 
