@@ -374,7 +374,7 @@ import VaultIcon from '../../assets/vault.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
 import { MiningFrames, NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import { IVaultFrameStats } from '../../interfaces/IVaultStats.ts';
+import { IVaultFrameStats } from '../../../core/src/interfaces/IVaultStats.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { calculateAPY, getPercent, percentOf } from '../../lib/Utils.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';

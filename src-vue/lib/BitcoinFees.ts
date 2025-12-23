@@ -2,7 +2,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { type IBitcoinFeeRecord } from '../interfaces/IBitcoinFeeRecord.ts';
 import BitcoinPrices from './BitcoinPrices.ts';
-import bitcoinFees from '../data/bitcoinFees.json';
+import { bitcoinFees } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 

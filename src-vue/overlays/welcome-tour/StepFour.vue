@@ -35,8 +35,8 @@
           </h3>
 
           <p>
-            Argon as the default unit of currency that this app uses to display your financials. However, you can
-            change it to the Dollar, Euro, Rupee, etc.
+            Argon as the default unit of currency that this app uses to display your financials. However, you can change
+            it to the Dollar, Euro, Rupee, etc.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

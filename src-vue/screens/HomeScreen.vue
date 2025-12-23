@@ -53,10 +53,9 @@
             </p>
             <button
               @click="setupMining"
-              class="flex flex-row items-center justify-center bg-argon-500 hover:bg-argon-600 border border-argon-700 inner-button-shadow my-4 w-full max-w-180 cursor-pointer rounded-md px-5 py-2 text-lg font-bold text-white"
-            >
+              class="bg-argon-500 hover:bg-argon-600 border-argon-700 inner-button-shadow my-4 flex w-full max-w-180 cursor-pointer flex-row items-center justify-center rounded-md border px-5 py-2 text-lg font-bold text-white">
               Set Up Your Mining Operations
-              <ChevronDoubleRightIcon class="size-5 relative ml-1" />
+              <ChevronDoubleRightIcon class="relative ml-1 size-5" />
             </button>
           </div>
         </section>
@@ -102,10 +101,9 @@
             </p>
             <button
               @click="setupVault"
-              class="flex flex-row items-center justify-center bg-argon-500 hover:bg-argon-600 border border-argon-700 inner-button-shadow my-4 w-full max-w-180 cursor-pointer rounded-md px-5 py-2 text-lg font-bold text-white"
-            >
+              class="bg-argon-500 hover:bg-argon-600 border-argon-700 inner-button-shadow my-4 flex w-full max-w-180 cursor-pointer flex-row items-center justify-center rounded-md border px-5 py-2 text-lg font-bold text-white">
               Setup Your Stabilization Vault
-              <ChevronDoubleRightIcon class="size-5 relative ml-1" />
+              <ChevronDoubleRightIcon class="relative ml-1 size-5" />
             </button>
           </div>
         </section>
@@ -351,7 +349,7 @@
                 <div Stat class="relative z-10">
                   {{ numeral(argonBurnCapability).format('0,0') }}
                 </div>
-                <label class="relative z-10">Argon Circulation Burn Capability</label>
+                <label class="relative z-10">Argon Circulation Burn Potential</label>
               </div>
             </div>
           </div>

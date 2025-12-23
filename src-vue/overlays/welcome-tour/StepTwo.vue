@@ -33,8 +33,8 @@
 
           <p>
             Vaulting is basically the other side of the mining coin. As miners bring new stablecoins into existence,
-            vaulters provide services to stabilize those stablecoins. In return, vaulters
-            collect as revenue all the mining bids from those auctions.
+            vaulters provide services to stabilize those stablecoins. In return, vaulters collect as revenue all the
+            mining bids from those auctions.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

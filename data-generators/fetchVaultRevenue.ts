@@ -35,7 +35,7 @@ export default async function fetchVaultRevenue() {
     await miningFrames.stop();
 
     // Write data to JSON file
-    const filePath = path.join(process.cwd(), 'src-vue', 'data', `vaultRevenue.${chain}.json`);
+    const filePath = path.join(process.cwd(), 'core', 'src', 'data', `vaultRevenue.${chain}.json`);
     console.log(`Writing data to: ${filePath}`);
 
     const fileDir = path.dirname(filePath);

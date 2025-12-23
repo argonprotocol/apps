@@ -12,7 +12,6 @@ import {
   Vault,
   Vec,
 } from '@argonprotocol/mainchain';
-
 import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
@@ -21,9 +20,16 @@ import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import { Vaults } from './Vaults.ts';
-import { IVaultStats } from '../interfaces/IVaultStats.ts';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import { bigIntMax, bigNumberToBigInt, MiningFrames, MoveFrom, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigNumberToBigInt,
+  MiningFrames,
+  MoveFrom,
+  MoveTo,
+  NetworkConfig,
+  IVaultStats,
+} from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';

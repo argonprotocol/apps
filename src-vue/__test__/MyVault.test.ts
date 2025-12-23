@@ -1,6 +1,6 @@
 import { Keyring, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
+import { MainchainClients, MiningFrames, NetworkConfig, PriceIndex, IAllVaultStats } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
@@ -14,7 +14,6 @@ import { setMainchainClients } from '../stores/mainchain.ts';
 import { Db } from '../lib/Db.ts';
 import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
-import { IAllVaultStats } from '../interfaces/IVaultStats.ts';
 import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';

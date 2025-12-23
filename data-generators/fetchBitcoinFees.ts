@@ -11,7 +11,7 @@ const TODAY = dayjs.utc().format('YYYY-MM-DD');
 
 export default async function fetchBitcoinFeeData() {
   const data = await BitcoinDataFetcher.fetchFees(START_DATE, TODAY);
-  const filePath = path.join(process.cwd(), 'src-vue', 'data', 'bitcoinFees.json');
+  const filePath = path.join(process.cwd(), 'core', 'src', 'data', 'bitcoinFees.json');
   const fileDir = path.dirname(filePath);
   if (!fs.existsSync(fileDir)) {
     fs.mkdirSync(fileDir, { recursive: true });
