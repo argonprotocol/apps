@@ -33,7 +33,7 @@ let pair: KeyringPair;
   pair.decodePkcs8(process.env.KEYPAIR_PASSPHRASE);
 }
 
-let networkName: keyof typeof NetworkConfigSettings & string = (process.env.ARGON_CHAIN as any) ?? 'mainnet';
+let networkName: keyof typeof NetworkConfigSettings = (process.env.ARGON_CHAIN as any) ?? 'mainnet';
 if ((networkName as any) === 'local') {
   networkName = 'localnet';
 }
