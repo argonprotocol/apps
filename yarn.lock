@@ -87,14 +87,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/apps-src-vue@workspace:*, @argonprotocol/apps-src-vue@workspace:src-vue":
-  version: 0.0.0-use.local
-  resolution: "@argonprotocol/apps-src-vue@workspace:src-vue"
-  dependencies:
-    typescript: "npm:^5.9.2"
-  languageName: unknown
-  linkType: soft
-
 "@argonprotocol/bitcoin@npm:^1.3.24":
   version: 1.3.24
   resolution: "@argonprotocol/bitcoin@npm:1.3.24"
@@ -3750,7 +3742,6 @@ __metadata:
     "@actions/github": "npm:^6.0.1"
     "@argonprotocol/apps-bot": "workspace:*"
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/apps-src-vue": "workspace:*"
     "@argonprotocol/bitcoin": "npm:^1.3.24"
     "@argonprotocol/mainchain": "npm:^1.3.24"
     "@argonprotocol/testing": "npm:^1.3.24"
