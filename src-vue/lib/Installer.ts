@@ -337,6 +337,16 @@ export default class Installer {
       return false;
     }
 
+    if (remoteFilesNeedUpdating) {
+      const incompleteSteps = this.installerCheck.getIncompleteSteps();
+      // clear out any abandoned steps only if we're not currently running
+      if (!this.isRunning && incompleteSteps.length > 0) {
+        console.info('Clearing stalled step files');
+        const stepsToClear = [InstallStepKey.FileUpload, ...incompleteSteps];
+        await this.clearStepFiles(stepsToClear, { setFirstStepToWorking: true });
+      }
+    }
+
     if (isFreshInstall || remoteFilesNeedUpdating) {
       // If the server is fresh, we need to reset the install details, and we can't skip the install process
       // even if next two conditions are met.
