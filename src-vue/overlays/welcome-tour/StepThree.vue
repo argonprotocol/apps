@@ -28,15 +28,16 @@
 
         <div
           OverlayBox
-          class="absolute top-0 right-0 flex w-[30rem] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
+          class="absolute top-0 right-0 flex w-[33rem] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
-            <div class="text-lg font-bold text-slate-700">Currency Selector</div>
-            <div class="text-slate-500/40">Step 3 of 5</div>
+            <div class="text-lg font-bold text-slate-700">Your Portfolio Value</div>
+            <div class="text-slate-500/40">Step 3 of 6</div>
           </h3>
 
           <p>
-            Investor Console uses Argon as its default currency, however, you can change it here. This allows you to
-            view your portfolio's value in other currencies, such as the Dollar, Euro, or Rupee.
+            This shows the total value of your portfolio across both mining and vaulting. Use it to
+            open your Financials Panel, which has your asset breakdowns, profit/loss, projections,
+            and more.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">
@@ -65,12 +66,9 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import dayjsUtc from 'dayjs/plugin/utc';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
-import { useController } from '../../stores/controller';
 import { ITourPos } from '../../stores/tour';
 
 dayjs.extend(dayjsUtc);
-
-const controller = useController();
 
 const isOpen = Vue.ref(true);
 

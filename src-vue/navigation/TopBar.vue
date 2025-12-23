@@ -59,6 +59,7 @@ const tour = useTour();
 const bot = useBot();
 
 const financialsMenuRef = Vue.ref<InstanceType<typeof FinancialsMenu> | null>(null);
+const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 
 const instances = Vue.ref<IInstance[]>([]);
@@ -74,9 +75,18 @@ async function fetchInstances() {
       isSelected: entry.name === INSTANCE_NAME,
     }));
 }
+tour.registerPositionCheck('financialsMenu', () => {
+  const currencyMenuElem = financialsMenuRef.value?.$el;
+  const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
+  rect.left -= 10;
+  rect.right += 10;
+  rect.top -= 10;
+  rect.bottom += 7;
+  return { ...rect, blur: 5 };
+});
 
 tour.registerPositionCheck('currencyMenu', () => {
-  const currencyMenuElem = financialsMenuRef.value?.$el;
+  const currencyMenuElem = currencyMenuRef.value?.$el;
   const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
   rect.left -= 10;
   rect.right += 10;

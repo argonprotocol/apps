@@ -9,7 +9,7 @@
       :class="{ selected: controller.screenKey === ScreenKey.Home }">
       <div Wrapper class="relative inline px-1 text-center">
         <div :class="{ invisible: controller.screenKey === ScreenKey.Home }">
-          <HomeIcon class="relative top-[1.5px] h-5" />
+          <HomeIcon class="relative top-[1.5px] h-5 opacity-60" />
         </div>
         <div
           v-if="controller.screenKey === ScreenKey.Home"
@@ -47,13 +47,23 @@ import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useController } from '../stores/controller.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import HomeIcon from '../assets/home.svg?component';
+import { useConfig } from '../stores/config.ts';
 
 const tour = useTour();
 const controller = useController();
+const config = useConfig();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 
 function goto(screenKey: ScreenKey) {
+  if (controller.backButtonTriggersHome) {
+    controller.backButtonTriggersHome = false;
+    if (screenKey === ScreenKey.Mining) {
+      config.isPreparingMinerSetup = false;
+    } else if (screenKey === ScreenKey.Vaulting) {
+      config.isPreparingVaultSetup = false;
+    }
+  }
   controller.setScreenKey(screenKey);
 }
 

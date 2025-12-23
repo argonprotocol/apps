@@ -1,8 +1,11 @@
 <template>
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
-      <PopoverContent ref="boxRef" class="absolute z-[2001]" :style="{ left, top, height: `${props.pos.height}px` }">
-        <div Arrow ref="arrowRef" class="absolute top-[calc(50%+4px)] left-[-7px] z-1 -translate-y-1/2 rotate-90">
+      <PopoverContent
+        ref="boxRef"
+        class="absolute z-[2001]"
+        :style="{ left, top, height: `${props.pos.height}px`, width: `${props.pos.width}px` }">
+        <div Arrow ref="arrowRef" class="absolute top-px left-1/2 z-1 -translate-x-1/2 -translate-y-full">
           <svg
             class="relative z-10"
             width="24"
@@ -25,16 +28,15 @@
 
         <div
           OverlayBox
-          class="absolute flex w-[33rem] -translate-x-full flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
+          class="absolute top-0 right-0 flex w-[30rem] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
-            <div class="text-lg font-bold text-slate-700">When You're Ready</div>
-            <div class="text-slate-500/40">Step 5 of 5</div>
+            <div class="text-lg font-bold text-slate-700">Your Account Menu</div>
+            <div class="text-slate-500/40">Step 5 of 6</div>
           </h3>
 
           <p>
-            As they say, the best way to get started is to start. We suggest mining as your first step. This button will
-            guide you through the entire process. Don't worry, mining is quite simple, and setting it up will only take
-            a few minutes of your time.
+            This icon controls a menu from which you can reopen this tour. It also contains a number of other helpful
+            settings, such as managing your crypto keys, wallet recovery, and more.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">
@@ -49,7 +51,7 @@
               @click="nextStep"
               tabindex="0"
               class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow mt-4 cursor-pointer rounded-md border px-8 py-2 text-sm font-bold text-white shadow-sm focus:outline-none">
-              Finish Tour
+              Next Step
             </button>
           </div>
         </div>
@@ -63,12 +65,9 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import dayjsUtc from 'dayjs/plugin/utc';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
-import { useController } from '../../stores/controller';
 import { ITourPos } from '../../stores/tour';
 
 dayjs.extend(dayjsUtc);
-
-const controller = useController();
 
 const isOpen = Vue.ref(true);
 
@@ -77,7 +76,7 @@ const props = defineProps<{
 }>();
 
 const left = Vue.computed(() => `${props.pos.left}px`);
-const top = Vue.computed(() => `${props.pos.top - 5}px`);
+const top = Vue.computed(() => `${props.pos.bottom - 1}px`);
 
 const emit = defineEmits(['nextStep', 'previousStep']);
 
