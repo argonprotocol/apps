@@ -35,9 +35,8 @@
           </h3>
 
           <p>
-            This shows the total value of your portfolio across both mining and vaulting. Use it to
-            open your Financials Panel, which has your asset breakdowns, profit/loss, projections,
-            and more.
+            This shows the total value of your portfolio across both mining and vaulting. Use it to open your Financials
+            Panel, which has your asset breakdowns, profit/loss, projections, and more.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

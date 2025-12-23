@@ -1,5 +1,7 @@
 import BiddingCalculator from './BiddingCalculator.js';
 import BiddingCalculatorData from './BiddingCalculatorData.js';
+import bitcoinPrices from './data/bitcoinPrices.json' with { type: 'json' };
+import bitcoinFees from './data/bitcoinFees.json' with { type: 'json' };
 
 export { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
@@ -19,7 +21,8 @@ export * from './TreasuryPool.js';
 export * from './CohortBidder.js';
 export * from './StorageFinder.js';
 export * from './TransactionEvents.js';
+export * from './Vaults.js';
 
 export * from './utils.js';
 
-export { BiddingCalculatorData, BiddingCalculator };
+export { BiddingCalculatorData, BiddingCalculator, bitcoinPrices, bitcoinFees };

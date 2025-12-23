@@ -1,7 +1,7 @@
 <template>
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
-      <PopoverContent ref="boxRef" class="absolute z-[2001] left-1/2" :style="{ top, width: `${props.pos.width}px` }">
+      <PopoverContent ref="boxRef" class="absolute left-1/2 z-[2001]" :style="{ top, width: `${props.pos.width}px` }">
         <div Arrow ref="arrowRef" class="absolute top-[calc(50%-4px)] left-[40%] z-1 -translate-y-1/2">
           <svg
             class="relative z-10"
@@ -45,17 +45,16 @@
 
         <div
           OverlayBox
-          class="absolute flex w-[50rem] left-1/2 -translate-x-1/2 flex-col rounded border border-black/40 bg-white px-4 font-light shadow-lg"
-        >
+          class="absolute left-1/2 flex w-[50rem] -translate-x-1/2 flex-col rounded border border-black/40 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
             <div class="text-lg font-bold text-slate-700">When You're Ready</div>
             <div class="text-slate-500/40">Step 6 of 6</div>
           </h3>
 
           <p>
-            As they say, the best way to get started is to start. We suggest mining as your first step, but vaulting
-            is equally compelling. These buttons will guide you through the entire process. It's quite simple, and
-            setting them up only take a few minutes.
+            As they say, the best way to get started is to start. We suggest mining as your first step, but vaulting is
+            equally compelling. These buttons will guide you through the entire process. It's quite simple, and setting
+            them up only take a few minutes.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

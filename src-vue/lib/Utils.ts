@@ -52,13 +52,6 @@ export function calculateAPY(costs: bigint, rewards: bigint, activeDays?: number
   return compoundXTimes(dailyRate, 365) * 100;
 }
 
-export function convertBigIntStringToNumber(bigIntStr: string | undefined): bigint | undefined {
-  if (bigIntStr === undefined) return undefined;
-  if (!bigIntStr) return 0n;
-  // The string is formatted as "1234567890n"
-  return BigInt(bigIntStr.slice(0, -1));
-}
-
 export function toSqlParams(
   params: (bigint | number | string | Uint8Array | Date | boolean | object | undefined)[],
 ): (string | number | Uint8Array | null | Date)[] {

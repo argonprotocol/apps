@@ -7,8 +7,8 @@
     "indexerHost": "http://localhost:55014",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 882958015,
-    "biddingStartTick": 882958015
+    "genesisTick": 882151485,
+    "biddingStartTick": 882151485
   },
   "localnet": {
     "archiveUrl": "ws://localhost:9944",
@@ -18,8 +18,8 @@
     "indexerHost": "http://localhost:3262",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 882308319,
-    "biddingStartTick": 882308319
+    "genesisTick": 882151485,
+    "biddingStartTick": 882151485
   },
   "testnet": {
     "archiveUrl": "wss://rpc.testnet.argonprotocol.org",

@@ -14,7 +14,7 @@ export default async function fetchBitcoinPrices() {
   const data = await BitcoinDataFetcher.fetchPrices(START_DATE, TODAY);
 
   // Write data to JSON file
-  const filePath = path.join(process.cwd(), 'src-vue', 'data', 'bitcoinPrices.json');
+  const filePath = path.join(process.cwd(), 'core', 'src', 'data', 'bitcoinPrices.json');
   console.log(`Writing data to: ${filePath}`);
 
   const fileDir = path.dirname(filePath);

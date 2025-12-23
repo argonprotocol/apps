@@ -1,7 +1,6 @@
 import dayjs, { type Dayjs } from 'dayjs';
-import utc from 'dayjs/plugin/utc.js';
 import { type IBitcoinPriceRecord } from '../interfaces/IBitcoinPriceRecord.ts';
-import bitcoinPrices from '../data/bitcoinPrices.json';
+import { bitcoinPrices } from '@argonprotocol/apps-core';
 
 export default class BitcoinPrices {
   public prices: IBitcoinPriceRecord[] = [];
