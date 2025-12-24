@@ -13,13 +13,6 @@ import { readReleaseNotes } from './utils.ts';
   const file = fs.readFileSync(filePath, 'utf-8');
   const tauriConf = JSON.parse(file);
   tauriConf.version = packageVersion;
-  if (packageVersion.includes('-rc')) {
-    tauriConf.bundle.windows = {
-      nsis: {
-        version: packageVersion.replace('-rc', '.')
-      },
-    };
-  }
   fs.writeFileSync(filePath, JSON.stringify(tauriConf, null, 2));
 
   const releaseNotes = readReleaseNotes(packageVersion, false);

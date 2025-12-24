@@ -1,4 +1,5 @@
 import { type ArgonClient } from '@argonprotocol/mainchain';
+import { bigNumberToBigInt } from './utils.js';
 
 export class TreasuryPool {
   public static async getActiveCapital(
@@ -25,8 +26,9 @@ export class TreasuryPool {
 
   public static async getTreasuryPayoutPotential(client: ArgonClient): Promise<bigint> {
     const revenue = await TreasuryPool.getAuctionRevenue(client);
-    const treasuryTake = client.consts.treasury.bidPoolBurnPercent.toBigInt();
-    return (revenue * treasuryTake) / 100n;
+    const bidBurnPercent = (100 - client.consts.treasury.bidPoolBurnPercent.toNumber()) / 100;
+    const treasuryTake = BigNumber(revenue).times(bidBurnPercent);
+    return bigNumberToBigInt(treasuryTake);
   }
 
   public static async getAuctionRevenue(client: ArgonClient): Promise<bigint> {

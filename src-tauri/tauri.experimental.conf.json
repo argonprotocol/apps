@@ -4,11 +4,6 @@
   "identifier": "com.argon.apps.experimental",
   "version": "1.0.0-rc1",
   "bundle": {
-    "windows": {
-      "nsis": {
-        "version": "1.0.0.1"
-      }
-    },
     "icon": [
       "icons/experimental/mainnet/32x32.png",
       "icons/experimental/mainnet/128x128.png",
