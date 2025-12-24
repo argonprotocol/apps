@@ -99,8 +99,16 @@ export default class Installer {
           await tauriExit(0);
         }
 
-        const isRunning = await this.calculateIsRunning();
-        const isReadyToRun = !isRunning && (await this.calculateIsReadyToRun(false));
+        const isReadyToRun = await this.calculateIsReadyToRun(false);
+        let isRunning = await this.calculateIsRunning();
+        if (isRunning && this.remoteFilesNeedUpdating) {
+          console.log('Need to kill existing installer process');
+          await server.killInstallerScript();
+          await this.clearStepFiles(['all']);
+          isRunning = false;
+          this.isRunning = false;
+          this.isRunningInBackground = false;
+        }
         if (isReadyToRun && !isRunning) {
           let isAllowedToRun = true;
           if (IS_LOCAL_BUILD && ['testnet', 'mainnet'].includes(NETWORK_NAME)) {
