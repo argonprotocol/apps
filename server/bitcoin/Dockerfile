@@ -1,4 +1,6 @@
-FROM debian:bullseye-slim
+# Base image pinned for deterministic third-party installs.
+# Update only during explicit Bitcoin or security releases.
+FROM debian:bullseye-20251208-slim@sha256:e899040a73d36e2b36fa33216943539d9957cba8172b858097c2cabcdb20a3e2
 
 ARG VERSION=28.0
 ENV VERSION=$VERSION
@@ -48,9 +50,6 @@ RUN <<END
     rm -rf /opt/bitcoin-${VERSION}/bin/bitcoin-qt
 END
 
-COPY ./bitcoin.conf /etc/bitcoin/bitcoin.conf
-COPY ./bitcoin-signet.conf /etc/bitcoin/bitcoin-signet.conf
-COPY ./bitcoin-regtest.conf /etc/bitcoin/bitcoin-regtest.conf
 COPY ./entrypoint.sh /
 
 ENTRYPOINT [ "./entrypoint.sh" ]

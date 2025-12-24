@@ -13,6 +13,50 @@ mkdir -p "$logs_dir"
 # Helper functions
 ########################################################
 
+########################################################
+# Docker Compose service fingerprint helpers
+########################################################
+
+compose_service_hash() {
+    local service="$1"
+    # Returns only the hash value for the service, empty if service not found
+    sudo docker compose --profile=all config --hash "$service" 2>/dev/null \
+      | sed -nE "s/^$service[[:space:]]+([a-f0-9]+)/\1/p"
+}
+
+compose_service_hash_changed() {
+    local service="$1"
+    local hash_dir="$logs_dir/.compose-hashes"
+    local hash_file="$hash_dir/$service.hash"
+
+    mkdir -p "$hash_dir"
+
+    if ! sudo docker compose --profile=all config --services | grep -qx "$service"; then
+        failed "Service '$service' not defined in compose configuration"
+    fi
+
+    local new_hash old_hash
+    new_hash="$(compose_service_hash "$service")"
+    old_hash="$(cat "$hash_file" 2>/dev/null || echo "")"
+    echo "$new_hash" > "$hash_file"
+
+    if [[ -z "$new_hash" ]]; then
+        # Service is new or not yet resolvable — treat as changed
+        log_to_file "[compose-hash] $service: no hash computed (new or not yet resolvable) -> recreate"
+        return 0
+    fi
+
+    if [[ "$new_hash" != "$old_hash" ]]; then
+        log_to_file "[compose-hash] $service: changed -> recreate"
+        log_to_file "[compose-hash]   old: ${old_hash:-<none>}"
+        log_to_file "[compose-hash]   new: $new_hash"
+        return 0  # changed
+    fi
+
+    log_to_file "[compose-hash] $service: unchanged ($new_hash) -> reuse"
+    return 1      # unchanged
+}
+
 parse_plain_progress() {
     local progress_file="$1"
     local line cur tot
