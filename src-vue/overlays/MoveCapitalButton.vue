@@ -150,17 +150,18 @@ import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { useMyVault } from '../stores/vaults.ts';
-import { isValidArgonAccountAddress, percentOf } from '@argonprotocol/apps-core';
+import { bigIntMax, isValidArgonAccountAddress } from '@argonprotocol/apps-core';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 import { useTransactionTracker } from '../stores/transactions.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import { useCurrency } from '../stores/currency.ts';
-import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
+import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import { IWallet } from '../lib/Wallet.ts';
 import VaultAllocation from '../components/VaultAllocation.vue';
 import { useConfig } from '../stores/config.ts';
+import { MyVault } from '../lib/MyVault.ts';
 
 const myVault = useMyVault();
 const currency = useCurrency();
@@ -195,13 +196,13 @@ const maxAmount = Vue.computed(() => {
     case MoveFrom.MiningReserveArgonot:
       return miningBreakdown.unusedMicronots;
     case MoveFrom.VaultingMintedArgon:
-      return vaultingBreakdown.vaultingAvailableMicrogons;
+      return bigIntMax(0n, vaultingBreakdown.mintedValueInAccount - MyVault.OperationalReserves);
     case MoveFrom.VaultingSecurityUnused:
       return vaultingBreakdown.waitingSecuritization;
     case MoveFrom.VaultingTreasuryUnused:
       return vaultingBreakdown.pendingTreasuryPoolInvestment;
     case MoveFrom.VaultingUnusedArgon:
-      return vaultingBreakdown.vaultingAvailableMicrogons;
+      return bigIntMax(0n, vaultingBreakdown.vaultingAvailableMicrogons - MyVault.OperationalReserves);
     default:
       return 0n;
   }

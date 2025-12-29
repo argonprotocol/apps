@@ -81,8 +81,10 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const totalVaultValue = Vue.computed(() => {
     return (
-      wallets.totalVaultingResources -
-      (unlockPrice.value + myVault.data.pendingCollectRevenue + pendingMintingValue.value)
+      wallets.totalVaultingResources +
+      pendingMintingValue.value -
+      myVault.data.pendingCollectRevenue -
+      unlockPrice.value
     );
   });
 
