@@ -24,7 +24,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { Motion } from 'motion-v';
-import { createDeferred } from '../../../lib/Utils';
+import { createDeferred } from '@argonprotocol/apps-core';
 
 const dots = Vue.ref('');
 const typedText = Vue.ref('');

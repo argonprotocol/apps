@@ -67,16 +67,16 @@ import { Db } from '../../lib/Db';
 import { appConfigDir, appLogDir } from '@tauri-apps/api/path';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import Checkbox from '../../components/Checkbox.vue';
-import { Config, useConfig } from '../../stores/config.ts';
+import { Config, getConfig } from '../../stores/config.ts';
 import { Diagnostics } from '../../lib/Diagnostics.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { remove } from '@tauri-apps/plugin-fs';
 import { getInstanceConfigDir } from '../../lib/Utils.ts';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
-const walletKeys = useWalletKeys();
+const config = getConfig();
+const walletKeys = getWalletKeys();
 
 const diagnostics = new Diagnostics(config as Config, walletKeys);
 const localDataDir = Vue.ref('');

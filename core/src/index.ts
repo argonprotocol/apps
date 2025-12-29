@@ -6,7 +6,6 @@ import bitcoinFees from './data/bitcoinFees.json' with { type: 'json' };
 export { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 export * from './interfaces/index.js';
-export * from './PriceIndex.js';
 export * from './AccountEventsFilter.js';
 export * from './MainchainClients.js';
 export * from './FrameIterator.js';
@@ -22,6 +21,9 @@ export * from './CohortBidder.js';
 export * from './StorageFinder.js';
 export * from './TransactionEvents.js';
 export * from './Vaults.js';
+export * from './Currency.js';
+export * from './SingleFileQueue.js';
+export * from './JsonExt.js';
 
 export * from './utils.js';
 

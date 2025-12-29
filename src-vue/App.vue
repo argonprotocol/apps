@@ -53,9 +53,9 @@ import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
 import { useController } from './stores/controller';
-import { useConfig } from './stores/config';
+import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
-import { useBot } from './stores/bot';
+import { getBot } from './stores/bot';
 import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from './overlays/AboutOverlay.vue';
 import ComplianceOverlay from './overlays/ComplianceOverlay.vue';
@@ -74,9 +74,9 @@ import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverla
 import FinancialsPanel from './panels/FinancialsPanel.vue';
 
 const controller = useController();
-const config = useConfig();
+const config = getConfig();
 const tour = useTour();
-const bot = useBot();
+const bot = getBot();
 
 const showHomeScreen = Vue.computed(() => {
   return controller.screenKey === ScreenKey.Home;

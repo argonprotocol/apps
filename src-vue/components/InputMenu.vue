@@ -63,7 +63,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { ChevronDownIcon, ChevronUpIcon, CheckIcon } from '@heroicons/vue/24/outline';
-import { useCurrency } from '../stores/currency';
+import { getCurrency } from '../stores/currency';
 import { createNumeralHelpers } from '../lib/numeral';
 import {
   SelectContent,
@@ -78,7 +78,7 @@ import {
   SelectValue,
   SelectViewport,
 } from 'reka-ui';
-const currency = useCurrency();
+const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 export type IOption = { name: string; value: string; microgons?: bigint; sats?: bigint; disabled?: boolean };

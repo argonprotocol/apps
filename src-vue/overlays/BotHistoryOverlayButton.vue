@@ -59,10 +59,10 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useCurrency } from '../stores/currency';
+import { getCurrency } from '../stores/currency';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import { createNumeralHelpers } from '../lib/numeral';
-import { useStats } from '../stores/stats';
+import { getStats } from '../stores/stats';
 import {
   BotActivityType,
   type IBotActivity,
@@ -78,7 +78,7 @@ import ActivitySuccessIcon from '../assets/activity-success.svg?component';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { useWalletKeys } from '../stores/wallets.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -92,9 +92,9 @@ const props = withDefaults(
   },
 );
 
-const stats = useStats();
-const walletKeys = useWalletKeys();
-const currency = useCurrency();
+const stats = getStats();
+const walletKeys = getWalletKeys();
+const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

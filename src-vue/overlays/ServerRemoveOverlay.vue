@@ -69,14 +69,14 @@ import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import basicEmitter from '../emitters/basicEmitter';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import BgOverlay from '../components/BgOverlay.vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { Config } from '../lib/Config';
 import { type IConfigInstallDetails, ServerType } from '../interfaces/IConfig';
 import { SSH } from '../lib/SSH';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
 import { LocalMachine } from '../lib/LocalMachine.ts';
 
-const config = useConfig();
+const config = getConfig();
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);

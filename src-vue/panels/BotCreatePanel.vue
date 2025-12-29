@@ -175,8 +175,8 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from 'reka-ui';
-import { useConfig } from '../stores/config.ts';
-import { useCurrency } from '../stores/currency.ts';
+import { getConfig } from '../stores/config.ts';
+import { getCurrency } from '../stores/currency.ts';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../stores/mainchain.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import BgOverlay from '../components/BgOverlay.vue';
@@ -187,6 +187,7 @@ import {
   bigIntMax,
   type IBiddingRules,
   JsonExt,
+  UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import ActiveBidsOverlayButton from '../overlays/ActiveBidsOverlayButton.vue';
 import { bigIntCeil, bigNumberToInteger } from '@argonprotocol/apps-core/src/utils.ts';
@@ -194,7 +195,7 @@ import InputArgon from '../components/InputArgon.vue';
 import NeedMoreCapitalHover from '../overlays/bot/NeedMoreCapitalHover.vue';
 import ReturnsOverlay from '../overlays/bot/BotReturns.vue';
 import CapitalOverlay from '../overlays/bot/BotCapital.vue';
-import { useBot } from '../stores/bot.ts';
+import { getBot } from '../stores/bot.ts';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
@@ -212,9 +213,9 @@ const calculatorData = getBiddingCalculatorData();
 
 let previousBiddingRules: string | null = null;
 
-const currency = useCurrency();
-const config = useConfig();
-const bot = useBot();
+const currency = getCurrency();
+const config = getConfig();
+const bot = getBot();
 const controller = useController();
 
 const draggable = Vue.reactive(new Draggable());
@@ -428,7 +429,7 @@ function updateTokenRequirements() {
 
 function updateMinimumCapitalCommitment() {
   const { microgonRequirement, micronotRequirement } = calculator.runProjections(rules.value, 'maximum', true);
-  const commitment = currency.micronotToMicrogon(micronotRequirement) + microgonRequirement;
+  const commitment = currency.convertMicronotTo(micronotRequirement, UnitOfMeasurement.Microgon) + microgonRequirement;
   minimumCapitalCommitment.value = bigIntMax(0n, bigIntCeil(commitment, 10_000n));
 }
 

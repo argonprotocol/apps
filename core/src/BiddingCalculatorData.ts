@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 import { Mining } from './Mining.js';
-import { PriceIndex } from './PriceIndex.js';
+import { Currency } from './Currency.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
@@ -87,7 +87,7 @@ export default class BiddingCalculatorData {
           api = await client.at(frameStartBlockHash);
         }
 
-        const priceIndex = new PriceIndex(mining.clients);
+        const currency = new Currency(mining.clients);
         try {
           const tickAtStartOfNextCohort = await mining.fetchTickAtStartOfNextCohort(api);
           const tickAtEndOfNextCohort = tickAtStartOfNextCohort + NetworkConfig.ticksPerCohort;
@@ -105,7 +105,7 @@ export default class BiddingCalculatorData {
           const microgonsMinedPerBlock = await mining.fetchMicrogonsMinedPerBlockDuringNextCohort(api);
           this.microgonsToMineThisSeat =
             (microgonsMinedPerBlock * BigInt(NetworkConfig.ticksPerCohort)) / BigInt(maxPossibleMinersInNextEpoch);
-          this.microgonsInCirculation = await priceIndex.fetchMicrogonsInCirculation(api);
+          this.microgonsInCirculation = await currency.fetchMicrogonsInCirculation(api);
 
           this.currentMicronotsForBid = await mining.fetchCurrentMicronotsForBid(api);
           this.maximumMicronotsForBid = await mining.fetchMaximumMicronotsForEndOfEpochBid(api);
@@ -117,7 +117,7 @@ export default class BiddingCalculatorData {
           );
           this.micronotsToMineThisSeat = micronotsMinedDuringNextCohort / BigInt(maxPossibleMinersInNextEpoch);
 
-          this.microgonExchangeRateTo = await priceIndex.fetchMicrogonExchangeRatesTo(api);
+          this.microgonExchangeRateTo = await currency.fetchMainchainRates(api);
           this.maxPossibleMiningSeatCount = maxPossibleMinersInNextEpoch;
           this.allowedBidIncrementMicrogons = client.consts.miningSlot.bidIncrements.toBigInt();
           resolve(biddingFrameId);

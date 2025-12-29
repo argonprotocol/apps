@@ -36,13 +36,13 @@
 import * as Vue from 'vue';
 import InputNumber from '../../components/InputNumber.vue';
 import { getVaultCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency.ts';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getVaultCalculator();
-const currency = useCurrency();
+const currency = getCurrency();
 const capitalForTreasuryPct = Vue.ref(calculator.calculatePercentOfTreasuryClaimed());
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);

@@ -67,7 +67,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { getVaultCalculator } from '../stores/mainchain';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
@@ -76,14 +76,14 @@ import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import VaultSettings from '../components/VaultSettings.vue';
 import Draggable from './helpers/Draggable.ts';
-import { useMyVault } from '../stores/vaults.ts';
+import { getMyVault } from '../stores/vaults.ts';
 
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
-const config = useConfig();
-const myVault = useMyVault();
+const config = getConfig();
+const myVault = getMyVault();
 
 const draggable = Vue.reactive(new Draggable());
 

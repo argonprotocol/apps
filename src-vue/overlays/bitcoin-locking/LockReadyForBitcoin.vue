@@ -3,7 +3,7 @@
     <p class="mt-5 mb-4 text-gray-600 select-text">
       You must send exactly
       <strong>
-        {{ numeral(currency.satsToBtc(props.personalLock.lockDetails.satoshis)).format('0,0.[00000000]') }} BTC
+        {{ numeral(currency.convertSatToBtc(props.personalLock.lockDetails.satoshis)).format('0,0.[00000000]') }} BTC
       </strong>
       (or
       {{ numeral(props.personalLock.lockDetails.satoshis).format('0,0') }}
@@ -61,16 +61,16 @@ import BitcoinQrCode from '../../components/BitcoinQrCode.vue';
 import CopyIcon from '../../assets/copy.svg?component';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
-import { useCurrency } from '../../stores/currency.ts';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import Spinner from '../../components/Spinner.vue';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
 
-const currency = useCurrency();
-const bitcoinLocks = useBitcoinLocks();
+const currency = getCurrency();
+const bitcoinLocks = getBitcoinLocks();
 
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');

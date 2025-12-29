@@ -5,10 +5,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from './emitters/basicEmitter';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { useController } from './stores/controller';
-import { useInstaller } from './stores/installer';
-import { useBot } from './stores/bot';
+import { getInstaller } from './stores/installer';
+import { getBot } from './stores/bot';
 import { ScreenKey } from './interfaces/IConfig';
-import { useConfig } from './stores/config';
+import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
 
 function openAboutOverlay() {
@@ -17,9 +17,9 @@ function openAboutOverlay() {
 
 export async function createMenu() {
   const controller = useController();
-  const installer = useInstaller();
-  const config = useConfig();
-  const bot = useBot();
+  const installer = getInstaller();
+  const config = getConfig();
+  const bot = getBot();
   const tour = useTour();
 
   const mainMenu = await Submenu.new({

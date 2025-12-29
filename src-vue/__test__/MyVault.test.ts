@@ -1,6 +1,12 @@
 import { Keyring, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, NetworkConfig, PriceIndex, IAllVaultStats } from '@argonprotocol/apps-core';
+import {
+  MainchainClients,
+  MiningFrames,
+  NetworkConfig,
+  Currency as CurrencyBase,
+  IAllVaultStats,
+} from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
@@ -94,16 +100,16 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       ).submit();
       await res.waitForInFirstBlock;
 
-      const priceIndex = new PriceIndex(clients);
-      await priceIndex.fetchMicrogonExchangeRatesTo();
+      const currency = new CurrencyBase(clients);
+      await currency.fetchMainchainRates();
       const miningFrames = new MiningFrames(clients);
-      const vaults = new Vaults('dev-docker', priceIndex, miningFrames);
+      const vaults = new Vaults('dev-docker', currency, miningFrames);
       const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
       const bitcoinLocksStore = new BitcoinLocksStore(
         Promise.resolve(db),
         walletKeys,
         miningFrames.blockWatch,
-        priceIndex,
+        currency,
         transactionTracker,
       );
       myVault = new MyVault(
@@ -115,7 +121,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         miningFrames,
       );
       vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
-      vi.spyOn(myVault.vaults, 'refreshRevenue').mockImplementation(async () => {
+      vi.spyOn(myVault.vaults, 'updateRevenue').mockImplementation(async () => {
         return {} as IAllVaultStats;
       });
 
@@ -205,7 +211,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         Promise.resolve(newDb),
         walletKeys,
         blockWatch,
-        myVault.vaults.priceIndex,
+        myVault.vaults.currency,
         transactionTracker2,
       );
       await bitcoinLocksStoreRecovery.load();

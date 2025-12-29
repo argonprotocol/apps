@@ -160,11 +160,11 @@ import LockCollecting from './bitcoin-locking/LockCollecting.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import Arrows from '../assets/arrows.svg?component';
 import RoundCap from './bitcoin-locking/components/RoundCap.vue';
-import { useBitcoinLocks } from '../stores/bitcoin.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 
 dayjs.extend(utc);
 
-const bitcoinLocks = useBitcoinLocks();
+const bitcoinLocks = getBitcoinLocks();
 
 const props = defineProps<{
   personalLock?: IBitcoinLockRecord;

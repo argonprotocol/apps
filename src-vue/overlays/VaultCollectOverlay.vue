@@ -142,8 +142,8 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import CountdownClock from '../components/CountdownClock.vue';
-import { useMyVault } from '../stores/vaults.ts';
-import { useCurrency } from '../stores/currency.ts';
+import { getMyVault } from '../stores/vaults.ts';
+import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import Overlay from './Overlay.vue';
@@ -163,8 +163,8 @@ const transactionError = Vue.ref('');
 const isOpen = Vue.ref(true);
 
 const isProcessing = Vue.ref(false);
-const myVault = useMyVault();
-const currency = useCurrency();
+const myVault = getMyVault();
+const currency = getCurrency();
 
 const vaultAllocation = Vue.ref<InstanceType<typeof VaultAllocation> | null>(null);
 const signatures = Vue.ref(myVault.data.pendingCosignUtxoIds.size);

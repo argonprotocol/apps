@@ -163,13 +163,13 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from 'reka-ui';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { getVaultCalculator } from '../stores/mainchain.ts';
-import { useCurrency } from '../stores/currency.ts';
+import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { JsonExt } from '@argonprotocol/apps-core';
+import { JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import InputArgon from '../components/InputArgon.vue';
 import ExistingNetworkVaultsOverlayButton from '../overlays/ExistingNetworkVaultsOverlayButton.vue';
@@ -182,8 +182,8 @@ import { ITourPos } from '../stores/tour.ts';
 import { useController } from '../stores/controller.ts';
 import VaultSettings from '../components/VaultSettings.vue';
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 const controller = useController();
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 const emit = defineEmits<{
@@ -300,7 +300,7 @@ async function saveRules() {
 
 function updateAPYs() {
   const btcSpaceInMicrogons = calculator.calculateBtcSpaceInMicrogons();
-  btcSpaceAvailable.value = currency.microgonToBtc(btcSpaceInMicrogons);
+  btcSpaceAvailable.value = currency.convertMicrogonTo(btcSpaceInMicrogons, UnitOfMeasurement.BTC);
 
   vaultLowUtilizationAPY.value = calculator.calculateInternalAPY('Low', 'Low');
   vaultHighUtilizationAPY.value = calculator.calculateInternalAPY('High', 'High');

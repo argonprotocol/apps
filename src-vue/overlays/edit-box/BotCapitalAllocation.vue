@@ -41,9 +41,9 @@
 import InputNumber from '../../components/InputNumber.vue';
 import InputMenu from '../../components/InputMenu.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import { SeatGoalType, SeatGoalInterval, ProfitUsage } from '@argonprotocol/apps-core';
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getBiddingCalculator();
 </script>

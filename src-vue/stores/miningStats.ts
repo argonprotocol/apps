@@ -1,11 +1,11 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { getMining } from './mainchain.ts';
-import { useCurrency } from './currency.ts';
-import { calculateAPY } from '../lib/Utils.ts';
+import { getCurrency } from './currency.ts';
+import { calculateAPY, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 export const useMiningStats = defineStore('miningStats', () => {
-  const currency = useCurrency();
+  const currency = getCurrency();
 
   const activeMiningSeatCount = Vue.ref(0);
   const aggregatedBidCosts = Vue.ref(0n);
@@ -26,7 +26,8 @@ export const useMiningStats = defineStore('miningStats', () => {
 
   async function updateAggregateBlockRewards() {
     const blockRewards = await getMining().getAggregateBlockRewards();
-    aggregatedBlockRewards.value = blockRewards.microgons + currency.micronotToMicrogon(blockRewards.micronots);
+    const valueOfMicronots = currency.convertMicronotTo(blockRewards.micronots, UnitOfMeasurement.Microgon);
+    aggregatedBlockRewards.value = blockRewards.microgons + valueOfMicronots;
   }
 
   async function load() {

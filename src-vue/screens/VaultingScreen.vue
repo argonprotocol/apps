@@ -16,14 +16,14 @@
 <script setup lang="ts">
 import BlankSlate from './vaulting-screen/BlankSlate.vue';
 import FinalSetupChecklist from './vaulting-screen/FinalSetupChecklist.vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import VaultIsInstalling from './vaulting-screen/VaultIsInstalling.vue';
-import { useMyVault } from '../stores/vaults.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import Dashboard from './vaulting-screen/Dashboard.vue';
 import { onMounted } from 'vue';
 
-const myVault = useMyVault();
-const config = useConfig();
+const myVault = getMyVault();
+const config = getConfig();
 
 onMounted(async () => {
   await myVault.load();

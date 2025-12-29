@@ -92,17 +92,16 @@ const isLoaded = Vue.ref(false);
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { useMiningStats } from '../../stores/miningStats.ts';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import basicEmitter from '../../emitters/basicEmitter';
 import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
-import { useTour } from '../../stores/tour';
 
 const miningStats = useMiningStats();
-const currency = useCurrency();
-const config = useConfig();
+const currency = getCurrency();
+const config = getConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

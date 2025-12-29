@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import numeralOriginal, { Numeral } from 'numeral';
-import { Currency, CurrencyKey } from './Currency';
+import { Currency, UnitOfMeasurement } from './Currency';
 
 // Extend the Numeral interface to include our custom method
 declare module 'numeral' {
@@ -59,26 +59,27 @@ numeralOriginal.fn.formatIfElseCapped = function (
 
 export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>) {
   return {
-    microgonToArgonNm(this: void, microgons: bigint): Numeral {
-      return numeral(currency.microgonToArgon(microgons));
-    },
-    micronotToArgonNm(this: void, micronots: bigint): Numeral {
-      return numeral(currency.micronotToArgon(micronots));
-    },
-    micronotToArgonotNm(this: void, micronots: bigint): Numeral {
-      return numeral(currency.micronotToArgonot(micronots));
-    },
     microgonToMoneyNm(this: void, microgons: bigint): Numeral {
-      return numeral(currency.microgonTo(microgons));
+      return numeral(currency.convertMicrogonTo(microgons, currency.key));
     },
-    micronotToMoneyNm(this: void, micronots: bigint): Numeral {
-      return numeral(currency.micronotTo(micronots));
+    microgonToArgonNm(this: void, microgons: bigint): Numeral {
+      return numeral(currency.convertMicrogonTo(microgons, UnitOfMeasurement.ARGN));
     },
     microgonToBtcNm(this: void, microgons: bigint): Numeral {
-      return numeral(currency.microgonToBtc(microgons));
+      return numeral(currency.convertMicrogonTo(microgons, UnitOfMeasurement.BTC));
     },
-    microgonToNm(this: void, microgons: bigint, key: CurrencyKey): Numeral {
-      return numeral(currency.microgonTo(microgons, key));
+    microgonToNm(this: void, microgons: bigint, to: UnitOfMeasurement): Numeral {
+      return numeral(currency.convertMicrogonTo(microgons, to));
+    },
+
+    micronotToMoneyNm(this: void, micronots: bigint): Numeral {
+      return numeral(currency.convertMicronotTo(micronots, currency.key));
+    },
+    micronotToArgonNm(this: void, micronots: bigint): Numeral {
+      return numeral(currency.convertMicronotTo(micronots, UnitOfMeasurement.ARGN));
+    },
+    micronotToArgonotNm(this: void, micronots: bigint): Numeral {
+      return numeral(currency.convertMicronotTo(micronots, UnitOfMeasurement.ARGNOT));
     },
   };
 }

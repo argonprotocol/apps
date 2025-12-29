@@ -69,15 +69,15 @@ import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { emit } from '@tauri-apps/api/event';
 import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getBiddingCalculator();
-const currency = useCurrency();
+const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

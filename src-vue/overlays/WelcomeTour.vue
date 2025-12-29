@@ -22,12 +22,12 @@ import TourStepThree from './welcome-tour/StepThree.vue';
 import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
 import TourStepSix from './welcome-tour/StepSix.vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { useController } from '../stores/controller';
 import { ScreenKey } from '../interfaces/IConfig';
 
 const controller = useController();
-const config = useConfig();
+const config = getConfig();
 const tour = useTour();
 
 const startingScreenKey = controller.screenKey;

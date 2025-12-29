@@ -17,13 +17,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useStats } from '../../stores/stats';
-import { useBot } from '../../stores/bot';
-import { useInstaller } from '../../stores/installer';
+import { getStats } from '../../stores/stats';
+import { getBot } from '../../stores/bot';
+import { getInstaller } from '../../stores/installer';
 
-const stats = useStats();
-const bot = useBot();
-const installer = useInstaller();
+const stats = getStats();
+const bot = getBot();
+const installer = getInstaller();
 
 Vue.onMounted(() => stats.subscribeToActivity());
 Vue.onUnmounted(() => stats.unsubscribeFromActivity());

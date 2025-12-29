@@ -402,9 +402,9 @@ dayjs.extend(utc);
 
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
-import { calculateProfitPct } from '../../lib/Utils';
-import { useStats } from '../../stores/stats';
-import { useCurrency } from '../../stores/currency';
+import { calculateProfitPct } from '@argonprotocol/apps-core';
+import { getStats } from '../../stores/stats';
+import { getCurrency } from '../../stores/currency';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import CountupClock from '../../components/CountupClock.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
@@ -424,9 +424,10 @@ import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipAr
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
 import { getMiningFrames } from '../../stores/mainchain.ts';
+import { UnitOfMeasurement } from '../../lib/Currency.ts';
 
-const stats = useStats();
-const currency = useCurrency();
+const stats = getStats();
+const currency = getCurrency();
 const miningFrames = getMiningFrames();
 
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -445,7 +446,11 @@ const globalMicrogonsEarned = Vue.computed(() => {
     microgonsMintedTotal: totalMicrogonsMinted,
     micronotsMinedTotal: totalMicronotsMined,
   } = stats.global;
-  return totalMicrogonsMined + totalMicrogonsMinted + currency.micronotToMicrogon(totalMicronotsMined);
+  return (
+    totalMicrogonsMined +
+    totalMicrogonsMinted +
+    currency.convertMicronotTo(totalMicronotsMined, UnitOfMeasurement.Microgon)
+  );
 });
 
 const globalMicrogonsInvested = Vue.computed(() => {
@@ -461,7 +466,7 @@ const currentFrameEarnings = Vue.computed(() => {
 
   const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal } = currentFrame.value;
   const microgons = microgonsMinedTotal + microgonsMintedTotal;
-  return microgons + currency.micronotToMicrogon(micronotsMinedTotal);
+  return microgons + currency.convertMicronotTo(micronotsMinedTotal, UnitOfMeasurement.Microgon);
 });
 
 const expectedFrameEarnings = Vue.computed(() => {
@@ -469,7 +474,7 @@ const expectedFrameEarnings = Vue.computed(() => {
 
   const { expected } = currentFrame.value;
   const microgons = expected.microgonsMinedTotal + expected.microgonsMintedTotal;
-  return microgons + currency.micronotToMicrogon(expected.micronotsMinedTotal);
+  return microgons + currency.convertMicronotTo(expected.micronotsMinedTotal, UnitOfMeasurement.Microgon);
 });
 
 const currentFrameCost = Vue.computed(() => {

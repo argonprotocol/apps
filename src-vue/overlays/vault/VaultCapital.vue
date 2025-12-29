@@ -120,8 +120,8 @@
 import * as Vue from 'vue';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getVaultCalculator } from '../../stores/mainchain.ts';
-import { useConfig } from '../../stores/config.ts';
-import { useCurrency } from '../../stores/currency.ts';
+import { getConfig } from '../../stores/config.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 
 const props = withDefaults(
@@ -137,8 +137,8 @@ const props = withDefaults(
 );
 const calculator = getVaultCalculator();
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const rules = Vue.computed(() => config.vaultingRules);

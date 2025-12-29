@@ -8,7 +8,8 @@ import {
 } from '@argonprotocol/mainchain';
 import { createDeferred } from './Deferred.js';
 import type { MainchainClients } from './MainchainClients.js';
-import { createTypedEventEmitter, SingleFileQueue } from './utils.js';
+import { createTypedEventEmitter } from './utils.js';
+import { SingleFileQueue } from './SingleFileQueue.js';
 
 export interface IBlockHeaderInfo {
   isFinalized: boolean;

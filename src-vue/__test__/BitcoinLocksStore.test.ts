@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { teardown } from '@argonprotocol/testing';
 import BitcoinLocksStore from '../lib/BitcoinLocksStore';
 import { createTestDb } from './helpers/db.ts';
-import { MainchainClients, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
+import { MainchainClients, NetworkConfig, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -34,7 +34,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   }, 60e3);
 
   it('getLockProcessingDetails should update progress ', async () => {
-    const priceIndex = new PriceIndex(clients);
+    const currencyBase = new CurrencyBase(clients);
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockWatch);
@@ -43,7 +43,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       Promise.resolve(createTestDb()),
       walletKeys,
       blockWatch,
-      priceIndex,
+      currencyBase,
       transactionTracker,
     );
     bitcoinLocksStore.data.oracleBitcoinBlockHeight = 103;

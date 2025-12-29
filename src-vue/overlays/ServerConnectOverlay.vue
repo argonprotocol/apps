@@ -123,7 +123,7 @@ export interface IServerConnectChildExposed {
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter';
-import { useConfig, Config } from '../stores/config';
+import { getConfig, Config } from '../stores/config';
 import BgOverlay from '../components/BgOverlay.vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
@@ -142,10 +142,10 @@ import DigitalOcean from './server-connect/DigitalOcean.vue';
 import LocalComputer from './server-connect/LocalComputer.vue';
 import CustomServer from './server-connect/CustomServer.vue';
 import { MiningMachine } from '../lib/MiningMachine.ts';
-import { useWalletKeys } from '../stores/wallets.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
 
-const config = useConfig();
-const walletKeys = useWalletKeys();
+const config = getConfig();
+const walletKeys = getWalletKeys();
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);

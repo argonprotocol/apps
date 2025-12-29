@@ -143,18 +143,18 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../../emitters/basicEmitter';
-import { useCurrency } from '../../stores/currency';
+import { getCurrency } from '../../stores/currency';
 import VaultImage from '../../assets/vault.svg?component';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import { useVaults } from '../../stores/vaults.ts';
-import { useConfig } from '../../stores/config';
+import { getVaults } from '../../stores/vaults.ts';
+import { getConfig } from '../../stores/config';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { useVaultingStats } from '../../stores/vaultingStats.ts';
 
-const currency = useCurrency();
-const config = useConfig();
-const vaultsStore = useVaults();
+const currency = getCurrency();
+const config = getConfig();
+const vaultsStore = getVaults();
 
 const vaultingStats = useVaultingStats();
 
@@ -225,7 +225,7 @@ async function updateRevenue() {
 Vue.onMounted(async () => {
   await vaultsStore.load();
   await updateRevenue();
-  void vaultsStore.refreshRevenue().then(updateRevenue);
+  void vaultsStore.updateRevenue().then(updateRevenue);
 });
 </script>
 

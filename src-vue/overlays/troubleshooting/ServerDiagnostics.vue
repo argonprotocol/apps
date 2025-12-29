@@ -125,15 +125,15 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { Diagnostics } from '../../lib/Diagnostics';
-import { useConfig, Config } from '../../stores/config';
+import { getConfig, Config } from '../../stores/config';
 import DiagnosticStep from './components/DiagnosticStep.vue';
 import success from './components/DiagnosticSuccess.vue';
 import failure from './components/DiagnosticFailure.vue';
 import heading from './components/DiagnosticHeading.vue';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
-const walletKeys = useWalletKeys();
+const config = getConfig();
+const walletKeys = getWalletKeys();
 
 const diagnostics = new Diagnostics(config as Config, walletKeys);
 

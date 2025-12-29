@@ -30,10 +30,10 @@
 import * as Vue from 'vue';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import Overlay from './Overlay.vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { useTour } from '../stores/tour';
 
-const config = useConfig();
+const config = getConfig();
 const tour = useTour();
 
 const isOpen = Vue.ref(config.showWelcomeOverlay);

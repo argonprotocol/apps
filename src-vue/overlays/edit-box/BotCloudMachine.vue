@@ -71,14 +71,14 @@ import * as Vue from 'vue';
 import { RadioGroupIndicator, RadioGroupItem, RadioGroupRoot } from 'reka-ui';
 import Importer from '../../lib/Importer';
 import type { Config } from '../../lib/Config';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import { getDbPromise } from '../../stores/helpers/dbPromise';
 import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 import { ArrowTurnLeftDownIcon } from '@heroicons/vue/24/solid';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
-const walletKeys = useWalletKeys();
+const config = getConfig();
+const walletKeys = getWalletKeys();
 const dbPromise = getDbPromise();
 
 const setupType = Vue.ref<'new' | 'existing'>('new');

@@ -83,20 +83,20 @@ import { ChevronDoubleRightIcon, ExclamationTriangleIcon } from '@heroicons/vue/
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { useDebounceFn } from '@vueuse/core';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
-import { useMyVault, useVaults } from '../../stores/vaults.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
-const currency = useCurrency();
-const myVault = useMyVault();
-const vaults = useVaults();
-const bitcoinLocksStore = useBitcoinLocks();
+const currency = getCurrency();
+const myVault = getMyVault();
+const vaults = getVaults();
+const bitcoinLocksStore = getBitcoinLocks();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -119,7 +119,7 @@ async function internalHandleArgonChange(microgons: bigint) {
     return;
   }
   const sats = await bitcoinLocksStore.satoshisForArgonLiquidity(microgons);
-  const btc = currency.satsToBtc(sats);
+  const btc = currency.convertSatToBtc(sats);
   console.log(`${microgons} microgons -> Btc market rate of ${sats} sats -> ${btc} btc`);
   bitcoinAmount.value = btc;
   lastSetBtcAmount = bitcoinAmount.value;
@@ -171,7 +171,7 @@ Vue.onMounted(async () => {
   await myVault.subscribe();
 
   bitcoinSpaceInMicrogons.value = myVault.createdVault!.availableBitcoinSpace();
-  bitcoinSpaceInBtc.value = currency.satsToBtc(
+  bitcoinSpaceInBtc.value = currency.convertSatToBtc(
     await bitcoinLocksStore.satoshisForArgonLiquidity(bitcoinSpaceInMicrogons.value),
   );
 

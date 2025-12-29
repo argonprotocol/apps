@@ -1,9 +1,9 @@
 <template>
   <div class="flex flex-col space-y-5 px-10 py-6">
     <p class="text-gray-700">
-      Your {{ numeral(currency.satsToBtc(props.personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC has
-      been officially unlocked from both the Argon and Bitcoin blockchains. It's now sitting under your control at the
-      address listed below:
+      Your {{ numeral(currency.convertSatToBtc(props.personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC
+      has been officially unlocked from both the Argon and Bitcoin blockchains. It's now sitting under your control at
+      the address listed below:
     </p>
 
     <div class="mt-5 mb-12 flex flex-row items-center">
@@ -25,9 +25,9 @@
 import numeral from '../../lib/numeral';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import BitcoinUnlockedSvg from '../../assets/wallets/bitcoin-unlocked.svg';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 
-const currency = useCurrency();
+const currency = getCurrency();
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;

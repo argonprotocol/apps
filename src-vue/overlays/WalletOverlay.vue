@@ -115,9 +115,9 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import QRCode from 'qrcode';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { useWallets } from '../stores/wallets';
-import { useCurrency } from '../stores/currency';
+import { getCurrency } from '../stores/currency';
 import { abbreviateAddress } from '../lib/Utils';
 import Overlay from './Overlay.vue';
 import CopyIcon from '../assets/copy.svg?component';
@@ -137,9 +137,9 @@ const isLoaded = Vue.ref(false);
 
 const walletId: Vue.Ref<IWalletType> = Vue.ref('mining');
 
-const config = useConfig();
+const config = getConfig();
 const wallets = useWallets();
-const currency = useCurrency();
+const currency = getCurrency();
 const controller = useController();
 const calculator = getBiddingCalculator();
 

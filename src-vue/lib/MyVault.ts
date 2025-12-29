@@ -15,13 +15,7 @@ import {
 import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
-import { createDeferred, IDeferred, percentOf } from './Utils.ts';
-import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
-import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
-import BigNumber from 'bignumber.js';
-import { Vaults } from './Vaults.ts';
-import BitcoinLocksStore from './BitcoinLocksStore.ts';
-import {
+import { createDeferred, IDeferred, percentOf,
   bigIntMax,
   bigNumberToBigInt,
   IVaultStats,
@@ -29,7 +23,16 @@ import {
   MoveFrom,
   MoveTo,
   NetworkConfig,
+<<<<<<< HEAD
 } from '@argonprotocol/apps-core';
+=======
+  IVaultStats } from '@argonprotocol/apps-core';
+import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
+import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
+import BigNumber from 'bignumber.js';
+import { Vaults } from './Vaults.ts';
+import BitcoinLocksStore from './BitcoinLocksStore.ts';
+>>>>>>> 95e8500 (feat: moved Currency from src-vue to core and created GlobalMiningStats and GlobalVaultingStats for use in website)
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
@@ -140,7 +143,7 @@ export class MyVault {
       await this.miningFrames.load();
       await this.vaults.load(reload);
 
-      void this.vaults.refreshRevenue().then(() => {
+      void this.vaults.updateRevenue().then(() => {
         const vaultId = this.metadata?.id;
         if (vaultId) {
           this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
@@ -281,7 +284,7 @@ export class MyVault {
     const txResult = await bitcoinLock.requestRelease({
       ...args,
       client: await getMainchainClient(false),
-      priceIndex: this.vaults.priceIndex.current,
+      priceIndex: this.vaults.currency.priceIndex,
       releaseRequest: {
         toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinLocksStore.bitcoinNetwork),
         bitcoinNetworkFee,

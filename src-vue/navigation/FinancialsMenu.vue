@@ -67,7 +67,7 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
-import { useCurrency } from '../stores/currency';
+import { getCurrency } from '../stores/currency';
 import ArgonSign from '../assets/currencies/argon.svg?component';
 import DollarSign from '../assets/currencies/dollar.svg?component';
 import EuroSign from '../assets/currencies/euro.svg?component';
@@ -87,7 +87,7 @@ defineExpose({
   $el: rootRef,
 });
 
-const currency = useCurrency();
+const currency = getCurrency();
 const wallets = useWallets();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);

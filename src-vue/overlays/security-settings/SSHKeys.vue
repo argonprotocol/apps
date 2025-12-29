@@ -90,13 +90,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import CopyIcon from '../../assets/copy.svg?component';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const walletKeys = useWalletKeys();
+const walletKeys = getWalletKeys();
 const copyToClipboard = Vue.ref<typeof CopyToClipboard>();
 const privateKeyTextareaShadow = Vue.ref<HTMLElement>();
 const privateKeyTextareaHeight = Vue.ref('auto');

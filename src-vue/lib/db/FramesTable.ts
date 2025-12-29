@@ -1,10 +1,9 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
-import { bigNumberToBigInt, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt, MiningFrames, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { TICK_MILLIS } from '../Env.ts';
 import { IDashboardFrameStats } from '../../interfaces/IStats.ts';
 import { Currency } from '../Currency.ts';
 
@@ -193,7 +192,7 @@ export class FramesTable extends BaseTable {
         const miningFrame = miningFrames.framesById[x.id];
         const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
           .plus(x.microgonsMintedTotal)
-          .plus(currency.micronotToMicrogon(x.micronotsMinedTotal));
+          .plus(currency.convertMicronotTo(x.micronotsMinedTotal, UnitOfMeasurement.Microgon));
         const microgonValueOfRewards = bigNumberToBigInt(microgonValueEarnedBn);
         const profitBn = BigNumber(microgonValueEarnedBn).minus(x.seatCostTotalFramed);
         const profitPctBn = x.seatCostTotalFramed

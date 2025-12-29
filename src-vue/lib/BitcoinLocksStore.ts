@@ -19,12 +19,20 @@ import {
 } from '@argonprotocol/mainchain';
 import { Db } from './Db.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
-import { useVaults } from '../stores/vaults.ts';
-import { createDeferred, getPercent, IDeferred } from './Utils.ts';
+import { getVaults } from '../stores/vaults.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { type AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/addresses';
 import { type TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
-import { BlockWatch, IBlockHeaderInfo, MiningFrames, NetworkConfig, PriceIndex } from '@argonprotocol/apps-core';
+import {
+  BlockWatch,
+  IBlockHeaderInfo,
+  MiningFrames,
+  NetworkConfig,
+  Currency as CurrencyBase,
+  createDeferred,
+  getPercent,
+  IDeferred,
+} from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { TransactionTracker } from './TransactionTracker.ts';
@@ -94,17 +102,17 @@ export default class BitcoinLocksStore {
   #lockTicksPerDay!: number;
   #subscription?: () => void;
   #waitForLoad?: IDeferred;
-  #priceIndex: PriceIndex;
+  #currency: CurrencyBase;
   #transactionTracker: TransactionTracker;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
     private readonly blockWatch: BlockWatch,
-    priceIndex: PriceIndex,
+    currency: CurrencyBase,
     transactionTracker: TransactionTracker,
   ) {
-    this.#priceIndex = priceIndex;
+    this.#currency = currency;
     this.#transactionTracker = transactionTracker;
     this.data = {
       pendingLock: undefined,
@@ -218,7 +226,7 @@ export default class BitcoinLocksStore {
   }
 
   public async satoshisForArgonLiquidity(microgonLiquidity: bigint): Promise<bigint> {
-    return BitcoinLock.requiredSatoshisForArgonLiquidity(this.#priceIndex.current, microgonLiquidity);
+    return BitcoinLock.requiredSatoshisForArgonLiquidity(this.#currency.priceIndex, microgonLiquidity);
   }
 
   public async canPayMinimumFee(args: {
@@ -237,11 +245,11 @@ export default class BitcoinLocksStore {
     return await BitcoinLock.createInitializeTx({
       client: await getMainchainClient(false),
       vault,
-      priceIndex: this.#priceIndex.current,
+      priceIndex: this.#currency.priceIndex,
       ownerBitcoinPubkey,
       argonKeyring,
-      satoshis: await this.minimumSatoshiPerLock(),
       tip,
+      satoshis: await this.minimumSatoshiPerLock(),
     });
   }
 
@@ -273,7 +281,7 @@ export default class BitcoinLocksStore {
       microgonLiquidity = availableBtcSpace;
     }
 
-    if (!this.#priceIndex.current.btcUsdPrice) {
+    if (!this.#currency.priceIndex.btcUsdPrice) {
       throw new Error('Network bitcoin pricing is currently unavailable. Please try again later.');
     }
 
@@ -291,7 +299,7 @@ export default class BitcoinLocksStore {
       const { txFee, canAfford } = await BitcoinLock.createInitializeTx({
         client: submitTxClient,
         vault,
-        priceIndex: this.#priceIndex.current,
+        priceIndex: this.#currency.priceIndex,
         ownerBitcoinPubkey,
         argonKeyring,
         satoshis,
@@ -311,7 +319,7 @@ export default class BitcoinLocksStore {
     const { tx, securityFee } = await BitcoinLock.createInitializeTx({
       ...args,
       client: submitTxClient,
-      priceIndex: this.#priceIndex.current,
+      priceIndex: this.#currency.priceIndex,
       ownerBitcoinPubkey,
       satoshis,
     });
@@ -451,12 +459,12 @@ export default class BitcoinLocksStore {
       throw new Error(`Lock with ID ${lock.utxoId} is not verified.`);
     }
 
-    const vaults = useVaults();
+    const vaults = getVaults();
     const bitcoinLock = new BitcoinLock(lock.lockDetails);
 
     const result = await bitcoinLock.ratchet({
       client: await getMainchainClient(false),
-      priceIndex: this.#priceIndex.current,
+      priceIndex: this.#currency.priceIndex,
       argonKeyring,
       tip,
       vault: vaults.vaultsById[lock.vaultId],

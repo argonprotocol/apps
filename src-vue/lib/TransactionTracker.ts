@@ -14,8 +14,7 @@ import {
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { createDeferred, IDeferred } from './Utils.ts';
-import { BlockWatch, IBlockHeaderInfo, TransactionEvents } from '@argonprotocol/apps-core';
+import { BlockWatch, IBlockHeaderInfo, TransactionEvents, createDeferred, IDeferred } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';

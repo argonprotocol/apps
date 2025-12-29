@@ -1,7 +1,13 @@
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigNumberToBigInt, MainchainClients, roundTo } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigNumberToBigInt,
+  MainchainClients,
+  roundTo,
+  calculateAPY,
+  createDeferred,
+} from '@argonprotocol/apps-core';
 import { Config } from './Config';
-import { calculateAPY, createDeferred } from './Utils';
 import { Vaults } from './Vaults.ts';
 
 export class VaultCalculator {

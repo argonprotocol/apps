@@ -67,7 +67,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { getVaultCalculator } from '../stores/mainchain';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
@@ -76,12 +76,12 @@ import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
-import { useBot } from '../stores/bot.ts';
+import { getBot } from '../stores/bot.ts';
 import { botEmitter } from '../lib/Bot.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 
-const config = useConfig();
-const bot = useBot();
+const config = getConfig();
+const bot = getBot();
 
 const draggable = Vue.reactive(new Draggable());
 

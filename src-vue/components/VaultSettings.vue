@@ -206,8 +206,8 @@ import EditBoxOverlay, { type IEditBoxOverlayTypeForVaulting } from '../overlays
 import EditIcon from '../assets/edit.svg?component';
 import IVaultingRules from '../interfaces/IVaultingRules';
 import { getVaultCalculator } from '../stores/mainchain';
-import { useConfig } from '../stores/config';
-import { useCurrency } from '../stores/currency';
+import { getConfig } from '../stores/config';
+import { getCurrency } from '../stores/currency';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import Tooltip from '../components/Tooltip.vue';
 
@@ -220,8 +220,8 @@ const emit = defineEmits<{
   (e: 'toggleEditBoxOverlay', value: boolean): void;
 }>();
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const rules = Vue.computed(() => {

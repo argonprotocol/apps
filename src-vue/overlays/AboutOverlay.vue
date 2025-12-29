@@ -57,12 +57,12 @@ import basicEmitter from '../emitters/basicEmitter';
 import BgOverlay from '../components/BgOverlay.vue';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DialogClose } from 'reka-ui';
 import { AnimatePresence, Motion } from 'motion-v';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import Draggable from './helpers/Draggable';
 import { platformName, platformVersion } from '../tauri-controls/utils/os';
 import { INSTANCE_NAME, INSTANCE_PORT, NETWORK_NAME } from '../lib/Env.ts';
 
-const config = useConfig();
+const config = getConfig();
 
 const isOpen = Vue.ref(false);
 const wasCopied = Vue.ref(false);

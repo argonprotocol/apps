@@ -63,9 +63,9 @@ import numeral from '../lib/numeral';
 import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
 import { BotFetch } from '../lib/BotFetch.ts';
-import { useStats } from '../stores/stats.ts';
+import { getStats } from '../stores/stats.ts';
 
-const stats = useStats();
+const stats = getStats();
 
 const blocks = Vue.ref<IBitcoinBlockMeta[]>([]);
 

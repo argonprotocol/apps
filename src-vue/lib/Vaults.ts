@@ -1,12 +1,18 @@
-import { JsonExt, MiningFrames, PriceIndex, Vaults as VaultsBase, type IAllVaultStats } from '@argonprotocol/apps-core';
+import {
+  JsonExt,
+  MiningFrames,
+  Vaults as VaultsBase,
+  type IAllVaultStats,
+  Currency as CurrencyBase,
+} from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClients } from '../stores/mainchain.ts';
 import { NETWORK_NAME } from './Env.ts';
 
 export class Vaults extends VaultsBase {
-  constructor(network = NETWORK_NAME, priceIndex: PriceIndex, miningFrames: MiningFrames) {
+  constructor(network = NETWORK_NAME, currency: CurrencyBase, miningFrames: MiningFrames) {
     const clients = getMainchainClients();
-    super(network, priceIndex, miningFrames, clients);
+    super(network, currency, miningFrames, clients);
   }
 
   private statsFile() {

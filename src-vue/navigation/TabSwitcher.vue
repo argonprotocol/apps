@@ -47,11 +47,11 @@ import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useController } from '../stores/controller.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import HomeIcon from '../assets/home.svg?component';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 
 const tour = useTour();
 const controller = useController();
-const config = useConfig();
+const config = getConfig();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 

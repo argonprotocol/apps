@@ -262,31 +262,31 @@
                     :style="{ left: currencyLeftPos }"
                     class="pointer-events-none absolute top-1 h-[calc(100%-8px)] w-[calc(25%-8px)] translate-x-[4px] rounded bg-slate-400/10 transition-[left] duration-150 ease-in-out" />
                   <li
-                    @click="startSetCurrencyKey(CurrencyKey.USD)"
-                    :class="[currencyKey === CurrencyKey.USD ? 'font-semibold' : 'opacity-50']"
+                    @click="startSetCurrencyKey(UnitOfMeasurement.USD)"
+                    :class="[currencyKey === UnitOfMeasurement.USD ? 'font-semibold' : 'opacity-50']"
                     class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
-                    {{ CurrencyKey.USD }}
+                    {{ UnitOfMeasurement.USD }}
                   </li>
                   <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
-                    @click="startSetCurrencyKey(CurrencyKey.EUR)"
-                    :class="[currencyKey === CurrencyKey.EUR ? 'font-semibold' : 'opacity-50']"
+                    @click="startSetCurrencyKey(UnitOfMeasurement.EUR)"
+                    :class="[currencyKey === UnitOfMeasurement.EUR ? 'font-semibold' : 'opacity-50']"
                     class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
-                    {{ CurrencyKey.EUR }}
+                    {{ UnitOfMeasurement.EUR }}
                   </li>
                   <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
-                    @click="startSetCurrencyKey(CurrencyKey.GBP)"
-                    :class="[currencyKey === CurrencyKey.GBP ? 'font-semibold' : 'opacity-50']"
+                    @click="startSetCurrencyKey(UnitOfMeasurement.GBP)"
+                    :class="[currencyKey === UnitOfMeasurement.GBP ? 'font-semibold' : 'opacity-50']"
                     class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
-                    {{ CurrencyKey.GBP }}
+                    {{ UnitOfMeasurement.GBP }}
                   </li>
                   <li class="my-1 h-[calc(100%-8px)] w-px bg-slate-600/40" />
                   <li
-                    @click="startSetCurrencyKey(CurrencyKey.INR)"
-                    :class="[currencyKey === CurrencyKey.INR ? 'font-semibold' : 'opacity-50']"
+                    @click="startSetCurrencyKey(UnitOfMeasurement.INR)"
+                    :class="[currencyKey === UnitOfMeasurement.INR ? 'font-semibold' : 'opacity-50']"
                     class="w-1/4 cursor-pointer py-1 hover:font-semibold hover:opacity-80">
-                    {{ CurrencyKey.INR }}
+                    {{ UnitOfMeasurement.INR }}
                   </li>
                 </ul>
               </div>
@@ -456,9 +456,9 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useCurrency } from '../stores/currency.ts';
+import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import { useMyVault, useVaults } from '../stores/vaults.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { TooltipProvider } from 'reka-ui';
@@ -467,29 +467,28 @@ import VaultSmallIcon from '../assets/vault-small.svg?component';
 import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useController } from '../stores/controller.ts';
 import { getDbPromise } from '../stores/helpers/dbPromise.ts';
-import { useWalletBalances, useWalletKeys } from '../stores/wallets.ts';
-import { useStats } from '../stores/stats.ts';
-import { calculateAPY, calculateProfitPct } from '../lib/Utils.ts';
-import { useConfig } from '../stores/config.ts';
-import { CurrencyKey } from '../lib/Currency';
+import { getWalletBalances, getWalletKeys } from '../stores/wallets.ts';
+import { getStats } from '../stores/stats.ts';
+import { getConfig } from '../stores/config.ts';
+import { UnitOfMeasurement, ICurrencyKey, MICRONOTS_PER_ARGONOT } from '../lib/Currency';
 import BigNumber from 'bignumber.js';
 import LineArrow from '../components/asset-breakdown/LineArrow.vue';
-import { bigNumberToBigInt } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt, calculateAPY, calculateProfitPct } from '@argonprotocol/apps-core';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour.ts';
 
-const vaults = useVaults();
-const currency = useCurrency();
+const vaults = getVaults();
+const currency = getCurrency();
 const controller = useController();
 const vaultingStats = useVaultingStats();
 const miningStats = useMiningStats();
 const tour = useTour();
 const dbPromise = getDbPromise();
-const walletKeys = useWalletKeys();
-const myMinerStats = useStats();
-const myVault = useMyVault();
-const config = useConfig();
-const walletBalances = useWalletBalances();
+const walletKeys = getWalletKeys();
+const myMinerStats = getStats();
+const myVault = getMyVault();
+const config = getConfig();
+const walletBalances = getWalletBalances();
 
 const { microgonToNm, microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -498,16 +497,22 @@ const startButtonsRef = Vue.ref<HTMLElement | null>(null);
 const microgonsPerArgonot = Vue.ref(0n);
 const microgonsPerBitcoin = Vue.ref(0n);
 const miningExternalInvested = Vue.ref(0n);
-const currencyKey = Vue.ref(CurrencyKey.USD);
+const currencyKey = Vue.ref<ICurrencyKey>(UnitOfMeasurement.USD);
 
 const currencyIsEngaged = Vue.ref(false);
 const currencyFadeClass = Vue.ref('');
 const currencyLeftPos = Vue.ref('0%');
-const currencyPositions = [CurrencyKey.USD, CurrencyKey.EUR, CurrencyKey.GBP, CurrencyKey.INR];
+const currencyPositions: ICurrencyKey[] = [
+  UnitOfMeasurement.USD,
+  UnitOfMeasurement.EUR,
+  UnitOfMeasurement.GBP,
+  UnitOfMeasurement.INR,
+];
 
 const myMiningEarnings = Vue.computed(() => {
   const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
-  return microgonsMintedTotal + microgonsMinedTotal + currency.micronotToMicrogon(micronotsMinedTotal) - framedCost;
+  const microgonValueOfMicronotsMined = currency.convertMicronotTo(micronotsMinedTotal, UnitOfMeasurement.Microgon);
+  return microgonsMintedTotal + microgonsMinedTotal + microgonValueOfMicronotsMined - framedCost;
 });
 
 const myMiningRoi = Vue.computed(() => {
@@ -550,7 +555,7 @@ const vaultingExternalInvested = Vue.ref(0n);
 const finalPriceAfterTerraCollapse = 1_000n;
 
 const terraPercentReturn = Vue.computed(() => {
-  const usdPriceAfterTerraCollapse = currency.microgonTo(finalPriceAfterTerraCollapse, CurrencyKey.USD);
+  const usdPriceAfterTerraCollapse = currency.convertMicrogonTo(finalPriceAfterTerraCollapse, UnitOfMeasurement.USD);
   return getBitcoinReturnAsPercent(usdPriceAfterTerraCollapse);
 });
 
@@ -572,18 +577,15 @@ function mouseoutCurrencyKey() {
   currencyIsEngaged.value = false;
 }
 
-function finishSetCurrencyKey(key: CurrencyKey) {
+function finishSetCurrencyKey(key: ICurrencyKey) {
   const posIndex = currencyPositions.indexOf(key);
   currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`;
   currencyKey.value = key;
 
   const oneArgonBn = BigNumber(1_000_000n);
-  const argonUsdPrice = currency.usdForArgon;
-  const argonUsdTargetPrice = currency.usdTargetForArgon;
 
-  const argonUsdOffset = ((argonUsdPrice - argonUsdTargetPrice) / argonUsdTargetPrice) * 100;
-  const nextTier = 10 + Math.ceil(argonUsdOffset / 10) * 10;
-  const startingOffset = nextTier - argonUsdOffset;
+  const nextTier = 10 + Math.ceil(currency.targetOffset * 10) * 10;
+  const startingOffset = nextTier - currency.targetOffset * 10;
 
   aboveTargetScenarios.value = [];
   belowTargetScenarios.value = [];
@@ -603,7 +605,7 @@ function finishSetCurrencyKey(key: CurrencyKey) {
     const adjustFactorBn = BigNumber(100).minus(percentOffTarget).dividedBy(100);
     const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
     const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
-    const simulatedPriceInUsd = currency.microgonTo(simulatedPrice, CurrencyKey.USD);
+    const simulatedPriceInUsd = currency.convertMicrogonTo(simulatedPrice, UnitOfMeasurement.USD);
     const earningsPotentialPercent = getBitcoinReturnAsPercent(simulatedPriceInUsd);
     belowTargetScenarios.value.push({
       microgons: simulatedPrice,
@@ -625,11 +627,10 @@ function setupMining() {
 }
 
 function getBitcoinReturnAsPercent(simulatedPriceInUsd: number): number {
-  const r = BigNumber(simulatedPriceInUsd).div(currency.usdTargetForArgon).toNumber();
+  const r = currency.adjustByTargetOffset(simulatedPriceInUsd);
   const argonsRequired = calculateUnlockBurnPerBitcoinDollar(r);
   const argonCost = argonsRequired * simulatedPriceInUsd;
-  const profitPercent = ((1 - argonCost) / argonCost) * 100;
-  return profitPercent;
+  return ((1 - argonCost) / argonCost) * 100;
 }
 
 function calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
@@ -665,14 +666,18 @@ async function loadNetworkStats() {
 
 async function updateExternalFunding() {
   const db = await dbPromise;
-
+  const microgonsPerArgonot = currency.convertMicronotTo(BigInt(MICRONOTS_PER_ARGONOT), UnitOfMeasurement.Microgon);
   const miningFunding = await db.walletTransfersTable.fetchExternal(walletKeys.miningAddress);
   miningExternalInvested.value = 0n;
   for (const transfer of miningFunding) {
     if (transfer.currency === 'argon') {
       miningExternalInvested.value += transfer.amount;
     } else {
-      miningExternalInvested.value += currency.micronotToMicrogon(transfer.amount, transfer.microgonsForArgonot);
+      const targetOffset =
+        currency.calculateTargetOffset(BigNumber(transfer.microgonsForArgonot), BigNumber(microgonsPerArgonot)) || 1;
+      const valueOfMicronots = currency.convertMicronotTo(transfer.amount, UnitOfMeasurement.Microgon);
+      const adjustedValue = Number(valueOfMicronots) * (1 + targetOffset);
+      miningExternalInvested.value += BigInt(adjustedValue);
     }
   }
 
@@ -687,7 +692,7 @@ let unsubscribe: (() => void) | undefined;
 let currencyRotationInterval: ReturnType<typeof setTimeout> | undefined;
 let setCurrencyKeyTimeout: ReturnType<typeof setTimeout> | undefined;
 
-function startSetCurrencyKey(key: CurrencyKey, shouldClearRotation: boolean = true) {
+function startSetCurrencyKey(key: ICurrencyKey, shouldClearRotation: boolean = true) {
   if (!currency.isLoaded) return;
   if (setCurrencyKeyTimeout) clearTimeout(setCurrencyKeyTimeout);
   if (shouldClearRotation) clearInterval(currencyRotationInterval);
@@ -725,17 +730,17 @@ Vue.onMounted(async () => {
   await myMinerStats.load();
 
   finishSetCurrencyKey(currencyKey.value);
-  microgonsPerArgonot.value = currency.microgonExchangeRateTo.ARGNOT;
-  microgonsPerBitcoin.value = currency.microgonExchangeRateTo.BTC;
-  microgonsInCirculation.value = await currency.priceIndex.fetchMicrogonsInCirculation();
-  micronotsInCirculation.value = await currency.priceIndex.fetchMicronotsInCirculation();
-  liquidityReceived.value = await currency.priceIndex.bitcoinLiquidityReceived();
+  microgonsPerArgonot.value = currency.microgonsPer.ARGNOT;
+  microgonsPerBitcoin.value = currency.microgonsPer.BTC;
+  microgonsInCirculation.value = await currency.fetchMicrogonsInCirculation();
+  micronotsInCirculation.value = await currency.fetchMicronotsInCirculation();
+  liquidityReceived.value = await currency.fetchBitcoinLiquidityReceived();
 
   const microgonValueOfVaultedBitcoin = await fetchMicrogonValueOfVaultedBitcoin();
-  const bitcoinDollarValueInVault = currency.usdForArgon * currency.microgonToArgon(microgonValueOfVaultedBitcoin);
-  const usdPriceAfterTerraCollapse = currency.microgonTo(finalPriceAfterTerraCollapse, CurrencyKey.USD);
+  const dollarValueOfVaultedBitcoin = currency.convertMicrogonTo(microgonValueOfVaultedBitcoin, UnitOfMeasurement.USD);
+  const usdPriceAfterTerraCollapse = currency.convertMicrogonTo(finalPriceAfterTerraCollapse, UnitOfMeasurement.USD);
   const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(usdPriceAfterTerraCollapse);
-  argonBurnCapability.value = burnPerBitcoinDollar * bitcoinDollarValueInVault;
+  argonBurnCapability.value = burnPerBitcoinDollar * dollarValueOfVaultedBitcoin;
 
   currencyRotationInterval = setInterval(() => {
     if (currencyIsEngaged.value) return;

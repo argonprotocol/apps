@@ -21,13 +21,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
-import { useInstaller } from '../../stores/installer';
+import { getConfig } from '../../stores/config';
+import { getInstaller } from '../../stores/installer';
 import InstallProgress from '../../components/InstallProgress.vue';
 import { ServerType } from '../../interfaces/IConfig';
 
-const config = useConfig();
-const installer = useInstaller();
+const config = getConfig();
+const installer = getInstaller();
 
 const installDetails = Vue.computed(() => config.installDetails);
 const serverDetails = Vue.computed(() => config.serverDetails);

@@ -38,9 +38,9 @@ import BigNumber from 'bignumber.js';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
 import { getVaultCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getVaultCalculator();
 
 const collateralProvided = Vue.ref(config.vaultingRules.securitizationRatio * 100);

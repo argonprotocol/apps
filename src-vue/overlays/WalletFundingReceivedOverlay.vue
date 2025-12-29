@@ -81,22 +81,22 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../stores/config';
-import { useCurrency } from '../stores/currency';
+import { getConfig } from '../stores/config';
+import { getCurrency } from '../stores/currency';
 import Overlay from './Overlay.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import { IWalletType } from '../lib/Wallet.ts';
 import ProgressBar from '../components/ProgressBar.vue';
-import { useMyVault } from '../stores/vaults.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import { useWallets } from '../stores/wallets.ts';
 import VaultAllocation from '../components/VaultAllocation.vue';
 
 const isOpen = Vue.computed(() => changes.value.length > 0);
 
-const currency = useCurrency();
-const config = useConfig();
+const currency = getCurrency();
+const config = getConfig();
 const wallets = useWallets();
-const myVault = useMyVault();
+const myVault = getMyVault();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 

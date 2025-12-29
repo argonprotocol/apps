@@ -115,21 +115,21 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import AlertIcon from '../assets/alert.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
-import { useStats } from '../stores/stats';
-import { useBot } from '../stores/bot';
+import { getStats } from '../stores/stats';
+import { getBot } from '../stores/bot';
 import Restarter from '../lib/Restarter';
 import { getDbPromise } from '../stores/helpers/dbPromise';
-import { useInstaller } from '../stores/installer';
+import { getInstaller } from '../stores/installer';
 import Button from '../tauri-controls/components/Button.vue';
 import { getMainchainClients } from '../stores/mainchain.ts';
 
-const stats = useStats();
-const config = useConfig();
-const bot = useBot();
-const installer = useInstaller();
+const stats = getStats();
+const config = getConfig();
+const bot = getBot();
+const installer = getInstaller();
 const dbPromise = getDbPromise();
 const clients = getMainchainClients();
 

@@ -41,15 +41,15 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import { save as saveFileOverlay } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IRecoveryFile } from '../../interfaces/IRecoveryFile.ts';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
-const walleyKeys = useWalletKeys();
+const config = getConfig();
+const walleyKeys = getWalletKeys();
 const isSavingExport = Vue.ref(false);
 const hasSavedExport = Vue.ref(false);
 

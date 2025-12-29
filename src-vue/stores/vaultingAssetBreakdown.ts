@@ -3,17 +3,17 @@ import { defineStore } from 'pinia';
 import { bigIntMax, bigNumberToBigInt } from '@argonprotocol/apps-core';
 import { MyVault } from '../lib/MyVault.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
-import { useWalletKeys, useWallets } from './wallets.ts';
-import { useMyVault, useVaults } from './vaults.ts';
-import { useBitcoinLocks } from './bitcoin.ts';
-import { useCurrency } from './currency.ts';
+import { getWalletKeys, useWallets } from './wallets.ts';
+import { getMyVault, getVaults } from './vaults.ts';
+import { getBitcoinLocks } from './bitcoin.ts';
+import { getCurrency } from './currency.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
-  const myVault = useMyVault();
-  const bitcoinLocks = useBitcoinLocks();
-  const currency = useCurrency();
-  const vaults = useVaults();
+  const myVault = getMyVault();
+  const bitcoinLocks = getBitcoinLocks();
+  const currency = getCurrency();
+  const vaults = getVaults();
 
   const unlockPrice = Vue.ref(0n);
 
@@ -124,13 +124,13 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
       unlockPrice.value = 0n;
       return;
     }
-    const vaultingAddress = useWalletKeys().vaultingAddress;
+    const vaultingAddress = getWalletKeys().vaultingAddress;
     const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, vaultingAddress }).catch(() => 0n);
     unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
   }
 
   Vue.watch(
-    currency.priceIndex.current,
+    currency.priceIndex,
     () => {
       void updateBitcoinUnlockPrices();
     },

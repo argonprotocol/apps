@@ -34,12 +34,12 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import AlertIcon from '../../assets/alert.svg?component';
 
 const emit = defineEmits(['close', 'goTo']);
 
-const config = useConfig();
+const config = getConfig();
 
 function fixJurisdiction() {
   emit('goTo', 'fixJurisdiction');

@@ -22,15 +22,15 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getVaultCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 import InputNumber from '../../components/InputNumber.vue';
 import { bigNumberToBigInt } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 const calculator = getVaultCalculator();
 
 const { microgonToBtcNm } = createNumeralHelpers(currency);

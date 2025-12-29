@@ -44,14 +44,14 @@
 import * as Vue from 'vue';
 import InputArgon from './InputArgon.vue';
 import BigNumber from 'bignumber.js';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { useMyVault } from '../stores/vaults.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import numeral from '../lib/numeral.ts';
 
-const config = useConfig();
+const config = getConfig();
 const wallets = useWallets();
-const myVault = useMyVault();
+const myVault = getMyVault();
 
 const props = withDefaults(
   defineProps<{

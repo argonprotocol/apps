@@ -1,7 +1,18 @@
 import { z } from 'zod';
 import { BiddingRulesSchema } from '@argonprotocol/apps-core';
 import { VaultingRulesSchema } from './IVaultingRules';
-import { CurrencyKey } from '../lib/Currency';
+import { UnitOfMeasurement, ICurrencyKey } from '../lib/Currency';
+
+const CurrencyKeySchema = z
+  .nativeEnum(UnitOfMeasurement)
+  .refine(
+    (val): val is ICurrencyKey =>
+      val === UnitOfMeasurement.ARGN ||
+      val === UnitOfMeasurement.USD ||
+      val === UnitOfMeasurement.EUR ||
+      val === UnitOfMeasurement.GBP ||
+      val === UnitOfMeasurement.INR,
+  );
 
 export enum InstallStepKey {
   ServerConnect = 'ServerConnect',
@@ -150,7 +161,7 @@ export const ConfigSchema = z.object({
   biddingRules: BiddingRulesSchema,
   vaultingRules: VaultingRulesSchema,
 
-  defaultCurrencyKey: z.nativeEnum(CurrencyKey),
+  defaultCurrencyKey: CurrencyKeySchema,
   userJurisdiction: z.object({
     ipAddress: z.string(),
     city: z.string(),

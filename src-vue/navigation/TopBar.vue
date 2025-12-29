@@ -44,7 +44,7 @@ import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import InstanceMenu from './InstanceMenu.vue';
 import { useWallets } from '../stores/wallets';
-import { useBot } from '../stores/bot';
+import { getBot } from '../stores/bot';
 import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useTour } from '../stores/tour';
 import { appConfigDir } from '@tauri-apps/api/path';
@@ -56,7 +56,7 @@ import TabSwitcher from './TabSwitcher.vue';
 const controller = useController();
 const wallets = useWallets();
 const tour = useTour();
-const bot = useBot();
+const bot = getBot();
 
 const financialsMenuRef = Vue.ref<InstanceType<typeof FinancialsMenu> | null>(null);
 const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);

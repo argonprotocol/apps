@@ -6,7 +6,7 @@ import { getBlockWatch } from './mainchain.ts';
 
 let transactionTracker: TransactionTracker;
 
-export function useTransactionTracker(): TransactionTracker {
+export function getTransactionTracker(): TransactionTracker {
   if (!transactionTracker) {
     const dbPromise = getDbPromise();
     const blockWatch = getBlockWatch();

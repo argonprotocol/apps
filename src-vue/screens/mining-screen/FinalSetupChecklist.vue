@@ -174,11 +174,11 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import basicEmitter from '../../emitters/basicEmitter';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import { useWallets } from '../../stores/wallets';
-import { useCurrency } from '../../stores/currency';
+import { getCurrency } from '../../stores/currency';
 import Checkbox from '../../components/Checkbox.vue';
-import { useInstaller } from '../../stores/installer';
+import { getInstaller } from '../../stores/installer';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
@@ -189,13 +189,14 @@ import BotCreatePanel from '../../panels/BotCreatePanel.vue';
 import { useController } from '../../stores/controller';
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 import { ScreenKey } from '../../interfaces/IConfig.ts';
+import { UnitOfMeasurement } from '../../lib/Currency.ts';
 
 dayjs.extend(utc);
 
-const config = useConfig();
-const installer = useInstaller();
+const config = getConfig();
+const installer = getInstaller();
 const wallets = useWallets();
-const currency = useCurrency();
+const currency = getCurrency();
 const controller = useController();
 const calculator = getBiddingCalculator();
 const openBotCreate = Vue.ref(false);
@@ -308,7 +309,10 @@ async function launchMiningBot() {
   if (wallets.miningWallet.availableMicronots > biddingRules.initialMicronotRequirement) {
     biddingRules.initialMicronotRequirement = wallets.miningWallet.availableMicronots;
   }
-  const micronotsAsMicrogons = currency.micronotToMicrogon(wallets.miningWallet.availableMicronots);
+  const micronotsAsMicrogons = currency.convertMicronotTo(
+    wallets.miningWallet.availableMicronots,
+    UnitOfMeasurement.Microgon,
+  );
 
   biddingRules.initialCapitalCommitment = wallets.miningWallet.availableMicrogons + micronotsAsMicrogons;
 

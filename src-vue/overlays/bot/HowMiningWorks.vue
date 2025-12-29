@@ -249,19 +249,19 @@
 import * as Vue from 'vue';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import BgOverlay from '../../components/BgOverlay.vue';
 import { ArrowRightCircleIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import { getMainchainClient, getMining } from '../../stores/mainchain';
 import { createNumeralHelpers } from '../../lib/numeral';
-import { useCurrency } from '../../stores/currency';
+import { getCurrency } from '../../stores/currency';
 import { type IWinningBid, Mining } from '@argonprotocol/apps-core';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 
-const config = useConfig();
+const config = getConfig();
 const mining = getMining();
 
-const currency = useCurrency();
+const currency = getCurrency();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);

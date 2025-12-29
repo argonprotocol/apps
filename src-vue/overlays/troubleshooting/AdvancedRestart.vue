@@ -132,13 +132,13 @@ import Checkbox from '../../components/Checkbox.vue';
 import Restarter from '../../lib/Restarter';
 import { AdvancedRestartOption } from '../../interfaces/IAdvancedRestartOption';
 import { getDbPromise } from '../../stores/helpers/dbPromise';
-import { useConfig } from '../../stores/config';
-import { useInstaller } from '../../stores/installer';
-import { useBot } from '../../stores/bot';
+import { getConfig } from '../../stores/config';
+import { getInstaller } from '../../stores/installer';
+import { getBot } from '../../stores/bot';
 
-const config = useConfig();
-const installer = useInstaller();
-const bot = useBot();
+const config = getConfig();
+const installer = getInstaller();
+const bot = getBot();
 
 const dbPromise = getDbPromise();
 const restarter = new Restarter(dbPromise, config as any);
