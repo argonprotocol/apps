@@ -15,24 +15,23 @@ import {
 import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
-import { createDeferred, IDeferred, percentOf,
+import {
+  createDeferred,
+  IDeferred,
+  percentOf,
   bigIntMax,
   bigNumberToBigInt,
-  IVaultStats,
   MiningFrames,
   MoveFrom,
   MoveTo,
   NetworkConfig,
-<<<<<<< HEAD
+  IVaultStats,
 } from '@argonprotocol/apps-core';
-=======
-  IVaultStats } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import { Vaults } from './Vaults.ts';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
->>>>>>> 95e8500 (feat: moved Currency from src-vue to core and created GlobalMiningStats and GlobalVaultingStats for use in website)
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
