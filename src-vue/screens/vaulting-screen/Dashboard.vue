@@ -646,12 +646,16 @@ async function loadChartData(currentFrameId?: number) {
   }
 
   const items: IChartItem[] = [];
+  let isFiller = true;
   for (const [index, frame] of records.entries()) {
+    if (myVaultRevenueByFrame[frame.id]) {
+      isFiller = false;
+    }
     const item = {
       id: frame.id,
       date: frame.date,
       score: (frame.frameProfitPercent / maxFrameProfitPercent) * 100,
-      isFiller: !myVaultRevenueByFrame[frame.id],
+      isFiller,
       previous: items[index - 1],
       next: undefined,
     };
