@@ -89,7 +89,7 @@
           Bitcoin Security
           <template #icon><ArgonotIcon class="h-7 w-7" /></template>
           <template #value>
-            {{ currency.symbol }}{{ micronotToMoneyNm(breakdown.bitcoinSecurityTotal).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.bitcoinSecurityTotal).format('0,0.00') }}
           </template>
           <template #tooltip>
             <p class="break-words whitespace-normal">
@@ -147,7 +147,7 @@
           Treasury Bonds
           <template #icon><ArgonotIcon class="h-7 w-7" /></template>
           <template #value>
-            {{ currency.symbol }}{{ micronotToMoneyNm(breakdown.treasuryBondTotal).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.treasuryBondTotal).format('0,0.00') }}
           </template>
 
           <template #tooltip>

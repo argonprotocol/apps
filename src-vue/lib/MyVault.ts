@@ -24,11 +24,11 @@ import BitcoinLocksStore from './BitcoinLocksStore.ts';
 import {
   bigIntMax,
   bigNumberToBigInt,
+  IVaultStats,
   MiningFrames,
   MoveFrom,
   MoveTo,
   NetworkConfig,
-  IVaultStats,
 } from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
@@ -526,9 +526,25 @@ export class MyVault {
       if (revenue === undefined) {
         throw new Error('Failed to determine collected revenue from vault collect events');
       }
+      const client = await getMainchainClient(false);
+      const clientAt = await client.at(txInfo.txResult.blockHash!);
+      const balanceAtBlock = await clientAt.query.system
+        .account(this.walletKeys.vaultingAddress)
+        .then(x => x.data.free.toBigInt());
+
+      // Make sure the collect amount doesn't drain the account below operational reserves
+      const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
+      if (maxAmountToMove < 50_000n) {
+        throw new Error('The amount requested to move is too low after accounting for operational reserves.');
+      }
+      let amountToMove = revenue;
+      if (amountToMove > maxAmountToMove) {
+        amountToMove = maxAmountToMove;
+      }
+
       if (moveTo === MoveTo.Vaulting) {
-        const treasuryAmount = percentOf(revenue, allocationPercents!.treasury);
-        const securitizationAmount = revenue - treasuryAmount;
+        const treasuryAmount = percentOf(amountToMove, allocationPercents!.treasury);
+        const securitizationAmount = amountToMove - treasuryAmount;
         const allocateTxInfo = await this.increaseVaultAllocations({
           addedSecuritizationMicrogons: securitizationAmount,
           addedTreasuryMicrogons: treasuryAmount,
@@ -543,13 +559,13 @@ export class MyVault {
         }[moveTo];
         const client = await getMainchainClient(false);
         const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
-          tx: client.tx.balances.transferKeepAlive(moveToAddress, revenue),
+          tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
           signer: argonKeyring,
           extrinsicType: ExtrinsicType.Transfer,
           metadata: {
             moveFrom: MoveFrom.VaultingUnusedArgon,
             moveTo,
-            amount: revenue,
+            amount: amountToMove,
           },
           useLatestNonce: true,
         });

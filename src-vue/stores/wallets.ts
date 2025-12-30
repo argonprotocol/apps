@@ -179,6 +179,9 @@ export const useWallets = defineStore('wallets', () => {
       holding: holdingWallet,
     }[type];
     Object.assign(wallet, entry);
+    const walletEntry = walletBalances[`${type}Wallet`];
+    wallet.totalMicrogons = walletEntry.totalMicrogons;
+    wallet.totalMicronots = walletEntry.totalMicronots;
   });
 
   async function load() {
@@ -188,9 +191,17 @@ export const useWallets = defineStore('wallets', () => {
         await walletBalances.load();
         totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
         totalWalletMicronots.value = walletBalances.totalWalletMicronots;
-        Object.assign(miningWallet, walletBalances.miningWallet.latestBalanceChange);
-        Object.assign(vaultingWallet, walletBalances.vaultingWallet.latestBalanceChange);
-        Object.assign(holdingWallet, walletBalances.holdingWallet.latestBalanceChange);
+        for (const walletType of ['mining', 'vaulting', 'holding'] as const) {
+          const wallet = {
+            mining: miningWallet,
+            vaulting: vaultingWallet,
+            holding: holdingWallet,
+          }[walletType];
+          const walletEntry = walletBalances[`${walletType}Wallet`];
+          Object.assign(wallet, walletEntry.latestBalanceChange);
+          wallet.totalMicrogons = walletEntry.totalMicrogons;
+          wallet.totalMicronots = walletEntry.totalMicronots;
+        }
         await Promise.all([stats.isLoadedPromise, currency.isLoadedPromise]);
         isLoadedResolve();
         isLoaded.value = true;
