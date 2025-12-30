@@ -1,7 +1,9 @@
+<!-- prettier-ignore -->
 <template>
   <section
     ref="toggleRef"
-    class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600">
+    class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
+  >
     <div
       Item
       class="border-r border-slate-400"
@@ -15,7 +17,7 @@
       </div>
     </div>
     <div
-      Item
+      Item Home
       class="border-r border-slate-400"
       @click="goto(ScreenKey.Home)"
       :class="{ selected: controller.screenKey === ScreenKey.Home }">
@@ -105,8 +107,8 @@ section {
     padding: 4px 30px;
     transition: opacity 0.3s ease;
     position: relative;
-    &:first-child {
-      padding: 4px 8px;
+    &[Home] {
+      padding: 4px 14px;
     }
     [Wrapper] {
       display: block;
