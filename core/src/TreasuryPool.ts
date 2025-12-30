@@ -1,5 +1,6 @@
 import { type ArgonClient } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt } from './utils.js';
+import BigNumber from 'bignumber.js';
 
 export class TreasuryPool {
   public static async getActiveCapital(
