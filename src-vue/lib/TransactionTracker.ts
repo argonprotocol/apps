@@ -307,16 +307,8 @@ export class TransactionTracker {
           }
         }
 
+        // first check if we can find the transaction (this is particularly relevant if we re-open the app after 60 blocks)
         const MAX_BLOCKS_TO_CHECK = 60;
-        if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
-          // too old, stop checking
-          console.log('Skipping transaction too old to check:', tx.extrinsicHash);
-          txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
-          txResult.setFinalized();
-          await table.markExpiredWaitingForBlock(tx);
-          continue;
-        }
-
         const findTransactionResult = await this.findTransactionInBlocks(
           tx,
           MAX_BLOCKS_TO_CHECK,
@@ -362,7 +354,15 @@ export class TransactionTracker {
             txResult.setFinalized();
           }
         } else {
-          console.log('No transaction found in block', { bestBlockNumber });
+          console.log('No transaction found as of block', { bestBlockNumber });
+
+          if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
+            // too old, stop checking
+            console.log('Marking transaction expired:', tx.extrinsicHash);
+            txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
+            txResult.setFinalized();
+            await table.markExpiredWaitingForBlock(tx);
+          }
         }
       } catch (error) {
         console.error('Error updating pending transaction status:', error);
