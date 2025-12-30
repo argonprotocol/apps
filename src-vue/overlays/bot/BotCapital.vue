@@ -91,7 +91,6 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getCurrency } from '../../stores/currency';
-import BigNumber from 'bignumber.js';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';

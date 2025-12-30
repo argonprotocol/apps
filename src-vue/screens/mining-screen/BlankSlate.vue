@@ -114,11 +114,7 @@ function startSettingUpMiner() {
 }
 
 Vue.onMounted(async () => {
-  Promise.all([
-    miningStats.updateAggregateBidCosts(),
-    miningStats.updateAggregateBlockRewards(),
-    miningStats.updateActiveMiningSeatCount(),
-  ]).then(() => {
+  Promise.all([miningStats.update()]).then(() => {
     isLoaded.value = true;
   });
 });

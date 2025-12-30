@@ -1,10 +1,9 @@
-import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { type ApiDecoration, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import {
   SATOSHIS_PER_BITCOIN,
   MICRONOTS_PER_ARGONOT,
   Currency as CurrencyBase,
   UnitOfMeasurement,
-  MainchainClients,
   type ICurrencyRecord,
   type ICurrencyKey,
 } from '@argonprotocol/apps-core';
@@ -25,8 +24,8 @@ export class Currency extends CurrencyBase {
   public record!: ICurrencyRecord;
   private config: Config;
 
-  constructor(mainchainClients: MainchainClients, config: Config) {
-    super(mainchainClients);
+  constructor(client: Promise<ApiDecoration<'promise'>>, config: Config) {
+    super(client);
     this.config = config;
     this._key = null;
   }

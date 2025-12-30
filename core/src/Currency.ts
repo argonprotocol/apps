@@ -3,7 +3,6 @@ import { bigNumberToBigInt } from './utils.js';
 import { type ApiDecoration, MICROGONS_PER_ARGON, PriceIndex, SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
-import type { MainchainClients } from './MainchainClients.js';
 import { NetworkConfig } from './NetworkConfig.js';
 
 const TEN_MINUTES_IN_MILLISECONDS = 10 * 60e3;
@@ -32,35 +31,41 @@ export type ICurrencyKey =
   | UnitOfMeasurement.EUR
   | UnitOfMeasurement.GBP
   | UnitOfMeasurement.INR;
+
 export interface ICurrencyRecord {
   key: ICurrencyKey;
   symbol: string;
   name: string;
 }
 
+export type IMicrogonsPer = Record<UnitOfMeasurement, bigint>;
+
 type IRawFiatRates = Record<string, number> | null;
 
 export type IMainchainRates = Record<UnitOfMeasurement.ARGNOT | UnitOfMeasurement.USD | UnitOfMeasurement.BTC, bigint>;
+
+export const defaultMicrogonsPer: IMicrogonsPer = {
+  Microgon: 1n,
+  Micronot: BigInt(MICROGONS_PER_ARGON),
+  Satoshi: BigInt(MICROGONS_PER_ARGON),
+  Bitcoin: BigInt(MICROGONS_PER_ARGON),
+  ARGN: BigInt(MICROGONS_PER_ARGON),
+  ARGNOT: BigInt(MICROGONS_PER_ARGON),
+  USD: BigInt(MICROGONS_PER_ARGON),
+  EUR: BigInt(MICROGONS_PER_ARGON),
+  GBP: BigInt(MICROGONS_PER_ARGON),
+  INR: BigInt(MICROGONS_PER_ARGON),
+  BTC: BigInt(MICROGONS_PER_ARGON),
+};
 
 export class Currency {
   public priceIndex = new PriceIndex();
 
   // These exchange rates are relative to the argon, which means the ARGN is always 1
-  public microgonsPer: Record<UnitOfMeasurement, bigint> = {
-    Microgon: 1n,
-    Micronot: BigInt(MICROGONS_PER_ARGON),
-    Satoshi: BigInt(MICROGONS_PER_ARGON),
-    Bitcoin: BigInt(MICROGONS_PER_ARGON),
-    ARGN: BigInt(MICROGONS_PER_ARGON),
-    ARGNOT: BigInt(MICROGONS_PER_ARGON),
-    USD: BigInt(MICROGONS_PER_ARGON),
-    EUR: BigInt(MICROGONS_PER_ARGON),
-    GBP: BigInt(MICROGONS_PER_ARGON),
-    INR: BigInt(MICROGONS_PER_ARGON),
-    BTC: BigInt(MICROGONS_PER_ARGON),
-  };
+  public microgonsPer: IMicrogonsPer = defaultMicrogonsPer;
 
-  public targetOffset = 0;
+  public usdTarget = 0;
+  public usdTargetOffset = 0;
 
   public recordsByKey: Record<ICurrencyKey, ICurrencyRecord> = {
     [UnitOfMeasurement.ARGN]: { key: UnitOfMeasurement.ARGN, symbol: '₳', name: 'Argon' },
@@ -74,7 +79,7 @@ export class Currency {
   public isLoadedPromise: Promise<void>;
   private isLoadedDeferred: IDeferred<void>;
 
-  constructor(public clients: MainchainClients) {
+  constructor(public client: Promise<ApiDecoration<'promise'>>) {
     this.isLoaded = false;
     this.isLoadedDeferred = createDeferred<void>();
     this.isLoadedPromise = this.isLoadedDeferred.promise;
@@ -94,7 +99,7 @@ export class Currency {
   }
 
   public adjustByTargetOffset(value: number): number {
-    return value * (1 + this.targetOffset);
+    return value * (1 + this.usdTargetOffset);
   }
 
   public convertMicrogonTo(microgons: bigint, to: UnitOfMeasurement.Microgon): bigint;
@@ -156,23 +161,23 @@ export class Currency {
   }
 
   public async fetchMicrogonsInCirculation(api?: ApiDecoration<'promise'>): Promise<bigint> {
-    const client = api ?? (await this.clients.prunedClientOrArchivePromise);
+    const client = api ?? (await this.client);
     return (await client.query.balances.totalIssuance()).toBigInt();
   }
 
   public async fetchMicronotsInCirculation(): Promise<bigint> {
-    const client = await this.clients.prunedClientOrArchivePromise;
+    const client = await this.client;
     return (await client.query.ownership.totalIssuance()).toBigInt();
   }
 
   public async fetchBitcoinLiquidityReceived(): Promise<bigint> {
-    const client = await this.clients.prunedClientOrArchivePromise;
+    const client = await this.client;
     return (await client.query.mint.mintedBitcoinMicrogons()).toBigInt();
   }
 
   public async fetchMainchainRates(api?: ApiDecoration<'promise'>, ignoreCache = true): Promise<IMainchainRates> {
-    api ??= await this.clients.prunedClientOrArchivePromise;
-    await this.priceIndex.load(api as any);
+    api ??= await this.client;
+    await this.priceIndex.load(api);
 
     if (this.priceIndex.argonUsdPrice) {
       // These exchange rates should be relative to the argon
@@ -207,7 +212,8 @@ export class Currency {
   private updateTargetOffset(argonUsdPrice: BigNumber | undefined, argonUsdTargetPrice: BigNumber | undefined): void {
     const targetOffset = this.calculateTargetOffset(argonUsdPrice, argonUsdTargetPrice);
     if (targetOffset === null) return;
-    this.targetOffset = targetOffset;
+    this.usdTargetOffset = targetOffset;
+    this.usdTarget = argonUsdTargetPrice?.toNumber() ?? 0;
   }
 
   private calculateExchangeRateInMicrogons(usdAmountBn: BigNumber, usdForArgonBn: BigNumber): bigint {

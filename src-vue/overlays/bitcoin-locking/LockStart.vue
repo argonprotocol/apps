@@ -131,7 +131,7 @@ async function internalHandleBtcChange(value: number) {
     return;
   }
   const sats = BigInt(Math.floor(value * Number(SATS_PER_BTC)));
-  microgonAmount.value = await vaults.getMarketRate(sats);
+  microgonAmount.value = await vaults.getMarketRateInMicrogons(sats);
   console.log(`Btc market rate of ${sats} sats -> ${microgonAmount.value} argons`);
   lastSetMicrogonAmount = microgonAmount.value;
   lastSetBtcAmount = value;

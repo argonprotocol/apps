@@ -11,6 +11,7 @@ import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
 import type { IMiningIndex } from './Accountset.ts';
 import { NetworkConfig } from './NetworkConfig.js';
+import BigNumber from 'bignumber.js';
 
 const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.8;
 const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.2;

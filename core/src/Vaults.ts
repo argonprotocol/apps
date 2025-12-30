@@ -292,7 +292,7 @@ export class Vaults {
     return await BitcoinLock.getRedemptionRate(this.currency.priceIndex, lock);
   }
 
-  public async getMarketRate(satoshis: bigint): Promise<bigint> {
+  public async getMarketRateInMicrogons(satoshis: bigint): Promise<bigint> {
     await this.currency.fetchMainchainRates();
     return await BitcoinLock.getMarketRate(this.currency.priceIndex, satoshis);
   }

@@ -13,7 +13,7 @@ export function getCurrency(): Vue.Reactive<Currency> {
     console.log('Initializing currency');
     const config = getConfig();
     const mainchainClients = getMainchainClients();
-    currency = Vue.reactive(new Currency(mainchainClients, config as Config));
+    currency = Vue.reactive(new Currency(mainchainClients.prunedClientOrArchivePromise, config as Config));
     currency.load().catch(handleFatalError.bind('useCurrency'));
   }
 

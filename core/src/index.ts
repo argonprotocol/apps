@@ -24,6 +24,8 @@ export * from './Vaults.js';
 export * from './Currency.js';
 export * from './SingleFileQueue.js';
 export * from './JsonExt.js';
+export * from './GlobalVaultingStats.js';
+export * from './GlobalMiningStats.js';
 
 export * from './utils.js';
 

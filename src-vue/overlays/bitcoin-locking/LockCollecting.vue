@@ -48,6 +48,6 @@ function closeOverlay() {
 }
 
 Vue.onMounted(async () => {
-  microgonValue.value = await vaults.getMarketRate(props.personalLock.satoshis ?? 0n).catch(() => 0n);
+  microgonValue.value = await vaults.getMarketRateInMicrogons(props.personalLock.satoshis ?? 0n).catch(() => 0n);
 });
 </script>

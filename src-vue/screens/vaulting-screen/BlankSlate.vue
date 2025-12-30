@@ -73,7 +73,7 @@
           <li class="w-1/4">
             <div class="text-4xl font-bold">
               <template v-if="isLoaded">
-                {{ numeral(vaultingStats.averageVaultAPY).formatIfElseCapped('< 1_000', '0,0.00', '0,0', 9_999) }}%
+                {{ numeral(vaultingStats.averageAPY).formatIfElseCapped('< 1_000', '0,0.00', '0,0', 9_999) }}%
               </template>
               <template v-else>---</template>
             </div>

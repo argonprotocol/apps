@@ -406,7 +406,9 @@ export class WalletBalances {
         entry.transfers = filter.transfers;
         entry.vaultRevenueEvents = filter.vaultRevenueEvents;
 
-        prices ??= await new CurrencyBase(this.blockWatch.clients).fetchMainchainRates(api);
+        prices ??= await new CurrencyBase(this.blockWatch.clients.prunedClientOrArchivePromise).fetchMainchainRates(
+          api,
+        );
         const changed = await wallet.onBalanceChange(entry, prices);
         if (changed) {
           this.events.emit('balance-change', entry, wallet.type);

@@ -5,6 +5,18 @@
     <div
       Item
       class="border-r border-slate-400"
+      @click="goto(ScreenKey.Mining)"
+      :class="{ selected: controller.screenKey === ScreenKey.Mining }">
+      <div Wrapper class="relative inline px-2 text-center">
+        <div :class="{ invisible: controller.screenKey === ScreenKey.Mining }">Mining</div>
+        <div v-if="controller.screenKey === ScreenKey.Mining" class="absolute top-0 left-0 h-full w-full font-bold">
+          Mining
+        </div>
+      </div>
+    </div>
+    <div
+      Item
+      class="border-r border-slate-400"
       @click="goto(ScreenKey.Home)"
       :class="{ selected: controller.screenKey === ScreenKey.Home }">
       <div Wrapper class="relative inline px-1 text-center">
@@ -15,18 +27,6 @@
           v-if="controller.screenKey === ScreenKey.Home"
           class="absolute top-0 left-0 h-full w-full text-center font-bold">
           <HomeIcon class="text-argon-600 relative top-[1.5px] mx-auto h-5" />
-        </div>
-      </div>
-    </div>
-    <div
-      Item
-      class="border-r border-slate-400"
-      @click="goto(ScreenKey.Mining)"
-      :class="{ selected: controller.screenKey === ScreenKey.Mining }">
-      <div Wrapper class="relative inline px-2 text-center">
-        <div :class="{ invisible: controller.screenKey === ScreenKey.Mining }">Mining</div>
-        <div v-if="controller.screenKey === ScreenKey.Mining" class="absolute top-0 left-0 h-full w-full font-bold">
-          Mining
         </div>
       </div>
     </div>

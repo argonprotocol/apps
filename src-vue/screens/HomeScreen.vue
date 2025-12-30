@@ -333,7 +333,8 @@
                 <div class="font-bold">IF</div>
                 <div>prices fall to</div>
                 <span class="font-mono font-bold text-red-700/50">
-                  {{ currencySymbol }}{{ microgonToNm(finalPriceAfterTerraCollapse, currencyKey).format('0,0.000') }}
+                  {{ currencySymbol
+                  }}{{ microgonToNm(vaultingStats.finalPriceAfterTerraCollapse, currencyKey).format('0,0.000') }}
                 </span>
                 <span class="text-center">THEN</span>
                 <div>bitcoiners earn</div>
@@ -347,9 +348,9 @@
               <div class="relative mt-3 mb-5 grow rounded-t-lg border border-b-0 border-slate-400/50 px-4 pt-4 pb-2">
                 <div class="absolute top-1/4 -right-0.5 -left-0.5 h-3/4 bg-gradient-to-b from-transparent to-white" />
                 <div Stat class="relative z-10">
-                  {{ numeral(argonBurnCapability).format('0,0') }}
+                  {{ numeral(vaultingStats.argonBurnCapability).format('0,0') }}
                 </div>
-                <label class="relative z-10">Argon Circulation Burn Potential</label>
+                <label class="relative z-10">Argon Circulation Burn Capability</label>
               </div>
             </div>
           </div>
@@ -473,7 +474,7 @@ import { getConfig } from '../stores/config.ts';
 import { UnitOfMeasurement, ICurrencyKey, MICRONOTS_PER_ARGONOT } from '../lib/Currency';
 import BigNumber from 'bignumber.js';
 import LineArrow from '../components/asset-breakdown/LineArrow.vue';
-import { bigNumberToBigInt, calculateAPY, calculateProfitPct } from '@argonprotocol/apps-core';
+import { bigNumberToBigInt, calculateAPY, calculateProfitPct, GlobalVaultingStats } from '@argonprotocol/apps-core';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour.ts';
 
@@ -552,10 +553,11 @@ const activatedSecuritization = Vue.ref(0n);
 
 const vaultingExternalInvested = Vue.ref(0n);
 
-const finalPriceAfterTerraCollapse = 1_000n;
-
 const terraPercentReturn = Vue.computed(() => {
-  const usdPriceAfterTerraCollapse = currency.convertMicrogonTo(finalPriceAfterTerraCollapse, UnitOfMeasurement.USD);
+  const usdPriceAfterTerraCollapse = currency.convertMicrogonTo(
+    vaultingStats.finalPriceAfterTerraCollapse,
+    UnitOfMeasurement.USD,
+  );
   return getBitcoinReturnAsPercent(usdPriceAfterTerraCollapse);
 });
 
@@ -564,8 +566,6 @@ const belowTargetScenarios = Vue.ref<{ microgons: bigint; earningsPotentialPerce
 
 const microgonsInCirculation = Vue.ref(0n);
 const micronotsInCirculation = Vue.ref(0n);
-
-const argonBurnCapability = Vue.ref(0);
 
 const liquidityReceived = Vue.ref(0n);
 
@@ -584,8 +584,8 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
 
   const oneArgonBn = BigNumber(1_000_000n);
 
-  const nextTier = 10 + Math.ceil(currency.targetOffset * 10) * 10;
-  const startingOffset = nextTier - currency.targetOffset * 10;
+  const nextTier = 10 + Math.ceil(currency.usdTargetOffset * 10) * 10;
+  const startingOffset = nextTier - currency.usdTargetOffset * 10;
 
   aboveTargetScenarios.value = [];
   belowTargetScenarios.value = [];
@@ -628,31 +628,9 @@ function setupMining() {
 
 function getBitcoinReturnAsPercent(simulatedPriceInUsd: number): number {
   const r = currency.adjustByTargetOffset(simulatedPriceInUsd);
-  const argonsRequired = calculateUnlockBurnPerBitcoinDollar(r);
+  const argonsRequired = GlobalVaultingStats.calculateUnlockBurnPerBitcoinDollar(r);
   const argonCost = argonsRequired * simulatedPriceInUsd;
   return ((1 - argonCost) / argonCost) * 100;
-}
-
-function calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
-  const r = argonRatioPrice;
-  if (r >= 1.0) {
-    return 1;
-  } else if (r >= 0.9) {
-    return 20 * Math.pow(r, 2) - 38 * r + 19;
-  } else if (r >= 0.01) {
-    return (0.5618 * r + 0.3944) / r;
-  } else {
-    return (1 / r) * (0.576 * r + 0.4);
-  }
-}
-
-async function fetchMicrogonValueOfVaultedBitcoin() {
-  const satsLocked = vaults.getTotalSatoshisLocked();
-  try {
-    return await vaults.getMarketRate(satsLocked);
-  } catch (error) {
-    return 0n;
-  }
 }
 
 async function loadNetworkStats() {
@@ -669,6 +647,7 @@ async function updateExternalFunding() {
   const microgonsPerArgonot = currency.convertMicronotTo(BigInt(MICRONOTS_PER_ARGONOT), UnitOfMeasurement.Microgon);
   const miningFunding = await db.walletTransfersTable.fetchExternal(walletKeys.miningAddress);
   miningExternalInvested.value = 0n;
+
   for (const transfer of miningFunding) {
     if (transfer.currency === 'argon') {
       miningExternalInvested.value += transfer.amount;
@@ -676,7 +655,7 @@ async function updateExternalFunding() {
       const targetOffset =
         currency.calculateTargetOffset(BigNumber(transfer.microgonsForArgonot), BigNumber(microgonsPerArgonot)) || 1;
       const valueOfMicronots = currency.convertMicronotTo(transfer.amount, UnitOfMeasurement.Microgon);
-      const adjustedValue = Number(valueOfMicronots) * (1 + targetOffset);
+      const adjustedValue = Math.floor(Number(valueOfMicronots) * (1 + targetOffset));
       miningExternalInvested.value += BigInt(adjustedValue);
     }
   }
@@ -718,8 +697,8 @@ Vue.onMounted(async () => {
   await currency.isLoadedPromise;
   await vaults.load();
   await vaultingStats.isLoadedPromise;
-  await loadNetworkStats();
   await miningStats.isLoadedPromise;
+  await loadNetworkStats();
   await myVault.load();
   await updateExternalFunding();
   unsubscribe = walletBalances.events.on('transfer-in', async () => {
@@ -732,15 +711,10 @@ Vue.onMounted(async () => {
   finishSetCurrencyKey(currencyKey.value);
   microgonsPerArgonot.value = currency.microgonsPer.ARGNOT;
   microgonsPerBitcoin.value = currency.microgonsPer.BTC;
+
   microgonsInCirculation.value = await currency.fetchMicrogonsInCirculation();
   micronotsInCirculation.value = await currency.fetchMicronotsInCirculation();
   liquidityReceived.value = await currency.fetchBitcoinLiquidityReceived();
-
-  const microgonValueOfVaultedBitcoin = await fetchMicrogonValueOfVaultedBitcoin();
-  const dollarValueOfVaultedBitcoin = currency.convertMicrogonTo(microgonValueOfVaultedBitcoin, UnitOfMeasurement.USD);
-  const usdPriceAfterTerraCollapse = currency.convertMicrogonTo(finalPriceAfterTerraCollapse, UnitOfMeasurement.USD);
-  const burnPerBitcoinDollar = calculateUnlockBurnPerBitcoinDollar(usdPriceAfterTerraCollapse);
-  argonBurnCapability.value = burnPerBitcoinDollar * dollarValueOfVaultedBitcoin;
 
   currencyRotationInterval = setInterval(() => {
     if (currencyIsEngaged.value) return;

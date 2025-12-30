@@ -1,35 +1,51 @@
 import * as Vue from 'vue';
 import { getVaults } from './vaults.ts';
 import { defineStore } from 'pinia';
-import { GlobalVaultingStats } from '../../core/src/GlobalVaultingStats.ts';
+import { GlobalVaultingStats } from '@argonprotocol/apps-core';
+import { getCurrency, Currency } from './currency.ts';
 
 export const useVaultingStats = defineStore('vaultingStats', () => {
+  let isLoading = false;
+  let isLoadedPromise: Promise<void> | undefined = undefined;
+
   const vaults = getVaults();
+  const currency = getCurrency();
+  const stats = new GlobalVaultingStats(vaults, currency as Currency);
 
   const vaultCount = Vue.ref(0);
   const bitcoinLocked = Vue.ref(0);
   const microgonValueInVaults = Vue.ref(0n);
   const epochEarnings = Vue.ref(0n);
-  const averageVaultAPY = Vue.ref(0);
+  const averageAPY = Vue.ref(0);
 
-  async function load() {
-    const stats = new GlobalVaultingStats(vaults);
-    await stats.load();
+  const argonBurnCapability = Vue.ref(0);
+  const finalPriceAfterTerraCollapse = Vue.ref(0n);
+
+  async function update() {
+    if (!isLoading && !isLoadedPromise) await stats.load();
+    else if (!isLoading) await stats.update();
+    isLoading = true;
+
     vaultCount.value = stats.vaultCount;
     bitcoinLocked.value = stats.bitcoinLocked;
-    microgonValueInVaults.value = stats.microgonValueInVaults;
+    microgonValueInVaults.value = stats.microgonValueOfVaultedBitcoins;
     epochEarnings.value = stats.epochEarnings;
-    averageVaultAPY.value = stats.averageAPY;
+    averageAPY.value = stats.averageAPY;
+    argonBurnCapability.value = stats.argonBurnCapability;
+    finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
+    isLoading = false;
   }
 
-  const isLoadedPromise = load();
+  isLoadedPromise = update();
 
   return {
     vaultCount,
     microgonValueInVaults,
     bitcoinLocked,
-    averageVaultAPY,
+    averageAPY,
     epochEarnings,
+    argonBurnCapability,
+    finalPriceAfterTerraCollapse,
     isLoadedPromise,
   };
 });
