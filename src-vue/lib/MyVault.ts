@@ -24,11 +24,11 @@ import BitcoinLocksStore from './BitcoinLocksStore.ts';
 import {
   bigIntMax,
   bigNumberToBigInt,
+  IVaultStats,
   MiningFrames,
   MoveFrom,
   MoveTo,
   NetworkConfig,
-  IVaultStats,
 } from '@argonprotocol/apps-core';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
@@ -296,8 +296,6 @@ export class MyVault {
       metadata: { utxoId: lockRecord.utxoId, toScriptPubkey, bitcoinNetworkFee },
     });
 
-    await this.bitcoinLocksStore.updateReleaseIsProcessingOnArgon(lockRecord);
-
     void this.onRequestedReleaseInBlock(lockRecord, txInfo, { toScriptPubkey, bitcoinNetworkFee });
     return txInfo;
   }
@@ -309,19 +307,32 @@ export class MyVault {
   ): Promise<void> {
     const { txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
-    const blockHash = await txResult.waitForFinalizedBlock;
-    const client = await getMainchainClient(true);
-    const api = await client.at(blockHash);
+    const releaseStatuses = [
+      BitcoinLockStatus.ReleaseIsProcessingOnArgon,
+      BitcoinLockStatus.ReleaseIsWaitingForVault,
+      BitcoinLockStatus.ReleaseSigned,
+      BitcoinLockStatus.ReleaseIsProcessingOnBitcoin,
+      BitcoinLockStatus.ReleaseComplete,
+    ];
+    // if we're not already processing a release, update the lock record
+    if (!releaseStatuses.includes(lock.status)) {
+      await this.bitcoinLocksStore.updateReleaseIsProcessingOnArgon(lock);
+    }
 
-    const { toScriptPubkey, bitcoinNetworkFee } = releaseInfo;
-    lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
-    lock.releaseToDestinationAddress = toScriptPubkey;
-    lock.releaseBitcoinNetworkFee = bitcoinNetworkFee;
+    if (lock.status === BitcoinLockStatus.ReleaseIsProcessingOnArgon) {
+      const blockHash = await txResult.waitForFinalizedBlock;
+      const client = await getMainchainClient(true);
+      const api = await client.at(blockHash);
 
-    await this.bitcoinLocksStore.updateReleaseIsWaitingForVault(lock);
+      const { toScriptPubkey, bitcoinNetworkFee } = releaseInfo;
+      lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
+      lock.releaseToDestinationAddress = toScriptPubkey;
+      lock.releaseBitcoinNetworkFee = bitcoinNetworkFee;
+      await this.bitcoinLocksStore.updateReleaseIsWaitingForVault(lock);
+    }
 
     // kick off the vault's signing
-    void this.handleCosignOfBitcoinUnlock(lock);
+    await this.handleCosignOfBitcoinUnlock(lock);
 
     postProcessor.resolve();
   }
