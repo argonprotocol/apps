@@ -31,11 +31,11 @@ numeralOriginal.fn.formatIfElse = function (condition: ICondition, ifFormat: str
 numeralOriginal.fn.formatCapped = function (format: string, max: number) {
   if (this._value > max) {
     this._value = max;
-    if (format.includes('%')) {
-      format = format.replace('%', '+%');
-    } else {
-      format += '+';
-    }
+    // if (!format.includes('%')) {
+    //   format += '+';
+    // } else {
+    //   format = format.replace('%', '+%');
+    // }
   }
 
   return this.format(format);
@@ -47,11 +47,11 @@ numeralOriginal.fn.formatIfElseCapped = function (
   elseFormat: string,
   max: number,
 ) {
-  let format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);
+  const format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);
 
   if (this._value > max) {
     this._value = max;
-    format += '+';
+    // format += '+';
   }
 
   return this.format(format);

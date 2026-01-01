@@ -1,4 +1,4 @@
-## Argon Investor Console Core
+## Argon Management Console Core
 
 The library has a few classes that are used to interact with the Argon Protocol.
 

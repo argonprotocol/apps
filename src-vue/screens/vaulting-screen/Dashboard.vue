@@ -2,7 +2,7 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" data-testid="Dashboard" class="flex flex-col h-full">
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
-      <section box class="flex flex-row items-center text-slate-900/90 !py-3">
+      <section v-if="myVault.data.pendingCollectTxInfo || myVault.data.pendingCollectRevenue || myVault.data.pendingCosignUtxoIds.size || !bitcoinLockedValue" box class="flex flex-row items-center text-slate-900/90 !py-3">
         <div class="flex flex-row items-center w-full min-h-[6%]">
           <div v-if="myVault.data.pendingCollectTxInfo" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90" v-if="pendingCollectTxMetadata?.expectedCollectRevenue">

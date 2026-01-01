@@ -36,7 +36,7 @@
 
             <div v-if="isLoaded" class="flex flex-col grow relative w-full">
               <DialogDescription class="text-gray-600 font-light py-6 pl-10 pr-[6%]">
-                Investor Console uses an automated bidding bot to maximize your chance of winning seats, and this screen allows you to
+                This app uses an automated bidding bot to maximize your chance of winning seats, and this screen allows you to
                 configure the rules for how this bot should make decisions on your behalf. Use your mouse to explore the various
                 settings and their impact on your potential profits.
                 <PopoverRoot :open="isSuggestingTour">

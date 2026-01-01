@@ -1,9 +1,9 @@
 <template>
   <div class="mx-5 p-3">
     <DialogDescription class="mt-4 pr-10 font-light opacity-80">
-      Argon Investor Console allows you to use any Ubuntu 24+ server as a server to run the Argon Blockchain and Bidding
-      Bot. You'll need to setup the SSH access credentials correctly, but once that's done, we'll setup everything else
-      (required software, security patches, etc). The minimum requirements are shown below.
+      This app allows you to use any Ubuntu 24+ server as a server to run the Argon Blockchain and Bidding Bot. You'll
+      need to setup the SSH access credentials correctly, but once that's done, we'll setup everything else (required
+      software, security patches, etc). The minimum requirements are shown below.
     </DialogDescription>
 
     <div Warning>
@@ -53,8 +53,8 @@
     <header class="mt-7 font-bold">SSH Security</header>
     <div class="w-10/12">
       <p class="mt-1 mb-3 font-light opacity-80">
-        You'll need to add Argon Investor's SSH public key to your server's authorized keys. Log-in to your server and
-        run the command shown below.
+        You'll need to add an SSH public key to your server's authorized keys. Log-in to your server and run the command
+        shown below.
       </p>
     </div>
     <CopyToClipboard

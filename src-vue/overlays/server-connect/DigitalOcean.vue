@@ -1,9 +1,9 @@
 <template>
   <DialogDescription class="mt-4 pr-10 font-light opacity-80">
-    Argon Investor Console is built to natively support Digital Ocean. All you need to do is create an account, and
-    copy/paste the API Key they give you. We'll then create the server, install all required software, and activate it
-    for you. Simply follow the steps below to get started. Or, you can select other server options using the tabs
-    located at the top of this overlay.
+    This app is built to natively support Digital Ocean. All you need to do is create an account, and copy/paste the API
+    Key they give you. We'll then create the server, install all required software, and activate it for you. Simply
+    follow the steps below to get started. Or, you can select other server options using the tabs located at the top of
+    this overlay.
   </DialogDescription>
 
   <div Recommendation>

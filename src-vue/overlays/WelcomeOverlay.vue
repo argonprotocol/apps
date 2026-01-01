@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <Overlay :isOpen="isOpen" :showCloseIcon="false" title="Welcome to the Argon Investor Console" class="w-7/12">
+  <Overlay :isOpen="isOpen" :showCloseIcon="false" title="Welcome to the Argon Management Console" class="w-7/12">
     <div class="mx-2 pl-5 pr-10 pt-5 space-y-3 font-light leading-6">
       <p>
         You might already be familiar with Argon, but in case you're not: Argon is the first crypto asset
@@ -10,7 +10,7 @@
 
       <p>
         This app is built for a select group of early insiders who want to participate in running Argon's blockchain -- whether by
-        mining new blocks or by vaulting to help stabilize the currency. Argon Investor guides you through setting up operations, handling
+        mining new blocks or by vaulting to help stabilize the currency. We'll guide you through setting up operations, handling
         governance, and monitoring your capital flows. We recommend starting with the quick tour to get familiar.
       </p>
     </div>

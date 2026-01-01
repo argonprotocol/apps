@@ -31,12 +31,12 @@
           class="absolute top-0 right-0 flex w-[33rem] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
             <div class="text-lg font-bold text-slate-700">Your Portfolio Value</div>
-            <div class="text-slate-500/40">Step 3 of 6</div>
+            <div class="text-slate-500/40">Step 3 of 5</div>
           </h3>
 
           <p>
-            This shows the total value of your portfolio across both mining and vaulting. Use it to open your Financials
-            Panel, which has your asset breakdowns, profit/loss, projections, and more.
+            This shows the total value of your portfolio across both mining and vaulting. Argon is the default unit of
+            currency, however, you can use this menu to change it to the Dollar, Euro, Rupee, etc.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

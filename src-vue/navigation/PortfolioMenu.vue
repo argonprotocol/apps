@@ -23,31 +23,30 @@
           @mouseenter="onMouseEnter"
           @mouseleave="onMouseLeave"
           @pointerDownOutside="clickOutside"
-          :align="'end'" 
+          :align="'end'"
           :alignOffset="0"
           :sideOffset="-3"
-          class="z-50 data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFad data-[state=open]:transition-all"
-        >
-          <div class="w-80 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem @click="() => openFinancials()">
-              <div class="flex flex-col grow space-y-2 py-3 px-4 whitespace-nowrap" style="text-shadow: 1px 1px 0 white">
-                <div class="flex flex-row items-center">
-                  <ArgonIcon class="h-14 w-14 mr-3 text-argon-500" />
-                  <div class="flex flex-col">
-                    <div class="text-[17px]">{{ microgonToArgonNm(wallets.totalWalletMicrogons).format('0,0.[00]') }} ARGN</div>
-                    <div class="font-light -mt-1">1 ARGN -> {{currency.symbol}}{{ microgonToMoneyNm(1_000_000n).format('0,0.00')}}</div>
-                  </div>
-                </div>
-                <div class="w-full h-px border-t border-dashed border-slate-600/30"></div>
-                <div class="flex flex-row items-center">
-                  <ArgonotIcon class="h-14 w-14 mr-3 text-argon-500" />
-                  <div class="flex flex-col">
-                    <div class="text-[17px]">{{ micronotToArgonotNm(wallets.totalWalletMicronots).format('0,0.[00]') }} ARGNOT</div>
-                    <div class="font-light -mt-1">1 ARGNOT -> {{currency.symbol}}{{ micronotToMoneyNm(1_000_000n).format('0,0.00')}}</div>
-                  </div>
-                </div>
-              </div>
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFad z-50 data-[state=open]:transition-all">
+          <div
+            class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+            <DropdownMenuItem
+              v-for="(record, key) of currency?.recordsByKey"
+              :key="key"
+              @click="setCurrencyKey(key)"
+              :class="currency?.record?.key === key ? '!text-argon-500' : '!text-slate-700'"
+              class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover relative flex cursor-pointer flex-row items-center justify-between border-b border-slate-400/30 py-3 pr-1 pl-10 font-bold text-gray-900 last:border-b-0">
+              <span v-if="currency?.record?.key === key" class="absolute top-1/2 left-3 -translate-y-1/2">
+                <CheckIcon class="size-5" aria-hidden="true" />
+              </span>
+              <span
+                ItemWrapper
+                :class="currency?.record?.key === key ? 'opacity-100' : 'opacity-80'"
+                class="grow text-right group-hover/item:opacity-100">
+                {{ record.name }} ({{ record.key }})
+              </span>
+              <span class="ml-2" v-html="record.symbol" />
             </DropdownMenuItem>
+            <PortfolioSubmenu @close="isOpen = false" />
           </div>
           <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
         </DropdownMenuContent>
@@ -76,8 +75,10 @@ import RupeeSign from '../assets/currencies/rupee.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
 import { useWallets } from '../stores/wallets';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import ArgonIcon from '../assets/resources/argon.svg?component';
-import ArgonotIcon from '../assets/resources/argonot.svg?component';
+import { ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { CheckIcon } from '@heroicons/vue/20/solid';
+import { getConfig } from '../stores/config.ts';
+import PortfolioSubmenu from './PortfolioSubmenu.vue';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -87,6 +88,7 @@ defineExpose({
   $el: rootRef,
 });
 
+const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
 
@@ -134,9 +136,12 @@ function clickOutside(e: PointerDownOutsideEvent) {
   return false;
 }
 
-function openFinancials() {
-  basicEmitter.emit('openFinancialsPanel');
-  isOpen.value = false;
+function setCurrencyKey(key: ICurrencyKey) {
+  if (key === UnitOfMeasurement.ARGN || config.isValidJurisdiction) {
+    currency.setKey(key);
+  } else {
+    basicEmitter.emit('openComplianceOverlay');
+  }
 }
 </script>
 
@@ -144,17 +149,14 @@ function openFinancials() {
 @reference "../main.css";
 
 [data-reka-collection-item] {
-  @apply focus:bg-argon-menu-hover/80 cursor-pointer pr-3 focus:outline-none;
+  @apply focus:bg-argon-menu-hover/80 cursor-pointer pr-3 text-right focus:outline-none;
 
   &[data-disabled] {
     opacity: 0.3;
     pointer-events: none;
   }
   [ItemWrapper] {
-    @apply grow text-left font-bold whitespace-nowrap text-gray-900;
-  }
-  [MainItemWrapper] {
-    @apply pr-7 pl-3 text-left;
+    @apply grow font-bold whitespace-nowrap text-gray-900;
   }
 }
 </style>

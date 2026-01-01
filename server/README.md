@@ -1,4 +1,4 @@
-# Argon's Investor Console Deploy
+# Argon's Management Console Deploy
 
 This folder contains everything argon command will run on a vm. Everything will run in docker (or podman).
 

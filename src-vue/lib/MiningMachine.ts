@@ -127,7 +127,7 @@ export class MiningMachine {
       return existing;
     }
 
-    const dropletName = `Argon-Investor-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
+    const dropletName = `Argon-Management-Console-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
     const sshKey = await this.setupSshKeyOnDigitalOcean(dropletName, apiKey, sshPublicKey);
     progressFn?.(25);
     const { region, size } = await this.chooseRegionAndSize(apiKey, userLocation);

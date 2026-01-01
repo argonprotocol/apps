@@ -23,10 +23,6 @@
               <header>About This App</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openFinancialsPanel()" class="py-2">
-              <header>Financials Panel</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openSecuritySettingsOverlay()" class="py-2">
               <header>Security and Recovery</header>
             </DropdownMenuItem>
@@ -34,6 +30,8 @@
             <DropdownMenuItem @click="() => openComplianceOverlay()" class="py-2">
               <header>Jurisdictional Compliance</header>
             </DropdownMenuItem>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <PortfolioSubmenu @close="isOpen = false" />
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger class="relative py-2">
@@ -100,6 +98,7 @@ import basicEmitter from '../emitters/basicEmitter';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import PortfolioSubmenu from './PortfolioSubmenu.vue';
 
 const tour = useTour();
 
@@ -157,11 +156,6 @@ function clickOutside(e: PointerDownOutsideEvent) {
 
 function openSecuritySettingsOverlay() {
   basicEmitter.emit('openSecuritySettingsOverlay');
-  isOpen.value = false;
-}
-
-function openFinancialsPanel() {
-  basicEmitter.emit('openFinancialsPanel');
   isOpen.value = false;
 }
 

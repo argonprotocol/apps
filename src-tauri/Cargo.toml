@@ -15,8 +15,8 @@ members = []
 
 [workspace.metadata.tauri]
 bundle.identifier = "com.argon.apps"
-bundle.name = "Argon Investor Console"   # This is used as CFBundleName
-bundle.short_name = "Argon Investor Console"     # Optional, but can affect UI display
+bundle.name = "Argon Management Console"   # This is used as CFBundleName
+bundle.short_name = "Argon Management Console"     # Optional, but can affect UI display
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
