@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Argon Investor Console - Experimental",
+  "productName": "Argon Management Console - Experimental",
   "identifier": "com.argon.apps.experimental",
   "version": "1.0.0-rc1",
   "bundle": {

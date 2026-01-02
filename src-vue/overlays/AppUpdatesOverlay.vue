@@ -40,13 +40,13 @@
             <div class="px-6 text-base pb-3 mb-6 relative z-10 grid grid-col gap-2">
               <p class="mb-2">
                 <template v-if="update">
-                  A new version of Argon Investor Console is ready to download and install
+                  A new version of Argon Management Console is ready to download and install
                 </template>
                 <template v-else-if="isChecking">
                   Checking..
                 </template>
                 <template v-else>
-                  You are already on the latest version of Argon Investor. No updates available.
+                  You are already on the latest version. No updates available.
                 </template>
               </p>
               <div class="flex flex-row gap-x-2">

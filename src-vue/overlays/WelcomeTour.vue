@@ -9,7 +9,6 @@
     <TourStepThree @previousStep="loadStep(2)" @nextStep="loadStep(4)" :pos="tourPos" v-if="tour.currentStep === 3" />
     <TourStepFour @previousStep="loadStep(3)" @nextStep="loadStep(5)" :pos="tourPos" v-if="tour.currentStep === 4" />
     <TourStepFive @previousStep="loadStep(4)" @nextStep="loadStep(6)" :pos="tourPos" v-if="tour.currentStep === 5" />
-    <TourStepSix @previousStep="loadStep(5)" @nextStep="loadStep(7)" :pos="tourPos" v-if="tour.currentStep === 6" />
   </div>
 </template>
 
@@ -21,7 +20,6 @@ import TourStepTwo from './welcome-tour/StepTwo.vue';
 import TourStepThree from './welcome-tour/StepThree.vue';
 import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
-import TourStepSix from './welcome-tour/StepSix.vue';
 import { getConfig } from '../stores/config';
 import { useController } from '../stores/controller';
 import { ScreenKey } from '../interfaces/IConfig';
@@ -43,12 +41,10 @@ function updateStepVars() {
   } else if (tour.currentStep === 2) {
     rect = tour.getPositionCheck('vaultingTab');
   } else if (tour.currentStep === 3) {
-    rect = tour.getPositionCheck('financialsMenu');
+    rect = tour.getPositionCheck('portfolioMenu');
   } else if (tour.currentStep === 4) {
-    rect = tour.getPositionCheck('currencyMenu');
-  } else if (tour.currentStep === 5) {
     rect = tour.getPositionCheck('accountMenu');
-  } else if (tour.currentStep === 6) {
+  } else if (tour.currentStep === 5) {
     rect = tour.getPositionCheck('startButtons');
   }
 
@@ -66,7 +62,7 @@ function updateStepVars() {
 }
 
 async function loadStep(step: number) {
-  if (step === 7) {
+  if (step === 6) {
     step = 0;
     config.showWelcomeOverlay = false;
     await config.save();
@@ -74,7 +70,7 @@ async function loadStep(step: number) {
     controller.setScreenKey(ScreenKey.Mining);
   } else if (step === 2) {
     controller.setScreenKey(ScreenKey.Vaulting);
-  } else if (step === 6) {
+  } else if (step === 5) {
     controller.setScreenKey(ScreenKey.Home);
   }
 

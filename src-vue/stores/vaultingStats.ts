@@ -18,7 +18,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   const epochEarnings = Vue.ref(0n);
   const averageAPY = Vue.ref(0);
 
-  const argonBurnCapability = Vue.ref(0);
+  const argonBurnCapacity = Vue.ref(0);
   const finalPriceAfterTerraCollapse = Vue.ref(0n);
 
   async function update() {
@@ -31,7 +31,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     microgonValueInVaults.value = stats.microgonValueOfVaultedBitcoins;
     epochEarnings.value = stats.epochEarnings;
     averageAPY.value = stats.averageAPY;
-    argonBurnCapability.value = stats.argonBurnCapability;
+    argonBurnCapacity.value = stats.argonBurnCapacity;
     finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
     isLoading = false;
   }
@@ -44,7 +44,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     bitcoinLocked,
     averageAPY,
     epochEarnings,
-    argonBurnCapability,
+    argonBurnCapacity,
     finalPriceAfterTerraCollapse,
     isLoadedPromise,
   };

@@ -1,11 +1,8 @@
 <template>
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
-      <PopoverContent
-        ref="boxRef"
-        class="absolute z-[2001]"
-        :style="{ left, top, height: `${props.pos.height}px`, width: `${props.pos.width}px` }">
-        <div Arrow ref="arrowRef" class="absolute top-px left-1/2 z-1 -translate-x-1/2 -translate-y-full">
+      <PopoverContent ref="boxRef" class="absolute left-0 z-[2001]" :style="{ top, width: `${props.pos.width}px` }">
+        <div Arrow class="absolute top-[calc(50%-4px)] left-[15%] z-1 -translate-y-1/2">
           <svg
             class="relative z-10"
             width="24"
@@ -28,15 +25,16 @@
 
         <div
           OverlayBox
-          class="absolute top-0 right-0 flex w-[30rem] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
+          class="absolute left-2 flex w-[50rem] flex-col rounded border border-black/40 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
-            <div class="text-lg font-bold text-slate-700">Your Account Menu</div>
-            <div class="text-slate-500/40">Step 5 of 6</div>
+            <div class="text-lg font-bold text-slate-700">When You're Ready</div>
+            <div class="text-slate-500/40">Step 5 of 5</div>
           </h3>
 
           <p>
-            This icon controls a menu from which you can reopen this tour. It also contains a number of other helpful
-            settings, such as managing your crypto keys, wallet recovery, and more.
+            As they say, the best way to get started is to start. We suggest mining as your first step, but vaulting is
+            equally compelling. These buttons will guide you through the entire process. It's quite simple, and setting
+            them up only take a few minutes.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">
@@ -51,7 +49,7 @@
               @click="nextStep"
               tabindex="0"
               class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow mt-4 cursor-pointer rounded-md border px-8 py-2 text-sm font-bold text-white shadow-sm focus:outline-none">
-              Next Step
+              Finish Tour
             </button>
           </div>
         </div>
@@ -76,7 +74,7 @@ const props = defineProps<{
 }>();
 
 const left = Vue.computed(() => `${props.pos.left}px`);
-const top = Vue.computed(() => `${props.pos.bottom - 1}px`);
+const top = Vue.computed(() => `${props.pos.bottom - 15}px`);
 
 const emit = defineEmits(['nextStep', 'previousStep']);
 

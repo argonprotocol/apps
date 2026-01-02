@@ -1,6 +1,7 @@
 import mitt, { type Emitter } from 'mitt';
 import Importer from '../lib/Importer.ts';
 import { IWalletType } from '../lib/Wallet.ts';
+import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 
 type IBasicEmitter = {
   openWalletOverlay: { walletType: IWalletType; screen: string };
@@ -21,7 +22,7 @@ type IBasicEmitter = {
   openHowVaultingWorksOverlay: void;
   openWelcomeOverlay: void;
 
-  openFinancialsPanel: void;
+  openPortfolioPanel: PortfolioTab;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

@@ -1,12 +1,12 @@
 <template>
   <div class="flex flex-col gap-2 px-3">
     <p v-if="config.isValidJurisdiction" class="text-md text-slate-800">
-      As a residence of Cayman Islands, you're able to use the full-featured version of Argon Investor. If you reside in
-      another jurisdiction, please fix your country of residence below so that this app can remain compliant.
+      As a residence of Cayman Islands, you're able to use the full-featured version of Argon Management Console. If you
+      reside in another jurisdiction, please fix your country of residence below so that this app can remain compliant.
     </p>
     <p v-else class="text-md text-slate-800">
-      Your version of Argon Investor has some features disabled. The more advanced capabilities are reserved for
-      residents of Cayman Islands. If our geolocation service made a mistake, please fix it below.
+      Your version of this app has some features disabled. The more advanced capabilities are reserved for residents of
+      Cayman Islands. If our geolocation service made a mistake, please fix it below.
     </p>
 
     <div class="mx-auto mb-1 flex w-8/12 flex-col gap-2 py-5 text-center">

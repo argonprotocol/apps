@@ -23,7 +23,7 @@ export async function createMenu() {
   const tour = useTour();
 
   const mainMenu = await Submenu.new({
-    text: 'Investor Console',
+    text: 'Management Console',
     items: [
       {
         id: 'about',
@@ -49,7 +49,7 @@ export async function createMenu() {
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'quit',
-        text: 'Quit Investor Console',
+        text: 'Quit Management Console',
         accelerator: 'CmdOrCtrl+Q',
         action: () => void tauriExit(),
       },

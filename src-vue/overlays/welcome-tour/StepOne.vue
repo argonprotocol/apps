@@ -2,7 +2,7 @@
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
       <PopoverContent ref="boxRef" class="absolute z-[2001]" :style="{ left, top, width: `${props.pos.width}px` }">
-        <div Arrow ref="arrowRef" class="absolute top-0.5 left-[34%] z-1 -translate-y-full">
+        <div Arrow ref="arrowRef" class="absolute top-0.5 left-[20%] z-1 -translate-y-full">
           <svg
             class="relative z-10"
             width="24"
@@ -28,13 +28,13 @@
           class="absolute flex w-[40rem] -translate-x-5/12 flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
             <div class="text-lg font-bold text-slate-700">The Mining Tab</div>
-            <div class="text-slate-500/40">Step 1 of 6</div>
+            <div class="text-slate-500/40">Step 1 of 5</div>
           </h3>
 
           <p>
-            Mining is one of the most important and rewarding tasks in the Argon ecosystem. Miners are chosen through an
-            open auction process, which determines who wins mining seats. Each mining seat is given the right to mine
-            block rewards for ten days.
+            Mining is one of the most important positions in the Argon ecosystem. Miners are chosen through an open
+            auction process, which determines who wins mining seats. Each mining seat is given the right to mine block
+            rewards for ten days.
           </p>
 
           <div class="mt-3 flex flex-row justify-end space-x-3 border-t border-slate-300/60 px-3 pb-3">

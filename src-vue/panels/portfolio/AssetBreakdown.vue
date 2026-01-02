@@ -1,28 +1,20 @@
 <template>
-  <div class="Assets Panel flex h-full flex-col space-y-5 px-3 pt-1 pb-6">
-    <p class="relative z-20 w-11/12 font-light text-slate-800/90">
-      This page presents a breakdown of all your Argon assets, including your mining, vaulting, and the holding
-      accounts. Move your mouse over the various items to learn more or click the Move buttons to transfer.
-    </p>
-
+  <div class="AssetBreakdown Tab -mt-10 flex h-full flex-col space-y-5 px-3 pb-6">
     <div class="flex grow flex-col">
       <div class="relative flex flex-row">
         <div class="relative z-10 flex h-full w-[30%] flex-col justify-end">
           <div class="group pointer-events-none relative mt-10 grow">
-            <div class="absolute top-0 left-5 flex h-3 w-[140%] flex-row items-center justify-center">
+            <div class="absolute top-15 left-5 flex h-3 w-[120%] flex-row items-center justify-center">
               <div class="pointer-events-auto ml-3 h-3 grow bg-slate-600/13" />
               <div class="pointer-events-auto mr-1 h-3 w-32 bg-gradient-to-r from-slate-600/13 to-slate-600/0" />
             </div>
-            <div class="absolute left-3 h-5 w-5 rounded-tl-xl border-t-12 border-l-12 border-gray-600/13"></div>
-            <div class="pointer-events-auto absolute top-5 bottom-0.5 left-3 z-10 w-3 bg-slate-600/13">
+            <div class="absolute top-15 left-3 h-5 w-5 rounded-tl-xl border-t-12 border-l-12 border-gray-600/13"></div>
+            <div class="pointer-events-auto absolute top-20 bottom-0.5 left-3 z-10 w-3 bg-slate-600/13">
               <LineArrow
                 class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
             </div>
           </div>
-          <header class="relative pt-3 text-lg font-bold">
-            <div class="absolute top-0 left-0 h-px w-[110%] bg-gray-600/20" />
-            Mining Assets
-          </header>
+          <header class="relative pt-3 text-lg font-bold">Mining Assets</header>
           <div class="hover:text-argon-600/90 mb-3 w-fit cursor-pointer text-left text-slate-800/60">
             <CopyToClipboard :content="wallets.miningWallet.address" class="group relative cursor-pointer">
               <span>
@@ -39,7 +31,7 @@
           </div>
         </div>
         <div class="relative h-full w-[40%]">
-          <div class="absolute top-[65%] left-1/2 flex -translate-x-1/2 -translate-y-1/2">
+          <div class="absolute top-[65%] left-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2">
             <CopyToClipboard
               :content="wallets.holdingWallet.address"
               class="group flex cursor-pointer flex-col items-center justify-center">
@@ -57,24 +49,22 @@
               </template>
             </CopyToClipboard>
           </div>
-          <BanklessTop1 class="w-full" />
+          <BanklessTop1 class="relative z-10 w-full" />
+          <div class="absolute top-0 left-1/2 h-10 w-3/12 -translate-x-1/2 bg-white" />
         </div>
         <div class="relative z-10 flex h-full w-[30%] flex-col justify-end">
           <div class="group pointer-events-none relative mt-10 grow">
-            <div class="absolute top-0 right-5 flex h-3 w-[140%] flex-row items-center justify-center">
+            <div class="absolute top-15 right-5 flex h-3 w-[120%] flex-row items-center justify-center">
               <div class="pointer-events-auto ml-1 h-3 w-32 bg-gradient-to-r from-slate-600/0 to-slate-600/13" />
               <div class="pointer-events-auto mr-3 h-3 grow bg-slate-600/13" />
             </div>
-            <div class="absolute right-3 h-5 w-5 rounded-tr-xl border-t-12 border-r-12 border-gray-600/13"></div>
-            <div class="pointer-events-auto absolute top-5 right-3 bottom-0.5 z-10 w-3 bg-slate-600/13">
+            <div class="absolute top-15 right-3 h-5 w-5 rounded-tr-xl border-t-12 border-r-12 border-gray-600/13"></div>
+            <div class="pointer-events-auto absolute top-20 right-3 bottom-0.5 z-10 w-3 bg-slate-600/13">
               <LineArrow
                 class="absolute top-full left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/13" />
             </div>
           </div>
-          <header class="relative pt-3 text-right text-lg font-bold">
-            <div class="absolute top-0 right-0 h-px w-[110%] bg-gray-600/20" />
-            Vaulting Assets
-          </header>
+          <header class="relative pt-3 text-right text-lg font-bold">Vaulting Assets</header>
 
           <div class="hover:text-argon-600/90 mb-3 ml-auto w-fit cursor-pointer text-right text-slate-800/60">
             <CopyToClipboard :content="wallets.vaultingWallet.address" class="group relative cursor-pointer">
@@ -108,7 +98,7 @@
             <BanklessMiddle class="-my-1 h-full w-full" />
             <div class="absolute top-0 left-0 flex h-full w-full flex-col justify-around text-slate-600/70">
               <div class="group flex flex-col items-center justify-center pt-10 text-2xl font-bold">
-                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicrogons).format('0,0.[0000000]') }}</div>
+                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicrogons).format('0,0.[00]') }}</div>
                 ARGN
                 <div class="text-base font-light">
                   ( {{ currency.symbol
@@ -121,7 +111,7 @@
                   class="text-md mt-5 px-4 py-0.5 opacity-50 transition-opacity duration-100 group-hover:opacity-100" />
               </div>
               <div class="group flex flex-col items-center justify-center pb-10 text-2xl font-bold">
-                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicronots).format('0,0.[0000000]') }}</div>
+                <div>{{ microgonToArgonNm(wallets.holdingWallet.availableMicronots).format('0,0.00') }}</div>
                 ARGNOT
                 <div class="text-base font-light">
                   ( {{ currency.symbol
@@ -169,23 +159,23 @@
   </div>
 </template>
 <script setup lang="ts">
-import VaultingAssetBreakdown from '../../components/VaultingAssetBreakdown.vue';
-import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
-import BanklessTop1 from '../../assets/bankless-top1.svg';
-import BanklessTop2 from '../../assets/bankless-top2.svg';
-import BanklessMiddle from '../../assets/bankless-middle.svg';
-import BanklessBottom1 from '../../assets/bankless-bottom1.svg';
-import BanklessBottom2 from '../../assets/bankless-bottom2.svg';
-import { useWallets } from '../../stores/wallets.ts';
-import { abbreviateAddress } from '../../lib/Utils.ts';
-import { getCurrency } from '../../stores/currency.ts';
-import { createNumeralHelpers } from '../../lib/numeral.ts';
-import CopyIcon from '../../assets/copy.svg';
-import LineArrow from '../../components/asset-breakdown/LineArrow.vue';
-import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
-import CopyToClipboard from '../../components/CopyToClipboard.vue';
-import { getConfig } from '../../stores/config.ts';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import CopyToClipboard from '../../components/CopyToClipboard.vue';
+import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
+import CopyIcon from '../../assets/copy.svg';
+import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
+import BanklessTop2 from '../../assets/bankless-top2.svg';
+import VaultingAssetBreakdown from '../../components/VaultingAssetBreakdown.vue';
+import BanklessTop1 from '../../assets/bankless-top1.svg';
+import LineArrow from '../../components/asset-breakdown/LineArrow.vue';
+import BanklessBottom1 from '../../assets/bankless-bottom1.svg';
+import BanklessMiddle from '../../assets/bankless-middle.svg';
+import BanklessBottom2 from '../../assets/bankless-bottom2.svg';
+import { abbreviateAddress } from '../../lib/Utils.ts';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { useWallets } from '../../stores/wallets.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { getConfig } from '../../stores/config.ts';
 
 const wallets = useWallets();
 const currency = getCurrency();
@@ -197,7 +187,7 @@ const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm } = createNumera
 <style>
 @reference "../../main.css";
 
-.Assets.Panel {
+.AssetBreakdown.Tab {
   .hasStroke {
     @apply stroke-slate-300 stroke-1;
   }

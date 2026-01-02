@@ -14,7 +14,7 @@
       </div>
     </div>
     <template v-if="config.isLoaded">
-      <FinancialsPanel />
+      <Portfolio />
       <template v-if="showMiningScreen">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
@@ -71,7 +71,7 @@ import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
-import FinancialsPanel from './panels/FinancialsPanel.vue';
+import Portfolio from './panels/Portfolio.vue';
 
 const controller = useController();
 const config = getConfig();

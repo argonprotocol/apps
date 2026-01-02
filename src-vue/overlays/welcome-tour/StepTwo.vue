@@ -28,7 +28,7 @@
           class="absolute flex w-[40rem] -translate-x-[12%] flex-col rounded border border-black/60 bg-white px-4 font-light shadow-lg">
           <h3 class="mb-4 flex flex-row justify-between border-b border-slate-300/60 py-4 text-lg font-bold">
             <div class="text-lg font-bold text-slate-700">The Vaulting Tab</div>
-            <div class="text-slate-500/40">Step 2 of 6</div>
+            <div class="text-slate-500/40">Step 2 of 5</div>
           </h3>
 
           <p>

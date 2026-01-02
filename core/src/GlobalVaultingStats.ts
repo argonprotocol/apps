@@ -11,7 +11,7 @@ export class GlobalVaultingStats {
   public averageAPY: number = 0;
   public bitcoinLocked: number = 0;
 
-  public argonBurnCapability: number = 0;
+  public argonBurnCapacity: number = 0;
 
   public finalPriceAfterTerraCollapse = 1_000n;
 
@@ -57,7 +57,7 @@ export class GlobalVaultingStats {
     );
     const burnPerBitcoinDollar = GlobalVaultingStats.calculateUnlockBurnPerBitcoinDollar(usdPriceAfterTerraCollapse);
 
-    this.argonBurnCapability = burnPerBitcoinDollar * dollarValueOfVaultedBitcoin;
+    this.argonBurnCapacity = burnPerBitcoinDollar * dollarValueOfVaultedBitcoin;
   }
 
   private async fetchMicrogonValueOfSats(satsLocked: bigint) {

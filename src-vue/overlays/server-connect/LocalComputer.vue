@@ -1,9 +1,9 @@
 <template>
   <div class="mx-5 flex h-full grow flex-col p-3">
     <DialogDescription :class="[blockedPorts.length ? 'opacity-30' : 'opacity-80']" class="mt-4 pr-10 font-light">
-      Argon Investor Console allows you to use your laptop or desktop computer as a server. In many ways this is the
-      easiest and cheapest way to get started, but it comes with some caveats. It requires you to keep this app running
-      and connected to the internet at all times. It also requires you to install Docker.
+      This app allows you to use your laptop or desktop computer as a server. In many ways this is the easiest and
+      cheapest way to get started, but it comes with some caveats. It requires you to keep this app running and
+      connected to the internet at all times. It also requires you to install Docker.
     </DialogDescription>
 
     <div v-if="blockedPorts.length" Warning>
