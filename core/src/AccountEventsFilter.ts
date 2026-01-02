@@ -18,6 +18,7 @@ export type IBalanceTransfer = {
   from?: string;
   transferType: 'transfer' | 'faucet' | 'tokenGateway';
   currency: 'argon' | 'argonot';
+  tokenGatewayCommitmentHash?: string;
   isInternal: boolean;
   isInbound: boolean;
   amount: bigint;
@@ -217,27 +218,30 @@ export class AccountEventsFilter {
     } = data;
     if (client.events.tokenGateway.AssetReceived.is(event) && extrinsicIndex !== undefined) {
       const { beneficiary, amount } = event.data;
+      const index = extrinsicEvents.indexOf(event);
+      const prev = extrinsicEvents[index - 1];
+      const next = extrinsicEvents[index + 1];
       if (accountFilter(beneficiary)) {
+        let commitmentHash: string | undefined = undefined;
+        if (next && client.events.ismp.PostRequestHandled.is(next)) {
+          console.log('Found ISMP PostRequestHandled event after AssetReceived, extracting commitment hash');
+          const [{ commitment }] = next.data;
+          commitmentHash = commitment.toHex();
+        }
         return {
           to: beneficiary.toHuman(),
           transferType: 'tokenGateway',
           isInbound: true,
           amount: amount.toBigInt(),
           isInternal: false,
-          currency: AccountEventsFilter.hasArgonotTransfer(
-            client,
-            extrinsicEvents,
-            beneficiary.toHuman(),
-            amount.toBigInt(),
-          )
-            ? 'argonot'
-            : 'argon',
+          currency: prev?.section === 'ownership' ? 'argonot' : 'argon',
+          tokenGatewayCommitmentHash: commitmentHash,
           extrinsicIndex,
         };
       }
     }
     if (client.events.tokenGateway.AssetTeleported.is(event) && extrinsicIndex !== undefined) {
-      const { from, to, amount } = event.data;
+      const { from, to, amount, commitment } = event.data;
       if (accountFilter(from)) {
         const amountN = amount.toBigInt();
         const fromAccount = from.toHuman();
@@ -256,6 +260,7 @@ export class AccountEventsFilter {
           amount: amountN,
           isInternal: false,
           currency: hasArgonotBurn ? 'argonot' : 'argon',
+          tokenGatewayCommitmentHash: commitment.toHex(),
           extrinsicIndex,
         };
       }

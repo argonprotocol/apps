@@ -185,6 +185,7 @@ export class Wallet implements IWallet {
         extrinsicIndex: transfer.extrinsicIndex,
         otherParty: transfer.isInbound ? transfer.from : transfer.to,
         transferType: transfer.transferType,
+        tokenGatewayCommitmentHash: transfer.tokenGatewayCommitmentHash,
         blockNumber: newBalance.block.blockNumber,
         blockHash: newBalance.block.blockHash,
       });

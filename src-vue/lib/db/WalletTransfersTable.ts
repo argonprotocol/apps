@@ -1,5 +1,7 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
+import { getMainchainClient } from '../../stores/mainchain.ts';
+import { AccountEventsFilter } from '@argonprotocol/apps-core';
 
 export interface IWalletTransferRecord {
   id: number;
@@ -15,6 +17,7 @@ export interface IWalletTransferRecord {
   microgonsForUsd: bigint;
   blockNumber: number;
   blockHash: string;
+  tokenGatewayCommitmentHash?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +37,30 @@ export class WalletTransfersTable extends BaseTable {
       json: this.jsonFields,
       boolean: this.booleanFields,
     };
+  }
+
+  public async loadState(): Promise<void> {
+    const allRecords = await this.fetchAll();
+    const client = await getMainchainClient(true);
+    for (const record of allRecords) {
+      if (record.transferType === 'tokenGateway' && !record.tokenGatewayCommitmentHash) {
+        console.log('Fetching token gateway commitment hash for transfer record', record.id);
+        const blockEvents = await client.query.system.events.at(record.blockHash);
+        const eventsFilter = new AccountEventsFilter(record.walletAddress, record.walletName as any, []);
+        eventsFilter.process(client, blockEvents);
+        const tokenEvent = eventsFilter.transfers.find(
+          e =>
+            e.extrinsicIndex === record.extrinsicIndex && e.amount === record.amount && e.currency === record.currency,
+        );
+        if (tokenEvent && tokenEvent.tokenGatewayCommitmentHash) {
+          record.tokenGatewayCommitmentHash = tokenEvent.tokenGatewayCommitmentHash;
+          await this.db.execute(
+            `UPDATE WalletTransfers SET tokenGatewayCommitmentHash = ? WHERE id = ?`,
+            toSqlParams([tokenEvent.tokenGatewayCommitmentHash, record.id]),
+          );
+        }
+      }
+    }
   }
 
   public async fetchAll(): Promise<IWalletTransferRecord[]> {
@@ -77,11 +104,12 @@ export class WalletTransfersTable extends BaseTable {
       microgonsForUsd,
       blockNumber,
       blockHash,
+      tokenGatewayCommitmentHash,
     } = args;
     const records = await this.db.select<IWalletTransferRecord[]>(
       `INSERT INTO WalletTransfers (walletAddress, walletName, amount, currency, extrinsicIndex, isInternal,
-                                    microgonsForArgonot, microgonsForUsd, otherParty, transferType, blockNumber, blockHash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    microgonsForArgonot, microgonsForUsd, otherParty, transferType, tokenGatewayCommitmentHash, blockNumber, blockHash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(walletAddress, otherParty, extrinsicIndex, amount, currency, blockHash) DO NOTHING
          RETURNING *`,
       toSqlParams([
@@ -95,6 +123,7 @@ export class WalletTransfersTable extends BaseTable {
         microgonsForUsd,
         otherParty,
         transferType,
+        tokenGatewayCommitmentHash,
         blockNumber,
         blockHash,
       ]),

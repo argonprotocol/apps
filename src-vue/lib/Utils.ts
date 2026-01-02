@@ -103,7 +103,7 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
   for (const [type, fieldNames] of Object.entries(fields)) {
     for (const fieldName of fieldNames) {
       if (!(fieldName in obj)) continue;
-      const value = obj[fieldName];
+      let value = obj[fieldName];
       if (value === null || value === undefined) continue;
       if (type === 'bigint') {
         obj[fieldName] = fromSqliteBigInt(value);
@@ -112,6 +112,25 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
       } else if (type === 'bigintJson' || type === 'json') {
         obj[fieldName] = JsonExt.parse(value);
       } else if (type === 'date') {
+        // Note: we historically stored dates as "YYYY-MM-DD HH:MM:SS" in UTC in SQLite.
+        // Only normalize that specific format to an ISO-like UTC string; otherwise, parse as-is.
+        if (typeof value === 'string') {
+          const hasExplicitOffset = /[+-]\d{2}:?\d{2}$/.test(value);
+          const isLegacyUtcFormat = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value);
+
+          if (value.endsWith('Z') || hasExplicitOffset) {
+            obj[fieldName] = new Date(value);
+          } else if (isLegacyUtcFormat) {
+            // Convert "YYYY-MM-DD HH:MM:SS" (assumed UTC) to "YYYY-MM-DDTHH:MM:SSZ"
+            const isoUtc = value.replace(' ', 'T') + 'Z';
+            obj[fieldName] = new Date(isoUtc);
+          } else {
+            // Fallback: let Date parse the string without forcing UTC
+            obj[fieldName] = new Date(value);
+          }
+        } else {
+          obj[fieldName] = new Date(value);
+        }
         obj[fieldName] = new Date(value);
       } else if (type === 'uint8array') {
         obj[fieldName] = Uint8Array.from(value);

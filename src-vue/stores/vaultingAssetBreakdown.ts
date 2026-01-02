@@ -101,7 +101,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const vaultingAvailableMicrogons = Vue.computed(() => {
-    return wallets.vaultingWallet.availableMicrogons;
+    return bigIntMax(0n, wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves);
   });
 
   const pendingAllocateTxMetadata = Vue.computed(() => {

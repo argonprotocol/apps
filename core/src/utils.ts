@@ -1,5 +1,6 @@
 import BigNumber from 'bignumber.js';
-import { isAddress } from '@polkadot/util-crypto';
+import { isEthereumAddress, isEthereumChecksum } from '@polkadot/util-crypto';
+import { decodeAddress, encodeAddress } from '@argonprotocol/mainchain';
 
 export { formatArgons } from '@argonprotocol/mainchain';
 
@@ -130,5 +131,45 @@ export function filterUndefined<T extends Record<string, any>>(obj: Partial<T>):
 }
 
 export function isValidArgonAccountAddress(address: string): boolean {
-  return isAddress(address);
+  try {
+    encodeAddress(decodeAddress(address));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+export function ethAddressToH256(address: string): `0x${string}` {
+  // normalize
+  const hex = address.toLowerCase().replace(/^0x/, '');
+
+  if (hex.length !== 40) {
+    throw new Error('Invalid Ethereum address');
+  }
+
+  // 20 bytes
+  const bytePairs = hex.match(/.{2}/g);
+  if (!bytePairs) {
+    throw new Error('Invalid Ethereum address');
+  }
+  const bytes = Uint8Array.from(bytePairs.map(b => parseInt(b, 16)));
+
+  // 32-byte buffer
+  const padded = new Uint8Array(32);
+  padded.set(bytes, 12); // left-pad with zeros (32 - 20 = 12)
+
+  const paddedAddress = Array.from(padded)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `0x${paddedAddress}`;
+}
+
+export function isValidEthereumAddress(address: string): { valid: boolean; checksum: boolean } {
+  try {
+    const isValid = isEthereumAddress(address);
+    const isChecksum = isEthereumChecksum(address);
+    return { valid: isValid, checksum: isChecksum };
+  } catch (error) {
+    return { valid: false, checksum: false };
+  }
 }
