@@ -148,19 +148,19 @@ function isValidIPv4WithOptionalPort(s: string, allowPortZero = false): boolean 
 import * as Vue from 'vue';
 import CopyIcon from '../../assets/copy.svg?component';
 import { DialogDescription } from 'reka-ui';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import { useTextareaAutosize } from '@vueuse/core';
 import { SSH } from '../../lib/SSH';
 import { IServerConnectChildExposed } from '../ServerConnectOverlay.vue';
 import { IConfigServerCreationCustomServer, ServerType } from '../../interfaces/IConfig';
 import { SERVER_ENV_VARS } from '../../lib/Env.ts';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
 const emit = defineEmits(['ready']);
 
-const walletKeys = useWalletKeys();
-const config = useConfig();
+const walletKeys = getWalletKeys();
+const config = getConfig();
 const { textarea } = useTextareaAutosize();
 
 const sshPublicKey = Vue.computed(() => walletKeys.sshPublicKey);

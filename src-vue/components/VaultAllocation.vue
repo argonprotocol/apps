@@ -44,14 +44,14 @@
 import * as Vue from 'vue';
 import InputArgon from './InputArgon.vue';
 import BigNumber from 'bignumber.js';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { useMyVault } from '../stores/vaults.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import numeral from '../lib/numeral.ts';
 
-const config = useConfig();
+const config = getConfig();
 const wallets = useWallets();
-const myVault = useMyVault();
+const myVault = getMyVault();
 
 const props = withDefaults(
   defineProps<{
@@ -68,28 +68,30 @@ Vue.watch(
   { immediate: true },
 );
 
-async function refreshData() {
-  await myVault.load();
-  const newAllocation = await myVault.getVaultAllocations(props.microgonsToActivate, config.vaultingRules);
-  securitizationAmount.value = newAllocation.proposedSecuritizationMicrogons - newAllocation.securitizationMicrogons;
-  treasuryAmount.value = newAllocation.proposedTreasuryMicrogons - newAllocation.treasuryMicrogons;
-}
-
 const securitizationAmount = Vue.ref(0n);
 const securitizationPct = Vue.computed(() => {
   return BigNumber(securitizationAmount.value).div(props.microgonsToActivate).toNumber() * 100;
 });
+
 const maxSecuritizationAmount = Vue.computed(() => {
-  return wallets.vaultingWallet.availableMicrogons - securitizationAmount.value;
+  return props.microgonsToActivate - treasuryAmount.value;
 });
 
 const treasuryAmount = Vue.ref(0n);
 const treasuryPct = Vue.computed(() => {
   return BigNumber(treasuryAmount.value).div(props.microgonsToActivate).toNumber() * 100;
 });
+
 const maxTreasuryAmount = Vue.computed(() => {
-  return wallets.vaultingWallet.availableMicrogons - treasuryAmount.value;
+  return props.microgonsToActivate - securitizationAmount.value;
 });
+
+async function refreshData() {
+  await myVault.load();
+  const newAllocation = await myVault.getVaultAllocations(props.microgonsToActivate, config.vaultingRules);
+  securitizationAmount.value = newAllocation.proposedSecuritizationMicrogons - newAllocation.securitizationMicrogons;
+  treasuryAmount.value = newAllocation.proposedTreasuryMicrogons - newAllocation.treasuryMicrogons;
+}
 
 async function handleBitcoinSecurityChange(microgons: bigint) {
   securitizationAmount.value = microgons;

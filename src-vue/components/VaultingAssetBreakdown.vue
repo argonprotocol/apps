@@ -246,18 +246,18 @@ import ArgonIcon from '../assets/resources/argon.svg?component';
 import ArgonotIcon from '../assets/resources/argonot.svg?component';
 import { TooltipProvider } from 'reka-ui';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { useCurrency } from '../stores/currency.ts';
+import { getCurrency } from '../stores/currency.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import Header from './asset-breakdown/Header.vue';
 import SubItem from './asset-breakdown/SubItem.vue';
 import Expenses from './asset-breakdown/Expenses.vue';
 import Total from './asset-breakdown/Total.vue';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
 import NeedsSetup from './asset-breakdown/NeedsSetup.vue';
-import { useMyVault, useVaults } from '../stores/vaults.ts';
-import { useBitcoinLocks } from '../stores/bitcoin.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -275,13 +275,13 @@ const props = withDefaults(
   },
 );
 
-const currency = useCurrency();
-const config = useConfig();
+const currency = getCurrency();
+const config = getConfig();
 const wallets = useWallets();
-const myVault = useMyVault();
-const vaults = useVaults();
+const myVault = getMyVault();
+const vaults = getVaults();
 const miningFrames = vaults.miningFrames;
-const bitcoinLocks = useBitcoinLocks();
+const bitcoinLocks = getBitcoinLocks();
 
 Vue.onMounted(async () => {
   await miningFrames.load();

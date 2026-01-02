@@ -20,7 +20,7 @@
           <div
             class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem
-              v-for="(record, key) of currency?.recordsByKey as Record<ICurrencyKey, ICurrencyRecord>"
+              v-for="(record, key) of currency?.recordsByKey"
               :key="key"
               @click="setCurrencyKey(key)"
               :class="currency?.record?.key === key ? '!text-argon-500' : '!text-slate-700'"
@@ -56,13 +56,13 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter';
-import { useConfig } from '../stores/config.ts';
-import { CurrencyKey, ICurrencyRecord, type ICurrencyKey } from '../lib/Currency';
+import { getConfig } from '../stores/config.ts';
+import { ICurrencyKey, ICurrencyRecord, UnitOfMeasurement } from '../lib/Currency';
 import { CheckIcon } from '@heroicons/vue/20/solid';
-import { useCurrency } from '../stores/currency.ts';
+import { getCurrency } from '../stores/currency.ts';
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -92,8 +92,8 @@ function onMouseLeave() {
 }
 
 function setCurrencyKey(key: ICurrencyKey) {
-  if (key === CurrencyKey.ARGN || config.isValidJurisdiction) {
-    currency.setCurrencyKey(key);
+  if (key === UnitOfMeasurement.ARGN || config.isValidJurisdiction) {
+    currency.setKey(key);
   } else {
     basicEmitter.emit('openComplianceOverlay');
   }

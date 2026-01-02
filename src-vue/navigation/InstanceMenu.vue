@@ -60,10 +60,10 @@ import {
 } from 'reka-ui';
 import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { CheckIcon } from '@heroicons/vue/20/solid';
 
-const config = useConfig();
+const config = getConfig();
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();

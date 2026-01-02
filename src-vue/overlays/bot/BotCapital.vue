@@ -90,13 +90,12 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useCurrency } from '../../stores/currency';
-import BigNumber from 'bignumber.js';
+import { getCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
-import { IBiddingRules, SeatGoalInterval, SeatGoalType } from '@argonprotocol/apps-core';
+import { getConfig } from '../../stores/config';
+import { IBiddingRules, SeatGoalInterval, SeatGoalType, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 const props = defineProps<{
   align?: 'start' | 'end' | 'center';
@@ -106,8 +105,8 @@ const props = defineProps<{
 const calculator = getBiddingCalculator();
 const calculatorData = getBiddingCalculatorData();
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const rules = Vue.computed(() => config.biddingRules as IBiddingRules);
@@ -156,7 +155,8 @@ function updateAPYs() {
 
   const startingBidSeatsCount = BigInt(startingBidProbableSeatCount.value);
   const startingBidSeatCost =
-    calculator.startingBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
+    calculator.startingBidAmount +
+    currency.convertMicronotTo(calculatorData.maximumMicronotsForBid, UnitOfMeasurement.Microgon);
   startingBidCostTotal.value = startingBidSeatsCount * startingBidSeatCost;
   startingBidEarningsTotal.value = startingBidSeatsCount * averageEarningsPerSeat;
 
@@ -167,7 +167,8 @@ function updateAPYs() {
 
   const maximumBidSeatCount = BigInt(maximumBidProbableSeatCount.value);
   const maximumBidSeatCost =
-    calculator.maximumBidAmount + currency.micronotToMicrogon(calculatorData.maximumMicronotsForBid);
+    calculator.maximumBidAmount +
+    currency.convertMicronotTo(calculatorData.maximumMicronotsForBid, UnitOfMeasurement.Microgon);
   maximumBidCostTotal.value = maximumBidSeatCount * maximumBidSeatCost;
   maximumBidEarningsTotal.value = maximumBidSeatCount * averageEarningsPerSeat;
 }

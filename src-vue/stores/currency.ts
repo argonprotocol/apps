@@ -1,18 +1,19 @@
 import * as Vue from 'vue';
 import { Currency } from '../lib/Currency';
 import handleFatalError from './helpers/handleFatalError';
-import { useConfig, Config } from './config';
-import { getPriceIndex } from './mainchain.ts';
+import { getConfig, Config } from './config';
+import { getMainchainClients } from './mainchain.ts';
 
 let currency: Vue.Reactive<Currency>;
 
 export type { Currency };
 
-export function useCurrency(): Vue.Reactive<Currency> {
+export function getCurrency(): Vue.Reactive<Currency> {
   if (!currency) {
     console.log('Initializing currency');
-    const config = useConfig();
-    currency = Vue.reactive(new Currency(config as Config, getPriceIndex()));
+    const config = getConfig();
+    const mainchainClients = getMainchainClients();
+    currency = Vue.reactive(new Currency(mainchainClients, config as Config));
     currency.load().catch(handleFatalError.bind('useCurrency'));
   }
 

@@ -43,10 +43,10 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { useCurrency } from '../stores/currency';
+import { getCurrency } from '../stores/currency';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
-import { useVaults } from '../stores/vaults.ts';
+import { getVaults } from '../stores/vaults.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -60,8 +60,8 @@ const props = withDefaults(
   },
 );
 
-const vaultStore = useVaults();
-const currency = useCurrency();
+const vaultStore = getVaults();
+const currency = getCurrency();
 
 const panelPositioningClasses = Vue.computed(() => {
   if (props.position === 'left') {
@@ -97,7 +97,7 @@ const vaults = Vue.ref<
 
 Vue.onMounted(async () => {
   await vaultStore.load();
-  await vaultStore.refreshRevenue();
+  await vaultStore.updateRevenue();
 
   const nextVaults = [];
   for (const vault of Object.values(vaultStore.vaultsById)) {

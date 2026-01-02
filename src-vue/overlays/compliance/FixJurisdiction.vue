@@ -16,12 +16,12 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import InputMenu from '../../components/InputMenu.vue';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import Countries from '../../lib/Countries';
 
 const emit = defineEmits(['close', 'goTo']);
 
-const config = useConfig();
+const config = getConfig();
 const countryCode = Vue.ref(config.userJurisdiction.countryCode);
 
 async function saveChanges() {

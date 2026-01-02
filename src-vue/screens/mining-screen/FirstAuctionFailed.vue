@@ -29,7 +29,7 @@
 
         <template v-else>
           The current auction has climbed above the Maximum Price set in your budget
-          (Minimum Auction Bid: {{ currency.symbol }}{{ microgonToMoneyNm(networkMinimumBid).formatIfElse('=0', '0', '0,0.00') }}, Your Max: {{ currency.symbol }}{{ microgonToMoneyNm(myMaximumBid).formatIfElse('=0', '0', '0,0.00') }})). This means
+          (Minimum Auction Bid: {{ currency.symbol }}{{ microgonToMoneyNm(networkMinimumBid).formatIfElse('=0', '0', '0,0.00') }}, Your Max: {{ currency.symbol }}{{ microgonToMoneyNm(myMaximumBid).formatIfElse('=0', '0', '0,0.00') }}). This means
           your bot can no longer bid.
           <span @click="openBiddingBudgetOverlay" class="text-argon-600 underline cursor-pointer underline-offset-2">
           Modify your Bidding Rules</span>
@@ -48,24 +48,24 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import basicEmitter from '../../emitters/basicEmitter';
 import { getBiddingCalculator, getMainchainClients } from '../../stores/mainchain.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
-import { useStats } from '../../stores/stats.ts';
+import { getStats } from '../../stores/stats.ts';
 
 dayjs.extend(utc);
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getBiddingCalculator();
-const currency = useCurrency();
+const currency = getCurrency();
 const wallets = useWallets();
-const stats = useStats();
+const stats = getStats();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const microgonRequirement = Vue.ref(0n);

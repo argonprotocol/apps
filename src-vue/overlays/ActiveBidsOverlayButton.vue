@@ -53,14 +53,14 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { useCurrency } from '../stores/currency';
+import { getCurrency } from '../stores/currency';
 import { getMainchainClient } from '../stores/mainchain';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
-import { useStats } from '../stores/stats';
+import { getStats } from '../stores/stats';
 import { type IBidsFile, Mining } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral';
 import { TICK_MILLIS } from '../lib/Env.ts';
-import { useWalletKeys } from '../stores/wallets.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -76,9 +76,9 @@ const props = withDefaults(
   },
 );
 
-const stats = useStats();
-const currency = useCurrency();
-const walletKeys = useWalletKeys();
+const stats = getStats();
+const currency = getCurrency();
+const walletKeys = getWalletKeys();
 
 const panelPositioningClasses = Vue.computed(() => {
   if (props.position === 'left') {

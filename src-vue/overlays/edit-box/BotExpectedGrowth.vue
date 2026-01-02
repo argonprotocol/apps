@@ -43,10 +43,10 @@ import * as Vue from 'vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getBiddingCalculator();
 const showBidAmountAlert = Vue.ref(false);
 

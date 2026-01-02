@@ -45,9 +45,9 @@
 import * as Vue from 'vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 
-const config = useConfig();
+const config = getConfig();
 const showBidAmountAlert = Vue.ref(false);
 
 const internalProfitSharingPct = Vue.ref(100 - config.vaultingRules.profitSharingPct);

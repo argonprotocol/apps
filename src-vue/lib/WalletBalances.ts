@@ -3,11 +3,11 @@ import {
   BlockWatch,
   createTypedEventEmitter,
   IBlockHeaderInfo,
-  IMainchainExchangeRates,
-  PriceIndex,
+  IMainchainRates,
   SingleFileQueue,
+  Currency as CurrencyBase,
+  createDeferred,
 } from '@argonprotocol/apps-core';
-import { createDeferred } from './Utils';
 import { WalletKeys } from './WalletKeys.ts';
 import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
 import { Db } from './Db.ts';
@@ -37,7 +37,6 @@ export class WalletBalances {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
 
-  public priceIndex?: PriceIndex;
   public miningWallet: Wallet;
 
   public vaultingWallet: Wallet;
@@ -388,10 +387,7 @@ export class WalletBalances {
     let events: FrameSystemEventRecord[] | undefined;
 
     const { balances, client, api } = await this.readBalances(this.addresses, block);
-    let prices: IMainchainExchangeRates | undefined;
-    if (!isCatchup && this.priceIndex?.exchangeRates) {
-      prices = this.priceIndex.exchangeRates;
-    }
+    let prices: IMainchainRates | null;
     for (let i = 0; i < this.addresses.length; i++) {
       const wallet = this.wallets[i];
       const entry: IBalanceChange = balances[i];
@@ -410,7 +406,7 @@ export class WalletBalances {
         entry.transfers = filter.transfers;
         entry.vaultRevenueEvents = filter.vaultRevenueEvents;
 
-        prices ??= await new PriceIndex(this.blockWatch.clients).fetchMicrogonExchangeRatesTo(api);
+        prices ??= await new CurrencyBase(this.blockWatch.clients).fetchMainchainRates(api);
         const changed = await wallet.onBalanceChange(entry, prices);
         if (changed) {
           this.events.emit('balance-change', entry, wallet.type);

@@ -1,13 +1,7 @@
 import BigNumber from 'bignumber.js';
-import { createDeferred, type IDeferred } from './Deferred.js';
 import { isAddress } from '@polkadot/util-crypto';
 
 export { formatArgons } from '@argonprotocol/mainchain';
-
-export function formatPercent(x: BigNumber | undefined): string {
-  if (!x) return 'na';
-  return `${x.times(100).toFixed(3)}%`;
-}
 
 export function bigIntMin(...args: Array<bigint | null>): bigint {
   if (args.length === 0) return 0n;
@@ -52,47 +46,6 @@ export function convertBigIntStringToNumber(bigIntStr: string | undefined): bigi
   return BigInt(bigIntStr.slice(0, -1));
 }
 
-/**
- * JSON with support for BigInt in JSON.stringify and JSON.parse
- */
-export class JsonExt {
-  public static stringify(obj: any, space?: number): string {
-    return JSON.stringify(
-      obj,
-      (_, v) => {
-        if (typeof v === 'bigint') {
-          return `${v}n`; // Append 'n' to indicate BigInt
-        }
-        // convert Uint8Array objects to a JSON representation
-        if (v instanceof Uint8Array) {
-          return {
-            type: 'Buffer',
-            data: Array.from(v), // Convert Uint8Array to an array of numbers
-          };
-        }
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-        return v;
-      },
-      space,
-    );
-  }
-
-  public static parse<T = any>(str: string): T {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return JSON.parse(str, (_, v) => {
-      if (typeof v === 'string' && v.match(/^-?\d+n$/)) {
-        return BigInt(v.slice(0, -1));
-      }
-      // rehydrate Uint8Array objects
-      if (typeof v === 'object' && v !== null && v.type === 'Buffer' && Array.isArray(v.data)) {
-        return Uint8Array.from(v.data);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      return v;
-    });
-  }
-}
-
 export function getPercent(value: bigint | number, total: bigint | number): number {
   if (total === 0n || total === 0 || value === 0n || value === 0) return 0;
   return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
@@ -102,51 +55,38 @@ export function percentOf(value: bigint | number, percentOf100: number | bigint)
   return bigNumberToBigInt(BigNumber(value).multipliedBy(percentOf100).dividedBy(100));
 }
 
-export class SingleFileQueue {
-  private isRunning: boolean = false;
-  private isStopped: boolean = false;
-  private queue: { fn: () => Promise<any>; deferred: IDeferred }[] = [];
+export function calculateProfitPct(costs: bigint, rewards: bigint): number {
+  if (costs === 0n && rewards > 0n) return 100_000_000;
+  if (costs === 0n) return 0;
 
-  public add<T>(fn: () => Promise<T>): IDeferred<T> {
-    const deferred = createDeferred<any>(false);
-    if (this.isStopped) {
-      deferred.reject(new Error('Queue is stopped'));
-      return deferred;
-    }
-    this.queue.push({ deferred, fn });
-    void this.run();
-    return deferred;
-  }
+  return Number(((rewards - costs) * 100_000n) / costs) / 100_000;
+}
 
-  public clear(): void {
-    this.queue.length = 0;
-  }
+export function compoundXTimes(rate: number, times: number): number {
+  return Math.pow(1 + rate, times) - 1;
+}
 
-  public async stop(waitForCompletion: boolean = false): Promise<void> {
-    this.isStopped = true;
-    if (waitForCompletion) {
-      await Promise.allSettled(this.queue.map(x => x.deferred.promise));
-    }
-    this.queue.length = 0;
-  }
+export function calculateAPR(costs: bigint, rewards: bigint): number {
+  const tenDayRate = calculateProfitPct(costs, rewards);
 
-  private async run() {
-    if (this.isRunning) return;
-    this.isRunning = true;
+  // Compound APR over 36.5 cycles (10-day periods in a year)
+  const apr = tenDayRate * 36.5 * 100;
+  return Math.max(apr, -100);
+}
 
-    while (this.queue.length > 0) {
-      const task = this.queue[0];
-      try {
-        const result = await task.fn();
-        task.deferred.resolve(result);
-      } catch (err) {
-        task.deferred.reject(err);
-      }
-      this.queue.shift();
-    }
+/**
+ * Calculates the actual APY based on costs, rewards, and remaining compounding periods.
+ * @param costs - The total costs incurred.
+ * @param rewards - The total rewards earned.
+ * @param activeDays - The number of days this investment reflects
+ */
+export function calculateAPY(costs: bigint, rewards: bigint, activeDays?: number): number {
+  if (rewards === 0n) return 0;
+  const roi = calculateProfitPct(costs, rewards);
+  const elapsedDenominator = activeDays ? activeDays : 1;
+  const dailyRate = Math.pow(1 + roi, 1 / elapsedDenominator) - 1;
 
-    this.isRunning = false;
-  }
+  return compoundXTimes(dailyRate, 365) * 100;
 }
 
 export function createTypedEventEmitter<Events extends EventsMap = DefaultEvents>(): TypedEmitter<Events> {

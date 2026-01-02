@@ -129,7 +129,7 @@
                     {{ microgonToMoneyNm(breakdown.bidMicronots).format('0,0.00') }}
                   </td>
                   <td class="border-y border-gray-600/20 text-right">
-                    {{ currency.symbol }}{{ microgonToMoneyNm(currency.micronotToMicrogon(breakdown.bidMicronots)).format('0,0.00') }}
+                    {{ currency.symbol }}{{ micronotToMoneyNm(breakdown.bidMicronots).format('0,0.00') }}
                   </td>
                 </tr>
               </tbody>
@@ -233,7 +233,7 @@ import { twMerge } from 'tailwind-merge';
 import ArgonIcon from '../assets/resources/argon.svg?component';
 import MiningBidIcon from '../assets/resources/mining-bid.svg?component';
 import MiningSeatIcon from '../assets/resources/mining-seat.svg?component';
-import { useCurrency } from '../stores/currency.ts';
+import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import Header from './asset-breakdown/Header.vue';
@@ -242,7 +242,7 @@ import Expenses from './asset-breakdown/Expenses.vue';
 import Total from './asset-breakdown/Total.vue';
 import { TooltipProvider } from 'reka-ui';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
 import NeedsSetup from './asset-breakdown/NeedsSetup.vue';
 
@@ -262,12 +262,12 @@ const props = withDefaults(
   },
 );
 
-const currency = useCurrency();
+const currency = getCurrency();
 const breakdown = useMiningAssetBreakdown();
-const config = useConfig();
+const config = getConfig();
 const wallets = useWallets();
 
-const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 
 const itemHeight = Vue.computed(() => {
   let total = 12;

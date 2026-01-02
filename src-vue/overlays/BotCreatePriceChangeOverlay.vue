@@ -46,15 +46,16 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../stores/config';
-import { useCurrency } from '../stores/currency';
+import { getConfig } from '../stores/config';
+import { getCurrency } from '../stores/currency';
 import Overlay from './Overlay.vue';
 import { createNumeralHelpers } from '../lib/numeral';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
+import { UnitOfMeasurement } from '../lib/Currency.ts';
 
 const isOpen = Vue.ref(false);
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 const calculator = getBiddingCalculator();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -98,7 +99,7 @@ function closeOverlay() {
   config.biddingRules.initialMicronotRequirement = requiredMicronotsForGoal.value;
   if (config.biddingRules.initialCapitalCommitment) {
     const microgonCapital = requiredMicrogonsForGoal.value;
-    const micronotCapital = currency.micronotToMicrogon(requiredMicronotsForGoal.value);
+    const micronotCapital = currency.convertMicronotTo(requiredMicronotsForGoal.value, UnitOfMeasurement.Microgon);
     config.biddingRules.initialCapitalCommitment = microgonCapital + micronotCapital;
   }
   void config.saveBiddingRules();

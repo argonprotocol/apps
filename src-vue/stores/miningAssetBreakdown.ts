@@ -1,15 +1,16 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { useWallets } from './wallets.ts';
-import { useCurrency } from './currency.ts';
-import { useConfig } from './config.ts';
-import { useStats } from './stats.ts';
+import { getCurrency } from './currency.ts';
+import { getConfig } from './config.ts';
+import { getStats } from './stats.ts';
+import { UnitOfMeasurement } from '../lib/Currency.ts';
 
 export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () => {
-  const config = useConfig();
+  const config = getConfig();
   const wallets = useWallets();
-  const currency = useCurrency();
-  const stats = useStats();
+  const currency = getCurrency();
+  const stats = getStats();
 
   const unusedMicronots = Vue.computed(() => {
     const unused = wallets.miningWallet.availableMicronots - config.biddingRules.sidelinedMicronots;
@@ -22,7 +23,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   });
 
   const biddingReserves = Vue.computed(() => {
-    return unusedMicrogons.value + currency.micronotToMicrogon(unusedMicronots.value);
+    return unusedMicrogons.value + currency.convertMicronotTo(unusedMicronots.value, UnitOfMeasurement.Microgon);
   });
 
   const bidTotalCount = Vue.computed(() => {

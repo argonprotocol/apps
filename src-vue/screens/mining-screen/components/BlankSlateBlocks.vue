@@ -67,7 +67,7 @@ const blocks = Vue.ref<IBlock[]>([]);
 
 <script lang="ts" setup>
 import * as Vue from 'vue';
-import { useCurrency } from '../../../stores/currency';
+import { getCurrency } from '../../../stores/currency';
 import { createNumeralHelpers } from '../../../lib/numeral';
 import { storeToRefs } from 'pinia';
 import { useBlockchainStore } from '../../../stores/blockchain';
@@ -78,7 +78,7 @@ import { Motion } from 'motion-v';
 dayjs.extend(utc);
 
 const blockchainStore = useBlockchainStore();
-const currency = useCurrency();
+const currency = getCurrency();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const { cachedBlocks } = storeToRefs(blockchainStore);

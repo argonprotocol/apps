@@ -1,5 +1,5 @@
 import type { ApiDecoration, ArgonClient } from '@argonprotocol/mainchain';
-import { SingleFileQueue } from './utils.js';
+import { SingleFileQueue } from './SingleFileQueue.js';
 
 interface StorageItem {
   key: string;

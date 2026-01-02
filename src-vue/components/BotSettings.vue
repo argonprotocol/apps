@@ -277,9 +277,9 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../stores/config';
-import { useCurrency } from '../stores/currency';
-import { useBot } from '../stores/bot';
+import { getConfig } from '../stores/config';
+import { getCurrency } from '../stores/currency';
+import { getBot } from '../stores/bot';
 import AlertIcon from '../assets/alert.svg?component';
 import EditIcon from '../assets/edit.svg?component';
 import {
@@ -304,10 +304,10 @@ const emit = defineEmits<{
   (e: 'update:data', calculator: BiddingCalculator): void;
 }>();
 
-const currency = useCurrency();
+const currency = getCurrency();
 const calculator = getBiddingCalculator();
-const bot = useBot();
-const config = useConfig();
+const bot = getBot();
+const config = getConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

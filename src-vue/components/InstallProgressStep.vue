@@ -84,14 +84,14 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import type { IStepLabel } from '../lib/InstallerStep';
 import { InstallStepErrorType, InstallStepKey, InstallStepStatus } from '../interfaces/IConfig';
 import ProgressBar from '../components/ProgressBar.vue';
 import CheckboxGray from '../components/CheckboxGray.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
-import { useInstaller } from '../stores/installer';
+import { getInstaller } from '../stores/installer';
 
 const props = defineProps<{
   isCompact?: boolean;
@@ -100,8 +100,8 @@ const props = defineProps<{
   stepIndex: number;
 }>();
 
-const config = useConfig();
-const installer = useInstaller();
+const config = getConfig();
+const installer = getInstaller();
 
 const stepLabel = Vue.ref<IStepLabel>(props.stepLabel);
 

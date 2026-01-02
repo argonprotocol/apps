@@ -54,10 +54,10 @@ import * as Vue from 'vue';
 import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import basicEmitter from '../emitters/basicEmitter';
 import BgOverlay from '../components/BgOverlay.vue';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 
 const isOpen = Vue.ref(false);
-const config = useConfig();
+const config = getConfig();
 
 basicEmitter.on('openProvisioningCompleteOverlay', () => {
   isOpen.value = true;

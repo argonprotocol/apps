@@ -62,12 +62,12 @@ import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import BgOverlay from '../components/BgOverlay.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
-import { useBot } from '../stores/bot';
+import { getBot } from '../stores/bot';
 import Draggable from './helpers/Draggable.ts';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
-const bot = useBot();
+const bot = getBot();
 
 const draggable = Vue.reactive(new Draggable());
 

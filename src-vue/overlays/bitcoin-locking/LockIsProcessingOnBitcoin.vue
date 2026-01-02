@@ -19,12 +19,9 @@
     </div>
 
     <p class="pt-2">
-      Argon miners have confirmed that
-      {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
-      in BTC has been transferred to the correct multisig address.
-    </p>
-    <p>
-      We are now actively monitoring Bitcoin's network for final confirmation. This process usually takes an hour from
+      Argon miners have confirmed a transfer of
+      {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC is being
+      received. We are monitoring Bitcoin's network for final confirmation. This process usually takes an hour from
       start to finish.
     </p>
 
@@ -46,8 +43,8 @@
 import * as Vue from 'vue';
 import numeral from '../../lib/numeral';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { useCurrency } from '../../stores/currency.ts';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { generateProgressLabel } from '../../lib/Utils.ts';
@@ -56,8 +53,8 @@ const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
 
-const bitcoinLocks = useBitcoinLocks();
-const currency = useCurrency();
+const bitcoinLocks = getBitcoinLocks();
+const currency = getCurrency();
 
 const progressPct = Vue.ref(0);
 const blockConfirmations = Vue.ref(-1);

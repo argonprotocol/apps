@@ -6,7 +6,7 @@ import {
   Mining,
   MiningFrames,
   NetworkConfig,
-  PriceIndex,
+  Currency,
   convertBigIntStringToNumber,
   createDeferred,
   type IDeferred,
@@ -23,7 +23,7 @@ export class Vaults {
 
   constructor(
     public network: string,
-    public priceIndex: PriceIndex,
+    public currency: Currency,
     public miningFrames: MiningFrames,
     private mainchainClients: MainchainClients,
   ) {}
@@ -130,7 +130,7 @@ export class Vaults {
     }
   }
 
-  public async refreshRevenue(clients?: MainchainClients): Promise<IAllVaultStats> {
+  public async updateRevenue(clients?: MainchainClients): Promise<IAllVaultStats> {
     await this.load();
     clients ??= this.mainchainClients;
     if (this.refreshingPromise) return this.refreshingPromise;
@@ -149,7 +149,8 @@ export class Vaults {
       // re-sync the last 10 frames to catch updates to revenue collection
       const oldestFrameToGet = this.stats.synchedToFrame - 10;
       const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
-      const framesSeen = new Set<number>();
+      const frameIdsSeen = new Set<number>();
+      const vaultIdsSeen = new Set<number>();
 
       await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
         async (frameId, firstBlockMeta, api, abortController) => {
@@ -164,15 +165,17 @@ export class Vaults {
             return;
           }
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
+
           for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
             const vaultId = vaultIdRaw.args[0].toNumber();
             for (const frameRevenue of frameRevenues) {
               const frameId = frameRevenue.frameId.toNumber();
-              if (!framesSeen.has(frameId)) {
+              if (!frameIdsSeen.has(frameId) || !vaultIdsSeen.has(vaultId)) {
                 await this.updateVaultRevenue(vaultId, [frameRevenue], true);
-                framesSeen.add(frameRevenue.frameId.toNumber());
+                frameIdsSeen.add(frameId);
               }
             }
+            vaultIdsSeen.add(vaultId);
           }
 
           if (frameId <= oldestFrameToGet) {
@@ -184,7 +187,7 @@ export class Vaults {
         },
       );
 
-      this.stats.synchedToFrame = Math.max(...framesSeen, this.stats.synchedToFrame);
+      this.stats.synchedToFrame = Math.max(...frameIdsSeen, this.stats.synchedToFrame);
       void this.saveStats();
       refreshingDeferred.resolve(this.stats);
       scheduleClearance();
@@ -252,7 +255,7 @@ export class Vaults {
 
   public async getTotalLiquidityRealized(refresh = true) {
     if (refresh) {
-      await this.refreshRevenue();
+      await this.updateRevenue();
     }
     return Object.values(this.stats!.vaultsById).reduce((total, vault) => {
       return (
@@ -285,13 +288,13 @@ export class Vaults {
   }
 
   public async getRedemptionRate(lock: { satoshis: bigint; peggedPrice: bigint }): Promise<bigint> {
-    await this.priceIndex.fetchMicrogonExchangeRatesTo();
-    return await BitcoinLock.getRedemptionRate(this.priceIndex.current, lock);
+    await this.currency.fetchMainchainRates();
+    return await BitcoinLock.getRedemptionRate(this.currency.priceIndex, lock);
   }
 
-  public async getMarketRate(satoshis: bigint): Promise<bigint> {
-    await this.priceIndex.fetchMicrogonExchangeRatesTo();
-    return await BitcoinLock.getMarketRate(this.priceIndex.current, satoshis);
+  public async getMarketRateInMicrogons(satoshis: bigint): Promise<bigint> {
+    await this.currency.fetchMainchainRates();
+    return await BitcoinLock.getMarketRate(this.currency.priceIndex, satoshis);
   }
 
   public getTreasuryFillPct(vaultId: number): number {

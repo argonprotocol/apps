@@ -1,39 +1,39 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { getMining } from './mainchain.ts';
-import { useCurrency } from './currency.ts';
-import { calculateAPY } from '../lib/Utils.ts';
+import { Currency, getCurrency } from './currency.ts';
+import { calculateAPY, GlobalMiningStats, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 export const useMiningStats = defineStore('miningStats', () => {
-  const currency = useCurrency();
+  let isLoading = false;
+  let isLoadedPromise: Promise<void> | undefined = undefined;
+
+  const mining = getMining();
+  const currency = getCurrency();
+  const stats = new GlobalMiningStats(mining, currency as Currency);
 
   const activeMiningSeatCount = Vue.ref(0);
   const aggregatedBidCosts = Vue.ref(0n);
   const aggregatedBlockRewards = Vue.ref(0n);
+  const currentAPY = Vue.ref(0);
 
-  const currentAPY = Vue.computed(() => {
-    return calculateAPY(aggregatedBidCosts.value, aggregatedBlockRewards.value);
-  });
+  async function update() {
+    if (!isLoading && !isLoadedPromise) await stats.load();
+    else if (!isLoading) await stats.update();
+    isLoading = true;
 
-  async function updateActiveMiningSeatCount() {
-    const mining = getMining();
     activeMiningSeatCount.value = await mining.fetchActiveMinersCount();
-  }
-
-  async function updateAggregateBidCosts() {
     aggregatedBidCosts.value = await getMining().fetchAggregateBidCosts();
-  }
 
-  async function updateAggregateBlockRewards() {
     const blockRewards = await getMining().getAggregateBlockRewards();
-    aggregatedBlockRewards.value = blockRewards.microgons + currency.micronotToMicrogon(blockRewards.micronots);
+    const valueOfMicronots = currency.convertMicronotTo(blockRewards.micronots, UnitOfMeasurement.Microgon);
+    aggregatedBlockRewards.value = blockRewards.microgons + valueOfMicronots;
+
+    currentAPY.value = calculateAPY(aggregatedBidCosts.value, aggregatedBlockRewards.value);
+    isLoading = false;
   }
 
-  async function load() {
-    await Promise.all([updateActiveMiningSeatCount(), updateAggregateBidCosts(), updateAggregateBlockRewards()]);
-  }
-
-  const isLoadedPromise = load();
+  isLoadedPromise = update();
 
   return {
     isLoadedPromise,
@@ -41,8 +41,6 @@ export const useMiningStats = defineStore('miningStats', () => {
     activeMiningSeatCount,
     aggregatedBlockRewards,
     currentAPY,
-    updateAggregateBidCosts,
-    updateAggregateBlockRewards,
-    updateActiveMiningSeatCount,
+    update,
   };
 });

@@ -65,7 +65,7 @@ import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import BgOverlay from '../components/BgOverlay.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import Draggable from './helpers/Draggable.ts';
 import { ConfigServerCreationSchema, ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
 import { SSH } from '../lib/SSH.ts';
@@ -73,7 +73,7 @@ import { JsonExt } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
-const config = useConfig();
+const config = getConfig();
 
 const draggable = Vue.reactive(new Draggable());
 

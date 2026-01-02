@@ -28,19 +28,19 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
-import { useMyVault } from '../../stores/vaults.ts';
+import { getConfig } from '../../stores/config';
+import { getMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
 import VaultIcon from '../../assets/vault.svg?component';
 import { abbreviateAddress, generateProgressLabel } from '../../lib/Utils.ts';
-import { useCurrency } from '../../stores/currency.ts';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
-const walletKeys = useWalletKeys();
-const myVault = useMyVault();
-const currency = useCurrency();
+const config = getConfig();
+const walletKeys = getWalletKeys();
+const myVault = getMyVault();
+const currency = getCurrency();
 
 const progressPct = Vue.ref(0);
 const errorMessage = Vue.ref('');

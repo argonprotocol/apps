@@ -7,7 +7,8 @@ import FramesHistoryTestnet from './data/frames.testnet.json' with { type: 'json
 import FramesHistoryMainnet from './data/frames.mainnet.json' with { type: 'json' };
 import type { MainchainClients } from './MainchainClients.js';
 import { createDeferred } from './Deferred.js';
-import { createTypedEventEmitter, getPercent, SingleFileQueue } from './utils.js';
+import { createTypedEventEmitter, getPercent } from './utils.js';
+import { SingleFileQueue } from './SingleFileQueue.js';
 import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
 
 dayjs.extend(utc);

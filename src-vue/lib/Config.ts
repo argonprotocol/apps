@@ -14,15 +14,17 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
+  ICurrencyKey,
   JsonExt,
   MicronotPriceChangeType,
   SeatGoalInterval,
   SeatGoalType,
+  type IDeferred,
+  createDeferred,
 } from '@argonprotocol/apps-core';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
-import { createDeferred, ensureOnlyOneInstance } from './Utils';
-import IDeferred from '../interfaces/IDeferred';
-import { CurrencyKey } from './Currency';
+import { ensureOnlyOneInstance } from './Utils';
+import { UnitOfMeasurement } from './Currency';
 import { getUserJurisdiction } from './Countries';
 import { NETWORK_NAME } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
@@ -100,7 +102,7 @@ export class Config implements IConfig {
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
       vaultingRules: Config.getDefault(dbFields.vaultingRules) as IConfig['vaultingRules'],
-      defaultCurrencyKey: Config.getDefault(dbFields.defaultCurrencyKey) as CurrencyKey,
+      defaultCurrencyKey: Config.getDefault(dbFields.defaultCurrencyKey) as ICurrencyKey,
       userJurisdiction: {
         ipAddress: '',
         city: '',
@@ -426,11 +428,11 @@ export class Config implements IConfig {
     this.setField('vaultingRules', value, false);
   }
 
-  public get defaultCurrencyKey(): CurrencyKey {
+  public get defaultCurrencyKey(): ICurrencyKey {
     return this.getField('defaultCurrencyKey');
   }
 
-  public set defaultCurrencyKey(value: CurrencyKey) {
+  public set defaultCurrencyKey(value: ICurrencyKey) {
     this.setField('defaultCurrencyKey', value);
   }
 
@@ -741,7 +743,7 @@ const defaults: IConfigDefaults = {
       baseMicronotCommitment: 0n,
     };
   },
-  defaultCurrencyKey: () => CurrencyKey.ARGN,
+  defaultCurrencyKey: () => UnitOfMeasurement.ARGN,
   userJurisdiction: async () => {
     try {
       return await getUserJurisdiction();

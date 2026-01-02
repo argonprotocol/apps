@@ -44,8 +44,8 @@ import {
 } from 'reka-ui';
 import AlertIcon from '../../assets/alert.svg?component';
 import { BiddingCalculator } from '@argonprotocol/apps-core';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 import IncreaseIcon from '../../assets/increase.svg?component';
 
@@ -59,8 +59,8 @@ const emit = defineEmits<{
   (e: 'increaseCapitalCommitment'): void;
 }>();
 
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

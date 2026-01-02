@@ -35,11 +35,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import { useController } from '../../stores/controller';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = useConfig();
+const config = getConfig();
 const controller = useController();
 
 const mnemonic = Vue.ref(['', '', '', '', '', '', '', '', '', '', '', '']);
@@ -86,7 +86,7 @@ async function importAccount() {
   hasErrors.value = mnemonic.value.some(word => !word);
   if (hasErrors.value) return;
 
-  const masterMnemonic = await useWalletKeys().exposeMasterMnemonic();
+  const masterMnemonic = await getWalletKeys().exposeMasterMnemonic();
 
   const hasSameMnemonic = masterMnemonic === mnemonic.value.join(' ');
   if (hasSameMnemonic) {

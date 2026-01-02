@@ -82,7 +82,7 @@ import VaultPoolRevenueShare from './edit-box/VaultPoolRevenueShare.vue';
 import VaultSecuritizationRatio from './edit-box/VaultSecuritizationRatio.vue';
 import VaultPersonalBtc from './edit-box/VaultPersonalBtc.vue';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
-import { useConfig } from '../stores/config';
+import { getConfig } from '../stores/config';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
 import VaultTreasuryFunding from './edit-box/VaultTreasuryFunding.vue';
@@ -100,7 +100,7 @@ const emit = defineEmits<{
   (e: 'goTo', id: IEditBoxOverlayType | undefined): void;
 }>();
 
-const config = useConfig();
+const config = getConfig();
 
 const editorInstance = Vue.ref<IEditBoxChildExposed | null>(null);
 const saveButtonLabel = Vue.ref('Save');

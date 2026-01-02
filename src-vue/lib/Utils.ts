@@ -1,9 +1,9 @@
-import { createDeferred, getPercent, IDeferred, JsonExt, percentOf } from '@argonprotocol/apps-core';
+import { getPercent, JsonExt, percentOf } from '@argonprotocol/apps-core';
 import { IFieldTypes } from './db/BaseTable.ts';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 
-export { createDeferred, type IDeferred, getPercent, percentOf };
+export { getPercent, percentOf };
 
 export function isInt(n: any) {
   if (typeof n === 'string') return !n.includes('.');
@@ -16,40 +16,6 @@ export async function getInstanceConfigDir(): Promise<string> {
 
 export function abbreviateAddress(address: string, length = 4) {
   return address.slice(0, 6) + '...' + address.slice(-length);
-}
-
-export function calculateProfitPct(costs: bigint, rewards: bigint): number {
-  if (costs === 0n && rewards > 0n) return 100_000_000;
-  if (costs === 0n) return 0;
-
-  return Number(((rewards - costs) * 100_000n) / costs) / 100_000;
-}
-
-export function compoundXTimes(rate: number, times: number): number {
-  return Math.pow(1 + rate, times) - 1;
-}
-
-export function calculateAPR(costs: bigint, rewards: bigint): number {
-  const tenDayRate = calculateProfitPct(costs, rewards);
-
-  // Compound APR over 36.5 cycles (10-day periods in a year)
-  const apr = tenDayRate * 36.5 * 100;
-  return Math.max(apr, -100);
-}
-
-/**
- * Calculates the actual APY based on costs, rewards, and remaining compounding periods.
- * @param costs - The total costs incurred.
- * @param rewards - The total rewards earned.
- * @param activeDays - The number of days this investment reflects
- */
-export function calculateAPY(costs: bigint, rewards: bigint, activeDays?: number): number {
-  if (rewards === 0n) return 0;
-  const roi = calculateProfitPct(costs, rewards);
-  const elapsedDenominator = activeDays ? activeDays : 1;
-  const dailyRate = Math.pow(1 + roi, 1 / elapsedDenominator) - 1;
-
-  return compoundXTimes(dailyRate, 365) * 100;
 }
 
 export function toSqlParams(

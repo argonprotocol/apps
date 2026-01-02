@@ -20,9 +20,9 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
-const walletKeys = useWalletKeys();
+const walletKeys = getWalletKeys();
 
 const isCopied = Vue.ref(false);
 const masterMnemonic = Vue.ref('');

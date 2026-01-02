@@ -68,8 +68,8 @@ import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { IEditBoxChildExposed } from '../EditBoxOverlay.vue';
 
@@ -77,9 +77,9 @@ const emit = defineEmits<{
   (e: 'update:data'): void;
 }>();
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getBiddingCalculator();
-const currency = useCurrency();
+const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const bidAmount = Vue.ref<bigint>(0n);

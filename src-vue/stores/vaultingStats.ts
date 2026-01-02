@@ -1,58 +1,51 @@
 import * as Vue from 'vue';
-import { useVaults } from './vaults.ts';
-import { SATOSHIS_PER_BITCOIN } from '../lib/Currency.ts';
+import { getVaults } from './vaults.ts';
 import { defineStore } from 'pinia';
+import { GlobalVaultingStats } from '@argonprotocol/apps-core';
+import { getCurrency, Currency } from './currency.ts';
 
 export const useVaultingStats = defineStore('vaultingStats', () => {
-  const vaultsStore = useVaults();
+  let isLoading = false;
+  let isLoadedPromise: Promise<void> | undefined = undefined;
+
+  const vaults = getVaults();
+  const currency = getCurrency();
+  const stats = new GlobalVaultingStats(vaults, currency as Currency);
 
   const vaultCount = Vue.ref(0);
-
   const bitcoinLocked = Vue.ref(0);
   const microgonValueInVaults = Vue.ref(0n);
-
   const epochEarnings = Vue.ref(0n);
-  const averageVaultAPY = Vue.ref(0);
+  const averageAPY = Vue.ref(0);
 
-  async function load() {
-    await vaultsStore.load();
+  const argonBurnCapability = Vue.ref(0);
+  const finalPriceAfterTerraCollapse = Vue.ref(0n);
 
-    const vaultApys: number[] = [];
-    const list = Object.values(vaultsStore.vaultsById);
-    for (const vault of list) {
-      const earnings = vaultsStore.treasuryPoolEarnings(vault.vaultId, 10);
-      epochEarnings.value += earnings;
-      const apy = vaultsStore.calculateVaultApy(vault.vaultId);
-      vaultApys.push(apy);
-    }
+  async function update() {
+    if (!isLoading && !isLoadedPromise) await stats.load();
+    else if (!isLoading) await stats.update();
+    isLoading = true;
 
-    const satsLocked = vaultsStore.getTotalSatoshisLocked();
-    bitcoinLocked.value = Number(satsLocked) / Number(SATOSHIS_PER_BITCOIN);
-    vaultsStore
-      .getMarketRate(satsLocked)
-      .then(rate => {
-        microgonValueInVaults.value = rate;
-      })
-      .catch(() => {
-        microgonValueInVaults.value = 0n;
-      });
-    vaultCount.value = list.length;
-
-    if (vaultApys.length > 0) {
-      averageVaultAPY.value = vaultApys.reduce((a, b) => a + b, 0) / vaultApys.length;
-    } else {
-      averageVaultAPY.value = 0;
-    }
+    vaultCount.value = stats.vaultCount;
+    bitcoinLocked.value = stats.bitcoinLocked;
+    microgonValueInVaults.value = stats.microgonValueOfVaultedBitcoins;
+    epochEarnings.value = stats.epochEarnings;
+    averageAPY.value = stats.averageAPY;
+    argonBurnCapability.value = stats.argonBurnCapability;
+    finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
+    isLoading = false;
   }
 
-  const isLoadedPromise = load();
+  isLoadedPromise = update();
 
   return {
     vaultCount,
     microgonValueInVaults,
     bitcoinLocked,
-    averageVaultAPY,
-    isLoadedPromise,
+    averageAPY,
     epochEarnings,
+    argonBurnCapability,
+    finalPriceAfterTerraCollapse,
+    isLoadedPromise,
   };
 });

@@ -79,15 +79,15 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { useConfig } from '../../stores/config';
-import { useCurrency } from '../../stores/currency';
+import { getConfig } from '../../stores/config';
+import { getCurrency } from '../../stores/currency';
 import { type IBiddingRules, type IWinningBid, NetworkConfig } from '@argonprotocol/apps-core';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain';
-import { useStats } from '../../stores/stats';
+import { getStats } from '../../stores/stats';
 import { createNumeralHelpers } from '../../lib/numeral';
 import { useWallets } from '../../stores/wallets';
 import { bigIntMin } from '@argonprotocol/apps-core/src/utils';
@@ -98,10 +98,10 @@ dayjs.extend(utc);
 const mainchain = getMining();
 
 const wallets = useWallets();
-const stats = useStats();
-const config = useConfig();
+const stats = getStats();
+const config = getConfig();
 
-const currency = useCurrency();
+const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const auctionIsClosing = Vue.ref(false);

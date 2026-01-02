@@ -1,5 +1,5 @@
 import { closeOnTeardown, runOnTeardown, teardown } from '@argonprotocol/testing';
-import { IBalanceTransfer, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
+import { IBalanceTransfer, MainchainClients, NetworkConfig, createDeferred } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
@@ -8,7 +8,6 @@ import Path from 'path';
 import { WalletBalances } from '../lib/WalletBalances.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
-import { createDeferred } from '../lib/Utils.ts';
 import { WalletLedgerTable } from '../lib/db/WalletLedgerTable.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { WalletTransfersTable } from '../lib/db/WalletTransfersTable.ts';

@@ -2,22 +2,22 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { ask as askDialog } from '@tauri-apps/plugin-dialog';
 import handleFatalError from './helpers/handleFatalError.ts';
-import { useConfig } from './config.ts';
-import { createDeferred } from '../lib/Utils.ts';
-import { useStats } from './stats.ts';
-import { useCurrency } from './currency.ts';
+import { getConfig } from './config.ts';
+import { createDeferred, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { getStats } from './stats.ts';
+import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { SECURITY } from '../lib/Env.ts';
 import { IWallet } from '../lib/Wallet.ts';
 import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
-import { useMyVault } from './vaults.ts';
+import { getMyVault } from './vaults.ts';
 
 let walletKeys: WalletKeys;
-export function useWalletKeys() {
+export function getWalletKeys() {
   walletKeys ??= new WalletKeys(SECURITY, async () => {
-    const walletBalances = useWalletBalances();
+    const walletBalances = getWalletBalances();
     await walletBalances.load();
     return walletBalances.didWalletHavePreviousLife();
   });
@@ -25,8 +25,8 @@ export function useWalletKeys() {
 }
 
 let walletBalances: WalletBalances;
-export function useWalletBalances() {
-  walletBalances ??= new WalletBalances(useWalletKeys(), getDbPromise(), getBlockWatch(), useMyVault());
+export function getWalletBalances() {
+  walletBalances ??= new WalletBalances(getWalletKeys(), getDbPromise(), getBlockWatch(), getMyVault());
   return walletBalances;
 }
 
@@ -41,16 +41,15 @@ const defaultBalance: IWallet = {
 };
 
 export const useWallets = defineStore('wallets', () => {
-  const stats = useStats();
-  const currency = useCurrency();
-  const config = useConfig();
+  const stats = getStats();
+  const currency = getCurrency();
+  const config = getConfig();
 
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
-  const walletKeys = useWalletKeys();
-  const walletBalances = useWalletBalances();
-  walletBalances.priceIndex = currency.priceIndex as any;
+  const walletKeys = getWalletKeys();
+  const walletBalances = getWalletBalances();
   const miningWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.miningAddress });
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.vaultingAddress });
   const holdingWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.holdingAddress });
@@ -95,10 +94,8 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const miningSeatValue = Vue.computed(() => {
-    return (
-      miningSeatMicrogons.value +
-      currency.micronotToMicrogon(miningSeatMicronots.value + miningSeatStakedMicronots.value)
-    );
+    const micronots = miningSeatMicronots.value + miningSeatStakedMicronots.value;
+    return miningSeatMicrogons.value + currency.convertMicronotTo(micronots, UnitOfMeasurement.Microgon);
   });
 
   const miningBidMicrogons = Vue.computed(() => {
@@ -118,7 +115,7 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const miningBidValue = Vue.computed(() => {
-    return miningBidMicrogons.value + currency.micronotToMicrogon(miningBidMicronots.value);
+    return miningBidMicrogons.value + currency.convertMicronotTo(miningBidMicronots.value, UnitOfMeasurement.Microgon);
   });
 
   const totalMiningMicrogons = Vue.computed(() => {
@@ -142,7 +139,7 @@ export const useWallets = defineStore('wallets', () => {
   const totalMiningResources = Vue.computed(() => {
     return (
       miningWallet.availableMicrogons +
-      currency.micronotToMicrogon(miningWallet.availableMicronots) +
+      currency.convertMicronotTo(miningWallet.availableMicronots, UnitOfMeasurement.Microgon) +
       miningSeatValue.value +
       miningBidValue.value
     );
@@ -152,8 +149,8 @@ export const useWallets = defineStore('wallets', () => {
     return (
       vaultingWallet.availableMicrogons +
       vaultingWallet.reservedMicrogons +
-      currency.micronotToMicrogon(vaultingWallet.availableMicronots) +
-      currency.micronotToMicrogon(vaultingWallet.reservedMicronots)
+      currency.convertMicronotTo(vaultingWallet.availableMicronots, UnitOfMeasurement.Microgon) +
+      currency.convertMicronotTo(vaultingWallet.reservedMicronots, UnitOfMeasurement.Microgon)
     );
   });
 
@@ -162,7 +159,7 @@ export const useWallets = defineStore('wallets', () => {
       totalMiningResources.value +
       totalVaultingResources.value +
       holdingWallet.totalMicrogons +
-      currency.micronotToMicrogon(holdingWallet.totalMicronots)
+      currency.convertMicronotTo(holdingWallet.totalMicronots, UnitOfMeasurement.Microgon)
     );
   });
 

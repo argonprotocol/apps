@@ -145,30 +145,30 @@ import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigge
 import InputMenu from '../components/InputMenu.vue';
 import * as Vue from 'vue';
 import InputArgon from '../components/InputArgon.vue';
-import { useWalletKeys, useWallets } from '../stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { useMyVault } from '../stores/vaults.ts';
-import { bigIntMax, isValidArgonAccountAddress } from '@argonprotocol/apps-core';
+import { getMyVault } from '../stores/vaults.ts';
+import { isValidArgonAccountAddress, percentOf, bigIntMax } from '@argonprotocol/apps-core';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
-import { useTransactionTracker } from '../stores/transactions.ts';
+import { getTransactionTracker } from '../stores/transactions.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import ProgressBar from '../components/ProgressBar.vue';
-import { useCurrency } from '../stores/currency.ts';
-import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
+import { getCurrency } from '../stores/currency.ts';
+import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { IWallet } from '../lib/Wallet.ts';
 import VaultAllocation from '../components/VaultAllocation.vue';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { MyVault } from '../lib/MyVault.ts';
 
-const myVault = useMyVault();
-const currency = useCurrency();
-const config = useConfig();
+const myVault = getMyVault();
+const currency = getCurrency();
+const config = getConfig();
 const wallets = useWallets();
-const walletKeys = useWalletKeys();
-const transactionTracker = useTransactionTracker();
+const walletKeys = getWalletKeys();
+const transactionTracker = getTransactionTracker();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

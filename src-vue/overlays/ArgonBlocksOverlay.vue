@@ -37,11 +37,9 @@
               <td class="border-t border-slate-400/30 text-left">
                 {{ currency.symbol
                 }}{{
-                  microgonToMoneyNm(currency.micronotToMicrogon(block.micronots) + block.microgons).formatIfElse(
-                    '< 1_000',
-                    '0,0.00',
-                    '0,0',
-                  )
+                  microgonToMoneyNm(
+                    currency.convertMicronotTo(block.micronots, UnitOfMeasurement.Microgon) + block.microgons,
+                  ).formatIfElse('< 1_000', '0,0.00', '0,0')
                 }}
               </td>
               <td class="relative border-t border-slate-400/30 text-right">
@@ -74,14 +72,15 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { IBlock, useBlockchainStore } from '../stores/blockchain';
-import { useCurrency } from '../stores/currency.ts';
+import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
-import { useWalletKeys } from '../stores/wallets.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
+import { UnitOfMeasurement } from '../lib/Currency.ts';
 
-const walletKeys = useWalletKeys();
-const currency = useCurrency();
+const walletKeys = getWalletKeys();
+const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

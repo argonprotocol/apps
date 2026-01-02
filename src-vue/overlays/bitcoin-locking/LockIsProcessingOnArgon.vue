@@ -10,9 +10,9 @@
 
   <div v-else class="flex flex-col space-y-5 px-10 pt-10 pb-20">
     <p>
-      Your request to lock {{ numeral(currency.satsToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} in
-      BTC has been submitted to the Argon network and is now awaiting finalization. This process usually takes between
-      four to five minutes.
+      Your request to lock {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
+      in BTC has been submitted to the Argon network and is now awaiting finalization. This process usually takes
+      between four to five minutes.
     </p>
 
     <p class="mb-2 italic">NOTE: You can close this overlay without disrupting the process.</p>
@@ -32,9 +32,9 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import numeral from '../../lib/numeral';
-import { useMyVault } from '../../stores/vaults.ts';
+import { getMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
@@ -43,8 +43,8 @@ const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
 
-const currency = useCurrency();
-const myVault = useMyVault();
+const currency = getCurrency();
+const myVault = getMyVault();
 
 const progressPct = Vue.ref(0);
 const blockConfirmations = Vue.ref(-1);

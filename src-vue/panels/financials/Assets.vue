@@ -178,18 +178,18 @@ import BanklessBottom1 from '../../assets/bankless-bottom1.svg';
 import BanklessBottom2 from '../../assets/bankless-bottom2.svg';
 import { useWallets } from '../../stores/wallets.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import CopyIcon from '../../assets/copy.svg';
 import LineArrow from '../../components/asset-breakdown/LineArrow.vue';
 import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
-import { useConfig } from '../../stores/config.ts';
+import { getConfig } from '../../stores/config.ts';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 
 const wallets = useWallets();
-const currency = useCurrency();
-const config = useConfig();
+const currency = getCurrency();
+const config = getConfig();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 </script>

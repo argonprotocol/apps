@@ -20,8 +20,8 @@ import * as Vue from 'vue';
 import InputNumber from '../../components/InputNumber.vue';
 import InputArgon from '../../components/InputArgon.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 
-const config = useConfig();
+const config = getConfig();
 const calculator = getBiddingCalculator();
 </script>

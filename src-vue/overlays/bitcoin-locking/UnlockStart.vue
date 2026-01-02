@@ -7,7 +7,7 @@
         <div class="mb-6">
           <p class="mb-4 text-gray-700">
             You are releasing
-            <strong>{{ numeral(currency.satsToBtc(personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
+            <strong>{{ numeral(currency.convertSatToBtc(personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
             which requires
             <strong>{{ microgonToArgonNm(releasePrice).format('0,0.[000000]') }} argons to unlock</strong>.
             These funds will be pulled directly from available capital in your vaulting wallet.
@@ -67,18 +67,18 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
-import { useMyVault, useVaults } from '../../stores/vaults.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import BitcoinLocksStore from '../../lib/BitcoinLocksStore.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import InputMenu from '../../components/InputMenu.vue';
 
-const vaults = useVaults();
-const myVault = useMyVault();
-const bitcoinLocks = useBitcoinLocks();
-const currency = useCurrency();
+const vaults = getVaults();
+const myVault = getMyVault();
+const bitcoinLocks = getBitcoinLocks();
+const currency = getCurrency();
 const wallets = useWallets();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 

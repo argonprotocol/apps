@@ -34,7 +34,9 @@
     <div v-else-if="personalLock?.status === BitcoinLockStatus.LockReadyForBitcoin" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px fade-in-out" />
       <div class="flex flex-col items-start justify-center grow">
-        <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Is Ready to Finish Locking</div>
+        <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">Your
+          {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Is Ready to
+          Finish Locking</div>
         <div class="relative text-argon-700/80 pt-0.5 font-bold text-md pointer-events-none fade-in-out">Actively Monitoring Network for Incoming Bitcoin</div>
       </div>
       <div class="flex flex-col items-center justify-center">
@@ -59,7 +61,8 @@
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
           <div class="text-xl font-bold opacity-60 pb-1.5">
-            Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC Is Being Processed by Bitcoin's Network
+            Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC
+            Is Being Processed by Bitcoin's Network
           </div>
           <ProgressBar :progress="bitcoinLockProcessingPercent" />
         </div>
@@ -69,7 +72,8 @@
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-80 border-b border-argon-600/20 pb-1.5 mb-1.5">
-          Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locking Failed
+          Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC
+          Locking Failed
         </div>
         <div class="opacity-60">
           The amount of bitcoin you sent was incorrect. It could not be accepted by Argon.
@@ -80,7 +84,8 @@
       <BitcoinIcon class="w-22 inline-block mr-5 -rotate-24 opacity-60" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60">
-          {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
+          {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked
+          (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
         </div>
         <div class="opacity-40">
           {{ currency.symbol}}{{ microgonToMoneyNm(personalLock?.liquidityPromised ?? 0n).format('0,0.[00]') }} Liquidity {{ personalLock?.status === BitcoinLockStatus.LockedAndIsMinting ? 'Promised' : 'Received'}}
@@ -112,7 +117,8 @@
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 1 of 4)</span>
+            Unlocking Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]')
+            }} BTC <span class="font-light opacity-60">(Step 1 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-start w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-80 font-bold text-argon-600">Requesting Release from Argon Network</div>
@@ -143,7 +149,8 @@
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 3 of 4)</span>
+            Unlocking Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]')
+            }} BTC <span class="font-light opacity-60">(Step 3 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-start w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-80 font-bold text-argon-600">Submitting Transfer to Bitcoin Network</div>
@@ -156,7 +163,8 @@
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
-            Unlocking Your {{ numeral(currency.satsToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC <span class="font-light opacity-60">(Step 4 of 4)</span>
+            Unlocking Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]')
+            }} BTC <span class="font-light opacity-60">(Step 4 of 4)</span>
           </div>
           <div class="flex flex-row items-center justify-center w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-60">Finalizing On Bitcoin</div>
@@ -193,27 +201,27 @@ const bitcoinLockProcessingPercent = Vue.ref(0);
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
-import { useCurrency } from '../../../stores/currency';
+import { getCurrency } from '../../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral';
-import { useMyVault, useVaults } from '../../../stores/vaults.ts';
+import { getMyVault, getVaults } from '../../../stores/vaults.ts';
 import CountdownClock from '../../../components/CountdownClock.vue';
-import { useBitcoinLocks } from '../../../stores/bitcoin.ts';
+import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import BitcoinLockingOverlay from '../../../overlays/BitcoinLockingOverlay.vue';
 import BitcoinUnlockingOverlay from '../../../overlays/BitcoinUnlockingOverlay.vue';
 import BitcoinIcon from '../../../assets/wallets/bitcoin-thin.svg?component';
 import { BitcoinLockStatus } from '../../../lib/db/BitcoinLocksTable.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
-import { useWalletKeys } from '../../../stores/wallets.ts';
+import { getWalletKeys } from '../../../stores/wallets.ts';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
-const myVault = useMyVault();
+const myVault = getMyVault();
 const miningFrames = getMiningFrames();
-const vaults = useVaults();
-const bitcoinLocks = useBitcoinLocks();
-const currency = useCurrency();
+const vaults = getVaults();
+const bitcoinLocks = getBitcoinLocks();
+const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -283,13 +291,13 @@ async function updateBitcoinUnlockPrices() {
   const lock = personalLock.value;
   if (!lock) return;
 
-  btcMarketRate.value = await vaults.getMarketRate(lock.satoshis).catch(() => 0n);
+  btcMarketRate.value = await vaults.getMarketRateInMicrogons(lock.satoshis).catch(() => 0n);
 
   if (lock.status !== BitcoinLockStatus.LockedAndIsMinting && lock.status !== BitcoinLockStatus.LockedAndMinted) {
     unlockPrice.value = 0n;
     return;
   }
-  const vaultingAddress = useWalletKeys().vaultingAddress;
+  const vaultingAddress = getWalletKeys().vaultingAddress;
   const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, vaultingAddress }).catch(() => 0n);
   unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
 }
@@ -307,7 +315,7 @@ Vue.onMounted(async () => {
   await bitcoinLocks.subscribeToArgonBlocks();
 
   Vue.watch(
-    currency.priceIndex.current,
+    currency.priceIndex,
     () => {
       void updateBitcoinUnlockPrices();
     },

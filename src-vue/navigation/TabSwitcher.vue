@@ -1,9 +1,23 @@
+<!-- prettier-ignore -->
 <template>
   <section
     ref="toggleRef"
-    class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600">
+    class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
+  >
     <div
       Item
+      class="border-r border-slate-400"
+      @click="goto(ScreenKey.Mining)"
+      :class="{ selected: controller.screenKey === ScreenKey.Mining }">
+      <div Wrapper class="relative inline px-2 text-center">
+        <div :class="{ invisible: controller.screenKey === ScreenKey.Mining }">Mining</div>
+        <div v-if="controller.screenKey === ScreenKey.Mining" class="absolute top-0 left-0 h-full w-full font-bold">
+          Mining
+        </div>
+      </div>
+    </div>
+    <div
+      Item Home
       class="border-r border-slate-400"
       @click="goto(ScreenKey.Home)"
       :class="{ selected: controller.screenKey === ScreenKey.Home }">
@@ -15,18 +29,6 @@
           v-if="controller.screenKey === ScreenKey.Home"
           class="absolute top-0 left-0 h-full w-full text-center font-bold">
           <HomeIcon class="text-argon-600 relative top-[1.5px] mx-auto h-5" />
-        </div>
-      </div>
-    </div>
-    <div
-      Item
-      class="border-r border-slate-400"
-      @click="goto(ScreenKey.Mining)"
-      :class="{ selected: controller.screenKey === ScreenKey.Mining }">
-      <div Wrapper class="relative inline px-2 text-center">
-        <div :class="{ invisible: controller.screenKey === ScreenKey.Mining }">Mining</div>
-        <div v-if="controller.screenKey === ScreenKey.Mining" class="absolute top-0 left-0 h-full w-full font-bold">
-          Mining
         </div>
       </div>
     </div>
@@ -47,11 +49,11 @@ import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useController } from '../stores/controller.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import HomeIcon from '../assets/home.svg?component';
-import { useConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 
 const tour = useTour();
 const controller = useController();
-const config = useConfig();
+const config = getConfig();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 
@@ -105,8 +107,8 @@ section {
     padding: 4px 30px;
     transition: opacity 0.3s ease;
     position: relative;
-    &:first-child {
-      padding: 4px 8px;
+    &[Home] {
+      padding: 4px 14px;
     }
     [Wrapper] {
       display: block;

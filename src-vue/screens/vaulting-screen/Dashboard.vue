@@ -357,10 +357,10 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
-import { useCurrency } from '../../stores/currency';
+import { getCurrency } from '../../stores/currency';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
-import { useMyVault, useVaults } from '../../stores/vaults.ts';
-import { useConfig } from '../../stores/config.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
+import { getConfig } from '../../stores/config.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
@@ -372,23 +372,28 @@ import FrameSlider, { IChartItem } from '../../components/FrameSlider.vue';
 import SuccessIcon from '../../assets/success.svg?component';
 import VaultIcon from '../../assets/vault.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import { MiningFrames, NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
+import {
+  MiningFrames,
+  NetworkConfig,
+  TreasuryPool,
+  calculateAPY,
+  type IVaultFrameStats,
+} from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import { IVaultFrameStats } from '../../../core/src/interfaces/IVaultStats.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
-import { calculateAPY, getPercent, percentOf } from '../../lib/Utils.ts';
+import { getPercent, percentOf } from '../../lib/Utils.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';
-import { useBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import VaultingAssetBreakdown from '../../components/VaultingAssetBreakdown.vue';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
-const myVault = useMyVault();
-const vaults = useVaults();
-const bitcoinLocks = useBitcoinLocks();
-const config = useConfig();
-const currency = useCurrency();
+const myVault = getMyVault();
+const vaults = getVaults();
+const bitcoinLocks = getBitcoinLocks();
+const config = getConfig();
+const currency = getCurrency();
 
 const rules = config.vaultingRules;
 

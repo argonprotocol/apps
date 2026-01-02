@@ -1,10 +1,10 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import basicEmitter from '../emitters/basicEmitter';
-import { useConfig, type Config } from './config';
-import { useWalletKeys } from './wallets.ts';
+import { getConfig, type Config } from './config';
+import { getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
-import { createDeferred } from '../lib/Utils';
+import { createDeferred } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
 import { ScreenKey } from '../interfaces/IConfig';
@@ -14,8 +14,8 @@ export const useController = defineStore('controller', () => {
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
   const dbPromise = getDbPromise();
-  const config = useConfig();
-  const walletKeys = useWalletKeys();
+  const config = getConfig();
+  const walletKeys = getWalletKeys();
   const screenKey = Vue.ref<ScreenKey>('' as ScreenKey);
 
   const isImporting = Vue.ref(false);

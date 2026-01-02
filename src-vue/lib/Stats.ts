@@ -2,19 +2,20 @@ import BigNumber from 'bignumber.js';
 import {
   bigIntMax,
   bigNumberToBigInt,
-  type IBidsFile,
   IBotActivity,
-  type IWinningBid,
   MiningFrames,
   NetworkConfig,
+  createDeferred,
+  type IDeferred,
+  type IWinningBid,
+  type IBidsFile,
 } from '@argonprotocol/apps-core';
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
 import { Config } from './Config';
 import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import { botEmitter } from './Bot';
-import { createDeferred, ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
-import IDeferred from '../interfaces/IDeferred';
+import { ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 import { Currency } from './Currency.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';

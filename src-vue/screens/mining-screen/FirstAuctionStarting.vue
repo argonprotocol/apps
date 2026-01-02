@@ -58,7 +58,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
@@ -66,14 +66,14 @@ import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue'
 import { MiningFrames } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain';
-import { useCurrency } from '../../stores/currency';
+import { getCurrency } from '../../stores/currency';
 import { createNumeralHelpers } from '../../lib/numeral';
 
 dayjs.extend(utc);
 
 const mainchain = getMining();
-const config = useConfig();
-const currency = useCurrency();
+const config = getConfig();
+const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

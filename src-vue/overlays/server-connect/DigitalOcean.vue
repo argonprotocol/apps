@@ -396,11 +396,11 @@ import { IServerConnectChildExposed } from '../ServerConnectOverlay.vue';
 import { IConfigServerCreationDigitalOcean } from '../../interfaces/IConfig';
 import { MiningMachine } from '../../lib/MiningMachine';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 
 const emit = defineEmits(['ready']);
 
-const config = useConfig();
+const config = getConfig();
 
 const hasApiKey = !!config.serverCreation?.digitalOcean?.apiKey;
 const accordionValue = Vue.ref(hasApiKey ? '3' : '1');

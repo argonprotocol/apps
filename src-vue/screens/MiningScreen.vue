@@ -15,9 +15,9 @@ import CloudMachineIsInstalling from './mining-screen/CloudMachineIsInstalling.v
 import FirstAuction from './mining-screen/FirstAuction.vue';
 import Dashboard from './mining-screen/Dashboard.vue';
 import StartingBot from './mining-screen/StartingBot.vue';
-import { useConfig } from '../stores/config';
-import { useBot } from '../stores/bot';
+import { getConfig } from '../stores/config';
+import { getBot } from '../stores/bot';
 
-const config = useConfig();
-const bot = useBot();
+const config = getConfig();
+const bot = getBot();
 </script>

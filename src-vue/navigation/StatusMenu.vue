@@ -377,8 +377,8 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import { useWallets } from '../stores/wallets';
-import { useConfig } from '../stores/config';
-import { useCurrency } from '../stores/currency';
+import { getConfig } from '../stores/config';
+import { getCurrency } from '../stores/currency';
 import StatusSad from '../assets/status-sad.svg';
 import StatusNeutral from '../assets/status-neutral.svg';
 import StatusHappy from '../assets/status-happy.svg';
@@ -387,7 +387,7 @@ import CheckboxIcon from '../assets/checkbox.svg';
 import { Motion } from 'motion-v';
 import basicEmitter from '../emitters/basicEmitter';
 import { createNumeralHelpers } from '../lib/numeral';
-import { useInstaller } from '../stores/installer';
+import { getInstaller } from '../stores/installer';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
 
@@ -407,10 +407,10 @@ const statusOrder: Status[] = [
   Status.Overfunded,
 ];
 
-const config = useConfig();
+const config = getConfig();
 const wallets = useWallets();
-const currency = useCurrency();
-const installer = useInstaller();
+const currency = getCurrency();
+const installer = getInstaller();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 

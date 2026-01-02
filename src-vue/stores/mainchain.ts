@@ -6,14 +6,13 @@ import {
   MainchainClients,
   Mining,
   MiningFrames,
-  PriceIndex,
 } from '@argonprotocol/apps-core';
 import { ApiDecoration } from '@argonprotocol/mainchain';
 import { LOG_DEBUG, NETWORK_NAME, NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
-import { useConfig } from './config';
+import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
-import { useBot } from './bot.ts';
+import { getBot } from './bot.ts';
 import { VaultCalculator } from '../lib/VaultCalculator.ts';
 import { SSH } from '../lib/SSH.ts';
 import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
@@ -23,7 +22,6 @@ let mainchainClients: MainchainClients;
 let mining: Mining;
 let miningFrames: MiningFrames;
 let blockWatch: BlockWatch;
-let priceIndex: PriceIndex;
 let biddingCalculator: BiddingCalculator;
 let biddingCalculatorData: BiddingCalculatorData;
 let vaultCalculator: VaultCalculator;
@@ -68,7 +66,7 @@ export function getMainchainClients(): MainchainClients {
   if (!mainchainClients) {
     mainchainClients = new MainchainClients(NETWORK_URL, () => __LOG_DEBUG__ || LOG_DEBUG);
 
-    const bot = useBot();
+    const bot = getBot();
     if (bot.isReady) {
       setPrunedClientToLocal();
     }
@@ -118,15 +116,8 @@ export function getMining(): Mining {
   return mining;
 }
 
-export function getPriceIndex(): PriceIndex {
-  if (!priceIndex) {
-    priceIndex = new PriceIndex(getMainchainClients());
-  }
-  return priceIndex;
-}
-
 export function getBiddingCalculator(): BiddingCalculator {
-  const config = useConfig();
+  const config = getConfig();
   if (!config.isLoaded) {
     throw new Error('Config must be loaded before BiddingCalculator can be initialized');
   }
@@ -143,7 +134,7 @@ export function getBiddingCalculatorData(): BiddingCalculatorData {
 
 export function getVaultCalculator(): VaultCalculator {
   if (!vaultCalculator) {
-    const config = useConfig();
+    const config = getConfig();
     if (!config.isLoaded) {
       throw new Error('Config must be loaded before VaultCalculator can be initialized');
     }

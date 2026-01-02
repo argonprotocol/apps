@@ -12,13 +12,13 @@ import * as Vue from 'vue';
 import FirstAuctionStarting from './FirstAuctionStarting.vue';
 import FirstAuctionWinning from './FirstAuctionWinning.vue';
 import FirstAuctionFailed from './FirstAuctionFailed.vue';
-import { useStats } from '../../stores/stats';
-import { useConfig } from '../../stores/config';
-import { useBot } from '../../stores/bot';
+import { getStats } from '../../stores/stats';
+import { getConfig } from '../../stores/config';
+import { getBot } from '../../stores/bot';
 
-const stats = useStats();
-const bot = useBot();
-const config = useConfig();
+const stats = getStats();
+const bot = getBot();
+const config = getConfig();
 
 Vue.onMounted(() => stats.subscribeToActivity());
 Vue.onUnmounted(() => stats.unsubscribeFromActivity());

@@ -192,18 +192,18 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useCurrency } from '../../stores/currency.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter';
-import { useConfig } from '../../stores/config';
+import { getConfig } from '../../stores/config';
 import BgOverlay from '../../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import { useVaults } from '../../stores/vaults.ts';
+import { getVaults } from '../../stores/vaults.ts';
 
-const config = useConfig();
-const currency = useCurrency();
-const vaultStore = useVaults();
+const config = getConfig();
+const currency = getCurrency();
+const vaultStore = getVaults();
 
 const { micronotToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
@@ -272,7 +272,7 @@ function closeOverlay() {
 
 async function loadVaults() {
   await vaultStore.load();
-  await vaultStore.refreshRevenue();
+  await vaultStore.updateRevenue();
 
   const nextVaults = [];
   for (const vault of Object.values(vaultStore.vaultsById)) {

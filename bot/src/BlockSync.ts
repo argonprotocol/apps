@@ -20,7 +20,7 @@ import {
   Mining,
   MiningFrames,
   NetworkConfig,
-  PriceIndex,
+  Currency,
 } from '@argonprotocol/apps-core';
 import { type Storage } from './Storage.ts';
 import { JsonStore } from './JsonStore.ts';
@@ -63,7 +63,7 @@ export class BlockSync {
   private lastExchangeRateFrameId?: number;
   private localClient!: ArgonClient;
   private archiveClient!: ArgonClient;
-  private priceIndex: PriceIndex;
+  private currency: Currency;
 
   constructor(
     public bot: IBotSyncStatus,
@@ -76,7 +76,7 @@ export class BlockSync {
   ) {
     this.scheduleNext = this.scheduleNext.bind(this);
     this.mining = new Mining(this.mainchainClients);
-    this.priceIndex = new PriceIndex(this.mainchainClients);
+    this.currency = new Currency(this.mainchainClients);
   }
 
   public async load() {
@@ -402,7 +402,7 @@ export class BlockSync {
       if (!checkedExchangeRateThisFrame || !checkedExchangeRateThisHour) {
         this.lastExchangeRateDate = new Date();
         this.lastExchangeRateFrameId = earningsFrameId;
-        const microgonExchangeRateTo = await this.priceIndex.fetchMicrogonExchangeRatesTo(api);
+        const microgonExchangeRateTo = await this.currency.fetchMainchainRates(api);
         x.microgonToUsd.push(microgonExchangeRateTo.USD);
         x.microgonToBtc.push(microgonExchangeRateTo.BTC);
         x.microgonToArgonot.push(microgonExchangeRateTo.ARGNOT);

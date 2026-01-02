@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { useConfig } from './config';
+import { getConfig } from './config';
 
 export interface ITourPos {
   left: number;
@@ -13,7 +13,7 @@ export interface ITourPos {
 }
 
 export const useTour = defineStore('tour', () => {
-  const config = useConfig();
+  const config = getConfig();
 
   const positionChecks: Record<string, () => ITourPos> = {};
   const currentStep = Vue.ref(0);
