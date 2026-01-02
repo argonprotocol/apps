@@ -87,7 +87,7 @@ export default class BiddingCalculatorData {
           api = await client.at(frameStartBlockHash);
         }
 
-        const currency = new Currency(mining.clients.prunedClientOrArchivePromise);
+        const currency = new Currency(mining.clients);
         try {
           const tickAtStartOfNextCohort = await mining.fetchTickAtStartOfNextCohort(api);
           const tickAtEndOfNextCohort = tickAtStartOfNextCohort + NetworkConfig.ticksPerCohort;

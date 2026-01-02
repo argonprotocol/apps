@@ -22,7 +22,7 @@ export default async function fetchVaultRevenue() {
   for (const chain of ['testnet', 'mainnet'] as const) {
     NetworkConfig.networkName = chain;
     const mainchain = new MainchainClients(NetworkConfigSettings[chain].archiveUrl);
-    const currency = new Currency(mainchain.prunedClientOrArchivePromise);
+    const currency = new Currency(mainchain);
     await currency.fetchMainchainRates();
     const miningFrames = new MiningFrames(mainchain);
     await miningFrames.load();

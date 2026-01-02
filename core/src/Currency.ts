@@ -4,6 +4,7 @@ import { type ApiDecoration, MICROGONS_PER_ARGON, PriceIndex, SATS_PER_BTC } fro
 import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
 import { NetworkConfig } from './NetworkConfig.js';
+import type { MainchainClients } from './MainchainClients.ts';
 
 const TEN_MINUTES_IN_MILLISECONDS = 10 * 60e3;
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
@@ -58,6 +59,8 @@ export const defaultMicrogonsPer: IMicrogonsPer = {
   BTC: BigInt(MICROGONS_PER_ARGON),
 };
 
+// Promise<ApiDecoration<'promise'>>
+
 export class Currency {
   public priceIndex = new PriceIndex();
 
@@ -79,7 +82,7 @@ export class Currency {
   public isLoadedPromise: Promise<void>;
   private isLoadedDeferred: IDeferred<void>;
 
-  constructor(public client: Promise<ApiDecoration<'promise'>>) {
+  constructor(public clients: MainchainClients) {
     this.isLoaded = false;
     this.isLoadedDeferred = createDeferred<void>();
     this.isLoadedPromise = this.isLoadedDeferred.promise;
@@ -161,22 +164,22 @@ export class Currency {
   }
 
   public async fetchMicrogonsInCirculation(api?: ApiDecoration<'promise'>): Promise<bigint> {
-    const client = api ?? (await this.client);
+    const client = api ?? (await this.clients.prunedClientOrArchivePromise);
     return (await client.query.balances.totalIssuance()).toBigInt();
   }
 
   public async fetchMicronotsInCirculation(): Promise<bigint> {
-    const client = await this.client;
+    const client = await this.clients.prunedClientOrArchivePromise;
     return (await client.query.ownership.totalIssuance()).toBigInt();
   }
 
   public async fetchBitcoinLiquidityReceived(): Promise<bigint> {
-    const client = await this.client;
+    const client = await this.clients.prunedClientOrArchivePromise;
     return (await client.query.mint.mintedBitcoinMicrogons()).toBigInt();
   }
 
   public async fetchMainchainRates(api?: ApiDecoration<'promise'>, ignoreCache = true): Promise<IMainchainRates> {
-    api ??= await this.client;
+    api ??= await this.clients.prunedClientOrArchivePromise;
     await this.priceIndex.load(api);
 
     if (this.priceIndex.argonUsdPrice) {

@@ -100,7 +100,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       ).submit();
       await res.waitForInFirstBlock;
 
-      const currency = new CurrencyBase(clients.prunedClientOrArchivePromise);
+      const currency = new CurrencyBase(clients);
       await currency.fetchMainchainRates();
       const miningFrames = new MiningFrames(clients);
       const vaults = new Vaults('dev-docker', currency, miningFrames);

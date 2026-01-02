@@ -34,7 +34,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   }, 60e3);
 
   it('getLockProcessingDetails should update progress ', async () => {
-    const currencyBase = new CurrencyBase(clients.prunedClientOrArchivePromise);
+    const currencyBase = new CurrencyBase(clients);
     const db = await createTestDb();
     const blockWatch = new BlockWatch(clients);
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockWatch);

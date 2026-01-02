@@ -76,7 +76,7 @@ export class BlockSync {
   ) {
     this.scheduleNext = this.scheduleNext.bind(this);
     this.mining = new Mining(this.mainchainClients);
-    this.currency = new Currency(this.mainchainClients.prunedClientOrArchivePromise);
+    this.currency = new Currency(this.mainchainClients);
   }
 
   public async load() {
