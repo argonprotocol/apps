@@ -23,20 +23,26 @@
               <header>About This App</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <DropdownMenuItem @click="() => openJurisdictionOverlay()" class="py-2">
+              <header>Default Jurisdiction</header>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openSecuritySettingsOverlay()" class="py-2">
-              <header>Security and Recovery</header>
+              <header>Security and Backup</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openComplianceOverlay()" class="py-2">
-              <header>Jurisdictional Compliance</header>
+            <DropdownMenuItem class="py-2" @click="() => checkForUpdates()">
+              <header>Check for Updates</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <PortfolioSubmenu @close="isOpen = false" />
+            <DropdownMenuItem @click="() => openImportAccountOverlay()" class="py-2">
+              <header>Import Account</header>
+            </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger class="relative py-2">
                 <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <header>Help Options</header>
+                <header>Help Resources</header>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent class="relative -top-1 min-w-50">
                 <div
@@ -62,10 +68,6 @@
                     class="py-2"
                     @click="() => void openLink('https://github.com/argonprotocol/apps/issues')">
                     <header>GitHub Developer Community</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                  <DropdownMenuItem class="py-2" @click="() => checkForUpdates()">
-                    <header>Check for Updates</header>
                   </DropdownMenuItem>
                 </div>
               </DropdownMenuSubContent>
@@ -98,7 +100,6 @@ import basicEmitter from '../emitters/basicEmitter';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import PortfolioSubmenu from './PortfolioSubmenu.vue';
 
 const tour = useTour();
 
@@ -164,8 +165,13 @@ function openAboutOverlay() {
   isOpen.value = false;
 }
 
-function openComplianceOverlay() {
-  basicEmitter.emit('openComplianceOverlay');
+function openJurisdictionOverlay() {
+  basicEmitter.emit('openJurisdictionOverlay');
+  isOpen.value = false;
+}
+
+function openImportAccountOverlay() {
+  basicEmitter.emit('openImportAccountOverlay');
   isOpen.value = false;
 }
 

@@ -67,13 +67,13 @@ const draggable = Vue.reactive(new Draggable());
 
 const title = Vue.computed(() => {
   if (currentScreen.value === 'overview') {
-    return 'Jurisdictional Compliance';
+    return 'Default Jurisdiction';
   } else if (currentScreen.value === 'fixJurisdiction') {
     return 'Fix Your Country of Residence';
   }
 });
 
-basicEmitter.on('openComplianceOverlay', async (data: any) => {
+basicEmitter.on('openJurisdictionOverlay', async (data: any) => {
   isOpen.value = true;
   currentScreen.value = 'overview';
   draggable.modalPosition.x = 0;

@@ -21,13 +21,15 @@
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectOverlay />
       <WalletOverlay />
+      <MoveCapitalOverlay />
       <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <SecuritySettingsOverlay />
+      <ImportAccountOverlay />
       <BotEditOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
-      <ComplianceOverlay />
+      <JurisdictionOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
     </template>
@@ -50,6 +52,7 @@ import ServerConnectOverlay from './overlays/ServerConnectOverlay.vue';
 import WalletOverlay from './overlays/WalletOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
+import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
 import { useController } from './stores/controller';
@@ -58,7 +61,7 @@ import { useTour } from './stores/tour';
 import { getBot } from './stores/bot';
 import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from './overlays/AboutOverlay.vue';
-import ComplianceOverlay from './overlays/ComplianceOverlay.vue';
+import JurisdictionOverlay from './overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
 import ImportingOverlay from './overlays/ImportingOverlay.vue';
 import BootingOverlay from './overlays/BootingOverlay.vue';
@@ -72,6 +75,7 @@ import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
 import Portfolio from './panels/Portfolio.vue';
+import MoveCapitalOverlay from './overlays/MoveCapitalOverlay.vue';
 
 const controller = useController();
 const config = getConfig();

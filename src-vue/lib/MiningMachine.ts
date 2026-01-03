@@ -40,12 +40,12 @@ export class MiningMachine {
       return await this.setupDigitalOcean(
         apiKey,
         sshPublicKey,
-        walletKeys.miningAddress,
+        walletKeys.miningBotAddress,
         config.userJurisdiction,
         progressFn,
       );
     } else if (config.serverCreation?.customServer) {
-      return await this.setupCustomServer(config.serverCreation.customServer, walletKeys.miningAddress, progressFn);
+      return await this.setupCustomServer(config.serverCreation.customServer, walletKeys.miningBotAddress, progressFn);
     } else if (config.serverCreation?.localComputer) {
       return await this.setupLocalComputer(walletKeys.sshPublicKey, progressFn);
     } else {
@@ -116,12 +116,12 @@ export class MiningMachine {
   private static async setupDigitalOcean(
     apiKey: string,
     sshPublicKey: string,
-    miningAccountAddress: string,
+    miningBotAccountAddress: string,
     userLocation: { latitude: string; longitude: string },
     progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
     progressFn?.(5);
-    const existing = await this.findExistingDigitalOceanDroplet(apiKey, miningAccountAddress);
+    const existing = await this.findExistingDigitalOceanDroplet(apiKey, miningBotAccountAddress);
     if (existing) {
       progressFn?.(100);
       return existing;
@@ -146,7 +146,7 @@ export class MiningMachine {
         size,
         image: 'ubuntu-25-04-x64',
         ssh_keys: [sshKey],
-        tags: [miningAccountAddress],
+        tags: [miningBotAccountAddress],
       }),
     });
     const createData = (await createRes.json()) as ICreateDropletResponse;
@@ -286,9 +286,9 @@ export class MiningMachine {
 
   private static async findExistingDigitalOceanDroplet(
     apiKey: string,
-    miningAccountAddress: string,
+    miningBotAccountAddress: string,
   ): Promise<IConfigServerDetails | null> {
-    const res = await fetch(`https://api.digitalocean.com/v2/droplets?tag_name=${miningAccountAddress}`, {
+    const res = await fetch(`https://api.digitalocean.com/v2/droplets?tag_name=${miningBotAccountAddress}`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -383,7 +383,7 @@ export class MiningMachine {
 
   private static async setupCustomServer(
     customServer: IConfigServerCreationCustomServer,
-    miningAccountAddress: string,
+    miningBotAccountAddress: string,
     progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {
     const { port, sshUser, ipAddress, hasRunningBot } = customServer;
@@ -405,7 +405,7 @@ export class MiningMachine {
     })();
     progressFn?.(100);
 
-    if (serverMeta.walletAddress && serverMeta.walletAddress !== miningAccountAddress) {
+    if (serverMeta.walletAddress && serverMeta.walletAddress !== miningBotAccountAddress) {
       throw new MiningMachineError('The server has a different wallet address than your mining account.');
     }
 

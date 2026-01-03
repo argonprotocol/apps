@@ -3,7 +3,7 @@
   <TooltipProvider :disableHoverableContent="true" class="flex h-full flex-col">
     <div class="flex h-full grow flex-col justify-stretch gap-y-2 px-2.5 py-2.5">
       <section box class="flex flex-row items-center !py-1 px-1 text-slate-900/90">
-        <div @click="openPortfolio(PortfolioTab.ProfitAnalysis)" class="w-[86%] h-full flex flex-row items-center text-slate-600/70 relative z-10 pl-4 py-1 cursor-pointer hover:bg-linear-to-r from-argon-600/10 to-transparent">
+        <div @click="openPortfolio(PortfolioTab.ProfitAnalysis)" class="w-[86%] h-full flex flex-row items-center text-slate-600/70 relative z-30 pl-4 py-1 cursor-pointer hover:bg-linear-to-r from-argon-600/10 to-transparent">
           <div>
             <RoiIcon class="relative inline-block h-5 w-5 text-argon-600/80 mr-1 top-[-3px]" />
             Your <span class="font-mono font-bold text-argon-600 tracking-tighter">
@@ -20,13 +20,13 @@
         <div class="w-[28%]" />
         <div @click="openPortfolio(PortfolioTab.GrowthProjections)" class="w-[86%] flex flex-row items-center text-slate-600/50 relative z-10 pr-4 py-1 cursor-pointer hover:bg-linear-to-l from-argon-600/10 to-transparent">
           <div class="relative h-3 grow bg-slate-600/16 ml-16">
-            <div class="absolute h-3 bg-white w-12 right-full rotate-[-35deg] top-[12px] translate-x-[5px]">
+            <div class="absolute h-3 bg-white w-14 right-full rotate-[-35deg] top-[15px] translate-x-[8px]">
               <div class="h-full w-full bg-slate-600/16" />
             </div>
           </div>
           <LineArrow class="text-slate-600/16 mr-1" />
           <div class="text-right">
-            Your Projections Show a Return of
+            Your Data Predicts a Future Return of
             <span class="font-mono font-bold text-argon-600 tracking-tighter">{{ numeral(projectedApy).formatIfElseCapped('< 1000', '0,0.0[0]', '0,0', 9_999) }}% APY</span>
             <ProjectionsIcon class="relative inline-block h-5 w-5  text-argon-600/60 ml-2 -top-px" />
           </div>
@@ -37,33 +37,39 @@
           <header
             class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase"
           >
-            <span class="pl-3">Your Mining Operations</span>
+            <span class="grow pl-3">Your Mining Operations</span>
+            <CopyAddressMenu :walletType="WalletType.mining" class="mr-1" />
+            <AssetMenu :walletType="WalletType.mining" class="pr-3" />
           </header>
           <div class="flex grow flex-row pt-2 text-center" v-if="config.isMinerInstalled">
             <div class="flex w-1/2 flex-col items-center gap-x-2">
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
-                <div Stat>
+                <div Stat class="text-2xl!">
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col pt-1.5">
-                <div Stat>{{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <div Stat class="text-2xl!">
+                  {{ numeral(myMiningRoi).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%
+                </div>
                 <label>Current ROI</label>
               </div>
             </div>
             <div class="mx-2 h-full w-px bg-slate-600/20" />
             <div class="flex w-1/2 flex-col items-center gap-x-2">
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
-                <div Stat>
+                <div Stat class="text-2xl!">
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(myMiningEarnings).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Earnings-to-Date</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col pt-1.5">
-                <div Stat>{{ numeral(myMiningApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <div Stat class="text-2xl!">
+                  {{ numeral(myMiningApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%
+                </div>
                 <label>Projected APY</label>
               </div>
             </div>
@@ -83,32 +89,33 @@
         </section>
 
         <section box class="flex flex-col min-h-60 w-1/3 px-2 relative">
-          <div class="flex flex-col w-[90%] absolute top-[-25%] bottom-0 left-[5%] pointer-events-none">
+          <div class="flex flex-col w-[92%] absolute top-[-28%] bottom-0 left-[4%] pointer-events-none">
             <div class="h-[30%] relative">
-              <BankmoreTop1 Bank class="relative w-full h-full z-10" />
-              <BankmoreTopBg class="absolute top-0 left-0 w-full h-full scale-120 text-white" />
+              <BankmoreTop1 Bank class="relative w-full h-full z-20" />
+              <BankmoreTopBg class="absolute top-0 left-0 w-full h-full scale-120 text-white z-10" />
+              <ArgonLogo class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-700/30 h-[40px] z-20 mt-1" />
             </div>
             <div class="flex flex-col grow relative z-10">
-              <BanklessTop2 Bank class="w-full" />
+              <BanklessTop2 Bank class="w-full opacity-80" />
               <div class="grow relative overflow-hidden flex flex-col items-center justify-center">
                 <div class="w-fit">
-                  <div class="font-base text-slate-600/50 text-center">CURRENT PORTFOLIO</div>
-                  <div class="font-mono text-4xl font-bold text-argon-600 text-center mt-1 tracking-tighter">
+                  <div class="font-base text-slate-600/50 text-center">YOUR CURRENT VALUE</div>
+                  <div class="font-mono text-3xl font-bold text-argon-600 text-center mt-1 tracking-tighter">
                     {{ currency.symbol }}{{ totalNetWorth[0] }}.<span class="opacity-50">{{ totalNetWorth[1] }}</span>
                   </div>
                   <button
-                    @click="openPortfolio(PortfolioTab.AssetBreakdown)"
+                    @click="openPortfolio(PortfolioTab.Overview)"
                     class="inner-button-shadow pointer-events-auto relative z-10 cursor-pointer border border-argon-600 hover:bg-argon-600/5 text-argon-600 font-bold px-4 py-[3px] mt-4 -mb-1 rounded mx-auto block whitespace-nowrap w-full"
                   >
-                    View Breakdown
+                    Open Portfolio
                   </button>
                 </div>
-                <BanklessMiddle Bank class="absolute -top-1 bottom-0 w-full" />
+                <BanklessMiddle Bank class="absolute -top-1 bottom-0 w-full opacity-80" />
               </div>
-              <BanklessBottom1 Bank class="-mt-0.5 w-full" />
+              <BanklessBottom1 Bank class="-mt-0.5 w-full opacity-80" />
             </div>
             <div class="overflow-hidden relative top-[-3px]">
-              <BanklessBottom2 Bank class="w-full relative top-[3px]" />
+              <BanklessBottom2 Bank class="w-full relative top-[3px] opacity-80" />
             </div>
           </div>
         </section>
@@ -116,32 +123,38 @@
         <section box class="flex min-h-60 w-1/3 flex-col px-2">
           <header
             class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
-            <span class="pl-3">Your Vaulting Operations</span>
+            <span class="pl-3 grow">Your Vaulting Operations</span>
+            <CopyAddressMenu :walletType="WalletType.vaulting" class="mr-1" />
+            <AssetMenu :walletType="WalletType.vaulting" class="mr-3" />
           </header>
           <div class="flex grow flex-row pt-2 text-center" v-if="config.isVaultActivated">
             <div class="flex w-1/2 flex-col items-center gap-x-2">
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
-                <div Stat>
+                <div Stat class="text-2xl!">
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Capital Invested</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col pt-1.5">
-                <div Stat>{{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</div>
+                <div Stat class="text-2xl!">
+                  {{ numeral(myVaultRoi).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
+                </div>
                 <label>Current ROI</label>
               </div>
             </div>
             <div class="mx-2 h-full w-px bg-slate-600/20" />
             <div class="flex w-1/2 flex-col items-center gap-x-2">
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
-                <div Stat>
+                <div Stat class="text-2xl!">
                   {{ currency.symbol }}{{ microgonToMoneyNm(myVaultEarnings).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Earnings-to-Date</label>
               </div>
               <div StatWrapper class="flex h-1/2 w-full flex-col pt-1.5">
-                <div Stat>{{ numeral(myVaultApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%</div>
+                <div Stat class="text-2xl!">
+                  {{ numeral(myVaultApy).formatIfElseCapped('< 100', '0.[000]', '0,0', 9_999) }}%
+                </div>
                 <label>Projected APY</label>
               </div>
             </div>
@@ -172,8 +185,7 @@
           <div class="ml-5 h-3 flex-grow bg-slate-600/16" />
           <div class="relative top-5 ml-2 h-9 w-3 bg-slate-600/16">
             <div class="absolute -top-5 right-0 h-5 w-5 rounded-tr-xl border-t-12 border-r-12 text-slate-600/16" />
-            <LineArrow
-              class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rotate-90 text-slate-600/16" />
+            <LineArrow class="absolute top-full left-1/2 z-10 -translate-x-1/2 -translate-y-4/12 rotate-90 text-slate-600/16" />
           </div>
         </header>
         <div class="mt-2 -mb-2 flex w-full grow flex-row">
@@ -536,9 +548,13 @@ import BanklessMiddle from '../assets/bankless-middle.svg';
 import BanklessBottom1 from '../assets/bankless-bottom1.svg';
 import BanklessBottom2 from '../assets/bankless-bottom2.svg';
 import RoiIcon from '../assets/roi.svg';
+import ArgonLogo from '../assets/resources/argon.svg?component';
 import ProjectionsIcon from '../assets/projections.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
+import AssetMenu from './components/AssetMenu.vue';
+import { WalletType } from '../lib/Wallet.ts';
+import CopyAddressMenu from './components/CopyAddressMenu.vue';
 
 const vaults = getVaults();
 const currency = getCurrency();
@@ -725,7 +741,7 @@ async function loadNetworkStats() {
 async function updateExternalFunding() {
   const db = await dbPromise;
   const microgonsPerArgonot = currency.convertMicronotTo(BigInt(MICRONOTS_PER_ARGONOT), UnitOfMeasurement.Microgon);
-  const miningFunding = await db.walletTransfersTable.fetchExternal(walletKeys.miningAddress);
+  const miningFunding = await db.walletTransfersTable.fetchExternal(walletKeys.miningBotAddress);
   miningExternalInvested.value = 0n;
 
   for (const transfer of miningFunding) {
@@ -842,7 +858,7 @@ svg[Bank] {
 [StatWrapper] {
   @apply flex flex-col justify-center gap-y-1;
   [Stat] {
-    @apply text-argon-600 font-mono text-3xl font-extrabold;
+    @apply text-argon-600 font-mono text-2xl font-extrabold;
   }
   header {
     @apply text-3xl;

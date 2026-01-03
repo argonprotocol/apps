@@ -195,10 +195,12 @@ export class MyVaultRecovery {
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
     const table = await bitcoinLocksStore.getTable();
     let totalAmountMinted = 0n;
+
     for (const [utxoId, utxoMaybe] of myBitcoins) {
       const utxo = utxoMaybe.unwrap();
       if (utxo.ownerAccount.toHuman() === vaultingAddress) {
         const ownerPubkey = utxo.ownerPubkey;
+
         const thisHdPath = await findPubkey(ownerPubkey);
         if (!thisHdPath) {
           console.warn('Unable to recover the hd path of this personal bitcoin');

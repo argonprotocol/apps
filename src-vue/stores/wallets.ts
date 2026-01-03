@@ -30,7 +30,7 @@ export function getWalletBalances() {
   return walletBalances;
 }
 
-const defaultBalance: IWallet = {
+const defaultWallet: IWallet = {
   address: '',
   availableMicrogons: 0n,
   availableMicronots: 0n,
@@ -50,16 +50,16 @@ export const useWallets = defineStore('wallets', () => {
 
   const walletKeys = getWalletKeys();
   const walletBalances = getWalletBalances();
-  const miningWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.miningAddress });
-  const vaultingWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.vaultingAddress });
-  const holdingWallet = Vue.reactive<IWallet>({ ...defaultBalance, address: walletKeys.holdingAddress });
+  const miningWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningAddress });
+  const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
+  const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
 
   const previousHistoryValue = Vue.computed(() => {
-    if (!config.miningAccountPreviousHistory) return;
+    if (!config.miningBotAccountPreviousHistory) return;
     const bids = { microgons: 0n, micronots: 0n };
     const seats = { microgons: 0n, micronots: 0n };
 
-    for (const item of config.miningAccountPreviousHistory) {
+    for (const item of config.miningBotAccountPreviousHistory) {
       for (const seat of item.seats) {
         seats.microgons += seat.microgonsBid;
         seats.micronots += seat.micronotsStaked;
@@ -120,7 +120,7 @@ export const useWallets = defineStore('wallets', () => {
 
   const totalMiningMicrogons = Vue.computed(() => {
     return (
-      miningWallet.availableMicrogons +
+      miningBotWallet.availableMicrogons +
       miningSeatMicrogons.value +
       miningBidMicrogons.value -
       config.biddingRules.sidelinedMicrogons
@@ -128,7 +128,9 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const totalMiningMicronots = Vue.computed(() => {
-    return miningWallet.availableMicronots + miningWallet.reservedMicronots - config.biddingRules.sidelinedMicronots;
+    return (
+      miningBotWallet.availableMicronots + miningBotWallet.reservedMicronots - config.biddingRules.sidelinedMicronots
+    );
   });
 
   const totalVaultingMicrogons = Vue.computed(() => {
@@ -137,11 +139,15 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const totalMiningResources = Vue.computed(() => {
+    const holdings =
+      miningWallet.totalMicrogons + currency.convertMicronotTo(miningWallet.totalMicronots, UnitOfMeasurement.Microgon);
+
     return (
-      miningWallet.availableMicrogons +
-      currency.convertMicronotTo(miningWallet.availableMicronots, UnitOfMeasurement.Microgon) +
-      miningSeatValue.value +
-      miningBidValue.value
+      holdings +
+      miningBotWallet.availableMicrogons +
+      currency.convertMicronotTo(miningBotWallet.availableMicronots, UnitOfMeasurement.Microgon) +
+      miningBidValue.value +
+      miningSeatValue.value
     );
   });
 
@@ -155,12 +161,7 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const totalNetWorth = Vue.computed(() => {
-    return (
-      totalMiningResources.value +
-      totalVaultingResources.value +
-      holdingWallet.totalMicrogons +
-      currency.convertMicronotTo(holdingWallet.totalMicronots, UnitOfMeasurement.Microgon)
-    );
+    return totalMiningResources.value + totalVaultingResources.value;
   });
 
   const totalWalletMicrogons = Vue.ref(0n);
@@ -172,8 +173,8 @@ export const useWallets = defineStore('wallets', () => {
     totalWalletMicronots.value = walletBalances.totalWalletMicronots;
     const wallet = {
       mining: miningWallet,
+      miningBot: miningBotWallet,
       vaulting: vaultingWallet,
-      holding: holdingWallet,
     }[type];
     Object.assign(wallet, entry);
     const walletEntry = walletBalances[`${type}Wallet`];
@@ -188,11 +189,11 @@ export const useWallets = defineStore('wallets', () => {
         await walletBalances.load();
         totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
         totalWalletMicronots.value = walletBalances.totalWalletMicronots;
-        for (const walletType of ['mining', 'vaulting', 'holding'] as const) {
+        for (const walletType of ['mining', 'miningBot', 'vaulting'] as const) {
           const wallet = {
             mining: miningWallet,
+            miningBot: miningBotWallet,
             vaulting: vaultingWallet,
-            holding: holdingWallet,
           }[walletType];
           const walletEntry = walletBalances[`${walletType}Wallet`];
           Object.assign(wallet, walletEntry.latestBalanceChange);
@@ -226,8 +227,8 @@ export const useWallets = defineStore('wallets', () => {
     isLoaded,
     isLoadedPromise,
     miningWallet,
+    miningBotWallet,
     vaultingWallet,
-    holdingWallet,
     totalWalletMicrogons,
     totalWalletMicronots,
     miningSeatValue,

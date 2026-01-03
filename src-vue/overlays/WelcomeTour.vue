@@ -41,7 +41,7 @@ function updateStepVars() {
   } else if (tour.currentStep === 2) {
     rect = tour.getPositionCheck('vaultingTab');
   } else if (tour.currentStep === 3) {
-    rect = tour.getPositionCheck('portfolioMenu');
+    rect = tour.getPositionCheck('currencyMenu');
   } else if (tour.currentStep === 4) {
     rect = tour.getPositionCheck('accountMenu');
   } else if (tour.currentStep === 5) {

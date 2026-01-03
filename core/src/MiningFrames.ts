@@ -71,6 +71,7 @@ export class MiningFrames {
         this.framesById[frame.frameId] = frame;
       }
     }
+
     this.currentFrameId = Math.max(...this.frameIds, 0);
   }
 

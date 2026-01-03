@@ -9,7 +9,7 @@
       <DialogContent @escapeKeyDown="cancelPanel" :aria-describedby="undefined">
         <VaultTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
         <div
-          class="VaultCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
+          class="VaultCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-50 transition-all focus:outline-none"
           style="box-shadow: 0 -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)">
           <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
           <div v-if="isSuggestingTour" class="absolute inset-0 bg-black/20 z-20 rounded-md"></div>
@@ -62,7 +62,7 @@
                         <tooltip content="This includes everything, even transaction fees">total capital need</tooltip> of
                       </div>
                       <div class="flex flex-row items-center justify-center grow relative h-26 font-bold font-mono text-argon-600">
-                        <InputArgon v-model="rules.baseMicrogonCommitment" :min="1_000_000_000n" :minDecimals="0" class="focus:outline-none" />
+                        <InputMoney v-model="rules.baseMicrogonCommitment" :min="1_000_000_000n" :minDecimals="0" class="focus:outline-none" />
                         <CapitalOverlay align="end">
                           <div class="relative ml-1 w-10 h-10">
                             <PiechartIcon PiechartIcon class="absolute top-0 left-0 w-10 h-10 text-gray-300 hover:!text-argon-600 pointer-events-none" />
@@ -171,7 +171,7 @@ import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
-import InputArgon from '../components/InputArgon.vue';
+import InputMoney from '../components/InputMoney.vue';
 import ExistingNetworkVaultsOverlayButton from '../overlays/ExistingNetworkVaultsOverlayButton.vue';
 import CapitalOverlay from '../overlays/vault/VaultCapital.vue';
 import ReturnsOverlay from '../overlays/vault/VaultReturns.vue';

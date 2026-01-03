@@ -62,17 +62,6 @@ const isRight = Vue.computed(() => props.align === 'right');
 
 .Row {
   @apply flex w-full items-center;
-  &:hover {
-    @apply from-argon-200/0 via-argon-200/12 to-argon-200/0 text-red-600;
-    background: linear-gradient(
-      90deg,
-      var(--tw-gradient-from) 0%,
-      var(--tw-gradient-via) 10%,
-      var(--tw-gradient-via) 90%,
-      var(--tw-gradient-to) 100%
-    );
-    box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.7);
-  }
 }
 
 .Expenses {

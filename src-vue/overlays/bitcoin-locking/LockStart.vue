@@ -42,7 +42,7 @@
         </div>
         <div class="flex w-1/2 grow flex-col space-y-1">
           <label class="font-bold opacity-40">Argons to Receive</label>
-          <InputArgon
+          <InputMoney
             v-model="microgonAmount"
             @input="handleArgonChange"
             :maxDecimals="0"
@@ -81,7 +81,7 @@
 import * as Vue from 'vue';
 import { ChevronDoubleRightIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 import InputNumber from '../../components/InputNumber.vue';
-import InputArgon from '../../components/InputArgon.vue';
+import InputMoney from '../../components/InputMoney.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';

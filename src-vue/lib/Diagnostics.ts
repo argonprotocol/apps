@@ -36,7 +36,7 @@ export class Diagnostics {
 
   public async accountAddressMatches() {
     const remoteAccountAddress = await this.server.downloadAccountAddress();
-    return remoteAccountAddress === this.walletKeys.miningAddress;
+    return remoteAccountAddress === this.walletKeys.miningBotAddress;
   }
 
   public async remoteServerFilesAreUpToDate() {

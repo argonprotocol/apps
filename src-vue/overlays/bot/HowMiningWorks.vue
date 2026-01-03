@@ -307,7 +307,7 @@ async function openUniswapMarket(uniswapUrl: string) {
     await tauriOpen(uniswapUrl);
   } else {
     closeOverlay();
-    basicEmitter.emit('openComplianceOverlay');
+    basicEmitter.emit('openJurisdictionOverlay');
   }
 }
 

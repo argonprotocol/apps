@@ -31,20 +31,31 @@
             <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
               <template v-if="hours || minutes || days || seconds">
                 You must collect this within
-                <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}.</span>
-                <span v-else-if="hours || minutes > 0">
-                  <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
-                  <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                <span>
+                  <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+                  <span v-else-if="hours || minutes > 0">
+                    <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+                    <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                  </span>
+                  <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
                 </span>
-                <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
-                ; otherwise,
-                <strong>
+                ; if not,
+                <template v-if="collectRevenue === myVault.data.expiringCollectAmount">it</template>
+                <strong v-else>
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
                 </strong>
-                will expire and be lost forever.
+                will be lost forever. Where should this capital be placed?
               </template>
             </CountdownClock>
+
+            <InputMenu
+              v-model="moveTo"
+              :options="[
+                { name: 'Vaulting Account', value: 'Vaulting' },
+                { name: 'Mining Account', value: 'Mining' },
+              ]"
+              class="mt-5 flex max-w-2/3" />
           </span>
           <span v-else-if="myVault.data.pendingCosignUtxoIds.size">
             {{ collectRevenue ? 'Also, you' : 'You' }} have
@@ -69,32 +80,10 @@
           </span>
         </p>
 
-        <div class="relative mt-3 border-t border-dashed border-slate-400 pt-3" v-if="collectRevenue">
-          <p>
-            Choose where to allocate funds. You can re-invest your funds back into the Vault, or you can choose to send
-            it to your Mining or Holding accounts.
-          </p>
-
-          <InputMenu
-            v-model="moveTo"
-            :options="[
-              { name: 'Re-invest in Vault', value: 'Vaulting' },
-              { name: 'Holding Account', value: 'Holding' },
-              { name: 'Mining Account', value: 'Mining' },
-            ]"
-            class="mt-5 flex max-w-2/3" />
-
-          <VaultAllocation
-            ref="vaultAllocation"
-            class="mt-5 flex flex-col"
-            :microgons-to-activate="collectRevenue"
-            v-if="moveTo === MoveTo.Vaulting" />
-        </div>
-
         <button
-          @click="collect"
+          @click="submitCollect"
           :disabled="isProcessing"
-          class="bg-argon-600 hover:bg-argon-700 mt-4 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white">
+          class="bg-argon-600 hover:bg-argon-700 mt-10 mb-2 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white">
           <template v-if="collectRevenue">Collect Revenue</template>
           <template v-if="collectRevenue && signatures">+</template>
           <template v-if="signatures">Sign Transactions</template>
@@ -109,7 +98,7 @@
         </div>
       </div>
 
-      <div v-if="isProcessing" class="flex flex-col space-y-5 px-28 pt-10 pb-20">
+      <div v-if="isProcessing" class="flex flex-col space-y-5 px-10 pt-5 pb-10">
         <p class="font-light text-gray-700">
           Your request to collect
           <template v-if="collectRevenue">Collect Revenue</template>
@@ -147,7 +136,6 @@ import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import Overlay from './Overlay.vue';
-import VaultAllocation from '../components/VaultAllocation.vue';
 import InputMenu from '../components/InputMenu.vue';
 import { MoveTo } from '@argonprotocol/apps-core';
 
@@ -166,7 +154,6 @@ const isProcessing = Vue.ref(false);
 const myVault = getMyVault();
 const currency = getCurrency();
 
-const vaultAllocation = Vue.ref<InstanceType<typeof VaultAllocation> | null>(null);
 const signatures = Vue.ref(myVault.data.pendingCosignUtxoIds.size);
 const collectRevenue = Vue.ref(myVault.data.pendingCollectRevenue);
 
@@ -193,13 +180,12 @@ Vue.watch(
   },
 );
 
-async function collect() {
+async function submitCollect() {
   isProcessing.value = true;
   try {
     progressLabel.value = 'Preparing Transaction...';
     const moveToDest = moveTo.value;
-    const percentages = vaultAllocation.value?.getPercents();
-    const txInfo = await myVault.collect({ moveTo: moveToDest, allocationPercents: percentages });
+    const txInfo = await myVault.collect({ moveTo: moveToDest });
     if (txInfo) {
       txInfo.subscribeToProgress((args, error) => {
         progressPct.value = args.progressPct;

@@ -10,6 +10,7 @@ import { getBot } from './stores/bot';
 import { ScreenKey } from './interfaces/IConfig';
 import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
+import { WalletType } from './lib/Wallet.ts';
 
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
@@ -43,8 +44,8 @@ export async function createMenu() {
       },
       {
         id: 'jurisdictional-compliance',
-        text: 'Jurisdictional Compliance',
-        action: () => basicEmitter.emit('openComplianceOverlay'),
+        text: 'Default Jurisdiction',
+        action: () => basicEmitter.emit('openJurisdictionOverlay'),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
@@ -81,7 +82,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-mining',
         text: 'Open Mining Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' }),
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.mining, screen: 'receive' }),
       },
     ],
   });
@@ -97,7 +98,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-vaulting',
         text: 'Open Vaulting Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' }),
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' }),
       },
     ],
   });

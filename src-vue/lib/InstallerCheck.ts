@@ -171,7 +171,7 @@ export class InstallerCheck {
       this.config.isMinerInstalling = true;
       this.config.walletAccountsHadPreviousLife = false;
       this.config.walletPreviousLifeRecovered = false;
-      this.config.miningAccountPreviousHistory = null;
+      this.config.miningBotAccountPreviousHistory = null;
     }
     await this.config.save();
   }

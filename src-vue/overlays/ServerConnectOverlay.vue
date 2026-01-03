@@ -7,7 +7,7 @@
 
       <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
-          class="ConnectOverlay inner-input-shadow bg-argon-menu-bg absolute top-[40px] right-3 bottom-3 left-3 z-20 flex flex-col overflow-auto rounded-md border border-black/30 text-left transition-all focus:outline-none"
+          class="ConnectOverlay inner-input-shadow bg-argon-menu-bg absolute top-[40px] right-3 bottom-3 left-3 z-50 flex flex-col overflow-auto rounded-md border border-black/30 text-left transition-all focus:outline-none"
           style="
             box-shadow:
               0 -1px 2px 0 rgba(0, 0, 0, 0.1),

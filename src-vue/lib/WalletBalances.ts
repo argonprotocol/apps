@@ -41,9 +41,10 @@ export class WalletBalances {
 
   public miningWallet: Wallet;
 
+  public miningBotWallet: Wallet;
+
   public vaultingWallet: Wallet;
 
-  public holdingWallet: Wallet;
   public bestBlock?: IBlockHeaderInfo;
   public finalizedBlock?: IBlockHeaderInfo;
 
@@ -66,7 +67,7 @@ export class WalletBalances {
   private unsubscribe?: () => void;
 
   public get wallets(): Wallet[] {
-    return [this.miningWallet, this.vaultingWallet, this.holdingWallet];
+    return [this.miningWallet, this.miningBotWallet, this.vaultingWallet];
   }
 
   public get addresses(): string[] {
@@ -85,8 +86,8 @@ export class WalletBalances {
 
   constructor(walletKeys: WalletKeys, dbPromise: Promise<Db>, blockWatch: BlockWatch, myVault?: MyVault) {
     this.miningWallet = new Wallet(walletKeys.miningAddress, 'mining', dbPromise);
+    this.miningBotWallet = new Wallet(walletKeys.miningBotAddress, 'miningBot', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
-    this.holdingWallet = new Wallet(walletKeys.holdingAddress, 'holding', dbPromise);
     this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
     this.myVault = myVault;
@@ -109,8 +110,8 @@ export class WalletBalances {
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
       console.log('[WalletBalances] Loaded and synced wallets', {
         mining: this.miningWallet.totalMicronots,
+        miningBot: this.miningBotWallet.totalMicronots,
         vaulting: this.vaultingWallet.totalMicronots,
-        holding: this.holdingWallet.totalMicronots,
       });
       this.unsubscribe = this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
         const latestBlock = blocks[blocks.length - 1];

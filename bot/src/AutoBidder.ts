@@ -20,10 +20,10 @@ import BiddingCalculator from '@argonprotocol/apps-core/src/BiddingCalculator.ts
  */
 export class AutoBidder {
   public readonly mining: Mining;
+  private readonly biddingCalculator: BiddingCalculator;
   private cohortBiddersByActivationFrameId = new Map<number, CohortBidder>();
   private isStopped: boolean = false;
   private unsubscribe?: () => void;
-  private biddingCalculator: BiddingCalculator;
 
   constructor(
     private readonly accountset: Accountset,

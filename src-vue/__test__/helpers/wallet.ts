@@ -7,20 +7,20 @@ import { miniSecretFromUri } from '@argonprotocol/apps-core';
 export function createTestWallet(mnemonic?: string) {
   mnemonic ??= mnemonicGenerate();
   const keypair = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonic);
-  const miningAccount = keypair.derive('//mining');
+  const miningAccount = keypair.derive('//holding'); // If we had a do-over, it would be called mining
+  const miningBotAccount = keypair.derive('//mining'); // If we had a do-over, it would be called miningBot
   const vaultingAccount = keypair.derive('//vaulting');
-  const holdingAccount = keypair.derive('//holding');
   return {
     mnemonic,
     miningAccount,
+    miningBotAccount,
     vaultingAccount,
-    holdingAccount,
     walletKeys: new WalletKeys(
       {
         sshPublicKey: '',
         miningAddress: miningAccount.address,
+        miningBotAddress: miningBotAccount.address,
         vaultingAddress: vaultingAccount.address,
-        holdingAddress: holdingAccount.address,
       },
       () => Promise.resolve(false),
     ),
@@ -29,7 +29,7 @@ export function createTestWallet(mnemonic?: string) {
 
 export function createMockWalletKeys(mnemonic?: string) {
   mnemonic ??= mnemonicGenerate();
-  const { miningAccount, vaultingAccount, walletKeys } = createTestWallet(mnemonic);
+  const { miningBotAccount, vaultingAccount, walletKeys } = createTestWallet(mnemonic);
   vi.spyOn(walletKeys, 'getBitcoinChildXpriv').mockImplementation(async (path, networks) => {
     const xpriv = await bip39.mnemonicToSeed(mnemonic);
     const version = getBip32Version(networks);
@@ -39,7 +39,7 @@ export function createMockWalletKeys(mnemonic?: string) {
   vi.spyOn(walletKeys, 'getMiningSubaccounts').mockImplementation(async count => {
     const derivedAddresses: { [address: string]: { index: number } } = {};
     for (let index = 0; index < (count ?? 144); index++) {
-      const address = miningAccount.derive(`//${index}`).address;
+      const address = miningBotAccount.derive(`//${index}`).address;
       derivedAddresses[address] = { index };
     }
     return derivedAddresses;
@@ -48,8 +48,8 @@ export function createMockWalletKeys(mnemonic?: string) {
   vi.spyOn(walletKeys, 'getMiningSessionMiniSecret').mockImplementation(async () => {
     return miniSecretFromUri(`${mnemonic}//mining//session`);
   });
-  vi.spyOn(walletKeys, 'exportMiningAccountJson').mockImplementation(async (passphrase: string) => {
-    return miningAccount.toJson(passphrase);
+  vi.spyOn(walletKeys, 'exportMiningBotAccountJson').mockImplementation(async (passphrase: string) => {
+    return miningBotAccount.toJson(passphrase);
   });
   return walletKeys;
 }

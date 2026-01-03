@@ -8,7 +8,7 @@
 
       <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
-          class="HowVaultingWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
+          class="HowVaultingWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-50 transition-all focus:outline-none"
         >
           <div class="flex flex-col h-full w-full overflow-hidden">
             <h2

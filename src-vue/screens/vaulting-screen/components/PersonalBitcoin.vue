@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <section class="flex flex-col">
+  <section class="grow flex flex-col">
     <div v-if="!lockStatus" class="grow flex flex-row items-center justify-start px-[3%] py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <div class="flex flex-col items-start justify-center grow pr-16 text-argon-800/70">
         <div class="text-xl font-bold opacity-60">No Bitcoin Attached to this Vault</div>

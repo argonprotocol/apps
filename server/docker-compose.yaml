@@ -159,7 +159,7 @@ services:
     environment:
       - PORT=8080
       - BIDDING_RULES_PATH=/tmp/biddingRules.json
-      - KEYPAIR_PATH=/tmp/walletMining.json
+      - KEYPAIR_PATH=/tmp/walletMiningBot.json
       - LOCAL_RPC_URL=ws://argon-miner:9944
       - ARCHIVE_NODE_URL=${ARGON_ARCHIVE_NODE}
       - STATUS_URL=http://status:8080
@@ -167,7 +167,7 @@ services:
       - DATADIR=/data
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - $ARGON_CONFIG_FOLDER/walletMining.json:/tmp/walletMining.json
+      - $ARGON_CONFIG_FOLDER/walletMiningBot.json:/tmp/walletMiningBot.json
       - $ARGON_CONFIG_FOLDER/biddingRules.json:/tmp/biddingRules.json
       - $ARGON_DATA_FOLDER:/data
     profiles:

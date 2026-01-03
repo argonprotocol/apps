@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div class="flex flex-col gap-2 px-3 pb-3">
-    <p class="text-slate-800 text-md">As a fully decentralized application, no one is in charge of you except you. We have no centralized servers, 
+    <p class="text-slate-800 text-md">As a fully decentralized application, no one is in charge except you. There are no centralized servers,
       databases, or other capabilities to verify your location. We only ask that you stay true to yourself and in full compliance of all local laws.
     </p>
 

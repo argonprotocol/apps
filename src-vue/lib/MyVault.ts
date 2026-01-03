@@ -11,6 +11,8 @@ import {
   u8aToHex,
   Vault,
   Vec,
+  ArgonRuntimeRuntimeHoldReason,
+  FrameSupportTokensMiscIdAmountRuntimeHoldReason,
 } from '@argonprotocol/mainchain';
 import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
@@ -56,6 +58,7 @@ export class MyVault {
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
     currentFrameId: number;
     prebondedMicrogons: bigint;
+    treasuryMicrogonsCommitted: bigint;
     pendingCollectTxInfo: TransactionInfo<{
       expectedCollectRevenue: bigint;
       cosignedUtxoIds: number[];
@@ -109,6 +112,7 @@ export class MyVault {
       expiringCollectAmount: 0n,
       currentFrameId: 0,
       prebondedMicrogons: 0n,
+      treasuryMicrogonsCommitted: 0n,
     };
     this.vaults = vaults;
     this.#transactionTracker = transactionTracker;
@@ -180,10 +184,6 @@ export class MyVault {
           void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCollect) {
           void this.onVaultCollect(txInfo);
-        } else if (tx.extrinsicType === ExtrinsicType.Transfer) {
-          if (tx.metadataJson.moveFrom === MoveFrom.VaultingMintedArgon) {
-            void this.onTransferOutOfMint(txInfo);
-          }
         }
       }
 
@@ -191,6 +191,7 @@ export class MyVault {
       if (vaultId) {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
+        this.data.treasuryMicrogonsCommitted = await this.fetchTreasuryMicrogonsCommitted();
       }
 
       this.data.isReady = true;
@@ -199,6 +200,23 @@ export class MyVault {
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;
+  }
+
+  private async fetchTreasuryMicrogonsCommitted(): Promise<bigint> {
+    if (!this.createdVault) return 0n;
+    const accountId = this.createdVault.operatorAccountId;
+    const client = await getMainchainClient(false);
+    const holds = await client.query.balances.holds(accountId);
+    return this.extractTreasuryMicrogonsCommitted(holds);
+  }
+
+  private extractTreasuryMicrogonsCommitted(holds: Vec<FrameSupportTokensMiscIdAmountRuntimeHoldReason>): bigint {
+    for (const hold of holds) {
+      if (hold?.id?.isTreasury) {
+        return hold.amount.toBigInt();
+      }
+    }
+    return 0n;
   }
 
   public getTxInfoByType(extrinsicType: ExtrinsicType): TransactionInfo<any> | undefined {
@@ -211,6 +229,7 @@ export class MyVault {
       throw new Error('No vault created to subscribe to');
     }
     const vaultId = this.createdVault.vaultId;
+    const accountId = this.createdVault.operatorAccountId;
     const client = await getMainchainClient(false);
 
     // update stats live
@@ -238,7 +257,11 @@ export class MyVault {
       this.data.prebondedMicrogons = prebonded.isSome ? prebonded.unwrap().amountUnbonded.toBigInt() : 0n;
     });
 
-    this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6);
+    const sub7 = await client.query.balances.holds(accountId, holds => {
+      this.data.treasuryMicrogonsCommitted = this.extractTreasuryMicrogonsCommitted(holds);
+    });
+
+    this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7);
   }
 
   private async updateCollectDueDate(_lastCollectFrameId?: number) {
@@ -454,10 +477,7 @@ export class MyVault {
     postProcessor.resolve();
   }
 
-  public async collect(afterCollect: {
-    moveTo: MoveTo;
-    allocationPercents?: { treasury: number; securitization: number };
-  }): Promise<TransactionInfo> {
+  public async collect(afterCollect: { moveTo: MoveTo }): Promise<TransactionInfo> {
     if (!this.createdVault) {
       throw new Error('No vault created to collect revenue');
     }
@@ -525,15 +545,14 @@ export class MyVault {
       cosignedUtxoIds: number[];
       expectedCollectRevenue: bigint;
       moveTo: MoveTo;
-      allocationPercents?: { treasury: number; securitization: number };
     }>,
   ): Promise<void> {
     this.data.pendingCollectTxInfo = txInfo;
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
     const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
-    const { moveTo, allocationPercents } = tx.metadataJson;
-    if (!followOnTx.isSettled) {
+
+    if (!followOnTx.isSettled && tx.metadataJson.moveTo === MoveTo.Mining) {
       const argonKeyring = await this.walletKeys.getVaultingKeypair();
       const revenue = await this.getCollectedAmount(txInfo);
       if (revenue === undefined) {
@@ -555,35 +574,20 @@ export class MyVault {
         amountToMove = maxAmountToMove;
       }
 
-      if (moveTo === MoveTo.Vaulting) {
-        const treasuryAmount = percentOf(amountToMove, allocationPercents!.treasury);
-        const securitizationAmount = amountToMove - treasuryAmount;
-        const allocateTxInfo = await this.increaseVaultAllocations({
-          addedSecuritizationMicrogons: securitizationAmount,
-          addedTreasuryMicrogons: treasuryAmount,
-        });
-        followOnTx.resolve(allocateTxInfo);
-      } else {
-        const moveToAddress = {
-          [MoveTo.Holding]: this.walletKeys.holdingAddress,
-          [MoveTo.Mining]: this.walletKeys.miningAddress,
-          // this should not be possible, but move to holding if it somehow happens
-          [MoveTo.External]: this.walletKeys.holdingAddress,
-        }[moveTo];
-        const client = await getMainchainClient(false);
-        const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
-          tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
-          signer: argonKeyring,
-          extrinsicType: ExtrinsicType.Transfer,
-          metadata: {
-            moveFrom: MoveFrom.VaultingUnusedArgon,
-            moveTo,
-            amount: amountToMove,
-          },
-          useLatestNonce: true,
-        });
-        followOnTx.resolve(followOnTxInfo);
-      }
+      const moveTo = tx.metadataJson.moveTo; // this can only be Mining because of IF block
+      const moveToAddress = this.walletKeys.miningAddress;
+      const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
+        tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
+        signer: argonKeyring,
+        extrinsicType: ExtrinsicType.Transfer,
+        metadata: {
+          moveFrom: MoveFrom.VaultingSidelinedArgon,
+          moveTo,
+          amount: amountToMove,
+        },
+        useLatestNonce: true,
+      });
+      followOnTx.resolve(followOnTxInfo);
     }
     await txInfo.followOnTxInfo;
     await txResult.waitForFinalizedBlock;
@@ -734,20 +738,6 @@ export class MyVault {
     return prebondedToPool.isSome ? prebondedToPool.unwrap().maxAmountPerFrame.toBigInt() * 10n : activePoolFunds;
   }
 
-  public async incrementMintAmountMovedOut(mintAmountMovedOut: bigint): Promise<void> {
-    this.metadata!.personalBitcoinMintAmountMovedOut ??= 0n;
-    this.metadata!.personalBitcoinMintAmountMovedOut += mintAmountMovedOut;
-    await this.saveMetadata();
-  }
-
-  public async onTransferOutOfMint(txInfo: TransactionInfo<{ amount: bigint }>): Promise<void> {
-    const postProcessor = txInfo.createPostProcessor();
-    await txInfo.txResult.waitForFinalizedBlock;
-    const { amount } = txInfo.tx.metadataJson;
-    await this.incrementMintAmountMovedOut(amount);
-    postProcessor.resolve();
-  }
-
   public async recoverAccountVault(args: {
     onProgress: (progress: number) => void;
   }): Promise<IVaultingRules | undefined> {
@@ -800,7 +790,6 @@ export class MyVault {
 
     let bitcoin: IBitcoinLockRecord | undefined;
     const hasSecuritization = vault.activatedSecuritization() > 0n || vault.argonsPendingActivation > 0n;
-    console.log('HAS SECURITIZATION', hasSecuritization, prebond.blockNumber);
     if (hasSecuritization && prebond.blockNumber) {
       const myBitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
         mainchainClients,
@@ -818,12 +807,6 @@ export class MyVault {
         let totalAmountMinted = 0n;
         for (const btc of myBitcoins) {
           totalAmountMinted += btc.ratchets.reduce((sum, r) => sum + (r.mintAmount - r.mintPending), 0n);
-        }
-
-        // if we minted more than we have, we'll record the difference as moved out
-        if (totalAmountMinted > availableBalance) {
-          const movedOut = totalAmountMinted - availableBalance;
-          await this.incrementMintAmountMovedOut(movedOut);
         }
       }
     }

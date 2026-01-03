@@ -65,7 +65,7 @@
         </section>
 
         <section
-          @click="openFundMiningAccountOverlay"
+          @click="openFundVaultingAccountOverlay"
           class="flex flex-row cursor-pointer border-t border-b border-[#CCCEDA] py-9"
         >
           <Checkbox :isChecked="walletIsFullyFunded" />
@@ -127,6 +127,7 @@ import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
 import { useController } from '../../stores/controller';
 import { ScreenKey } from '../../interfaces/IConfig.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 
 dayjs.extend(utc);
 
@@ -202,8 +203,8 @@ Vue.onMounted(async () => {
   calculator.load(config.vaultingRules).then(() => updateApy());
 });
 
-function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' });
+function openFundVaultingAccountOverlay() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' });
 }
 
 async function createVault() {

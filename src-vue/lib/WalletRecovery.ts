@@ -25,7 +25,7 @@ export class WalletRecovery {
     await this.miningFrames.load();
 
     const hasVaultHistory = walletBalances.vaultingWallet.hasValue();
-    const hasMiningHistory = walletBalances.miningWallet.hasValue();
+    const hasMiningHistory = walletBalances.miningBotWallet.hasValue();
 
     let vaultProgress = hasVaultHistory ? 0 : 100;
     let miningProgress = hasMiningHistory ? 0 : 100;
@@ -62,8 +62,8 @@ export class WalletRecovery {
     onProgress: (progressPct: number) => void,
   ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
     const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
-    const minerFirstFundedBlock = await this.walletBalances.miningWallet.firstFundingBlockNumber(
-      this.walletKeys.miningAddress,
+    const minerFirstFundedBlock = await this.walletBalances.miningBotWallet.firstFundingBlockNumber(
+      this.walletKeys.miningBotAddress,
     );
     const accountSubaccounts = await this.walletKeys.getMiningSubaccounts();
 

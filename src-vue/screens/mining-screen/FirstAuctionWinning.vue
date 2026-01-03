@@ -109,7 +109,7 @@ const auctionIsClosing = Vue.ref(false);
 const maxPossibleBiddingBudget = Vue.ref(0n);
 
 const totalBiddingBudget = Vue.computed(() => {
-  const availableMicrogons = wallets.miningWallet.availableMicrogons + stats.myMiningBids.microgonsBidTotal;
+  const availableMicrogons = wallets.miningBotWallet.availableMicrogons + stats.myMiningBids.microgonsBidTotal;
   return bigIntMin(maxPossibleBiddingBudget.value, availableMicrogons);
 });
 

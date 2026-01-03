@@ -4,12 +4,12 @@
     <TooltipTrigger
       as="div"
       :class="
-        twMerge('border-t border-gray-600/40', props.class, paddingClass, isRight ? 'flex-row-reverse' : 'flex-row')
+        twMerge('border-t border-gray-600/40', props.class, paddingClass, 'flex-row')
       "
       :style="{ height }"
       class="Row Total"
     >
-      <div class="Text grow" :class="[isRight ? 'text-right' : 'text-left']">
+      <div class="Text grow text-left">
         <slot />
       </div>
       <div class="Value">
@@ -19,15 +19,15 @@
     </TooltipTrigger>
     <TooltipContent
       align="start"
-      :alignOffset="tooltipSide === 'right' ? ((slots.tooltip?.() ?? []).length < 120 ? -10 : -20) : 0"
+      :alignOffset="tooltipSide === 'right' ? (isShortText ? -10 : -20) : 0"
       :side="tooltipSide"
       :sideOffset="tooltipSide === 'right' ? 0 : 4"
       :avoidCollisions="false"
-      :class="tooltipSide === 'right' && (slots.tooltip?.() ?? []).length < 120 ? 'w-fit' : 'w-md'"
+      :class="tooltipSide === 'right' && (isShortText ? 'w-fit' : 'w-md')"
       class="z-50 rounded-md border border-gray-800/20 bg-white p-4 text-slate-900/60 shadow-2xl pointer-events-none">
       <slot name="tooltip" />
       <TooltipArrow v-if="tooltipSide === 'right'" :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-      <div v-else :class="isRight ? 'right-12' : 'left-12'" class="absolute top-full pointer-events-none">
+      <div v-else class="absolute top-full pointer-events-none left-12">
         <CustomTooltipArrow />
       </div>
     </TooltipContent>
@@ -44,19 +44,16 @@ const props = withDefaults(
   defineProps<{
     class?: string;
     height: number | 'auto';
-    align?: 'left' | 'right';
     spacerWidth?: string;
     tooltipSide?: 'right' | 'top';
   }>(),
-  {
-    align: 'left',
-  },
+  {},
 );
 const slots = Vue.useSlots();
 
 const height = Vue.computed(() => (props.height === 'auto' ? 'auto' : `${props.height}%`));
 const paddingClass = Vue.computed(() => (props.height === 'auto' ? 'py-2' : ''));
-const isRight = Vue.computed(() => props.align === 'right');
+const isShortText = (slots.tooltip?.() ?? []).length < 120;
 </script>
 
 <style scoped>
@@ -64,17 +61,6 @@ const isRight = Vue.computed(() => props.align === 'right');
 
 .Row {
   @apply flex w-full items-center;
-  &:hover {
-    @apply text-argon-600 from-argon-200/0 via-argon-200/12 to-argon-200/0;
-    background: linear-gradient(
-      90deg,
-      var(--tw-gradient-from) 0%,
-      var(--tw-gradient-via) 10%,
-      var(--tw-gradient-via) 90%,
-      var(--tw-gradient-to) 100%
-    );
-    box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.7);
-  }
 }
 
 .Total {

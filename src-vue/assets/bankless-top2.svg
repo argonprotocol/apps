@@ -1,19 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 407 15" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg viewBox="0 0 407 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>bankless-top2</title>
-    <defs>
-        <rect id="path-1" x="0" y="104.818286" width="406" height="14"></rect>
-    </defs>
-    <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="bankless-finished" transform="translate(-1, -104)">
-            <g id="bankless-top2" transform="translate(1.0832, 0)">
-                <mask id="mask-2" fill="white">
-                    <use xlink:href="#path-1"></use>
-                </mask>
-                <use id="bg" fill-opacity="0" fill="#FFFFFF" xlink:href="#path-1"></use>
-                <path d="M89.9168036,103.788899 L82.4925381,116.790696 C82.1365355,117.414148 81.4736799,117.798955 80.7557451,117.798955 L43.0778621,117.798955 C42.3599273,117.798955 41.6970716,117.414148 41.341069,116.790696 L33.9168036,103.788899" class="hasStroke" stroke="#000000" stroke-width="2" mask="url(#mask-2)"></path>
-                <path d="M371.916804,103.788899 L364.492539,116.790643 C364.136536,117.414093 363.473681,117.798899 362.755747,117.798899 L325.07786,117.798899 C324.359926,117.798899 323.697072,117.414093 323.341068,116.790643 L315.916804,103.788899" class="hasStroke" stroke="#000000" stroke-width="2" mask="url(#mask-2)"></path>
-            </g>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Path" transform="translate(0, 1)" stroke="#000000">
+            <path d="M80.0000036,-0.211101 L72.5757381,12.790696 C72.2197355,13.414148 71.5568799,13.798955 70.8389451,13.798955 L43.1610621,13.798955 C42.4431273,13.798955 41.7802716,13.414148 41.424269,12.790696 L34.0000036,-0.211101" class="hasStroke" stroke-width="2"></path>
+            <path d="M372.000004,-0.211101 L364.575739,12.790643 C364.219736,13.414093 363.556881,13.798899 362.838947,13.798899 L335.16106,13.798899 C334.443126,13.798899 333.780272,13.414093 333.424268,12.790643 L326.000004,-0.211101" class="hasStroke" stroke-width="2"></path>
         </g>
     </g>
 </svg>

@@ -175,6 +175,7 @@ export class Stats {
     this.db = await this.dbPromise;
     await this.currency.load();
     await this.miningFrames.load();
+    this.latestFrameId = this.miningFrames.currentFrameId;
 
     await this.updateDashboard();
 
@@ -304,6 +305,7 @@ export class Stats {
     const myWinningBids = this.allWinningBids.filter(bid => typeof bid.subAccountIndex === 'number');
     this.myMiningBids.bidCount = myWinningBids.length;
     this.myMiningBids.microgonsBidTotal = myWinningBids.reduce((acc, bid) => acc + (bid.microgonsPerSeat || 0n), 0n);
+    console.log('MINING BID TOTAL: ', this.myMiningBids.microgonsBidTotal);
     this.myMiningBids.micronotsStakedTotal = myWinningBids.reduce(
       (acc, bid) => acc + (bid.micronotsStakedPerSeat ?? 0n),
       0n,

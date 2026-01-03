@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <TransitionRoot class="absolute inset-0 z-10 pointer-events-none" :show="isOpen">
+  <TransitionRoot class="absolute inset-0 pointer-events-none" :show="isOpen">
     <TransitionChild
       as="template"
       enter="ease-out duration-300"

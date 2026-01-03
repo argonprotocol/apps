@@ -1,4 +1,4 @@
-import dayjs from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import { Interaction, TooltipModel } from 'chart.js';
 import { getRelativePosition } from 'chart.js/helpers';
 
@@ -17,7 +17,14 @@ import { getRelativePosition } from 'chart.js/helpers';
   return items;
 };
 
-export function createChartOptions(fillerPoints: any[], chartPoints: any[], pointRadius: number[], onTooltipFn: any) {
+export function createChartOptions(
+  startDate: Dayjs,
+  endDate: Dayjs,
+  fillerPoints: any[],
+  chartPoints: any[],
+  pointRadius: number[],
+  onTooltipFn: any,
+) {
   return {
     type: 'line',
     data: {
@@ -85,8 +92,8 @@ export function createChartOptions(fillerPoints: any[], chartPoints: any[], poin
           time: {
             unit: 'day',
           },
-          min: dayjs('2025-01-01').valueOf(),
-          max: dayjs('2025-12-31').valueOf(),
+          min: startDate.valueOf(),
+          max: endDate.valueOf(),
         },
         y: {
           display: false,

@@ -71,14 +71,32 @@
 
       <section class="flex flex-row gap-x-2.5 grow">
         <div box class="flex flex-col w-[22.5%] px-2">
-          <header class="text-[18px] font-bold py-2 text-slate-900/80 border-b border-slate-400/30">
-            Asset Breakdown
+          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
+            <div class="grow">Mining Assets</div>
+            <CopyAddressMenu :walletType="WalletType.mining" class="mr-1" />
+            <AssetMenu :walletType="WalletType.mining" />
           </header>
           <MiningAssetBreakdown />
-          <div class="grow flex flex-col items-center justify-end">
-            <div @click="openBotEditOverlay" class="relative text-center mb-5 text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <MiningIcon class="w-20 h-20 mt-5 inline-block mb-1" />
-              <div>Configure Bot Settings</div>
+          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
+            <div @click="openHowMiningWorksOverlay" class="text-center text-argon-600/60 hover:text-argon-600 cursor-pointer">
+              <InstructionsIcon class="w-6 h-6 inline-block" />
+              <div>Learn About Mining</div>
+            </div>
+          </div>
+          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
+            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Profits</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Projections</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openBotEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Settings</div>
             </div>
           </div>
         </div>
@@ -414,21 +432,30 @@ import BlocksIcon from '../../assets/blocks.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { TICK_MILLIS } from '../../lib/Env.ts';
-import MiningIcon from '../../assets/mining.svg?component';
+import ConfigIcon from '../../assets/config.svg?component';
+import InstructionsIcon from '../../assets/instructions.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
 import ArgonBlocksOverlay from '../../overlays/ArgonBlocksOverlay.vue';
 import BitcoinBlocksOverlay from '../../overlays/BitcoinBlocksOverlay.vue';
 import FrameSlider from '../../components/FrameSlider.vue';
-import { IChartItem } from '../../components/FrameSlider.vue';
+import { IChartItem } from '../../interfaces/IChartItem.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import MiningAssetBreakdown from '../../components/MiningAssetBreakdown.vue';
+import MiningAssetBreakdown from '../components/MiningAssetBreakdown.vue';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
+import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
+import ProjectionsIcon from '../../assets/projections.svg';
+import RoiIcon from '../../assets/roi.svg';
+import { WalletType } from '../../lib/Wallet.ts';
+import AssetMenu from '../components/AssetMenu.vue';
+import CopyAddressMenu from '../components/CopyAddressMenu.vue';
+import { useWallets } from '../../stores/wallets.ts';
 
 const stats = getStats();
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
+const wallets = useWallets();
 
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -549,6 +576,14 @@ function goToNextFrame() {
 
 function openBotEditOverlay() {
   basicEmitter.emit('openBotEditOverlay');
+}
+
+function openPortfolioPanel(tab: PortfolioTab) {
+  basicEmitter.emit('openPortfolioPanel', tab);
+}
+
+function openHowMiningWorksOverlay() {
+  basicEmitter.emit('openHowMiningWorksOverlay');
 }
 
 function loadChartData() {

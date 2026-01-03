@@ -31,13 +31,6 @@
       <ExportIcon class="w-5 h-5 mr-2 opacity-70 group-hover:text-argon-600" />
       Export Account Backup File
     </li>
-    <li
-      @click="goTo('import')"
-      class="group flex flex-row items-center cursor-pointer hover:text-argon-600 hover:bg-gradient-to-r hover:from-transparent hover:to-argon-menu-hover/70 rounded-md py-4"
-    >
-      <ImportIcon class="w-5 h-5 mr-2 opacity-70 group-hover:text-argon-600" />
-      Import Previous Account
-    </li>
   </ul>
 </template>
 
@@ -51,7 +44,7 @@ import ExportIcon from '../../assets/export.svg?component';
 
 const emit = defineEmits(['close', 'goTo']);
 
-function goTo(screen: 'encrypt' | 'mnemonics' | 'ssh' | 'import' | 'export') {
+function goTo(screen: 'encrypt' | 'mnemonics' | 'ssh' | 'export') {
   emit('goTo', screen);
 }
 </script>

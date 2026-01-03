@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div @focus="handleFocus" @blur="handleBlur" ref="$el" :class="[[props.class || '', hasFocus ? 'z-90' : ''].join(' ')]" class="relative focus-within:relative" tabindex="0">
+  <div @focus="handleFocus" @blur="handleBlur" ref="$el" :class="[[props.class || '', hasFocus ? 'z-90' : ''].join(' ')]" class="relative focus-within:relative focus:outline-none" tabindex="0">
     <div
       InputFieldWrapper
       :class="twMerge(
