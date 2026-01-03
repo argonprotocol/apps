@@ -13,6 +13,10 @@ export class Diagnostics {
     this.walletKeys = walletKeys;
   }
 
+  public hasServer(): boolean {
+    return !!this.server || !!this.config.serverDetails.ipAddress;
+  }
+
   public async load() {
     if (this.server) return;
     const connection = await SSH.getOrCreateConnection();

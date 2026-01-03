@@ -152,6 +152,14 @@ export class BitcoinLocksTable extends BaseTable {
     return convertFromSqliteFields<IBitcoinLockRecord[]>(rawRecords, this.fieldTypes)[0];
   }
 
+  public async setVaultHdKeyIndex(vaultId: number, index: number): Promise<void> {
+    await this.db.execute(
+      `INSERT INTO BitcoinLockVaultHdSeq (vaultId, latestIndex) VALUES (?, ?)
+       ON CONFLICT (vaultId) DO UPDATE SET latestIndex = ? WHERE ? > BitcoinLockVaultHdSeq.latestIndex`,
+      toSqlParams([vaultId, index, index, index]),
+    );
+  }
+
   public async getNextVaultHdKeyIndex(vaultId: number): Promise<number> {
     const [{ latestIndex }] = await this.db.select<{ latestIndex: number }[]>(
       `INSERT INTO BitcoinLockVaultHdSeq (vaultId, latestIndex) VALUES (?, ?)
