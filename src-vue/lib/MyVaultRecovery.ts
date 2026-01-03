@@ -180,10 +180,16 @@ export class MyVaultRecovery {
       return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
     });
 
-    const bitcoinHdPaths: { ownerBitcoinPubkey: Uint8Array; hdPath: string }[] = [];
-    for (const _bitcoin of myBitcoins) {
-      const next = await bitcoinLocksStore.getNextUtxoPubkey({ vault });
-      bitcoinHdPaths.push(next);
+    async function findPubkey(ownerPubkey: Uint8Array, maxTries = 100) {
+      for (let i = 0; i < maxTries; i++) {
+        const next = await bitcoinLocksStore.getDerivedPubkey(vaultId, i);
+        if (u8aEq(ownerPubkey, next.ownerBitcoinPubkey)) {
+          const table = await bitcoinLocksStore.getTable();
+          await table.setVaultHdKeyIndex(vaultId, i);
+          return next;
+        }
+      }
+      return undefined;
     }
 
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
@@ -193,7 +199,7 @@ export class MyVaultRecovery {
       const utxo = utxoMaybe.unwrap();
       if (utxo.ownerAccount.toHuman() === vaultingAddress) {
         const ownerPubkey = utxo.ownerPubkey;
-        const thisHdPath = bitcoinHdPaths.find(x => u8aEq(ownerPubkey, x.ownerBitcoinPubkey));
+        const thisHdPath = await findPubkey(ownerPubkey);
         if (!thisHdPath) {
           console.warn('Unable to recover the hd path of this personal bitcoin');
           continue;

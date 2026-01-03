@@ -64,7 +64,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { Db } from '../../lib/Db';
-import { appConfigDir, appLogDir } from '@tauri-apps/api/path';
+import { appConfigDir, appLogDir, join, tempDir } from '@tauri-apps/api/path';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import Checkbox from '../../components/Checkbox.vue';
 import { Config, getConfig } from '../../stores/config.ts';
@@ -74,6 +74,7 @@ import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { remove } from '@tauri-apps/plugin-fs';
 import { getInstanceConfigDir } from '../../lib/Utils.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
+import { INSTANCE_NAME } from '../../lib/Env.ts';
 
 const config = getConfig();
 const walletKeys = getWalletKeys();
@@ -102,27 +103,40 @@ async function downloadTroubleshooting() {
   troubleshootingProgress.value = 0;
   troubleshootingError.value = '';
   try {
-    await diagnostics.load();
-    const downloadPath = await diagnostics.downloadTroubleshootingPackage(x => {
-      troubleshootingProgress.value = x;
-    });
-    const zipPath = downloadPath.replace('.tar.gz', '.zip');
+    const removeOnFinish: string[] = [];
     const config = await getInstanceConfigDir();
     const logDir = await appLogDir();
+    const pathsWithPrefixes: [string, string][] = [
+      ['logs', logDir],
+      ['data', config],
+    ];
+    let zipPath = `argon_${INSTANCE_NAME}_troubleshooting_${Date.now()}.zip`;
+    if (diagnostics.hasServer()) {
+      await diagnostics.load();
+      const downloadPath = await diagnostics.downloadTroubleshootingPackage(x => {
+        troubleshootingProgress.value = Math.min(90, x);
+      });
+      pathsWithPrefixes.push(['server', downloadPath]);
+      removeOnFinish.push(downloadPath);
+      zipPath = downloadPath.replace('.tar.gz', '.zip');
+    } else {
+      zipPath = await join(await tempDir(), zipPath);
+    }
+
+    troubleshootingProgress.value = 90;
     await invokeWithTimeout(
       'create_zip',
       {
         zipName: zipPath,
-        pathsWithPrefixes: [
-          ['logs', logDir],
-          ['data', config],
-          ['server', downloadPath],
-        ],
+        pathsWithPrefixes,
       },
-      10000,
+      60e3,
     );
-    await remove(downloadPath);
+    for (const path of removeOnFinish) {
+      await remove(path);
+    }
     await revealItemInDir(zipPath);
+    troubleshootingProgress.value = 100;
   } catch (err) {
     console.error('Error downloading troubleshooting package:', err);
     troubleshootingError.value = `Error downloading troubleshooting package: ${err}`;

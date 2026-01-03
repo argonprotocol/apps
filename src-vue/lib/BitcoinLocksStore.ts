@@ -218,10 +218,13 @@ export default class BitcoinLocksStore {
 
     // get bitcoin xpriv to generate the pubkey
     const nextIndex = await table.getNextVaultHdKeyIndex(vault.vaultId);
-    const hdPath = `m/1018'/0'/${vault.vaultId}'/0/${nextIndex}'`;
+    return this.getDerivedPubkey(vault.vaultId, nextIndex);
+  }
+
+  public async getDerivedPubkey(vaultId: number, index: number) {
+    const hdPath = `m/1018'/0'/${vaultId}'/0/${index}'`;
     const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(hdPath, this.bitcoinNetwork);
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
-
     return { ownerBitcoinPubkey, hdPath };
   }
 
