@@ -103,7 +103,7 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
   for (const [type, fieldNames] of Object.entries(fields)) {
     for (const fieldName of fieldNames) {
       if (!(fieldName in obj)) continue;
-      let value = obj[fieldName];
+      const value = obj[fieldName];
       if (value === null || value === undefined) continue;
       if (type === 'bigint') {
         obj[fieldName] = fromSqliteBigInt(value);
