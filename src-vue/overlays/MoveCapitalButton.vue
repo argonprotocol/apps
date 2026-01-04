@@ -51,13 +51,28 @@
           <div class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono" v-else>
             {{ moveTo }} Account
           </div>
-          <input
-            v-if="moveTo === MoveTo.External"
-            v-model="externalAddress"
-            :disabled="pendingTxInfo !== null"
-            type="text"
-            class="mt-3 w-full rounded-md border border-slate-900/40 px-2 py-1.5 font-mono"
-            placeholder="Address of Account" />
+          <template v-if="moveTo === MoveTo.External">
+            <input
+              v-model="externalAddress"
+              :disabled="pendingTxInfo !== null"
+              type="text"
+              class="mt-3 w-full rounded-md border border-slate-900/40 px-2 py-1.5 font-mono"
+              placeholder="Address of Account" />
+            <div class="mt-2 flex w-full justify-center gap-x-1 text-xs text-slate-500">
+              <div>Send to an</div>
+              <div class="" :class="[isMovingToEthereum ? 'text-argon-600 font-bold' : 'font-semibold text-slate-800']">
+                Ethereum
+              </div>
+              <div>or</div>
+              <div class="" :class="[isMovingToArgon ? 'text-argon-600 font-bold' : 'font-semibold text-slate-800']">
+                Argon
+              </div>
+              <div>address</div>
+            </div>
+            <div v-if="addressWarn" class="mt-5 w-full rounded-md border p-2 text-yellow-600">
+              {{ addressWarn }}
+            </div>
+          </template>
           <template v-else-if="moveTo === MoveTo.Vaulting && config.isVaultActivated">
             <div class="mt-5 flex flex-col gap-y-2 border-t border-dashed border-slate-600/30 pt-3">
               <p class="mb-2">
@@ -87,6 +102,20 @@
           <strong>Coming Soon</strong>
           {{ comingSoon }}
         </div>
+        <div class="mt-2 -mb-4 w-full bg-slate-100 p-4 text-sm" v-if="isMovingToEthereum && isProcessing">
+          Transfers to Ethereum can take 5-15 minutes to complete. This progress bar only shows the steps to confirm the
+          transfer in Hyperbridge. You can follow the rest of the process
+          <a
+            v-if="moveToEthereumCommitment && hasHyperbridgeProcessedCommitment"
+            @click="openHyperbridgeLink"
+            class="!text-argon-600 hover:text-argon-800 cursor-pointer font-bold">
+            here
+          </a>
+          <template v-else>
+            <a class="!text-argon-600/70 hover:text-argon-800/70 cursor-not-allowed font-bold">here</a>
+            once Hyperbridge has confirmed the request.
+          </template>
+        </div>
         <div class="mt-5 flex flex-row items-start justify-end space-x-2 border-t border-slate-600/30 pt-3">
           <template v-if="isProcessing">
             <div class="w-2/3 flex-grow">
@@ -103,7 +132,7 @@
             </div>
             <button @click="cancel" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Cancel</button>
             <button
-              @click="transfer"
+              @click="transfer(!addressWarn)"
               v-if="canSubmit"
               :disabled="!canSubmit || !canAfford"
               :class="[
@@ -112,7 +141,8 @@
                   : 'border-argon-700/50 bg-argon-600/20 hover:bg-argon-700/20 cursor-default',
               ]"
               class="inner-button-shadow rounded border px-7 py-1 font-bold text-white">
-              Send
+              <template v-if="addressWarn">Send Anyway</template>
+              <template v-else>Send</template>
             </button>
           </template>
         </div>
@@ -150,18 +180,28 @@ import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getMyVault } from '../stores/vaults.ts';
-import { isValidArgonAccountAddress, percentOf, bigIntMax } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  ethAddressToH256,
+  isValidArgonAccountAddress,
+  isValidEthereumAddress,
+} from '@argonprotocol/apps-core';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
-import { getMainchainClient } from '../stores/mainchain.ts';
+import { getBlockWatch, getMainchainClient } from '../stores/mainchain.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import { getCurrency } from '../stores/currency.ts';
-import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
+import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import { IWallet } from '../lib/Wallet.ts';
 import VaultAllocation from '../components/VaultAllocation.vue';
 import { getConfig } from '../stores/config.ts';
 import { MyVault } from '../lib/MyVault.ts';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import {
+  getTokenGatewayClient,
+  waitForGatewaySyncedToHeight,
+} from '@argonprotocol/apps-core/src/TokenGatewayClient.ts';
 
 const myVault = getMyVault();
 const currency = getCurrency();
@@ -202,7 +242,7 @@ const maxAmount = Vue.computed(() => {
     case MoveFrom.VaultingTreasuryUnused:
       return vaultingBreakdown.pendingTreasuryPoolInvestment;
     case MoveFrom.VaultingUnusedArgon:
-      return bigIntMax(0n, vaultingBreakdown.vaultingAvailableMicrogons - MyVault.OperationalReserves);
+      return vaultingBreakdown.vaultingAvailableMicrogons;
     default:
       return 0n;
   }
@@ -309,7 +349,7 @@ Vue.watch(isOpen, async () => {
     }
 
     const pendingTx = pendingTxInfo.value;
-    if (!pendingTx || pendingTx.isPostProcessed) {
+    if (!pendingTx || (pendingTx.isPostProcessed && pendingTx.txResult.isFinalized)) {
       isProcessing.value = false;
       progressPct.value = 0;
       progressLabel.value = '';
@@ -319,10 +359,32 @@ Vue.watch(isOpen, async () => {
   }
 });
 
-Vue.watch(externalAddress, async value => {
-  if (moveTo.value === MoveTo.External && isValidArgonAccountAddress(value)) {
-    await updateFee();
+async function checkExternalAddress() {
+  isMovingToEthereum.value = false;
+  isMovingToArgon.value = false;
+  addressWarn.value = '';
+
+  const trimmedAddress = externalAddress.value.trim();
+  if (!trimmedAddress) {
+    return;
   }
+
+  isMovingToArgon.value = isValidArgonAccountAddress(trimmedAddress);
+  const ethereumAddressValidation = isValidEthereumAddress(trimmedAddress);
+  isMovingToEthereum.value = ethereumAddressValidation.valid;
+
+  if (ethereumAddressValidation.valid) {
+    addressWarn.value = ethereumAddressValidation.checksum
+      ? ''
+      : "Warning: Ethereum address can't be validated - use a check-summed address to be safer.";
+  } else if (!isMovingToArgon.value) {
+    addressWarn.value = 'The address entered is not a valid Argon or Ethereum address.';
+  }
+}
+
+Vue.watch(externalAddress, async () => {
+  await checkExternalAddress();
+  await updateFee();
 });
 
 async function updateMoveAmount(microgons: bigint, tries = 3) {
@@ -349,10 +411,20 @@ Vue.watch(moveTo, async () => {
 const isProcessing = Vue.ref(false);
 const progressPct = Vue.ref(0);
 const transactionError = Vue.ref('');
+const addressWarn = Vue.ref('');
+const isMovingToEthereum = Vue.ref(false);
+const isMovingToArgon = Vue.ref(false);
+const moveToEthereumCommitment = Vue.ref('');
 const comingSoon = Vue.ref('');
 const pendingTxInfo = Vue.ref<TransactionInfo | null>(null);
+const hasHyperbridgeProcessedCommitment = Vue.ref(false);
 
 const progressLabel = Vue.ref('');
+
+async function openHyperbridgeLink() {
+  const url = `https://explorer.hyperbridge.network/messages/${moveToEthereumCommitment.value}`;
+  await tauriOpenUrl(url);
+}
 
 async function buildTransaction(useExternalAddressPlaceHolder = false) {
   const client = await getMainchainClient(false);
@@ -387,7 +459,25 @@ async function buildTransaction(useExternalAddressPlaceHolder = false) {
   }
 
   /// 2. Transfer the argons / argonots
-  if (isMovingArgons()) {
+  const ARGON_ASSET_ID = 0;
+  const ARGONOT_ASSET_ID = 1;
+  await checkExternalAddress();
+  if (isMovingToEthereum.value) {
+    const assetId = isMovingArgons() ? ARGON_ASSET_ID : ARGONOT_ASSET_ID;
+    const recipient = ethAddressToH256(toAddress);
+    txs.push(
+      client.tx.tokenGateway.teleport({
+        assetId,
+        destination: { Evm: 1 },
+        recepient: recipient, // NOTE: field name 'recepient' is misspelled in the on-chain API and must remain as-is
+        timeout: 0,
+        relayerFee: 0n,
+        amount: amountToMove.value,
+        redeem: false,
+        tokenGateway: '0xFd413e3AFe560182C4471F4d143A96d3e259B6dE',
+      }),
+    );
+  } else if (isMovingArgons()) {
     txs.push(client.tx.balances.transferAllowDeath(toAddress, amountToMove.value));
   } else {
     txs.push(client.tx.ownership.transferAllowDeath(toAddress, amountToMove.value));
@@ -397,6 +487,7 @@ async function buildTransaction(useExternalAddressPlaceHolder = false) {
     moveTo: moveTo.value,
     moveFrom: moveFrom.value,
     externalAddress: moveTo.value === MoveTo.External ? toAddress : undefined,
+    isMovingToEthereum: isMovingToEthereum.value,
     amount: amountToMove.value,
     utxoId: myVault.metadata?.personalUtxoId,
     vaultAllocation: undefined as
@@ -436,10 +527,15 @@ async function updateFee() {
   }
 }
 
-async function transfer() {
-  if (moveTo.value === MoveTo.External && !isValidArgonAccountAddress(externalAddress.value)) {
-    transactionError.value = 'This External Account is not an Argon address.';
-    return;
+async function transfer(force = false) {
+  let isMoveToEthereum = false;
+  if (moveTo.value === MoveTo.External) {
+    await checkExternalAddress();
+    const isEthereumAddress = isValidEthereumAddress(externalAddress.value);
+    isMoveToEthereum = isEthereumAddress.valid;
+    if (!force && !isEthereumAddress.checksum) {
+      return;
+    }
   }
 
   // ensure fee is up to date
@@ -473,6 +569,9 @@ async function transfer() {
     if (metadata.moveFrom === MoveFrom.VaultingMintedArgon) {
       void myVault.onTransferOutOfMint(txInfo);
     }
+    if (metadata.moveTo === MoveTo.External && isMoveToEthereum) {
+      void watchTeleport(txInfo);
+    }
     trackTxInfo(txInfo);
   } catch (err) {
     console.error('Error during transfer: %o', err);
@@ -481,10 +580,48 @@ async function transfer() {
   }
 }
 
+async function watchTeleport(txInfo: TransactionInfo) {
+  hasHyperbridgeProcessedCommitment.value = false;
+  await txInfo.txResult.waitForFinalizedBlock;
+  const client = await getMainchainClient(false);
+  for (const event of txInfo.txResult.events) {
+    if (client.events.tokenGateway.AssetTeleported.is(event)) {
+      const { commitment } = event.data;
+      moveToEthereumCommitment.value = commitment.toHex();
+      break;
+    }
+  }
+  tokenGatewayClient ??= await getTokenGatewayClient();
+  const result = await waitForGatewaySyncedToHeight({
+    gatewayClient: tokenGatewayClient,
+    targetHeight: txInfo.txResult.blockNumber!,
+    onProgress(progress) {
+      if (progress < 100) {
+        progressLabel.value = `Waiting for Hyperbridge to confirm request.`;
+        progressPct.value = 50 + progress / 2;
+      } else {
+        progressLabel.value = `Hyperbridge has confirmed the request.`;
+        progressPct.value = 100;
+      }
+    },
+  });
+  blockWatchUnsubscribe = result.unsubscribe;
+  await result.complete;
+  hasHyperbridgeProcessedCommitment.value = true;
+}
+
+let blockWatchUnsubscribe: (() => void) | null = null;
+let tokenGatewayClient: Awaited<ReturnType<typeof getTokenGatewayClient>> | undefined;
+
 function trackTxInfo(txInfo: TransactionInfo) {
   txInfo.subscribeToProgress(async (args, error) => {
-    progressPct.value = args.progressPct;
-    progressLabel.value = args.progressMessage;
+    if (isMovingToEthereum.value) {
+      progressLabel.value = `Submitted to Argon Miners: ${args.progressMessage}`;
+      progressPct.value = args.progressPct / 2;
+    } else {
+      progressLabel.value = args.progressMessage;
+      progressPct.value = args.progressPct;
+    }
     if (args.progressPct === 100 && error) {
       isProcessing.value = false;
       pendingTxInfo.value = null;
@@ -498,6 +635,14 @@ function cancel() {
   isOpen.value = false;
 }
 
+Vue.onUnmounted(async () => {
+  if (blockWatchUnsubscribe) {
+    blockWatchUnsubscribe();
+    blockWatchUnsubscribe = null;
+  }
+  tokenGatewayClient?.disconnect();
+});
+
 Vue.onMounted(async () => {
   await transactionTracker.load();
   for (const txInfo of transactionTracker.pendingBlockTxInfosAtLoad) {
@@ -507,6 +652,12 @@ Vue.onMounted(async () => {
       amountToMove.value = txInfo.tx.metadataJson.amount;
       moveTo.value = txInfo.tx.metadataJson.moveTo;
       externalAddress.value = txInfo.tx.metadataJson.externalAddress;
+      await checkExternalAddress();
+      console.log('Resuming pending transfer: %o', txInfo, isMovingToEthereum.value);
+
+      if (txInfo.tx.metadataJson.moveTo === MoveTo.External && isMovingToEthereum.value) {
+        void watchTeleport(txInfo);
+      }
       trackTxInfo(txInfo);
       break;
     }

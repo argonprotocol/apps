@@ -1,5 +1,5 @@
 <template>
-  <div class="Spinner Componenth-6 mr-3 min-h-6 w-6 min-w-6" />
+  <div class="Spinner Component mr-3 h-6 min-h-6 w-6 min-w-6" />
 </template>
 
 <style scoped>

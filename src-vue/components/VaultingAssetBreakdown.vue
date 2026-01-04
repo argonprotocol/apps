@@ -16,7 +16,7 @@
               :showMoveButton="props.showMoveButtons"
               :moveFrom="MoveFrom.VaultingUnusedArgon"
               :moveTo="MoveTo.Holding">
-              {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).format('0,0.[00]') }} ARGN
+              {{ microgonToArgonNm(breakdown.vaultingAvailableMicrogons).format('0,0.[00]') }} ARGN
               <template #tooltip>
                 <p class="break-words whitespace-normal">
                   This is the amount of argons you have available and unallocated in your account.

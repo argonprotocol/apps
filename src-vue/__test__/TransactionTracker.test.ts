@@ -150,6 +150,8 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       },
     ];
 
+    vi.spyOn(transactionTracker, 'findTransactionInBlocks' as any).mockImplementationOnce(async () => null);
+
     // @ts-expect-error Now actually watch for updates
     await transactionTracker.updatePendingStatuses(70);
     expect(tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
