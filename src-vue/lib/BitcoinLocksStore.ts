@@ -159,8 +159,8 @@ export default class BitcoinLocksStore {
     }
   }
 
-  public async load(): Promise<void> {
-    if (this.#waitForLoad) return this.#waitForLoad.promise;
+  public async load(force = false): Promise<void> {
+    if (this.#waitForLoad && !force) return this.#waitForLoad.promise;
     this.#waitForLoad = createDeferred<void>();
     try {
       const client = await getMainchainClient(false);

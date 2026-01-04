@@ -136,7 +136,7 @@ export class MyVault {
   public async load(reload = false): Promise<void> {
     if (this.#waitForLoad && !reload) return this.#waitForLoad.promise;
 
-    this.#waitForLoad ??= createDeferred();
+    this.#waitForLoad = createDeferred();
     try {
       console.log('Loading MyVault...');
       await this.miningFrames.load();
@@ -158,7 +158,7 @@ export class MyVault {
       };
 
       await this.#transactionTracker.load();
-      await this.bitcoinLocksStore.load();
+      await this.bitcoinLocksStore.load(reload);
 
       for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
         const { tx } = txInfo;
@@ -830,6 +830,7 @@ export class MyVault {
 
     await table.save(this.metadata!);
     onProgress(100);
+    await this.load(true);
     return MyVaultRecovery.rebuildRules({
       feesInMicrogons: (foundVault.txFee ?? 0n) + (prebond.txFee ?? 0n),
       vault,
