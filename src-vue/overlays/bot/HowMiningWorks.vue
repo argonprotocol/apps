@@ -206,7 +206,7 @@
                   market for all participants.
                 </li>
                 <li>
-                  <strong>Automated Mining Bots</strong>. This app was built to serve as an automated mining bot to help handle the bidding processs,
+                  <strong>Automated Bidding Bots</strong>. This app was built to serve as an automated mining bot to help handle the bidding processs,
                   manage mining operations, and continually renew your seats every ten days. However, it doesn't dictate your strategy. It is up to you
                   to decide the rules, such as starting bid, maximum bid, rebidding strategy, etc.
                 </li>

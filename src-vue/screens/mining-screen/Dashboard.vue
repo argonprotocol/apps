@@ -158,7 +158,7 @@
 
               <TooltipRoot>
                 <TooltipTrigger as="div" class="flex flex-col w-4/12 items-center justify-center gap-x-2 pb-1 pt-3 hover:text-argon-600">
-                  <div class="font-bold">Mining Bot</div>
+                  <div class="font-bold">Bidding Bot</div>
                   <div class="flex flex-row items-center justify-center gap-x-2 whitespace-nowrap">
                     <div>Last Active</div>
                     <CountupClock as="span" :time="botActivityLastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }" class="font-mono">

@@ -43,7 +43,7 @@
         >
           <Checkbox :isChecked="wallets.isLoaded && config.hasSavedBiddingRules" />
           <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">Configure Your Mining Bot</h2>
+            <h2 class="text-2xl text-[#A600D4] font-bold">Configure Your Bidding Bot</h2>
             <p v-if="!config.hasSavedBiddingRules">
               Decide how much capital you want to commit, your starting bid, maximum bid, and other basic settings.
             </p>
@@ -161,7 +161,7 @@
         ]"
         class="bg-argon-button border border-argon-button-hover mt-8 text-2xl font-bold px-4 py-4 rounded-md w-full cursor-pointer hover:bg-argon-button-hover hover:inner-button-shadow"
       >
-        {{ isLaunchingMiningBot ? 'Launching Mining Bot...' : 'Launch Mining Bot' }}
+        {{ isLaunchingMiningBot ? 'Launching Bidding Bot...' : 'Launch Bidding Bot' }}
       </button>
     </div>
   </div>

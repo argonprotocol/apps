@@ -113,7 +113,7 @@
     </div>
 
     <!-- <section>
-      <header>Mining Bot Is Working</header>
+      <header>Bidding Bot Is Working</header>
     </section>
 
     <section>

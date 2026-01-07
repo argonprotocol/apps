@@ -26,7 +26,7 @@
           </div>
 
           <p v-if="walletId === 'mining'" class="mt-2 font-light">
-            Based on the rules you set, your Mining Bot needs the following tokens in order to operate.
+            Based on the rules you set, your Bidding Bot needs the following tokens in order to operate.
           </p>
           <p v-else class="mt-2 font-light">
             Based on the rules you set, your Vault needs the following tokens in order to operate.
