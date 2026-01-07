@@ -46,6 +46,7 @@ export async function waitForGatewaySyncedToHeight(args: {
   let lastPercent = 0;
   const deferred = createDeferred<void>();
   const result = {
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
     unsubscribe: () => {},
     complete: deferred.promise,
   };

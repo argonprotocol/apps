@@ -1,12 +1,12 @@
 import {
   AccountEventsFilter,
   BlockWatch,
+  createDeferred,
   createTypedEventEmitter,
+  Currency as CurrencyBase,
   IBlockHeaderInfo,
   IMainchainRates,
   SingleFileQueue,
-  Currency as CurrencyBase,
-  createDeferred,
 } from '@argonprotocol/apps-core';
 import { WalletKeys } from './WalletKeys.ts';
 import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
@@ -28,6 +28,8 @@ export interface IWalletEvents {
   'balance-change': (balanceChange: IBalanceChange, type: IWalletType) => void;
   'transfer-in': (wallet: Wallet, balanceChange: IBalanceChange) => void;
   'block-deleted': (block: IBlockToProcess) => void;
+  'sync:best-block': (block: IBlockHeaderInfo) => void;
+  'sync:finalized': (block: IBlockHeaderInfo) => void;
 }
 
 type IWalletEventKeys = keyof IWalletEvents;
@@ -42,6 +44,8 @@ export class WalletBalances {
   public vaultingWallet: Wallet;
 
   public holdingWallet: Wallet;
+  public bestBlock?: IBlockHeaderInfo;
+  public finalizedBlock?: IBlockHeaderInfo;
 
   private blockBacklogBeforeUsingIndexer = 100;
 
@@ -51,6 +55,8 @@ export class WalletBalances {
     'balance-change': [],
     'transfer-in': [],
     'block-deleted': [],
+    'sync:best-block': [],
+    'sync:finalized': [],
   };
   private isClosed = false;
   private blockHistory: IBlockToProcess[] = [];
@@ -156,7 +162,7 @@ export class WalletBalances {
         const entry = {
           blockNumber,
           blockHash: historyHeader.blockHash,
-          isFinalized: blockNumber >= finalizedBlockNumber,
+          isFinalized: blockNumber <= finalizedBlockNumber,
           isProcessed: false,
           parentHash: historyHeader.parentHash,
         };
@@ -186,9 +192,7 @@ export class WalletBalances {
       const db = await this.dbPromise;
       for (let i = 0; i < this.blockHistory.length; i++) {
         const block = this.blockHistory[i];
-        if (block.blockNumber <= finalizedBlockNumber) {
-          block.isFinalized = true;
-        }
+        block.isFinalized = block.blockNumber <= finalizedBlockNumber;
         if (block.blockHash === finalizedBlock.blockHash) {
           firstBlockNeeded = i;
           break;
@@ -213,8 +217,12 @@ export class WalletBalances {
         this.blockHistory.splice(0, firstBlockNeeded);
       }
       for (const wallet of this.wallets) {
-        wallet.trimTo(finalizedBlock);
+        wallet.trimToFinalizedBlock(finalizedBlock);
       }
+      this.bestBlock = header;
+      this.finalizedBlock = finalizedBlock;
+      this.events.emit('sync:best-block', header);
+      this.events.emit('sync:finalized', finalizedBlock);
     }).promise;
   }
 
@@ -368,7 +376,7 @@ export class WalletBalances {
     const micronots = await api.query.ownership.account.multi(addresses);
 
     const balances = addresses.map((_, i) => ({
-      block,
+      block: { ...block },
       availableMicrogons: microgons[i]?.free.toBigInt() ?? 0n,
       reservedMicrogons: microgons[i]?.reserved.toBigInt() ?? 0n,
       availableMicronots: micronots[i]?.free.toBigInt() ?? 0n,

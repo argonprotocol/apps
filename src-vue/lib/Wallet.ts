@@ -78,22 +78,35 @@ export class Wallet implements IWallet {
     return false;
   }
 
-  public trimTo(block: { blockNumber: number; blockHash: string }) {
-    const newHistory = this.balanceHistory.filter(b => b.block.blockNumber >= block.blockNumber);
+  public trimToFinalizedBlock(finalizedBlock: { blockNumber: number; blockHash: string }) {
+    const { blockNumber: finalizedBlockNumber } = finalizedBlock;
+    const newHistory: IBalanceChange[] = [];
+    for (const history of this.balanceHistory) {
+      history.block.isFinalized = history.block.blockNumber <= finalizedBlockNumber;
+      if (history.block.blockNumber >= finalizedBlockNumber) {
+        newHistory.push(history);
+      }
+    }
     if (newHistory.length === 0 || !newHistory.some(x => x.block.isFinalized)) {
       // need at least one finalized entry
-      const finalized = this.balanceHistory.reverse().find(x => x.block.isFinalized);
+      let finalized: IBalanceChange | undefined;
+      for (let i = this.balanceHistory.length - 1; i >= 0; i--) {
+        if (this.balanceHistory[i].block.isFinalized) {
+          finalized = this.balanceHistory[i];
+          break;
+        }
+      }
       if (finalized) {
         newHistory.unshift(finalized);
       }
       if (!newHistory.length) {
         console.warn(
           'Cannot trim wallet balance history, no finalized block found',
-          { block, wallet: this.address },
+          { block: finalizedBlock, wallet: this.address },
           this.balanceHistory,
         );
         throw new Error(
-          `Cannot trim wallet ${this.address} balance history to block ${block.blockNumber}, no finalized block found`,
+          `Cannot trim wallet ${this.address} balance history to block ${finalizedBlockNumber}, no finalized block found`,
         );
       }
     }
