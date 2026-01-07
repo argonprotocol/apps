@@ -7,7 +7,7 @@
     @pointerup="onPointerUp"
     :style="`left: ${posLeft}px`"
     :class="lineClasses"
-    class="absolute bottom-1 cursor-col-resize z-1 -top-1 rounded-t-md"
+    class="absolute bottom-1 cursor-col-resize z-10 -top-1 rounded-t-md"
   >
     <div class="Selected"></div>
     <div NibWrapper class="absolute left-1/2 -bottom-0 ml-[1.5px] w-[26.5px] h-6 -translate-x-1/2 translate-y-1/2">
@@ -100,7 +100,7 @@ defineExpose({ $el });
 <style lang="scss" scoped>
 [SelectedLine] {
   background: rgba(255, 255, 255, 1);
-  width: 4px;
+  width: 5px;
   border-top: 1px solid rgba(30, 41, 59, 0.4);
 
   &:before {
@@ -108,7 +108,7 @@ defineExpose({ $el });
     position: absolute;
     top: 0;
     bottom: 0;
-    left: -2px;
+    left: -1px;
     width: 1px;
     background: rgba(30, 41, 59, 0.4);
   }
@@ -117,7 +117,7 @@ defineExpose({ $el });
     position: absolute;
     top: 0;
     bottom: 0;
-    right: -2px;
+    right: -1px;
     width: 1px;
     background: rgba(30, 41, 59, 0.4);
     z-index: -1;
