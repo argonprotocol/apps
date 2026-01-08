@@ -17,7 +17,7 @@ use crate::{ssh::SSH, utils::Utils};
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Security {
-    pub mining_address: String,
+    pub mining_hold_address: String,
     pub mining_bot_address: String,
     pub vaulting_address: String,
     pub ssh_public_key: String,
@@ -161,12 +161,12 @@ impl Security {
         mnemonic: &str,
         public_key: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let mining_account = Self::sr_derive_from_mnemonic(mnemonic, "//holding")?; // If we had a do-over, it would be called mining
+        let mining_hold_account = Self::sr_derive_from_mnemonic(mnemonic, "//holding")?; // If we had a do-over, it would be called mining
         let mining_bot_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?; // If we had a do-over, it would be called miningBot
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
 
         Ok(Self {
-            mining_address: mining_account.0.public().to_ss58check(),
+            mining_hold_address: mining_hold_account.0.public().to_ss58check(),
             mining_bot_address: mining_bot_account.0.public().to_ss58check(),
             vaulting_address: vaulting_account.0.public().to_ss58check(),
             ssh_public_key: public_key.to_string(),
