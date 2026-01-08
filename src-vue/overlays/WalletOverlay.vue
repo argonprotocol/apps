@@ -5,13 +5,7 @@
       <div class="text-2xl font-bold grow">Add Funds to Your {{ walletName }} Wallet</div>
     </template>
 
-    <div v-if="requiresRulesToBeSet && walletId === 'mining'" class="flex flex-row items-center justify-center w-full pt-3 pb-5 px-5 gap-x-5 min-h-60">
-      <div>You haven't set any bidding rules. Please do so before adding funds.</div>
-    </div>
-    <div v-else-if="requiresRulesToBeSet && walletId === 'vaulting'" class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5 min-h-60">
-      You haven't set any vaulting rules. Please do so before adding funds.
-    </div>
-    <div v-else class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5">
+    <div class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5">
       <div class="flex flex-col grow pt-2 text-md">
         <div class="w-11/12">
           <p class="font-light">
@@ -31,7 +25,7 @@
             </div>
           </div>
 
-          <p v-if="walletId === 'mining'" class="mt-2 font-light">
+          <p v-if="walletId === 'miningHold'" class="mt-2 font-light">
             Based on the rules you set, your Mining Bot needs the following tokens in order to operate.
           </p>
           <p v-else class="mt-2 font-light">
@@ -41,41 +35,47 @@
           <table class="w-full">
             <thead>
               <tr>
-                <td>Required</td>
+                <td v-if="hasBiddingRules">Required</td>
                 <td>Wallet Balance</td>
                 <td>Locked Value</td>
-                <td>You Need</td>
-                <td class="text-right">Status</td>
+                <template v-if="hasBiddingRules">
+                  <td>You Need</td>
+                  <td class="text-right">Status</td>
+                </template>
               </tr>
             </thead>
             <tbody class="selectable-text">
               <tr>
-                <td data-testid="WalletOverlay.microgonsNeeded" :data-value="minimumMicrogonsNeeded">{{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]')
+                <td v-if="hasBiddingRules" data-testid="WalletOverlay.microgonsNeeded" :data-value="minimumMicrogonsNeeded">{{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]')
                   }} ARGN</td>
-                <td>{{ microgonToArgonNm(wallet.availableMicrogons).format('0,0.[00000000]') }}</td>
+                <td>{{ microgonToArgonNm(availableMicrogons).format('0,0.[00000000]') }}{{ hasBiddingRules ? '' : ' ARGN' }}</td>
                 <td>{{ microgonToArgonNm(lockedMicrogons).format('0,0.[00000000]') }}</td>
-                <td>{{ microgonToArgonNm(bigIntMax(0n, minimumMicrogonsNeeded - walletAllocatedMicrogons)).format('0,0.[00000000]')
-                  }}</td>
-                <td v-if="!minimumMicrogonsNeeded" class="text-right">--</td>
-                <td v-else-if="walletAllocatedMicrogons >= minimumMicrogonsNeeded" class="text-right text-green-700 font-bold" data-testid="Received.argons">success</td>
-                <td v-else class="fade-in-out text-right text-red-700 font-bold">
-                  <template v-if="wallet.availableMicrogons > 0n">partially funded</template>
-                  <template v-else>waiting</template>
-                </td>
+                <template v-if="hasBiddingRules">
+                  <td>{{ microgonToArgonNm(bigIntMax(0n, minimumMicrogonsNeeded - walletAllocatedMicrogons)).format('0,0.[00000000]')
+                    }}</td>
+                    <td v-if="!minimumMicrogonsNeeded" class="text-right">--</td>
+                  <td v-else-if="walletAllocatedMicrogons >= minimumMicrogonsNeeded" class="text-right text-green-700 font-bold" data-testid="Received.argons">success</td>
+                  <td v-else class="fade-in-out text-right text-red-700 font-bold">
+                    <template v-if="availableMicrogons > 0n">partially funded</template>
+                    <template v-else>waiting</template>
+                  </td>
+                </template>
               </tr>
               <tr>
-                <td data-testid="WalletOverlay.micronotsNeeded" :data-value="minimumMicronotsNeeded">{{ micronotToArgonotNm(minimumMicronotsNeeded).format('0,0.[00000000]')
+                <td v-if="hasBiddingRules" data-testid="WalletOverlay.micronotsNeeded" :data-value="minimumMicronotsNeeded">{{ micronotToArgonotNm(minimumMicronotsNeeded).format('0,0.[00000000]')
                   }} ARGNOT</td>
-                <td>{{ micronotToArgonotNm(wallet.availableMicronots).format('0,0.[00000000]') }}</td>
+                <td>{{ micronotToArgonotNm(availableMicronots).format('0,0.[00000000]') }}{{ hasBiddingRules ? '' : ' ARGNOT' }}</td>
                 <td>{{ micronotToArgonotNm(lockedMicronots).format('0,0.[00000000]') }}</td>
-                <td>{{ micronotToArgonotNm(bigIntMax(0n, minimumMicronotsNeeded - walletAllocatedMicronots)).format('0,0.[00000000]')
-                  }}</td>
-                <td v-if="!minimumMicronotsNeeded" class="text-right">--</td>
-                <td v-else-if="walletAllocatedMicronots >= minimumMicronotsNeeded" class="text-right text-green-700 font-bold" data-testid="Received.argonots">success</td>
-                <td v-else class="fade-in-out text-right text-red-700 font-bold">
-                  <template v-if="wallet.availableMicronots > 0n">partially funded</template>
-                  <template v-else>waiting</template>
-                </td>
+                <template v-if="hasBiddingRules">
+                  <td>{{ micronotToArgonotNm(bigIntMax(0n, minimumMicronotsNeeded - walletAllocatedMicronots)).format('0,0.[00000000]')
+                    }}</td>
+                  <td v-if="!minimumMicronotsNeeded" class="text-right">--</td>
+                  <td v-else-if="walletAllocatedMicronots >= minimumMicronotsNeeded" class="text-right text-green-700 font-bold" data-testid="Received.argonots">success</td>
+                  <td v-else class="fade-in-out text-right text-red-700 font-bold">
+                    <template v-if="availableMicronots > 0n">partially funded</template>
+                    <template v-else>waiting</template>
+                  </td>
+                </template>
               </tr>
             </tbody>
           </table>
@@ -128,14 +128,14 @@ import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import basicEmitter from '../emitters/basicEmitter';
 import { useController } from '../stores/controller';
-import { IWalletType } from '../lib/Wallet.ts';
+import { WalletType } from '../lib/Wallet.ts';
 import InstructionsIcon from '../assets/instructions.svg?component';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 
-const walletId: Vue.Ref<IWalletType> = Vue.ref('mining');
+const walletId: Vue.Ref<WalletType.miningHold | WalletType.vaulting> = Vue.ref(WalletType.miningHold);
 
 const config = getConfig();
 const wallets = useWallets();
@@ -151,7 +151,7 @@ const requiredMicronotsForGoal = Vue.ref(0n);
 const showJurisdictionAlert = Vue.ref(false);
 
 const minimumMicrogonsNeeded = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     const baseAmountNeeded = requiredMicrogonsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicrogons ?? 0n);
   } else if (walletId.value === 'vaulting') {
@@ -161,7 +161,7 @@ const minimumMicrogonsNeeded = Vue.computed(() => {
 });
 
 const minimumMicronotsNeeded = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     const baseAmountNeeded = requiredMicronotsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicronots ?? 0n);
   } else if (walletId.value === 'vaulting') {
@@ -171,7 +171,7 @@ const minimumMicronotsNeeded = Vue.computed(() => {
 });
 
 const lockedMicrogons = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     const sidelined = config.biddingRules?.sidelinedMicrogons ?? 0n;
     return wallets.miningBidMicrogons + wallets.miningSeatMicrogons + sidelined;
   } else {
@@ -180,7 +180,7 @@ const lockedMicrogons = Vue.computed(() => {
 });
 
 const lockedMicronots = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     const sidelined = config.biddingRules?.sidelinedMicronots ?? 0n;
     return wallets.miningBidMicronots + wallets.miningSeatMicronots + sidelined;
   } else {
@@ -189,7 +189,7 @@ const lockedMicronots = Vue.computed(() => {
 });
 
 const walletAllocatedMicrogons = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     return wallets.totalMiningMicrogons || 0n;
   } else if (walletId.value === 'vaulting') {
     return wallets.totalVaultingMicrogons || 0n;
@@ -198,7 +198,7 @@ const walletAllocatedMicrogons = Vue.computed(() => {
 });
 
 const walletAllocatedMicronots = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     return wallets.totalMiningMicronots || 0n;
   } else if (walletId.value === 'vaulting') {
     return wallets.vaultingWallet.reservedMicronots || 0n;
@@ -207,7 +207,7 @@ const walletAllocatedMicronots = Vue.computed(() => {
 });
 
 const walletName = Vue.computed(() => {
-  if (walletId.value === 'mining') {
+  if (walletId.value === 'miningHold') {
     return 'Mining';
   } else if (walletId.value === 'vaulting') {
     return 'Vaulting';
@@ -215,10 +215,26 @@ const walletName = Vue.computed(() => {
 });
 
 const wallet = Vue.computed(() => {
-  if (walletId.value === 'mining') {
-    return wallets.miningWallet;
+  if (walletId.value === 'miningHold') {
+    return wallets.miningHoldWallet;
   } else {
     return wallets.vaultingWallet;
+  }
+});
+
+const availableMicrogons = Vue.computed(() => {
+  if (walletId.value === 'miningHold') {
+    return wallets.miningHoldWallet.availableMicrogons + wallets.miningBotWallet.availableMicrogons;
+  } else {
+    return wallets.vaultingWallet.availableMicrogons;
+  }
+});
+
+const availableMicronots = Vue.computed(() => {
+  if (walletId.value === 'miningHold') {
+    return wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
+  } else {
+    return wallets.vaultingWallet.availableMicronots;
   }
 });
 
@@ -228,11 +244,10 @@ const walletIsFullyFunded = Vue.computed(() => {
   return true;
 });
 
-const requiresRulesToBeSet = Vue.computed(() => {
-  if (walletId.value === 'mining' && !config.hasSavedBiddingRules) {
+const hasBiddingRules = Vue.computed(() => {
+  if (walletId.value === 'miningHold' && config.hasSavedBiddingRules) {
     return true;
-  }
-  if (walletId.value === 'vaulting' && !config.hasSavedVaultingRules) {
+  } else if (walletId.value === 'vaulting' && config.hasSavedVaultingRules) {
     return true;
   }
   return false;
@@ -248,14 +263,14 @@ async function openUniswapInstructions() {
 
 function openJurisdictionOverlay() {
   closeOverlay();
-  basicEmitter.emit('openComplianceOverlay');
+  basicEmitter.emit('openJurisdictionOverlay');
 }
 
 let calculatorIsSubscribed = false;
 
 async function load() {
   void loadQRCode();
-  if (walletId.value === 'mining' && !calculatorIsSubscribed) {
+  if (walletId.value === 'miningHold' && !calculatorIsSubscribed) {
     calculatorIsSubscribed = true;
     await config.isLoadedPromise;
 
@@ -274,8 +289,8 @@ async function load() {
 
 async function loadQRCode() {
   let address = '';
-  if (walletId.value === 'mining') {
-    address = wallets.miningWallet.address;
+  if (walletId.value === 'miningHold') {
+    address = wallets.miningHoldWallet.address;
   } else if (walletId.value === 'vaulting') {
     address = wallets.vaultingWallet.address;
   }

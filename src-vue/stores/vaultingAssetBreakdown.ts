@@ -1,167 +1,130 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { bigIntMax, bigNumberToBigInt } from '@argonprotocol/apps-core';
-import { MyVault } from '../lib/MyVault.ts';
-import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
-import { getWalletKeys, useWallets } from './wallets.ts';
-import { getMyVault, getVaults } from './vaults.ts';
-import { getBitcoinLocks } from './bitcoin.ts';
+import BigNumber from 'bignumber.js';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { useWallets } from './wallets.ts';
+import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
   const myVault = getMyVault();
-  const bitcoinLocks = getBitcoinLocks();
   const currency = getCurrency();
-  const vaults = getVaults();
 
-  const unlockPrice = Vue.ref(0n);
+  // Sidelined
 
-  const personalLock = Vue.computed(() => {
-    if (bitcoinLocks.data.pendingLock) {
-      return bitcoinLocks.data.pendingLock;
-    }
-    const utxoId = myVault.metadata?.personalUtxoId;
-    if (utxoId) {
-      return bitcoinLocks.data.locksByUtxoId[utxoId];
-    }
+  const sidelinedMicrogons = Vue.computed(() => {
+    return bigIntMax(wallets.vaultingWallet.availableMicrogons, 0n);
   });
 
-  const waitingSecuritization = Vue.computed(() => {
+  const sidelinedMicronots = Vue.computed(() => 0n);
+
+  const sidelinedTotalValue = Vue.computed(() => {
+    return sidelinedMicrogons.value + currency.convertMicronotTo(sidelinedMicronots.value, UnitOfMeasurement.Microgon);
+  });
+
+  // Security
+
+  const securityMicrogons = Vue.computed(() => {
+    return myVault.createdVault?.securitization ?? 0n;
+  });
+
+  const securityMicrogonsUnused = Vue.computed<bigint>(() => {
     const vault = myVault.createdVault;
     if (!vault) return 0n;
+
     const securitization = vault.securitization;
     const everActivatedSecuritization = bigNumberToBigInt(vault.securitizationRatioBN().times(vault.argonsLocked));
     return securitization - everActivatedSecuritization;
   });
 
-  const hasLockedBitcoin = Vue.computed(() => {
-    return [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(
-      personalLock.value?.status as any,
-    );
-  });
-
-  const activatedSecuritization = Vue.computed(() => {
-    // TODO: this value is wrong when there are pending activations and relocks
-    return myVault.createdVault?.activatedSecuritization() ?? 0n;
-  });
-
-  const pendingSecuritization = Vue.computed(() => {
+  const securityMicrogonsPending = Vue.computed(() => {
     const vault = myVault.createdVault;
     if (!vault) return 0n;
+
     return bigNumberToBigInt(vault.securitizationRatioBN().times(vault.argonsPendingActivation));
   });
 
-  const sidelinedMicrogons = Vue.computed(() => {
-    return bigIntMax(wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
+  const securityMicrogonsActivated = Vue.computed<bigint>(() => {
+    // TODO: this value is wrong when there are pending activations and relocks
+    // return myVault.createdVault?.activatedSecuritization() ?? 0n;
+    return securityMicrogons.value - securityMicrogonsUnused.value;
   });
 
-  const internalTreasuryPoolBonds = Vue.computed(() => {
-    const revenue = myVault.data.stats;
-    if (!revenue) return 0n;
-    return (
-      myVault.data.prebondedMicrogons +
-      revenue.changesByFrame
-        .slice(0, 10)
-        .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
-        .reduce((acc, change) => acc + (change.treasuryPool.vaultCapital ?? 0n), 0n)
-    );
+  const securityMicrogonsActivatedPct = Vue.computed<number>(() => {
+    const pctBn = BigNumber(securityMicrogonsActivated.value).div(securityMicrogons.value);
+    return pctBn.multipliedBy(100).toNumber();
   });
 
-  const activatedTreasuryPoolInvestment = Vue.computed(() => {
-    return internalTreasuryPoolBonds.value;
+  const securityMicronots = Vue.computed(() => 0n);
+  const securityMicronotsUnused = Vue.computed(() => 0n);
+  const securityMicronotsPending = Vue.computed(() => 0n);
+  const securityMicronotsActivated = Vue.computed(() => 0n);
+  const securityMicronotsActivatedPct = Vue.computed(() => 100);
+
+  const securityTotalValue = Vue.computed(() => {
+    return securityMicrogons.value + currency.convertMicronotTo(securityMicronots.value, UnitOfMeasurement.Microgon);
   });
 
-  const pendingTreasuryPoolInvestment = Vue.computed(() => {
-    return bigIntMax(
-      0n,
-      internalTreasuryPoolBonds.value - ((myVault.createdVault?.securitization ?? 0n) - waitingSecuritization.value),
-    );
+  // Treasury
+
+  const treasuryMicrogons = Vue.computed(() => {
+    return myVault.data.treasuryMicrogonsCommitted || 0n;
   });
 
-  const totalVaultValue = Vue.computed(() => {
-    return (
-      wallets.totalVaultingResources +
-      pendingMintingValue.value -
-      myVault.data.pendingCollectRevenue -
-      unlockPrice.value
-    );
+  const treasuryMicrogonsActivated = Vue.computed(() => {
+    return bigIntMin(securityMicrogonsActivated.value, treasuryMicrogons.value);
   });
 
-  const bitcoinSecurityTotal = Vue.computed(() => {
-    return myVault.createdVault?.securitization ?? 0n;
+  const treasuryMicrogonsUnused = Vue.computed(() => {
+    return treasuryMicrogons.value - treasuryMicrogonsActivated.value;
   });
 
-  const pendingMintingValue = Vue.computed<bigint>(() => {
-    return bitcoinLocks.totalMintPending;
+  const treasuryMicrogonsActivatedPct = Vue.computed(() => {
+    const pctBn = BigNumber(treasuryMicrogonsActivated.value).div(treasuryTotalValue.value);
+    return pctBn.multipliedBy(100).toNumber();
   });
 
-  const mintedValueInAccount = Vue.computed(() => {
-    return bitcoinLocks.totalMinted - (myVault.metadata?.personalBitcoinMintAmountMovedOut ?? 0n);
+  const treasuryTotalValue = Vue.computed(() => {
+    return treasuryMicrogons.value;
   });
 
-  const vaultingAvailableMicrogons = Vue.computed(() => {
-    return bigIntMax(0n, wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves);
-  });
-
-  const pendingAllocateTxMetadata = Vue.computed(() => {
-    return myVault.data.pendingAllocateTxInfo?.tx.metadataJson;
-  });
-
-  const treasuryBondTotal = Vue.computed(() => {
-    return activatedTreasuryPoolInvestment.value + pendingTreasuryPoolInvestment.value;
-  });
+  // Operational Fees
 
   const operationalFeeMicrogons = Vue.computed(() => {
     return myVault.metadata?.operationalFeeMicrogons ?? 0n;
   });
 
-  async function updateBitcoinUnlockPrices() {
-    const lock = personalLock.value;
-    if (!lock) return;
+  // Total Vault
 
-    if (lock.status !== BitcoinLockStatus.LockedAndIsMinting && lock.status !== BitcoinLockStatus.LockedAndMinted) {
-      unlockPrice.value = 0n;
-      return;
-    }
-    const vaultingAddress = getWalletKeys().vaultingAddress;
-    const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, vaultingAddress }).catch(() => 0n);
-    unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
-  }
-
-  Vue.watch(
-    currency.priceIndex,
-    () => {
-      void updateBitcoinUnlockPrices();
-    },
-    { deep: true },
-  );
-
-  Vue.watch(
-    personalLock,
-    () => {
-      void updateBitcoinUnlockPrices();
-    },
-    { deep: true },
-  );
-
-  void updateBitcoinUnlockPrices();
+  const totalVaultValue = Vue.computed(() => {
+    return (
+      sidelinedTotalValue.value + securityTotalValue.value + treasuryTotalValue.value - operationalFeeMicrogons.value
+    );
+  });
 
   return {
-    vaultingAvailableMicrogons,
-    pendingMintingValue,
-    mintedValueInAccount,
-    pendingAllocateTxMetadata,
     sidelinedMicrogons,
-    bitcoinSecurityTotal,
-    waitingSecuritization: waitingSecuritization,
-    pendingSecuritization,
-    activatedSecuritization,
-    treasuryBondTotal,
-    pendingTreasuryPoolInvestment,
-    activatedTreasuryPoolInvestment,
-    hasLockedBitcoin,
-    unlockPrice,
+    sidelinedMicronots,
+    sidelinedTotalValue,
+
+    securityMicrogons,
+    securityMicronots,
+    securityMicrogonsUnused,
+    securityMicronotsUnused,
+    securityMicrogonsPending,
+    securityMicronotsPending,
+    securityMicrogonsActivated,
+    securityMicronotsActivated,
+    securityMicrogonsActivatedPct,
+    securityMicronotsActivatedPct,
+    securityTotalValue,
+
+    treasuryMicrogons,
+    treasuryMicrogonsUnused,
+    treasuryMicrogonsActivatedPct,
+    treasuryTotalValue,
+
     operationalFeeMicrogons,
     totalVaultValue,
   };

@@ -38,7 +38,7 @@
       <label class="mt-3 font-bold opacity-60 mb-0.5">
         Value
       </label>
-      <InputArgon v-model="config.biddingRules.maximumBidCustom" :min="0n" class="min-w-60" />
+      <InputMoney v-model="config.biddingRules.maximumBidCustom" :min="0n" class="min-w-60" />
     </template>
     <template v-else>
       <label class="mt-3 font-bold opacity-60 mb-0.5">
@@ -49,7 +49,7 @@
           { name: BidAmountAdjustmentType.Absolute, value: BidAmountAdjustmentType.Absolute },
           { name: BidAmountAdjustmentType.Relative, value: BidAmountAdjustmentType.Relative }
         ]" :selectFirst="true" class="w-1/2" />
-        <InputArgon v-if="isAbsoluteType" v-model="config.biddingRules.maximumBidAdjustAbsolute" class="min-w-60 w-1/2" />
+        <InputMoney v-if="isAbsoluteType" v-model="config.biddingRules.maximumBidAdjustAbsolute" class="min-w-60 w-1/2" />
         <InputNumber v-else v-model="config.biddingRules.maximumBidAdjustRelative" :min="-100" :dragBy="0.01" format="percent" class="w-1/2" />
         <div> = </div>
         <div class="border border-slate-400 rounded-md px-2 py-1 h-[32px] border-dashed w-1/3 font-mono text-sm text-gray-800">
@@ -66,7 +66,7 @@ import { BidAmountAdjustmentType, BidAmountFormulaType } from '@argonprotocol/ap
 import AlertIcon from '../../assets/alert.svg?component';
 import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputNumber from '../../components/InputNumber.vue';
-import InputArgon from '../../components/InputArgon.vue';
+import InputMoney from '../../components/InputMoney.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
 import { getConfig } from '../../stores/config';
 import { getCurrency } from '../../stores/currency';

@@ -23,7 +23,7 @@
     Flat Fee
   </div>
   <div class="flex flex-row items-center gap-2 w-full">
-    <InputArgon v-model="config.vaultingRules.btcFlatFee" class="w-full" />
+    <InputMoney v-model="config.vaultingRules.btcFlatFee" class="w-full" />
   </div>
 
   <div class="mt-3 font-bold opacity-60 mb-0.5">
@@ -38,7 +38,7 @@
 import * as Vue from 'vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
-import InputArgon from '../../components/InputArgon.vue';
+import InputMoney from '../../components/InputMoney.vue';
 import { getConfig } from '../../stores/config';
 
 const config = getConfig();

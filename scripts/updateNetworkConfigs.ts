@@ -32,7 +32,7 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
       console.warn(`[${name}]: ${e}`);
     }
   }
-  fs.writeFileSync(Path.join(dirname, 'network.config.json'), JSON.stringify(NetworkConfigSettings, null, 2), 'utf-8');
+  fs.writeFileSync(Path.join(dirname, 'network.config.json'), JSON.stringify(NetworkConfigSettings, null, 2) + "\n", 'utf-8');
   console.log('Updated network.config.json with latest mining configuration');
   process.exit(0);
 })();

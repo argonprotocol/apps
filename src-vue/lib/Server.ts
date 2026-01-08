@@ -240,9 +240,13 @@ export class Server {
     await this.connection.uploadFileWithTimeout(envSecurityStr, `${this.workDir}/config/.env.security`, 10e3);
   }
 
-  public async uploadMiningWallet(miningWalletJson: KeyringPair$Json): Promise<void> {
-    const walletMiningJson = JsonExt.stringify(miningWalletJson, 2);
-    await this.connection.uploadFileWithTimeout(walletMiningJson, `${this.workDir}/config/walletMining.json`, 10e3);
+  public async uploadMiningBotWallet(miningBotWalletJson: KeyringPair$Json): Promise<void> {
+    const miningBotWalletStringified = JsonExt.stringify(miningBotWalletJson, 2);
+    await this.connection.uploadFileWithTimeout(
+      miningBotWalletStringified,
+      `${this.workDir}/config/walletMiningBot.json`,
+      10e3,
+    );
   }
 
   public async removeAllLogFiles(): Promise<void> {

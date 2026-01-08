@@ -14,7 +14,7 @@
             left: `calc(50% + ${draggable.modalPosition.x}px)`,
             transform: 'translate(-50%, -50%)',
           }"
-          class="VaultEditOverlay absolute w-[1000px] min-h-[550px] flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-20 focus:outline-none"
+          class="VaultEditOverlay absolute w-[1000px] min-h-[550px] flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-50 focus:outline-none"
           style="box-shadow: 1px 1px 10px rgba(0, 0, 0, 0.2), inset 2px 2px 0 rgba(255, 255, 255, 1)"
         >
           <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />

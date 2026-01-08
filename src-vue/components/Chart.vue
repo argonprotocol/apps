@@ -39,7 +39,7 @@ import {
 } from 'chart.js';
 import 'chartjs-adapter-dayjs-4/dist/chartjs-adapter-dayjs-4.esm';
 import { createChartOptions } from '../lib/ChartOptions';
-import XAxis from './XAxis.vue';
+import XAxis, { startDate, endDate } from './XAxis.vue';
 
 dayjs.extend(dayjsUtc);
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, TimeScale, Tooltip);
@@ -261,7 +261,7 @@ function doResize() {
 
 Vue.onMounted(() => {
   if (chartRef.value) {
-    const chartOptions = createChartOptions(fillerPoints, chartPoints, [], onTooltipFn);
+    const chartOptions = createChartOptions(startDate, endDate, fillerPoints, chartPoints, [], onTooltipFn);
     chart = new Chart(chartRef.value, chartOptions as any);
   }
 });

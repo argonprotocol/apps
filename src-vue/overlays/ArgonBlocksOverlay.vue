@@ -91,7 +91,7 @@ const isOpen = Vue.ref(false);
 
 const subaccounts = Vue.ref(new Set<string>());
 Vue.onMounted(() => {
-  walletKeys.getMiningSubaccounts().then(x => {
+  walletKeys.getMiningBotSubaccounts().then(x => {
     for (const key of Object.keys(x)) {
       subaccounts.value.add(key);
     }

@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div :class="[roundedClass]" class="absolute top-0 left-0 w-full h-full pointer-events-none z-10">
+  <div :class="[roundedClass]" class="absolute top-0 left-0 w-full h-full pointer-events-none z-30">
     <div v-if="enableTopBar" :class="[roundedTopClass]" class="absolute top-0 left-0 w-full h-14 pointer-events-none bg-black/20 transition-opacity"></div>
     <div
       @click="emitClose"

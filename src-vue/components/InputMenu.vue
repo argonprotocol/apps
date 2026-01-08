@@ -32,24 +32,29 @@
         </SelectScrollUpButton>
 
         <SelectViewport class="p-[5px]">
-          <SelectItem
-            :data-testid="option.name"
+          <SelectSeparator class="h-px w-full bg-gray-300" />
+          <template
             v-for="(option, index) in props.options"
             :key="index"
-            :disabled="option.disabled"
-            :class="[option.disabled ? 'opacity-50' : '']"
-            :value="option"
-            class="text-xs leading-none rounded-[3px] flex items-center h-[25px] pr-[10px] pl-[20px] relative select-none data-[highlighted]:outline-none data-[highlighted]:bg-argon-400 data-[highlighted]:text-white"
           >
-            <SelectItemIndicator class="absolute left-0 w-[20px] inline-flex items-center justify-center">
-              <CheckIcon class="size-4 text-white-400 block" />
-            </SelectItemIndicator>
-            <SelectItemText class="whitespace-nowrap flex flex-row justify-between w-full font-mono text-sm">
-              <span class="grow text-left">{{ option.name }}</span>
-              <span v-if="option.microgons" class="text-right opacity-50 pl-5">{{ currency.symbol }}{{ microgonToMoneyNm(option.microgons).format('0,0.00') }}</span>
-              <span v-if="option.sats" class="text-right opacity-50 pl-5">{{option.sats}} sat{{option.sats > 1n ? 's' : ''}}/vbyte</span>
-            </SelectItemText>
-          </SelectItem>
+            <SelectSeparator v-if="option.divider" class="h-px w-full bg-gray-300 my-1" />
+            <SelectItem
+              :data-testid="option.name"
+              :disabled="option.disabled"
+              :class="[option.disabled ? 'opacity-50' : '']"
+              :value="option"
+              class="text-xs leading-none rounded-[3px] flex items-center h-[25px] pr-[10px] pl-[20px] relative select-none data-[highlighted]:outline-none data-[highlighted]:bg-argon-400 data-[highlighted]:text-white"
+            >
+              <SelectItemIndicator class="absolute left-0 w-[20px] inline-flex items-center justify-center">
+                <CheckIcon class="size-4 text-white-400 block" />
+              </SelectItemIndicator>
+              <SelectItemText class="whitespace-nowrap flex flex-row justify-between w-full font-mono text-sm">
+                <span class="grow text-left">{{ option.name }}</span>
+                <span v-if="option.microgons" class="text-right opacity-50 pl-5">{{ currency.symbol }}{{ microgonToMoneyNm(option.microgons).format('0,0.00') }}</span>
+                <span v-if="option.sats" class="text-right opacity-50 pl-5">{{option.sats}} sat{{option.sats > 1n ? 's' : ''}}/vbyte</span>
+              </SelectItemText>
+            </SelectItem>
+          </template>
         </SelectViewport>
 
         <SelectScrollDownButton class="absolute bottom-0 left-0 right-0 flex items-center justify-center h-[25px] bg-gradient-to-t from-[10px] from-white to-transparent">
@@ -74,6 +79,7 @@ import {
   SelectRoot,
   SelectScrollDownButton,
   SelectScrollUpButton,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
   SelectViewport,
@@ -82,7 +88,14 @@ import {
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-export type IOption = { name: string; value: string; microgons?: bigint; sats?: bigint; disabled?: boolean };
+export type IOption = {
+  name: string;
+  value: string;
+  microgons?: bigint;
+  sats?: bigint;
+  disabled?: boolean;
+  divider?: boolean;
+};
 
 const props = withDefaults(
   defineProps<{

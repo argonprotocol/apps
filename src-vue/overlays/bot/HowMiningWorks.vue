@@ -8,7 +8,7 @@
 
       <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
-          class="HowMiningWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
+          class="HowMiningWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-40 transition-all focus:outline-none"
         >
           <div class="flex flex-col h-full w-full">
             <h2
@@ -307,7 +307,7 @@ async function openUniswapMarket(uniswapUrl: string) {
     await tauriOpen(uniswapUrl);
   } else {
     closeOverlay();
-    basicEmitter.emit('openComplianceOverlay');
+    basicEmitter.emit('openJurisdictionOverlay');
   }
 }
 

@@ -5,6 +5,7 @@ import { getCurrency } from './currency.ts';
 import { getConfig } from './config.ts';
 import { getStats } from './stats.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
+import BigNumber from 'bignumber.js';
 
 export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () => {
   const config = getConfig();
@@ -12,35 +13,68 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   const currency = getCurrency();
   const stats = getStats();
 
-  const unusedMicronots = Vue.computed(() => {
-    const unused = wallets.miningWallet.availableMicronots - config.biddingRules.sidelinedMicronots;
-    return unused > 0n ? unused : 0n;
+  // Sidelined
+
+  const sidelinedMicrogons = Vue.computed(() => {
+    return wallets.miningHoldWallet.totalMicrogons;
   });
 
-  const unusedMicrogons = Vue.computed(() => {
-    const unused = wallets.miningWallet.availableMicrogons - config.biddingRules.sidelinedMicrogons;
-    return unused > 0n ? unused : 0n;
+  const sidelinedMicronots = Vue.computed(() => {
+    return wallets.miningHoldWallet.totalMicronots;
   });
 
-  const biddingReserves = Vue.computed(() => {
-    return unusedMicrogons.value + currency.convertMicronotTo(unusedMicronots.value, UnitOfMeasurement.Microgon);
+  const sidelinedTotalValue = Vue.computed(() => {
+    return sidelinedMicrogons.value + currency.convertMicronotTo(sidelinedMicronots.value, UnitOfMeasurement.Microgon);
   });
 
-  const bidTotalCount = Vue.computed(() => {
+  // Auction
+
+  const auctionBidCount = Vue.computed(() => {
     return stats.myMiningBids.bidCount;
   });
 
-  const bidTotalCost = Vue.computed(() => {
-    return wallets.miningBidValue;
+  const auctionMicrogons = Vue.computed(() => {
+    const microgons = auctionMicrogonsUnused.value + auctionMicrogonsActivated.value;
+    return microgons > 0n ? microgons : 0n;
   });
 
-  const bidMicrogons = Vue.computed(() => {
+  const auctionMicrogonsActivated = Vue.computed(() => {
     return wallets.miningBidMicrogons;
   });
 
-  const bidMicronots = Vue.computed(() => {
+  const auctionMicrogonsUnused = Vue.computed(() => {
+    return wallets.miningBotWallet.availableMicrogons;
+  });
+
+  const auctionMicrogonsActivatedPct = Vue.computed(() => {
+    const pctBn = BigNumber(auctionMicrogonsActivated.value).div(auctionMicrogons.value);
+
+    return pctBn.multipliedBy(100).toNumber();
+  });
+
+  const auctionMicronots = Vue.computed(() => {
+    const micronots = auctionMicronotsUnused.value + auctionMicronotsActivated.value;
+    return micronots > 0n ? micronots : 0n;
+  });
+
+  const auctionMicronotsActivated = Vue.computed(() => {
     return wallets.miningBidMicronots;
   });
+
+  const auctionMicronotsUnused = Vue.computed(() => {
+    return wallets.miningBotWallet.availableMicronots;
+  });
+
+  const auctionMicronotsActivatedPct = Vue.computed(() => {
+    const pctBn = BigNumber(auctionMicronotsActivated.value).div(auctionMicronots.value);
+    return pctBn.multipliedBy(100).toNumber();
+  });
+
+  const auctionTotalValue = Vue.computed(() => {
+    return auctionMicrogons.value + currency.convertMicronotTo(auctionMicronots.value, UnitOfMeasurement.Microgon);
+  });
+
+  // Mining Seats
 
   const seatActiveCount = Vue.computed(() => {
     return stats.myMiningSeats.seatCount;
@@ -60,22 +94,32 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
     return wallets.miningSeatMicronots;
   });
 
-  const totalMiningResources = Vue.computed(() => {
-    return wallets.totalMiningResources;
-  });
+  // Transaction Fees
 
   const transactionFeesTotal = Vue.computed(() => {
     return stats.global.transactionFeesTotal;
   });
 
+  // Total Mining Resources
+
+  const totalMiningResources = Vue.computed(() => {
+    return wallets.totalMiningResources;
+  });
+
   return {
-    biddingReserves,
-    unusedMicrogons,
-    unusedMicronots,
-    bidTotalCount,
-    bidTotalCost,
-    bidMicrogons,
-    bidMicronots,
+    sidelinedMicrogons,
+    sidelinedMicronots,
+    sidelinedTotalValue,
+
+    auctionBidCount,
+    auctionTotalValue,
+    auctionMicrogons,
+    auctionMicronots,
+    auctionMicronotsUnused,
+    auctionMicrogonsUnused,
+    auctionMicrogonsActivatedPct,
+    auctionMicronotsActivatedPct,
+
     seatActiveCount,
     stakedSeatMicronots,
     expectedSeatValue,

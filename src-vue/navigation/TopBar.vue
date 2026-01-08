@@ -8,7 +8,7 @@
     <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
-        Management Console
+        Argon Bootstrapper
         <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
       </div>
     </div>
@@ -22,7 +22,7 @@
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
       <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
-        <PortfolioMenu ref="portfolioMenuRef" />
+        <CurrencyMenu ref="currencyMenuRef" />
       </div>
       <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <AccountMenu ref="accountMenuRef" />
@@ -35,7 +35,7 @@
 import * as Vue from 'vue';
 import { useController } from '../stores/controller';
 import WindowControls from '../tauri-controls/WindowControls.vue';
-import PortfolioMenu from './PortfolioMenu.vue';
+import CurrencyMenu from './CurrencyMenu.vue';
 import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import InstanceMenu from './InstanceMenu.vue';
@@ -54,8 +54,8 @@ const wallets = useWallets();
 const tour = useTour();
 const bot = getBot();
 
-const portfolioMenuRef = Vue.ref<InstanceType<typeof PortfolioMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
+const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
 
 const instances = Vue.ref<IInstance[]>([]);
 
@@ -70,8 +70,8 @@ async function fetchInstances() {
       isSelected: entry.name === INSTANCE_NAME,
     }));
 }
-tour.registerPositionCheck('portfolioMenu', () => {
-  const currencyMenuElem = portfolioMenuRef.value?.$el;
+tour.registerPositionCheck('currencyMenu', () => {
+  const currencyMenuElem = currencyMenuRef.value?.$el;
   const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
   rect.left -= 10;
   rect.right += 10;

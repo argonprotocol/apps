@@ -35,11 +35,9 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { getConfig } from '../../stores/config';
-import { useController } from '../../stores/controller';
+import { useController } from '../../stores/controller.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 
-const config = getConfig();
 const controller = useController();
 
 const mnemonic = Vue.ref(['', '', '', '', '', '', '', '', '', '', '', '']);
@@ -48,10 +46,6 @@ const hasErrors = Vue.ref(false);
 const isImporting = Vue.ref(false);
 
 const emit = defineEmits(['close', 'goTo']);
-
-function goTo(screen: 'import-from-mnemonic') {
-  emit('goTo', screen);
-}
 
 function handlePaste(event: ClipboardEvent) {
   event.preventDefault();

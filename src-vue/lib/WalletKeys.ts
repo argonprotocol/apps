@@ -7,29 +7,29 @@ import { invokeWithTimeout } from './tauriApi.ts';
 export class WalletKeys {
   public sshPublicKey: string;
   /**
+   * Mining address for sidelined storage of funds.
+   */
+  public miningHoldAddress: string;
+  /**
    * Address used for mining bidding, rewards and transaction fees.
    */
-  public miningAddress: string;
+  public miningBotAddress: string;
   /**
    * Address registered with mainchain as the vault operator. This account reserves 1 argon as a minimum balance.
    */
   public vaultingAddress: string;
-  /**
-   * Holding address for long-term storage of funds.
-   */
-  public holdingAddress: string;
 
-  public miningSubaccountsCache: { [address: string]: { index: number } } = {};
+  public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
 
   constructor(
     security: ISecurity,
     public didWalletHavePreviousLife: () => Promise<boolean>,
   ) {
     this.sshPublicKey = security.sshPublicKey;
-    this.miningAddress = security.miningAddress;
+    this.miningHoldAddress = security.miningHoldAddress;
+    this.miningBotAddress = security.miningBotAddress;
     this.vaultingAddress = security.vaultingAddress;
-    this.holdingAddress = security.holdingAddress;
-    console.log('WalletKeys initialized with mining address:', this.miningAddress, security);
+    console.log('WalletKeys initialized with mining address:', this.miningBotAddress, security);
   }
 
   public async exposeMasterMnemonic(): Promise<string> {
@@ -37,15 +37,15 @@ export class WalletKeys {
   }
 
   // TODO: move to a refunding proxy account.
-  public async exportMiningAccountJson(passphrase: string): Promise<KeyringPair$Json> {
-    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
-    const keyring = new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
+  public async exportMiningBotAccountJson(passphrase: string): Promise<KeyringPair$Json> {
+    const miningBotAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
+    const keyring = new Keyring({ type: 'sr25519' }).addFromSeed(miningBotAccount);
     return keyring.toJson(passphrase);
   }
 
-  public async getMiningSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
-    if (Object.keys(this.miningSubaccountsCache).length >= count) {
-      return this.miningSubaccountsCache;
+  public async getMiningBotSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
+    if (Object.keys(this.miningBotSubaccountsCache).length >= count) {
+      return this.miningBotSubaccountsCache;
     }
 
     const indexes = getRange(0, count);
@@ -57,12 +57,12 @@ export class WalletKeys {
     for (const index of indexes) {
       if (derivedAddresses) {
         const deprecatedAddress = derivedAddresses[index];
-        this.miningSubaccountsCache[deprecatedAddress] = { index };
+        this.miningBotSubaccountsCache[deprecatedAddress] = { index };
       }
-      const address = Accountset.createMiningSubaccount(this.miningAddress, index);
-      this.miningSubaccountsCache[address] = { index };
+      const address = Accountset.createMiningSubaccount(this.miningBotAddress, index);
+      this.miningBotSubaccountsCache[address] = { index };
     }
-    return this.miningSubaccountsCache;
+    return this.miningBotSubaccountsCache;
   }
 
   public async getMiningSessionMiniSecret(): Promise<string> {
@@ -71,21 +71,21 @@ export class WalletKeys {
   }
 
   // TODO: move signing to backend instead of passing around key
-  public async getHoldingKeypair(): Promise<KeyringPair> {
-    const holdingAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//holding` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(holdingAccount);
+  public async getMiningHoldKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//holding` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   // TODO: move signing to backend instead of passing around key
   public async getVaultingKeypair(): Promise<KeyringPair> {
-    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   // TODO: move signing to backend instead of passing around key
-  public async getMiningKeypair(): Promise<KeyringPair> {
-    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
+  public async getMiningBotKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {

@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <BlankSlate v-if="!config.isPreparingMinerSetup && !config.miningAccountPreviousHistory" />
+  <BlankSlate v-if="!config.isPreparingMinerSetup && !config.miningBotAccountPreviousHistory" />
   <FinalSetupChecklist v-else-if="!config.isMinerReadyToInstall" />
   <CloudMachineIsInstalling v-else-if="!config.isMinerInstalling" />
   <StartingBot v-else-if="!bot.isReady" />

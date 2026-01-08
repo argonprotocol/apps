@@ -49,7 +49,7 @@ import { IRecoveryFile } from '../../interfaces/IRecoveryFile.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 
 const config = getConfig();
-const walleyKeys = getWalletKeys();
+const walletKeys = getWalletKeys();
 const isSavingExport = Vue.ref(false);
 const hasSavedExport = Vue.ref(false);
 
@@ -65,8 +65,8 @@ async function exportAccount() {
   isSavingExport.value = true;
   const data: IRecoveryFile = {
     security: {
-      ...walleyKeys,
-      masterMnemonic: await walleyKeys.exposeMasterMnemonic(),
+      ...walletKeys,
+      masterMnemonic: await walletKeys.exposeMasterMnemonic(),
     },
     oldestFrameIdToSync: config.oldestFrameIdToSync,
     biddingRules: config.biddingRules,

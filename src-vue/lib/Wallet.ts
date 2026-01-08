@@ -25,7 +25,13 @@ export type IWallet = {
   totalMicronots: bigint;
 };
 
-export type IWalletType = 'mining' | 'vaulting' | 'holding';
+export enum WalletType {
+  miningHold = 'miningHold',
+  miningBot = 'miningBot',
+  vaulting = 'vaulting',
+}
+
+export type IWalletType = keyof typeof WalletType;
 
 export class Wallet implements IWallet {
   public balanceHistory: IBalanceChange[];

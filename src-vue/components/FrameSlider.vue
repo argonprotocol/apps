@@ -10,22 +10,12 @@
     @pointerup="stopDrag($event)" />
 </template>
 
-<script lang="ts">
-export interface IChartItem {
-  id: number;
-  date: string;
-  score: number;
-  isFiller: boolean;
-  previous: IChartItem | undefined;
-  next: IChartItem | undefined;
-}
-</script>
-
 <script setup lang="ts">
 import * as Vue from 'vue';
 import Chart from './Chart.vue';
 import NibSlider from './NibSlider.vue';
 import { useDebounceFn } from '@vueuse/core';
+import type { IChartItem } from '../interfaces/IChartItem';
 
 const props = defineProps<{
   chartItems: IChartItem[];

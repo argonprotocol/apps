@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Another overhaul of the Create a Vault overlay
-- Another overhaul of the Create a Bidding Bot overlay
+- Another overhaul of the Create a Mining Bot overlay
 - Added welcome overlay and step-by-step tour
 - Reorganized the initial setup flows for both mining and vaulting
 - Multiple bug fixes

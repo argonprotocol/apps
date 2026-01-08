@@ -142,7 +142,7 @@ export const ConfigSchema = z.object({
 
   walletAccountsHadPreviousLife: z.boolean(),
   walletPreviousLifeRecovered: z.boolean(),
-  miningAccountPreviousHistory: z.array(MiningAccountPreviousHistoryRecordSchema).nullable(),
+  miningBotAccountPreviousHistory: z.array(MiningAccountPreviousHistoryRecordSchema).nullable(),
 
   hasReadMiningInstructions: z.boolean(),
   isPreparingMinerSetup: z.boolean(),
@@ -206,7 +206,7 @@ export interface IConfigDefaults {
   latestFrameIdProcessed: () => IConfig['latestFrameIdProcessed'];
   walletAccountsHadPreviousLife: () => IConfig['walletAccountsHadPreviousLife'];
   walletPreviousLifeRecovered: () => IConfig['walletPreviousLifeRecovered'];
-  miningAccountPreviousHistory: () => IConfig['miningAccountPreviousHistory'];
+  miningBotAccountPreviousHistory: () => IConfig['miningBotAccountPreviousHistory'];
 
   hasReadMiningInstructions: () => IConfig['hasReadMiningInstructions'];
   isPreparingMinerSetup: () => IConfig['isPreparingMinerSetup'];

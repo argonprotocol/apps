@@ -82,9 +82,9 @@ export class Config implements IConfig {
       latestFrameIdProcessed: Config.getDefault(dbFields.latestFrameIdProcessed) as number,
       walletAccountsHadPreviousLife: Config.getDefault(dbFields.walletAccountsHadPreviousLife) as boolean,
       walletPreviousLifeRecovered: Config.getDefault(dbFields.walletPreviousLifeRecovered) as boolean,
-      miningAccountPreviousHistory: Config.getDefault(
-        dbFields.miningAccountPreviousHistory,
-      ) as IConfig['miningAccountPreviousHistory'],
+      miningBotAccountPreviousHistory: Config.getDefault(
+        dbFields.miningBotAccountPreviousHistory,
+      ) as IConfig['miningBotAccountPreviousHistory'],
 
       hasReadMiningInstructions: Config.getDefault(dbFields.hasReadMiningInstructions) as boolean,
       isPreparingMinerSetup: Config.getDefault(dbFields.isPreparingMinerSetup) as boolean,
@@ -249,12 +249,12 @@ export class Config implements IConfig {
     this.setField('walletPreviousLifeRecovered', value);
   }
 
-  public get miningAccountPreviousHistory(): IConfig['miningAccountPreviousHistory'] {
-    return this.getField('miningAccountPreviousHistory');
+  public get miningBotAccountPreviousHistory(): IConfig['miningBotAccountPreviousHistory'] {
+    return this.getField('miningBotAccountPreviousHistory');
   }
 
-  public set miningAccountPreviousHistory(value: IConfig['miningAccountPreviousHistory']) {
-    this.setField('miningAccountPreviousHistory', value);
+  public set miningBotAccountPreviousHistory(value: IConfig['miningBotAccountPreviousHistory']) {
+    this.setField('miningBotAccountPreviousHistory', value);
   }
 
   public get isBootingUpPreviousWalletHistory(): boolean {
@@ -558,9 +558,15 @@ export class Config implements IConfig {
         this.hasMiningBids = true;
         this.hasMiningSeats = true;
       }
-      this.miningAccountPreviousHistory = miningHistory;
+      this.miningBotAccountPreviousHistory = miningHistory;
       this.isPreparingMinerSetup = true;
       this.hasReadMiningInstructions = miningHistory.length > 0;
+      if (this.serverDetails.ipAddress) {
+        this.isMinerReadyToInstall = true;
+        this.isMinerInstalled = true;
+        this.isMinerInstalling = true;
+        this.miningBotAccountPreviousHistory = null;
+      }
     }
 
     if (vaultingRules) {
@@ -608,7 +614,7 @@ const dbFields = {
   installDetails: 'installDetails',
   oldestFrameIdToSync: 'oldestFrameIdToSync',
   latestFrameIdProcessed: 'latestFrameIdProcessed',
-  miningAccountPreviousHistory: 'miningAccountPreviousHistory',
+  miningBotAccountPreviousHistory: 'miningBotAccountPreviousHistory',
   walletAccountsHadPreviousLife: 'walletAccountsHadPreviousLife',
   walletPreviousLifeRecovered: 'walletPreviousLifeRecovered',
 
@@ -667,7 +673,7 @@ const defaults: IConfigDefaults = {
   },
   oldestFrameIdToSync: () => 0,
   latestFrameIdProcessed: () => 0,
-  miningAccountPreviousHistory: () => null,
+  miningBotAccountPreviousHistory: () => null,
   walletAccountsHadPreviousLife: () => false,
   walletPreviousLifeRecovered: () => false,
 

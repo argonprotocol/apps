@@ -180,7 +180,7 @@
                   }}
                   ({{
                     microgonToArgonNm(
-                      wallets.miningWallet.availableMicrogons - (config.biddingRules.sidelinedMicrogons ?? 0n),
+                      wallets.miningBotWallet.availableMicrogons - (config.biddingRules.sidelinedMicrogons ?? 0n),
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
                   }}
                   are currently available to spend), which gives your bot enough capital to fully operate. However, you
@@ -390,6 +390,7 @@ import { createNumeralHelpers } from '../lib/numeral';
 import { getInstaller } from '../stores/installer';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
+import { WalletType } from '../lib/Wallet.ts';
 
 enum Status {
   WaitingForSetup = 'WaitingForSetup',
@@ -436,7 +437,7 @@ const hasVault = Vue.computed(() => {
 const miningStatus = Vue.computed<Status>(() => {
   if (!config.hasSavedBiddingRules || !config.isMinerInstalled) {
     return Status.WaitingForSetup;
-  } else if (!config.isMinerReadyToInstall && wallets.miningWallet.availableMicrogons === 0n) {
+  } else if (!config.isMinerReadyToInstall && wallets.miningBotWallet.availableMicrogons === 0n) {
     return Status.WaitingForFunding;
   } else if (miningMicrogonsNeeded.value > 0n || miningMicrogonsNeeded.value > 0n) {
     return Status.Underfunded;
@@ -487,12 +488,12 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: 'vaulting', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' });
 }
 
 function openBotCreateOverlay() {

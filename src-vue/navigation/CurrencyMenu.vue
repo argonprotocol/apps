@@ -46,7 +46,11 @@
               </span>
               <span class="ml-2" v-html="record.symbol" />
             </DropdownMenuItem>
-            <PortfolioSubmenu @close="isOpen = false" />
+            <DropdownMenuItem class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
+              <button @click="openPortfolioPanel" class="text-md py-2 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow rounded-md w-full cursor-pointer">
+                Open Portfolio Overlay
+              </button>
+            </DropdownMenuItem>
           </div>
           <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
         </DropdownMenuContent>
@@ -78,7 +82,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import { ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { CheckIcon } from '@heroicons/vue/20/solid';
 import { getConfig } from '../stores/config.ts';
-import PortfolioSubmenu from './PortfolioSubmenu.vue';
+import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -140,8 +144,12 @@ function setCurrencyKey(key: ICurrencyKey) {
   if (key === UnitOfMeasurement.ARGN || config.isValidJurisdiction) {
     currency.setKey(key);
   } else {
-    basicEmitter.emit('openComplianceOverlay');
+    basicEmitter.emit('openJurisdictionOverlay');
   }
+}
+
+function openPortfolioPanel(): void {
+  basicEmitter.emit('openPortfolioPanel', PortfolioTab.AssetBreakdown);
 }
 </script>
 

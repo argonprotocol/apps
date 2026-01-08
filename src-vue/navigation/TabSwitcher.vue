@@ -15,22 +15,24 @@
         </div>
       </div>
     </div>
+
     <div Item
-      class="border-r border-slate-400/30 !px-[14px]"
+      class="border-r border-slate-400/30 !px-[14px] !py-0"
       @click="goto(ScreenKey.Home)"
       :class="{ selected: controller.screenKey === ScreenKey.Home }"
     >
-      <div Wrapper class="relative inline px-1 text-center">
+      <div Wrapper class="relative px-1 text-center">
         <div :class="{ invisible: controller.screenKey === ScreenKey.Home }">
-          <BanklessIcon class="relative top-[1px] h-[22px] opacity-60" />
+          <ArgonLogo class="relative top-[0.5px] h-[24px] opacity-70" />
         </div>
         <div
           v-if="controller.screenKey === ScreenKey.Home"
-          class="absolute top-0 left-0 h-full w-full text-center font-bold">
-          <BanklessIcon class="text-argon-600 relative top-[1px] mx-auto h-[22px]" />
+          class="absolute top-1/2 -translate-y-1/2 left-0 w-full text-center font-bold">
+          <ArgonLogo class="text-argon-600 relative mx-auto h-[24px]" />
         </div>
       </div>
     </div>
+
     <div Item
       @click="goto(ScreenKey.Vaulting)"
       :class="{ selected: controller.screenKey === ScreenKey.Vaulting }"
@@ -50,7 +52,7 @@ import * as Vue from 'vue';
 import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useController } from '../stores/controller.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
-import BanklessIcon from '../assets/bankless.svg?component';
+import ArgonLogo from '../assets/resources/argon.svg?component';
 import { getConfig } from '../stores/config.ts';
 
 const tour = useTour();
@@ -110,7 +112,7 @@ section {
     transition: opacity 0.3s ease;
     position: relative;
     [Wrapper] {
-      display: block;
+      @apply flex flex-row items-center justify-center;
       width: 100%;
       height: 100%;
       position: relative;

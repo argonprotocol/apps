@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 407 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>bankless-bottom1</title>
-    <g id="Argon-Commander" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="Stack" transform="translate(-1, -387)">
-            <g id="bankless-bottom1" transform="translate(1.0832, 387.7771)">
-                <rect id="bg" fill-opacity="0" fill="#FFFFFF" x="0" y="0" width="406.07" height="13.325269"></rect>
-                <path d="M89.9168036,1.01175137 L82.4925387,13.0134952 C82.1365356,13.6369456 81.4736809,14.0217514 80.7557474,14.0217514 L43.0778598,14.0217514 C42.3599262,14.0217514 41.6970715,13.6369456 41.3410684,13.0134952 L33.9168036,1.01175137" class="hasStroke" stroke="#000000" stroke-width="2" transform="translate(61.9168, 7.5168) scale(1, -1) translate(-61.9168, -7.5168)"></path>
-                <path d="M371.916804,1.01175137 L364.492539,13.0134952 C364.136536,13.6369456 363.473681,14.0217514 362.755747,14.0217514 L325.07786,14.0217514 C324.359926,14.0217514 323.697072,13.6369456 323.341068,13.0134952 L315.916804,1.01175137" class="hasStroke" stroke="#000000" stroke-width="2" transform="translate(343.9168, 7.5168) scale(1, -1) translate(-343.9168, -7.5168)"></path>
-            </g>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="bankless-bottom1">
+            <rect id="bg" fill-opacity="0" fill="#FFFFFF" x="0.0832" y="0.7771" width="406.07" height="13.325269"></rect>
+            <path d="M80.0000036,1.7889486 L72.5757387,13.7906924 C72.2197356,14.4141428 71.5568809,14.7989486 70.8389474,14.7989486 L43.1610598,14.7989486 C42.4431262,14.7989486 41.7802715,14.4141428 41.4242684,13.7906924 L34.0000036,1.7889486" class="hasStroke" stroke="#000000" stroke-width="2" transform="translate(57, 8.2939) scale(-1, 1) rotate(-180) translate(-57, -8.2939)"></path>
+            <path d="M372.000004,1.7889486 L364.575739,13.7906924 C364.219736,14.4141428 363.556881,14.7989486 362.838947,14.7989486 L335.16106,14.7989486 C334.443126,14.7989486 333.780272,14.4141428 333.424268,13.7906924 L326.000004,1.7889486" class="hasStroke" stroke="#000000" stroke-width="2" transform="translate(349, 8.2939) scale(-1, 1) rotate(-180) translate(-349, -8.2939)"></path>
         </g>
     </g>
 </svg>

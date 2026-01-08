@@ -1,17 +1,24 @@
 export enum MoveFrom {
-  HoldingArgon = 'HoldingArgon',
-  HoldingArgonot = 'HoldingArgonot',
-  MiningReserveArgon = 'MiningReserveArgon',
-  MiningReserveArgonot = 'MiningReserveArgonot',
-  VaultingMintedArgon = 'VaultingMintedArgon',
-  VaultingSecurityUnused = 'VaultingSecurityUnused',
-  VaultingTreasuryUnused = 'VaultingTreasuryUnused',
-  VaultingUnusedArgon = 'VaultingUnusedArgon',
+  MiningHold = 'MiningHold',
+  MiningBot = 'MiningBot',
+
+  VaultingHold = 'VaultingHold',
+  VaultingSecurity = 'VaultingSecurity',
+  VaultingTreasury = 'VaultingTreasury',
 }
 
 export enum MoveTo {
-  Mining = 'Mining',
-  Vaulting = 'Vaulting',
-  Holding = 'Holding',
+  MiningHold = 'MiningHold',
+  MiningBot = 'MiningBot',
+
+  VaultingHold = 'VaultingHold',
+  VaultingSecurity = 'VaultingSecurity',
+  VaultingTreasury = 'VaultingTreasury',
+
   External = 'External',
+}
+
+export enum MoveToken {
+  ARGN = 'ARGN',
+  ARGNOT = 'ARGNOT',
 }

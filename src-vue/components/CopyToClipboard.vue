@@ -32,7 +32,8 @@ let highlightAndCopyTimeout1: ReturnType<typeof setTimeout> | undefined = undefi
 let highlightAndCopyTimeout2: ReturnType<typeof setTimeout> | undefined = undefined;
 let highlightAndCopyTimeout3: ReturnType<typeof setTimeout> | undefined = undefined;
 
-function copyContent() {
+function copyContent(event: MouseEvent) {
+  event?.stopImmediatePropagation();
   navigator.clipboard.writeText(props.content);
 
   clearTimeout(highlightAndCopyTimeout1);

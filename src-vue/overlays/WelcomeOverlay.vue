@@ -19,7 +19,7 @@
         Close Overlay
       </button>
       <button @click="startTour" tabindex="0" class="flex flex-row items-center space-x-2 bg-argon-button border border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-12 py-2 rounded-md cursor-pointer focus:outline-none">
-        <span>Take the Tour</span>
+        <span>Take the Welcome Tour</span>
         <ChevronDoubleRightIcon class="size-5 relative top-px text-white" />
       </button>
     </div>

@@ -38,14 +38,14 @@ export class AccountEventsFilter {
 
   constructor(
     public readonly address: string,
-    public type: 'mining' | 'vaulting' | 'holding',
+    public type: 'miningHold' | 'miningBot' | 'vaulting',
     public myOtherAddresses: string[],
     public vaultId?: number,
   ) {}
 
   public process(client: ArgonClient, allEvents: FrameSystemEventRecord[]) {
     let iAmMiner = false;
-    if (this.type === 'mining') {
+    if (this.type === 'miningBot') {
       for (const { event, phase } of allEvents) {
         if (phase.isApplyExtrinsic) {
           continue;

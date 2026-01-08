@@ -52,12 +52,13 @@ import { getConfig } from '../../stores/config';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import basicEmitter from '../../emitters/basicEmitter';
-import { getBiddingCalculator, getMainchainClients } from '../../stores/mainchain.ts';
+import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 
 dayjs.extend(utc);
 
@@ -81,7 +82,7 @@ function openBiddingBudgetOverlay() {
 }
 
 function openWalletFunding() {
-  basicEmitter.emit('openWalletOverlay', { walletType: 'mining', screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 Vue.onMounted(async () => {

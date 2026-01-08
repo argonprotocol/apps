@@ -7,7 +7,7 @@
   <label class="mt-3 font-bold opacity-60 mb-0.5">
     Increment By
   </label>
-  <InputArgon v-model="config.biddingRules.rebiddingIncrementBy" :min="1n" :dragBy="1n" format="integer" class="w-full" />
+  <InputMoney v-model="config.biddingRules.rebiddingIncrementBy" :min="1n" :dragBy="1n" format="integer" class="w-full" />
 
   <label class="mt-3 font-bold opacity-60 mb-0.5">
     Delay Between Bids
@@ -18,7 +18,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import InputNumber from '../../components/InputNumber.vue';
-import InputArgon from '../../components/InputArgon.vue';
+import InputMoney from '../../components/InputMoney.vue';
 import { getBiddingCalculator } from '../../stores/mainchain';
 import { getConfig } from '../../stores/config';
 

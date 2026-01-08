@@ -2,7 +2,7 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" data-testid="Dashboard" class="flex flex-col h-full">
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
-      <section v-if="myVault.data.pendingCollectTxInfo || myVault.data.pendingCollectRevenue || myVault.data.pendingCosignUtxoIds.size || !bitcoinLockedValue" box class="flex flex-row items-center text-slate-900/90 !py-3">
+      <section v-if="showCollectBar" box class="flex flex-row items-center text-slate-900/90 !py-3">
         <div class="flex flex-row items-center w-full min-h-[6%]">
           <div v-if="myVault.data.pendingCollectTxInfo" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90" v-if="pendingCollectTxMetadata?.expectedCollectRevenue">
@@ -88,7 +88,7 @@
         </div>
       </section>
 
-      <section class="flex flex-row gap-x-2 h-[14%]">
+      <section class="flex flex-row gap-x-2" :class="[showCollectBar ? 'h-[12%]' : 'h-[14%]']">
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
             <span>
@@ -161,18 +161,35 @@
 
       <section class="flex flex-row gap-x-2.5 grow">
         <div box class="flex flex-col w-[22.5%] px-2">
-          <header class="border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80">
-            Asset Breakdown
+          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
+            <div class="grow">Vaulting Assets</div>
+            <CopyAddressMenu :walletType="WalletType.vaulting" class="mr-1" />
+            <AssetMenu :walletType="WalletType.vaulting" />
           </header>
           <VaultingAssetBreakdown />
-          <div class="grow flex flex-col items-center justify-end">
-            <div @click="openVaultEditOverlay" class="relative text-center mb-5 text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <VaultIcon class="w-20 h-20 mt-5 inline-block mb-3" />
-              <div>Configure Vault Settings</div>
+          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
+            <div @click="openHowVaultingWorksOverlay" class="text-center text-argon-600/60 hover:text-argon-600 cursor-pointer">
+              <InstructionsIcon class="w-6 h-6 inline-block" />
+              <div>Learn About Vaulting</div>
+            </div>
+          </div>
+          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
+            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Profits</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Projections</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openVaultEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Settings</div>
             </div>
           </div>
         </div>
-
         <div class="flex flex-col grow gap-y-2">
           <PersonalBitcoin ref="personalBitcoin" />
 
@@ -295,7 +312,7 @@
             </div>
           </section>
 
-          <section box class="relative flex flex-col h-[39.1%] !pb-0.5 px-2">
+          <section box class="relative flex flex-col h-[35%] !pb-0.5 px-2">
             <FrameSlider ref="frameSliderRef" :chartItems="chartItems" @changedFrame="updateSliderFrame" />
           </section>
         </div>
@@ -317,21 +334,7 @@
 </template>
 
 <script lang="ts">
-export interface IVaultFrameRecord {
-  id: number;
-  date: string;
-  firstTick: number;
-  progress: number;
-  totalTreasuryPayout: bigint;
-  myTreasuryPayout: bigint;
-  myTreasuryPercentTake: number;
-  bitcoinChangeMicrogons: bigint;
-  treasuryChangeMicrogons: bigint;
-  frameProfitPercent: number;
-  bitcoinPercentUsed: number;
-  treasuryPercentActivated: number;
-  profitMaximizationPercent: number;
-}
+import type { IVaultFrameRecord } from '../../interfaces/IVaultFrameRecord';
 
 const currentFrame = Vue.ref({
   id: 0,
@@ -366,25 +369,28 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultCollectOverlay from '../../overlays/VaultCollectOverlay.vue';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
+import AssetMenu from '../components/AssetMenu.vue';
 import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
-import FrameSlider, { IChartItem } from '../../components/FrameSlider.vue';
+import InstructionsIcon from '../../assets/instructions.svg?component';
+import FrameSlider from '../../components/FrameSlider.vue';
+import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import SuccessIcon from '../../assets/success.svg?component';
-import VaultIcon from '../../assets/vault.svg?component';
+import ConfigIcon from '../../assets/config.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import {
-  MiningFrames,
-  NetworkConfig,
-  TreasuryPool,
-  calculateAPY,
-  type IVaultFrameStats,
-} from '@argonprotocol/apps-core';
+import { NetworkConfig, calculateAPY } from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
-import { getPercent, percentOf } from '../../lib/Utils.ts';
+import { getMiningFrames } from '../../stores/mainchain.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import VaultingAssetBreakdown from '../../components/VaultingAssetBreakdown.vue';
+import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
+import RoiIcon from '../../assets/roi.svg';
+import ProjectionsIcon from '../../assets/projections.svg';
+import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import CopyAddressMenu from '../components/CopyAddressMenu.vue';
+import { WalletType } from '../../lib/Wallet.ts';
+import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -457,6 +463,15 @@ const revenueMicrogons = Vue.computed(() => {
 const showCollectOverlay = Vue.ref(false);
 const showEditOverlay = Vue.ref(false);
 
+const showCollectBar = Vue.computed(() => {
+  return (
+    myVault.data.pendingCollectTxInfo ||
+    myVault.data.pendingCollectRevenue ||
+    myVault.data.pendingCosignUtxoIds.size ||
+    !bitcoinLockedValue
+  );
+});
+
 const hasNextFrame = Vue.computed(() => {
   return sliderFrameIndex.value < frameRecords.value.length - 1;
 });
@@ -499,6 +514,14 @@ function openVaultEditOverlay() {
   showEditOverlay.value = true;
 }
 
+function openPortfolioPanel(tab: PortfolioTab) {
+  basicEmitter.emit('openPortfolioPanel', tab);
+}
+
+function openHowVaultingWorksOverlay() {
+  basicEmitter.emit('openHowVaultingWorksOverlay');
+}
+
 const miningFrames = getMiningFrames();
 
 function updateLatestFrameProgress() {
@@ -515,164 +538,11 @@ function updateLatestFrameProgress() {
   }
 }
 
-let frameIdLoaded: number | undefined = undefined;
 async function loadChartData(currentFrameId?: number) {
-  const revenue = myVault.data.stats;
-
-  currentFrameId ??= miningFrames.currentFrameId;
-  if (frameIdLoaded === currentFrameId) {
-    return;
-  }
-  frameIdLoaded = currentFrameId;
-  console.log('Load chart data to frame', currentFrameId);
-
-  const treasuryPoolCapitalByFrame: { [frameId: string]: { capitalRaised: bigint; payout: bigint } } = {};
-  const frameIds: number[] = [];
-  for (let frameId = Math.max(0, currentFrameId - 365); frameId <= currentFrameId; frameId++) {
-    treasuryPoolCapitalByFrame[frameId] = { capitalRaised: 0n, payout: 0n };
-    frameIds.push(frameId);
-  }
-
-  for (const vaultStats of Object.values(vaults.stats?.vaultsById || {})) {
-    for (const change of vaultStats.changesByFrame || []) {
-      if (!treasuryPoolCapitalByFrame[change.frameId]) continue;
-      treasuryPoolCapitalByFrame[change.frameId].payout += change.treasuryPool.totalEarnings;
-      treasuryPoolCapitalByFrame[change.frameId].capitalRaised +=
-        change.treasuryPool.externalCapital + change.treasuryPool.vaultCapital;
-    }
-  }
-  const records: IVaultFrameRecord[] = [];
-  const myVaultRevenueByFrame = (revenue?.changesByFrame ?? []).reduce(
-    (acc, frame) => {
-      acc[frame.frameId] = frame;
-      return acc;
-    },
-    {} as { [frameId: number]: IVaultFrameStats },
-  );
-
-  const trailingTreasuryCapitalAmounts: [capital: bigint, frameId: number][] = [];
-
-  let maxFrameProfitPercent = 0;
-  let treasuryPercentActivated = 0;
-  let bitcoinPercentUsed = 0;
-  for (const frameId of frameIds) {
-    const treasuryAtFrame = treasuryPoolCapitalByFrame[frameId];
-    const startTick = miningFrames.getTickStart(frameId);
-    const startingDate = MiningFrames.getTickDate(startTick);
-
-    const myFrameRevenue = myVaultRevenueByFrame[frameId];
-    const record = {
-      id: frameId,
-      date: dayjs.utc(startingDate).toISOString(),
-      firstTick: startTick,
-      progress: 100,
-      totalTreasuryPayout: treasuryAtFrame.payout,
-      myTreasuryPayout: 0n,
-      myTreasuryPercentTake: 0,
-      bitcoinChangeMicrogons: 0n,
-      treasuryChangeMicrogons: 0n,
-      frameProfitPercent: 0,
-      bitcoinPercentUsed: 0,
-      treasuryPercentActivated: 0,
-      profitMaximizationPercent: 0,
-    };
-    records.push(record);
-    const trailingTreasuryCapitalTotal = trailingTreasuryCapitalAmounts.slice(0, 9).reduce((acc, [capital]) => {
-      return acc + capital;
-    }, 0n);
-    const rollingTreasuryCapital = trailingTreasuryCapitalTotal + (trailingTreasuryCapitalAmounts[9]?.[0] ?? 0n);
-    if (frameId === currentFrameId && myVault.createdVault) {
-      record.progress = miningFrames.getCurrentFrameProgress();
-      const client = await getMainchainClient(false);
-      record.totalTreasuryPayout = await TreasuryPool.getTreasuryPayoutPotential(client);
-      const securitization = myVault.createdVault.securitization;
-      const activatedSecuritization = myVault.createdVault.activatedSecuritization();
-      const { vaultActivatedCapital, totalActivatedCapital } = await TreasuryPool.getActiveCapital(
-        client,
-        myVault.createdVault.vaultId ?? 0,
-      );
-      record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, totalActivatedCapital);
-      record.myTreasuryPayout = percentOf(record.totalTreasuryPayout, record.myTreasuryPercentTake);
-
-      bitcoinPercentUsed =
-        activatedSecuritization > 0n
-          ? getPercent(activatedSecuritization - myVault.createdVault.getRelockCapacity(), securitization)
-          : 0;
-      treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
-      record.frameProfitPercent = getPercent(
-        record.myTreasuryPayout + (myFrameRevenue?.bitcoinFeeRevenue ?? 0n),
-        securitization + vaultActivatedCapital,
-      );
-
-      record.bitcoinChangeMicrogons = myFrameRevenue?.microgonLiquidityAdded ?? 0n;
-      if (rollingTreasuryCapital !== undefined) {
-        record.treasuryChangeMicrogons = trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
-      }
-      // NOTE: don't add to trailing capital since this is still being updated
-    } else if (myFrameRevenue) {
-      const {
-        securitizationRelockable,
-        securitizationActivated,
-        securitization,
-        bitcoinFeeRevenue,
-        microgonLiquidityAdded,
-        treasuryPool: {
-          externalCapital: poolExternalCapital,
-          vaultCapital: poolVaultCapital,
-          totalEarnings: poolTotalEarnings,
-          vaultEarnings: poolVaultEarnings,
-        },
-      } = myFrameRevenue;
-      const vaultActivatedCapital = poolExternalCapital + poolVaultCapital;
-      bitcoinPercentUsed = getPercent(securitizationActivated - (securitizationRelockable ?? 0n), securitization);
-      treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
-
-      record.myTreasuryPayout = poolTotalEarnings;
-      record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, treasuryAtFrame.capitalRaised);
-      record.bitcoinChangeMicrogons = microgonLiquidityAdded;
-      if (rollingTreasuryCapital !== undefined) {
-        record.treasuryChangeMicrogons = trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
-      }
-      record.frameProfitPercent = getPercent(
-        poolVaultEarnings + bitcoinFeeRevenue,
-        securitization + vaultActivatedCapital,
-      );
-
-      trailingTreasuryCapitalAmounts.unshift([vaultActivatedCapital, frameId]);
-      if (trailingTreasuryCapitalAmounts.length > 10) {
-        trailingTreasuryCapitalAmounts.length = 10;
-      }
-    }
-    // Always update the percents. If there's no frame entry, it means 0 activity that frame
-    record.treasuryPercentActivated = treasuryPercentActivated;
-    record.bitcoinPercentUsed = bitcoinPercentUsed;
-    record.profitMaximizationPercent = getPercent(bitcoinPercentUsed * treasuryPercentActivated, 100 * 100);
-    maxFrameProfitPercent = Math.max(maxFrameProfitPercent, record.frameProfitPercent);
-  }
-
-  const items: IChartItem[] = [];
-  let isFiller = true;
-  for (const [index, frame] of records.entries()) {
-    if (myVaultRevenueByFrame[frame.id]) {
-      isFiller = false;
-    }
-    const item = {
-      id: frame.id,
-      date: frame.date,
-      score: (frame.frameProfitPercent / maxFrameProfitPercent) * 100,
-      isFiller,
-      previous: items[index - 1],
-      next: undefined,
-    };
-    items.push(item);
-  }
-
-  for (const [index, item] of items.entries()) {
-    item.next = items[index + 1];
-  }
-
-  chartItems.value = items;
-  frameRecords.value = records;
+  const profitAnalysis = new ProfitAnalysis(vaults, myVault, miningFrames, currentFrameId);
+  await profitAnalysis.update();
+  chartItems.value = profitAnalysis.items;
+  frameRecords.value = profitAnalysis.records;
 }
 
 let onFrameSubscription: { unsubscribe: () => void };
