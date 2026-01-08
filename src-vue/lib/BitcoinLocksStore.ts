@@ -229,6 +229,7 @@ export default class BitcoinLocksStore {
   }
 
   public async satoshisForArgonLiquidity(microgonLiquidity: bigint): Promise<bigint> {
+    await this.#currency.load(true);
     return BitcoinLock.requiredSatoshisForArgonLiquidity(this.#currency.priceIndex, microgonLiquidity);
   }
 

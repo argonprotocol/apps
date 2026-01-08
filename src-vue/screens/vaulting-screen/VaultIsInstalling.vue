@@ -40,7 +40,6 @@ import { getWalletKeys } from '../../stores/wallets.ts';
 const config = getConfig();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
-const currency = getCurrency();
 
 const progressPct = Vue.ref(0);
 const errorMessage = Vue.ref('');
@@ -102,7 +101,6 @@ async function activateVault() {
 
   try {
     console.log('Activating vault');
-    await currency.load();
     const txInfo = await myVault.activateSecuritizationAndTreasury({
       rules: vaultingRules,
     });
@@ -139,7 +137,6 @@ function finalizeVault() {
 }
 
 Vue.onMounted(async () => {
-  await myVault.load();
   await createVault();
 });
 </script>
