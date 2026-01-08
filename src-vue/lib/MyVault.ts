@@ -16,16 +16,16 @@ import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
-  createDeferred,
-  IDeferred,
-  percentOf,
   bigIntMax,
   bigNumberToBigInt,
+  createDeferred,
+  IDeferred,
+  IVaultStats,
   MiningFrames,
   MoveFrom,
   MoveTo,
   NetworkConfig,
-  IVaultStats,
+  percentOf,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
@@ -86,6 +86,7 @@ export class MyVault {
   #configs?: {
     timeToCollectFrames: number;
   };
+  #singleRunTransactions: Map<ExtrinsicType, Promise<TransactionInfo<unknown>>> = new Map();
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -164,8 +165,10 @@ export class MyVault {
         const { tx } = txInfo;
         if (tx.extrinsicType === ExtrinsicType.VaultCreate) {
           void this.onVaultCreated(txInfo);
+          this.#singleRunTransactions.set(tx.extrinsicType, Promise.resolve(txInfo));
         } else if (tx.extrinsicType === ExtrinsicType.VaultInitialAllocate) {
           void this.onInitialVaultAllocate(txInfo);
+          this.#singleRunTransactions.set(tx.extrinsicType, Promise.resolve(txInfo));
         } else if (tx.extrinsicType === ExtrinsicType.VaultModifySettings) {
           void this.onModifySettings(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation) {
@@ -598,40 +601,50 @@ export class MyVault {
     rules: IVaultingRules;
     masterXpubPath: string;
   }): Promise<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>> {
-    const pendingTxInfo = this.getTxInfoByType(ExtrinsicType.VaultCreate);
-    if (pendingTxInfo) return pendingTxInfo;
+    const pendingTxInfo = this.#singleRunTransactions.get(ExtrinsicType.VaultCreate);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    if (pendingTxInfo) return pendingTxInfo as any;
 
-    const { masterXpubPath, rules } = args;
-    const argonKeyring = await this.walletKeys.getVaultingKeypair();
-    console.log('Creating a vault with address', argonKeyring.address);
-    const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
-    const masterXpub = vaultXpriv.publicExtendedKey;
-    const client = await getMainchainClient(false);
+    const deferred = createDeferred<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>>();
+    this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, deferred.promise);
+    try {
+      const { masterXpubPath, rules } = args;
+      const argonKeyring = await this.walletKeys.getVaultingKeypair();
+      console.log('Creating a vault with address', argonKeyring.address);
+      const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
+      const masterXpub = vaultXpriv.publicExtendedKey;
+      const client = await getMainchainClient(false);
 
-    const { txResult } = await Vault.create(
-      client,
-      argonKeyring,
-      {
-        securitizationRatio: rules.securitizationRatio,
-        securitization: 1,
-        annualPercentRate: rules.btcPctFee / 100,
-        baseFee: rules.btcFlatFee,
-        bitcoinXpub: masterXpub,
-        treasuryProfitSharing: rules.profitSharingPct / 100,
-        disableAutomaticTxTracking: true,
-      },
-      { tickDurationMillis: NetworkConfig.tickMillis },
-    );
+      const { txResult } = await Vault.create(
+        client,
+        argonKeyring,
+        {
+          securitizationRatio: rules.securitizationRatio,
+          securitization: 1,
+          annualPercentRate: rules.btcPctFee / 100,
+          baseFee: rules.btcFlatFee,
+          bitcoinXpub: masterXpub,
+          treasuryProfitSharing: rules.profitSharingPct / 100,
+          disableAutomaticTxTracking: true,
+        },
+        { tickDurationMillis: NetworkConfig.tickMillis },
+      );
 
-    const txInfo = await this.#transactionTracker.trackTxResult({
-      txResult,
-      extrinsicType: ExtrinsicType.VaultCreate,
-      metadata: { masterXpub, masterXpubPath },
-    });
+      const txInfo = await this.#transactionTracker.trackTxResult({
+        txResult,
+        extrinsicType: ExtrinsicType.VaultCreate,
+        metadata: { masterXpub, masterXpubPath },
+      });
 
-    void this.onVaultCreated(txInfo);
+      void this.onVaultCreated(txInfo);
+      deferred.resolve(txInfo);
 
-    return txInfo;
+      return txInfo;
+    } catch (error) {
+      this.#singleRunTransactions.delete(ExtrinsicType.VaultCreate);
+      deferred.reject(error as Error);
+      throw error;
+    }
   }
 
   private async onVaultCreated(txInfo: TransactionInfo<{ masterXpubPath: string }>): Promise<Vault> {
@@ -908,64 +921,75 @@ export class MyVault {
     if (!vaultId) {
       throw new Error('No vault created to prebond treasury pool');
     }
-    const pendingTxInfo = this.getTxInfoByType(ExtrinsicType.VaultInitialAllocate);
+    const pendingTxInfo = this.#singleRunTransactions.get(ExtrinsicType.VaultInitialAllocate);
     if (pendingTxInfo) return pendingTxInfo;
+    const deferred = createDeferred<TransactionInfo>();
+    this.#singleRunTransactions.set(ExtrinsicType.VaultInitialAllocate, deferred.promise);
+    try {
+      const { rules } = args;
+      const vault = this.createdVault;
+      const client = await getMainchainClient(false);
+      const txs: SubmittableExtrinsic[] = [];
 
-    const { rules } = args;
-    const vault = this.createdVault;
-    const client = await getMainchainClient(false);
-    const txs: SubmittableExtrinsic[] = [];
-
-    // need to leave enough for the BTC fees
-    const { microgonsForTreasury, microgonsForSecuritization } = MyVault.getMicrogonSplit(
-      rules,
-      this.metadata?.operationalFeeMicrogons ?? 0n,
-    );
-
-    const vaultingAccount = await this.walletKeys.getVaultingKeypair();
-
-    const addedSecuritization = microgonsForSecuritization - vault.securitization;
-    if (addedSecuritization > 0n) {
-      txs.push(
-        client.tx.vaults.modifyFunding(vaultId, addedSecuritization, toFixedNumber(rules.securitizationRatio, 18)),
+      // need to leave enough for the BTC fees
+      const { microgonsForTreasury, microgonsForSecuritization } = MyVault.getMicrogonSplit(
+        rules,
+        this.metadata?.operationalFeeMicrogons ?? 0n,
       );
-    }
-    if (microgonsForTreasury > 0n) {
-      txs.push(client.tx.treasury.vaultOperatorPrebond(vaultId, microgonsForTreasury / 10n));
-    }
 
-    let bitcoinArgs:
-      | { satoshis: bigint; hdPath: string; securityFee: bigint; vaultId: number; uuid: string }
-      | undefined;
-    if (rules.personalBtcPct > 0n) {
-      const personalBtcInMicrogons = bigNumberToBigInt(
-        BigNumber(rules.personalBtcPct).div(100).times(microgonsForSecuritization),
-      );
-      const { tx, satoshis, hdPath, securityFee } = await this.bitcoinLocksStore.createInitializeTx({
-        ...args,
-        vault,
-        argonKeyring: vaultingAccount,
-        addingVaultSpace: BigInt(Number(addedSecuritization) / vault.securitizationRatio),
-        microgonLiquidity: personalBtcInMicrogons,
+      const vaultingAccount = await this.walletKeys.getVaultingKeypair();
+
+      const addedSecuritization = microgonsForSecuritization - vault.securitization;
+      if (addedSecuritization > 0n) {
+        txs.push(
+          client.tx.vaults.modifyFunding(vaultId, addedSecuritization, toFixedNumber(rules.securitizationRatio, 18)),
+        );
+      }
+      if (microgonsForTreasury > 0n) {
+        txs.push(client.tx.treasury.vaultOperatorPrebond(vaultId, microgonsForTreasury / 10n));
+      }
+
+      let bitcoinArgs:
+        | { satoshis: bigint; hdPath: string; securityFee: bigint; vaultId: number; uuid: string }
+        | undefined;
+      if (rules.personalBtcPct > 0n) {
+        const personalBtcInMicrogons = bigNumberToBigInt(
+          BigNumber(rules.personalBtcPct).div(100).times(microgonsForSecuritization),
+        );
+        const { tx, satoshis, hdPath, securityFee } = await this.bitcoinLocksStore.createInitializeTx({
+          ...args,
+          vault,
+          argonKeyring: vaultingAccount,
+          addingVaultSpace: BigInt(Number(addedSecuritization) / vault.securitizationRatio),
+          microgonLiquidity: personalBtcInMicrogons,
+        });
+        bitcoinArgs = { satoshis, hdPath, securityFee, vaultId, uuid: BitcoinLocksTable.createUuid() };
+        txs.push(tx);
+      }
+
+      if (!txs.length) {
+        deferred.resolve(undefined as any);
+        this.#singleRunTransactions.delete(ExtrinsicType.VaultInitialAllocate);
+
+        return undefined;
+      }
+
+      const txInfo = await this.#transactionTracker.submitAndWatch({
+        tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
+        signer: vaultingAccount,
+        extrinsicType: ExtrinsicType.VaultInitialAllocate,
+        metadata: { bitcoin: bitcoinArgs, microgonsForTreasury, microgonsForSecuritization, vaultId },
+        tip: args.tip,
       });
-      bitcoinArgs = { satoshis, hdPath, securityFee, vaultId, uuid: BitcoinLocksTable.createUuid() };
-      txs.push(tx);
+      void this.onInitialVaultAllocate(txInfo);
+
+      deferred.resolve(txInfo);
+      return txInfo;
+    } catch (error) {
+      this.#singleRunTransactions.delete(ExtrinsicType.VaultInitialAllocate);
+      deferred.reject(error as Error);
+      throw error;
     }
-
-    if (!txs.length) {
-      return undefined;
-    }
-
-    const txInfo = await this.#transactionTracker.submitAndWatch({
-      tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
-      signer: vaultingAccount,
-      extrinsicType: ExtrinsicType.VaultInitialAllocate,
-      metadata: { bitcoin: bitcoinArgs, microgonsForTreasury, microgonsForSecuritization, vaultId },
-      tip: args.tip,
-    });
-    void this.onInitialVaultAllocate(txInfo);
-
-    return txInfo;
   }
 
   private async onInitialVaultAllocate(

@@ -81,6 +81,7 @@ export class Currency {
   public isLoaded: boolean;
   public isLoadedPromise: Promise<void>;
   private isLoadedDeferred: IDeferred<void>;
+  private loadTimeout?: number;
 
   constructor(public clients: MainchainClients) {
     this.isLoaded = false;
@@ -88,16 +89,17 @@ export class Currency {
     this.isLoadedPromise = this.isLoadedDeferred.promise;
   }
 
-  public async load() {
+  public async load(skipCache = false): Promise<void> {
     try {
-      await Promise.all([this.fetchMainchainRates(undefined, false)]);
+      await this.fetchMainchainRates(undefined, skipCache);
 
       if (!this.isLoaded) {
         this.isLoaded = true;
         this.isLoadedDeferred.resolve();
       }
     } finally {
-      setTimeout(() => this.fetchMainchainRates(undefined, false), TEN_MINUTES_IN_MILLISECONDS);
+      clearTimeout(this.loadTimeout);
+      this.loadTimeout = setTimeout(() => this.load(), TEN_MINUTES_IN_MILLISECONDS) as unknown as number;
     }
   }
 

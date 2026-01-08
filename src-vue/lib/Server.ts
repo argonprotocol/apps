@@ -162,7 +162,7 @@ export class Server {
     );
     const envState = envStateRaw ? parseEnv(envStateRaw) : {};
     return {
-      oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC),
+      oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0'),
     };
   }
 
