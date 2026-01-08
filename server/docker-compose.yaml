@@ -71,10 +71,12 @@ services:
     ports:
       - '${BITCOIN_P2P_PORT}:${BITCOIN_P2P_PORT}'
     environment:
+      - BITCOIN_VERSION=${BITCOIN_VERSION} # needs to be here to detect upgrades
       - BITCOIN_CONFIG=${BITCOIN_CONFIG}
       - BITCOIN_CHAIN=${BITCOIN_CHAIN}
     volumes:
       - $BITCOIN_DATA_FOLDER:/data
+      - $ROOT/server/bitcoin:/etc/bitcoin:ro
     depends_on:
       - status
     profiles:
@@ -88,11 +90,7 @@ services:
 
   argon-miner:
     <<: *common-config
-    build:
-      context: ./argon-miner
-      dockerfile: Dockerfile
-      args:
-        - VERSION=${ARGON_VERSION}
+    image: ghcr.io/argonprotocol/argon-miner:${ARGON_VERSION}
     user: '${UID}:${GID}'
     restart: unless-stopped
     depends_on:

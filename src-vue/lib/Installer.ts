@@ -19,6 +19,7 @@ import { invokeWithTimeout } from './tauriApi.ts';
 import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
+import * as semver from 'semver';
 
 dayjs.extend(utc);
 
@@ -98,8 +99,16 @@ export default class Installer {
           await tauriExit(0);
         }
 
-        const isRunning = await this.calculateIsRunning();
-        const isReadyToRun = !isRunning && (await this.calculateIsReadyToRun(false));
+        const isReadyToRun = await this.calculateIsReadyToRun(false);
+        let isRunning = await this.calculateIsRunning();
+        if (isRunning && this.remoteFilesNeedUpdating) {
+          console.log('Need to kill existing installer process');
+          await server.killInstallerScript();
+          await this.clearStepFiles(['all']);
+          isRunning = false;
+          this.isRunning = false;
+          this.isRunningInBackground = false;
+        }
         if (isReadyToRun && !isRunning) {
           let isAllowedToRun = true;
           if (IS_LOCAL_BUILD && ['testnet', 'mainnet'].includes(NETWORK_NAME)) {
@@ -337,17 +346,13 @@ export default class Installer {
     }
 
     if (remoteFilesNeedUpdating) {
-      console.info('Clearing step files');
-      const stepsToClear = [InstallStepKey.FileUpload, InstallStepKey.MiningLaunch];
-      if (!this.isRunning) {
-        // clear out any abandoned steps only if we're not currently running
-        stepsToClear.push(...this.installerCheck.getIncompleteSteps());
+      const incompleteSteps = this.installerCheck.getIncompleteSteps();
+      // clear out any abandoned steps only if we're not currently running
+      if (!this.isRunning && incompleteSteps.length > 0) {
+        console.info('Clearing stalled step files');
+        const stepsToClear = [InstallStepKey.FileUpload, ...incompleteSteps];
+        await this.clearStepFiles(stepsToClear, { setFirstStepToWorking: true });
       }
-      await this.clearStepFiles(stepsToClear, { setFirstStepToWorking: true });
-
-      this.installerCheck.clearCachedFilenames();
-      this.installerCheck.shouldUseCachedInstallSteps = true;
-      this.config.isMinerInstalling = false;
     }
 
     if (isFreshInstall || remoteFilesNeedUpdating) {
@@ -356,6 +361,9 @@ export default class Installer {
       this.isReadyToRun = true;
       this.removeReasonsToSkipInstall();
       this.config.resetField('installDetails');
+      this.installerCheck.clearCachedFilenames();
+      this.installerCheck.shouldUseCachedInstallSteps = true;
+      this.config.isMinerInstalling = false;
       await this.config.save();
       return true;
     }
@@ -446,10 +454,17 @@ export default class Installer {
 
     this.installerCheck.activateServer(server);
     this.installerCheck.shouldUseCachedInstallSteps = false;
-    await this.installerCheck.updateInstallStatus();
-    const isServerInstallComplete = this.installerCheck.isServerInstallComplete;
     const remoteFilesNeedUpdating = !(await this.isRemoteVersionLatest());
-    console.log('REMOTE FILES NEED UPDATING', remoteFilesNeedUpdating);
+    if (!remoteFilesNeedUpdating) {
+      this.fileUploadProgress = 100;
+    }
+    // Resume the installer based on whether remote files need updating
+    await this.installerCheck.updateInstallStatus(!remoteFilesNeedUpdating);
+    const isServerInstallComplete = this.installerCheck.isServerInstallComplete;
+    console.log('REMOTE FILES NEED UPDATING', {
+      remoteFilesNeedUpdating,
+      isServerInstallComplete,
+    });
 
     return {
       isFreshInstall,
@@ -466,9 +481,21 @@ export default class Installer {
 
     console.info(`Remote files ${remoteFilesMatchLocalShasum ? 'DO' : 'do NOT'} match local shasum`);
 
-    if (!remoteFilesMatchLocalShasum) {
-      console.info(`Remote shasum: \n${remoteShasum}`);
-      console.info(`Local shasum: \n${localShasum}`);
+    if (!remoteFilesMatchLocalShasum && !!remoteShasum.trim()) {
+      const clean = (v: string) =>
+        semver.parse(v.replace('server-', '').replace('.tar.gz', '')) ?? semver.parse('0.0.0')!;
+
+      const remoteVersion = clean(remoteShasum.split(' ').pop()?.trim() ?? '0.0.0');
+      const localVersion = clean(localShasum.split(' ').pop()?.trim() ?? '0.0.0');
+
+      console.info(`Remote shasum: \n${remoteShasum}. ${remoteVersion.format()}`);
+      console.info(`Local shasum: \n${localShasum}. ${localVersion.format()}`);
+
+      // If the remote version is newer, we don't need to update the files
+      if (semver.gt(remoteVersion, localVersion)) {
+        console.info('Remote version is newer than local version - skipping update of remote files');
+        return true;
+      }
     }
 
     return remoteFilesMatchLocalShasum;

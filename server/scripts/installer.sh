@@ -226,7 +226,9 @@ if ! (already_ran "DockerInstall"); then
       run_command "sudo systemctl status docker"
     fi
 
-    run_command "sudo docker system prune -af --volumes >/dev/null 2>&1 || true"
+    run_command "sudo docker image prune -af \
+      --filter \"label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}\" \
+      >/dev/null 2>&1 || true"
 
     command_output=$(run_command "sudo docker --version")
 
@@ -259,12 +261,6 @@ if ! (already_ran "BitcoinInstall"); then
     echo "BUILDING BITCOIN FOR $ARGON_CHAIN"
 
     run_command "sudo ufw allow $BITCOIN_P2P_PORT/tcp"
-    run_compose "sudo docker compose build bitcoin-node"
-
-    command_output=$(run_command "sudo docker images")
-    if ! echo "$command_output" | grep -q "bitcoin-node"; then
-        failed "bitcoin image was not found"
-    fi
 
     echo "-----------------------------------------------------------------"
     echo "RUNNING BITCOIN-DATA CONTAINER"
@@ -279,9 +275,19 @@ if ! (already_ran "BitcoinInstall"); then
       echo "bitcoin-data already initialized, skipping bootstrap"
     fi
 
-    ## TODO: we should keep track of the env vars used to build the image and if they change, we should
-    ##  --force-recreate, otherwise this is tearing down the container every time the installer runs
-    run_compose "sudo docker compose up bitcoin-node -d --force-recreate"
+    if compose_service_hash_changed bitcoin-node; then
+      echo "Bitcoin config changed → recreating container"
+      run_compose "sudo docker compose build bitcoin-node"
+
+      command_output=$(run_command "sudo docker images")
+      if ! echo "$command_output" | grep -q "bitcoin-node"; then
+          failed "bitcoin image was not found"
+      fi
+      run_compose "sudo docker compose up bitcoin-node -d --force-recreate"
+    else
+      echo "Bitcoin config unchanged → reusing container"
+      run_compose "sudo docker compose up bitcoin-node -d --no-recreate"
+    fi
 
     # Loop until syncstatus is >= 100%
     failures=0
@@ -330,14 +336,25 @@ if ! (already_ran "ArgonInstall"); then
 
     run_command "sudo ufw allow ${ARGON_P2P_PORT}/tcp"
 
-    run_compose "sudo docker compose build argon-miner"
+    if [[ "$ARGON_VERSION" != "dev" ]]; then
+      echo "Ensuring Argon Miner image ($ARGON_VERSION) is present"
+      run_compose "sudo docker compose pull argon-miner"
+    else
+      echo "Using local Argon Miner (dev)"
+    fi
 
     command_output=$(run_command "sudo docker images")
     if ! echo "$command_output" | grep -q "argon-miner"; then
         failed "argon-miner image was not found"
     fi
 
-    run_compose "sudo docker compose up argon-miner -d --force-recreate"
+    if compose_service_hash_changed argon-miner; then
+      echo "Argon config changed → recreating container"
+      run_compose "sudo docker compose up argon-miner -d --force-recreate"
+    else
+      echo "Argon config unchanged → reusing container"
+      run_compose "sudo docker compose up argon-miner -d --no-recreate"
+    fi
 
     # Loop until syncstatus is >= 100%
     failures=0
@@ -348,7 +365,7 @@ if ! (already_ran "ArgonInstall"); then
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
-          echo "Bitcoin syncstatus transient empty reply (curl exit 52), retrying..."
+          echo "Argon syncstatus transient empty reply (curl exit 52), retrying..."
           continue
         fi
         # Check if the response failed
@@ -383,11 +400,13 @@ echo "-----------------------------------------------------------------"
 echo "STARTING BOT ON $ARGON_CHAIN"
 
 run_compose "sudo docker compose build bot"
-command_output=$(run_command "sudo docker images")
-if ! echo "$command_output" | grep -q "bot"; then
-    failed "bot image was not found:\n$command_output"
+if compose_service_hash_changed bot; then
+  echo "Bot config changed → recreating container"
+  run_compose "sudo docker compose up bot -d --force-recreate"
+else
+  echo "Bot config unchanged → reusing container"
+  run_compose "sudo docker compose up bot -d"
 fi
-run_compose "sudo docker compose up bot -d --force-recreate"
 
 while true; do
     sleep 1

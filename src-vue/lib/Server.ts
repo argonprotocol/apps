@@ -269,7 +269,7 @@ export class Server {
     }
     if (await this.isInstallerScriptRunning()) {
       console.log('Restart the installer script: stopping existing one first');
-      await this.connection.runCommandWithTimeout(`pkill -f ${remoteScriptPath} || true`, 10e3);
+      await this.killInstallerScript();
       // wait a bit to ensure it's stopped
       await new Promise(r => setTimeout(r, 2000));
     }
@@ -277,7 +277,7 @@ export class Server {
     await this.connection.runCommandWithTimeout(shellCommand, 10e3);
 
     console.info(`started: ${shellCommand}`);
-    const [pid] = await this.connection.runCommandWithTimeout(`pgrep -f ${remoteScriptPath} || true`, 10e3);
+    const pid = await this.getInstallerPid();
     console.info('Installer PID:', pid);
   }
 
@@ -298,11 +298,30 @@ export class Server {
   }
 
   public async isInstallerScriptRunning(): Promise<boolean> {
+    return (await this.getInstallerPid()) !== undefined;
+  }
+
+  public async getInstallerPid(): Promise<string | undefined> {
     try {
-      const [pid] = await this.connection.runCommandWithTimeout(`pgrep -f ${this.installerScriptPath}`, 10e3);
-      return pid.trim() !== '';
+      const [pid] = await this.connection.runCommandWithTimeout(
+        `pid=$(cat /tmp/installer.lock 2>/dev/null || true); ps -p "$pid" >/dev/null 2>&1 && echo "$pid"`,
+        10e3,
+      );
+      return pid?.trim() || undefined;
     } catch {
-      return false;
+      return undefined;
+    }
+  }
+
+  public async killInstallerScript(): Promise<void> {
+    try {
+      const pid = await this.getInstallerPid();
+      if (pid) {
+        await this.connection.runCommandWithTimeout(`sudo kill -9 ${pid}`, 10e3);
+        await this.connection.runCommandWithTimeout(`sudo rm /tmp/installer.lock`, 10e3);
+      }
+    } catch (error) {
+      console.error('Error killing installer script:', error);
     }
   }
 
@@ -363,6 +382,8 @@ export class Server {
     if (code !== 0) {
       return stepStatuses;
     }
+
+    stepStatuses[InstallStepKey.ServerConnect] = InstallStepStatusType.Finished;
 
     for (const filename of output.split('\n').filter(s => s)) {
       const [, key, newStatus] = filename.match(/step-(.+)\.(.+)/) || [];

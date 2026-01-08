@@ -3314,6 +3314,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/semver@npm:^7.7.1":
+  version: 7.7.1
+  resolution: "@types/semver@npm:7.7.1"
+  checksum: 10c0/c938aef3bf79a73f0f3f6037c16e2e759ff40c54122ddf0b2583703393d8d3127130823facb880e694caa324eb6845628186aac1997ee8b31dc2d18fafe26268
+  languageName: node
+  linkType: hard
+
 "@types/send@npm:*":
   version: 0.17.5
   resolution: "@types/send@npm:0.17.5"
@@ -4310,6 +4317,7 @@ __metadata:
     "@types/node": "npm:^22.18.0"
     "@types/numeral": "npm:^2.0.5"
     "@types/qrcode": "npm:^1.5.5"
+    "@types/semver": "npm:^7.7.1"
     "@vitejs/plugin-vue": "npm:^6.0.1"
     "@vueuse/core": "npm:^13.9.0"
     bignumber.js: "npm:^9.3.1"
@@ -4338,6 +4346,7 @@ __metadata:
     qrcode-vue: "npm:^1.2.0"
     reka-ui: "npm:^2.5.0"
     sass-embedded: "npm:^1.90.0"
+    semver: "npm:^7.7.3"
     sqlite: "npm:^5.1.1"
     sqlite3: "npm:^5.1.7"
     svgo: "npm:^3.3.2"
@@ -9717,6 +9726,15 @@ __metadata:
   bin:
     semver: bin/semver.js
   checksum: 10c0/aca305edfbf2383c22571cb7714f48cadc7ac95371b4b52362fb8eeffdfbc0de0669368b82b2b15978f8848f01d7114da65697e56cd8c37b0dab8c58e543f9ea
+  languageName: node
+  linkType: hard
+
+"semver@npm:^7.7.3":
+  version: 7.7.3
+  resolution: "semver@npm:7.7.3"
+  bin:
+    semver: bin/semver.js
+  checksum: 10c0/4afe5c986567db82f44c8c6faef8fe9df2a9b1d98098fc1721f57c696c4c21cebd572f297fc21002f81889492345b8470473bc6f4aff5fb032a6ea59ea2bc45e
   languageName: node
   linkType: hard
 

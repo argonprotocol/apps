@@ -55,7 +55,7 @@ Bun.serve({
 });
 
 class ArgonApis {
-  static buildProgressFile = Bun.file(`${process.env.LOGS_DIR}/step-ArgonInstall.progress-build-argon-miner.json`);
+  static buildProgressFile = Bun.file(`${process.env.LOGS_DIR}/step-ArgonInstall.progress-pull-argon-miner.json`);
 
   static async dockerPercentComplete(): Promise<number> {
     const percentComplete = await this.buildProgressFile.text().catch(() => '0');
@@ -134,7 +134,7 @@ class ArgonApis {
 
 class BitcoinApis {
   static dataPullProgressFile = Bun.file(`${process.env.LOGS_DIR}/step-BitcoinInstall.progress-pull-bitcoin-data.json`);
-  static buildBitcoinProgressFile = Bun.file(`${process.env.LOGS_DIR}/step-BitcoinInstall.progress-build-bitcoin.json`);
+  static buildBitcoinProgressFile = Bun.file(`${process.env.LOGS_DIR}/step-BitcoinInstall.progress-build-bitcoin-node.json`);
 
   static async blockchainInfo(): Promise<IBlockchainInfo> {
     return callBitcoinRpc('getblockchaininfo');

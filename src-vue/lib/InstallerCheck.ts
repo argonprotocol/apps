@@ -92,7 +92,7 @@ export class InstallerCheck {
     return failedSteps;
   }
 
-  public async updateInstallStatus(): Promise<void> {
+  public async updateInstallStatus(bypassSimulatedProgressIfFinished = false): Promise<void> {
     const serverInstallStepStatuses = await this.fetchInstallStepStatuses();
     console.log('serverInstallStepStatuses', serverInstallStepStatuses);
     const installDetailsPending = Config.getDefault('installDetails') as IConfigInstallDetails;
@@ -113,13 +113,18 @@ export class InstallerCheck {
       const stepNewData = installDetailsPending[stepKey];
       const stepOldData = this.config.installDetails[stepKey];
       const prevStepHasCompleted = !prevStep || prevStep.status === InstallStepStatus.Completed;
-      const filenameStatus = this.extractFilenameStatus(stepKey, stepOldData, serverInstallStepStatuses);
-
+      const filenameStatus = this.extractFilenameStatus(stepKey, serverInstallStepStatuses);
       if (prevStep?.status === InstallStepStatus.Failed) {
         stepNewData.status = InstallStepStatus.Hidden;
       } else if (prevStepHasCompleted && filenameStatus === InstallStepStatusType.Finished) {
         stepNewData.startDate = stepOldData.startDate || dayjs.utc().toISOString();
         stepNewData.progress = stepOldData.progress;
+        if (bypassSimulatedProgressIfFinished) {
+          stepNewData.progress = 100;
+          stepNewData.status = InstallStepStatus.Completed;
+          continue;
+        }
+
         if (this.installer.isRunning || stepKey === InstallStepKey.MiningLaunch) {
           stepNewData.progress = await InstallerCheck.calculateFinishedStepProgress(stepNewData);
         }
@@ -177,7 +182,6 @@ export class InstallerCheck {
 
   private extractFilenameStatus(
     stepName: InstallStepKey,
-    stepOldData: IConfigInstallStep,
     serverInstallStepStatuses: IInstallStepStatuses,
   ): InstallStepStatusType {
     if (
@@ -189,12 +193,13 @@ export class InstallerCheck {
     }
 
     if (stepName === InstallStepKey.ServerConnect) {
-      // if server connect, it's set externally
-      const nextStepHasStarted = this.installer.fileUploadProgress > 0;
-      if (this.config.isMiningMachineCreated && (stepOldData.progress >= 100 || nextStepHasStarted)) {
-        return InstallStepStatusType.Finished;
-      } else {
+      if (!this.config.isMiningMachineCreated) {
         return InstallStepStatusType.Started;
+      }
+    }
+    if (stepName === InstallStepKey.FileUpload) {
+      if (this.installer.fileUploadProgress >= 100) {
+        return InstallStepStatusType.Finished;
       }
     }
 
