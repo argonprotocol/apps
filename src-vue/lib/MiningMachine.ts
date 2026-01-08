@@ -406,7 +406,7 @@ export class MiningMachine {
     progressFn?.(100);
 
     if (serverMeta.walletAddress && serverMeta.walletAddress !== miningBotAccountAddress) {
-      throw new MiningMachineError('The server has a different wallet address than your mining account.');
+      throw new MiningMachineError('The server has a different wallet address than your miningBot account.');
     }
 
     return newServerDetails;

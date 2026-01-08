@@ -117,7 +117,7 @@ function lastBidAtTickFromNow(lastBidAtTick: number | undefined): string {
 
 Vue.onMounted(async () => {
   if (props.loadFromMainchain) {
-    const subaccounts = await walletKeys.getMiningSubaccounts();
+    const subaccounts = await walletKeys.getMiningBotSubaccounts();
     const client = await getMainchainClient(false);
     const allWinningBids = await Mining.fetchWinningBids(client);
     for (const bid of allWinningBids) {

@@ -26,7 +26,7 @@ export type IWallet = {
 };
 
 export enum WalletType {
-  mining = 'mining',
+  miningHold = 'miningHold',
   miningBot = 'miningBot',
   vaulting = 'vaulting',
 }

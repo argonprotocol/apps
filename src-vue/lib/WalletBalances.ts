@@ -39,7 +39,7 @@ export class WalletBalances {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
 
-  public miningWallet: Wallet;
+  public miningHoldWallet: Wallet;
 
   public miningBotWallet: Wallet;
 
@@ -67,7 +67,7 @@ export class WalletBalances {
   private unsubscribe?: () => void;
 
   public get wallets(): Wallet[] {
-    return [this.miningWallet, this.miningBotWallet, this.vaultingWallet];
+    return [this.miningHoldWallet, this.miningBotWallet, this.vaultingWallet];
   }
 
   public get addresses(): string[] {
@@ -85,7 +85,7 @@ export class WalletBalances {
   private readonly dbPromise: Promise<Db>;
 
   constructor(walletKeys: WalletKeys, dbPromise: Promise<Db>, blockWatch: BlockWatch, myVault?: MyVault) {
-    this.miningWallet = new Wallet(walletKeys.miningAddress, 'mining', dbPromise);
+    this.miningHoldWallet = new Wallet(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
     this.miningBotWallet = new Wallet(walletKeys.miningBotAddress, 'miningBot', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
     this.dbPromise = dbPromise;
@@ -109,7 +109,7 @@ export class WalletBalances {
       console.timeLog('[WalletBalances] Load and sync wallets', 'Synced within range of indexer');
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
       console.log('[WalletBalances] Loaded and synced wallets', {
-        mining: this.miningWallet.totalMicronots,
+        mining: this.miningHoldWallet.totalMicronots,
         miningBot: this.miningBotWallet.totalMicronots,
         vaulting: this.vaultingWallet.totalMicronots,
       });

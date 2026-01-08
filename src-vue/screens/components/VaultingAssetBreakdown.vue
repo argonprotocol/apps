@@ -13,7 +13,8 @@
               :hide-connector="true"
               :spacerWidth="spacerWidth"
               :align="props.align"
-              :moveFrom="MoveFrom.VaultingSidelinedArgon"
+              :moveFrom="MoveFrom.VaultingHold"
+              :moveToken="MoveToken.ARGN"
             >
               {{ microgonToArgonNm(breakdown.sidelinedMicrogons).format('0,0.[00]') }} ARGN
               <template #tooltip>
@@ -62,7 +63,8 @@
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          :moveFrom="MoveFrom.VaultingSidelinedArgon"
+          :moveFrom="MoveFrom.VaultingHold"
+          :moveToken="MoveToken.ARGN"
         >
           {{ microgonToArgonNm(breakdown.sidelinedMicrogons).format('0,0.[00]') }} ARGN
           <template #tooltip>
@@ -82,7 +84,8 @@
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          :moveFrom="MoveFrom.VaultingSidelinedArgonot"
+          :moveFrom="MoveFrom.VaultingHold"
+          :moveToken="MoveToken.ARGNOT"
         >
           {{ micronotToArgonotNm(breakdown.sidelinedMicronots).format('0,0.[00]') }} ARGNOT
           <template #tooltip>
@@ -128,7 +131,8 @@
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          :moveFrom="MoveFrom.VaultingSecurityArgon"
+          :moveFrom="MoveFrom.VaultingSecurity"
+          :moveToken="MoveToken.ARGN"
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
@@ -187,7 +191,8 @@
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          :moveFrom="MoveFrom.VaultingSecurityArgonot"
+          :moveFrom="MoveFrom.VaultingSecurity"
+          :moveToken="MoveToken.ARGNOT"
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
@@ -251,7 +256,8 @@
           :height="itemHeight"
           :spacerWidth="spacerWidth"
           :align="props.align"
-          :moveFrom="MoveFrom.VaultingTreasuryArgon"
+          :moveFrom="MoveFrom.VaultingTreasury"
+          :moveToken="MoveToken.ARGN"
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
@@ -323,7 +329,7 @@ import Header from '../../components/asset-breakdown/Header.vue';
 import SubItem from '../../components/asset-breakdown/SubItem.vue';
 import Expenses from '../../components/asset-breakdown/Expenses.vue';
 import Total from '../../components/asset-breakdown/Total.vue';
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { getConfig } from '../../stores/config.ts';
 import NeedsSetup from '../../components/asset-breakdown/NeedsSetup.vue';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';

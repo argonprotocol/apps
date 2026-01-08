@@ -4,8 +4,8 @@ import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 
 type IBasicEmitter = {
-  openWalletOverlay: { walletType: WalletType.mining | WalletType.vaulting; screen: string };
-  openMoveCapitalOverlay: { walletType: WalletType.mining | WalletType.vaulting };
+  openWalletOverlay: { walletType: WalletType.miningHold | WalletType.vaulting; screen: string };
+  openMoveCapitalOverlay: { walletType: WalletType.miningHold | WalletType.vaulting };
 
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;

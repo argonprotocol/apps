@@ -7,8 +7,8 @@
 
     <div class="flex flex-col items-start w-full pt-3 pb-5 px-5 gap-x-5">
       <p class="mt-2 font-light w-full">
-        After the latest Argon Frame change, the minimum token requirements for operating your Bidding Bot have changed.
-        Based on the rules configured, your Bidding Bot now needs the following tokens in order to operate.
+        After the latest Argon Frame change, the minimum token requirements for operating your Mining Bot have changed.
+        Based on the rules configured, your Mining Bot now needs the following tokens in order to operate.
       </p>
 
       <table class="w-full">

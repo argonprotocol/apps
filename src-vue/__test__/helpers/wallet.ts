@@ -7,18 +7,18 @@ import { miniSecretFromUri } from '@argonprotocol/apps-core';
 export function createTestWallet(mnemonic?: string) {
   mnemonic ??= mnemonicGenerate();
   const keypair = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonic);
-  const miningAccount = keypair.derive('//holding'); // If we had a do-over, it would be called mining
+  const miningHoldAccount = keypair.derive('//holding'); // If we had a do-over, it would be called mining
   const miningBotAccount = keypair.derive('//mining'); // If we had a do-over, it would be called miningBot
   const vaultingAccount = keypair.derive('//vaulting');
   return {
     mnemonic,
-    miningAccount,
+    miningHoldAccount,
     miningBotAccount,
     vaultingAccount,
     walletKeys: new WalletKeys(
       {
         sshPublicKey: '',
-        miningAddress: miningAccount.address,
+        miningHoldAddress: miningHoldAccount.address,
         miningBotAddress: miningBotAccount.address,
         vaultingAddress: vaultingAccount.address,
       },
@@ -36,7 +36,7 @@ export function createMockWalletKeys(mnemonic?: string) {
     return HDKey.fromMasterSeed(xpriv, version).derive(path);
   });
   vi.spyOn(walletKeys, 'getVaultingKeypair').mockImplementation(async () => vaultingAccount);
-  vi.spyOn(walletKeys, 'getMiningSubaccounts').mockImplementation(async count => {
+  vi.spyOn(walletKeys, 'getMiningBotSubaccounts').mockImplementation(async count => {
     const derivedAddresses: { [address: string]: { index: number } } = {};
     for (let index = 0; index < (count ?? 144); index++) {
       const address = miningBotAccount.derive(`//${index}`).address;

@@ -71,7 +71,7 @@ import { IWallet, WalletType } from '../../lib/Wallet.ts';
 import { useWallets } from '../../stores/wallets.ts';
 
 const props = defineProps<{
-  walletType: WalletType.mining | WalletType.vaulting;
+  walletType: WalletType.miningHold | WalletType.vaulting;
 }>();
 
 const wallets = useWallets();
@@ -79,8 +79,8 @@ const wallets = useWallets();
 const isOpen = Vue.ref(false);
 
 const wallet = Vue.computed<IWallet>(() => {
-  if (props.walletType === WalletType.mining) {
-    return wallets.miningWallet;
+  if (props.walletType === WalletType.miningHold) {
+    return wallets.miningHoldWallet;
   } else if (props.walletType === WalletType.vaulting) {
     return wallets.vaultingWallet;
   }

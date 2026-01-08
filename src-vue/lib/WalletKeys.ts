@@ -9,7 +9,7 @@ export class WalletKeys {
   /**
    * Mining address for sidelined storage of funds.
    */
-  public miningAddress: string;
+  public miningHoldAddress: string;
   /**
    * Address used for mining bidding, rewards and transaction fees.
    */
@@ -19,14 +19,14 @@ export class WalletKeys {
    */
   public vaultingAddress: string;
 
-  public miningSubaccountsCache: { [address: string]: { index: number } } = {};
+  public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
 
   constructor(
     security: ISecurity,
     public didWalletHavePreviousLife: () => Promise<boolean>,
   ) {
     this.sshPublicKey = security.sshPublicKey;
-    this.miningAddress = security.miningAddress;
+    this.miningHoldAddress = security.miningHoldAddress;
     this.miningBotAddress = security.miningBotAddress;
     this.vaultingAddress = security.vaultingAddress;
     console.log('WalletKeys initialized with mining address:', this.miningBotAddress, security);
@@ -43,9 +43,9 @@ export class WalletKeys {
     return keyring.toJson(passphrase);
   }
 
-  public async getMiningSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
-    if (Object.keys(this.miningSubaccountsCache).length >= count) {
-      return this.miningSubaccountsCache;
+  public async getMiningBotSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
+    if (Object.keys(this.miningBotSubaccountsCache).length >= count) {
+      return this.miningBotSubaccountsCache;
     }
 
     const indexes = getRange(0, count);
@@ -57,12 +57,12 @@ export class WalletKeys {
     for (const index of indexes) {
       if (derivedAddresses) {
         const deprecatedAddress = derivedAddresses[index];
-        this.miningSubaccountsCache[deprecatedAddress] = { index };
+        this.miningBotSubaccountsCache[deprecatedAddress] = { index };
       }
       const address = Accountset.createMiningSubaccount(this.miningBotAddress, index);
-      this.miningSubaccountsCache[address] = { index };
+      this.miningBotSubaccountsCache[address] = { index };
     }
-    return this.miningSubaccountsCache;
+    return this.miningBotSubaccountsCache;
   }
 
   public async getMiningSessionMiniSecret(): Promise<string> {
@@ -71,21 +71,21 @@ export class WalletKeys {
   }
 
   // TODO: move signing to backend instead of passing around key
-  public async getMiningKeypair(): Promise<KeyringPair> {
-    const miningAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//holding` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(miningAccount);
+  public async getMiningHoldKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//holding` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   // TODO: move signing to backend instead of passing around key
   public async getVaultingKeypair(): Promise<KeyringPair> {
-    const miningBotAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(miningBotAccount);
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   // TODO: move signing to backend instead of passing around key
   public async getMiningBotKeypair(): Promise<KeyringPair> {
-    const miningBotAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(miningBotAccount);
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {

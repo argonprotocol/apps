@@ -73,8 +73,8 @@
         <div box class="flex flex-col w-[22.5%] px-2">
           <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
             <div class="grow">Mining Assets</div>
-            <CopyAddressMenu :walletType="WalletType.mining" class="mr-1" />
-            <AssetMenu :walletType="WalletType.mining" />
+            <CopyAddressMenu :walletType="WalletType.miningHold" class="mr-1" />
+            <AssetMenu :walletType="WalletType.miningHold" />
           </header>
           <MiningAssetBreakdown />
           <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
@@ -158,7 +158,7 @@
 
               <TooltipRoot>
                 <TooltipTrigger as="div" class="flex flex-col w-4/12 items-center justify-center gap-x-2 pb-1 pt-3 hover:text-argon-600">
-                  <div class="font-bold">Bidding Bot</div>
+                  <div class="font-bold">Mining Bot</div>
                   <div class="flex flex-row items-center justify-center gap-x-2 whitespace-nowrap">
                     <div>Last Active</div>
                     <CountupClock as="span" :time="botActivityLastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }" class="font-mono">

@@ -65,7 +65,7 @@ export class WalletRecovery {
     const minerFirstFundedBlock = await this.walletBalances.miningBotWallet.firstFundingBlockNumber(
       this.walletKeys.miningBotAddress,
     );
-    const accountSubaccounts = await this.walletKeys.getMiningSubaccounts();
+    const accountSubaccounts = await this.walletKeys.getMiningBotSubaccounts();
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
     const latestFrameId = this.miningFrames.currentFrameId;

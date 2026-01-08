@@ -82,7 +82,7 @@ function openBiddingBudgetOverlay() {
 }
 
 function openWalletFunding() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.mining, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 Vue.onMounted(async () => {

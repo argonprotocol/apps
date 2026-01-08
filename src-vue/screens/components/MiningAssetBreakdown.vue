@@ -13,7 +13,8 @@
               :tooltipSide="tooltipSide"
               :height="itemHeight"
               :spacerWidth="spacerWidth"
-              :moveFrom="MoveFrom.MiningAuctionArgon"
+              :moveFrom="MoveFrom.MiningBot"
+              :moveToken="MoveToken.ARGN"
             >
               {{ microgonToArgonNm(breakdown.sidelinedMicrogons).format('0,0.[00]') }} ARGN
               <template #tooltip>
@@ -26,7 +27,8 @@
               :tooltipSide="tooltipSide"
               :height="itemHeight"
               :showMoveButton="true"
-              :moveFrom="MoveFrom.MiningAuctionArgonot"
+              :moveFrom="MoveFrom.MiningBot"
+              :moveToken="MoveToken.ARGNOT"
             >
               {{ microgonToArgonNm(breakdown.sidelinedMicronots).format('0,0.[00]') }} ARGNOT
               <template #tooltip>
@@ -53,7 +55,8 @@
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
-          :moveFrom="MoveFrom.MiningSidelinedArgon"
+          :moveFrom="MoveFrom.MiningHold"
+          :moveToken="MoveToken.ARGN"
         >
           {{ microgonToArgonNm(breakdown.sidelinedMicrogons).format('0,0.[00]') }} ARGN
           <template #tooltip>
@@ -67,8 +70,8 @@
           :height="itemHeight"
           :showMoveButton="true"
           :spacerWidth="spacerWidth"
-          :moveFrom="MoveFrom.MiningSidelinedArgonot"
-          :moveTo="MoveTo.Mining"
+          :moveFrom="MoveFrom.MiningHold"
+          :moveToken="MoveToken.ARGNOT"
         >
           {{ microgonToArgonNm(breakdown.sidelinedMicronots).format('0,0.[00]') }} ARGNOT
           <template #tooltip>
@@ -79,7 +82,7 @@
         </SubItem>
 
         <Header :tooltipSide="tooltipSide" :height="itemHeight" :spacerWidth="spacerWidth" class="border-dashed">
-          Bidding Bot
+          Mining Bids
           ({{ numeral(breakdown.auctionBidCount).format('0,0') }})
           <template #tooltip>
             <p class="break-words whitespace-normal">These argons are currently sitting unused.</p>
@@ -94,8 +97,8 @@
           :height="itemHeight"
           :showMoveButton="true"
           :spacerWidth="spacerWidth"
-          :moveFrom="MoveFrom.MiningAuctionArgon"
-          :moveTo="MoveTo.Mining"
+          :moveFrom="MoveFrom.MiningBot"
+          :moveToken="MoveToken.ARGN"
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
@@ -113,7 +116,8 @@
           :tooltipSide="tooltipSide"
           :height="itemHeight"
           :spacerWidth="spacerWidth"
-          :moveFrom="MoveFrom.MiningAuctionArgonot"
+          :moveFrom="MoveFrom.MiningBot"
+          :moveToken="MoveToken.ARGNOT"
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
@@ -219,7 +223,7 @@ import SubItem from '../../components/asset-breakdown/SubItem.vue';
 import Expenses from '../../components/asset-breakdown/Expenses.vue';
 import Total from '../../components/asset-breakdown/Total.vue';
 import { TooltipProvider } from 'reka-ui';
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { getConfig } from '../../stores/config.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import NeedsSetup from '../../components/asset-breakdown/NeedsSetup.vue';

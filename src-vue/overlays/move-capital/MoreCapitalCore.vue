@@ -1,8 +1,8 @@
+<!-- prettier-ignore -->
 <template>
   <div v-if="!hasTokensToMove && !isProcessing" class="flex flex-col">
     <div class="text-gray-500">
-      There are no {{ moveFromOption[moveFrom].token.toLowerCase() }}s ready to move from
-      {{ moveFromOption[moveFrom].name }}.
+      There are no {{ moveTokenName[moveToken].toLowerCase() }}s ready to move from {{ moveFromName[moveFrom] }}.
     </div>
   </div>
 
@@ -11,7 +11,7 @@
       <div class="grow">
         <div class="mb-1">Move From</div>
         <div class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-          {{ moveFromOption[moveFrom].name }}
+          {{ moveFromName[moveFrom] }}
         </div>
       </div>
       <div class="grow">
@@ -22,7 +22,7 @@
           @update:modelValue="updateMoveAmount"
           class="w-full"
           :max="maxAmount"
-          :suffix="` ${moveFromOption[moveFrom].tokenSymbol}`"
+          :suffix="` ${moveToken}`"
           :disabled="pendingTxInfo !== null || !canSubmit" />
       </div>
     </div>
@@ -50,8 +50,8 @@
         </div>
         <div>address</div>
       </div>
-      <div v-if="addressWarn" class="mt-5 w-full rounded-md border p-2 text-yellow-600">
-        {{ addressWarn }}
+      <div v-if="addressWarning" class="mt-5 w-full rounded-md border p-2 text-yellow-600">
+        {{ addressWarning }}
       </div>
     </template>
   </div>
@@ -102,7 +102,7 @@
       <button @click="cancel" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Cancel</button>
       <button
         v-if="canSubmit"
-        @click="submitTransfer(!addressWarn)"
+        @click="submitTransfer"
         :disabled="!canSubmit || !canAfford"
         :class="[
           canSubmit && canAfford
@@ -110,7 +110,7 @@
             : 'border-argon-700/50 bg-argon-600/20 hover:bg-argon-700/20 cursor-default',
         ]"
         class="inner-button-shadow rounded border px-7 py-1 font-bold text-white">
-        <template v-if="addressWarn">Send Anyway</template>
+        <template v-if="addressWarning">Send Anyway</template>
         <template v-else>Send</template>
       </button>
     </template>
@@ -125,41 +125,19 @@
 </template>
 
 <script lang="ts">
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 
-export enum TokenSymbol {
-  ARGN = 'ARGN',
-  ARGNOT = 'ARGNOT',
-}
+const moveFromName = {
+  [MoveFrom.MiningHold]: 'Unused Holdings',
+  [MoveFrom.MiningBot]: 'Mining Bids',
+  [MoveFrom.VaultingHold]: 'Unused Holdings',
+  [MoveFrom.VaultingSecurity]: 'Bitcoin Security',
+  [MoveFrom.VaultingTreasury]: 'Treasury Bonds',
+};
 
-export enum TokenName {
-  Argon = 'Argon',
-  Argonot = 'Argonot',
-}
-
-const moveFromOption = {
-  [MoveFrom.MiningSidelinedArgon]: { name: 'Unused Holdings', tokenSymbol: TokenSymbol.ARGN, token: TokenName.Argon },
-  [MoveFrom.MiningSidelinedArgonot]: {
-    name: 'Unused Holdings',
-    tokenSymbol: TokenSymbol.ARGNOT,
-    token: TokenName.Argonot,
-  },
-  [MoveFrom.MiningAuctionArgon]: { name: 'Bidding Bot', tokenSymbol: TokenSymbol.ARGN, token: TokenName.Argon },
-  [MoveFrom.MiningAuctionArgonot]: { name: 'Bidding Bot', tokenSymbol: TokenSymbol.ARGNOT, token: TokenName.Argonot },
-
-  [MoveFrom.VaultingSidelinedArgon]: { name: 'Unused Holdings', tokenSymbol: TokenSymbol.ARGN, token: TokenName.Argon },
-  [MoveFrom.VaultingSidelinedArgonot]: {
-    name: 'Unused Holdings',
-    tokenSymbol: TokenSymbol.ARGNOT,
-    token: TokenName.Argonot,
-  },
-  [MoveFrom.VaultingSecurityArgon]: { name: 'Bitcoin Security', tokenSymbol: TokenSymbol.ARGN, token: TokenName.Argon },
-  [MoveFrom.VaultingSecurityArgonot]: {
-    name: 'Bitcoin Security',
-    tokenSymbol: TokenSymbol.ARGNOT,
-    token: TokenName.Argonot,
-  },
-  [MoveFrom.VaultingTreasuryArgon]: { name: 'Treasury Bonds', tokenSymbol: TokenSymbol.ARGN, token: TokenName.Argon },
+const moveTokenName = {
+  [MoveToken.ARGN]: 'Argon',
+  [MoveToken.ARGNOT]: 'Argonot',
 };
 </script>
 
@@ -171,11 +149,10 @@ import { useMiningAssetBreakdown } from '../../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import * as Vue from 'vue';
 import { TransactionInfo } from '../../lib/TransactionInfo.ts';
-import { IWallet } from '../../lib/Wallet.ts';
-import { ethAddressToH256, isValidArgonAccountAddress, isValidEthereumAddress } from '@argonprotocol/apps-core';
+import { IWallet, WalletType } from '../../lib/Wallet.ts';
+import { isValidEthereumAddress } from '@argonprotocol/apps-core';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getMainchainClient } from '../../stores/mainchain.ts';
-import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import {
   getTokenGatewayClient,
@@ -186,17 +163,20 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { MoveCapital } from '../../lib/MoveCapital.ts';
 
 const props = withDefaults(
   defineProps<{
     class?: string;
     moveFrom?: MoveFrom;
     moveTo?: MoveTo;
+    moveToken?: MoveToken;
     isOpen: boolean;
     side?: 'top' | 'right' | 'bottom' | 'left';
   }>(),
   {
-    moveFrom: MoveFrom.MiningSidelinedArgon,
+    moveFrom: MoveFrom.MiningHold,
+    moveToken: MoveToken.ARGN,
   },
 );
 
@@ -212,61 +192,67 @@ const transactionTracker = getTransactionTracker();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
+const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
+
 const miningBreakdown = useMiningAssetBreakdown();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
 const maxAmount = Vue.computed(() => {
-  switch (props.moveFrom) {
-    case MoveFrom.MiningSidelinedArgon:
-      return wallets.miningWallet.availableMicrogons;
-    case MoveFrom.MiningSidelinedArgonot:
-      return wallets.miningWallet.availableMicronots;
-
-    case MoveFrom.MiningAuctionArgon:
-      return miningBreakdown.auctionMicrogonsUnused;
-    case MoveFrom.MiningAuctionArgonot:
-      return miningBreakdown.auctionMicronotsUnused;
-
-    case MoveFrom.VaultingSidelinedArgon:
-      return vaultingBreakdown.sidelinedMicrogons;
-    case MoveFrom.VaultingSidelinedArgonot:
-      return vaultingBreakdown.sidelinedMicronots;
-
-    case MoveFrom.VaultingSecurityArgon:
-      return vaultingBreakdown.securityMicrogonsUnused;
-    case MoveFrom.VaultingSecurityArgonot:
-      return vaultingBreakdown.securityMicronotsUnused;
-
-    case MoveFrom.VaultingTreasuryArgon:
-      return vaultingBreakdown.treasuryMicrogonsUnused;
-    default:
-      return 0n;
+  if (props.moveFrom === MoveFrom.MiningHold && props.moveToken === MoveToken.ARGN) {
+    return wallets.miningHoldWallet.availableMicrogons;
+  } else if (props.moveFrom === MoveFrom.MiningHold && props.moveToken === MoveToken.ARGNOT) {
+    return wallets.miningHoldWallet.availableMicronots;
+  } else if (props.moveFrom === MoveFrom.MiningBot && props.moveToken === MoveToken.ARGN) {
+    return miningBreakdown.auctionMicrogonsUnused;
+  } else if (props.moveFrom === MoveFrom.MiningBot && props.moveToken === MoveToken.ARGNOT) {
+    return miningBreakdown.auctionMicronotsUnused;
+  } else if (props.moveFrom === MoveFrom.VaultingHold && props.moveToken === MoveToken.ARGN) {
+    return vaultingBreakdown.sidelinedMicrogons;
+  } else if (props.moveFrom === MoveFrom.VaultingHold && props.moveToken === MoveToken.ARGNOT) {
+    return vaultingBreakdown.sidelinedMicronots;
+  } else if (props.moveFrom === MoveFrom.VaultingSecurity && props.moveToken === MoveToken.ARGN) {
+    return vaultingBreakdown.securityMicrogonsUnused;
+  } else if (props.moveFrom === MoveFrom.VaultingSecurity && props.moveToken === MoveToken.ARGNOT) {
+    return vaultingBreakdown.securityMicronotsUnused;
+  } else if (props.moveFrom === MoveFrom.VaultingTreasury && props.moveToken === MoveToken.ARGN) {
+    return vaultingBreakdown.treasuryMicrogonsUnused;
+  } else {
+    return 0n;
   }
 });
 
 const moveOptions = Vue.computed(() => {
   const options = [];
-  const walletFrom = getWalletFromType();
-  if (walletFrom === 'Vaulting') {
+  const walletFrom = moveCapital.getWalletTypeFromMove(moveFrom.value);
+  if (walletFrom === WalletType.miningHold) {
+    options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
+  } else if (walletFrom === WalletType.miningBot) {
+    options.push({ name: 'Unused Holdings', value: MoveTo.MiningHold });
+  } else if (moveFrom.value === MoveFrom.VaultingHold) {
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
     options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
-  } else if (walletFrom === 'Mining') {
-    options.push({ name: 'Bidding Bot', value: MoveTo.MiningBot });
-  } else if (walletFrom === 'MiningBot') {
-    options.push({ name: 'Unused Holdings', value: MoveTo.Mining });
+  } else if (moveFrom.value === MoveFrom.VaultingSecurity) {
+    options.push({ name: 'Unused Holdings', value: MoveTo.VaultingHold });
+    options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
+  } else if (moveFrom.value === MoveFrom.VaultingTreasury) {
+    options.push({ name: 'Unused Holdings', value: MoveTo.VaultingHold });
+    options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
   }
-  if (walletFrom !== 'Mining' && walletFrom !== 'MiningBot') {
-    options.push({ name: 'Mining Account', value: MoveTo.Mining });
+
+  if (walletFrom !== WalletType.miningHold && walletFrom !== WalletType.miningBot) {
+    options.push({ name: 'Mining Account', value: MoveTo.MiningHold, divider: true });
+  } else if ([WalletType.miningHold, WalletType.miningBot].includes(walletFrom)) {
+    options.push({ name: 'Vaulting Account', value: MoveTo.VaultingHold });
   }
-  if (walletFrom !== 'Vaulting' && isMovingArgons()) {
-    options.push({ name: 'Vaulting Account', value: MoveTo.Vaulting });
-  }
+
   options.push({ name: 'External Account', value: MoveTo.External });
   return options;
 });
 
 const moveFrom = Vue.ref(props.moveFrom);
 const moveTo = Vue.ref<MoveTo>(props.moveTo ?? moveOptions.value[0].value);
+const amountToMove = Vue.ref(maxAmount.value);
+
 const externalAddress = Vue.ref('');
 const canChangeDestination = Vue.computed(() => !pendingTxInfo.value);
 const txFee = Vue.ref(0n);
@@ -275,7 +261,7 @@ const isLoaded = Vue.ref(false);
 const isProcessing = Vue.ref(false);
 const progressPct = Vue.ref(0);
 const transactionError = Vue.ref('');
-const addressWarn = Vue.ref('');
+const addressWarning = Vue.ref('');
 const isMovingToEthereum = Vue.ref(false);
 const isMovingToArgon = Vue.ref(false);
 const moveToEthereumCommitment = Vue.ref('');
@@ -283,11 +269,11 @@ const comingSoon = Vue.ref('');
 const pendingTxInfo = Vue.ref<TransactionInfo | null>(null);
 const hasHyperbridgeProcessedCommitment = Vue.ref(false);
 
+const progressLabel = Vue.ref('');
+
 const hasTokensToMove = Vue.computed(() => {
   return maxAmount.value >= 10_000n;
 });
-
-const progressLabel = Vue.ref('');
 
 const canSubmit = Vue.computed(() => {
   return (
@@ -300,87 +286,34 @@ const canSubmit = Vue.computed(() => {
 
 const canAfford = Vue.computed(() => {
   const fromWallet = getWalletFrom();
-  const isAlreadySpent = [MoveFrom.VaultingSecurityArgon, MoveFrom.VaultingTreasuryArgon].includes(moveFrom.value);
-  const argonsOnTheMove = isMovingArgons() && !isAlreadySpent ? amountToMove.value : 0n;
+  const isAlreadySpent = [MoveFrom.VaultingSecurity, MoveFrom.VaultingTreasury].includes(moveFrom.value);
+  const argonsOnTheMove = props.moveToken === MoveToken.ARGN && !isAlreadySpent ? amountToMove.value : 0n;
   return fromWallet.availableMicrogons >= argonsOnTheMove + txFee.value;
 });
 
-const amountToMove = Vue.ref(maxAmount.value);
-
 function getWalletFrom(): IWallet {
-  switch (getWalletFromType()) {
-    case 'Mining':
-      return wallets.miningWallet;
-    case 'MiningBot':
+  const walletType = moveCapital.getWalletTypeFromMove(moveFrom.value);
+  switch (walletType) {
+    case WalletType.miningHold:
+      return wallets.miningHoldWallet;
+    case WalletType.miningBot:
       return wallets.miningBotWallet;
-    case 'Vaulting':
+    case WalletType.vaulting:
       return wallets.vaultingWallet;
-  }
-}
-
-function getWalletFromType(): 'Mining' | 'MiningBot' | 'Vaulting' {
-  switch (moveFrom.value) {
-    case MoveFrom.MiningSidelinedArgon:
-    case MoveFrom.MiningSidelinedArgonot:
-      return 'Mining';
-
-    case MoveFrom.MiningAuctionArgon:
-    case MoveFrom.MiningAuctionArgonot:
-      return 'MiningBot';
-
-    case MoveFrom.VaultingSidelinedArgon:
-    case MoveFrom.VaultingSidelinedArgonot:
-    case MoveFrom.VaultingSecurityArgon:
-    case MoveFrom.VaultingSecurityArgonot:
-    case MoveFrom.VaultingTreasuryArgon:
-      return 'Vaulting';
-
     default:
-      throw new Error(`Unknown wallet type from getWalletFromType(): ${moveFrom.value}`);
+      throw new Error(`WalletType not known: ${walletType}`);
   }
 }
 
-async function getSigner() {
-  switch (getWalletFromType()) {
-    case 'Mining':
-      return await walletKeys.getMiningKeypair();
-    case 'MiningBot':
-      return await walletKeys.getMiningBotKeypair();
-    case 'Vaulting':
-      return await walletKeys.getVaultingKeypair();
-  }
-}
-
-function isMovingArgons(): boolean {
-  return ![
-    MoveFrom.MiningSidelinedArgonot,
-    MoveFrom.MiningAuctionArgonot,
-    MoveFrom.VaultingSidelinedArgonot,
-    MoveFrom.VaultingSecurityArgonot,
-  ].includes(moveFrom.value!);
-}
-
-async function checkExternalAddress() {
-  isMovingToEthereum.value = false;
-  isMovingToArgon.value = false;
-  addressWarn.value = '';
-
-  const trimmedAddress = externalAddress.value.trim();
-  if (!trimmedAddress) {
-    return;
-  }
-
-  isMovingToArgon.value = isValidArgonAccountAddress(trimmedAddress);
-  const ethereumAddressValidation = isValidEthereumAddress(trimmedAddress);
-  isMovingToEthereum.value = ethereumAddressValidation.valid;
-
-  if (ethereumAddressValidation.valid) {
-    addressWarn.value = ethereumAddressValidation.checksum
-      ? ''
-      : "Warning: Ethereum address can't be validated - use a check-summed address to be safer.";
-  } else if (!isMovingToArgon.value) {
-    addressWarn.value = 'The address entered is not a valid Argon or Ethereum address.';
-  }
+function getToAddress() {
+  return {
+    [MoveTo.MiningHold]: wallets.miningHoldWallet.address,
+    [MoveTo.MiningBot]: wallets.miningBotWallet.address,
+    [MoveTo.VaultingHold]: wallets.vaultingWallet.address,
+    [MoveTo.VaultingSecurity]: wallets.vaultingWallet.address,
+    [MoveTo.VaultingTreasury]: wallets.vaultingWallet.address,
+    [MoveTo.External]: externalAddress.value || wallets.vaultingWallet.address,
+  }[moveTo.value];
 }
 
 async function updateMoveAmount(microgons: bigint, tries = 3) {
@@ -390,7 +323,9 @@ async function updateMoveAmount(microgons: bigint, tries = 3) {
   }
   amountToMove.value = microgons;
   await updateFee();
-  if (isMovingArgons() && amountToMove.value + txFee.value > maxAmount.value) {
+  const isMovingArgonToken = props.moveToken === MoveToken.ARGN;
+
+  if (isMovingArgonToken && amountToMove.value + txFee.value > maxAmount.value) {
     const newAmount = maxAmount.value - txFee.value;
     if (newAmount < 0n) {
       amountToMove.value = 0n;
@@ -405,103 +340,34 @@ async function openHyperbridgeLink() {
   await tauriOpenUrl(url);
 }
 
-async function buildTransaction(useExternalAddressPlaceHolder = false) {
-  const client = await getMainchainClient(false);
-
-  const toAddress = {
-    [MoveTo.Mining]: wallets.miningWallet.address,
-    [MoveTo.MiningBot]: wallets.miningBotWallet.address,
-    [MoveTo.Vaulting]: wallets.vaultingWallet.address,
-    [MoveTo.VaultingSecurity]: wallets.vaultingWallet.address,
-    [MoveTo.VaultingTreasury]: wallets.vaultingWallet.address,
-    [MoveTo.External]: externalAddress.value || (useExternalAddressPlaceHolder ? wallets.vaultingWallet.address : ''),
-  }[moveTo.value];
-
-  const txs: SubmittableExtrinsic[] = [];
-  /// 1. Reduce funding / withdraw from vaulting as needed
-  if (moveFrom.value === MoveFrom.VaultingSecurityArgon) {
-    const vault = myVault.createdVault;
-    if (!vault) {
-      throw new Error('No vault created');
-    }
-    if (vault.securitization < amountToMove.value) {
-      throw new Error('Not enough securitization available to withdraw');
-    }
-
-    txs.push(
-      client.tx.vaults.modifyFunding(
-        vault.vaultId,
-        vault.securitization - amountToMove.value,
-        toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
-      ),
-    );
-  } else if (moveFrom.value === MoveFrom.VaultingTreasuryArgon) {
-    console.warn('Withdrawing from treasury is not yet supported');
-  }
-
-  /// 2. Transfer the argons / argonots
-  const ARGON_ASSET_ID = 0;
-  const ARGONOT_ASSET_ID = 1;
-  await checkExternalAddress();
-  if (isMovingToEthereum.value) {
-    const assetId = isMovingArgons() ? ARGON_ASSET_ID : ARGONOT_ASSET_ID;
-    const recipient = ethAddressToH256(toAddress);
-    txs.push(
-      client.tx.tokenGateway.teleport({
-        assetId,
-        destination: { Evm: 1 },
-        recepient: recipient, // NOTE: field name 'recepient' is misspelled in the on-chain API and must remain as-is
-        timeout: 0,
-        relayerFee: 0n,
-        amount: amountToMove.value,
-        redeem: false,
-        tokenGateway: '0xFd413e3AFe560182C4471F4d143A96d3e259B6dE',
-      }),
-    );
-  } else if (isMovingArgons()) {
-    txs.push(client.tx.balances.transferAllowDeath(toAddress, amountToMove.value));
-  } else {
-    txs.push(client.tx.ownership.transferAllowDeath(toAddress, amountToMove.value));
-  }
-
-  const metadata = {
-    moveTo: moveTo.value,
-    moveFrom: moveFrom.value,
-    externalAddress: moveTo.value === MoveTo.External ? toAddress : undefined,
-    isMovingToEthereum: isMovingToEthereum.value,
-    amount: amountToMove.value,
-    utxoId: myVault.metadata?.personalUtxoId,
-  };
-
-  const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
-  return { tx, metadata };
-}
-
 async function updateFee() {
-  try {
-    if (!canSubmit.value) {
-      txFee.value = 0n;
-      return;
-    }
-    const { tx } = await buildTransaction(true);
-    const fromWallet = getWalletFrom();
-    const fee = await tx.paymentInfo(fromWallet.address);
-    txFee.value = fee.partialFee.toBigInt();
-    if (txFee.value > fromWallet.availableMicrogons) {
-      transactionError.value = `Your wallet has insufficient funds for this transaction.`;
-    } else {
-      transactionError.value = '';
-    }
-  } catch (err) {
-    console.error('Error calculating transaction fee: %o', err);
+  if (!canSubmit.value) {
     txFee.value = 0n;
+    return;
   }
+  const fromWallet = getWalletFrom();
+  const toAddress = getToAddress();
+  const assetsToMove = {
+    [MoveToken.ARGN]: props.moveToken === MoveToken.ARGN ? amountToMove.value : 0n,
+    [MoveToken.ARGNOT]: props.moveToken === MoveToken.ARGNOT ? amountToMove.value : 0n,
+  };
+  txFee.value = await moveCapital.calculateFee(moveFrom.value, moveTo.value, assetsToMove, fromWallet, toAddress);
+  transactionError.value = moveCapital.transactionError;
 }
 
-async function submitTransfer(force = false) {
+function checkExternalAddress() {
+  const meta = moveCapital.checkAddressType(externalAddress.value);
+  isMovingToEthereum.value = meta.isEthereumAddress;
+  isMovingToArgon.value = meta.isArgonAddress;
+  addressWarning.value = meta.addressWarning;
+}
+
+async function submitTransfer() {
+  const force = addressWarning.value;
+
   let isMoveToEthereum = false;
   if (moveTo.value === MoveTo.External) {
-    await checkExternalAddress();
+    checkExternalAddress();
     const isEthereumAddress = isValidEthereumAddress(externalAddress.value);
     isMoveToEthereum = isEthereumAddress.valid;
     if (!force && !isEthereumAddress.checksum) {
@@ -521,36 +387,20 @@ async function submitTransfer(force = false) {
     progressLabel.value = 'Preparing Transaction...';
     progressPct.value = 0;
 
-    if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo.value)) {
-      const allocations = {
-        addedSecuritizationMicrogons: 0n,
-        addedTreasuryMicrogons: 0n,
-      };
-      if (moveTo.value === MoveTo.VaultingSecurity) {
-        allocations.addedSecuritizationMicrogons = amountToMove.value;
-      } else if (moveTo.value === MoveTo.VaultingTreasury) {
-        allocations.addedTreasuryMicrogons = amountToMove.value;
-      }
-      const txInfo = await myVault.increaseVaultAllocations(allocations);
-      trackTxInfo(txInfo);
-      pendingTxInfo.value = txInfo;
-    } else {
-      const { tx, metadata } = await buildTransaction();
-      const signer = await getSigner();
-      const txInfo = await transactionTracker.submitAndWatch({
-        tx,
-        signer,
-        metadata,
-        extrinsicType: ExtrinsicType.Transfer,
-      });
+    const fromWallet = getWalletFrom();
+    const toAddress = getToAddress();
+    const assetsToMove = {
+      [MoveToken.ARGN]: props.moveToken === MoveToken.ARGN ? amountToMove.value : 0n,
+      [MoveToken.ARGNOT]: props.moveToken === MoveToken.ARGNOT ? amountToMove.value : 0n,
+    };
+    const txInfo = await moveCapital.move(moveFrom.value, moveTo.value, assetsToMove, fromWallet, toAddress);
 
-      if (metadata.moveTo === MoveTo.External && isMoveToEthereum) {
-        void watchTeleport(txInfo);
-      }
-
-      trackTxInfo(txInfo);
-      pendingTxInfo.value = txInfo;
+    if (moveTo.value === MoveTo.External && isMoveToEthereum) {
+      void watchTeleport(txInfo);
     }
+
+    trackTxInfo(txInfo);
+    pendingTxInfo.value = txInfo;
   } catch (err) {
     console.error('Error during transfer: %o', err);
     transactionError.value = 'This transfer failed, please try again';
@@ -562,6 +412,7 @@ async function watchTeleport(txInfo: TransactionInfo) {
   hasHyperbridgeProcessedCommitment.value = false;
   await txInfo.txResult.waitForFinalizedBlock;
   const client = await getMainchainClient(false);
+
   for (const event of txInfo.txResult.events) {
     if (client.events.tokenGateway.AssetTeleported.is(event)) {
       const { commitment } = event.data;
@@ -569,6 +420,7 @@ async function watchTeleport(txInfo: TransactionInfo) {
       break;
     }
   }
+
   tokenGatewayClient ??= await getTokenGatewayClient();
   const result = await waitForGatewaySyncedToHeight({
     gatewayClient: tokenGatewayClient,
@@ -614,14 +466,12 @@ function cancel() {
 }
 
 Vue.watch(externalAddress, async () => {
-  await checkExternalAddress();
+  checkExternalAddress();
   await updateFee();
 });
 
 Vue.watch(maxAmount, async newMax => {
-  if (pendingTxInfo.value) {
-    return;
-  }
+  if (pendingTxInfo.value) return;
   if (amountToMove.value > newMax) {
     await updateMoveAmount(newMax);
   }
@@ -633,7 +483,7 @@ Vue.watch(
     if (props.isOpen) {
       isLoaded.value = false;
       await updateMoveAmount(maxAmount.value);
-      if (moveFrom.value === MoveFrom.VaultingTreasuryArgon && maxAmount.value > 10_000n) {
+      if (moveFrom.value === MoveFrom.VaultingTreasury && maxAmount.value > 10_000n) {
         comingSoon.value = 'Withdrawing from treasury will be in a near-future release';
         isLoaded.value = true;
         return;
@@ -665,7 +515,7 @@ Vue.onMounted(async () => {
       amountToMove.value = txInfo.tx.metadataJson.amount;
       moveTo.value = txInfo.tx.metadataJson.moveTo;
       externalAddress.value = txInfo.tx.metadataJson.externalAddress;
-      await checkExternalAddress();
+      checkExternalAddress();
       console.log('Resuming pending transfer: %o', txInfo, isMovingToEthereum.value);
 
       if (txInfo.tx.metadataJson.moveTo === MoveTo.External && isMovingToEthereum.value) {

@@ -1,7 +1,7 @@
 <template>
   <div class="mx-5 p-3">
     <DialogDescription class="mt-4 pr-10 font-light opacity-80">
-      This app allows you to use any Ubuntu 24+ server as a server to run the Argon Blockchain and Bidding Bot. You'll
+      This app allows you to use any Ubuntu 24+ server as a server to run the Argon Blockchain and Mining Bot. You'll
       need to setup the SSH access credentials correctly, but once that's done, we'll setup everything else (required
       software, security patches, etc). The minimum requirements are shown below.
     </DialogDescription>

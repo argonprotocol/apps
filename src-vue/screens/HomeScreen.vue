@@ -38,8 +38,8 @@
             class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase"
           >
             <span class="grow pl-3">Your Mining Operations</span>
-            <CopyAddressMenu :walletType="WalletType.mining" class="mr-1" />
-            <AssetMenu :walletType="WalletType.mining" class="pr-3" />
+            <CopyAddressMenu :walletType="WalletType.miningHold" class="mr-1" />
+            <AssetMenu :walletType="WalletType.miningHold" class="pr-3" />
           </header>
           <div class="flex grow flex-row pt-2 text-center" v-if="config.isMinerInstalled">
             <div class="flex w-1/2 flex-col items-center gap-x-2">

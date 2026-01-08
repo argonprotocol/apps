@@ -552,7 +552,7 @@ export class MyVault {
     const postProcessor = txInfo.createPostProcessor();
     const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
 
-    if (!followOnTx.isSettled && tx.metadataJson.moveTo === MoveTo.Mining) {
+    if (!followOnTx.isSettled && tx.metadataJson.moveTo === MoveTo.MiningHold) {
       const argonKeyring = await this.walletKeys.getVaultingKeypair();
       const revenue = await this.getCollectedAmount(txInfo);
       if (revenue === undefined) {
@@ -575,13 +575,13 @@ export class MyVault {
       }
 
       const moveTo = tx.metadataJson.moveTo; // this can only be Mining because of IF block
-      const moveToAddress = this.walletKeys.miningAddress;
+      const moveToAddress = this.walletKeys.miningHoldAddress;
       const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
         tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
         signer: argonKeyring,
         extrinsicType: ExtrinsicType.Transfer,
         metadata: {
-          moveFrom: MoveFrom.VaultingSidelinedArgon,
+          moveFrom: MoveFrom.VaultingHold,
           moveTo,
           amount: amountToMove,
         },

@@ -488,7 +488,7 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.mining, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 function openFundVaultingAccountOverlay() {

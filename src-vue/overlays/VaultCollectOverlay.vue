@@ -1,3 +1,4 @@
+<!-- prettier-ignore -->
 <template>
   <Overlay
     :isOpen="isOpen"
@@ -38,8 +39,8 @@
                     <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
                   </span>
                   <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
-                </span>
-                ; if not,
+                </span>;
+                if not,
                 <template v-if="collectRevenue === myVault.data.expiringCollectAmount">it</template>
                 <strong v-else>
                   {{ currency.symbol
@@ -144,7 +145,7 @@ dayjs.extend(utc);
 const emit = defineEmits<{
   close: [];
 }>();
-const moveTo = Vue.ref<MoveTo>(MoveTo.Vaulting);
+const moveTo = Vue.ref<MoveTo>(MoveTo.VaultingHold);
 const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 const transactionError = Vue.ref('');

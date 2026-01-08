@@ -43,7 +43,7 @@
         >
           <Checkbox :isChecked="wallets.isLoaded && config.hasSavedBiddingRules" />
           <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">Configure Your Bidding Bot</h2>
+            <h2 class="text-2xl text-[#A600D4] font-bold">Configure Your Mining Bot</h2>
             <p v-if="!config.hasSavedBiddingRules">
               Decide how much capital you want to commit, your starting bid, maximum bid, and other basic settings.
             </p>
@@ -161,7 +161,7 @@
         ]"
         class="bg-argon-button border border-argon-button-hover mt-8 text-2xl font-bold px-4 py-4 rounded-md w-full cursor-pointer hover:bg-argon-button-hover hover:inner-button-shadow"
       >
-        {{ isLaunchingMiningBot ? 'Launching Bidding Bot...' : 'Launch Bidding Bot' }}
+        {{ isLaunchingMiningBot ? 'Launching Mining Bot...' : 'Launch Mining Bot' }}
       </button>
     </div>
   </div>
@@ -175,7 +175,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import basicEmitter from '../../emitters/basicEmitter';
 import { getConfig } from '../../stores/config';
-import { useWallets } from '../../stores/wallets';
+import { getWalletKeys, useWallets } from '../../stores/wallets';
 import { getCurrency } from '../../stores/currency';
 import Checkbox from '../../components/Checkbox.vue';
 import { getInstaller } from '../../stores/installer';
@@ -191,6 +191,10 @@ import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOver
 import { ScreenKey } from '../../interfaces/IConfig.ts';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
+import { MoveCapital } from '../../lib/MoveCapital.ts';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
+import { getMyVault } from '../../stores/vaults.ts';
+import { getTransactionTracker } from '../../stores/transactions.ts';
 
 dayjs.extend(utc);
 
@@ -200,10 +204,12 @@ const wallets = useWallets();
 const currency = getCurrency();
 const controller = useController();
 const calculator = getBiddingCalculator();
-const openBotCreate = Vue.ref(false);
+const walletKeys = getWalletKeys();
+const transactionTracker = getTransactionTracker();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
+const openBotCreate = Vue.ref(false);
 const botCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
 const alignOffsetForBotReturns = Vue.ref(0);
 const alignOffsetForBotCapital = Vue.ref(0);
@@ -213,11 +219,23 @@ const capitalCommitment = Vue.ref(0n);
 const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
 
+const availableMicrogons = Vue.computed(() => {
+  return wallets.miningHoldWallet.availableMicrogons + wallets.miningBotWallet.availableMicrogons;
+});
+
+const reservedMicronots = Vue.computed(() => {
+  return wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
+});
+
+const availableMicronots = Vue.computed(() => {
+  return wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
+});
+
 const walletIsPartiallyFunded = Vue.computed(() => {
   if (!config.hasSavedBiddingRules) {
     return false;
   }
-  return (wallets.totalMiningMicrogons || wallets.miningBotWallet.availableMicronots) > 0n;
+  return (wallets.totalMiningMicrogons || availableMicronots.value) > 0n;
 });
 
 const additionalMicrogonsNeeded = Vue.computed(() => {
@@ -226,9 +244,7 @@ const additionalMicrogonsNeeded = Vue.computed(() => {
 
 const additionalMicronotsNeeded = Vue.computed(() => {
   return bigIntMax(
-    config.biddingRules.initialMicronotRequirement -
-      wallets.miningBotWallet.availableMicronots -
-      wallets.miningBotWallet.reservedMicronots,
+    config.biddingRules.initialMicronotRequirement - (availableMicronots.value + reservedMicronots.value),
     0n,
   );
 });
@@ -276,7 +292,7 @@ function openBotCreateOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.mining, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 function openServerConnectOverlay() {
@@ -295,26 +311,34 @@ function goBack() {
 }
 
 async function launchMiningBot() {
-  if (isLaunchingMiningBot.value) {
-    return;
-  }
+  if (isLaunchingMiningBot.value) return;
+
   isLaunchingMiningBot.value = true;
   config.isMinerReadyToInstall = true;
-  // in case the entry was skipped
-  config.isPreparingMinerSetup = true;
-  const biddingRules = config.biddingRules;
-  if (wallets.miningBotWallet.availableMicrogons > biddingRules.initialMicrogonRequirement) {
-    biddingRules.initialMicrogonRequirement = wallets.miningBotWallet.availableMicrogons;
-  }
-  if (wallets.miningBotWallet.availableMicronots > biddingRules.initialMicronotRequirement) {
-    biddingRules.initialMicronotRequirement = wallets.miningBotWallet.availableMicronots;
-  }
-  const micronotsAsMicrogons = currency.convertMicronotTo(
-    wallets.miningBotWallet.availableMicronots,
-    UnitOfMeasurement.Microgon,
-  );
+  config.isPreparingMinerSetup = true; // in case the entry was skipped
 
-  biddingRules.initialCapitalCommitment = wallets.miningBotWallet.availableMicrogons + micronotsAsMicrogons;
+  const biddingRules = config.biddingRules;
+  if (availableMicrogons.value > biddingRules.initialMicrogonRequirement) {
+    biddingRules.initialMicrogonRequirement = availableMicrogons.value;
+  }
+  if (availableMicronots.value > biddingRules.initialMicronotRequirement) {
+    biddingRules.initialMicronotRequirement = availableMicronots.value;
+  }
+  const micronotsAsMicrogons = currency.convertMicronotTo(availableMicronots.value, UnitOfMeasurement.Microgon);
+
+  const initialCapital = availableMicrogons.value + micronotsAsMicrogons;
+  biddingRules.initialCapitalCommitment = initialCapital;
+
+  const myVault = getMyVault();
+  const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
+
+  const miningHoldWallet = wallets.miningHoldWallet;
+  const miningBotAddress = wallets.miningBotWallet.address;
+  const assetsToMove = {
+    [MoveToken.ARGN]: miningHoldWallet.availableMicrogons,
+    [MoveToken.ARGNOT]: miningHoldWallet.availableMicronots,
+  };
+  await moveCapital.move(MoveFrom.MiningHold, MoveTo.MiningBot, assetsToMove, miningHoldWallet, miningBotAddress, true);
 
   config.biddingRules = biddingRules;
   await config.save();

@@ -10,6 +10,7 @@
       <component
         :is="showMoveButton ? MoveCapitalButton: 'div'"
         :moveFrom="moveFrom"
+        :moveToken="moveToken"
         @updatedOpen="updateMoveOpen"
         side="right"
         class="h-full w-full"
@@ -47,7 +48,7 @@ import { twMerge } from 'tailwind-merge';
 import { TooltipArrow, TooltipContent, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import CustomTooltipArrow from './TooltipArrow.vue';
 import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 
 const props = withDefaults(
   defineProps<{
@@ -55,6 +56,7 @@ const props = withDefaults(
     height: number | 'auto';
     tooltipSide?: 'right' | 'top';
     moveFrom?: MoveFrom;
+    moveToken?: MoveToken;
     hideConnector?: boolean;
   }>(),
   {},

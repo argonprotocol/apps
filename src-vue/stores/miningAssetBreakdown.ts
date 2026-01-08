@@ -16,11 +16,11 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   // Sidelined
 
   const sidelinedMicrogons = Vue.computed(() => {
-    return wallets.miningWallet.totalMicrogons;
+    return wallets.miningHoldWallet.totalMicrogons;
   });
 
   const sidelinedMicronots = Vue.computed(() => {
-    return wallets.miningWallet.totalMicronots;
+    return wallets.miningHoldWallet.totalMicronots;
   });
 
   const sidelinedTotalValue = Vue.computed(() => {

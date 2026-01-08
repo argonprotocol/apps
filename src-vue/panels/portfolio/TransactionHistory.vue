@@ -73,7 +73,7 @@ function getTransferInfo(tx: IWalletTransferRecord): string {
 }
 
 function formatAddress(address: string): string {
-  if (keys.miningAddress === address) {
+  if (keys.miningHoldAddress === address) {
     return 'Mining';
   } else if (keys.miningBotAddress === address) {
     return 'MiningBot';

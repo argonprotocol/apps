@@ -7,8 +7,8 @@
     "indexerHost": "http://localhost:55014",
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
-    "genesisTick": 882151485,
-    "biddingStartTick": 882151485
+    "genesisTick": 883921891,
+    "biddingStartTick": 883921891
   },
   "localnet": {
     "archiveUrl": "ws://localhost:9944",

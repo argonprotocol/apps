@@ -8,7 +8,7 @@
     </template>
 
     <div class="flex min-h-60 w-full flex-row items-center justify-center gap-x-5 px-5 pt-3 pb-5" :class="{ 'flash-overlay': flash }">
-      <div v-if="walletType === WalletType.mining">
+      <div v-if="walletType === WalletType.miningHold">
         <strong>{{ fundsReceivedMessage }}</strong> been added to your <strong>mining</strong> wallet.
         You can choose how to distribute these funds from your Mining tab.
       </div>
@@ -70,7 +70,7 @@ const changes = Vue.ref<
 
 const microgonsReceived = Vue.computed(() => changes.value[0]?.microgonsAdded ?? 0n);
 const micronotsReceived = Vue.computed(() => changes.value[0]?.micronotsAdded ?? 0n);
-const walletType = Vue.computed(() => changes.value[0]?.walletType ?? WalletType.mining);
+const walletType = Vue.computed(() => changes.value[0]?.walletType ?? WalletType.miningHold);
 
 const isProcessing = Vue.ref(false);
 
@@ -107,7 +107,7 @@ Vue.onMounted(() => {
       console.log('Skipping vaulting wallet change - no created vault');
       return;
     }
-    if (wallet.type === WalletType.mining && !config.isMinerReadyToInstall) {
+    if (wallet.type === WalletType.miningHold && !config.isMinerReadyToInstall) {
       console.log('Skipping mining wallet change - no created miner');
       return;
     }

@@ -8,7 +8,7 @@
 
       <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
         <div
-          class="HowMiningWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-20 transition-all focus:outline-none"
+          class="HowMiningWorksOverlay absolute top-20 left-24 right-24 bottom-12 flex flex-col rounded-md border border-black/40 shadow-xl bg-argon-menu-bg text-left z-40 transition-all focus:outline-none"
         >
           <div class="flex flex-col h-full w-full">
             <h2
@@ -206,7 +206,7 @@
                   market for all participants.
                 </li>
                 <li>
-                  <strong>Automated Bidding Bots</strong>. This app was built to serve as an automated mining bot to help handle the bidding processs,
+                  <strong>Automated Mining Bots</strong>. This app was built to serve as an automated mining bot to help handle the bidding processs,
                   manage mining operations, and continually renew your seats every ten days. However, it doesn't dictate your strategy. It is up to you
                   to decide the rules, such as starting bid, maximum bid, rebidding strategy, etc.
                 </li>
