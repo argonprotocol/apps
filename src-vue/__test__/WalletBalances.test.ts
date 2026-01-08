@@ -23,7 +23,7 @@ describe
     let mainchainUrl: string;
     let transferBlocks: number[] = [];
     let transferCount = 0;
-    const { walletKeys, miningAccount } = createTestWallet('//Alice');
+    const { walletKeys, miningBotAccount } = createTestWallet('//Alice');
 
     beforeAll(async () => {
       const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['miners'] });
@@ -63,27 +63,27 @@ describe
         balanceChanges++;
       });
       walletBalances.events.on('transfer-in', onTransferIn);
-      expect(walletBalances.miningWallet.totalMicrogons).toBe(0n);
+      expect(walletBalances.miningBotWallet.totalMicrogons).toBe(0n);
       expect(walletBalances.vaultingWallet.totalMicrogons).toBe(0n);
 
       const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
       const result = await new TxSubmitter(
         client,
-        client.tx.balances.transferKeepAlive(miningAccount.address, 5_000_000n),
+        client.tx.balances.transferKeepAlive(miningBotAccount.address, 5_000_000n),
         alice,
       ).submit();
       await result.waitForInFirstBlock;
       await expect(didGetBalanceChange.promise).resolves.toBeUndefined();
-      expect(walletBalances.miningWallet.availableMicrogons).toBe(5_000_000n);
-      expect(walletBalances.miningWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
+      expect(walletBalances.miningBotWallet.availableMicrogons).toBe(5_000_000n);
+      expect(walletBalances.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
       expect(onBalanceChange).toHaveBeenCalledTimes(1 + onBlockDeleted.mock.calls.length);
-      expect(onBalanceChange).toHaveBeenCalledWith('mining');
+      expect(onBalanceChange).toHaveBeenCalledWith('miningBot');
       expect(onTransferIn).toHaveBeenCalledTimes(1);
       expect(onTransferIn.mock.calls[0][1].microgonsAdded).toBe(5_000_000n);
       expect(onTransferIn.mock.calls[0][1].transfers).toHaveLength(1);
       expect(onTransferIn.mock.calls[0][1].transfers[0]).toMatchObject(
         expect.objectContaining({
-          to: miningAccount.address,
+          to: miningBotAccount.address,
           from: alice.address,
           amount: 5_000_000n,
           isInbound: true,
@@ -104,7 +104,7 @@ describe
           });
         });
       }
-      expect(walletBalances.miningWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
+      expect(walletBalances.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
       // send a bunch of transfers
       let nextNonce = (await client.rpc.system.accountNextIndex(alice.address)).toNumber();
       let finalizedTxs = 0;
@@ -128,7 +128,7 @@ describe
         txSubmissions++;
         const txResult = await new TxSubmitter(
           client,
-          client.tx.balances.transferKeepAlive(miningAccount.address, 1_000_000n),
+          client.tx.balances.transferKeepAlive(miningBotAccount.address, 1_000_000n),
           alice,
         ).submit({ nonce: nextNonce++ });
         txResults.push(txResult);
@@ -156,7 +156,7 @@ describe
           });
         });
       }
-      expect(walletBalances.miningWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(deletedBlockHash);
+      expect(walletBalances.miningBotWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(deletedBlockHash);
 
       const table = new WalletTransfersTable(db);
       const entries = await table.fetchAll();
@@ -188,7 +188,7 @@ describe
         .mockImplementation(async (address, blocks) => {
           const mostRecentBlock = Math.max(...transferBlocks);
           for (const block of transferBlocks) {
-            if (address === walletKeys.miningAddress) {
+            if (address === walletKeys.miningBotAddress) {
               blocks.add(block);
             }
           }
@@ -202,17 +202,17 @@ describe
       expect(walletBalances.blockHistory).toHaveLength(1);
       // @ts-expect-error - private
       expect(walletBalances.blockHistory[0].blockNumber).toBe(Math.max(...transferBlocks));
-      expect(walletBalances.miningWallet.balanceHistory).toHaveLength(1);
-      expect(walletBalances.miningWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-      expect(walletBalances.miningWallet.balanceHistory[0].availableMicrogons).toBe(5_000_000n + 10n * 1_000_000n);
+      expect(walletBalances.miningBotWallet.balanceHistory).toHaveLength(1);
+      expect(walletBalances.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+      expect(walletBalances.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(5_000_000n + 10n * 1_000_000n);
       expect(walletBalances.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
       expect(walletBalances.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-      expect(walletBalances.holdingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-      expect(walletBalances.holdingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+      expect(walletBalances.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+      expect(walletBalances.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(walletBalances.miningWallet.totalMicrogons).toBeGreaterThan(0n);
-      expect(walletBalances.miningWallet.balanceHistory.length).toBeGreaterThan(0);
+      expect(walletBalances.miningBotWallet.totalMicrogons).toBeGreaterThan(0n);
+      expect(walletBalances.miningBotWallet.balanceHistory.length).toBeGreaterThan(0);
       const walletLedger = new WalletLedgerTable(db);
       const ledgerEntries = await walletLedger.fetchAll();
       console.log('2. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
@@ -239,18 +239,18 @@ describe
       expect(walletBalances.blockHistory).toHaveLength(1);
       // @ts-expect-error - private
       expect(walletBalances.blockHistory[0].blockNumber).toBe(0);
-      expect(walletBalances.miningWallet.balanceHistory).toHaveLength(1);
+      expect(walletBalances.miningBotWallet.balanceHistory).toHaveLength(1);
       // nothing will load during resume sync, but it will start at 0 and sync back up after
-      expect(walletBalances.miningWallet.balanceHistory[0].block.blockNumber).toBe(0);
-      expect(walletBalances.miningWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+      expect(walletBalances.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(0);
+      expect(walletBalances.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(0n);
       expect(walletBalances.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(0);
       expect(walletBalances.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-      expect(walletBalances.holdingWallet.balanceHistory[0].block.blockNumber).toBe(0);
-      expect(walletBalances.holdingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+      expect(walletBalances.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(0);
+      expect(walletBalances.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
       await walletBalances.loadBalancesAt(blockWatch.bestBlockHeader);
 
-      expect(walletBalances.miningWallet.totalMicrogons).toBe(15_000_000n);
+      expect(walletBalances.miningBotWallet.totalMicrogons).toBe(15_000_000n);
       const walletLedger = new WalletLedgerTable(db);
       const ledgerEntries = await walletLedger.fetchAll();
       console.log('3. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);

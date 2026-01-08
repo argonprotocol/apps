@@ -40,9 +40,7 @@ export class WalletBalances {
   public events = createTypedEventEmitter<IWalletEvents>();
 
   public miningHoldWallet: Wallet;
-
   public miningBotWallet: Wallet;
-
   public vaultingWallet: Wallet;
 
   public bestBlock?: IBlockHeaderInfo;
