@@ -11,6 +11,12 @@ export class SingleFileQueue {
       deferred.reject(new Error('Queue is stopped'));
       return deferred;
     }
+    deferred.promise.catch(err => {
+      // Prevent unhandled promise rejection
+      if (!this.isStopped) {
+        console.error('Error in Queue task:', err);
+      }
+    });
     this.queue.push({ deferred, fn });
     void this.run();
     return deferred;
