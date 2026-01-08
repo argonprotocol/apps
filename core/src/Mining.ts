@@ -11,7 +11,6 @@ import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
 import type { IMiningIndex } from './Accountset.ts';
 import { NetworkConfig } from './NetworkConfig.js';
-import BigNumber from 'bignumber.js';
 
 const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.8;
 const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.2;
@@ -295,44 +294,19 @@ export class Mining {
     if (frameId <= 1) {
       return api.consts.blockRewards.startingArgonsPerBlock.toBigInt();
     }
-    const minerPercent = fromFixedNumber(api.consts.blockRewards.minerPayoutPercent.toBigInt(), FIXED_U128_DECIMALS);
     const microgonsPerBlockByCohort = await api.query.blockRewards.blockRewardsByCohort();
     for (const [cohortFrameActivationId, blockReward] of microgonsPerBlockByCohort) {
       if (cohortFrameActivationId.toNumber() === frameId) {
-        return bigNumberToBigInt(minerPercent.times(blockReward.toBigInt()));
+        return this.getMinerRewardPercent(blockReward.toBigInt());
       }
     }
     throw new Error(`No block reward found for cohort starting at frame ID ${frameId}`);
   }
 
-  public async minimumBlockRewardsAtTick(
-    currentTick: number,
-    api?: ApiDecoration<'promise'>,
-  ): Promise<{ rewardsPerBlock: bigint; amountToMinerPercent: BigNumber; ticksSinceGenesis: number }> {
-    const client = api ?? (await this.prunedClientOrArchivePromise);
-    const halvingStartTick = client.consts.blockRewards.halvingBeginTicks.toNumber();
-    const ticksSinceGenesis = this.getTicksSinceGenesis(currentTick);
-    const [incrementAmount, incrementTicks, maxMicrogonsPerBlock] = client.consts.blockRewards.incrementalGrowth;
-    const blockRewardMax = maxMicrogonsPerBlock.toBigInt();
-    const incrementIntervalTicks = incrementTicks.toNumber();
-    const increasePerIntervalMicrogons = incrementAmount.toBigInt();
-
-    const initialReward = 500_000n; // Initial microgons reward per block
-    const amountToMiner = fromFixedNumber(
-      client.consts.blockRewards.minerPayoutPercent.toBigInt(),
-      FIXED_U128_DECIMALS,
-    );
-
-    // Calculate the number of intervals
-    let reward = blockRewardMax;
-    if (ticksSinceGenesis < halvingStartTick) {
-      const numIntervals = Math.floor(ticksSinceGenesis / incrementIntervalTicks);
-
-      // Calculate the current reward per block
-      const currentReward = initialReward + BigInt(numIntervals) * increasePerIntervalMicrogons;
-      reward = bigIntMin(currentReward, blockRewardMax);
-    }
-    return { rewardsPerBlock: reward, amountToMinerPercent: amountToMiner, ticksSinceGenesis };
+  public async getMinerRewardPercent(microgons: bigint): Promise<bigint> {
+    const client = await this.prunedClientOrArchivePromise;
+    const minerPercent = fromFixedNumber(client.consts.blockRewards.minerPayoutPercent.toBigInt(), FIXED_U128_DECIMALS);
+    return bigNumberToBigInt(minerPercent.times(microgons));
   }
 
   public async minimumMicronotsMinedDuringTickRange(
@@ -343,12 +317,23 @@ export class Mining {
     const client = api ?? (await this.prunedClientOrArchivePromise);
     const halvingStartTick = client.consts.blockRewards.halvingBeginTicks.toNumber();
     const halvingTicks = client.consts.blockRewards.halvingTicks.toNumber();
-    // eslint-disable-next-line prefer-const
-    let { rewardsPerBlock, amountToMinerPercent } = await this.minimumBlockRewardsAtTick(tickStart, api);
+    const ticksSinceGenesis = this.getTicksSinceGenesis(tickStart);
     const [incrementAmount, incrementTicks, maxMicrogonsPerBlock] = client.consts.blockRewards.incrementalGrowth;
     const blockRewardMax = maxMicrogonsPerBlock.toBigInt();
     const incrementIntervalTicks = incrementTicks.toNumber();
     const increasePerIntervalMicrogons = incrementAmount.toBigInt();
+
+    const initialReward = 500_000n; // Initial microgons reward per block
+
+    // Calculate the number of intervals
+    let rewardsPerBlock = blockRewardMax;
+    if (ticksSinceGenesis < halvingStartTick) {
+      const numIntervals = Math.floor(ticksSinceGenesis / incrementIntervalTicks);
+
+      // Calculate the current reward per block
+      const currentReward = initialReward + BigInt(numIntervals) * increasePerIntervalMicrogons;
+      rewardsPerBlock = bigIntMin(currentReward, blockRewardMax);
+    }
 
     let totalRewards = 0n;
     for (let i = tickStart; i < tickEnd; i++) {
@@ -365,7 +350,7 @@ export class Mining {
       }
       totalRewards += rewardsPerBlock;
     }
-    return bigNumberToBigInt(amountToMinerPercent.times(totalRewards));
+    return this.getMinerRewardPercent(totalRewards);
   }
 
   private getTicksSinceGenesis(currentTick: number): number {

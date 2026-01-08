@@ -2,13 +2,14 @@ import BigNumber from 'bignumber.js';
 import {
   bigIntMax,
   bigNumberToBigInt,
-  IBotActivity,
-  MiningFrames,
-  NetworkConfig,
   createDeferred,
+  type IBidsFile,
+  IBotActivity,
   type IDeferred,
   type IWinningBid,
-  type IBidsFile,
+  MICRONOTS_PER_ARGONOT,
+  MiningFrames,
+  NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IStats';
 import { Db } from './Db';
@@ -323,11 +324,17 @@ export class Stats {
     let microgonValueRemaining = 0n;
 
     const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(this.latestFrameId);
+    const argonotPrices = await this.db.framesTable.fetchArgonotPrices(this.latestFrameId);
 
     for (const cohort of activeCohorts) {
       // Scale factor to preserve precision (cohort.progress has 3 decimal places)
       // factor = (100 - progress) / 100, scaled by 100000 for 3 decimal precision
-      const remainingRewardsPerSeat = this.calculateExpectedBlockRewardsPerSeat(cohort, 100 - cohort.progress);
+      const argonotPrice = argonotPrices[cohort.id];
+      const remainingRewardsPerSeat = this.calculateExpectedBlockRewardsPerSeat(
+        cohort,
+        argonotPrice,
+        100 - cohort.progress,
+      );
       seatCount += cohort.seatCountWon;
       const seatCost = cohort.microgonsBidPerSeat * BigInt(cohort.seatCountWon);
       microgonsBidTotal += seatCost;
@@ -369,14 +376,19 @@ export class Stats {
 
   private calculateExpectedBlockRewardsPerSeat(
     cohort: ICohortRecord,
+    microgonsToArgonot: bigint,
     percentage: number,
   ): {
     microgonsToBeMined: bigint;
     microgonsToBeMinted: bigint;
     micronotsToBeMined: bigint;
   } {
-    const microgonsExpected = bigIntMax(cohort.microgonsBidPerSeat, cohort.microgonsToBeMinedPerSeat);
-    const microgonsExpectedToBeMinted = microgonsExpected - cohort.microgonsToBeMinedPerSeat;
+    const micronotValueInMicrogons = bigNumberToBigInt(
+      BigNumber(microgonsToArgonot).div(MICRONOTS_PER_ARGONOT).times(cohort.micronotsToBeMinedPerSeat),
+    );
+    const totalMicrogonValueToMine = cohort.microgonsToBeMinedPerSeat + micronotValueInMicrogons;
+    const valueExpected = bigIntMax(cohort.microgonsBidPerSeat, totalMicrogonValueToMine);
+    const microgonsExpectedToBeMinted = valueExpected - totalMicrogonValueToMine;
 
     const factorBn = BigNumber(percentage).dividedBy(100);
 
@@ -400,12 +412,17 @@ export class Stats {
       .fetchLastYear(this.currency, this.miningFrames)
       .then(x => x as IDashboardFrameStats[]);
     const activeCohorts = await this.db.cohortsTable.fetchActiveCohorts(lastYear.at(-1)?.id ?? 0);
+    const cohortsById: { [id: number]: ICohortRecord } = {};
+    for (const cohort of activeCohorts) {
+      cohortsById[cohort.id] = cohort;
+    }
     const framesById = new Map<number, IDashboardFrameStats>();
 
     this.activeFrames = 0;
     for (const frame of lastYear) {
+      const cohortAtFrame = cohortsById[frame.id];
       // count an active frame if we bid but didn't win any seats
-      if (frame.accruedMicrogonProfits < 0n || frame.seatCountActive > 0) {
+      if (cohortAtFrame?.transactionFeesTotal > 0n || frame.seatCountActive > 0) {
         this.activeFrames++;
       }
       frame.expected = {
@@ -414,27 +431,27 @@ export class Stats {
         microgonsMinedTotal: 0n,
         microgonsMintedTotal: 0n,
       };
-      framesById.set(frame.id, frame);
-    }
-
-    for (const cohort of activeCohorts) {
-      for (let id = cohort.id; id < cohort.id + 10; id++) {
-        const frame = framesById.get(id);
-        if (!frame) continue;
+      for (let id = frame.id; id > frame.id - 10; id--) {
+        const cohort = cohortsById[id];
+        if (!cohort) continue;
         const expectedCohortReturns = this.calculateExpectedBlockRewardsPerSeat(
           cohort,
+          frame.microgonToArgonot[0],
           // Get one frame (1/10th) of the cohort rewards, times the frame progress
           BigNumber(frame.progress).dividedBy(10).toNumber(),
         );
-        const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
         const percentOfMiners = getPercent(cohort.seatCountWon, frame.allMinersCount);
         const elapsedTicks = percentOf(NetworkConfig.rewardTicksPerFrame, frame.progress);
         frame.expected.blocksMinedTotal += Number(percentOf(elapsedTicks, percentOfMiners));
+
+        const { microgonsToBeMined, microgonsToBeMinted, micronotsToBeMined } = expectedCohortReturns;
         const seatsN = BigInt(cohort.seatCountWon);
         frame.expected.micronotsMinedTotal += micronotsToBeMined * seatsN;
         frame.expected.microgonsMinedTotal += microgonsToBeMined * seatsN;
         frame.expected.microgonsMintedTotal += microgonsToBeMinted * seatsN;
       }
+
+      framesById.set(frame.id, frame);
     }
 
     const maxProfitPct = Math.min(Math.max(...lastYear.map(x => x.profitPct)), 1_000);
