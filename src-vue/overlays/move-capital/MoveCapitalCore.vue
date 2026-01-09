@@ -93,13 +93,13 @@
           {{ progressLabel }}
         </div>
       </div>
-      <button @click="cancel" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Close</button>
+      <button @click="close" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Close</button>
     </template>
     <template v-else-if="hasTokensToMove">
       <div v-if="canSubmit" class="flex-grow py-1 text-left text-xs text-slate-500">
         Transaction Fee = {{ currency.symbol }}{{ microgonToMoneyNm(txFee).format('0,0.[000000]') }}
       </div>
-      <button @click="cancel" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Cancel</button>
+      <button @click="close" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Cancel</button>
       <button
         v-if="canSubmit"
         @click="submitTransfer"
@@ -116,7 +116,7 @@
     </template>
     <template v-else>
       <button
-        @click="cancel"
+        @click="close"
         class="w-full cursor-pointer rounded border border-slate-600/60 px-5 py-1 focus:outline-none">
         Close
       </button>
@@ -139,6 +139,8 @@ const moveTokenName = {
   [MoveToken.ARGN]: 'Argon',
   [MoveToken.ARGNOT]: 'Argonot',
 };
+
+const transactionsShownCompleted = new Set<number>();
 </script>
 
 <script setup lang="ts">
@@ -356,7 +358,7 @@ async function updateFee() {
 }
 
 function checkExternalAddress() {
-  const meta = moveCapital.checkAddressType(externalAddress.value);
+  const meta = moveCapital.checkAddressType(externalAddress.value || '');
   isMovingToEthereum.value = meta.isEthereumAddress;
   isMovingToArgon.value = meta.isArgonAddress;
   addressWarning.value = meta.addressWarning;
@@ -461,8 +463,11 @@ function trackTxInfo(txInfo: TransactionInfo) {
   });
 }
 
-function cancel() {
+function close() {
   emit('close');
+  if (pendingTxInfo.value && pendingTxInfo.value.txResult.isFinalized) {
+    transactionsShownCompleted.add(pendingTxInfo.value.tx.id);
+  }
 }
 
 Vue.watch(externalAddress, async () => {
@@ -509,12 +514,15 @@ Vue.watch(moveTo, async () => {
 Vue.onMounted(async () => {
   await transactionTracker.load();
   for (const txInfo of transactionTracker.pendingBlockTxInfosAtLoad) {
+    if (transactionsShownCompleted.has(txInfo.tx.id)) {
+      continue;
+    }
     if (txInfo.tx.extrinsicType === ExtrinsicType.Transfer && txInfo.tx.metadataJson.moveFrom === props.moveFrom) {
       pendingTxInfo.value = txInfo;
       isProcessing.value = true;
       amountToMove.value = txInfo.tx.metadataJson.amount;
       moveTo.value = txInfo.tx.metadataJson.moveTo;
-      externalAddress.value = txInfo.tx.metadataJson.externalAddress;
+      externalAddress.value = txInfo.tx.metadataJson.externalAddress || '';
       checkExternalAddress();
       console.log('Resuming pending transfer: %o', txInfo, isMovingToEthereum.value);
 

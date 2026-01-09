@@ -14,7 +14,7 @@
         :side="props.side"
         class="border-argon-600/30 z-50 min-w-md rounded-md border bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-2xl"
       >
-        <MoveCapitalMoreCapitalCore
+        <MoveCapitalCore
           :isOpen="isOpen"
           :class="props.class"
           :moveFrom="moveFrom"
@@ -32,7 +32,7 @@
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
 import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
-import MoveCapitalMoreCapitalCore from './move-capital/MoreCapitalCore.vue';
+import MoveCapitalCore from './move-capital/MoveCapitalCore.vue';
 import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 
 const props = withDefaults(
