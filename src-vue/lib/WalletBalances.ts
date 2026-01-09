@@ -251,6 +251,29 @@ export class WalletBalances {
     return { asOfBlock };
   }
 
+  public async resyncBlock(blockNumber: number): Promise<void> {
+    const blockHeader = await this.blockWatch.getHeader(blockNumber);
+    const { balances, client, api } = await this.readBalances(this.addresses, blockHeader);
+    const events = await api.query.system.events();
+    const prices = await new CurrencyBase(this.blockWatch.clients).fetchMainchainRates(api);
+    for (let i = 0; i < this.addresses.length; i++) {
+      const wallet = this.wallets[i];
+      const entry: IBalanceChange = balances[i];
+      const filter = new AccountEventsFilter(
+        wallet.address,
+        wallet.type,
+        this.addresses,
+        this.myVault?.createdVault?.vaultId,
+      );
+      filter.process(client, events);
+      entry.extrinsicEvents = filter.eventsByExtrinsic;
+      entry.transfers = filter.transfers;
+      entry.vaultRevenueEvents = filter.vaultRevenueEvents;
+
+      await wallet.saveBalanceTransfers(entry, prices);
+    }
+  }
+
   /**
    * Returns the blocks processed
    */

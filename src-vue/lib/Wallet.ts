@@ -148,6 +148,39 @@ export class Wallet implements IWallet {
     return await db.walletTransfersTable.firstTransferBlockNumber(address);
   }
 
+  public async saveBalanceTransfers(
+    newBalance: IBalanceChange,
+    prices: { USD: bigint; ARGNOT: bigint },
+  ): Promise<void> {
+    const database = await this.db;
+
+    for (const transfer of newBalance.transfers) {
+      await database.walletTransfersTable.insert({
+        walletAddress: this.address,
+        walletName: this.type,
+        amount: transfer.isInbound ? transfer.amount : -transfer.amount,
+        isInternal: transfer.isInternal,
+        currency: transfer.currency,
+        microgonsForArgonot: prices.ARGNOT,
+        microgonsForUsd: prices.USD,
+        extrinsicIndex: transfer.extrinsicIndex,
+        otherParty: transfer.isInbound ? transfer.from : transfer.to,
+        transferType: transfer.transferType,
+        tokenGatewayCommitmentHash: transfer.tokenGatewayCommitmentHash,
+        blockNumber: newBalance.block.blockNumber,
+        blockHash: newBalance.block.blockHash,
+      });
+    }
+    for (const revenueEvent of newBalance.vaultRevenueEvents) {
+      await database.vaultRevenueEventsTable.insert({
+        amount: revenueEvent.amount,
+        source: revenueEvent.source,
+        blockNumber: newBalance.block.blockNumber,
+        blockHash: newBalance.block.blockHash,
+      });
+    }
+  }
+
   public async onBalanceChange(newBalance: IBalanceChange, prices: { USD: bigint; ARGNOT: bigint }): Promise<boolean> {
     const prev = this.latestBalanceChange;
     let hasChange = true;
@@ -192,31 +225,7 @@ export class Wallet implements IWallet {
       blockHash: newBalance.block.blockHash,
       isFinalized: newBalance.block.isFinalized,
     });
-    for (const transfer of newBalance.transfers) {
-      await database.walletTransfersTable.insert({
-        walletAddress: this.address,
-        walletName: this.type,
-        amount: transfer.isInbound ? transfer.amount : -transfer.amount,
-        isInternal: transfer.isInternal,
-        currency: transfer.currency,
-        microgonsForArgonot: prices.ARGNOT,
-        microgonsForUsd: prices.USD,
-        extrinsicIndex: transfer.extrinsicIndex,
-        otherParty: transfer.isInbound ? transfer.from : transfer.to,
-        transferType: transfer.transferType,
-        tokenGatewayCommitmentHash: transfer.tokenGatewayCommitmentHash,
-        blockNumber: newBalance.block.blockNumber,
-        blockHash: newBalance.block.blockHash,
-      });
-    }
-    for (const revenueEvent of newBalance.vaultRevenueEvents) {
-      await database.vaultRevenueEventsTable.insert({
-        amount: revenueEvent.amount,
-        source: revenueEvent.source,
-        blockNumber: newBalance.block.blockNumber,
-        blockHash: newBalance.block.blockHash,
-      });
-    }
+    await this.saveBalanceTransfers(newBalance, prices);
     return !!didWrite;
   }
 }

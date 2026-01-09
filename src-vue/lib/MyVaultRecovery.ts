@@ -194,12 +194,17 @@ export class MyVaultRecovery {
 
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
     const table = await bitcoinLocksStore.getTable();
-    let totalAmountMinted = 0n;
 
     for (const [utxoId, utxoMaybe] of myBitcoins) {
       const utxo = utxoMaybe.unwrap();
       if (utxo.ownerAccount.toHuman() === vaultingAddress) {
         const ownerPubkey = utxo.ownerPubkey;
+
+        const existingInDb = await table.getByUtxoId(utxoId.args[0].toNumber());
+        if (existingInDb) {
+          records.push({ ...existingInDb, initializedAtBlockNumber: existingInDb.ratchets[0].blockHeight });
+          continue;
+        }
 
         const thisHdPath = await findPubkey(ownerPubkey);
         if (!thisHdPath) {
@@ -247,7 +252,6 @@ export class MyVaultRecovery {
           createdAtArgonBlockHeight: addedAtBlockNumber,
           finalFee: bitcoinTxFee,
         });
-        totalAmountMinted += record.ratchets.reduce((sum, r) => sum + r.mintAmount - r.mintPending, 0n);
 
         records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
       }

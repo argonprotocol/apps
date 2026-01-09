@@ -1,29 +1,21 @@
 <template>
-  <div class="relative flex flex-row items-center font-mono whitespace-nowrap">
-    <Motion :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :transition="{ duration: 0.5 }" class="pr-1">
-      <Motion
-        :initial="{ width: 0 }"
-        :animate="{ width: 'auto' }"
-        :transition="{
-          duration: 1.5,
-          ease: 'easeInOut',
-          delay: 0.2,
-        }"
-        class="overflow-hidden">
-        <label class="cursor-text select-auto">{{ typedText }}</label>
-      </Motion>
-    </Motion>
-    <div class="grow overflow-hidden">
-      <div ref="dotsElement" class="inline-block text-right">{{ dots }}</div>
+  <div class="relative flex flex-row items-center font-mono">
+    <div class="flex-grow" :class="[isSuccess || isFailure ? 'overflow-hidden pr-2' : '']">
+      <label class="cursor-text select-auto" :class="[isSuccess || isFailure ? 'text-ellipsis whitespace-nowrap' : '']">
+        {{ typedText }}
+        <span class="dots">{{ dots }}</span>
+      </label>
     </div>
-    <label v-if="isSuccess" class="top-0 cursor-text pl-2 font-bold text-green-600 select-auto">SUCCESS</label>
+    <label v-if="isNotFound" class="top-0 cursor-text pl-2 font-bold whitespace-nowrap text-slate-800/50 select-auto">
+      NOT FOUND
+    </label>
+    <label v-else-if="isSuccess" class="top-0 cursor-text pl-2 font-bold text-green-600 select-auto">SUCCESS</label>
     <label v-else-if="isFailure" class="top-0 cursor-text pl-2 font-bold text-red-600 select-auto">FAILURE</label>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { Motion } from 'motion-v';
 import { createDeferred } from '@argonprotocol/apps-core';
 
 const dots = Vue.ref('');
@@ -91,29 +83,22 @@ function animateDots() {
 }
 
 async function animateDotBlink() {
-  let isShowing = false;
-
   await new Promise(resolve => setTimeout(resolve, 100));
-  dots.value = dots.value.slice(0, -8);
 
   animationInterval = setInterval(() => {
-    if (isShowing) {
-      dots.value = dots.value.slice(0, -8);
-    } else {
-      dots.value += '........';
-    }
-    isShowing = !isShowing;
+    dots.value += '. ';
   }, 200);
 }
 
 function stopAnimation() {
   clearInterval(animationInterval);
-  dots.value = '.'.repeat(50);
+  dots.value = '. '.repeat(50);
 }
 
 const isFailure = Vue.inject('diagnosticIsFailure') as Vue.Ref<boolean>;
 const isSuccess = Vue.inject('diagnosticIsSuccess') as Vue.Ref<boolean>;
 const isRunning = Vue.inject('diagnosticIsRunning') as Vue.Ref<boolean>;
+const isNotFound = Vue.inject('diagnosticIsNotFound') as Vue.Ref<boolean>;
 
 // Inject registration functions
 const registerChild = Vue.inject('registerDiagnosticChild') as (promise: Promise<void>) => void;
@@ -145,3 +130,9 @@ Vue.watch(
   { immediate: true },
 );
 </script>
+
+<style>
+.dots {
+  letter-spacing: -0.4em;
+}
+</style>
