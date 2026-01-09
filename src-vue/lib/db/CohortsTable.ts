@@ -117,8 +117,8 @@ export class CohortsTable extends BaseTable {
   }
 
   public async fetchActiveCohorts(currentFrameId: number): Promise<ICohortRecord[]> {
-    const records = await this.db.select<any[]>('SELECT * FROM Cohorts WHERE seatCountWon > 0 AND id >= ?', [
-      currentFrameId - 9,
+    const records = await this.db.select<any[]>('SELECT * FROM Cohorts WHERE seatCountWon > 0 AND id > ?', [
+      currentFrameId - 10,
     ]);
     return convertSqliteBigInts(records, this.bigIntFields);
   }

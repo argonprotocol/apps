@@ -177,6 +177,23 @@ export class FramesTable extends BaseTable {
     return frames.map(frame => frame.id);
   }
 
+  public async fetchArgonotPrices(currentFrameId: number): Promise<{ [frameId: number]: bigint }> {
+    const rawRecords = await this.db.select<any[]>(
+      `SELECT 
+      id, microgonToArgonot
+      FROM Frames WHERE id > ? ORDER BY id ASC
+    `,
+      [currentFrameId - 10],
+    );
+
+    const records = convertFromSqliteFields<{ id: number; microgonToArgonot: bigint[] }[]>(rawRecords, this.fieldTypes);
+    const pricesByFrameId: { [frameId: number]: bigint } = {};
+    for (const record of records) {
+      pricesByFrameId[record.id] = record.microgonToArgonot[record.microgonToArgonot.length - 1] || 0n;
+    }
+    return pricesByFrameId;
+  }
+
   public async fetchLastYear(
     currency: Currency,
     miningFrames: MiningFrames,
