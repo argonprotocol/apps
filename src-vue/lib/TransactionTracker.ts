@@ -14,7 +14,7 @@ import {
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { BlockWatch, IBlockHeaderInfo, TransactionEvents, createDeferred, IDeferred } from '@argonprotocol/apps-core';
+import { BlockWatch, createDeferred, IBlockHeaderInfo, IDeferred, TransactionEvents } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -95,7 +95,10 @@ export class TransactionTracker {
               client.createType('GenericEvent', hexToU8a(raw)),
             );
           } catch (error) {
-            console.error('Error restoring events for transaction', tx.extrinsicHash, error);
+            console.error(
+              `[TransactionTracker] Error restoring events for transaction #${tx.id} (${tx.extrinsicType})`,
+              error,
+            );
           }
         }
 
@@ -124,7 +127,7 @@ export class TransactionTracker {
       }
       this.#waitForLoad.resolve();
     } catch (error) {
-      console.error('Error restoring transactions', error);
+      console.error('[TransactionTracker] Error restoring transactions', error);
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;
@@ -142,7 +145,7 @@ export class TransactionTracker {
     const client = await getMainchainClient(false);
     const txSubmitter = new TxSubmitter(client, tx, signer);
 
-    console.log('SUBMITTING TRANSACTION', extrinsicType);
+    console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
     const txResult = await txSubmitter.submit({
       ...args,
       disableAutomaticTxTracking: true,
@@ -211,7 +214,7 @@ export class TransactionTracker {
           await this.updatePendingStatuses(best.at(-1)!);
         }
       } catch (error) {
-        console.error('Error watching for transaction updates:', error);
+        console.error('[TransactionTracker] Error watching for transaction updates:', error);
       }
     });
   }
@@ -250,7 +253,7 @@ export class TransactionTracker {
       const blockTime = blockHeader.blockTime;
       const client = await this.blockWatch.getRpcClient(blockHeight);
       const block = await this.getBlock(client, blockHash);
-      console.log(`Searching block with ${block.block.extrinsics.length} extrinsics`, {
+      console.log(`[TransactionTracker] Searching block with ${block.block.extrinsics.length} extrinsics`, {
         blockHeight,
         blockHash,
         submittedAtBlockHeight,
@@ -265,7 +268,7 @@ export class TransactionTracker {
             events,
           });
 
-          console.log(`Found extrinsic`, {
+          console.log(`[TransactionTracker] Found extrinsic`, {
             blockHeight,
             blockHash,
             extrinsicHash,
@@ -317,7 +320,12 @@ export class TransactionTracker {
           const originalBlockHash = tx.blockHash;
           if (originalBlockHash === findTransactionResult.blockHash) {
             // no change
-            console.log('No change in block', { info: txInfo, findTransactionResult });
+            const { transactionEvents, ...txResult } = findTransactionResult;
+            console.log('[TransactionTracker] No change in block', {
+              id: tx.id,
+              ...txResult,
+              transactionEvents: transactionEvents.map(x => x.toHuman()),
+            });
             continue;
           }
           const {
@@ -353,18 +361,18 @@ export class TransactionTracker {
             txResult.setFinalized();
           }
         } else {
-          console.log('No transaction found as of block', { bestBlockNumber });
+          console.log('[TransactionTracker] No transaction found as of block', { bestBlockNumber, id: tx.id });
 
           if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
             // too old, stop checking
-            console.log('Marking transaction expired:', tx.extrinsicHash);
+            console.log(`[TransactionTracker] Marking transaction #${tx.id} expired:`, tx.extrinsicHash);
             txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
             txResult.setFinalized();
             await table.markExpiredWaitingForBlock(tx);
           }
         }
       } catch (error) {
-        console.error('Error updating pending transaction status:', error);
+        console.error(`[TransactionTracker] Error updating pending transaction #${tx.id} status:`, error);
       }
     }
     for (const txInfo of this.data.txInfos) {
