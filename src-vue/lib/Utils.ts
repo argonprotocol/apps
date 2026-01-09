@@ -131,7 +131,6 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
         } else {
           obj[fieldName] = new Date(value);
         }
-        obj[fieldName] = new Date(value);
       } else if (type === 'uint8array') {
         obj[fieldName] = Uint8Array.from(value);
       } else {
