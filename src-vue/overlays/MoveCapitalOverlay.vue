@@ -5,7 +5,7 @@
       <div class="text-2xl font-bold grow">Move Your Funds</div>
     </template>
     <div class="px-6 py-4 text-sm font-medium text-gray-700">
-      <MoveCapitalMoreCapitalCore :isOpen="isOpen" @close="closeOverlay" />
+      <MoveCapitalCore :isOpen="isOpen" @close="closeOverlay" />
     </div>
   </Overlay>
 </template>
@@ -13,7 +13,7 @@
 import * as Vue from 'vue';
 import Overlay from './Overlay.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import MoveCapitalMoreCapitalCore from './move-capital/MoreCapitalCore.vue';
+import MoveCapitalCore from './move-capital/MoveCapitalCore.vue';
 
 const isOpen = Vue.ref(false);
 

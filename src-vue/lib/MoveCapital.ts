@@ -104,7 +104,7 @@ export class MoveCapital {
     isEthereumAddress: boolean;
     addressWarning: string;
   } {
-    const trimmedAddress = address.trim();
+    const trimmedAddress = (address || '').trim();
     if (!trimmedAddress) return { isArgonAddress: false, isEthereumAddress: false, addressWarning: '' };
 
     const isArgonAddress = isValidArgonAccountAddress(trimmedAddress);
