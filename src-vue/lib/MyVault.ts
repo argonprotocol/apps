@@ -1,6 +1,7 @@
 import {
   BitcoinLock,
   FIXED_U128_DECIMALS,
+  FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   ITxProgressCallback,
   PalletVaultsVaultFrameRevenue,
   PERMILL_DECIMALS,
@@ -11,8 +12,6 @@ import {
   u8aToHex,
   Vault,
   Vec,
-  ArgonRuntimeRuntimeHoldReason,
-  FrameSupportTokensMiscIdAmountRuntimeHoldReason,
 } from '@argonprotocol/mainchain';
 import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
@@ -27,7 +26,6 @@ import {
   MoveFrom,
   MoveTo,
   NetworkConfig,
-  percentOf,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
@@ -670,14 +668,12 @@ export class MyVault {
       throw new Error('VaultCreated event not found in transaction events');
     }
     const vault = await Vault.get(api as any, vaultId);
-    this.data.metadata = await table.insert(
-      vault.vaultId,
-      tx.metadataJson.masterXpubPath,
-      blockNumber.toNumber(),
-      (txResult.finalFee ?? 0n) + (txResult.finalFeeTip ?? 0n),
-    );
-    this.data.createdVault = vault;
-    this.vaults.vaultsById[vault.vaultId] = vault;
+    await this.recordVault({
+      vault,
+      createBlockNumber: blockNumber.toNumber(),
+      txFee: txResult.finalFee ?? 0n,
+      masterXpubPath: tx.metadataJson.masterXpubPath,
+    });
     postProcessor.resolve();
     return vault;
   }
@@ -751,6 +747,29 @@ export class MyVault {
     return prebondedToPool.isSome ? prebondedToPool.unwrap().maxAmountPerFrame.toBigInt() * 10n : activePoolFunds;
   }
 
+  public async recordVault(data: {
+    vault: Vault;
+    createBlockNumber: number;
+    txFee: bigint;
+    masterXpubPath: string;
+  }): Promise<void> {
+    const { vault, createBlockNumber, masterXpubPath, txFee } = data;
+    const table = await this.getTable();
+    this.data.metadata = await table.insert(vault.vaultId, masterXpubPath, createBlockNumber, txFee);
+    this.data.createdVault = vault;
+    this.vaults.vaultsById[vault.vaultId] = vault;
+  }
+
+  public async recordPersonalBitcoins(bitcoins: IBitcoinLockRecord[]): Promise<void> {
+    if (bitcoins.length === 0) {
+      return;
+    }
+    const bitcoin = bitcoins[0];
+    this.metadata!.personalUtxoId = bitcoin.utxoId;
+    const table = await this.getTable();
+    await table.save(this.metadata!);
+  }
+
   public async recoverAccountVault(args: {
     onProgress: (progress: number) => void;
   }): Promise<IVaultingRules | undefined> {
@@ -775,16 +794,7 @@ export class MyVault {
 
     const vault = foundVault.vault;
     const vaultId = vault.vaultId;
-    const table = await this.getTable();
-
-    this.data.metadata = await table.insert(
-      vault.vaultId,
-      foundVault.masterXpubPath,
-      foundVault.createBlockNumber,
-      foundVault.txFee,
-    );
-    this.data.createdVault = vault;
-    this.vaults.vaultsById[vault.vaultId] = vault;
+    await this.recordVault(foundVault);
 
     const prebond = await MyVaultRecovery.findPrebonded({
       client,
@@ -810,20 +820,11 @@ export class MyVault {
         vaultSetupBlockNumber: prebond.blockNumber,
         vault,
       });
-
-      if (myBitcoins.length) {
-        bitcoin = myBitcoins[0];
-        this.metadata!.personalUtxoId = bitcoin.utxoId;
-        const availableBalance = await client.query.system
-          .account(vault.operatorAccountId)
-          .then(x => x.data.free.toBigInt());
-        let totalAmountMinted = 0n;
-        for (const btc of myBitcoins) {
-          totalAmountMinted += btc.ratchets.reduce((sum, r) => sum + (r.mintAmount - r.mintPending), 0n);
-        }
-      }
+      bitcoin = myBitcoins[0];
+      await this.recordPersonalBitcoins(myBitcoins);
     }
 
+    const table = await this.getTable();
     await table.save(this.metadata!);
     onProgress(100);
     await this.load(true);

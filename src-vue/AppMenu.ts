@@ -151,13 +151,19 @@ export async function createMenu() {
     text: 'Troubleshooting',
     items: [
       {
+        id: 'find-data',
+        text: 'Find Missing Data',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'find-missing-data' }),
+      },
+      {
         id: 'data-and-log-files',
-        text: 'Data and Logging',
+        text: 'View Data and Logs',
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'data-and-log-files' }),
       },
       {
         id: 'server-diagnostics',
         text: 'Server Diagnostics',
+        enabled: config.isLoaded && config.isMiningMachineCreated,
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'server-diagnostics' }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
