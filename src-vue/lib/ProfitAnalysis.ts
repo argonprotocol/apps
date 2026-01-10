@@ -35,7 +35,7 @@ export class ProfitAnalysis {
       treasuryPoolCapitalByFrame[frameId] = { capitalRaised: 0n, payout: 0n };
       frameIds.push(frameId);
     }
-    console.log('LOADING CHART DATA: ', this.currentFrameId, frameIds);
+    console.log('LOADING CHART DATA: ', this.currentFrameId);
 
     for (const vaultStats of Object.values(this.vaults.stats?.vaultsById || {})) {
       for (const change of vaultStats.changesByFrame || []) {
