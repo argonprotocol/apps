@@ -492,7 +492,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new()
-                .app_name("Argon Management Console")
+                .app_name("Argonot Operator")
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().target(updater_target).build())

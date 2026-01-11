@@ -2,11 +2,11 @@
   "identifier": "com.argon.apps.local",
   "bundle": {
     "icon": [
-      "icons/local/docknet/32x32.png",
-      "icons/local/docknet/128x128.png",
-      "icons/local/docknet/128x128@2x.png",
-      "icons/local/docknet/icon.icns",
-      "icons/local/docknet/icon.ico"
+      "argonot-icons/local/docknet/32x32.png",
+      "argonot-icons/local/docknet/128x128.png",
+      "argonot-icons/local/docknet/128x128@2x.png",
+      "argonot-icons/local/docknet/icon.icns",
+      "argonot-icons/local/docknet/icon.ico"
     ]
   },
   "app": {

@@ -2,11 +2,11 @@
   "identifier": "com.argon.apps.local",
   "bundle": {
     "icon": [
-      "icons/local/testnet/32x32.png",
-      "icons/local/testnet/128x128.png",
-      "icons/local/testnet/128x128@2x.png",
-      "icons/local/testnet/icon.icns",
-      "icons/local/testnet/icon.ico"
+      "argonot-icons/local/testnet/32x32.png",
+      "argonot-icons/local/testnet/128x128.png",
+      "argonot-icons/local/testnet/128x128@2x.png",
+      "argonot-icons/local/testnet/icon.icns",
+      "argonot-icons/local/testnet/icon.ico"
     ]
   }
 }

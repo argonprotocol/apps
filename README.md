@@ -1,13 +1,13 @@
-# Argon Management Console
+# Argon Apps
 
-Management Console is a desktop application that helps you interact with the [Argon](https://argon.network) mainchain.
+This repo contains two desktop applications that helps you interact with the [Argon](https://argon.network) mainchain.
 Among the core activities are:
 
-- **Mining**: Argon is a proof-of-authorized-work blockchain. Use Management Console to mine Argon tokens.
+- **Mining**: Argon is a proof-of-authorized-work blockchain. Use the Argonot Operator app to mine Argon tokens.
+- **Vaultingt** Run a vault. Earn interest by collateralizing Bitcoin Locks.
 - **Liquid Locking** Secure Bitcoins into Vaults to unlock the equivalent Argon liquidity.
-- **Run a Vault** Run a vault. Earn interest by collateralizing Bitcoin Locks.
 
-![Management Console](docs/images/home.png)
+![Argonot Operator](docs/images/home.png)
 
 ## Features
 
@@ -41,7 +41,7 @@ You can run the docker-compose file that's in the mainchain repository to access
 ```bash
 yarn docker:up
 ```
-.. This will start bitcoin, a miner, a pricing oracle, and an "esplora" explorer that Management Console uses to track your bitcoin transactions.
+.. This will start bitcoin, a miner, a pricing oracle, and an "esplora" explorer that Argonot Operator uses to track your bitcoin transactions.
 
 You will need the following commands to run against the cli locally:
 
@@ -60,7 +60,7 @@ yarn docker:btc gettransaction 020000000001016aa1e38d96312ee99386a13c443bcc38e2c
 
 ```
 
-Now you'll want to run Management Console with the environment variable `ARGON_NETWORK_NAME=dev-docker` to connect to the local docker instance.
+Now you'll want to run Argonot Operator with the environment variable `ARGON_NETWORK_NAME=dev-docker` to connect to the local docker instance.
 
 ## Installation
 
@@ -74,7 +74,7 @@ Downloads are available for each "release" on the [releases page](./releases/lat
 
 1. Download the latest "dmg" installer from the [releases page](./releases/latest).
 2. Click to run the installer once downloaded
-    - Drag the `Argon Management Console` app to your Applications folder
+    - Drag the app file to your Applications folder
       <img src="docs/images/mac-install.png" alt="Installer" width="100%"/>
 3. Try to open the app once (it will be blocked and prompt you to move it to the trash)
     - Click `Done`
@@ -83,13 +83,13 @@ Downloads are available for each "release" on the [releases page](./releases/lat
 4. Open the "System Settings" app
 5. Click `Security & Privacy`
 6. Navigate down to `Security`
-7. Click "Open Anyway" next to the message about Argon Management Console
+7. Click "Open Anyway" next to the message about the Argonot Operator (or Argon Investor Wallet, depending on which app you're installing)
    <br/>
    <img src="docs/images/mac-openanyway.png" alt="Open anyway" width="80%"/>
 8. Click "Open Anyway" on the pop-up
    <br/>
    <img src="docs/images/mac-open.png" alt="Open" width="30%"/>
-9. You can now open `Argon Management Console` from the Applications folder (or a link on your Dock).
+9. You can now open the app from the Applications folder (or a link on your Dock).
 
 ### Windows
 

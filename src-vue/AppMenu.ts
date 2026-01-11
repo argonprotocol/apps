@@ -24,7 +24,7 @@ export async function createMenu() {
   const tour = useTour();
 
   const mainMenu = await Submenu.new({
-    text: 'Management Console',
+    text: 'Argonot Operator',
     items: [
       {
         id: 'about',
@@ -50,7 +50,7 @@ export async function createMenu() {
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'quit',
-        text: 'Quit Management Console',
+        text: 'Quit Argonot Operator',
         accelerator: 'CmdOrCtrl+Q',
         action: () => void tauriExit(),
       },
