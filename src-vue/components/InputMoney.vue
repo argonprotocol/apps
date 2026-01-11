@@ -13,6 +13,7 @@
     :options="props.options"
     :model-value="modelValue"
     @input="handleInput"
+    @change="handleChange"
     @update:model-value="handleUpdate" />
 </template>
 
@@ -50,8 +51,9 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: bigint): void;
   (e: 'input', value: bigint): void;
+  (e: 'change', value: bigint): void;
+  (e: 'update:modelValue', value: bigint): void;
 }>();
 
 const prefix = Vue.computed(() => {
@@ -85,6 +87,11 @@ const dragByMin = Vue.computed<number | undefined>(() => {
 const handleUpdate = (value: number) => {
   const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
   emit('update:modelValue', bigNumberToBigInt(valueBn));
+};
+
+const handleChange = (value: number) => {
+  const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
+  emit('change', bigNumberToBigInt(valueBn));
 };
 
 const handleInput = (value: number) => {

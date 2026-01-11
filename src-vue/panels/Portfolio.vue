@@ -16,7 +16,7 @@
           "
         >
           <TabsRoot
-            class="flex h-full w-full flex-col"
+            class="flex flex-col h-full w-full"
             :model-value="selectedTab"
             @update:modelValue="selectedTab = $event"
           >
@@ -61,21 +61,11 @@
               </div>
             </div>
 
-            <TabsContent :value="PortfolioTab.Overview">
-              <Overview @changeTab="changeTab" v-if="selectedTab === PortfolioTab.Overview" />
-            </TabsContent>
-            <TabsContent :value="PortfolioTab.AssetBreakdown">
-              <AssetBreakdown @changeTab="changeTab" v-if="selectedTab === PortfolioTab.AssetBreakdown" />
-            </TabsContent>
-            <TabsContent :value="PortfolioTab.ProfitAnalysis">
-              <ProfitAnalysis @changeTab="changeTab" v-if="selectedTab === PortfolioTab.ProfitAnalysis" />
-            </TabsContent>
-            <TabsContent :value="PortfolioTab.GrowthProjections">
-              <GrowthProjections @changeTab="changeTab" v-if="selectedTab === PortfolioTab.GrowthProjections" />
-            </TabsContent>
-            <TabsContent :value="PortfolioTab.TransactionHistory">
-              <TransactionHistory @changeTab="changeTab" v-if="selectedTab === PortfolioTab.TransactionHistory" />
-            </TabsContent>
+            <TabsContent :value="PortfolioTab.Overview" :as="Overview" @changeTab="changeTab" />
+            <TabsContent :value="PortfolioTab.AssetBreakdown" :as="AssetBreakdown" @changeTab="changeTab" />
+            <TabsContent :value="PortfolioTab.ProfitAnalysis" :as="ProfitAnalysis" @changeTab="changeTab" />
+            <TabsContent :value="PortfolioTab.GrowthProjections" :as="GrowthProjections" @changeTab="changeTab" />
+            <TabsContent :value="PortfolioTab.TransactionHistory" :as="TransactionHistory" @changeTab="changeTab" />
           </TabsRoot>
         </div>
       </DialogContent>
@@ -109,12 +99,11 @@ function changeTab(newTab: PortfolioTab) {
   selectedTab.value = newTab;
 }
 
-basicEmitter.on('openPortfolioPanel', async (newTab: PortfolioTab) => {
+basicEmitter.on('openPortfolioPanel', async (tab: PortfolioTab) => {
   if (isOpen.value) return;
   isLoaded.value = false;
 
-  selectedTab.value = newTab;
-
+  selectedTab.value = tab;
   isLoaded.value = true;
   isOpen.value = true;
 });

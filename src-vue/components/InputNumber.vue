@@ -99,6 +99,7 @@ const inputValueInserted = Vue.ref('');
 
 const emit = defineEmits<{
   (e: 'input', value: number): void;
+  (e: 'change', value: number): void;
   (e: 'update:modelValue', value: number): void;
 }>();
 
@@ -159,6 +160,7 @@ function updateInputValue(
   }
 
   emit('update:modelValue', boundedInputValue);
+  emit('change', boundedInputValue);
   if (isManualInput) {
     emit('input', boundedInputValue);
   }

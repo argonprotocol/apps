@@ -32,7 +32,6 @@
         </SelectScrollUpButton>
 
         <SelectViewport class="p-[5px]">
-          <SelectSeparator class="h-px w-full bg-gray-300" />
           <template
             v-for="(option, index) in props.options"
             :key="index"
@@ -112,6 +111,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
+  (e: 'change', value: string): void;
   (e: 'update:modelValue', value: string): void;
 }>();
 
@@ -128,6 +128,7 @@ const value = Vue.computed({
     if (value === undefined) {
       value = props.options[0].value;
     }
+    emit('change', value);
     emit('update:modelValue', value);
   },
 });

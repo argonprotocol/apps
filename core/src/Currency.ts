@@ -68,7 +68,7 @@ export class Currency {
   public microgonsPer: IMicrogonsPer = defaultMicrogonsPer;
 
   public usdTarget = 0;
-  public usdTargetOffset = 0;
+  public targetOffset = 0;
 
   public recordsByKey: Record<ICurrencyKey, ICurrencyRecord> = {
     [UnitOfMeasurement.ARGN]: { key: UnitOfMeasurement.ARGN, symbol: '₳', name: 'Argon' },
@@ -103,8 +103,15 @@ export class Currency {
     }
   }
 
-  public adjustByTargetOffset(value: number): number {
-    return value * (1 + this.usdTargetOffset);
+  public adjustByTargetOffset(value: bigint): bigint;
+  public adjustByTargetOffset(value: number): number;
+  public adjustByTargetOffset(value: number | bigint): number | bigint {
+    const factorBn = BigNumber(this.targetOffset).plus(1);
+    const adjustedValueBn = BigNumber(value).multipliedBy(factorBn);
+    if (typeof value === 'bigint') {
+      return bigNumberToBigInt(adjustedValueBn);
+    }
+    return adjustedValueBn.toNumber();
   }
 
   public convertMicrogonTo(microgons: bigint, to: UnitOfMeasurement.Microgon): bigint;
@@ -217,7 +224,7 @@ export class Currency {
   private updateTargetOffset(argonUsdPrice: BigNumber | undefined, argonUsdTargetPrice: BigNumber | undefined): void {
     const targetOffset = this.calculateTargetOffset(argonUsdPrice, argonUsdTargetPrice);
     if (targetOffset === null) return;
-    this.usdTargetOffset = targetOffset;
+    this.targetOffset = targetOffset;
     this.usdTarget = argonUsdTargetPrice?.toNumber() ?? 0;
   }
 
