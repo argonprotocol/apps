@@ -344,7 +344,8 @@ const moveToOptions = Vue.computed(() => {
 
 const canSubmit = Vue.computed(() => {
   return (
-    (amountToMove.value > 10_000n && amountToMove.value <= maxAmountToMove.value) &&
+    amountToMove.value > 10_000n &&
+    amountToMove.value <= maxAmountToMove.value &&
     !isProcessing.value &&
     !pendingTxInfo.value &&
     comingSoon.value === ''
