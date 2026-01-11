@@ -56,7 +56,7 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockIsProcessingOnBitcoin" @click="showLockingOverlay = true" class="cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockIsProcessingOnBitcoin" @click="showLockingOverlay = true" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">

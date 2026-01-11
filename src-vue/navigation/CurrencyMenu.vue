@@ -149,7 +149,7 @@ function setCurrencyKey(key: ICurrencyKey) {
 }
 
 function openPortfolioPanel(): void {
-  basicEmitter.emit('openPortfolioPanel', PortfolioTab.AssetBreakdown);
+  basicEmitter.emit('openPortfolioPanel', PortfolioTab.Overview);
 }
 </script>
 

@@ -1,59 +1,78 @@
 <!-- prettier-ignore -->
 <template>
-  <div v-if="!hasTokensToMove && !isProcessing" class="flex flex-col">
-    <div class="text-gray-500">
-      There are no {{ moveTokenName[moveToken].toLowerCase() }}s ready to move from {{ moveFromName[moveFrom] }}.
+  <div v-if="!isProcessing" class="flex flex-col justify-between">
+    <div v-if="!hasTokensToMove" class="text-red-500 flex flex-row items-center border-b border-slate-400/20 pb-3">
+      <AlertIcon class="w-5 mr-2" />
+      <div></div>
+      There are no
+      {{ (moveTokenName[moveToken || ''] || '').toLowerCase() }}s to move from {{ moveFromName[moveFrom].toLowerCase() }}.
     </div>
-  </div>
+    <form :class="!hasTokensToMove && !showInputMenus ? 'opacity-50 pointer-events-none' : ''">
+      <div class="mt-3 flex flex-row items-end space-x-2">
+        <div class="grow">
+          <div class="mb-1">Move From</div>
+          <InputMenu
+            v-if="showInputMenus"
+            v-model="moveFrom"
+            @change="updatedMoveFrom"
+            :options="moveFromOptions"
+            :selectFirst="true"
+            class="w-full"
+          />
+          <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
+            {{ moveFromName[moveFrom] }}
+          </div>
+        </div>
+        <div class="grow">
+          <div class="mb-1">Amount</div>
+          <InputToken
+            v-model="amountToMove"
+            @change="updatedAmountToMove"
+            :min="0n"
+            :max="maxAmountToMove"
+            :suffix="showInputMenus ? '' : ` ${moveToken}`"
+            :disabled="pendingTxInfo !== null || !canSubmit"
+            class="w-full"
+          />
+        </div>
+        <div v-if="showInputMenus">
+          <InputMenu
+            v-model="moveToken"
+            @change="updatedMoveToken"
+            :options="moveTokenOptions"
+            :selectFirst="true"
+          />
+        </div>
+      </div>
 
-  <div v-else-if="!isProcessing" class="flex flex-col justify-between">
-    <div class="mt-3 flex flex-row items-start space-x-2">
-      <div class="grow">
-        <div class="mb-1">Move From</div>
-        <div class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-          {{ moveFromName[moveFrom] }}
+      <div class="mt-3 mb-1">Move To</div>
+      <InputMenu v-if="canChangeDestination" v-model="moveTo" :options="moveToOptions" :selectFirst="true" class="w-full" />
+      <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
+        {{ moveTo }} Account
+      </div>
+      <template v-if="moveTo === MoveTo.External">
+        <input
+          v-model="externalAddress"
+          :disabled="pendingTxInfo !== null"
+          type="text"
+          class="mt-3 w-full rounded-md border border-slate-900/40 px-2 py-1.5 font-mono"
+          placeholder="Address of Account" />
+        <div class="mt-2 flex w-full justify-center gap-x-1 text-xs text-slate-500">
+          <div>Send to an</div>
+          <div class="" :class="[isMovingToEthereum ? 'text-argon-600 font-bold' : 'font-semibold text-slate-800']">
+            Ethereum
+          </div>
+          <div>or</div>
+          <div class="" :class="[isMovingToArgon ? 'text-argon-600 font-bold' : 'font-semibold text-slate-800']">
+            Argon
+          </div>
+          <div>address</div>
         </div>
-      </div>
-      <div class="grow">
-        <div class="mb-1">Amount</div>
-        <InputToken
-          :min="0n"
-          v-model="amountToMove"
-          @update:modelValue="updateMoveAmount"
-          class="w-full"
-          :max="maxAmount"
-          :suffix="` ${moveToken}`"
-          :disabled="pendingTxInfo !== null || !canSubmit" />
-      </div>
-    </div>
-
-    <div class="mt-3 mb-1">Move To</div>
-    <InputMenu v-if="canChangeDestination" v-model="moveTo" :options="moveOptions" :selectFirst="true" class="w-full" />
-    <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-      {{ moveTo }} Account
-    </div>
-    <template v-if="moveTo === MoveTo.External">
-      <input
-        v-model="externalAddress"
-        :disabled="pendingTxInfo !== null"
-        type="text"
-        class="mt-3 w-full rounded-md border border-slate-900/40 px-2 py-1.5 font-mono"
-        placeholder="Address of Account" />
-      <div class="mt-2 flex w-full justify-center gap-x-1 text-xs text-slate-500">
-        <div>Send to an</div>
-        <div class="" :class="[isMovingToEthereum ? 'text-argon-600 font-bold' : 'font-semibold text-slate-800']">
-          Ethereum
+        <div v-if="addressWarning" class="mt-5 w-full rounded-md border p-2 text-yellow-600">
+          {{ addressWarning }}
         </div>
-        <div>or</div>
-        <div class="" :class="[isMovingToArgon ? 'text-argon-600 font-bold' : 'font-semibold text-slate-800']">
-          Argon
-        </div>
-        <div>address</div>
-      </div>
-      <div v-if="addressWarning" class="mt-5 w-full rounded-md border p-2 text-yellow-600">
-        {{ addressWarning }}
-      </div>
-    </template>
+      </template>
+    </form>
   </div>
   <div v-if="transactionError" class="mt-5 min-h-5 w-full rounded-md border border-red-200 bg-red-50 p-2 text-red-600">
     <strong>Error</strong>
@@ -85,35 +104,35 @@
       once Hyperbridge has confirmed the request.
     </template>
   </div>
-  <div class="mt-5 flex flex-row items-start justify-end space-x-2 pt-3">
-    <template v-if="isProcessing">
-      <div class="w-2/3 flex-grow">
+  <div class="mt-5  text-md">
+    <div v-if="isProcessing" class="flex flex-row items-start justify-end space-x-2">
+      <div class="w-2/3 flex-grow pr-1">
         <ProgressBar :progress="progressPct" :showLabel="true" class="h-7 w-full" />
         <div class="mt-2 text-center font-light text-gray-500">
           {{ progressLabel }}
         </div>
       </div>
-      <button @click="close" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Close</button>
-    </template>
-    <template v-else-if="hasTokensToMove">
-      <div v-if="canSubmit" class="flex-grow py-1 text-left text-xs text-slate-500">
+      <button @click="close" class="cursor-pointer rounded-md border border-slate-600/60 px-5 py-1">Close</button>
+    </div>
+    <div v-else-if="hasTokensToMove || showInputMenus" class="flex flex-row items-center justify-end space-x-2 pt-3 border-t border-slate-400/20">
+      <div v-if="canSubmit && hasTokensToMove" class="flex-grow py-1 text-left text-xs text-slate-500">
         Transaction Fee = {{ currency.symbol }}{{ microgonToMoneyNm(txFee).format('0,0.[000000]') }}
       </div>
-      <button @click="close" class="cursor-pointer rounded border border-slate-600/60 px-5 py-1">Cancel</button>
+      <button @click="close" class="cursor-pointer rounded-md border border-slate-600/60 px-7 py-1.5">Cancel</button>
       <button
         v-if="canSubmit"
         @click="submitTransfer"
-        :disabled="!canSubmit || !canAfford"
         :class="[
-          canSubmit && canAfford
-            ? 'border-argon-700 bg-argon-600 hover:bg-argon-700 cursor-pointer'
-            : 'border-argon-700/50 bg-argon-600/20 hover:bg-argon-700/20 cursor-default',
+          !canSubmit || !canAfford || !hasTokensToMove
+            ? 'border-argon-700/50 bg-argon-600/20 cursor-default pointer-events-none opacity-50'
+            : 'border-argon-700 bg-argon-600 hover:bg-argon-700 cursor-pointer'
         ]"
-        class="inner-button-shadow rounded border px-7 py-1 font-bold text-white">
+        class="inner-button-shadow rounded-md border px-10 py-1.5 font-bold text-white"
+      >
         <template v-if="addressWarning">Send Anyway</template>
         <template v-else>Send</template>
       </button>
-    </template>
+    </div>
     <template v-else>
       <button
         @click="close"
@@ -152,7 +171,7 @@ import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.t
 import * as Vue from 'vue';
 import { TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { IWallet, WalletType } from '../../lib/Wallet.ts';
-import { isValidEthereumAddress } from '@argonprotocol/apps-core';
+import { bigIntMax, isValidEthereumAddress } from '@argonprotocol/apps-core';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
@@ -166,18 +185,20 @@ import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { MoveCapital } from '../../lib/MoveCapital.ts';
+import AlertIcon from '../../assets/alert.svg?component';
 
 const props = withDefaults(
   defineProps<{
     class?: string;
+    walletType?: WalletType.miningHold | WalletType.vaulting;
     moveFrom?: MoveFrom;
+    showInputMenus?: boolean;
     moveTo?: MoveTo;
     moveToken?: MoveToken;
     isOpen: boolean;
     side?: 'top' | 'right' | 'bottom' | 'left';
   }>(),
   {
-    moveFrom: MoveFrom.MiningHold,
     moveToken: MoveToken.ARGN,
   },
 );
@@ -199,33 +220,103 @@ const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 const miningBreakdown = useMiningAssetBreakdown();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
-const maxAmount = Vue.computed(() => {
-  if (props.moveFrom === MoveFrom.MiningHold && props.moveToken === MoveToken.ARGN) {
-    return wallets.miningHoldWallet.availableMicrogons;
-  } else if (props.moveFrom === MoveFrom.MiningHold && props.moveToken === MoveToken.ARGNOT) {
-    return wallets.miningHoldWallet.availableMicronots;
-  } else if (props.moveFrom === MoveFrom.MiningBot && props.moveToken === MoveToken.ARGN) {
-    return miningBreakdown.auctionMicrogonsUnused;
-  } else if (props.moveFrom === MoveFrom.MiningBot && props.moveToken === MoveToken.ARGNOT) {
-    return miningBreakdown.auctionMicronotsUnused;
-  } else if (props.moveFrom === MoveFrom.VaultingHold && props.moveToken === MoveToken.ARGN) {
-    return vaultingBreakdown.sidelinedMicrogons;
-  } else if (props.moveFrom === MoveFrom.VaultingHold && props.moveToken === MoveToken.ARGNOT) {
-    return vaultingBreakdown.sidelinedMicronots;
-  } else if (props.moveFrom === MoveFrom.VaultingSecurity && props.moveToken === MoveToken.ARGN) {
-    return vaultingBreakdown.securityMicrogonsUnused;
-  } else if (props.moveFrom === MoveFrom.VaultingSecurity && props.moveToken === MoveToken.ARGNOT) {
-    return vaultingBreakdown.securityMicronotsUnused;
-  } else if (props.moveFrom === MoveFrom.VaultingTreasury && props.moveToken === MoveToken.ARGN) {
-    return vaultingBreakdown.treasuryMicrogonsUnused;
-  } else {
-    return 0n;
-  }
+const moveFrom = Vue.ref(
+  props.moveFrom || (props.walletType === WalletType.vaulting ? MoveFrom.VaultingHold : MoveFrom.MiningHold),
+);
+const moveToken = Vue.ref(props.moveToken);
+const amountToMove = Vue.ref<bigint>(0n);
+
+const externalAddress = Vue.ref('');
+const canChangeDestination = Vue.computed(() => !pendingTxInfo.value);
+const txFee = Vue.ref(0n);
+
+const isLoaded = Vue.ref(false);
+const isProcessing = Vue.ref(false);
+const progressPct = Vue.ref(0);
+const transactionError = Vue.ref('');
+const addressWarning = Vue.ref('');
+const isMovingToEthereum = Vue.ref(false);
+const isMovingToArgon = Vue.ref(false);
+const moveToEthereumCommitment = Vue.ref('');
+const comingSoon = Vue.ref('');
+const pendingTxInfo = Vue.ref<TransactionInfo | null>(null);
+const hasHyperbridgeProcessedCommitment = Vue.ref(false);
+
+const progressLabel = Vue.ref('');
+
+const hasTokensToMove = Vue.computed(() => {
+  return maxAmountToMove.value >= 10_000n;
 });
 
-const moveOptions = Vue.computed(() => {
+const maxAmountToMove = Vue.computed(() => {
+  let max = 0n;
+
+  if (moveFrom.value === MoveFrom.MiningHold) {
+    if (moveToken.value === MoveToken.ARGN) {
+      max = wallets.miningHoldWallet.availableMicrogons;
+    } else if (moveToken.value === MoveToken.ARGNOT) {
+      max = wallets.miningHoldWallet.availableMicronots;
+    }
+  } else if (moveFrom.value === MoveFrom.MiningBot) {
+    if (moveToken.value === MoveToken.ARGN) {
+      max = miningBreakdown.auctionMicrogonsUnused;
+    } else if (moveToken.value === MoveToken.ARGNOT) {
+      max = miningBreakdown.auctionMicronotsUnused;
+    }
+  } else if (moveFrom.value === MoveFrom.VaultingHold) {
+    if (moveToken.value === MoveToken.ARGN) {
+      max = vaultingBreakdown.sidelinedMicrogons;
+    } else if (moveToken.value === MoveToken.ARGNOT) {
+      max = vaultingBreakdown.sidelinedMicronots;
+    }
+  } else if (moveFrom.value === MoveFrom.VaultingSecurity) {
+    if (moveToken.value === MoveToken.ARGN) {
+      max = vaultingBreakdown.securityMicrogonsUnused;
+    } else if (moveToken.value === MoveToken.ARGNOT) {
+      max = vaultingBreakdown.securityMicronotsUnused;
+    }
+  } else if (moveFrom.value === MoveFrom.VaultingTreasury) {
+    if (moveToken.value === MoveToken.ARGN) {
+      max = vaultingBreakdown.treasuryMicrogonsUnused;
+    }
+  }
+
+  return max;
+});
+
+const moveFromOptions = Vue.computed(() => {
+  if (props.walletType === WalletType.miningHold) {
+    return [
+      { name: 'Unused Holdings', value: MoveFrom.MiningHold },
+      { name: 'Mining Bids', value: MoveFrom.MiningBot },
+    ];
+  } else if (props.walletType === WalletType.vaulting) {
+    return [
+      { name: 'Unused Holdings', value: MoveFrom.VaultingHold },
+      { name: 'Bitcoin Security', value: MoveFrom.VaultingSecurity },
+      { name: 'Treasury Bonds', value: MoveFrom.VaultingTreasury },
+    ];
+  }
+  return [];
+});
+
+const moveTokenOptions = Vue.computed(() => {
+  const hasArgonots = [
+    MoveFrom.MiningHold,
+    MoveFrom.MiningBot,
+    MoveFrom.VaultingHold,
+    MoveFrom.VaultingSecurity,
+  ].includes(moveFrom.value);
+  const options = [{ name: MoveToken.ARGN, value: MoveToken.ARGN }];
+  if (hasArgonots) {
+    options.push({ name: MoveToken.ARGNOT, value: MoveToken.ARGNOT });
+  }
+  return options;
+});
+
+const moveToOptions = Vue.computed(() => {
   const options = [];
-  const walletFrom = moveCapital.getWalletTypeFromMove(moveFrom.value);
+  const walletFrom = moveCapital.getWalletTypeFromMove(moveFrom.value!);
   if (walletFrom === WalletType.miningHold) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
   } else if (walletFrom === WalletType.miningBot) {
@@ -248,38 +339,13 @@ const moveOptions = Vue.computed(() => {
   }
 
   options.push({ name: 'External Account', value: MoveTo.External });
+
   return options;
-});
-
-const moveFrom = Vue.ref(props.moveFrom);
-const moveTo = Vue.ref<MoveTo>(props.moveTo ?? moveOptions.value[0].value);
-const amountToMove = Vue.ref(maxAmount.value);
-
-const externalAddress = Vue.ref('');
-const canChangeDestination = Vue.computed(() => !pendingTxInfo.value);
-const txFee = Vue.ref(0n);
-
-const isLoaded = Vue.ref(false);
-const isProcessing = Vue.ref(false);
-const progressPct = Vue.ref(0);
-const transactionError = Vue.ref('');
-const addressWarning = Vue.ref('');
-const isMovingToEthereum = Vue.ref(false);
-const isMovingToArgon = Vue.ref(false);
-const moveToEthereumCommitment = Vue.ref('');
-const comingSoon = Vue.ref('');
-const pendingTxInfo = Vue.ref<TransactionInfo | null>(null);
-const hasHyperbridgeProcessedCommitment = Vue.ref(false);
-
-const progressLabel = Vue.ref('');
-
-const hasTokensToMove = Vue.computed(() => {
-  return maxAmount.value >= 10_000n;
 });
 
 const canSubmit = Vue.computed(() => {
   return (
-    (amountToMove.value > 10_000n || amountToMove.value <= maxAmount.value) &&
+    (amountToMove.value > 10_000n || amountToMove.value <= maxAmountToMove.value) &&
     !isProcessing.value &&
     !pendingTxInfo.value &&
     comingSoon.value === ''
@@ -289,9 +355,11 @@ const canSubmit = Vue.computed(() => {
 const canAfford = Vue.computed(() => {
   const fromWallet = getWalletFrom();
   const isAlreadySpent = [MoveFrom.VaultingSecurity, MoveFrom.VaultingTreasury].includes(moveFrom.value);
-  const argonsOnTheMove = props.moveToken === MoveToken.ARGN && !isAlreadySpent ? amountToMove.value : 0n;
+  const argonsOnTheMove = moveToken.value === MoveToken.ARGN && !isAlreadySpent ? amountToMove.value : 0n;
   return fromWallet.availableMicrogons >= argonsOnTheMove + txFee.value;
 });
+
+const moveTo = Vue.ref<MoveTo>(props.moveTo ?? moveToOptions.value[0].value);
 
 function getWalletFrom(): IWallet {
   const walletType = moveCapital.getWalletTypeFromMove(moveFrom.value);
@@ -318,23 +386,31 @@ function getToAddress() {
   }[moveTo.value];
 }
 
-async function updateMoveAmount(microgons: bigint, tries = 3) {
+async function updatedAmountToMove(microgons: bigint, tries = 3) {
   if (tries <= 0) {
     amountToMove.value = 0n;
     return;
   }
   amountToMove.value = microgons;
   await updateFee();
-  const isMovingArgonToken = props.moveToken === MoveToken.ARGN;
+  const isMovingArgonToken = moveToken.value === MoveToken.ARGN;
 
-  if (isMovingArgonToken && amountToMove.value + txFee.value > maxAmount.value) {
-    const newAmount = maxAmount.value - txFee.value;
+  if (isMovingArgonToken && amountToMove.value + txFee.value > maxAmountToMove.value) {
+    const newAmount = maxAmountToMove.value - txFee.value;
     if (newAmount < 0n) {
       amountToMove.value = 0n;
       return;
     }
-    await updateMoveAmount(newAmount, tries - 1);
+    await updatedAmountToMove(newAmount, tries - 1);
   }
+}
+
+async function updatedMoveFrom() {
+  await updatedAmountToMove(maxAmountToMove.value);
+}
+
+async function updatedMoveToken() {
+  await updatedAmountToMove(maxAmountToMove.value);
 }
 
 async function openHyperbridgeLink() {
@@ -350,8 +426,8 @@ async function updateFee() {
   const fromWallet = getWalletFrom();
   const toAddress = getToAddress();
   const assetsToMove = {
-    [MoveToken.ARGN]: props.moveToken === MoveToken.ARGN ? amountToMove.value : 0n,
-    [MoveToken.ARGNOT]: props.moveToken === MoveToken.ARGNOT ? amountToMove.value : 0n,
+    [MoveToken.ARGN]: moveToken.value === MoveToken.ARGN ? amountToMove.value : 0n,
+    [MoveToken.ARGNOT]: moveToken.value === MoveToken.ARGNOT ? amountToMove.value : 0n,
   };
   txFee.value = await moveCapital.calculateFee(moveFrom.value, moveTo.value, assetsToMove, fromWallet, toAddress);
   transactionError.value = moveCapital.transactionError;
@@ -365,14 +441,14 @@ function checkExternalAddress() {
 }
 
 async function submitTransfer() {
-  const force = addressWarning.value;
+  const hasAddressWarning = !!addressWarning.value;
 
   let isMoveToEthereum = false;
   if (moveTo.value === MoveTo.External) {
     checkExternalAddress();
     const isEthereumAddress = isValidEthereumAddress(externalAddress.value);
     isMoveToEthereum = isEthereumAddress.valid;
-    if (!force && !isEthereumAddress.checksum) {
+    if (hasAddressWarning && !isEthereumAddress.checksum) {
       return;
     }
   }
@@ -392,8 +468,8 @@ async function submitTransfer() {
     const fromWallet = getWalletFrom();
     const toAddress = getToAddress();
     const assetsToMove = {
-      [MoveToken.ARGN]: props.moveToken === MoveToken.ARGN ? amountToMove.value : 0n,
-      [MoveToken.ARGNOT]: props.moveToken === MoveToken.ARGNOT ? amountToMove.value : 0n,
+      [MoveToken.ARGN]: moveToken.value === MoveToken.ARGN ? amountToMove.value : 0n,
+      [MoveToken.ARGNOT]: moveToken.value === MoveToken.ARGNOT ? amountToMove.value : 0n,
     };
     const txInfo = await moveCapital.move(moveFrom.value, moveTo.value, assetsToMove, fromWallet, toAddress);
 
@@ -475,10 +551,10 @@ Vue.watch(externalAddress, async () => {
   await updateFee();
 });
 
-Vue.watch(maxAmount, async newMax => {
+Vue.watch(maxAmountToMove, async newMax => {
   if (pendingTxInfo.value) return;
   if (amountToMove.value > newMax) {
-    await updateMoveAmount(newMax);
+    await updatedAmountToMove(newMax);
   }
 });
 
@@ -487,8 +563,8 @@ Vue.watch(
   async () => {
     if (props.isOpen) {
       isLoaded.value = false;
-      await updateMoveAmount(maxAmount.value);
-      if (moveFrom.value === MoveFrom.VaultingTreasury && maxAmount.value > 10_000n) {
+      await updatedAmountToMove(maxAmountToMove.value);
+      if (moveFrom.value === MoveFrom.VaultingTreasury && maxAmountToMove.value > 10_000n) {
         comingSoon.value = 'Withdrawing from treasury will be in a near-future release';
         isLoaded.value = true;
         return;
@@ -505,6 +581,7 @@ Vue.watch(
       isLoaded.value = true;
     }
   },
+  { immediate: true },
 );
 
 Vue.watch(moveTo, async () => {
@@ -517,7 +594,7 @@ Vue.onMounted(async () => {
     if (transactionsShownCompleted.has(txInfo.tx.id)) {
       continue;
     }
-    if (txInfo.tx.extrinsicType === ExtrinsicType.Transfer && txInfo.tx.metadataJson.moveFrom === props.moveFrom) {
+    if (txInfo.tx.extrinsicType === ExtrinsicType.Transfer && txInfo.tx.metadataJson.moveFrom === moveFrom.value) {
       pendingTxInfo.value = txInfo;
       isProcessing.value = true;
       amountToMove.value = txInfo.tx.metadataJson.amount;

@@ -1,3 +1,4 @@
+<!-- prettier-ignore -->
 <template>
   <div ref="rootRef" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="pointer-events-auto relative" v-model:open="isOpen">
@@ -17,8 +18,7 @@
           :alignOffset="0"
           :sideOffset="-3"
           class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFad z-50 data-[state=open]:transition-all">
-          <div
-            class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+          <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem @click="() => openAboutOverlay()" class="pt-1 pb-2">
               <header>About This App</header>
             </DropdownMenuItem>
@@ -28,7 +28,7 @@
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openSecuritySettingsOverlay()" class="py-2">
-              <header>Security and Backup</header>
+              <header>Security and Backups</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem class="py-2" @click="() => checkForUpdates()">
@@ -42,7 +42,7 @@
             <DropdownMenuSub>
               <DropdownMenuSubTrigger class="relative py-2">
                 <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <header>Help Resources</header>
+                <header>Helpful Resources</header>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent class="relative -top-1 min-w-50">
                 <div
@@ -190,7 +190,7 @@ function takeTheTour() {
 @reference "../main.css";
 
 [data-reka-collection-item] {
-  @apply focus:bg-argon-menu-hover cursor-pointer px-4 focus:outline-none;
+  @apply focus:bg-argon-menu-hover cursor-pointer pr-4 pl-10 focus:outline-none;
 
   &[data-disabled] {
     opacity: 0.3;

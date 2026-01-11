@@ -21,12 +21,12 @@
           class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFad z-50 data-[state=open]:transition-all">
           <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem @click="() => openMoveCapitalOverlay()" class="py-2">
-              <header>Send</header>
+              <header>Move Tokens</header>
             </DropdownMenuItem>
 
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openWalletOverlay()" class="py-2">
-              <header>Receive</header>
+              <header>Receive Tokens</header>
             </DropdownMenuItem>
 
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/60" />

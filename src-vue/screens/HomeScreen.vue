@@ -310,7 +310,15 @@
                 <div
                   :class="currencyFadeClass"
                   class="flex grow flex-col items-center justify-center transition-opacity duration-400 ease-in-out">
-                  <div class="font-base text-slate-600/50">PRICE IS AT TARGET</div>
+                  <div class="font-base text-slate-600/50">
+                    <template v-if="currency.targetOffset">
+                      PRICE IS {{ currencySymbol }}{{ microgonToNm(targetDiff, currencyKey).format('0.00[0]') }}
+                      <template v-if="currency.targetOffset > 0">ABOVE</template>
+                      <template v-else>BELOW</template>
+                      TARGET
+                    </template>
+                    <template v-else>PRICE IS AT TARGET</template>
+                  </div>
                   <div ArgonPrice class="flex flex-row items-center justify-center gap-x-4 font-mono">
                     {{ currencySymbol }}{{ microgonToNm(1_000_000n, currencyKey).format('0,0.00') }}
                     <span>/</span>
@@ -538,7 +546,13 @@ import { getConfig } from '../stores/config.ts';
 import { ICurrencyKey, MICRONOTS_PER_ARGONOT, UnitOfMeasurement } from '../lib/Currency';
 import BigNumber from 'bignumber.js';
 import LineArrow from '../components/asset-breakdown/LineArrow.vue';
-import { bigNumberToBigInt, calculateAPY, calculateProfitPct, GlobalVaultingStats } from '@argonprotocol/apps-core';
+import {
+  bigIntAbs,
+  bigNumberToBigInt,
+  calculateAPY,
+  calculateProfitPct,
+  GlobalVaultingStats,
+} from '@argonprotocol/apps-core';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour.ts';
 import BankmoreTop1 from '../assets/bankmore-top1.svg';
@@ -649,6 +663,12 @@ const currencySymbol = Vue.computed(() => {
   return currency.recordsByKey[currencyKey.value].symbol;
 });
 
+const targetDiff = Vue.computed(() => {
+  const target = 1_000_000n;
+  const adjusted = currency.adjustByTargetOffset(target);
+  return bigIntAbs(adjusted - target);
+});
+
 const terraPercentReturn = Vue.computed(() => {
   const usdPriceAfterTerraCollapse = currency.convertMicrogonTo(
     vaultingStats.finalPriceAfterTerraCollapse,
@@ -680,8 +700,8 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
 
   const oneArgonBn = BigNumber(1_000_000n);
 
-  const nextTier = 10 + Math.ceil(currency.usdTargetOffset * 10) * 10;
-  const startingOffset = nextTier - currency.usdTargetOffset * 10;
+  const nextTier = 10 + Math.ceil(currency.targetOffset * 10) * 10;
+  const startingOffset = nextTier - currency.targetOffset * 10;
 
   aboveTargetScenarios.value = [];
   belowTargetScenarios.value = [];

@@ -7,21 +7,25 @@
       :class="[{ShowMoveButton : showMoveButton, IsOpen: moveIsOpen }, twMerge(props.class)]"
       :style="{ height }"
     >
-      <component
-        :is="showMoveButton ? MoveCapitalButton: 'div'"
-        :moveFrom="moveFrom"
-        :moveToken="moveToken"
-        @updatedOpen="updateMoveOpen"
-        side="right"
-        class="h-full w-full"
-      >
-        <div class="SubItemWrapper flex w-full h-full items-center">
-          <div class="Connector" v-if="!props.hideConnector" />
-          <div class="Text relative group pointer-events-none flex-row" :class="[paddingClass]">
-            <slot />
+      <div class="SubItemWrapper flex w-full h-full items-center group">
+        <div class="Connector" v-if="!props.hideConnector" />
+        <div class="Text relative group pointer-events-none flex-row" :class="[paddingClass]">
+          <slot />
+          <div
+            :class="moveIsOpen ? '' : 'opacity-0 group-hover:opacity-100'"
+            class="transition-opacity duration-300 absolute top-1/2 right-0 -translate-y-1/2 bg-white rounded"
+          >
+            <MoveCapitalButton
+              @updatedOpen="updateMoveOpen"
+              :moveFrom="moveFrom"
+              :moveToken="moveToken"
+              :class="moveIsOpen ? 'bg-slate-300/20 inset-shadow-sm inset-shadow-slate-300/60' : ''"
+              class="pointer-events-auto "
+              side="right"
+            />
           </div>
         </div>
-      </component>
+      </div>
     </TooltipTrigger>
     <TooltipContent
       ref="contentRef"
@@ -94,10 +98,6 @@ function updateOpen(isOpen: boolean) {
 
 .Row {
   @apply flex w-full items-center;
-  &.ShowMoveButton {
-    @apply cursor-pointer;
-  }
-  &.ShowMoveButton:hover,
   &.IsOpen {
     @apply text-argon-600 from-argon-200/0 via-argon-200/12 to-argon-200/0;
     background: linear-gradient(
