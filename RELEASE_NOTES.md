@@ -3,6 +3,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-11
+- Major upgrade to the Home screen with your portfolio total, ROI, projected APY, etc.
+- Reorganized Asset panels on Vaulting and Mining dashboards.
+- Added data recovery feature to Account Menu so you can recalculate from mainchain if your app gets out of sync with network.
+- Improved Move Overlay UI and fixed a number of bugs.
+- The Move Overlay now allows you to send Argons/Argonots directly to Ethereum wallets.
+- Enhanced logging to improve troubleshooting capabilities.
+- Fixed a number of bugs
+
 ## [1.0.10] - 2025-12-23
 - Closing the app window now works, and it closes the app
 - Stats on dashboards are now mono font

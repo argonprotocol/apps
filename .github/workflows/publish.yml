@@ -107,11 +107,12 @@ jobs:
           ARGON_APP_ENABLE_AUTOUPDATE: true
           ARGON_APP_BUILD_TYPE: stable
           NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=6144
           RUST_BACKTRACE: full
         with:
           includeDebug: true
           includeRelease: true
-          includeUpdaterJson: false;
+          includeUpdaterJson: false
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}
