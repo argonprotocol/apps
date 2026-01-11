@@ -20,7 +20,7 @@
               :moveFrom="moveFrom"
               :moveToken="moveToken"
               :class="moveIsOpen ? 'bg-slate-300/20 inset-shadow-sm inset-shadow-slate-300/60' : ''"
-              class="pointer-events-auto "
+              class="pointer-events-auto"
               side="right"
             />
           </div>

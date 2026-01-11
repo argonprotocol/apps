@@ -82,7 +82,6 @@ const dragByMin = Vue.computed<number | undefined>(() => {
 const handleUpdate = (value: number) => {
   const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
   emit('update:modelValue', bigNumberToBigInt(valueBn));
-  handleChange(value);
 };
 
 const handleChange = (value: number) => {

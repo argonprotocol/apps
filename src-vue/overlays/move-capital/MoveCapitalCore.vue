@@ -3,9 +3,8 @@
   <div v-if="!isProcessing" class="flex flex-col justify-between">
     <div v-if="!hasTokensToMove" class="text-red-500 flex flex-row items-center border-b border-slate-400/20 pb-3">
       <AlertIcon class="w-5 mr-2" />
-      <div></div>
-      There are no
-      {{ (moveTokenName[moveToken || ''] || '').toLowerCase() }}s to move from {{ moveFromName[moveFrom].toLowerCase() }}.
+      There are no moveable
+      {{ moveTokenName[moveToken].toLowerCase() }}s from {{ moveFromName[moveFrom].toLowerCase() }}.
     </div>
     <form :class="!hasTokensToMove && !showInputMenus ? 'opacity-50 pointer-events-none' : ''">
       <div class="mt-3 flex flex-row items-end space-x-2">
@@ -104,7 +103,7 @@
       once Hyperbridge has confirmed the request.
     </template>
   </div>
-  <div class="mt-5  text-md">
+  <div class="mt-5 text-md">
     <div v-if="isProcessing" class="flex flex-row items-start justify-end space-x-2">
       <div class="w-2/3 flex-grow pr-1">
         <ProgressBar :progress="progressPct" :showLabel="true" class="h-7 w-full" />
@@ -123,7 +122,7 @@
         v-if="canSubmit"
         @click="submitTransfer"
         :class="[
-          !canSubmit || !canAfford || !hasTokensToMove
+          !canAfford || !hasTokensToMove
             ? 'border-argon-700/50 bg-argon-600/20 cursor-default pointer-events-none opacity-50'
             : 'border-argon-700 bg-argon-600 hover:bg-argon-700 cursor-pointer'
         ]"
@@ -345,7 +344,7 @@ const moveToOptions = Vue.computed(() => {
 
 const canSubmit = Vue.computed(() => {
   return (
-    (amountToMove.value > 10_000n || amountToMove.value <= maxAmountToMove.value) &&
+    (amountToMove.value > 10_000n && amountToMove.value <= maxAmountToMove.value) &&
     !isProcessing.value &&
     !pendingTxInfo.value &&
     comingSoon.value === ''
