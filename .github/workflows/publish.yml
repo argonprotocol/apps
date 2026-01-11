@@ -111,7 +111,7 @@ jobs:
         with:
           includeDebug: true
           includeRelease: true
-          includeUpdaterJson: false;
+          includeUpdaterJson: false
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}
