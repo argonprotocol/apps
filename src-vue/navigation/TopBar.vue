@@ -8,7 +8,7 @@
     <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
-        Argon Bootstrapper
+        Argonot Operator
         <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
       </div>
     </div>

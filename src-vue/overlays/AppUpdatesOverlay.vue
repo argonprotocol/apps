@@ -40,7 +40,7 @@
             <div class="px-6 text-base pb-3 mb-6 relative z-10 grid grid-col gap-2">
               <p class="mb-2">
                 <template v-if="update">
-                  A new version of Argon Management Console is ready to download and install
+                  A new version of Argonot Operator is ready to download and install
                 </template>
                 <template v-else-if="isChecking">
                   Checking..

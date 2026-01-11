@@ -1,4 +1,4 @@
-## Argon Management Console Core
+## Argon Apps Core
 
 The library has a few classes that are used to interact with the Argon Protocol.
 

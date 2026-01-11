@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <Overlay :isOpen="isOpen" :showCloseIcon="false" title="Welcome to the Argon Management Console" class="w-7/12">
+  <Overlay :isOpen="isOpen" :showCloseIcon="false" title="Welcome to the Argonot Operator" class="w-7/12">
     <div class="mx-2 pl-5 pr-10 pt-5 space-y-3 font-light leading-6">
       <p>
         You might already be familiar with Argon, but in case you're not: Argon is the first crypto asset
