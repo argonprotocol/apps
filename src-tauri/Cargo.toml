@@ -13,11 +13,6 @@ edition = "2024"
 [workspace]
 members = []
 
-[workspace.metadata.tauri]
-bundle.identifier = "com.argon.apps"
-bundle.name = "Argonot Operator"   # This is used as CFBundleName
-bundle.short_name = "Argonot Operator"     # Optional, but can affect UI display
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]

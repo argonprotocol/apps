@@ -25,7 +25,7 @@
             class="absolute z-50 bg-white text-md border border-black/40 px-4 pt-6 pb-4 rounded-lg text-center shadow-xl w-80 overflow-scroll focus:outline-none"
           >
             <img src="/app-icon.png" class="w-14 h-14 rounded-lg mx-auto" />
-            <DialogTitle class="text-lg font-bold mt-4">Argonot Operator</DialogTitle>
+            <DialogTitle class="text-lg font-bold mt-4">{{ APP_NAME }}</DialogTitle>
             <div class="flex flex-col gap-2 border-y border-black/10 py-4 mt-4">
               <div>Version: {{ config.version }}</div>
               <div>OS: {{ platformName }} {{ platformVersion }}</div>
@@ -55,12 +55,12 @@
 import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter';
 import BgOverlay from '../components/BgOverlay.vue';
-import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DialogClose } from 'reka-ui';
+import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { AnimatePresence, Motion } from 'motion-v';
 import { getConfig } from '../stores/config';
 import Draggable from './helpers/Draggable';
 import { platformName, platformVersion } from '../tauri-controls/utils/os';
-import { INSTANCE_NAME, INSTANCE_PORT, NETWORK_NAME } from '../lib/Env.ts';
+import { APP_NAME, INSTANCE_NAME, INSTANCE_PORT, NETWORK_NAME } from '../lib/Env.ts';
 
 const config = getConfig();
 

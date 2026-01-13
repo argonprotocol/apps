@@ -1,0 +1,19 @@
+{
+  "identifier": "com.argon.investments.local",
+  "productName": "Argon Investments",
+  "bundle": {
+    "icon": [
+      "argon-icons/local/docknet/32x32.png",
+      "argon-icons/local/docknet/128x128.png",
+      "argon-icons/local/docknet/128x128@2x.png",
+      "argon-icons/local/docknet/icon.icns",
+      "argon-icons/local/docknet/icon.ico"
+    ]
+  },
+  "app": {
+    "security": {
+      "csp": null,
+      "capabilities": ["default", "dev"]
+    }
+  }
+}

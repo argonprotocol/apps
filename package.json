@@ -15,7 +15,7 @@
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
-    "clean:dev:docker": "rm -rf \"$HOME/Library/Application Support/com.argon.apps.local/dev-docker\"",
+    "clean:dev:docker": "rm -rf \"$HOME/Library/Application Support/com.argon.operations.local/dev-docker\" && rm -rf \"$HOME/Library/Application Support/com.argon.investments.local/dev-docker\"",
     "dev": "yarn build:config && vite",
     "dev:docker": "yarn clean:dev:docker && yarn docker:up && yarn tauri:dev:docker",
     "preview": "vite preview",

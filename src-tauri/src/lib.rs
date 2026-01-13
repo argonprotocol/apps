@@ -378,20 +378,24 @@ fn init_config_instance_dir(
 pub fn run() {
     color_backtrace::install();
 
-    let network_name = Utils::get_network_name();
+    let context: tauri::Context = tauri::generate_context!();
+    let app_id = context.config().identifier.clone();
+    let network_name = Utils::get_network_name(&app_id);
     let instance_name = Utils::get_instance_name();
     let enable_auto_update =
         option_env!("ARGON_APP_ENABLE_AUTOUPDATE").map_or(true, |v| v == "true");
     let is_test = option_env!("CI").map_or(false, |v| v == "true" || v == "1");
     let logger = init_logger(&network_name, &instance_name);
 
-    let relative_config_dir = Utils::get_relative_config_instance_dir();
+    let app_name = context.config().product_name.clone().unwrap_or_default();
+
+    let relative_config_dir = Utils::get_relative_config_instance_dir(&app_id);
     let db_relative_path = relative_config_dir.join("database.sqlite");
     let db_url = format!("sqlite:{}", db_relative_path.display()).replace("\\", "/");
     let migrations = migrations::get_migrations();
 
     let network_name_clone = network_name.clone();
-    let env_vars = Utils::get_server_env_vars().unwrap_or_default();
+    let env_vars = Utils::get_server_env_vars(&app_id).unwrap_or_default();
     let env_vars_json = serde_json::to_string(&env_vars).unwrap_or_default();
 
     let mut updater_target = tauri_plugin_updater::target().unwrap_or_default();
@@ -400,6 +404,7 @@ pub fn run() {
     }
 
     println!("Updater target = {}", updater_target);
+    let app_name_clone = app_name.clone();
 
     tauri::Builder::default()
         .on_page_load(move |window, _payload| {
@@ -419,18 +424,27 @@ pub fn run() {
                     "null".to_string()
                 }
             };
-            let build_type = option_env!("ARGON_APP_BUILD_TYPE").unwrap_or("");
+            let app_id = &handle.config().identifier;
 
             log::info!("Page loaded for instance '{}'", instance_name);
             window.emit("tauri://page-loaded", ()).unwrap();
-            window.eval("window.__LOG_DEBUG__ = false".to_string()).expect("Failed to set instance name in window");
-            window.eval(format!("window.__ARGON_APP_BUILD_TYPE__ = '{}'", build_type)).expect("Failed to set build type in window");
-            window.eval(format!("window.__ARGON_APP_SECURITY__ = {}", security_json)).expect("Failed to set security in window");
-            window.eval(format!("window.__ARGON_APP_INSTANCE__ = '{}'", instance_name)).expect("Failed to set instance name in window");
-            window.eval(format!("window.__ARGON_APP_ENABLE_AUTOUPDATE__ = {}", enable_auto_update)).expect("Failed to set experimental flag in window");
-            window.eval(format!("window.__ARGON_NETWORK_NAME__ = '{}'", network_name_clone)).expect("Failed to set network name in window");
-            window.eval(format!("window.__SERVER_ENV_VARS__ = {}", env_vars_json)).expect("Failed to set env vars in window");
-            window.eval(format!("window.__IS_TEST__ = {}", is_test)).expect("Failed to set is test flag in window");
+            window
+                .eval(format!(
+                    r#"
+        Object.assign(window, {{
+            __LOG_DEBUG__: false,
+            __ARGON_APP_ID__: '{app_id}',
+            __ARGON_APP_NAME__: '{app_name_clone}',
+            __ARGON_APP_SECURITY__: {security_json},
+            __ARGON_APP_INSTANCE__: '{instance_name}',
+            __ARGON_APP_ENABLE_AUTOUPDATE__: {enable_auto_update},
+            __ARGON_NETWORK_NAME__: '{network_name_clone}',
+            __SERVER_ENV_VARS__: {env_vars_json},
+            __IS_TEST__: {is_test},
+        }});
+        "#
+                ))
+                .expect("Failed to initialize window globals");
           })
         .setup(move |app| {
             let handle = app.handle();
@@ -445,16 +459,6 @@ pub fn run() {
 
             let nosleep = NoSleep::new().map_err(|e| e.to_string())?;
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
-
-            let app_id = &app.config().identifier;
-            let build_type = option_env!("ARGON_APP_BUILD_TYPE");
-            if build_type.is_none()  {
-                panic!("The ARGON_APP_BUILD_TYPE environment variable must be set.");
-            } else if build_type != Some("local") && build_type != Some("experimental") && build_type != Some("stable") {
-                panic!("ARGON_APP_BUILD_TYPE must be one of: local, experimental, stable.");
-            } else if app_id.to_lowercase().contains("experimental") && build_type != Some("experimental") {
-                panic!("Experimental app built without the ARGON_APP_BUILD_TYPE environment variable set to 'experimental'.");
-            }
 
             init_config_instance_dir(handle, &relative_config_dir)?;
 
@@ -492,7 +496,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::Builder::new()
-                .app_name("Argonot Operator")
+                .app_name(app_name)
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().target(updater_target).build())
@@ -531,6 +535,6 @@ pub fn run() {
             measure_latency,
             load_instance,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

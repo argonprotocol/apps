@@ -24,8 +24,8 @@ impl Utils {
         "default".to_string()
     }
 
-    pub fn get_server_env_vars() -> Result<HashMap<String, String>, String> {
-        let env_text = match Self::get_network_name().as_str() {
+    pub fn get_server_env_vars(app_id: &str) -> Result<HashMap<String, String>, String> {
+        let env_text = match Self::get_network_name(app_id).as_str() {
             "dev-docker" => ENV_DOCKER,
             "localnet" => ENV_LOCAL,
             "mainnet" => ENV_MAINNET,
@@ -41,29 +41,30 @@ impl Utils {
         Ok(result)
     }
 
-    pub fn get_network_name() -> String {
+    pub fn get_network_name(app_id: &str) -> String {
         // explicit override always wins
         if let Ok(name) = std::env::var("ARGON_NETWORK_NAME") {
             return name;
         }
 
-        match option_env!("ARGON_APP_BUILD_TYPE") {
-            Some("local") => "testnet",
-            _ => "mainnet",
+        if app_id.contains("local") {
+            "testnet"
+        } else {
+            "mainnet"
         }
         .into()
     }
 
-    pub fn get_relative_config_instance_dir() -> PathBuf {
+    pub fn get_relative_config_instance_dir(app_id: &str) -> PathBuf {
         let instance_name = Self::get_instance_name();
-        let network_name = Self::get_network_name();
+        let network_name = Self::get_network_name(app_id);
         PathBuf::from(network_name).join(instance_name)
     }
 
     pub fn get_absolute_config_instance_dir(app: &AppHandle) -> PathBuf {
         app.path()
             .resolve(
-                Self::get_relative_config_instance_dir(),
+                Self::get_relative_config_instance_dir(app.config().identifier.as_str()),
                 tauri::path::BaseDirectory::AppConfig,
             )
             .expect("Failed to resolve config instance directory")

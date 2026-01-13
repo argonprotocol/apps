@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const require = createRequire(__filename);
 
-const defaultPortString = '1420';
+const defaultOperationsPortString = '1420';
+const defaultInvestmentPortString = '1430';
 
 // Function to check if a port is available
 function isPortAvailable(port: number): Promise<boolean> {
@@ -41,7 +42,10 @@ export default defineConfig(async ({ mode }) => {
   const host = envFile.TAURI_DEV_HOST;
 
   const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
-  const instancePort = parseInt(instance[1] || defaultPortString, 10);
+  const app = process.env.ARGON_APP || "operations";
+  const defaultPort = app.startsWith('i') ? defaultInvestmentPortString : defaultOperationsPortString;
+
+  const instancePort = parseInt(instance[1] || defaultPort, 10);
 
   if (envFile.ARGON_APP_INSTANCE && envFile.ARGON_APP_INSTANCE !== process.env.ARGON_APP_INSTANCE) {
     throw new Error(`⚠️ ARGON_APP_INSTANCE must be set on the command line not from inside a .env file`);
