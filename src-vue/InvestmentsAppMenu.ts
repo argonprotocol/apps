@@ -1,30 +1,22 @@
-import * as Vue from 'vue';
 import { Menu, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from './emitters/basicEmitter';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { useController } from './stores/controller';
-import { getInstaller } from './stores/installer';
-import { getBot } from './stores/bot';
-import { ScreenKey } from './interfaces/IConfig';
 import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
-import { WalletType } from './lib/Wallet.ts';
+import { APP_NAME } from './lib/Env.ts';
 
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
 }
 
 export async function createMenu() {
-  const controller = useController();
-  const installer = getInstaller();
   const config = getConfig();
-  const bot = getBot();
   const tour = useTour();
 
   const mainMenu = await Submenu.new({
-    text: 'Argonot Operator',
+    text: APP_NAME,
     items: [
       {
         id: 'about',
@@ -50,7 +42,7 @@ export async function createMenu() {
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'quit',
-        text: 'Quit Argonot Operator',
+        text: `Quit ${APP_NAME}`,
         accelerator: 'CmdOrCtrl+Q',
         action: () => void tauriExit(),
       },
@@ -68,38 +60,6 @@ export async function createMenu() {
       await PredefinedMenuItem.new({ item: 'Paste' }),
       await PredefinedMenuItem.new({ item: 'SelectAll' }),
       await PredefinedMenuItem.new({ item: 'Separator' }),
-    ],
-  });
-
-  const miningMenu = await Submenu.new({
-    text: 'Mining',
-    items: [
-      {
-        id: 'mining-dashboard',
-        text: 'Open Mining',
-        action: () => controller.setScreenKey(ScreenKey.Mining),
-      },
-      {
-        id: 'token-transfer-to-mining',
-        text: 'Open Mining Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' }),
-      },
-    ],
-  });
-
-  const vaultingMenu = await Submenu.new({
-    text: 'Vaulting',
-    items: [
-      {
-        id: 'vaulting-dashboard',
-        text: 'Open Vaulting',
-        action: () => controller.setScreenKey(ScreenKey.Vaulting),
-      },
-      {
-        id: 'token-transfer-to-vaulting',
-        text: 'Open Vaulting Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' }),
-      },
     ],
   });
 
@@ -217,23 +177,7 @@ export async function createMenu() {
   });
 
   const menu = await Menu.new({
-    items: [mainMenu, editMenu, miningMenu, vaultingMenu, windowMenu, helpMenu],
+    items: [mainMenu, editMenu, windowMenu, helpMenu],
   });
-
-  function updateMiningMenu() {
-    void miningMenu.setEnabled(!installer.isRunning && !bot.isSyncing);
-  }
-
-  await menu.setAsAppMenu().then(async res => {
-    Vue.watch(
-      () => installer.isRunning,
-      () => updateMiningMenu(),
-      { immediate: true },
-    );
-    Vue.watch(
-      () => bot.isSyncing,
-      () => updateMiningMenu(),
-      { immediate: true },
-    );
-  });
+  await menu.setAsAppMenu();
 }

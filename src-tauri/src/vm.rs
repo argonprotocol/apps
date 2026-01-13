@@ -20,9 +20,9 @@ pub fn is_docker_running(_app: AppHandle) -> bool {
 }
 
 #[tauri::command]
-pub fn check_needed_ports() -> Result<Vec<u16>, String> {
+pub fn check_needed_ports(app: AppHandle) -> Result<Vec<u16>, String> {
     let mut blocked_ports = vec![];
-    let env_vars = Utils::get_server_env_vars()?;
+    let env_vars = Utils::get_server_env_vars(&app.config().identifier)?;
     for (key, value) in env_vars {
         if key.ends_with("_PORT") {
             if let Ok(port) = value.parse::<u16>() {

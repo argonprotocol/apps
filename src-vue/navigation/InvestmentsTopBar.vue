@@ -8,23 +8,19 @@
     <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
-        Argonot Operator
+        {{ APP_NAME }}
         <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
       </div>
-    </div>
-
-    <div class="flex w-1/3 justify-center pointer-events-none relative left-1.5">
-      <TabSwitcher />
     </div>
 
     <div v-if="controller.isLoaded"
       class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/3 grow pointer-events-none relative top-[1px]"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
-      <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+      <div class="pointer-events-auto">
         <CurrencyMenu ref="currencyMenuRef" />
       </div>
-      <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+      <div class="pointer-events-auto">
         <AccountMenu ref="accountMenuRef" />
       </div>
     </div>
@@ -36,23 +32,17 @@ import * as Vue from 'vue';
 import { useController } from '../stores/controller';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import CurrencyMenu from './CurrencyMenu.vue';
-import StatusMenu from './StatusMenu.vue';
 import AccountMenu from './AccountMenu.vue';
-import InstanceMenu from './InstanceMenu.vue';
+import InstanceMenu, { IInstance } from './InstanceMenu.vue';
 import { useWallets } from '../stores/wallets';
-import { getBot } from '../stores/bot';
-import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useTour } from '../stores/tour';
 import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
-import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
-import { IInstance } from './InstanceMenu.vue';
-import TabSwitcher from './TabSwitcher.vue';
+import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 
 const controller = useController();
 const wallets = useWallets();
 const tour = useTour();
-const bot = getBot();
 
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);

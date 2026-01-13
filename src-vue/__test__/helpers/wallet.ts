@@ -10,17 +10,20 @@ export function createTestWallet(mnemonic?: string) {
   const miningHoldAccount = keypair.derive('//holding'); // If we had a do-over, it would be called mining
   const miningBotAccount = keypair.derive('//mining'); // If we had a do-over, it would be called miningBot
   const vaultingAccount = keypair.derive('//vaulting');
+  const investmentAccount = keypair.derive('//investments');
   return {
     mnemonic,
     miningHoldAccount,
     miningBotAccount,
     vaultingAccount,
+    investmentAccount,
     walletKeys: new WalletKeys(
       {
         sshPublicKey: '',
         miningHoldAddress: miningHoldAccount.address,
         miningBotAddress: miningBotAccount.address,
         vaultingAddress: vaultingAccount.address,
+        investmentsAddress: investmentAccount.address,
       },
       () => Promise.resolve(false),
     ),

@@ -2,8 +2,8 @@ use std::env;
 
 fn main() {
     println!("cargo:rerun-if-changed=migrations/");
-    println!("cargo:rerun-if-changed=resources/");
-    println!("cargo:rerun-if-changed=local-machine/");
+    println!("cargo:rerun-if-changed=../resources/");
+    println!("cargo:rerun-if-changed=../local-machine/");
     println!("cargo:rerun-if-env-changed=NODE_ENV");
 
     // Check if NODE_ENV is set (highest priority)

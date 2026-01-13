@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { spawn } from "child_process";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Recreate __filename / __dirname in ESM
 // @ts-ignore
@@ -12,6 +12,8 @@ const __dirname = path.dirname(__filename);
 
 const network = (process.env.ARGON_NETWORK_NAME || "testnet");
 const argonAppInstance = process.env.ARGON_APP_INSTANCE || "";
+const app = process.env.ARGON_APP || "operations";
+console.log(`[tauri-dev] Starting Tauri dev for app="${app}" on network="${network}" with instance="${argonAppInstance}"`);
 
 let tauriPort: string | undefined;
 
@@ -22,10 +24,14 @@ if (argonAppInstance.includes(":")) {
 
 // Default port if nothing parsed
 if (!tauriPort) {
-  tauriPort = "1420";
+  if (app.startsWith("i")) {
+    tauriPort = '1430';
+  } else {
+    tauriPort = '1420';
+  }
 }
 
-const configFileName = `tauri.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
+const configFileName = `tauri.${app}.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
 const configFilePath = path.resolve(__dirname, configFileName);
 
 // Load base config from file (if present)
@@ -50,9 +56,6 @@ baseConfig.build.devUrl = devUrl;
 // Stringify final config
 const configJson = JSON.stringify(baseConfig);
 console.log(baseConfig);
-
-// Set env var to indicate local build
-process.env.ARGON_APP_BUILD_TYPE = "local";
 
 // Spawn `yarn tauri dev` with the merged config
 const child = spawn(

@@ -40,7 +40,7 @@
             <div class="px-6 text-base pb-3 mb-6 relative z-10 grid grid-col gap-2">
               <p class="mb-2">
                 <template v-if="update">
-                  A new version of Argonot Operator is ready to download and install
+                  A new version of {{APP_NAME}} is ready to download and install
                 </template>
                 <template v-else-if="isChecking">
                   Checking..
@@ -98,7 +98,7 @@ import BgOverlay from '../components/BgOverlay.vue';
 import Draggable from './helpers/Draggable.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import { app } from '@tauri-apps/api';
-import { ENABLE_AUTO_UPDATE } from '../lib/Env.ts';
+import { APP_NAME, ENABLE_AUTO_UPDATE } from '../lib/Env.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';

@@ -29,6 +29,7 @@ export enum WalletType {
   miningHold = 'miningHold',
   miningBot = 'miningBot',
   vaulting = 'vaulting',
+  investments = 'investments',
 }
 
 export type IWalletType = keyof typeof WalletType;

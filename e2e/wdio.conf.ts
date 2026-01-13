@@ -26,7 +26,7 @@ const DOCKER_ENV = {
   BITCOIN_BLOCK_SECS: '20',
   COMPOSE_PROJECT_NAME: `${ARGON_CHAIN}-${ARGON_APP_INSTANCE}`,
 };
-const CONFIG_DIR = Path.join(os.homedir(), '.config', 'com.argon.apps', ARGON_CHAIN, ARGON_APP_INSTANCE);
+const CONFIG_DIR = Path.join(os.homedir(), '.config', 'com.argon.operations.local', ARGON_CHAIN, ARGON_APP_INSTANCE);
 
 export function getArchiveUrl() {
   return ARGON_RPC_URL;
@@ -90,7 +90,6 @@ export const config: Options.Testrunner & { capabilities: any } = {
         CI: 'true',
         ARCHIVE_URL: ARGON_RPC_URL,
         ARGON_NETWORK_NAME: ARGON_CHAIN,
-        ARGON_APP_BUILD_TYPE: 'local',
       },
       shell: true,
     });
@@ -107,7 +106,6 @@ export const config: Options.Testrunner & { capabilities: any } = {
       env: {
         ARGON_APP_INSTANCE,
         ARGON_NETWORK_NAME: ARGON_CHAIN,
-        ARGON_APP_BUILD_TYPE: 'local',
         ...process.env,
       },
     });

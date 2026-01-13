@@ -1,7 +1,8 @@
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import ISecurity from './src-vue/interfaces/ISecurity';
 
-(globalThis as any).__ARGON_APP_BUILD_TYPE__ = 'local';
+(globalThis as any).__ARGON_APP_ID__ = 'com.argon.operations';
+(globalThis as any).__ARGON_APP_NAME__ = 'ARGON';
 (globalThis as any).__ARGON_NETWORK_NAME__ = 'dev-docker';
 (globalThis as any).__ARGON_APP_INSTANCE__ = 'test-instance';
 (globalThis as any).__ARGON_APP_ENABLE_AUTOUPDATE__ = false;

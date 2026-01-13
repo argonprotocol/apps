@@ -8,7 +8,8 @@ declare module '*.vue' {
 }
 
 // Global variables defined by Vite
-declare const __ARGON_APP_BUILD_TYPE__: string;
+declare const __ARGON_APP_ID__: string;
+declare const __ARGON_APP_NAME__: string;
 declare const __ARGON_APP_INSTANCE__: string;
 declare const __ARGON_APP_ENABLE_AUTOUPDATE__: boolean;
 declare const __ARGON_APP_SECURITY__: any;

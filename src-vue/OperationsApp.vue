@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
-    <TopBar />
+    <OperationsTopBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
       <AlertBars />
       <HomeScreen v-if="showHomeScreen" />
@@ -44,7 +44,7 @@
 <script setup lang="ts">
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
-import { createMenu } from './AppMenu.ts';
+import { createMenu } from './OperationsAppMenu.ts';
 import HomeScreen from './screens/HomeScreen.vue';
 import MiningScreen from './screens/MiningScreen.vue';
 import VaultingScreen from './screens/VaultingScreen.vue';
@@ -54,7 +54,7 @@ import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
-import TopBar from './navigation/TopBar.vue';
+import OperationsTopBar from './navigation/OperationsTopBar.vue';
 import { useController } from './stores/controller';
 import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';

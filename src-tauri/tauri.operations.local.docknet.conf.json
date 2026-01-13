@@ -1,5 +1,5 @@
 {
-  "identifier": "com.argon.apps.local",
+  "identifier": "com.argon.operations.local",
   "bundle": {
     "icon": [
       "argonot-icons/local/docknet/32x32.png",

@@ -53,6 +53,7 @@ export const useWallets = defineStore('wallets', () => {
   const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningHoldAddress });
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
+  const investmentsWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentsAddress });
 
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningBotAccountPreviousHistory) return;
@@ -173,15 +174,18 @@ export const useWallets = defineStore('wallets', () => {
   const totalWalletMicrogons = Vue.ref(0n);
   const totalWalletMicronots = Vue.ref(0n);
 
+  const walletMapping = {
+    miningHold: miningHoldWallet,
+    miningBot: miningBotWallet,
+    vaulting: vaultingWallet,
+    investments: investmentsWallet,
+  };
+
   //////////////////////////////////////////////////////////////////////////////
   walletBalances.events.on('balance-change', (entry, type) => {
     totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
     totalWalletMicronots.value = walletBalances.totalWalletMicronots;
-    const wallet = {
-      miningHold: miningHoldWallet,
-      miningBot: miningBotWallet,
-      vaulting: vaultingWallet,
-    }[type];
+    const wallet = walletMapping[type];
     Object.assign(wallet, entry);
     const walletEntry = walletBalances[`${type}Wallet`];
     wallet.totalMicrogons = walletEntry.totalMicrogons;
@@ -195,13 +199,9 @@ export const useWallets = defineStore('wallets', () => {
         await walletBalances.load();
         totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
         totalWalletMicronots.value = walletBalances.totalWalletMicronots;
-        for (const walletType of ['miningHold', 'miningBot', 'vaulting'] as const) {
-          const wallet = {
-            miningHold: miningHoldWallet,
-            miningBot: miningBotWallet,
-            vaulting: vaultingWallet,
-          }[walletType];
-          const walletEntry = walletBalances[`${walletType}Wallet`];
+        for (const [walletType, wallet] of Object.entries(walletMapping)) {
+          const key = walletType as keyof typeof walletMapping;
+          const walletEntry = walletBalances[`${key}Wallet`];
           Object.assign(wallet, walletEntry.latestBalanceChange);
           wallet.totalMicrogons = walletEntry.totalMicrogons;
           wallet.totalMicronots = walletEntry.totalMicronots;
