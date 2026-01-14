@@ -9,6 +9,10 @@ function forwardConsole(
 ) {
   const original = console[fnName];
   console[fnName] = (message: any, ...args: any[]) => {
+    if (fnName === 'warn' && typeof message === 'string' && message.startsWith("[TAURI] Couldn't find callback")) {
+      // don't log these noisy tauri internal messages
+      return;
+    }
     const ts = dayjs().local().format('HH:mm:ss.SSS');
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     args = args.map(arg => safeRaw(arg));

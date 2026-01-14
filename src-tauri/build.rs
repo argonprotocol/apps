@@ -34,8 +34,8 @@ fn main() {
     dotenvy::from_filename_override(format!(".env.{}.local", mode)).ok();
     for (key, value) in env::vars() {
         if key.starts_with("RUST_LOG")
-            || key.starts_with("ARGON_")
-            || key.starts_with("ARGON_APP_")
+            || key == "CI"
+            || key == "ARGON_APP_ENABLE_AUTOUPDATE"
             || key == "NODE_ENV"
         {
             println!("cargo:rustc-env={}={}", key, value);
