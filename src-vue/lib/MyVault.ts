@@ -13,7 +13,7 @@ import {
   Vault,
   Vec,
 } from '@argonprotocol/mainchain';
-import { addressBytesHex, BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
@@ -33,7 +33,7 @@ import BigNumber from 'bignumber.js';
 import { Vaults } from './Vaults.ts';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
-import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinLocksTable, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
@@ -70,6 +70,10 @@ export class MyVault {
       vaultId: number;
     }> | null;
   };
+
+  public get vaultId(): number | undefined {
+    return this.metadata?.id;
+  }
 
   public get createdVault(): Vault | null {
     return this.data.createdVault;
@@ -115,6 +119,7 @@ export class MyVault {
     };
     this.vaults = vaults;
     this.#transactionTracker = transactionTracker;
+    bitcoinLocksStore.myVault = this;
   }
 
   public async getBitcoinNetwork(): Promise<BitcoinNetwork> {
@@ -179,10 +184,6 @@ export class MyVault {
           void this.onLockBitcoin(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
           void this.onCosignResult(txInfo);
-        } else if (tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease) {
-          const { utxoId } = tx.metadataJson!;
-          const lock = this.bitcoinLocksStore.data.locksByUtxoId[utxoId];
-          void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCollect) {
           void this.onVaultCollect(txInfo);
         }
@@ -290,108 +291,24 @@ export class MyVault {
     }
   }
 
-  public async requestBitcoinRelease(args: {
-    lockRecord: IBitcoinLockRecord;
-    bitcoinNetworkFee: bigint;
-    toScriptPubkey: string;
-  }): Promise<TransactionInfo | undefined> {
-    const { lockRecord, bitcoinNetworkFee, toScriptPubkey } = args;
-    if (
-      lockRecord.status !== BitcoinLockStatus.LockedAndMinted &&
-      lockRecord.status !== BitcoinLockStatus.LockedAndIsMinting
-    ) {
-      return;
-    }
-
-    const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
-    const txResult = await bitcoinLock.requestRelease({
-      ...args,
-      client: await getMainchainClient(false),
-      priceIndex: this.vaults.currency.priceIndex,
-      releaseRequest: {
-        toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinLocksStore.bitcoinNetwork),
-        bitcoinNetworkFee,
-      },
-      argonKeyring: await this.walletKeys.getVaultingKeypair(),
-      disableAutomaticTxTracking: true,
-    });
-
-    const txInfo = await this.#transactionTracker.trackTxResult({
-      txResult,
-      extrinsicType: ExtrinsicType.BitcoinRequestRelease,
-      metadata: { utxoId: lockRecord.utxoId, toScriptPubkey, bitcoinNetworkFee },
-    });
-
-    void this.onRequestedReleaseInBlock(lockRecord, txInfo, { toScriptPubkey, bitcoinNetworkFee });
-    return txInfo;
-  }
-
-  public async onRequestedReleaseInBlock(
+  public async cosignMyLock(
     lock: IBitcoinLockRecord,
-    txInfo: TransactionInfo,
-    releaseInfo: { toScriptPubkey: string; bitcoinNetworkFee: bigint },
-  ): Promise<void> {
-    const { txResult } = txInfo;
-    const postProcessor = txInfo.createPostProcessor();
-    const releaseStatuses = [
-      BitcoinLockStatus.ReleaseIsProcessingOnArgon,
-      BitcoinLockStatus.ReleaseIsWaitingForVault,
-      BitcoinLockStatus.ReleaseSigned,
-      BitcoinLockStatus.ReleaseIsProcessingOnBitcoin,
-      BitcoinLockStatus.ReleaseComplete,
-    ];
-    // if we're not already processing a release, update the lock record
-    if (!releaseStatuses.includes(lock.status)) {
-      await this.bitcoinLocksStore.updateReleaseIsProcessingOnArgon(lock);
-    }
-
-    if (lock.status === BitcoinLockStatus.ReleaseIsProcessingOnArgon) {
-      const blockHash = await txResult.waitForFinalizedBlock;
-      const client = await getMainchainClient(true);
-      const api = await client.at(blockHash);
-
-      const { toScriptPubkey, bitcoinNetworkFee } = releaseInfo;
-      lock.requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
-      lock.releaseToDestinationAddress = toScriptPubkey;
-      lock.releaseBitcoinNetworkFee = bitcoinNetworkFee;
-      await this.bitcoinLocksStore.updateReleaseIsWaitingForVault(lock);
-    }
-
-    // kick off the vault's signing
-    await this.handleCosignOfBitcoinUnlock(lock);
-
-    postProcessor.resolve();
-  }
-
-  public async handleCosignOfBitcoinUnlock(lock: IBitcoinLockRecord): Promise<void> {
+  ): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
     if (lock.vaultId !== this.createdVault?.vaultId) {
       // this api is only to unlock our own vault's bitcoin locks
       return;
     }
     try {
       this.data.finalizeMyBitcoinError = undefined;
-      // could be moved to BitcoinLocksStore
-      if (lock.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
-        const result = await this.cosignRelease({
-          utxoId: lock.utxoId!,
-          toScriptPubkey: lock.releaseToDestinationAddress!,
-          bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
-        });
-        if (!result) {
-          throw new Error("Failed to add the vault's co-signature.");
-        }
-        if (!lock.releaseCosignVaultSignature) {
-          const txResult = result.txInfo.txResult;
-          await txResult.waitForInFirstBlock;
-          await this.bitcoinLocksStore.updateVaultUnlockingSignature(lock, {
-            signature: result.vaultSignature,
-            blockHeight: txResult.blockNumber!,
-          });
-        }
+      const result = await this.cosignRelease({
+        utxoId: lock.utxoId!,
+        toScriptPubkey: lock.releaseToDestinationAddress!,
+        bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
+      });
+      if (!result) {
+        throw new Error("Failed to add the vault's co-signature.");
       }
-      if (lock.status === BitcoinLockStatus.ReleaseSigned) {
-        await this.bitcoinLocksStore.ownerCosignAndSendToBitcoin(lock);
-      }
+      return result;
     } catch (error) {
       console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
       this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId!, error: String(error) };
@@ -760,6 +677,11 @@ export class MyVault {
     this.vaults.vaultsById[vault.vaultId] = vault;
   }
 
+  public async clearPersonalBitcoin(): Promise<void> {
+    this.metadata!.personalUtxoId = undefined;
+    const table = await this.getTable();
+    await table.save(this.metadata!);
+  }
   public async recordPersonalBitcoins(bitcoins: IBitcoinLockRecord[]): Promise<void> {
     if (bitcoins.length === 0) {
       return;

@@ -2,6 +2,7 @@ import { getPercent, JsonExt, percentOf } from '@argonprotocol/apps-core';
 import { IFieldTypes } from './db/BaseTable.ts';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import { appConfigDir, join } from '@tauri-apps/api/path';
+import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 
 export { getPercent, percentOf };
 
@@ -31,6 +32,8 @@ export function toSqlParams(
       return param.toString();
     } else if (typeof param === 'object' && !(param instanceof Uint8Array) && !(param instanceof Date)) {
       return JsonExt.stringify(param);
+    } else if (ArrayBuffer.isView(param)) {
+      return u8aToHex(param);
     }
     return param;
   });
@@ -132,7 +135,11 @@ export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Recor
           obj[fieldName] = new Date(value);
         }
       } else if (type === 'uint8array') {
-        obj[fieldName] = Uint8Array.from(value);
+        if (typeof value === 'string' && value.startsWith('0x')) {
+          obj[fieldName] = hexToU8a(value);
+        } else if (Array.isArray(value)) {
+          obj[fieldName] = Uint8Array.from(value);
+        }
       } else {
         throw new Error(`${fieldName} has unknown type: ${type}`);
       }

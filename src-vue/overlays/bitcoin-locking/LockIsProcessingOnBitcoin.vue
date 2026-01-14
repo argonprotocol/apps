@@ -85,6 +85,7 @@ let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefi
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
   updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
+  updateProgress();
 });
 
 Vue.onUnmounted(() => {

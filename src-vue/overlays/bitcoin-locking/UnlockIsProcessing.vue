@@ -66,19 +66,26 @@ function trackProcessingOnArgon() {
 
 let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined = undefined;
 
+function updateProgressOnBitcoin() {
+  const details = bitcoinLocks.getReleaseProcessingDetails(props.personalLock);
+  progressPct.value = 33 + details.progressPct * 0.33;
+  if (details.progressPct >= 100 && updateBitcoinLockProcessingInterval) {
+    clearInterval(updateBitcoinLockProcessingInterval);
+    updateBitcoinLockProcessingInterval = undefined;
+  }
+  if (details.releaseError) {
+    progressLabel.value = `Error: ${details.releaseError}`;
+    return;
+  }
+  progressLabel.value = generateProgressLabel(details.confirmations, details.expectedConfirmations, {
+    blockType: 'Bitcoin',
+  });
+}
+
 async function trackProcessingOnBitcoin() {
   await bitcoinLocks.load();
-  updateBitcoinLockProcessingInterval = setInterval(() => {
-    const details = bitcoinLocks.getReleaseProcessingDetails(props.personalLock);
-    progressPct.value = 33 + details.progressPct * 0.33;
-    if (details.progressPct >= 100 && updateBitcoinLockProcessingInterval) {
-      clearInterval(updateBitcoinLockProcessingInterval);
-      updateBitcoinLockProcessingInterval = undefined;
-    }
-    progressLabel.value = generateProgressLabel(details.confirmations, details.expectedConfirmations, {
-      blockType: 'Bitcoin',
-    });
-  }, 1e3);
+  updateBitcoinLockProcessingInterval = setInterval(updateProgressOnBitcoin, 1e3);
+  updateProgressOnBitcoin();
 }
 
 let isTrackingVaultCosignProgress = false;
@@ -110,6 +117,10 @@ Vue.watch(
       trackProcessingOnArgon();
     } else if (status.value === BitcoinLockStatus.ReleaseIsWaitingForVault) {
       trackVaultCosignProgress();
+    } else if (status.value === BitcoinLockStatus.ReleaseSigned) {
+      if (props.personalLock.releaseError) {
+        progressLabel.value = `An unexpected error has occurred unlocking your Bitcoin: ${props.personalLock.releaseError}`;
+      }
     } else if (status.value === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) {
       trackProcessingOnBitcoin();
     }

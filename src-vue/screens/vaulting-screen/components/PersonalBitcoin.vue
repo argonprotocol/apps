@@ -10,10 +10,10 @@
         </div>
       </div>
       <div class="flex flex-col items-center justify-center">
-        <button @click="showLockingOverlay = true" class="bg-argon-600 text-white whitespace-nowrap text-lg font-bold px-12 py-2 rounded-md cursor-pointer">Add a Bitcoin</button>
+        <button @click="showLockingOverlay" class="bg-argon-600 text-white whitespace-nowrap text-lg font-bold px-12 py-2 rounded-md cursor-pointer">Add a Bitcoin</button>
       </div>
     </div>
-    <div v-else-if="lockStatus === BitcoinLockStatus.LockIsProcessingOnArgon" @click="showLockingOverlay=true" class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] py-5! border-[1.5px] border-dashed border-slate-900/30 hover:bg-white/30! cursor-pointer m-0.5">
+    <div v-else-if="lockStatus === BitcoinLockStatus.LockIsProcessingOnArgon" @click="showLockingOverlay" class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] py-5! border-[1.5px] border-dashed border-slate-900/30 hover:bg-white/30! cursor-pointer m-0.5">
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 opacity-60 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center mr-5">
@@ -25,13 +25,13 @@
           </div>
         </div>
         <div class="flex flex-row space-x-2 items-center justify-end grow">
-          <button @click="showLockingOverlay=true" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+          <button @click="showLockingOverlay" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
             View Details
           </button>
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockReadyForBitcoin" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+    <div v-else-if="lockStatus === BitcoinLockStatus.LockReadyForBitcoin" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px fade-in-out" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">Your
@@ -40,7 +40,7 @@
         <div class="relative text-argon-700/80 pt-0.5 font-bold text-md pointer-events-none fade-in-out">Actively Monitoring Network for Incoming Bitcoin</div>
       </div>
       <div class="flex flex-col items-center justify-center">
-        <button @click="showLockingOverlay = true" class="whitespace-nowrap bg-argon-600 text-white text-lg font-bold px-5 lg:px-10 py-2 rounded-md cursor-pointer relative top-1">
+        <button @click="showLockingOverlay" class="whitespace-nowrap bg-argon-600 text-white text-lg font-bold px-5 lg:px-10 py-2 rounded-md cursor-pointer relative top-1">
           Finish Locking
         </button>
         <div class="opacity-40 italic mt-2.5">
@@ -56,7 +56,7 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockIsProcessingOnBitcoin" @click="showLockingOverlay = true" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+    <div v-else-if="lockStatus === BitcoinLockStatus.LockIsProcessingOnBitcoin" @click="showLockingOverlay" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
@@ -68,7 +68,7 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.LockReceivedWrongAmount" @click="showLockingOverlay = true" class="grow text-red-700 flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5 cursor-pointer hover:bg-white/50">
+    <div v-else-if="lockStatus === BitcoinLockStatus.LockReceivedWrongAmount" class="grow text-red-700 flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5 hover:bg-white/50">
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-80 border-b border-argon-600/20 pb-1.5 mb-1.5">
@@ -77,10 +77,17 @@
         </div>
         <div class="opacity-60">
           The amount of bitcoin you sent was incorrect. It could not be accepted by Argon.
+          <strong>Please do not clear this screen without first reaching out for help on Discord.</strong>
         </div>
       </div>
+      <div class="flex flex-row space-x-2 items-center justify-end grow">
+        <button @click="clearLock" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+          Ok, I understand<br/><br/>
+          Clear Entry
+        </button>
+      </div>
     </div>
-    <div v-else-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(personalLock?.status!)" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
+    <div v-else-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lockStatus!)" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
       <BitcoinIcon class="w-22 inline-block mr-5 -rotate-24 opacity-60" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60">
@@ -88,14 +95,14 @@
           (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
         </div>
         <div class="opacity-40">
-          {{ currency.symbol}}{{ microgonToMoneyNm(personalLock?.liquidityPromised ?? 0n).format('0,0.[00]') }} Liquidity {{ personalLock?.status === BitcoinLockStatus.LockedAndIsMinting ? 'Promised' : 'Received'}}
+          {{ currency.symbol}}{{ microgonToMoneyNm(personalLock?.liquidityPromised ?? 0n).format('0,0.[00]') }} Liquidity {{ lockStatus === BitcoinLockStatus.LockedAndIsMinting ? 'Promised' : 'Received'}}
           /
           {{ currency.symbol }}{{ microgonToMoneyNm(unlockPrice).format('0,0.[00]') }} to Unlock
         </div>
       </div>
       <div class="flex flex-col gap-x-3 xl:flex-row-reverse items-center justify-center whitespace-nowrap">
         <div class="flex flex-row space-x-2 items-center justify-center">
-          <button @click="showReleaseOverlay=true" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">Unlock Bitcoin</button>
+          <button @click="showReleaseOverlay" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">Unlock Bitcoin</button>
           <!-- <span class="opacity-40">or</span>
           <button class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">Ratchet</button> -->
         </div>
@@ -112,7 +119,7 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseIsProcessingOnArgon" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
+    <div v-else-if="lockStatus === BitcoinLockStatus.ReleaseIsProcessingOnArgon" @click="showReleaseOverlay" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
       <div class="flex flex-row items-center justify-center w-full fade-in-out">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow">
@@ -126,7 +133,7 @@
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseIsWaitingForVault" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
+    <div v-else-if="lockStatus === BitcoinLockStatus.ReleaseIsWaitingForVault" @click="showReleaseOverlay" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 opacity-60 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center mr-5">
@@ -138,14 +145,14 @@
           </div>
         </div>
         <div class="flex flex-row space-x-2 items-center justify-end grow">
-          <button @click="showLockingOverlay=true" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+          <button @click="showLockingOverlay" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
             View Details
           </button>
         </div>
       </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseSigned" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
-      <div class="flex flex-row items-center justify-center w-full fade-in-out">
+    <div v-else-if="lockStatus === BitcoinLockStatus.ReleaseSigned" @click="showReleaseOverlay" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/100 cursor-pointer">
+      <div class="flex flex-row items-center justify-center w-full fade-in-out" v-if="!personalLock?.releaseError">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow">
           <div class="text-xl font-bold opacity-60">
@@ -157,8 +164,17 @@
           </div>
         </div>
       </div>
+      <div class="w-full flex flex-row items-center justify-center" v-else>
+        <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
+        <div  class="flex flex-col items-start justify-center grow  opacity-80 font-bold " v-if="personalLock?.releaseError">
+          <div class="text-xl">Releasing has Failed.</div>
+          <div class="text-md font-normal mt-2 text-red-700">
+            Technical details: {{ personalLock.releaseError }}
+          </div>
+        </div>
+      </div>
     </div>
-    <div v-else-if="personalLock?.status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin" @click="showReleaseOverlay=true" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/70 cursor-pointer">
+    <div v-else-if="lockStatus === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin" @click="showReleaseOverlay" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5 opacity-80 hover:opacity-100 !bg-white/50 hover:!bg-white/70 cursor-pointer">
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow">
@@ -178,15 +194,15 @@
   <!-- Overlays -->
 
   <BitcoinLockingOverlay
-    v-if="showLockingOverlay"
+    v-if="doShowLockingOverlay"
     :personalLock="personalLock"
     @close="closeLockingOverlay"
   />
 
   <BitcoinUnlockingOverlay
-    v-if="showReleaseOverlay && personalLock"
+    v-if="doShowReleaseOverlay && personalLock"
     :personalLock="personalLock"
-    @close="showReleaseOverlay = false"
+    @close="closeReleaseOverlay"
   />
 
 </template>
@@ -222,6 +238,19 @@ const miningFrames = getMiningFrames();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
+
+function showLockingOverlay() {
+  doShowReleaseOverlay.value = false;
+  doShowLockingOverlay.value = true;
+}
+function showReleaseOverlay() {
+  doShowLockingOverlay.value = false;
+  doShowReleaseOverlay.value = true;
+}
+
+async function clearLock() {
+  await myVault.clearPersonalBitcoin();
+}
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -264,14 +293,14 @@ const releasingBitcoinDetails = Vue.computed<{ progressPct: number; confirmation
 const requestBitcoinReleaseByVaultProgress = Vue.computed(() => {
   const lock = personalLock.value;
   if (!lock) return 0;
-  return bitcoinLocks.getRequestReleaseByVaultPercent(lock, miningFrames);
+  return bitcoinLocks.getRequestReleaseByVaultProgress(lock, miningFrames);
 });
 
 const btcMarketRate = Vue.ref(0n);
 const unlockPrice = Vue.ref(0n);
 
-const showReleaseOverlay = Vue.ref(false);
-const showLockingOverlay = Vue.ref(false);
+const doShowReleaseOverlay = Vue.ref(false);
+const doShowLockingOverlay = Vue.ref(false);
 
 let loadedUtxoId = 0;
 async function loadPersonalUtxo() {
@@ -303,7 +332,11 @@ async function updateBitcoinUnlockPrices() {
 }
 
 function closeLockingOverlay() {
-  showLockingOverlay.value = false;
+  doShowLockingOverlay.value = false;
+}
+
+function closeReleaseOverlay() {
+  doShowReleaseOverlay.value = false;
 }
 
 let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined;
@@ -312,7 +345,6 @@ Vue.onMounted(async () => {
   await myVault.load();
   await myVault.subscribe();
   await bitcoinLocks.load();
-  await bitcoinLocks.subscribeToArgonBlocks();
 
   Vue.watch(
     currency.priceIndex,
@@ -335,6 +367,7 @@ Vue.onMounted(async () => {
   await updateBitcoinUnlockPrices();
 
   updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
+  updateBitcoinLockProcessingPercent();
 });
 
 Vue.onUnmounted(() => {
