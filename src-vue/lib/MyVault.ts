@@ -468,49 +468,50 @@ export class MyVault {
     this.data.pendingCollectTxInfo = txInfo;
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
-    const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
 
-    if (!followOnTx.isSettled && tx.metadataJson.moveTo === MoveTo.MiningHold) {
-      const argonKeyring = await this.walletKeys.getVaultingKeypair();
-      const revenue = await this.getCollectedAmount(txInfo);
-      if (revenue === undefined) {
-        throw new Error('Failed to determine collected revenue from vault collect events');
-      }
-      const client = await getMainchainClient(false);
-      const clientAt = await client.at(txInfo.txResult.blockHash!);
-      const balanceAtBlock = await clientAt.query.system
-        .account(this.walletKeys.vaultingAddress)
-        .then(x => x.data.free.toBigInt());
+    if (tx.metadataJson.moveTo === MoveTo.MiningHold) {
+      const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
+      if (!followOnTx.isSettled) {
+        const argonKeyring = await this.walletKeys.getVaultingKeypair();
+        const revenue = await this.getCollectedAmount(txInfo);
+        if (revenue === undefined) {
+          throw new Error('Failed to determine collected revenue from vault collect events');
+        }
+        const client = await getMainchainClient(false);
+        const clientAt = await client.at(txInfo.txResult.blockHash!);
+        const balanceAtBlock = await clientAt.query.system
+          .account(this.walletKeys.vaultingAddress)
+          .then(x => x.data.free.toBigInt());
 
-      // Make sure the collect amount doesn't drain the account below operational reserves
-      const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
-      if (maxAmountToMove < 50_000n) {
-        throw new Error('The amount requested to move is too low after accounting for operational reserves.');
-      }
-      let amountToMove = revenue;
-      if (amountToMove > maxAmountToMove) {
-        amountToMove = maxAmountToMove;
-      }
+        // Make sure the collect amount doesn't drain the account below operational reserves
+        const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
+        if (maxAmountToMove < 50_000n) {
+          throw new Error('The amount requested to move is too low after accounting for operational reserves.');
+        }
+        let amountToMove = revenue;
+        if (amountToMove > maxAmountToMove) {
+          amountToMove = maxAmountToMove;
+        }
 
-      const moveTo = tx.metadataJson.moveTo; // this can only be Mining because of IF block
-      const moveToAddress = this.walletKeys.miningHoldAddress;
-      const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
-        tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
-        signer: argonKeyring,
-        extrinsicType: ExtrinsicType.Transfer,
-        metadata: {
-          moveFrom: MoveFrom.VaultingHold,
-          moveTo,
-          amount: amountToMove,
-        },
-        useLatestNonce: true,
-      });
-      followOnTx.resolve(followOnTxInfo);
+        const moveTo = tx.metadataJson.moveTo; // this can only be Mining because of IF block
+        const moveToAddress = this.walletKeys.miningHoldAddress;
+        const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
+          tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
+          signer: argonKeyring,
+          extrinsicType: ExtrinsicType.Transfer,
+          metadata: {
+            moveFrom: MoveFrom.VaultingHold,
+            moveTo,
+            amount: amountToMove,
+          },
+          useLatestNonce: true,
+        });
+        followOnTx.resolve(followOnTxInfo);
+      }
     }
     await txInfo.followOnTxInfo;
     await txResult.waitForFinalizedBlock;
     await this.trackTxResultFee(txInfo.txResult, true);
-    await txInfo.txResult.waitForFinalizedBlock;
     this.data.pendingCollectTxInfo = null;
 
     postProcessor.resolve();
