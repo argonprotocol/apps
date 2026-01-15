@@ -42,7 +42,7 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
       const hasChanges = await new FrameHistoryLoader(clients, frameHistory).syncToLatestStored();
       if (hasChanges) {
         frameHistory.sort((a, b) => a.frameId - b.frameId);
-        fs.writeFileSync(filePath, JSON.stringify(frameHistory, null, 2), 'utf-8');
+        fs.writeFileSync(filePath, JSON.stringify(frameHistory, null, 2) + '\n', 'utf-8');
         console.log(`Updated ${name}.json with latest frame history`);
       }
       await client.disconnect();

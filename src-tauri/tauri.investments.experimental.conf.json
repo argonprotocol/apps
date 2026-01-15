@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Investments - Experimental",
   "identifier": "com.argon.investments.experimental",
-  "version": "1.0.0-rc1",
+  "version": "1.1.1-rc1",
   "bundle": {
     "icon": [
       "argon-icons/experimental/mainnet/32x32.png",
