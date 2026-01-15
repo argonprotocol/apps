@@ -40,6 +40,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free disk space (Ubuntu runner)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          set -euxo pipefail
+          df -h
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          df -h
+
       - name: setup node
         uses: actions/setup-node@v4
         with:
@@ -154,7 +167,7 @@ jobs:
         with:
           includeDebug: true
           includeRelease: false
-          includeUpdaterJson: false;
+          includeUpdaterJson: false
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}
@@ -175,7 +188,7 @@ jobs:
         with:
           includeDebug: true
           includeRelease: false
-          includeUpdaterJson: false;
+          includeUpdaterJson: false
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}
