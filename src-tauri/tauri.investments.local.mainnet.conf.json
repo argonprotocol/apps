@@ -3,11 +3,11 @@
   "productName": "Argon Investments",
   "bundle": {
     "icon": [
-      "argon-icons/local/mainnet/32x32.png",
-      "argon-icons/local/mainnet/128x128.png",
-      "argon-icons/local/mainnet/128x128@2x.png",
-      "argon-icons/local/mainnet/icon.icns",
-      "argon-icons/local/mainnet/icon.ico"
+      "icons-investments/local/mainnet/32x32.png",
+      "icons-investments/local/mainnet/128x128.png",
+      "icons-investments/local/mainnet/128x128@2x.png",
+      "icons-investments/local/mainnet/icon.icns",
+      "icons-investments/local/mainnet/icon.ico"
     ]
   }
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Argon Operations",
+  "productName": "Argon",
   "version": "1.1.1",
-  "identifier": "com.argon.operations",
+  "identifier": "com.argon",
   "build": {
     "beforeDevCommand": "yarn run dev",
     "beforeBuildCommand": "yarn run build",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Argon Operations",
+        "title": "Argon",
         "devtools": true,
         "hiddenTitle": true,
         "width": 1400,
@@ -51,19 +51,13 @@
       "deb"
     ],
     "icon": [
-      "argonot-icons/stable/mainnet/32x32.png",
-      "argonot-icons/stable/mainnet/128x128.png",
-      "argonot-icons/stable/mainnet/128x128@2x.png",
-      "argonot-icons/stable/mainnet/icon.icns",
-      "argonot-icons/stable/mainnet/icon.ico"
+      "icons/icon.png"
     ]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNjgzNUE1MEU4MTNFNEMKUldSTVBvRU9wVFZvM0tYUUdSWkdnRFo1VnB0NHV6QzVnRnFRdVRXSVRYUWdobS9WbnpnbjYrSVQK",
-      "endpoints": [
-        "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/argonot-stable.json"
-      ]
+      "endpoints": []
     }
   }
 }

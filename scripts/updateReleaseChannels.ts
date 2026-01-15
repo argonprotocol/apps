@@ -48,19 +48,18 @@ const release = await github.rest.repos.getRelease({
 const releaseId = release.data.id;
 const notes = release.data.body || '';
 
-const versions = {
-  stable: {
-    version,
-    notes,
-    pub_date: new Date().toISOString(),
-    platforms: {},
-  } as VersionContent,
-  experimental: {
-    version,
-    notes,
-    pub_date: new Date().toISOString(),
-    platforms: {},
-  },
+const defaultVersionContent = {
+  version,
+  notes,
+  pub_date: new Date().toISOString(),
+  platforms: {},
+} as VersionContent;
+
+const versions: { [str: string]: VersionContent } = {
+  operations_stable: { ...defaultVersionContent },
+  operations_experimental: { ...defaultVersionContent },
+  investments_stable: { ...defaultVersionContent },
+  investments_experimental: { ...defaultVersionContent },
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -71,7 +70,7 @@ const existingAssets = await github.rest.repos.listReleaseAssets({
 });
 
 for (const data of existingAssets.data) {
-  const {  name, browser_download_url } = data;
+  const { name, browser_download_url } = data;
   if (!name) continue;
   if (!name.endsWith('.sig')) continue;
   const sigdata = await github.request(
@@ -88,12 +87,10 @@ for (const data of existingAssets.data) {
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
   const isExperimental = name.includes('Experimental');
   const isDebug = name.includes('-debug');
-  let version: VersionContent;
-  if (isExperimental) {
-    version = versions.experimental;
-  } else {
-    version = versions.stable;
-  }
+  const appId = (name.split('.')[1] || '').toLowerCase();
+  const versionKey = `${appId}_${isExperimental ? 'experimental' : 'stable'}`;
+  const version = versions[versionKey];
+
   const updaterFileDownloadUrl = browser_download_url.replace(
     /\/download\/(untagged-[^/]+)\//,
     `/download/${encodeURIComponent(tagName)}/`,
@@ -152,7 +149,7 @@ for (const data of existingAssets.data) {
 
 
 for (const [name, data] of Object.entries(versions)) {
-  const assetName = `${name}.json`;
+  const assetName = `${name.replace('_', '-')}.json`;
   const rawRecord = JSON.stringify(data, null, 2);
   const headers = {
     'content-type': 'application/json',

@@ -9,8 +9,6 @@ import { readReleaseNotes } from './utils.ts';
     let versionFile = 'src-tauri/tauri.conf.json';
     if (packageVersion.includes('-rc')) {
       versionFile = `src-tauri/tauri.${app}.experimental.conf.json`;
-    } else if (app === 'investments') {
-      versionFile = 'src-tauri/tauri.investments.conf.json';
     }
     const filePath = Path.join(dirname, versionFile);
     const file = fs.readFileSync(filePath, 'utf-8');

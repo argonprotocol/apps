@@ -5,18 +5,18 @@
   "version": "1.1.1-rc1",
   "bundle": {
     "icon": [
-      "argon-icons/experimental/mainnet/32x32.png",
-      "argon-icons/experimental/mainnet/128x128.png",
-      "argon-icons/experimental/mainnet/128x128@2x.png",
-      "argon-icons/experimental/mainnet/icon.icns",
-      "argon-icons/experimental/mainnet/icon.ico"
+      "icons-investments/experimental/mainnet/32x32.png",
+      "icons-investments/experimental/mainnet/128x128.png",
+      "icons-investments/experimental/mainnet/128x128@2x.png",
+      "icons-investments/experimental/mainnet/icon.icns",
+      "icons-investments/experimental/mainnet/icon.ico"
     ]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNjgzNUE1MEU4MTNFNEMKUldSTVBvRU9wVFZvM0tYUUdSWkdnRFo1VnB0NHV6QzVnRnFRdVRXSVRYUWdobS9WbnpnbjYrSVQK",
       "endpoints": [
-        "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/argon-experimental.json"
+        "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/investments-experimental.json"
       ]
     }
   }

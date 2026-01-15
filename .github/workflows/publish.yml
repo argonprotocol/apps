@@ -130,7 +130,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
 
       - name: Build and Publish Investments Stable
         if: ${{ env.BUILDS == 'all' }}
