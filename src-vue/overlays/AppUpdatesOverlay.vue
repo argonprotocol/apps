@@ -130,6 +130,7 @@ const lastChecked = Vue.ref<Date | null>(null);
 
 async function relaunchApp() {
   try {
+    console.log(`Relaunching app to install new version (upgrading ${update.value?.currentVersion} to ${update.value?.version})`);
     isDownloading.value = false;
     await relaunch();
   } catch (e) {

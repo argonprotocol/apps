@@ -5,6 +5,7 @@ import InvestmentsApp from './InvestmentsApp.vue';
 import OperationsApp from './OperationsApp.vue';
 import './main.css';
 import { IS_INVESTMENTS_APP } from './lib/Env.ts';
+import { getVersion } from '@tauri-apps/api/app';
 
 window.addEventListener('unhandledrejection', error => {
   console.error('Unhandled promise rejection:', error.reason);
@@ -22,3 +23,6 @@ const App = IS_INVESTMENTS_APP ? InvestmentsApp : OperationsApp;
 const app = createApp(App);
 app.use(createPinia());
 app.mount('#app');
+void getVersion().then(version => {
+  console.log(`Starting Argon ${IS_INVESTMENTS_APP ? 'Investments' : 'Operations'} App v${version}`);
+});
