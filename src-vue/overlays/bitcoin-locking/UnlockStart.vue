@@ -14,7 +14,7 @@
           </p>
 
           <p>
-            use the fields below tochoose where you want your bitcoin sent and the network speed you're willing to
+            use the fields below to choose where you want your bitcoin sent and the network speed you're willing to
             pay.
           </p>
         </div>
@@ -150,8 +150,8 @@ async function submitRelease() {
       toScriptPubkey,
     );
 
-    await myVault.requestBitcoinRelease({
-      lockRecord: props.personalLock,
+    await bitcoinLocks.requestBitcoinRelease({
+      utxoId: props.personalLock.utxoId!,
       bitcoinNetworkFee: networkFee,
       toScriptPubkey,
     });

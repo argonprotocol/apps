@@ -78,8 +78,15 @@ export interface IBitcoinLockRecord {
 export class BitcoinLocksTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
     bigint: ['satoshis', 'peggedPrice', 'liquidityPromised', 'releaseBitcoinNetworkFee'],
-    json: ['lockDetails', 'ratchets'],
-    date: ['createdAt', 'updatedAt'],
+    json: ['lockDetails', 'ratchets', 'lockMempool', 'releaseMempool'],
+    date: [
+      'lockProcessingOnBitcoinAtTime',
+      'lockProcessingLastOracleBlockDate',
+      'releaseProcessingOnBitcoinAtDate',
+      'releaseProcessingLastOracleBlockDate',
+      'createdAt',
+      'updatedAt',
+    ],
     uint8array: ['releaseCosignVaultSignature'],
   };
 
@@ -172,7 +179,9 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async setReleaseIsWaitingForVault(lock: IBitcoinLockRecord): Promise<void> {
-    lock.status = BitcoinLockStatus.ReleaseIsWaitingForVault;
+    if (!lock.releaseCosignVaultSignature) {
+      lock.status = BitcoinLockStatus.ReleaseIsWaitingForVault;
+    }
     await this.db.execute(
       `UPDATE BitcoinLocks SET status = ?, requestedReleaseAtTick=?, releaseToDestinationAddress=?, releaseBitcoinNetworkFee=? WHERE uuid = ?`,
       toSqlParams([
@@ -185,17 +194,49 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  public async setReleaseIsProcessingOnArgon(lock: IBitcoinLockRecord): Promise<void> {
-    lock.status = BitcoinLockStatus.ReleaseIsProcessingOnArgon;
-    await this.db.execute(`UPDATE BitcoinLocks SET status = ? WHERE uuid = ?`, toSqlParams([lock.status, lock.uuid]));
+  public async setAppropriateReleasingStatus(lock: IBitcoinLockRecord): Promise<void> {
+    const startingStatus = lock.status;
+    if (lock.releasedTxid) {
+      lock.status = BitcoinLockStatus.ReleaseIsProcessingOnBitcoin;
+    } else if (lock.releaseCosignVaultSignature) {
+      lock.status = BitcoinLockStatus.ReleaseSigned;
+    } else if (lock.releaseToDestinationAddress) {
+      lock.status = BitcoinLockStatus.ReleaseIsWaitingForVault;
+    } else {
+      lock.status = BitcoinLockStatus.ReleaseIsProcessingOnArgon;
+    }
+    if (startingStatus !== lock.status) {
+      await this.db.execute(`UPDATE BitcoinLocks SET status = ? WHERE uuid = ?`, toSqlParams([lock.status, lock.uuid]));
+    }
   }
 
-  public async setReleaseIsProcessingOnBitcoin(lock: IBitcoinLockRecord, releasedTxid: string): Promise<void> {
+  public async setReleaseIsProcessingOnBitcoin(
+    lock: IBitcoinLockRecord,
+    releasedTxid: string,
+    mempoolBitcoinBlockHeight: number,
+    oracleBitcoinBlockHeight: number,
+  ): Promise<void> {
     lock.status = BitcoinLockStatus.ReleaseIsProcessingOnBitcoin;
     lock.releasedTxid = releasedTxid;
+    lock.releaseProcessingOnBitcoinAtDate ??= dayjs.utc().toDate();
+    lock.releaseProcessingOnBitcoinAtBitcoinHeight ??= mempoolBitcoinBlockHeight;
+    lock.releaseProcessingOnBitcoinAtOracleBitcoinHeight ??= oracleBitcoinBlockHeight;
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = ?, releasedTxid = ?  WHERE uuid = ?`,
-      toSqlParams([lock.status, lock.releasedTxid, lock.uuid]),
+      `UPDATE BitcoinLocks SET 
+               status = ?, 
+               releasedTxid = ?,
+               releaseProcessingOnBitcoinAtDate = ?,
+               releaseProcessingOnBitcoinAtBitcoinHeight = ?,
+               releaseProcessingOnBitcoinAtOracleBitcoinHeight = ?
+             WHERE uuid = ?`,
+      toSqlParams([
+        lock.status,
+        lock.releasedTxid,
+        lock.releaseProcessingOnBitcoinAtDate,
+        lock.releaseProcessingOnBitcoinAtBitcoinHeight,
+        lock.releaseProcessingOnBitcoinAtOracleBitcoinHeight,
+        lock.uuid,
+      ]),
     );
   }
 
@@ -274,9 +315,8 @@ export class BitcoinLocksTable extends BaseTable {
       remainingMint === 0n &&
       (lock.status === BitcoinLockStatus.LockReadyForBitcoin ||
         lock.status === BitcoinLockStatus.LockedAndIsMinting ||
-        lock.status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin)
+        lock.status === BitcoinLockStatus.LockIsProcessingOnBitcoin)
     ) {
-      console.log('LOCKED AND MINTED (BitcoinLocksTable.updateMintState)');
       lock.status = BitcoinLockStatus.LockedAndMinted;
     } else if (lock.status === BitcoinLockStatus.LockReadyForBitcoin) {
       lock.status = BitcoinLockStatus.LockedAndIsMinting;
@@ -306,8 +346,8 @@ export class BitcoinLocksTable extends BaseTable {
       lock.status = BitcoinLockStatus.LockedAndIsMinting;
     }
     await this.db.execute(
-      'UPDATE BitcoinLocks SET status = ?, lockedTxid = ?, lockedVout = ? WHERE uuid = ?',
-      toSqlParams([lock.status, lock.lockedTxid, lock.lockedVout, lock.uuid]),
+      'UPDATE BitcoinLocks SET status = ?, lockedTxid = ?, lockedVout = ?, lockDetails = ? WHERE uuid = ?',
+      toSqlParams([lock.status, lock.lockedTxid, lock.lockedVout, lock.lockDetails, lock.uuid]),
     );
   }
 
