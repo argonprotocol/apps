@@ -410,8 +410,9 @@ export default class BitcoinLocksStore {
     txInfo: TransactionInfo<{ bitcoin: { uuid: string; vaultId: number; hdPath: string; satoshis: bigint } }>,
   ) {
     const postProcessor = txInfo.createPostProcessor();
-    const typeClient = await getMainchainClient(false);
+    const genericClient = await getMainchainClient(true);
     const txResult = txInfo.txResult;
+    const typeClient = await genericClient.at(txResult.blockHash!);
     const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
     const uuid = txInfo.tx.metadataJson.bitcoin.uuid;
 
