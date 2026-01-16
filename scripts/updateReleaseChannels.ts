@@ -86,9 +86,14 @@ for (const data of existingAssets.data) {
   );
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
   const isExperimental = name.includes('Experimental');
+  if (isExperimental) {
+    console.log('Experimental release detected: ', name);
+  } else {
+    console.log('Stable release detected: ', name);
+  }
   const isDebug = name.includes('-debug');
-  const appId = (name.split('.')[1] || '').toLowerCase();
-  const versionKey = `${appId}_${isExperimental ? 'experimental' : 'stable'}`;
+  const appType = (name.match(/Argon\.(Operations|Investments)/)?.[1] || '').toLowerCase();
+  const versionKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
   const version = versions[versionKey];
   if (!version) {
     console.warn(`No version found for ${versionKey}`);
