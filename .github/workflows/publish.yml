@@ -77,6 +77,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: install dependencies (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install create-dmg
+
       - if: runner.os == 'Windows'
         shell: bash
         run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
@@ -130,9 +135,9 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
 
-      - name: Build and Publish Investments Stable
+      - name: Build and Publish Investment Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@v0.6
         env:
@@ -152,7 +157,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.investments.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.investment.conf.json
 
       - name: Build and Publish Operations Experimental
         uses: tauri-apps/tauri-action@v0.6
@@ -175,7 +180,7 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.experimental.conf.json
 
-      - name: Build and Publish Investments Experimental
+      - name: Build and Publish Investment Experimental
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -194,7 +199,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.investments.experimental.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.investment.experimental.conf.json
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}

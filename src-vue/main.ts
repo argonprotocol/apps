@@ -1,7 +1,7 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import './lib/LogForwarding.ts';
-import InvestmentsApp from './InvestmentsApp.vue';
+import InvestmentApp from './InvestmentApp.vue';
 import OperationsApp from './OperationsApp.vue';
 import './main.css';
 import { IS_INVESTMENTS_APP } from './lib/Env.ts';
@@ -19,10 +19,10 @@ window.addEventListener('error', error => {
   console.error(`[${file}:${line}:${col}] Unhandled error: ${error.message}`, error.error);
 });
 
-const App = IS_INVESTMENTS_APP ? InvestmentsApp : OperationsApp;
+const App = IS_INVESTMENTS_APP ? InvestmentApp : OperationsApp;
 const app = createApp(App);
 app.use(createPinia());
 app.mount('#app');
 void getVersion().then(version => {
-  console.log(`Starting Argon ${IS_INVESTMENTS_APP ? 'Investments' : 'Operations'} App v${version}`);
+  console.log(`Starting Argon ${IS_INVESTMENTS_APP ? 'Investment' : 'Operations'} App v${version}`);
 });

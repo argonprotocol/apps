@@ -5,12 +5,10 @@ import { readReleaseNotes } from './utils.ts';
 
 (async () => {
   const dirname = Path.join(import.meta.dirname, '..');
-  for (const app of ['investments', 'operations']) {
+  for (const app of ['investment', 'operations']) {
     let versionFile = 'src-tauri/tauri.conf.json';
     if (packageVersion.includes('-rc')) {
       versionFile = `src-tauri/tauri.${app}.experimental.conf.json`;
-    } else if (app === 'investments') {
-      versionFile = 'src-tauri/tauri.investments.conf.json';
     }
     const filePath = Path.join(dirname, versionFile);
     const file = fs.readFileSync(filePath, 'utf-8');

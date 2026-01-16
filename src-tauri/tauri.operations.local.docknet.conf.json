@@ -1,12 +1,13 @@
 {
   "identifier": "com.argon.operations.local",
+  "productName": "Argon Operations",
   "bundle": {
     "icon": [
-      "argonot-icons/local/docknet/32x32.png",
-      "argonot-icons/local/docknet/128x128.png",
-      "argonot-icons/local/docknet/128x128@2x.png",
-      "argonot-icons/local/docknet/icon.icns",
-      "argonot-icons/local/docknet/icon.ico"
+      "icons-operations/local/docknet/32x32.png",
+      "icons-operations/local/docknet/128x128.png",
+      "icons-operations/local/docknet/128x128@2x.png",
+      "icons-operations/local/docknet/icon.icns",
+      "icons-operations/local/docknet/icon.ico"
     ]
   },
   "app": {
