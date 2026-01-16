@@ -58,8 +58,8 @@ const defaultVersionContent = {
 const versions: { [str: string]: VersionContent } = {
   operations_stable: { ...defaultVersionContent },
   operations_experimental: { ...defaultVersionContent },
-  investments_stable: { ...defaultVersionContent },
-  investments_experimental: { ...defaultVersionContent },
+  investment_stable: { ...defaultVersionContent },
+  investment_experimental: { ...defaultVersionContent },
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -92,7 +92,7 @@ for (const data of existingAssets.data) {
     console.log('Stable release detected: ', name);
   }
   const isDebug = name.includes('-debug');
-  const appType = (name.match(/Argon\.(Operations|Investments)/)?.[1] || '').toLowerCase();
+  const appType = (name.match(/Argon\.(Operations|Investment)/)?.[1] || '').toLowerCase();
   const versionKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
   const version = versions[versionKey];
   if (!version) {
