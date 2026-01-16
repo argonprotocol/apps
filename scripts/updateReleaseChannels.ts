@@ -90,6 +90,10 @@ for (const data of existingAssets.data) {
   const appId = (name.split('.')[1] || '').toLowerCase();
   const versionKey = `${appId}_${isExperimental ? 'experimental' : 'stable'}`;
   const version = versions[versionKey];
+  if (!version) {
+    console.warn(`No version found for ${versionKey}`);
+    continue;
+  }
 
   const updaterFileDownloadUrl = browser_download_url.replace(
     /\/download\/(untagged-[^/]+)\//,
