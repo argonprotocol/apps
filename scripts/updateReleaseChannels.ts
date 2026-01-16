@@ -48,18 +48,20 @@ const release = await github.rest.repos.getRelease({
 const releaseId = release.data.id;
 const notes = release.data.body || '';
 
-const defaultVersionContent = {
-  version,
-  notes,
-  pub_date: new Date().toISOString(),
-  platforms: {},
-} as VersionContent;
+function createFileContent() {
+  return {
+    version,
+    notes,
+    pub_date: new Date().toISOString(),
+    platforms: {},
+  } as VersionContent;
+}
 
-const versions: { [str: string]: VersionContent } = {
-  operations_stable: { ...defaultVersionContent },
-  operations_experimental: { ...defaultVersionContent },
-  investments_stable: { ...defaultVersionContent },
-  investments_experimental: { ...defaultVersionContent },
+const files: { [str: string]: VersionContent } = {
+  operations_stable: createFileContent(),
+  operations_experimental: createFileContent(),
+  investment_stable: createFileContent(),
+  investment_experimental: createFileContent(),
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -86,33 +88,28 @@ for (const data of existingAssets.data) {
   );
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
   const isExperimental = name.includes('Experimental');
-  if (isExperimental) {
-    console.log('Experimental release detected: ', name);
-  } else {
-    console.log('Stable release detected: ', name);
-  }
   const isDebug = name.includes('-debug');
-  const appType = (name.match(/Argon\.(Operations|Investments)/)?.[1] || '').toLowerCase();
-  const versionKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
-  const version = versions[versionKey];
-  if (!version) {
-    console.warn(`No version found for ${versionKey}`);
-    continue;
-  }
-
-  const updaterFileDownloadUrl = browser_download_url.replace(
+  const appType = (name.match(/Argon\.(Operations|Investment)/)?.[1] || '').toLowerCase();
+  const fileKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
+  const file = files[fileKey];
+  const downloadUrl = browser_download_url.replace(
     /\/download\/(untagged-[^/]+)\//,
     `/download/${encodeURIComponent(tagName)}/`,
   ).replace('.sig', '');
+
+  if (!file) {
+    console.warn(`No version found for ${fileKey}`);
+    continue;
+  }
 
   if (name.includes('x64-setup')) {
     for (let key of ['windows-x86_64', 'windows-x86_64-nsis']) {
       if (isDebug) {
         key += '-debug';
       }
-      version.platforms[key] = {
+      file.platforms[key] = {
         signature,
-        url: updaterFileDownloadUrl,
+        url: downloadUrl,
       };
     }
   } else if (name.match(/universal(-debug)?.app.tar.gz/)) {
@@ -127,9 +124,9 @@ for (const data of existingAssets.data) {
       if (isDebug) {
         key += '-debug';
       }
-      version.platforms[key] = {
+      file.platforms[key] = {
         signature,
-        url: updaterFileDownloadUrl,
+        url: downloadUrl,
       };
     }
   } else if (name.includes('.AppImage')) {
@@ -137,9 +134,9 @@ for (const data of existingAssets.data) {
       if (isDebug) {
         key += '-debug';
       }
-      version.platforms[key] = {
+      file.platforms[key] = {
         signature,
-        url: updaterFileDownloadUrl,
+        url: downloadUrl,
       };
     }
   } else if (name.match(/amd64(-debug)?\.deb/g)) {
@@ -147,9 +144,9 @@ for (const data of existingAssets.data) {
     if (isDebug) {
       key += '-debug';
     }
-    version.platforms[key] = {
+    file.platforms[key] = {
       signature,
-      url: updaterFileDownloadUrl,
+      url: downloadUrl,
     };
   } else {
     console.warn('Unknown asset name format:', name);
@@ -157,18 +154,18 @@ for (const data of existingAssets.data) {
 }
 
 
-for (const [name, data] of Object.entries(versions)) {
-  const assetName = `${name.replace('_', '-')}.json`;
-  const rawRecord = JSON.stringify(data, null, 2);
+for (const [fileKey, file] of Object.entries(files)) {
+  const fileName = `${fileKey.replace('_', '-')}.json`;
+  const rawRecord = JSON.stringify(file, null, 2);
   const headers = {
     'content-type': 'application/json',
     'content-length': Buffer.from(rawRecord).byteLength,
   };
 
-  const existingAsset = existingAssets.data.find(a => a.label === assetName);
+  const existingAsset = existingAssets.data.find(a => a.label === fileName);
 
   if (process.env.READONLY) {
-    console.log(`READONLY mode: Skipping upload of ${assetName}`, {
+    console.log(`READONLY mode: Skipping upload of ${fileName}`, {
       existingAsset: existingAsset ? 'exists' : 'not found',
       headers,
       rawRecord
@@ -176,7 +173,7 @@ for (const [name, data] of Object.entries(versions)) {
     continue;
   }
   if (existingAsset) {
-    console.log(`Deleting existing ${assetName}...`);
+    console.log(`Deleting existing ${fileName}...`);
     await github.rest.repos.deleteReleaseAsset({
       owner,
       repo,
@@ -184,15 +181,15 @@ for (const [name, data] of Object.entries(versions)) {
     });
   }
 
-  console.log(`Uploading ${assetName}...`);
+  console.log(`Uploading ${fileName}...`);
 
   await retry(
     () =>
       github.rest.repos.uploadReleaseAsset({
         headers,
-        name: assetName,
+        name: fileName,
         // GitHub renames the filename so we'll also set the label which it leaves as-is.
-        label: assetName,
+        label: fileName,
         data: rawRecord,
         owner,
         repo,
@@ -201,7 +198,7 @@ for (const [name, data] of Object.entries(versions)) {
     1,
   );
 
-  console.log(`${assetName} successfully uploaded.`);
+  console.log(`${fileName} successfully uploaded.`);
 }
 
 async function retry(fn: () => Promise<unknown>, additionalAttempts: number): Promise<unknown> {

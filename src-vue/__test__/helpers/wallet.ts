@@ -10,7 +10,7 @@ export function createTestWallet(mnemonic?: string) {
   const miningHoldAccount = keypair.derive('//holding'); // If we had a do-over, it would be called mining
   const miningBotAccount = keypair.derive('//mining'); // If we had a do-over, it would be called miningBot
   const vaultingAccount = keypair.derive('//vaulting');
-  const investmentAccount = keypair.derive('//investments');
+  const investmentAccount = keypair.derive('//investment');
   return {
     mnemonic,
     miningHoldAccount,
@@ -23,7 +23,7 @@ export function createTestWallet(mnemonic?: string) {
         miningHoldAddress: miningHoldAccount.address,
         miningBotAddress: miningBotAccount.address,
         vaultingAddress: vaultingAccount.address,
-        investmentsAddress: investmentAccount.address,
+        investmentAddress: investmentAccount.address,
       },
       () => Promise.resolve(false),
     ),

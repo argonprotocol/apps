@@ -53,7 +53,7 @@ export const useWallets = defineStore('wallets', () => {
   const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningHoldAddress });
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
-  const investmentsWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentsAddress });
+  const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
 
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningBotAccountPreviousHistory) return;
@@ -178,7 +178,7 @@ export const useWallets = defineStore('wallets', () => {
     miningHold: miningHoldWallet,
     miningBot: miningBotWallet,
     vaulting: vaultingWallet,
-    investments: investmentsWallet,
+    investment: investmentWallet,
   };
 
   //////////////////////////////////////////////////////////////////////////////

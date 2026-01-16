@@ -42,7 +42,7 @@ export class WalletBalances {
   public miningHoldWallet: Wallet;
   public miningBotWallet: Wallet;
   public vaultingWallet: Wallet;
-  public investmentsWallet: Wallet;
+  public investmentWallet: Wallet;
 
   public bestBlock?: IBlockHeaderInfo;
   public finalizedBlock?: IBlockHeaderInfo;
@@ -66,7 +66,7 @@ export class WalletBalances {
   private unsubscribe?: () => void;
 
   public get wallets(): Wallet[] {
-    return [this.miningHoldWallet, this.miningBotWallet, this.vaultingWallet, this.investmentsWallet];
+    return [this.miningHoldWallet, this.miningBotWallet, this.vaultingWallet, this.investmentWallet];
   }
 
   public get addresses(): string[] {
@@ -87,7 +87,7 @@ export class WalletBalances {
     this.miningHoldWallet = new Wallet(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
     this.miningBotWallet = new Wallet(walletKeys.miningBotAddress, 'miningBot', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
-    this.investmentsWallet = new Wallet(walletKeys.investmentsAddress, 'investments', dbPromise);
+    this.investmentWallet = new Wallet(walletKeys.investmentAddress, 'investment', dbPromise);
     this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
     this.myVault = myVault;
