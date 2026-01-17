@@ -2,13 +2,6 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Operations",
   "identifier": "com.argon.operations",
-  "app": {
-    "windows": [
-      {
-        "title": "Argon Operations"
-      }
-    ]
-  },
   "bundle": {
     "icon": [
       "icons-operations/stable/mainnet/32x32.png",
