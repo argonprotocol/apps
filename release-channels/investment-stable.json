@@ -1,0 +1,95 @@
+{
+  "version": "1.2.0",
+  "notes": "- Primarily an internal release to fix a build issue\n- Backend data directories have changed, which may require moving of files.",
+  "pub_date": "2026-01-17T19:13:28.097Z",
+  "platforms": {
+    "linux-x86_64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RyTHU1ZnZudUlPR0o2QzUzNVY5ekhsR1VyRmNmZjZ1dXJiTm44MVlGNkhUWnBRNUgvSXVjVkFWb0V3aTFmRVhDU01hNzNnQUFoMFpWM3grczhyeFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MTA2CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF9hbWQ2NC5BcHBJbWFnZQoySnYzSnRENHAzUzJOTTlHajJmOFBtY2VSamJLeWZjSThTRXZzb2lwYnFQSWNEMHE2ell3T2MwSmdXVVlxL0tQaHpWK0JZeG9EeU1FdHkrbVpSbm9EUT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_amd64-debug.AppImage"
+    },
+    "linux-x86_64-appimage-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RyTHU1ZnZudUlPR0o2QzUzNVY5ekhsR1VyRmNmZjZ1dXJiTm44MVlGNkhUWnBRNUgvSXVjVkFWb0V3aTFmRVhDU01hNzNnQUFoMFpWM3grczhyeFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MTA2CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF9hbWQ2NC5BcHBJbWFnZQoySnYzSnRENHAzUzJOTTlHajJmOFBtY2VSamJLeWZjSThTRXZzb2lwYnFQSWNEMHE2ell3T2MwSmdXVVlxL0tQaHpWK0JZeG9EeU1FdHkrbVpSbm9EUT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_amd64-debug.AppImage"
+    },
+    "linux-x86_64-deb-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0c0bTU4LzV6MFlDTWhTc1NhWmdobVJndmxpYUoySWJTSkZoWVZqYUw1bmx3THRBL2kxTzdkaWRUcUdJZ2VrRnJjOXZxSXdUY3NKVGZXSzVhYk8xTXdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MTA2CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF9hbWQ2NC5kZWIKek1CbmRLbkNsTk1aYllOYWRhVGZkQUVjaHpta3FXeXJONlAxUE93aXlNeDFHMitVUDdnUlRPdTA1cmplSU16Y2lqTkhVb3NEWUJ1VEQ3Nk5zZWJHQmc9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_amd64-debug.deb"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0MxTTJxU1pyQ2NkMHFoT1VnZkdyZTVKTys4YUo3S2VmaU5uS3RyaTNzYUNNMko4Ynl5RXpNRTEwR2xuU2RlTVl0djBueTgray9ldTZ1ZWVqWWdBakFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc1ODk4CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF9hbWQ2NC5BcHBJbWFnZQpTRkt2K2xXb3AyNUczZnJLN1ZxdzZPS0xmNC9QdDJqSDdlWG1wNzlVak1iYWc3aFRDczBwRDQ0cmJoalU0SThBV3QxMENwTkU5V1RXb1NPSmhWTmFBdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0MxTTJxU1pyQ2NkMHFoT1VnZkdyZTVKTys4YUo3S2VmaU5uS3RyaTNzYUNNMko4Ynl5RXpNRTEwR2xuU2RlTVl0djBueTgray9ldTZ1ZWVqWWdBakFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc1ODk4CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF9hbWQ2NC5BcHBJbWFnZQpTRkt2K2xXb3AyNUczZnJLN1ZxdzZPS0xmNC9QdDJqSDdlWG1wNzlVak1iYWc3aFRDczBwRDQ0cmJoalU0SThBV3QxMENwTkU5V1RXb1NPSmhWTmFBdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_amd64.AppImage"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xUcDlSOFRVSnBab1lWcFNCaGlYVGYyZFZsUzhpb21DLzZ6MDQ1RlpYWHRrTzVPbDhnZXcwc3J6aitQQmNKYjZBTTE1VlZ3c2xnNUgvcHJaNjNCM0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc1ODk4CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF9hbWQ2NC5kZWIKRkhFVC9Gc04rQkhaRmdQa25vN1dBNy9DSVg4QitydWVpdllDaFl0cWFwZTZ1ODF6WEwxRTJqZEhqeWhDSzRoZ2tDQTFPVk9sczN6ZkVYSUJJUmFTQ0E9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_amd64.deb"
+    },
+    "windows-x86_64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0txT29DaFErS09CNFcvUllWSUJVdW12T0xZSldHV0NtdUJzTGdyMlhuYjdlWUwrSmN5UHQzdDhHTjRlQ0x2S2ZjcmFCdFVJSFNVZitIOGdJZkhkaVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MzQ0CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF94NjQtc2V0dXAuZXhlCnd1N2Fja24zT0lsRms3QjBQNThNdUc1ajVaNWswQnpyZFRjaHBvUEg0dGNGbCtKSzNZOGVEemZwbEVYWGVBSk9nZHRLYzlXeitZbk5NWWRxZHZaZUFnPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_x64-setup-debug.exe"
+    },
+    "windows-x86_64-nsis-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0txT29DaFErS09CNFcvUllWSUJVdW12T0xZSldHV0NtdUJzTGdyMlhuYjdlWUwrSmN5UHQzdDhHTjRlQ0x2S2ZjcmFCdFVJSFNVZitIOGdJZkhkaVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MzQ0CWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF94NjQtc2V0dXAuZXhlCnd1N2Fja24zT0lsRms3QjBQNThNdUc1ajVaNWswQnpyZFRjaHBvUEg0dGNGbCtKSzNZOGVEemZwbEVYWGVBSk9nZHRLYzlXeitZbk5NWWRxZHZaZUFnPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_x64-setup-debug.exe"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0V5R2NVd1IyZ2NVK2N6WGFlOEtzVzhkWWYrbmh0UW1xK2xHWlFNNjVjTHRsVDJ3NUFpZ2sxYUhkSVo3cUUvUC9sS3V1OVpFWWdRd0hXa3hudGljeHdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MTkyCWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF94NjQtc2V0dXAuZXhlCkw0amh5V213SzU2MmRNYnVwemZXMlo2RVFySmtndGxHL0pLMEM4UmFqUFJ3bTJIVlFtdERybWl6b0hlRk5sQ2ZWRTlZMElJRENWREpXRlYrM1IxU0RBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0V5R2NVd1IyZ2NVK2N6WGFlOEtzVzhkWWYrbmh0UW1xK2xHWlFNNjVjTHRsVDJ3NUFpZ2sxYUhkSVo3cUUvUC9sS3V1OVpFWWdRd0hXa3hudGljeHdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2MTkyCWZpbGU6QXJnb24gSW52ZXN0bWVudF8xLjIuMF94NjQtc2V0dXAuZXhlCkw0amh5V213SzU2MmRNYnVwemZXMlo2RVFySmtndGxHL0pLMEM4UmFqUFJ3bTJIVlFtdERybWl6b0hlRk5sQ2ZWRTlZMElJRENWREpXRlYrM1IxU0RBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_1.2.0_x64-setup.exe"
+    },
+    "darwin-universal-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM011RWo5anZPUmV0M1E1N1RtNEQ2eTZXSlhEdG9zTmdZbmpXMzkxTXpSdThQanNBdkVlamJ5TThyVnBRYmlBYmZCV3JUdEQxd09LZE5hUUUrZ2dEVndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2Njk1CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6Cmsxa25SZXdTdnZCZEw3c3orNG1qTnVubHU0OEUzV3FTMDJ3Z2ZTWlZzSFFaZTdmZWQ4MmhhQmtuMjN0OVg5Z2RRd21ObmVlMXZqTjRhUkVvaG0wMUF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal-debug.app.tar.gz"
+    },
+    "darwin-universal-app-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM011RWo5anZPUmV0M1E1N1RtNEQ2eTZXSlhEdG9zTmdZbmpXMzkxTXpSdThQanNBdkVlamJ5TThyVnBRYmlBYmZCV3JUdEQxd09LZE5hUUUrZ2dEVndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2Njk1CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6Cmsxa25SZXdTdnZCZEw3c3orNG1qTnVubHU0OEUzV3FTMDJ3Z2ZTWlZzSFFaZTdmZWQ4MmhhQmtuMjN0OVg5Z2RRd21ObmVlMXZqTjRhUkVvaG0wMUF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal-debug.app.tar.gz"
+    },
+    "darwin-aarch64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM011RWo5anZPUmV0M1E1N1RtNEQ2eTZXSlhEdG9zTmdZbmpXMzkxTXpSdThQanNBdkVlamJ5TThyVnBRYmlBYmZCV3JUdEQxd09LZE5hUUUrZ2dEVndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2Njk1CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6Cmsxa25SZXdTdnZCZEw3c3orNG1qTnVubHU0OEUzV3FTMDJ3Z2ZTWlZzSFFaZTdmZWQ4MmhhQmtuMjN0OVg5Z2RRd21ObmVlMXZqTjRhUkVvaG0wMUF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal-debug.app.tar.gz"
+    },
+    "darwin-x86_64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM011RWo5anZPUmV0M1E1N1RtNEQ2eTZXSlhEdG9zTmdZbmpXMzkxTXpSdThQanNBdkVlamJ5TThyVnBRYmlBYmZCV3JUdEQxd09LZE5hUUUrZ2dEVndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2Njk1CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6Cmsxa25SZXdTdnZCZEw3c3orNG1qTnVubHU0OEUzV3FTMDJ3Z2ZTWlZzSFFaZTdmZWQ4MmhhQmtuMjN0OVg5Z2RRd21ObmVlMXZqTjRhUkVvaG0wMUF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal-debug.app.tar.gz"
+    },
+    "darwin-aarch64-app-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM011RWo5anZPUmV0M1E1N1RtNEQ2eTZXSlhEdG9zTmdZbmpXMzkxTXpSdThQanNBdkVlamJ5TThyVnBRYmlBYmZCV3JUdEQxd09LZE5hUUUrZ2dEVndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2Njk1CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6Cmsxa25SZXdTdnZCZEw3c3orNG1qTnVubHU0OEUzV3FTMDJ3Z2ZTWlZzSFFaZTdmZWQ4MmhhQmtuMjN0OVg5Z2RRd21ObmVlMXZqTjRhUkVvaG0wMUF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal-debug.app.tar.gz"
+    },
+    "darwin-x86_64-app-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM011RWo5anZPUmV0M1E1N1RtNEQ2eTZXSlhEdG9zTmdZbmpXMzkxTXpSdThQanNBdkVlamJ5TThyVnBRYmlBYmZCV3JUdEQxd09LZE5hUUUrZ2dEVndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2Njk1CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6Cmsxa25SZXdTdnZCZEw3c3orNG1qTnVubHU0OEUzV3FTMDJ3Z2ZTWlZzSFFaZTdmZWQ4MmhhQmtuMjN0OVg5Z2RRd21ObmVlMXZqTjRhUkVvaG0wMUF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal-debug.app.tar.gz"
+    },
+    "darwin-universal": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RMMVFTTEJYcElJM01SNFlucDVZY3dyOEs5cFNyMzkzYXVQdXZLcGRzNm9US2dJZW9JSWZzRjJHZFNPNUV3UXYwWVVMM0pCdkdFejRlVHF6MDBmalFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2NTM3CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6ClVJaEFHZXhTVUEwNHc5c3RlZzV6NmpPa3plRlhvMXl0NVlTTE9qU25jY2NDbTNnKzI1bEhJbVM1RCtOUE5tQVF4SlRsME5pLzNuTWJYZnA1Q05DMUFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal.app.tar.gz"
+    },
+    "darwin-universal-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RMMVFTTEJYcElJM01SNFlucDVZY3dyOEs5cFNyMzkzYXVQdXZLcGRzNm9US2dJZW9JSWZzRjJHZFNPNUV3UXYwWVVMM0pCdkdFejRlVHF6MDBmalFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2NTM3CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6ClVJaEFHZXhTVUEwNHc5c3RlZzV6NmpPa3plRlhvMXl0NVlTTE9qU25jY2NDbTNnKzI1bEhJbVM1RCtOUE5tQVF4SlRsME5pLzNuTWJYZnA1Q05DMUFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RMMVFTTEJYcElJM01SNFlucDVZY3dyOEs5cFNyMzkzYXVQdXZLcGRzNm9US2dJZW9JSWZzRjJHZFNPNUV3UXYwWVVMM0pCdkdFejRlVHF6MDBmalFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2NTM3CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6ClVJaEFHZXhTVUEwNHc5c3RlZzV6NmpPa3plRlhvMXl0NVlTTE9qU25jY2NDbTNnKzI1bEhJbVM1RCtOUE5tQVF4SlRsME5pLzNuTWJYZnA1Q05DMUFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RMMVFTTEJYcElJM01SNFlucDVZY3dyOEs5cFNyMzkzYXVQdXZLcGRzNm9US2dJZW9JSWZzRjJHZFNPNUV3UXYwWVVMM0pCdkdFejRlVHF6MDBmalFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2NTM3CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6ClVJaEFHZXhTVUEwNHc5c3RlZzV6NmpPa3plRlhvMXl0NVlTTE9qU25jY2NDbTNnKzI1bEhJbVM1RCtOUE5tQVF4SlRsME5pLzNuTWJYZnA1Q05DMUFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RMMVFTTEJYcElJM01SNFlucDVZY3dyOEs5cFNyMzkzYXVQdXZLcGRzNm9US2dJZW9JSWZzRjJHZFNPNUV3UXYwWVVMM0pCdkdFejRlVHF6MDBmalFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2NTM3CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6ClVJaEFHZXhTVUEwNHc5c3RlZzV6NmpPa3plRlhvMXl0NVlTTE9qU25jY2NDbTNnKzI1bEhJbVM1RCtOUE5tQVF4SlRsME5pLzNuTWJYZnA1Q05DMUFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal.app.tar.gz"
+    },
+    "darwin-x86_64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0RMMVFTTEJYcElJM01SNFlucDVZY3dyOEs5cFNyMzkzYXVQdXZLcGRzNm9US2dJZW9JSWZzRjJHZFNPNUV3UXYwWVVMM0pCdkdFejRlVHF6MDBmalFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4Njc2NTM3CWZpbGU6QXJnb24gSW52ZXN0bWVudC5hcHAudGFyLmd6ClVJaEFHZXhTVUEwNHc5c3RlZzV6NmpPa3plRlhvMXl0NVlTTE9qU25jY2NDbTNnKzI1bEhJbVM1RCtOUE5tQVF4SlRsME5pLzNuTWJYZnA1Q05DMUFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.0/Argon.Investment_universal.app.tar.gz"
+    }
+  }
+}
