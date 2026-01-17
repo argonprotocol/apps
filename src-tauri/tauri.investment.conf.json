@@ -2,13 +2,6 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Investment",
   "identifier": "com.argon.investment",
-  "app": {
-    "windows": [
-      {
-        "title": "Argon Investment"
-      }
-    ]
-  },
   "bundle": {
     "icon": [
       "icons-investment/stable/mainnet/32x32.png",
