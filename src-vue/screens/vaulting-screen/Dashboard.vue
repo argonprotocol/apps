@@ -201,7 +201,7 @@
               </div>
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame?.id">
                 <span :title="`Frame #${currentFrame?.id}`" >{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
-                <span v-if="currentFrame?.id === latestFrameId" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
+                <span v-if="currentFrameIsActive" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
               </span>
               <div @click="goToNextFrame" :class="hasNextFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                 NEXT
@@ -211,7 +211,7 @@
 
             <div class="grow flex flex-col items-center justify-center">
               <div class="pt-5 border-b border-slate-400/20 pb-5 w-full text-slate-800/70">
-                This frame's payout is
+                This frame's payout {{ currentFrameIsActive ? 'is' : 'was'}}
                 <TooltipRoot>
                   <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">
                     {{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.totalTreasuryPayout).format('0,0.00') }}
@@ -221,7 +221,7 @@
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
                 </TooltipRoot>
-                <template v-if="currentFrame.id === latestFrameId"> (and growing)</template>. You get
+                <template v-if="currentFrameIsActive"> (and growing)</template>. You {{ currentFrameIsActive ? 'get' : 'received'}}
                 <TooltipRoot>
                   <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">{{ numeral(currentFrame.myTreasuryPercentTake).format('0,[0.0]') }}%</TooltipTrigger>,
                   <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
@@ -229,7 +229,7 @@
                     <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
                   </TooltipContent>
                 </TooltipRoot>
-                which equals
+                which {{ currentFrameIsActive ? 'equals' : 'equaled'}}
                 <TooltipRoot>
                   <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.myTreasuryPayout).format('0,0.00') }}</TooltipTrigger>
                   <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
@@ -495,6 +495,10 @@ const currentFrameEndDate = Vue.computed(() => {
   }
   const date = dayjs.utc(lastTick * TICK_MILLIS);
   return date.local().add(1, 'minute').format('MMMM D, h:mm A');
+});
+
+const currentFrameIsActive = Vue.computed(() => {
+  return currentFrame.value?.id === latestFrameId.value;
 });
 
 function goToPrevFrame() {

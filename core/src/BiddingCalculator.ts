@@ -120,7 +120,7 @@ export default class BiddingCalculator {
     capitalCommitment: bigint;
   } {
     const microgonsPerSeat = bidType === 'maximum' ? this.maximumBidAmount : this.startingBidAmount;
-    const micronotsPerSeat = this.data.maximumMicronotsForBid;
+    const micronotsPerSeat = this.data.currentMicronotsForBid;
 
     let estimatedSeats = BigInt(this.data.getEpochSeatGoalCount(rules));
     if (!useSeatGoalCount && rules.initialCapitalCommitment) {

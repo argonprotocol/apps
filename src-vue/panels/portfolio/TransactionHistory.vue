@@ -15,7 +15,7 @@
           <td class="p-2 text-left text-slate-500">{{ dayjs.utc(tx.createdAt).local().fromNow() }}</td>
           <td class="p-2 text-left">{{ getTransferInfo(tx) }}</td>
           <td class="p-2 text-left">
-            {{ microgonToMoneyNm(bigIntAbs(tx.amount)).format('0,0.[00]') }}
+            {{ microgonToArgonNm(bigIntAbs(tx.amount)).format('0,0.[00]') }}
             {{ tx.currency === 'argon' ? 'ARGN' : 'ARGNOT' }}
           </td>
           <td class="p-2 text-left">
@@ -30,26 +30,14 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
-import * as Vue from 'vue';
-import { capitalize } from 'vue';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import { getCurrency } from '../../stores/currency.ts';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
+<script lang="ts">
 import { IWalletTransferRecord } from '../../lib/db/WalletTransfersTable.ts';
-import { getWalletBalances, getWalletKeys } from '../../stores/wallets.ts';
-import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { bigIntAbs } from '@argonprotocol/apps-core';
-
-dayjs.extend(utc);
+import { capitalize } from 'vue';
+import { getWalletKeys } from '../../stores/wallets.ts';
 
 const keys = getWalletKeys();
-const currency = getCurrency();
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-function getTransferInfo(tx: IWalletTransferRecord): string {
+export function getTransferInfo(tx: IWalletTransferRecord): string {
   const wallet = capitalize(tx.walletName);
   let destination = '...';
   if (tx.otherParty) {
@@ -74,7 +62,7 @@ function getTransferInfo(tx: IWalletTransferRecord): string {
 
 function formatAddress(address: string): string {
   if (keys.miningHoldAddress === address) {
-    return 'Mining';
+    return 'MiningHold';
   } else if (keys.miningBotAddress === address) {
     return 'MiningBot';
   } else if (keys.vaultingAddress === address) {
@@ -89,6 +77,23 @@ function formatAddress(address: string): string {
 
   return address.slice(0, 6) + '...' + address.slice(-4);
 }
+</script>
+
+<script setup lang="ts">
+import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
+import * as Vue from 'vue';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import { getWalletBalances } from '../../stores/wallets.ts';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { bigIntAbs } from '@argonprotocol/apps-core';
+
+dayjs.extend(utc);
+
+const currency = getCurrency();
+const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 function openTx(tx: IWalletTransferRecord) {
   let url = `https://argon.statescan.io/#/extrinsics/${tx.blockNumber}-${tx.extrinsicIndex}`;

@@ -8,7 +8,7 @@
 
       <DialogContent @escapeKeyDown="closePanel" :aria-describedby="undefined">
         <div
-          class="Portfolio Panel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-50 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none"
+          class="Portfolio Panel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-50 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none overflow-x-scroll"
           style="
             box-shadow:
               0 -1px 2px 0 rgba(0, 0, 0, 0.1),
@@ -16,39 +16,40 @@
           "
         >
           <TabsRoot
-            class="flex flex-col h-full w-full"
+            class="flex flex-col h-full w-full relative"
             :model-value="selectedTab"
+            :animate="shouldAnimatePieChart"
             @update:modelValue="selectedTab = $event"
           >
-            <div class="mx-1 flex flex-row border-b border-slate-300 pt-4 pb-3 pl-5">
-              <DialogTitle class="text-2xl font-bold text-slate-800/70">Portfolio</DialogTitle>
-              <TabsList class="relative ml-4 flex w-1/3 min-w-fit divide-x divide-slate-400/60 rounded-lg border border-slate-400/60 text-base whitespace-nowrap text-slate-400/80">
+            <div class="sticky top-0 mx-1 bg-white z-10 flex flex-row border-b border-slate-300 pl-5 min-h-[60px] pt-1 items-center">
+              <DialogTitle class="text-2xl font-bold text-slate-800/70"></DialogTitle>
+              <TabsList class="relative flex w-1/3 min-w-fit divide-x divide-slate-400/60 text-base whitespace-nowrap text-slate-400/80">
                 <TabsTrigger
-                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
+                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center pr-5 leading-none outline-none select-none data-[state=active]:font-bold"
                   :value="PortfolioTab.Overview">
-                  <span class="invisible font-bold">Overview</span>
-                  <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Overview</span>
+                  <span class="invisible font-bold">Portfolio Overview</span>
+                  <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Portfolio Overview</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
+                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center px-5 leading-none outline-none select-none data-[state=active]:font-bold"
                   :value="PortfolioTab.AssetBreakdown">
                   <span class="invisible font-bold">Asset Breakdown</span>
                   <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Asset Breakdown</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
+                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center px-5 leading-none outline-none select-none data-[state=active]:font-bold"
                   :value="PortfolioTab.ProfitAnalysis">
                   <span class="invisible font-bold">Profit Analysis</span>
                   <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Profit Analysis</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
+                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center px-5 leading-none outline-none select-none data-[state=active]:font-bold"
                   :value="PortfolioTab.GrowthProjections">
                   <span class="invisible font-bold">Growth Projections</span>
                   <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Growth Projections</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center rounded-tl-md px-5 leading-none outline-none select-none data-[state=active]:font-bold"
+                  class="hover:text-argon-700/60 data-[state=active]:text-argon-600 relative flex flex-1 cursor-pointer items-center justify-center px-5 leading-none outline-none select-none data-[state=active]:font-bold"
                   :value="PortfolioTab.TransactionHistory">
                   <span class="invisible font-bold">Transaction History</span>
                   <span class="absolute top-1/2 left-1/2 block -translate-x-1/2 -translate-y-1/2">Transaction History</span>
@@ -73,8 +74,13 @@
   </DialogRoot>
 </template>
 
-<script setup lang="ts">
+<script lang="ts">
 import * as Vue from 'vue';
+
+const shouldAnimatePieChart = Vue.ref(true);
+</script>
+
+<script setup lang="ts">
 import BgOverlay from '../components/BgOverlay.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { XMarkIcon } from '@heroicons/vue/24/outline';

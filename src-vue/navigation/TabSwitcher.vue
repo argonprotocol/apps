@@ -21,7 +21,7 @@
       @click="goto(ScreenKey.Home)"
       :class="{ selected: controller.screenKey === ScreenKey.Home }"
     >
-      <div Wrapper class="relative px-1 text-center">
+      <div Wrapper class="relative px-5 text-center">
         <div :class="{ invisible: controller.screenKey === ScreenKey.Home }">
           <ArgonLogo class="relative top-[0.5px] h-[24px] opacity-70" />
         </div>

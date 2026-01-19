@@ -102,7 +102,7 @@
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
-              {{ microgonToArgonNm(breakdown.auctionMicrogons).format('0,0.[00]') }} ARGN
+              {{ microgonToArgonNm(breakdown.auctionMicrogonsTotal).format('0,0.[00]') }} ARGN
             </div>
             <div class="opacity-60">{{ numeral(breakdown.auctionMicrogonsActivatedPct).format('0,0.[00]') }}%</div>
           </div>
@@ -121,7 +121,7 @@
         >
           <div class="flex flex-row items-center w-full">
             <div class="grow">
-              {{ microgonToArgonNm(breakdown.auctionMicronots).format('0,0.[00]') }} ARGNOT
+              {{ microgonToArgonNm(breakdown.auctionMicronotsTotal).format('0,0.[00]') }} ARGNOT
             </div>
             <div class="opacity-60">{{ numeral(breakdown.auctionMicronotsActivatedPct).format('0,0.[00]') }}%</div>
           </div>

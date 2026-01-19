@@ -12,7 +12,7 @@
       <PopoverContent
         :sideOffset="-5"
         :side="props.side"
-        class="border-argon-600/30 z-50 min-w-md rounded-md border bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-2xl"
+        class="border-argon-600/30 z-50 min-w-md max-w-lg rounded-md border bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-2xl"
       >
         <MoveCapitalCore
           :isOpen="isOpen"

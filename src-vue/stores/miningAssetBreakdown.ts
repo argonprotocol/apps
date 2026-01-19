@@ -33,7 +33,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
     return stats.myMiningBids.bidCount;
   });
 
-  const auctionMicrogons = Vue.computed(() => {
+  const auctionMicrogonsTotal = Vue.computed(() => {
     const microgons = auctionMicrogonsUnused.value + auctionMicrogonsActivated.value;
     return microgons > 0n ? microgons : 0n;
   });
@@ -47,12 +47,12 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   });
 
   const auctionMicrogonsActivatedPct = Vue.computed(() => {
-    const pctBn = BigNumber(auctionMicrogonsActivated.value).div(auctionMicrogons.value);
+    const pctBn = BigNumber(auctionMicrogonsActivated.value).div(auctionMicrogonsTotal.value);
 
     return pctBn.multipliedBy(100).toNumber();
   });
 
-  const auctionMicronots = Vue.computed(() => {
+  const auctionMicronotsTotal = Vue.computed(() => {
     const micronots = auctionMicronotsUnused.value + auctionMicronotsActivated.value;
     return micronots > 0n ? micronots : 0n;
   });
@@ -66,12 +66,14 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   });
 
   const auctionMicronotsActivatedPct = Vue.computed(() => {
-    const pctBn = BigNumber(auctionMicronotsActivated.value).div(auctionMicronots.value);
+    const pctBn = BigNumber(auctionMicronotsActivated.value).div(auctionMicronotsTotal.value);
     return pctBn.multipliedBy(100).toNumber();
   });
 
   const auctionTotalValue = Vue.computed(() => {
-    return auctionMicrogons.value + currency.convertMicronotTo(auctionMicronots.value, UnitOfMeasurement.Microgon);
+    return (
+      auctionMicrogonsTotal.value + currency.convertMicronotTo(auctionMicronotsTotal.value, UnitOfMeasurement.Microgon)
+    );
   });
 
   // Mining Seats
@@ -113,10 +115,15 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
 
     auctionBidCount,
     auctionTotalValue,
-    auctionMicrogons,
-    auctionMicronots,
-    auctionMicronotsUnused,
+    auctionMicrogonsTotal,
+    auctionMicronotsTotal,
+
     auctionMicrogonsUnused,
+    auctionMicronotsUnused,
+
+    auctionMicrogonsActivated,
+    auctionMicronotsActivated,
+
     auctionMicrogonsActivatedPct,
     auctionMicronotsActivatedPct,
 

@@ -53,6 +53,32 @@ export class Vaults {
     return this.waitForLoad.promise;
   }
 
+  public async getVaultPoolsByFrameForAccountId(accountIdFilter: string) {
+    const client = await this.mainchainClients.get(false);
+    const vaultPoolsByFrame = await client.query.treasury.vaultPoolsByFrame.entries();
+    const balanceByFrameId: { [key: number]: bigint } = {};
+
+    for (const [frameIdRaw, vaultPoolsRaw] of vaultPoolsByFrame) {
+      const frameId = Number(((frameIdRaw.toHuman() as any) || [])[0]);
+      const vaultPools = vaultPoolsRaw.entries();
+      balanceByFrameId[frameId] = balanceByFrameId[frameId] ?? 0n;
+
+      for (const [_, pool] of vaultPools) {
+        const bondHolders = pool?.bondHolders as any[];
+        for (const bondHolder of bondHolders) {
+          const [bondHolderIdRaw, bondHolderBalance] = bondHolder as [string, any];
+          const bondHolderId = bondHolderIdRaw.toString();
+          if (bondHolderId !== accountIdFilter) continue;
+
+          const startingBalance = (bondHolderBalance.startingBalance as u128).toBigInt();
+          const earnings = (bondHolderBalance.earnings as u128).toBigInt();
+          balanceByFrameId[frameId] += startingBalance + earnings;
+        }
+      }
+    }
+    return balanceByFrameId;
+  }
+
   public async updateVaultRevenue(vaultId: number, frameRevenues: PalletVaultsVaultFrameRevenue[], skipSaving = false) {
     this.stats ??= { synchedToFrame: 0, vaultsById: {} };
     this.stats.vaultsById[vaultId] ??= {
