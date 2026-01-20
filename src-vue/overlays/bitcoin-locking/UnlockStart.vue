@@ -7,7 +7,7 @@
         <div class="mb-6">
           <p class="mb-4 text-gray-700">
             You are releasing
-            <strong>{{ numeral(currency.convertSatToBtc(personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
+            <strong>{{ numeral(currency.convertSatToBtc(personalLock.lockedUtxoSatoshis ?? personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
             which requires
             <strong>{{ microgonToArgonNm(releasePrice).format('0,0.[000000]') }} argons to unlock</strong>.
             These funds will be pulled directly from available capital in your vaulting wallet.

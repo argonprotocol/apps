@@ -57,6 +57,8 @@ const progressLabel = Vue.computed(() => {
   });
 });
 
+let unsubscribeCreation: (() => void) | null = null;
+
 async function createVault() {
   await myVault.load();
 
@@ -74,7 +76,7 @@ async function createVault() {
       masterXpubPath,
     });
 
-    txInfo.subscribeToProgress(
+    unsubscribeCreation = txInfo.subscribeToProgress(
       (
         args: { progressPct: number; confirmations: number; expectedConfirmations: number },
         error: Error | undefined,
@@ -96,9 +98,12 @@ async function createVault() {
   }
 }
 
+let unsubscribeActivation: (() => void) | null = null;
 async function activateVault() {
   if (errorMessage.value) return;
 
+  unsubscribeCreation?.();
+  unsubscribeCreation = null;
   try {
     console.log('Activating vault');
     const txInfo = await myVault.activateSecuritizationAndTreasury({
@@ -108,7 +113,7 @@ async function activateVault() {
       void finalizeVault();
       return;
     }
-    txInfo.subscribeToProgress(
+    unsubscribeActivation = txInfo.subscribeToProgress(
       (
         args: { progressPct: number; confirmations: number; expectedConfirmations: number },
         error: Error | undefined,
@@ -132,9 +137,22 @@ async function activateVault() {
 
 function finalizeVault() {
   progressPct.value = 100;
+  unsubscribeActivation?.();
+  unsubscribeActivation = null;
   config.isVaultActivated = true;
   void config.save();
 }
+
+Vue.onUnmounted(() => {
+  if (unsubscribeActivation) {
+    unsubscribeActivation();
+    unsubscribeActivation = null;
+  }
+  if (unsubscribeCreation) {
+    unsubscribeCreation();
+    unsubscribeCreation = null;
+  }
+});
 
 Vue.onMounted(async () => {
   await createVault();

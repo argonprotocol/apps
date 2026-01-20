@@ -2,7 +2,12 @@
   <div class="space-y-5 px-10 pt-5 pb-5">
     <p>
       The Argon Network has successfully processed and locked your
-      {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC.
+      {{
+        numeral(currency.convertSatToBtc(personalLock.lockedUtxoSatoshis ?? personalLock.satoshis ?? 0n)).format(
+          '0,0.[00000000]',
+        )
+      }}
+      in BTC.
     </p>
     <p>
       You're being awarded the full market value of your Bitcoin, which is currently
@@ -48,6 +53,6 @@ function closeOverlay() {
 }
 
 Vue.onMounted(async () => {
-  microgonValue.value = await vaults.getMarketRateInMicrogons(props.personalLock.satoshis ?? 0n).catch(() => 0n);
+  microgonValue.value = props.personalLock.liquidityPromised;
 });
 </script>

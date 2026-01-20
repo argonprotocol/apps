@@ -61,37 +61,18 @@
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
           <div class="text-xl font-bold opacity-60 pb-1.5">
-            Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC
+            Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC
             Is Being Processed by Bitcoin's Network
           </div>
           <ProgressBar :progress="bitcoinLockProcessingPercent" />
         </div>
       </div>
     </div>
-    <div v-else-if="lockStatus === BitcoinLockStatus.LockReceivedWrongAmount" class="grow text-red-700 flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5 hover:bg-white/50">
-      <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px" />
-      <div class="flex flex-col items-start justify-center grow">
-        <div class="text-xl font-bold opacity-80 border-b border-argon-600/20 pb-1.5 mb-1.5">
-          Your {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC
-          Locking Failed
-        </div>
-        <div class="opacity-60">
-          The amount of bitcoin you sent was incorrect. It could not be accepted by Argon.
-          <strong>Please do not clear this screen without first reaching out for help on Discord.</strong>
-        </div>
-      </div>
-      <div class="flex flex-row space-x-2 items-center justify-end grow">
-        <button @click="clearLock" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
-          Ok, I understand<br/><br/>
-          Clear Entry
-        </button>
-      </div>
-    </div>
     <div v-else-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lockStatus!)" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
       <BitcoinIcon class="w-22 inline-block mr-5 -rotate-24 opacity-60" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60">
-          {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked
+          {{ numeral(currency.convertSatToBtc(personalLock?.lockedUtxoSatoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked
           (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
         </div>
         <div class="opacity-40">
@@ -248,19 +229,21 @@ function showReleaseOverlay() {
   doShowReleaseOverlay.value = true;
 }
 
-async function clearLock() {
-  await myVault.clearPersonalBitcoin();
-}
-
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const personalLock = Vue.computed(() => {
   if (bitcoinLocks.data.pendingLock) {
     return bitcoinLocks.data.pendingLock;
   }
-  const utxoId = myVault.metadata?.personalUtxoId;
-  if (utxoId) {
-    return bitcoinLocks.data.locksByUtxoId[utxoId];
+
+  const locks = bitcoinLocks.data.locksByUtxoId;
+  for (const lock of Object.values(locks)) {
+    if (
+      lock.vaultId === myVault.vaultId &&
+      ![BitcoinLockStatus.LockFailedToHappen, BitcoinLockStatus.ReleaseComplete].includes(lock.status)
+    ) {
+      return lock;
+    }
   }
 });
 
@@ -320,7 +303,7 @@ async function updateBitcoinUnlockPrices() {
   const lock = personalLock.value;
   if (!lock) return;
 
-  btcMarketRate.value = await vaults.getMarketRateInMicrogons(lock.satoshis).catch(() => 0n);
+  btcMarketRate.value = await vaults.getMarketRateInMicrogons(lock.lockedUtxoSatoshis ?? lock.satoshis).catch(() => 0n);
 
   if (lock.status !== BitcoinLockStatus.LockedAndIsMinting && lock.status !== BitcoinLockStatus.LockedAndMinted) {
     unlockPrice.value = 0n;
