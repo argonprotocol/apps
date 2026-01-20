@@ -1,0 +1,12 @@
+---
+
+services:
+  archive-node:
+    volumes:
+      - ./chainspec.raw.json:/chainspec.raw.json:ro
+  miner-1:
+    volumes:
+      - ./chainspec.raw.json:/chainspec.raw.json:ro
+  miner-2:
+    volumes:
+      - ./chainspec.raw.json:/chainspec.raw.json:ro
