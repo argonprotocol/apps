@@ -18,7 +18,6 @@
           <TabsRoot
             class="flex flex-col h-full w-full relative"
             :model-value="selectedTab"
-            :animate="shouldAnimatePieChart"
             @update:modelValue="selectedTab = $event"
           >
             <div class="sticky top-0 mx-1 bg-white z-10 flex flex-row border-b border-slate-300 pl-5 min-h-[60px] pt-1 items-center">
@@ -76,8 +75,6 @@
 
 <script lang="ts">
 import * as Vue from 'vue';
-
-const shouldAnimatePieChart = Vue.ref(true);
 </script>
 
 <script setup lang="ts">

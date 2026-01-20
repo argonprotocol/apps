@@ -27,7 +27,7 @@
           <td>{{ micronotToArgonotNm(miningAssets.sidelinedMicronots).format('0,0.[00]') }} ARGNOT</td>
           <td>Can move instantaneously</td>
           <td class="text-right">
-            {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.sidelinedMicronots).format('0,0.00') }}
+            {{ currency.symbol }}{{ micronotToMoneyNm(miningAssets.sidelinedMicronots).format('0,0.00') }}
           </td>
           <td class="text-right">
             <MoveCapitalButton
@@ -51,7 +51,7 @@
       </thead>
       <tbody>
         <tr>
-          <td>{{ micronotToArgonotNm(vaultingAssets.sidelinedMicrogons).format('0,0.[00]') }} ARGNOT</td>
+          <td>{{ microgonToArgonNm(vaultingAssets.sidelinedMicrogons).format('0,0.[00]') }} ARGN</td>
           <td>Can move instantaneously</td>
           <td class="text-right">
             {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.sidelinedMicrogons).format('0,0.00') }}
@@ -68,7 +68,7 @@
           <td>{{ micronotToArgonotNm(vaultingAssets.sidelinedMicronots).format('0,0.[00]') }} ARGNOT</td>
           <td>Can move instantaneously</td>
           <td class="text-right">
-            {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.sidelinedMicronots).format('0,0.00') }}
+            {{ currency.symbol }}{{ micronotToMoneyNm(vaultingAssets.sidelinedMicronots).format('0,0.00') }}
           </td>
           <td class="text-right">
             <MoveCapitalButton
@@ -163,7 +163,7 @@
       </thead>
       <tbody>
         <tr>
-          <td>{{ micronotToArgonotNm(miningAssets.expectedSeatMicrogons).format('0,0.[00]') }} ARGN to Mine</td>
+          <td>{{ microgonToArgonNm(miningAssets.expectedSeatMicrogons).format('0,0.[00]') }} ARGN to Mine</td>
           <td>Locked for up to 10 days</td>
           <td class="text-right">
             {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.expectedSeatMicrogons).format('0,0.00') }}
@@ -180,7 +180,7 @@
           <td>{{ micronotToArgonotNm(miningAssets.expectedSeatMicronots).format('0,0.[00]') }} ARGNOT to Mine</td>
           <td>Locked for up to 10 days</td>
           <td class="text-right">
-            {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.expectedSeatMicronots).format('0,0.00') }}
+            {{ currency.symbol }}{{ micronotToMoneyNm(miningAssets.expectedSeatMicronots).format('0,0.00') }}
           </td>
           <td class="text-right">
             <MoveCapitalButton
@@ -321,9 +321,13 @@
       </thead>
       <tbody>
         <tr>
-          <td>427 ARGN Waiting for Use</td>
+          <td>
+            {{ microgonToArgonNm(vaultingAssets.treasuryMicrogonsUnused).format('0,0.[00') }} ARGN Waiting for Use
+          </td>
           <td>Can move instantaneously</td>
-          <td class="text-right">$431.45</td>
+          <td class="text-right">
+            {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.treasuryMicrogonsUnused).format('0,0.00') }}
+          </td>
           <td class="text-right">
             <MoveCapitalButton
               :moveFrom="MoveFrom.MiningHold"

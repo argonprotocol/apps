@@ -1,9 +1,8 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { ask as askDialog } from '@tauri-apps/plugin-dialog';
 import handleFatalError from './helpers/handleFatalError.ts';
-import { getConfig } from './config.ts';
 import {
+  bigNumberToBigInt,
   calculateAPY,
   calculateProfitPct,
   createDeferred,
@@ -12,20 +11,12 @@ import {
 } from '@argonprotocol/apps-core';
 import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
-import { WalletKeys } from '../lib/WalletKeys.ts';
-import { SECURITY } from '../lib/Env.ts';
-import { IWallet } from '../lib/Wallet.ts';
-import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getBlockWatch } from './mainchain.ts';
-import { getMyVault } from './vaults.ts';
 import { getWalletBalances, getWalletKeys, useWallets } from './wallets.ts';
 import BigNumber from 'bignumber.js';
 
 export const usePortfolio = defineStore('portfolio', () => {
-  const stats = getStats();
   const currency = getCurrency();
-  const config = getConfig();
   const wallets = useWallets();
   const dbPromise = getDbPromise();
   const walletKeys = getWalletKeys();
@@ -65,8 +56,10 @@ export const usePortfolio = defineStore('portfolio', () => {
         const targetOffset =
           currency.calculateTargetOffset(BigNumber(transfer.microgonsForArgonot), BigNumber(microgonsPerArgonot)) || 1;
         const valueOfMicronots = currency.convertMicronotTo(transfer.amount, UnitOfMeasurement.Microgon);
-        const adjustedValue = Math.floor(Number(valueOfMicronots) * (1 + targetOffset));
-        miningExternalInvested.value += BigInt(adjustedValue);
+        const adjustedValueBn = BigNumber(valueOfMicronots)
+          .multipliedBy(1 + targetOffset)
+          .integerValue(BigNumber.ROUND_FLOOR);
+        miningExternalInvested.value += bigNumberToBigInt(adjustedValueBn);
       }
     }
 
@@ -80,6 +73,7 @@ export const usePortfolio = defineStore('portfolio', () => {
   async function load() {
     await myMinerStats.load();
     await updateExternalFunding();
+    if (unsubscribe) unsubscribe();
     unsubscribe = walletBalances.events.on('transfer-in', async () => {
       await updateExternalFunding();
     });

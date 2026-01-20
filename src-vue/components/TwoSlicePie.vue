@@ -26,10 +26,6 @@ const props = withDefaults(
     // rotation (in degrees, 0 = top, clockwise)
     rotation?: number;
 
-    // exploded slice
-    explodedIndex?: 0 | 1 | null;
-    explodeOffset?: number; // pixels
-
     animate?: boolean;
     durationMs?: number;
   }>(),
@@ -41,9 +37,6 @@ const props = withDefaults(
 
     rotation: 0,
 
-    explodedIndex: 0,
-    explodeOffset: 18,
-
     animate: true,
     durationMs: 650,
   },
@@ -54,10 +47,6 @@ let ro: ResizeObserver | null = null;
 
 function clampNonNeg(n: number) {
   return Number.isFinite(n) ? Math.max(0, n) : 0;
-}
-
-function midAngle(d: any) {
-  return (d.startAngle + d.endAngle) / 2;
 }
 
 function render() {
@@ -119,8 +108,6 @@ function render() {
   // PIE chart => innerRadius(0)
   const arcGen = d3.arc<any>().innerRadius(0).outerRadius(radius);
 
-  // Put the exploded slice last so it draws on top (like your image)
-  const exploded = null; //props.explodedIndex ?? null;
   const drawOrder = arcs.map((d, i) => ({ d, i }));
 
   // Render each slice in its own group so we can translate (explode)
@@ -172,8 +159,6 @@ watch(
     props.strokeColor,
     props.strokeWidth,
     props.rotation,
-    props.explodedIndex,
-    props.explodeOffset,
     props.animate,
     props.durationMs,
   ],

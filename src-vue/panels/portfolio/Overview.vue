@@ -236,10 +236,10 @@ const vaultingMoveWithin1Year = Vue.computed(() => {
   return vaultingAssets.securityMicrogonsActivated;
 });
 
-const data: [any, any] = [
+const data = Vue.computed<[any, any]>(() => [
   { label: 'Mining', value: miningPct.value || 0.1, color: '#DF8DDC' },
   { label: 'Vaulting', value: vaultingPct.value || 0.1, color: '#982289' },
-];
+]);
 
 const transactions = Vue.ref<IWalletTransferRecord[]>([]);
 
@@ -266,16 +266,25 @@ async function loadTransactionHistory(): Promise<void> {
   });
 }
 
+let unsubscribe: (() => void) | null = null;
+
 Vue.onMounted(async () => {
   await loadTransactionHistory();
   const balances = getWalletBalances();
-  balances.events.on('transfer-in', async () => {
+  unsubscribe = balances.events.on('transfer-in', async () => {
     await loadTransactionHistory();
   });
 
   setTimeout(() => {
     shouldAnimateChart.value = false;
   }, 1e3);
+});
+
+Vue.onBeforeUnmount(() => {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
 });
 </script>
 
