@@ -170,7 +170,7 @@ import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.t
 import * as Vue from 'vue';
 import { TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { IWallet, WalletType } from '../../lib/Wallet.ts';
-import { bigIntMax, isValidEthereumAddress } from '@argonprotocol/apps-core';
+import { isValidEthereumAddress } from '@argonprotocol/apps-core';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
@@ -183,7 +183,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import { MoveCapital } from '../../lib/MoveCapital.ts';
+import { ITransactionMoveMetadata, MoveCapital } from '../../lib/MoveCapital.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 
 const props = withDefaults(
@@ -244,7 +244,7 @@ const hasHyperbridgeProcessedCommitment = Vue.ref(false);
 const progressLabel = Vue.ref('');
 
 const hasTokensToMove = Vue.computed(() => {
-  return maxAmountToMove.value >= 10_000n;
+  return maxAmountToMove.value >= wallets.existentialDepositMicrogons;
 });
 
 const maxAmountToMove = Vue.computed(() => {
@@ -595,11 +595,12 @@ Vue.onMounted(async () => {
       continue;
     }
     if (txInfo.tx.extrinsicType === ExtrinsicType.Transfer && txInfo.tx.metadataJson.moveFrom === moveFrom.value) {
+      const metdata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
       pendingTxInfo.value = txInfo;
       isProcessing.value = true;
-      amountToMove.value = txInfo.tx.metadataJson.amount;
-      moveTo.value = txInfo.tx.metadataJson.moveTo;
-      externalAddress.value = txInfo.tx.metadataJson.externalAddress || '';
+      amountToMove.value = metdata.assetsToMove[MoveToken.ARGN] ?? metdata.assetsToMove[MoveToken.ARGNOT] ?? 0n;
+      moveTo.value = metdata.moveTo;
+      externalAddress.value = metdata.externalAddress || '';
       checkExternalAddress();
       console.log('Resuming pending transfer: %o', txInfo, isMovingToEthereum.value);
 

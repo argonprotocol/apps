@@ -5,6 +5,7 @@ import { bigIntMax, bigIntMin, bigNumberToBigInt, UnitOfMeasurement } from '@arg
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
+import { MyVault } from '../lib/MyVault.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
@@ -14,7 +15,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   // Sidelined
 
   const sidelinedMicrogons = Vue.computed(() => {
-    return bigIntMax(wallets.vaultingWallet.availableMicrogons, 0n);
+    return bigIntMax(wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
   });
 
   const sidelinedMicronots = Vue.computed(() => 0n);

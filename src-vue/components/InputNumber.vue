@@ -39,6 +39,7 @@
             @pointerup="handlePointerUp"
             @pointermove="emitDrag"
             @pointercancel="handlePointerUp"
+            @click.prevent.stop="noop"
             class="relative top-[1px] size-[12px] text-gray-300 cursor-pointer hover:text-gray-600"
           />
         </tooltip>
@@ -48,6 +49,7 @@
             @pointerup="handlePointerUp"
             @pointermove="emitDrag"
             @pointercancel="handlePointerUp"
+            @click.prevent.stop="noop"
             class="relative top-[-1px] size-[12px] text-gray-300 rotate-180 cursor-pointer hover:text-gray-600"
           />
         </tooltip>
@@ -269,6 +271,9 @@ function moveCursorToEnd() {
     selection?.removeAllRanges();
     selection?.addRange(range);
   }
+}
+function noop() {
+  // Intentionally empty: used to prevent default click behavior and stop bubbling.
 }
 function handleFocus() {
   if (props.disabled) return;

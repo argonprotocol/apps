@@ -229,9 +229,12 @@ export const useWallets = defineStore('wallets', () => {
     isLoadedReject();
   });
 
+  const existentialDepositMicrogons = 10_000n;
+
   return {
     isLoaded,
     isLoadedPromise,
+    existentialDepositMicrogons,
     miningHoldWallet,
     miningBotWallet,
     vaultingWallet,

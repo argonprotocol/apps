@@ -85,7 +85,7 @@
           Mining Bids
           ({{ numeral(breakdown.auctionBidCount).format('0,0') }})
           <template #tooltip>
-            <p class="break-words whitespace-normal">These argons are currently sitting unused.</p>
+            <p class="break-words whitespace-normal">These argons are allocated to currently winning bids.</p>
           </template>
           <template #icon><ArgonIcon class="h-7 w-7" /></template>
           <template #value>
@@ -108,7 +108,7 @@
           </div>
           <template #tooltip>
             <p class="break-words whitespace-normal">
-              These argons have been activated for mining, but your bot hasn't found a competitively priced bid.
+              These argons are available for bidding. {{ numeral(breakdown.auctionMicrogonsActivatedPct).format('0,0.[00]') }}% is currently being used in active bids.
             </p>
           </template>
         </SubItem>
@@ -127,7 +127,7 @@
           </div>
           <template #tooltip>
             <p class="break-words whitespace-normal">
-              These argonots are available for mining, but your bot hasn't found a competitively priced bid.
+              These argonots are available for bidding. {{ numeral(breakdown.auctionMicronotsActivatedPct).format('0,0.[00]') }}% is currently being used in active bids.
             </p>
           </template>
         </SubItem>
@@ -143,7 +143,7 @@
           <template #tooltip>
             <p class="break-words whitespace-normal">
               You have a total of {{ numeral(breakdown.seatActiveCount).format('0,0') }} active mining seats. You won
-              them using a combination of argons and argonots. They have an currently estimated value of
+              them using a combination of argons and argonots. They have an estimated value of
               {{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningSeatValue).format('0,0.00') }}.
             </p>
             <p class="mt-3 break-words whitespace-normal">

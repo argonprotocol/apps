@@ -50,7 +50,7 @@ export async function startArgonTestNetwork(
   await cleanup();
   await docker.upAll({
     log: options?.shouldLog ?? false,
-    commandOptions: [`--force-recreate`, `--remove-orphans`, '--pull=always'], //, '--pull=always'
+    commandOptions: [`--force-recreate`, `--remove-orphans`, '--pull=always'],
     composeOptions: options?.profiles ? options.profiles.map(p => `--profile=${p}`) : [],
     config,
     env,
