@@ -7,8 +7,8 @@
           <div>
             <RoiIcon class="relative inline-block h-5 w-5 text-argon-600/80 mr-1 top-[-3px]" />
             Your <span class="font-mono font-bold text-argon-600 tracking-tighter">
-            {{ currency.symbol }}{{ microgonToMoneyNm(originalCapitalInvested).format('0,0') }}</span> Investment Has Returned
-            <span class="font-mono font-bold text-argon-600 tracking-tighter">{{ numeral(originalCapitalRoi).formatCapped('0,0.0[0]', 9_999) }}% TD</span>
+            {{ currency.symbol }}{{ microgonToMoneyNm(portfolio.originalCapitalInvested).format('0,0') }}</span> Investment Has Returned
+            <span class="font-mono font-bold text-argon-600 tracking-tighter">{{ numeral(portfolio.originalCapitalRoi).formatCapped('0,0.0[0]', 9_999) }}% TD</span>
           </div>
           <div class="relative h-3 grow bg-slate-600/16 mr-16 ml-4">
             <div class="absolute h-3 bg-white w-10 left-full rotate-[35deg] top-[10px] -translate-x-[5px]">
@@ -27,7 +27,7 @@
           <LineArrow class="text-slate-600/16 mr-1" />
           <div class="text-right">
             Your Data Predicts a Future Return of
-            <span class="font-mono font-bold text-argon-600 tracking-tighter">{{ numeral(projectedApy).formatIfElseCapped('< 1000', '0,0.0[0]', '0,0', 9_999) }}% APY</span>
+            <span class="font-mono font-bold text-argon-600 tracking-tighter">{{ numeral(portfolio.projectedApy).formatIfElseCapped('< 1000', '0,0.0[0]', '0,0', 9_999) }}% APY</span>
             <ProjectionsIcon class="relative inline-block h-5 w-5  text-argon-600/60 ml-2 -top-px" />
           </div>
         </div>
@@ -46,7 +46,7 @@
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
                 <div Stat class="text-2xl!">
                   {{ currency.symbol
-                  }}{{ microgonToMoneyNm(miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
+                  }}{{ microgonToMoneyNm(portfolio.miningExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Capital Invested</label>
               </div>
@@ -132,7 +132,7 @@
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
                 <div Stat class="text-2xl!">
                   {{ currency.symbol
-                  }}{{ microgonToMoneyNm(vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
+                  }}{{ microgonToMoneyNm(portfolio.vaultingExternalInvested).formatIfElse('<1000', '0,0.[00]', '0,0') }}
                 </div>
                 <label>Capital Invested</label>
               </div>
@@ -569,20 +569,19 @@ import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import AssetMenu from './components/AssetMenu.vue';
 import { WalletType } from '../lib/Wallet.ts';
 import CopyAddressMenu from './components/CopyAddressMenu.vue';
+import { usePortfolio } from '../stores/portfolio.ts';
 
-const vaults = getVaults();
-const currency = getCurrency();
 const controller = useController();
 const vaultingStats = useVaultingStats();
 const miningStats = useMiningStats();
 const tour = useTour();
 const wallets = useWallets();
-const dbPromise = getDbPromise();
-const walletKeys = getWalletKeys();
+const portfolio = usePortfolio();
+const vaults = getVaults();
+const currency = getCurrency();
 const myMinerStats = getStats();
 const myVault = getMyVault();
 const config = getConfig();
-const walletBalances = getWalletBalances();
 
 const { microgonToNm, microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -590,7 +589,6 @@ const startButtonsRef = Vue.ref<HTMLElement | null>(null);
 
 const microgonsPerArgonot = Vue.ref(0n);
 const microgonsPerBitcoin = Vue.ref(0n);
-const miningExternalInvested = Vue.ref(0n);
 const currencyKey = Vue.ref<ICurrencyKey>(UnitOfMeasurement.USD);
 
 const currencyIsEngaged = Vue.ref(false);
@@ -605,8 +603,6 @@ const currencyPositions: ICurrencyKey[] = [
 
 const activatedSecuritization = Vue.ref(0n);
 
-const vaultingExternalInvested = Vue.ref(0n);
-
 const aboveTargetScenarios = Vue.ref<{ microgons: bigint; earningsPotentialPercent: number }[]>([]);
 const belowTargetScenarios = Vue.ref<{ microgons: bigint; earningsPotentialPercent: number }[]>([]);
 
@@ -615,18 +611,6 @@ const micronotsInCirculation = Vue.ref(0n);
 
 const liquidityReceived = Vue.ref(0n);
 
-const originalCapitalInvested = Vue.computed(() => {
-  return vaultingExternalInvested.value + miningExternalInvested.value;
-});
-
-const originalCapitalRoi = Vue.computed(() => {
-  return calculateProfitPct(originalCapitalInvested.value, wallets.totalNetWorth) * 100;
-});
-
-const projectedApy = Vue.computed(() => {
-  return calculateAPY(originalCapitalInvested.value, wallets.totalNetWorth, myMinerStats.activeFrames);
-});
-
 const myMiningEarnings = Vue.computed(() => {
   const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
   const microgonValueOfMicronotsMined = currency.convertMicronotTo(micronotsMinedTotal, UnitOfMeasurement.Microgon);
@@ -634,12 +618,15 @@ const myMiningEarnings = Vue.computed(() => {
 });
 
 const myMiningRoi = Vue.computed(() => {
-  return calculateProfitPct(miningExternalInvested.value, miningExternalInvested.value + myMiningEarnings.value) * 100;
+  return (
+    calculateProfitPct(portfolio.miningExternalInvested, portfolio.miningExternalInvested + myMiningEarnings.value) *
+    100
+  );
 });
 
 const myMiningApy = Vue.computed(() => {
-  const rewards = miningExternalInvested.value + myMiningEarnings.value;
-  return calculateAPY(miningExternalInvested.value, rewards, myMinerStats.activeFrames);
+  const rewards = portfolio.miningExternalInvested + myMiningEarnings.value;
+  return calculateAPY(portfolio.miningExternalInvested, rewards, myMinerStats.activeFrames);
 });
 
 const myVaultEarnings = Vue.computed(() => {
@@ -649,12 +636,12 @@ const myVaultEarnings = Vue.computed(() => {
 const myVaultApy = Vue.computed(() => {
   const { earnings, activeFrames } = myVault.revenue();
   if (earnings === 0n) return 0;
-  return calculateAPY(vaultingExternalInvested.value, vaultingExternalInvested.value + earnings, activeFrames);
+  return calculateAPY(portfolio.vaultingExternalInvested, portfolio.vaultingExternalInvested + earnings, activeFrames);
 });
 
 const myVaultRoi = Vue.computed(() => {
-  const investment = vaultingExternalInvested.value;
-  const returnValue = vaultingExternalInvested.value + myVaultEarnings.value;
+  const investment = portfolio.vaultingExternalInvested;
+  const returnValue = portfolio.vaultingExternalInvested + myVaultEarnings.value;
   if (investment === 0n) return 0;
   return calculateProfitPct(investment, returnValue) * 100;
 });
@@ -758,32 +745,6 @@ async function loadNetworkStats() {
   }
 }
 
-async function updateExternalFunding() {
-  const db = await dbPromise;
-  const microgonsPerArgonot = currency.convertMicronotTo(BigInt(MICRONOTS_PER_ARGONOT), UnitOfMeasurement.Microgon);
-  const miningFunding = await db.walletTransfersTable.fetchExternal(walletKeys.miningBotAddress);
-  miningExternalInvested.value = 0n;
-
-  for (const transfer of miningFunding) {
-    if (transfer.currency === 'argon') {
-      miningExternalInvested.value += transfer.amount;
-    } else {
-      const targetOffset =
-        currency.calculateTargetOffset(BigNumber(transfer.microgonsForArgonot), BigNumber(microgonsPerArgonot)) || 1;
-      const valueOfMicronots = currency.convertMicronotTo(transfer.amount, UnitOfMeasurement.Microgon);
-      const adjustedValue = Math.floor(Number(valueOfMicronots) * (1 + targetOffset));
-      miningExternalInvested.value += BigInt(adjustedValue);
-    }
-  }
-
-  const vaultFunding = await db.walletTransfersTable.fetchExternal(walletKeys.vaultingAddress);
-  vaultingExternalInvested.value = 0n;
-  for (const transfer of vaultFunding) {
-    vaultingExternalInvested.value += transfer.amount;
-  }
-}
-
-let unsubscribe: (() => void) | undefined;
 let currencyRotationInterval: ReturnType<typeof setTimeout> | undefined;
 let setCurrencyKeyTimeout: ReturnType<typeof setTimeout> | undefined;
 
@@ -818,12 +779,9 @@ Vue.onMounted(async () => {
   await vaults.load();
   await vaultingStats.isLoadedPromise;
   await miningStats.isLoadedPromise;
+  await portfolio.isLoadedPromise;
   await loadNetworkStats();
   await myVault.load();
-  await updateExternalFunding();
-  unsubscribe = walletBalances.events.on('transfer-in', async () => {
-    await updateExternalFunding();
-  });
 
   await myMinerStats.subscribeToDashboard();
   await myMinerStats.load();
@@ -851,8 +809,6 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
-  unsubscribe?.();
-  unsubscribe = undefined;
   void myMinerStats.unsubscribeFromDashboard();
   clearInterval(currencyRotationInterval);
 });

@@ -151,24 +151,24 @@ function updateAPYs() {
   const startingProjections = calculator.runProjections(rules.value, 'starting');
   startingBidProbableSeatCount.value = startingProjections.estimatedSeats;
   startingBidArgonPerSeat.value = calculator.startingBidAmount;
-  startingBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
+  startingBidArgonotPerSeat.value = calculatorData.currentMicronotsForBid;
 
   const startingBidSeatsCount = BigInt(startingBidProbableSeatCount.value);
   const startingBidSeatCost =
     calculator.startingBidAmount +
-    currency.convertMicronotTo(calculatorData.maximumMicronotsForBid, UnitOfMeasurement.Microgon);
+    currency.convertMicronotTo(calculatorData.currentMicronotsForBid, UnitOfMeasurement.Microgon);
   startingBidCostTotal.value = startingBidSeatsCount * startingBidSeatCost;
   startingBidEarningsTotal.value = startingBidSeatsCount * averageEarningsPerSeat;
 
   const maximumProjections = calculator.runProjections(rules.value, 'maximum');
   maximumBidProbableSeatCount.value = maximumProjections.estimatedSeats;
   maximumBidArgonPerSeat.value = calculator.maximumBidAmount;
-  maximumBidArgonotPerSeat.value = calculatorData.maximumMicronotsForBid;
+  maximumBidArgonotPerSeat.value = calculatorData.currentMicronotsForBid;
 
   const maximumBidSeatCount = BigInt(maximumBidProbableSeatCount.value);
   const maximumBidSeatCost =
     calculator.maximumBidAmount +
-    currency.convertMicronotTo(calculatorData.maximumMicronotsForBid, UnitOfMeasurement.Microgon);
+    currency.convertMicronotTo(calculatorData.currentMicronotsForBid, UnitOfMeasurement.Microgon);
   maximumBidCostTotal.value = maximumBidSeatCount * maximumBidSeatCost;
   maximumBidEarningsTotal.value = maximumBidSeatCount * averageEarningsPerSeat;
 }
