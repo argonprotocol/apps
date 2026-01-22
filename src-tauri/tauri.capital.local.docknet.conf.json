@@ -1,13 +1,13 @@
 {
-  "identifier": "com.argon.investment.local",
-  "productName": "Argon Investment",
+  "identifier": "com.argon.capital.local",
+  "productName": "Argon Capital",
   "bundle": {
     "icon": [
-      "icons-investment/local/docknet/32x32.png",
-      "icons-investment/local/docknet/128x128.png",
-      "icons-investment/local/docknet/128x128@2x.png",
-      "icons-investment/local/docknet/icon.icns",
-      "icons-investment/local/docknet/icon.ico"
+      "icons-capital/local/docknet/32x32.png",
+      "icons-capital/local/docknet/128x128.png",
+      "icons-capital/local/docknet/128x128@2x.png",
+      "icons-capital/local/docknet/icon.icns",
+      "icons-capital/local/docknet/icon.ico"
     ]
   },
   "app": {

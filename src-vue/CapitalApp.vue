@@ -1,10 +1,10 @@
 <!-- prettier-ignore -->
 <template>
   <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
-    <InvestmentTopBar />
+    <TopBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
       <AlertBars />
-      <InvestmentScreen />
+      <MainScreen />
     </main>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
-import { createMenu } from './InvestmentAppMenu.ts';
+import { createMenu } from './CapitalAppMenu.ts';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import { useController } from './stores/controller';
@@ -39,11 +39,11 @@ import JurisdictionOverlay from './overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
 import ImportingOverlay from './overlays/ImportingOverlay.vue';
 import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
-import AlertBars from './navigation/AlertBars.vue';
+import AlertBars from './navigation-shared/AlertBars.vue';
 import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
-import InvestmentScreen from './screens/InvestmentScreen.vue';
+import MainScreen from './screens-capital/MainScreen.vue';
 import BootingOverlay from './overlays/BootingOverlay.vue';
-import InvestmentTopBar from './navigation/InvestmentTopBar.vue';
+import TopBar from './navigation-capital/TopBar.vue';
 
 const controller = useController();
 const config = getConfig();
