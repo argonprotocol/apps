@@ -68,8 +68,8 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
     microgonToBtcNm(this: void, microgons: bigint): Numeral {
       return numeral(currency.convertMicrogonTo(microgons, UnitOfMeasurement.BTC));
     },
-    microgonToNm(this: void, microgons: bigint, to: UnitOfMeasurement): Numeral {
-      return numeral(currency.convertMicrogonTo(microgons, to));
+    microgonToNm(this: void, microgons: bigint, toUnit: UnitOfMeasurement): Numeral {
+      return numeral(currency.convertMicrogonTo(microgons, toUnit));
     },
 
     micronotToMoneyNm(this: void, micronots: bigint): Numeral {
@@ -80,6 +80,9 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
     },
     micronotToArgonotNm(this: void, micronots: bigint): Numeral {
       return numeral(currency.convertMicronotTo(micronots, UnitOfMeasurement.ARGNOT));
+    },
+    micronotToNm(this: void, micronots: bigint, toUnit: UnitOfMeasurement): Numeral {
+      return numeral(currency.convertMicronotTo(micronots, toUnit));
     },
   };
 }
