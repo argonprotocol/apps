@@ -187,8 +187,7 @@ export class MoveCapital {
       externalAddress: moveTo === MoveTo.External ? toAddress : undefined,
       isMovingToEthereum: externalMeta.isEthereumAddress,
       assetsToMove: assetsToMove,
-      utxoId: this.myVault.metadata?.personalUtxoId,
-    };
+    } as ITransactionMoveMetadata;
 
     const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
     return { tx, metadata };
@@ -219,4 +218,12 @@ export class MoveCapital {
       return 0n;
     }
   }
+}
+
+export interface ITransactionMoveMetadata {
+  moveFrom: MoveFrom;
+  moveTo: MoveTo;
+  externalAddress?: string;
+  isMovingToEthereum?: boolean;
+  assetsToMove: IAssetsToMove;
 }
