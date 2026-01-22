@@ -1,0 +1,13 @@
+{
+  "identifier": "com.argon.capital.local",
+  "productName": "Argon Capital",
+  "bundle": {
+    "icon": [
+      "icons-capital/local/mainnet/32x32.png",
+      "icons-capital/local/mainnet/128x128.png",
+      "icons-capital/local/mainnet/128x128@2x.png",
+      "icons-capital/local/mainnet/icon.icns",
+      "icons-capital/local/mainnet/icon.ico"
+    ]
+  }
+}

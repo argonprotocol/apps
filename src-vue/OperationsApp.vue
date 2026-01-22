@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
-    <OperationsTopBar />
+    <TopBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
       <AlertBars />
       <HomeScreen v-if="showHomeScreen" />
@@ -45,16 +45,16 @@
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import { createMenu } from './OperationsAppMenu.ts';
-import HomeScreen from './screens/HomeScreen.vue';
-import MiningScreen from './screens/MiningScreen.vue';
-import VaultingScreen from './screens/VaultingScreen.vue';
+import HomeScreen from './screens-operations/HomeScreen.vue';
+import MiningScreen from './screens-operations/MiningScreen.vue';
+import VaultingScreen from './screens-operations/VaultingScreen.vue';
 import ServerConnectOverlay from './overlays/ServerConnectOverlay.vue';
 import WalletOverlay from './overlays/WalletOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
-import OperationsTopBar from './navigation/OperationsTopBar.vue';
+import TopBar from './navigation-operations/TopBar.vue';
 import { useController } from './stores/controller';
 import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
@@ -66,7 +66,7 @@ import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
 import ImportingOverlay from './overlays/ImportingOverlay.vue';
 import BootingOverlay from './overlays/BootingOverlay.vue';
 import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
-import AlertBars from './navigation/AlertBars.vue';
+import AlertBars from './navigation-shared/AlertBars.vue';
 import HowMiningWorksOverlay from './overlays/bot/HowMiningWorks.vue';
 import HowVaultingWorksOverlay from './overlays/vault/HowVaultingWorks.vue';
 import { ScreenKey } from './interfaces/IConfig.ts';

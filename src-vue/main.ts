@@ -1,10 +1,10 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import './lib/LogForwarding.ts';
-import InvestmentApp from './InvestmentApp.vue';
+import CapitalApp from './CapitalApp.vue';
 import OperationsApp from './OperationsApp.vue';
 import './main.css';
-import { IS_INVESTMENTS_APP } from './lib/Env.ts';
+import { IS_CAPITAL_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
 
 window.addEventListener('unhandledrejection', error => {
@@ -19,10 +19,10 @@ window.addEventListener('error', error => {
   console.error(`[${file}:${line}:${col}] Unhandled error: ${error.message}`, error.error);
 });
 
-const App = IS_INVESTMENTS_APP ? InvestmentApp : OperationsApp;
+const App = IS_CAPITAL_APP ? CapitalApp : OperationsApp;
 const app = createApp(App);
 app.use(createPinia());
 app.mount('#app');
 void getVersion().then(version => {
-  console.log(`Starting Argon ${IS_INVESTMENTS_APP ? 'Investment' : 'Operations'} App v${version}`);
+  console.log(`Starting Argon ${IS_CAPITAL_APP ? 'Capital' : 'Operations'} App v${version}`);
 });
