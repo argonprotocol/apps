@@ -34,12 +34,12 @@ export class GlobalMiningStats {
     this.averageAPY = calculateAPY(this.aggregatedBidCosts, this.aggregatedBlockRewards);
 
     const lastFrameBlockRewards = await this.mining.fetchLastFrameBlockRewards();
-    this.activeBidCosts = await this.mining.fetchLastFramesBidCosts() * 10n;
+    this.activeBidCosts = (await this.mining.fetchLastFramesBidCosts()) * 10n;
     this.activeBlockRewards = this.calculateBlockRewards(lastFrameBlockRewards) * 10n;
     this.activeAPY = calculateAPY(this.activeBidCosts, this.activeBlockRewards);
   }
 
-  private calculateBlockRewards(blockRewards: { micronots: bigint, microgons: bigint}): bigint {
+  private calculateBlockRewards(blockRewards: { micronots: bigint; microgons: bigint }): bigint {
     const valueOfMicronots = this.currency.convertMicronotTo(blockRewards.micronots, UnitOfMeasurement.Microgon);
     return blockRewards.microgons + valueOfMicronots;
   }
