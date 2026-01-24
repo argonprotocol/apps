@@ -30,7 +30,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     bitcoinLocked.value = stats.bitcoinLocked;
     microgonValueInVaults.value = stats.microgonValueOfVaultedBitcoins;
     epochEarnings.value = stats.epochEarnings;
-    averageAPY.value = stats.averageAPY;
+    averageAPY.value = stats.activeAPY;
     argonBurnCapacity.value = stats.argonBurnCapacity;
     finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
     isLoading = false;

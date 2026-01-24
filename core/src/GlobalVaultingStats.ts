@@ -8,7 +8,7 @@ export class GlobalVaultingStats {
   public microgonValueOfVaultedBitcoins: bigint = 0n;
   public epochEarnings: bigint = 0n;
   public vaultCount: number = 0;
-  public averageAPY: number = 0;
+  public activeAPY: number = 0;
   public bitcoinLocked: number = 0;
 
   public argonBurnCapacity: number = 0;
@@ -42,9 +42,9 @@ export class GlobalVaultingStats {
     this.vaultCount = list.length;
 
     if (vaultApys.length > 0) {
-      this.averageAPY = vaultApys.reduce((a, b) => a + b, 0) / vaultApys.length;
+      this.activeAPY = vaultApys.reduce((a, b) => a + b, 0) / vaultApys.length;
     } else {
-      this.averageAPY = 0;
+      this.activeAPY = 0;
     }
 
     const dollarValueOfVaultedBitcoin = this.currency.convertMicrogonTo(
