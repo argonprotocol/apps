@@ -1,9 +1,9 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
-    <TopBar />
-    <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
-      <AlertBars />
+  <div class="h-screen w-screen flex flex-row overflow-hidden cursor-default rounded-2xl">
+    <LeftBar />
+    <main v-if="controller.isLoaded && !controller.isImporting" class="flex flex-col grow relative h-full overflow-scroll">
+      <TopBar />
       <MainScreen />
     </main>
     <div v-else class="grow relative">
@@ -39,10 +39,10 @@ import JurisdictionOverlay from './overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
 import ImportingOverlay from './overlays/ImportingOverlay.vue';
 import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
-import AlertBars from './navigation-shared/AlertBars.vue';
 import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import MainScreen from './screens-capital/MainScreen.vue';
 import BootingOverlay from './overlays/BootingOverlay.vue';
+import LeftBar from './navigation-capital/LeftBar.vue';
 import TopBar from './navigation-capital/TopBar.vue';
 
 const controller = useController();

@@ -2,16 +2,12 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex h-full flex-col">
     <div class="flex h-full grow flex-row justify-stretch gap-y-2 px-2.5 py-2.5">
-      <section box class="flex flex-col w-1/3 items-center !py-1 px-1 text-slate-900/90">
+      <section class="flex flex-col w-1/3 items-center !py-1 px-1 text-slate-900/90">
         <ul>
           <li>My holdings</li>
           <li>My bitcoins</li>
           <li>etc</li>
         </ul>
-      </section>
-      <section box class="flex flex-col w-2/3 gap-y-4 !py-1 px-1 text-slate-900/90 overflow-y-auto">
-        <!-- Additional content can go here -->
-        Content
       </section>
     </div>
   </TooltipProvider>

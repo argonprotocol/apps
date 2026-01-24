@@ -1,86 +1,23 @@
-<!-- prettier-ignore -->
 <template>
   <div
-    class="bg-white/95 min-h-14 w-full flex flex-row items-center select-none"
-    style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
-    data-tauri-drag-region
-  >
-    <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
-      <WindowControls />
-      <div class="text-[19px] font-bold whitespace-nowrap">
-        {{ APP_NAME }}
-        <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
-      </div>
+    v-if="controller.isLoaded"
+    class="pointer-events-none relative mr-3 flex flex-row items-center justify-end space-x-2 pt-3"
+    :class="[wallets.isLoaded ? '' : 'opacity-20']">
+    <div>Connected to Josh’s Vault</div>
+    <div class="pointer-events-auto">
+      <CurrencyMenu ref="currencyMenuRef">USD</CurrencyMenu>
     </div>
-
-    <div v-if="controller.isLoaded"
-      class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/3 grow pointer-events-none relative top-[1px]"
-      :class="[wallets.isLoaded ? '' : 'opacity-20']"
-    >
-      <div class="pointer-events-auto">
-        <CurrencyMenu ref="currencyMenuRef" />
-      </div>
-      <div class="pointer-events-auto">
-        <AccountMenu ref="accountMenuRef" />
-      </div>
+    <div class="pointer-events-auto">
+      <AccountMenu ref="accountMenuRef" />
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
-import * as Vue from 'vue';
-import { useController } from '../stores/controller.ts';
-import WindowControls from '../tauri-controls/WindowControls.vue';
 import CurrencyMenu from '../navigation-shared/CurrencyMenu.vue';
 import AccountMenu from '../navigation-shared/AccountMenu.vue';
-import InstanceMenu, { IInstance } from '../navigation-shared/InstanceMenu.vue';
+import { useController } from '../stores/controller.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { useTour } from '../stores/tour.ts';
-import { appConfigDir } from '@tauri-apps/api/path';
-import { readDir } from '@tauri-apps/plugin-fs';
-import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 
 const controller = useController();
 const wallets = useWallets();
-const tour = useTour();
-
-const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
-const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
-
-const instances = Vue.ref<IInstance[]>([]);
-
-async function fetchInstances() {
-  const configDir = await appConfigDir();
-
-  const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
-  instances.value = entries
-    .filter(entry => entry.isDirectory)
-    .map(entry => ({
-      name: entry.name,
-      isSelected: entry.name === INSTANCE_NAME,
-    }));
-}
-tour.registerPositionCheck('currencyMenu', () => {
-  const currencyMenuElem = currencyMenuRef.value?.$el;
-  const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 10;
-  rect.right += 10;
-  rect.top -= 10;
-  rect.bottom += 7;
-  return { ...rect, blur: 5 };
-});
-
-tour.registerPositionCheck('accountMenu', () => {
-  const accountMenuElem = accountMenuRef.value?.$el;
-  const rect = accountMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 7;
-  rect.right += 7;
-  rect.top -= 7;
-  rect.bottom += 7;
-  return { ...rect, blur: 5 };
-});
-
-Vue.onMounted(async () => {
-  await fetchInstances();
-});
 </script>
