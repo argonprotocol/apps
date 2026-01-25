@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Argon Capital",
+  "identifier": "com.argon.capital",
+  "bundle": {
+    "icon": [
+      "icons-capital/stable/mainnet/32x32.png",
+      "icons-capital/stable/mainnet/128x128.png",
+      "icons-capital/stable/mainnet/128x128@2x.png",
+      "icons-capital/stable/mainnet/icon.icns",
+      "icons-capital/stable/mainnet/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNjgzNUE1MEU4MTNFNEMKUldSTVBvRU9wVFZvM0tYUUdSWkdnRFo1VnB0NHV6QzVnRnFRdVRXSVRYUWdobS9WbnpnbjYrSVQK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/capital-stable.json"
+      ]
+    }
+  }
+}

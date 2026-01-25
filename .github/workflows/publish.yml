@@ -137,7 +137,7 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
 
-      - name: Build and Publish Investment Stable
+      - name: Build and Publish Capital Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@v0.6
         env:
@@ -157,7 +157,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.investment.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.capital.conf.json
 
       - name: Build and Publish Operations Experimental
         uses: tauri-apps/tauri-action@v0.6
@@ -180,7 +180,7 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.experimental.conf.json
 
-      - name: Build and Publish Investment Experimental
+      - name: Build and Publish Capital Experimental
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -199,7 +199,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.investment.experimental.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.capital.experimental.conf.json
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}

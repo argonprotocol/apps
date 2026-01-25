@@ -117,7 +117,7 @@ export const useBlockchainStore = defineStore('blockchain', () => {
   }
 
   async function updateAggregateBlockRewards() {
-    aggregatedBlockRewards.value = await getMining().getAggregateBlockRewards();
+    aggregatedBlockRewards.value = await getMining().fetchAggregateBlockRewards();
   }
 
   return {

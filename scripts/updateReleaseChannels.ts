@@ -60,8 +60,8 @@ function createFileContent() {
 const files: { [str: string]: VersionContent } = {
   operations_stable: createFileContent(),
   operations_experimental: createFileContent(),
-  investment_stable: createFileContent(),
-  investment_experimental: createFileContent(),
+  capital_stable: createFileContent(),
+  capital_experimental: createFileContent(),
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -89,7 +89,7 @@ for (const data of existingAssets.data) {
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
   const isExperimental = name.includes('Experimental');
   const isDebug = name.includes('-debug');
-  const appType = (name.match(/Argon\.(Operations|Investment)/)?.[1] || '').toLowerCase();
+  const appType = (name.match(/Argon\.(Operations|Capital)/)?.[1] || '').toLowerCase();
   const fileKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
   const file = files[fileKey];
   const downloadUrl = browser_download_url.replace(

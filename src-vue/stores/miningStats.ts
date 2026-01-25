@@ -13,23 +13,26 @@ export const useMiningStats = defineStore('miningStats', () => {
   const stats = new GlobalMiningStats(mining, currency as Currency);
 
   const activeMiningSeatCount = Vue.ref(0);
+
   const aggregatedBidCosts = Vue.ref(0n);
   const aggregatedBlockRewards = Vue.ref(0n);
-  const currentAPY = Vue.ref(0);
+
+  const activeBidCosts = Vue.ref(0n);
+  const activeBlockRewards = Vue.ref(0n);
+  const activeAPY = Vue.ref(0);
 
   async function update() {
     if (!isLoading && !isLoadedPromise) await stats.load();
     else if (!isLoading) await stats.update();
     isLoading = true;
 
-    activeMiningSeatCount.value = await mining.fetchActiveMinersCount();
-    aggregatedBidCosts.value = await getMining().fetchAggregateBidCosts();
+    activeMiningSeatCount.value = stats.activeSeatCount;
+    aggregatedBidCosts.value = stats.aggregatedBidCosts;
+    aggregatedBlockRewards.value = stats.aggregatedBlockRewards;
 
-    const blockRewards = await getMining().getAggregateBlockRewards();
-    const valueOfMicronots = currency.convertMicronotTo(blockRewards.micronots, UnitOfMeasurement.Microgon);
-    aggregatedBlockRewards.value = blockRewards.microgons + valueOfMicronots;
-
-    currentAPY.value = calculateAPY(aggregatedBidCosts.value, aggregatedBlockRewards.value);
+    activeBidCosts.value = stats.activeBidCosts;
+    activeBlockRewards.value = stats.activeBlockRewards;
+    activeAPY.value = calculateAPY(stats.activeBidCosts, stats.activeBlockRewards);
     isLoading = false;
   }
 
@@ -40,7 +43,9 @@ export const useMiningStats = defineStore('miningStats', () => {
     aggregatedBidCosts,
     activeMiningSeatCount,
     aggregatedBlockRewards,
-    currentAPY,
+    activeBidCosts,
+    activeBlockRewards,
+    activeAPY,
     update,
   };
 });

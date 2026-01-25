@@ -10,7 +10,7 @@ export const APP_ID = __ARGON_APP_ID__ || 'com.argon.operations';
 export const IS_LOCAL_BUILD = APP_ID.includes('local');
 export const IS_EXPERIMENTAL_BUILD = APP_ID.includes('experimental');
 export const IS_STABLE_BUILD = !IS_LOCAL_BUILD && !IS_EXPERIMENTAL_BUILD;
-export const IS_INVESTMENTS_APP = APP_ID.includes('investment');
+export const IS_CAPITAL_APP = APP_ID.includes('capital');
 export const IS_OPERATIONS_APP = APP_ID.includes('operations');
 export const APP_NAME = __ARGON_APP_NAME__ || 'Argon';
 

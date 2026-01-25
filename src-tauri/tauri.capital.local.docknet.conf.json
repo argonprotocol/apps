@@ -1,0 +1,18 @@
+{
+  "identifier": "com.argon.capital.local",
+  "productName": "Argon Capital",
+  "bundle": {
+    "icon": [
+      "icons-capital/local/docknet/32x32.png",
+      "icons-capital/local/docknet/128x128.png",
+      "icons-capital/local/docknet/128x128@2x.png",
+      "icons-capital/local/docknet/icon.icns",
+      "icons-capital/local/docknet/icon.ico"
+    ]
+  },
+  "app": {
+    "security": {
+      "capabilities": ["default", "dev"]
+    }
+  }
+}

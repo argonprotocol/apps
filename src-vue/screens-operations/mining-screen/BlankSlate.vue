@@ -51,7 +51,7 @@
                 <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
                   {{ currency.symbol }}
                 </span>
-                <span>{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+                <span>{{ microgonToMoneyNm(miningStats.activeBidCosts).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
               </template>
               <template v-else>---</template>
             </div>
@@ -64,7 +64,7 @@
                 <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
                   {{ currency.symbol }}
                 </span>
-                <span>{{ microgonToMoneyNm(miningStats.aggregatedBlockRewards).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+                <span>{{ microgonToMoneyNm(miningStats.activeBlockRewards).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
               </template>
               <template v-else>---</template>
             </div>
@@ -73,7 +73,7 @@
           <li style="width: 1px" class="bg-slate-300"></li>
           <li class="w-1/4">
             <div class="text-4xl font-bold">
-              <template v-if="isLoaded">{{ numeral(miningStats.currentAPY).formatCapped('0,0', 9_999) }}%</template>
+              <template v-if="isLoaded">{{ numeral(miningStats.activeAPY).formatCapped('0,0', 9_999) }}%</template>
               <template v-else>---</template>
             </div>
             <div>Annual Percentage Yield</div>

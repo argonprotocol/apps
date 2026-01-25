@@ -7,15 +7,17 @@
         class="flex flex-row items-center justify-center text-sm/6 font-semibold text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 px-3 h-[30px] focus:outline-none hover:border-slate-400/50"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
-        <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="h-[14px]" />
-        <DollarSign v-else-if="currency?.record?.key === 'USD'" class="h-[16px]" />
-        <EuroSign v-else-if="currency?.record?.key === 'EUR'" class="h-[16px]" />
-        <PoundSign v-else-if="currency?.record?.key === 'GBP'" class="h-[16px]" />
-        <RupeeSign v-else-if="currency?.record?.key === 'INR'" class="h-[16px]" />
-        <div v-else class="h-[18px] w-[14px]"></div>
-        <div class="text-lg font-bold ml-[3px] relative top-px -mr-0.5">
-          {{ totalNetWorth[0] }}.<span class="opacity-50">{{ totalNetWorth[1] }}</span>
-        </div>
+        <slot>
+          <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="h-[14px]" />
+          <DollarSign v-else-if="currency?.record?.key === 'USD'" class="h-[16px]" />
+          <EuroSign v-else-if="currency?.record?.key === 'EUR'" class="h-[16px]" />
+          <PoundSign v-else-if="currency?.record?.key === 'GBP'" class="h-[16px]" />
+          <RupeeSign v-else-if="currency?.record?.key === 'INR'" class="h-[16px]" />
+          <div v-else class="h-[18px] w-[14px]"></div>
+          <div class="text-lg font-bold ml-[3px] relative top-px -mr-0.5">
+            {{ totalNetWorth[0] }}.<span class="opacity-50">{{ totalNetWorth[1] }}</span>
+          </div>
+        </slot>
       </DropdownMenuTrigger>
 
       <DropdownMenuPortal>
@@ -34,19 +36,27 @@
               :key="key"
               @click="setCurrencyKey(key)"
               :class="currency?.record?.key === key ? '!text-argon-500' : '!text-slate-700'"
-              class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover relative flex cursor-pointer flex-row items-center justify-between border-b border-slate-400/30 py-3 pr-1 pl-10 font-bold text-gray-900 last:border-b-0">
-              <span v-if="currency?.record?.key === key" class="absolute top-1/2 left-3 -translate-y-1/2">
-                <CheckIcon class="size-5" aria-hidden="true" />
-              </span>
-              <span
-                ItemWrapper
-                :class="currency?.record?.key === key ? 'opacity-100' : 'opacity-80'"
-                class="grow text-right group-hover/item:opacity-100">
-                {{ record.name }} ({{ record.key }})
-              </span>
-              <span class="ml-2" v-html="record.symbol" />
+              class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover flex flex-col cursor-pointer border-b border-slate-400/30 py-3 pr-1 pl-5 last:border-b-0"
+            >
+              <div class="relative flex flex-row items-center justify-end font-bold text-gray-900">
+                <span v-if="currency?.record?.key === key" class="grow text-right pr-2">
+                  <CheckIcon class="h-5 inline-block relative -top-0.5" aria-hidden="true" />
+                </span>
+                <span
+                  ItemWrapper
+                  :class="currency?.record?.key === key ? 'opacity-100' : 'opacity-80'"
+                  class="text-right group-hover/item:opacity-100"
+                >
+                  {{ record.name }} ({{ record.key }})
+                </span>
+                <span class="ml-2" v-html="record.symbol" />
+              </div>
+              <div class="flex flex-row justify-end font-light text-gray-400 text-sm mt-0.5">
+                1 ARGN = {{ record.symbol }}{{ microgonToNm(1_000_000n, key).format('0,0.00') }},
+                1 ARGNOT = {{ record.symbol }}{{ micronotToNm(1_000_000n, key).format('0,0.00') }},
+              </div>
             </DropdownMenuItem>
-            <DropdownMenuItem class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
+            <DropdownMenuItem v-if="IS_OPERATIONS_APP" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
               <button @click="openPortfolioPanel" class="text-md py-2 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow rounded-md w-full cursor-pointer">
                 Open Portfolio Overlay
               </button>
@@ -83,6 +93,7 @@ import { ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { CheckIcon } from '@heroicons/vue/20/solid';
 import { getConfig } from '../stores/config.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
+import { IS_CAPITAL_APP, IS_OPERATIONS_APP } from '../lib/Env.ts';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -96,7 +107,7 @@ const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
 
-const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToNm, micronotToNm } = createNumeralHelpers(currency);
 
 const totalNetWorth = Vue.computed(() => {
   if (!currency.isLoaded) {
@@ -164,7 +175,7 @@ function openPortfolioPanel(): void {
     pointer-events: none;
   }
   [ItemWrapper] {
-    @apply grow font-bold whitespace-nowrap text-gray-900;
+    @apply font-bold whitespace-nowrap text-gray-900;
   }
 }
 </style>

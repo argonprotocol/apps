@@ -5,7 +5,7 @@ import { readReleaseNotes } from './utils.ts';
 
 (async () => {
   const dirname = Path.join(import.meta.dirname, '..');
-  for (const app of ['investment', 'operations']) {
+  for (const app of ['operations', 'capital']) {
     let versionFile = 'src-tauri/tauri.conf.json';
     if (packageVersion.includes('-rc')) {
       versionFile = `src-tauri/tauri.${app}.experimental.conf.json`;
