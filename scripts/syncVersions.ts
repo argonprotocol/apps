@@ -4,17 +4,9 @@ import { version as packageVersion } from '../package.json';
 import { readReleaseNotes } from './utils.ts';
 
 (async () => {
-  const dirname = Path.join(import.meta.dirname, '..');
   for (const app of ['operations', 'capital']) {
-    let versionFile = 'src-tauri/tauri.conf.json';
-    if (packageVersion.includes('-rc')) {
-      versionFile = `src-tauri/tauri.${app}.experimental.conf.json`;
-    }
-    const filePath = Path.join(dirname, versionFile);
-    const file = fs.readFileSync(filePath, 'utf-8');
-    const tauriConf = JSON.parse(file);
-    tauriConf.version = packageVersion;
-    fs.writeFileSync(filePath, JSON.stringify(tauriConf, null, 2));
+    updateFile('src-tauri/tauri.conf.json')
+    updateFile(`src-tauri/tauri.${app}.experimental.conf.json`)
   }
   const releaseNotes = readReleaseNotes(packageVersion, false);
   if (!releaseNotes) {
@@ -22,3 +14,12 @@ import { readReleaseNotes } from './utils.ts';
     process.exit(1);
   }
 })();
+
+function updateFile(fileName: string) {
+  const dirname = Path.join(import.meta.dirname, '..');
+  const filePath = Path.join(dirname, fileName);
+  const fileData = fs.readFileSync(filePath, 'utf-8');
+  const tauriConf = JSON.parse(fileData);
+  tauriConf.version = packageVersion;
+  fs.writeFileSync(filePath, JSON.stringify(tauriConf, null, 2));
+}

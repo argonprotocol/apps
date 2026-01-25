@@ -1510,5 +1510,37 @@
   {
     "date": "2026-01-16",
     "feeInBitcoins": 0.00000917
+  },
+  {
+    "date": "2026-01-17",
+    "feeInBitcoins": 0.00000655
+  },
+  {
+    "date": "2026-01-18",
+    "feeInBitcoins": 0.00000561
+  },
+  {
+    "date": "2026-01-19",
+    "feeInBitcoins": 0.00000644
+  },
+  {
+    "date": "2026-01-20",
+    "feeInBitcoins": 0.00000716
+  },
+  {
+    "date": "2026-01-21",
+    "feeInBitcoins": 0.00000627
+  },
+  {
+    "date": "2026-01-22",
+    "feeInBitcoins": 0.00000493
+  },
+  {
+    "date": "2026-01-23",
+    "feeInBitcoins": 0.00000576
+  },
+  {
+    "date": "2026-01-24",
+    "feeInBitcoins": 0.00000697
   }
 ]

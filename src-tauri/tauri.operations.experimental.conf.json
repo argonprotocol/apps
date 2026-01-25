@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Operations Experimental",
   "identifier": "com.argon.operations.experimental",
-  "version": "1.1.1-rc1",
+  "version": "1.2.3",
   "bundle": {
     "icon": [
       "icons-operations/experimental/mainnet/32x32.png",
@@ -16,7 +16,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNjgzNUE1MEU4MTNFNEMKUldSTVBvRU9wVFZvM0tYUUdSWkdnRFo1VnB0NHV6QzVnRnFRdVRXSVRYUWdobS9WbnpnbjYrSVQK",
       "endpoints": [
-        "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/argonot-experimental.json"
+        "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/operations-experimental.json"
       ]
     }
   }
