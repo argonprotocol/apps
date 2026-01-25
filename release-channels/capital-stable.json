@@ -1,0 +1,95 @@
+{
+  "version": "1.2.3",
+  "notes": "- Republishing of 1.2.2 due to issue with build process",
+  "pub_date": "2026-01-25T12:11:49.752Z",
+  "platforms": {
+    "linux-x86_64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FBc1hzRmttR0dOek43QkFDYWlPRmtDMXhRZ2FuQno2cU9GdC9IcmJ4Tk43SWRDNjhnaGI5MGJIanczL0RsY0pCV01yeEdRanZ2eVluOXRBU2F0eUFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMTc4CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM19hbWQ2NC5BcHBJbWFnZQpiNHJJdVZBaHBtTllmRUVHM2V0QWVtQ1BZai9TUGlvZ2RhSzF6TVRZMUxic0dTTzdTSkJJV2RkYlJuUFNKZFpQSHB0WVNxcEM5TEptUXdiazVKK1FEUT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_amd64-debug.AppImage"
+    },
+    "linux-x86_64-appimage-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FBc1hzRmttR0dOek43QkFDYWlPRmtDMXhRZ2FuQno2cU9GdC9IcmJ4Tk43SWRDNjhnaGI5MGJIanczL0RsY0pCV01yeEdRanZ2eVluOXRBU2F0eUFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMTc4CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM19hbWQ2NC5BcHBJbWFnZQpiNHJJdVZBaHBtTllmRUVHM2V0QWVtQ1BZai9TUGlvZ2RhSzF6TVRZMUxic0dTTzdTSkJJV2RkYlJuUFNKZFpQSHB0WVNxcEM5TEptUXdiazVKK1FEUT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_amd64-debug.AppImage"
+    },
+    "linux-x86_64-deb-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JpZ2lLeEhLMlpnTVhlVFBsWnFOZkFEUUNrOEd1WE9NWldHTGtHSEx0bnNrZmQ3UFdXMnBOeXpWSUtVd3dKZjNieElpN3p4bVQzaGZYMXJCMVZ4YWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMTc4CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM19hbWQ2NC5kZWIKTlIzOW5Ba0xrKzRBL2dheGpjTFQydGVpNjNaQUt5b2MyVHovRDJLM0FVMDNDWjdJK1lWaGhoNXQ5aW5DRE1GWmxzUVhJNHowWE0xY2pWVEZHUGpMQ0E9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_amd64-debug.deb"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM05uWlJHeFZNVkU1dHNaVTRWWEJxUTVRTEM2S0pDM256Ukt4M1RlektraHR0Y2cwNTJFY3R0b1NNNStRdTlOelhjaWNPang2WFgyQlZsaWNhSEtaRVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQxOTc1CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM19hbWQ2NC5BcHBJbWFnZQovK0toRHRTZndEeU9xSTBZZUZucjVLYlU1VWQvelptOER2by9UTlpOTFVvQ0pKYzNqN2pFZzRvMjh2UW5LNHhkYjI4ZFBycjRoYTNPeU1WaFNGZzhEZz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM05uWlJHeFZNVkU1dHNaVTRWWEJxUTVRTEM2S0pDM256Ukt4M1RlektraHR0Y2cwNTJFY3R0b1NNNStRdTlOelhjaWNPang2WFgyQlZsaWNhSEtaRVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQxOTc1CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM19hbWQ2NC5BcHBJbWFnZQovK0toRHRTZndEeU9xSTBZZUZucjVLYlU1VWQvelptOER2by9UTlpOTFVvQ0pKYzNqN2pFZzRvMjh2UW5LNHhkYjI4ZFBycjRoYTNPeU1WaFNGZzhEZz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_amd64.AppImage"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0VEcVN1VWpNT3pvNVJuaFdLTm1JcWNvSzJnNHR4MlMvSEpGR2RtVHVoU1pOczZNYXVzaUxkRVEzT0VHUlIyTFIvMjVxM3R6K3ErTlBqZ01DMkpVUVFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQxOTc1CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM19hbWQ2NC5kZWIKRCtYdnRBenQ0NHFuQmUrM3B2V2xGVFM3TkhaclFKK0kzUW5oTWt6UEwxbEVCVUFrVWVmZDJnVXQ0c05HOWdIQSswOXBKMzY0WHBkdDRRYmZFY0c3RGc9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_amd64.deb"
+    },
+    "windows-x86_64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM1BFWDdYNTh0aVp3YVdWL0R1c3cyVWRTc0I1eEsvRFZqR1hkQzZjaW05UExHVnhDQUJBT01pRzNqYUJMOHlpUnRHYjdQVVJMT3VlZVVRV2pKR2tkWndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMjg4CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM194NjQtc2V0dXAuZXhlClRkZFJEVXU3VHViNXpxSys0a3JoaFlMY09lTDFKZmRScGZoL2tBTkx5OUs4ZkkxSSt6MzFOWmdwMytQSzk0VjJlM0hjU2o5ajdXV3BaalQxMnJhY0NnPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_x64-setup-debug.exe"
+    },
+    "windows-x86_64-nsis-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM1BFWDdYNTh0aVp3YVdWL0R1c3cyVWRTc0I1eEsvRFZqR1hkQzZjaW05UExHVnhDQUJBT01pRzNqYUJMOHlpUnRHYjdQVVJMT3VlZVVRV2pKR2tkWndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMjg4CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM194NjQtc2V0dXAuZXhlClRkZFJEVXU3VHViNXpxSys0a3JoaFlMY09lTDFKZmRScGZoL2tBTkx5OUs4ZkkxSSt6MzFOWmdwMytQSzk0VjJlM0hjU2o5ajdXV3BaalQxMnJhY0NnPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_x64-setup-debug.exe"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0d6dk5xeFFIT3VsSUJBMkd3eTNDQmJUR0FITHVxWGNxaVJZcUwxNEJvTzB5ai9mdzdMUUllcTBZZHBERWpTSUVqNUlYdWp5MklMQTd6K2lTM0xaMFFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMTA0CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM194NjQtc2V0dXAuZXhlCkI5d0FHMUdiZk54cmdVbUFCTGhncFN5cGlwY1U4dnZ2Nnl0b2JkeVc4TnVQRis0VHJVTHk4eFYreVFsU2t6QmNTUDhlTUVMakRVS21kcENFbkxGMkFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0d6dk5xeFFIT3VsSUJBMkd3eTNDQmJUR0FITHVxWGNxaVJZcUwxNEJvTzB5ai9mdzdMUUllcTBZZHBERWpTSUVqNUlYdWp5MklMQTd6K2lTM0xaMFFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyMTA0CWZpbGU6QXJnb24gQ2FwaXRhbF8xLjIuM194NjQtc2V0dXAuZXhlCkI5d0FHMUdiZk54cmdVbUFCTGhncFN5cGlwY1U4dnZ2Nnl0b2JkeVc4TnVQRis0VHJVTHk4eFYreVFsU2t6QmNTUDhlTUVMakRVS21kcENFbkxGMkFRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_1.2.3_x64-setup.exe"
+    },
+    "darwin-universal-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZQUlkxOVFjSmxKMmFDYUVuTC9Xb2k5RnpMSFVwMVlDY2JrWnV5TDJKTkVsY0NScWdJYWR2NEk2ZnM3MGN5TWtIcFRUTGduUGMwQzgzNTVjZlpzeUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNjMyCWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6CnBNdk5jL3YrVFlCOGlucW5PbnJVbjZmdmV6eXhUenl1WElzVnF1QnBZTmE4akdiNHRZV3RMcHVhd1BXUDN2SkZqNHQySnpGWW9XSGZHakVoMElQSUJRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal-debug.app.tar.gz"
+    },
+    "darwin-universal-app-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZQUlkxOVFjSmxKMmFDYUVuTC9Xb2k5RnpMSFVwMVlDY2JrWnV5TDJKTkVsY0NScWdJYWR2NEk2ZnM3MGN5TWtIcFRUTGduUGMwQzgzNTVjZlpzeUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNjMyCWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6CnBNdk5jL3YrVFlCOGlucW5PbnJVbjZmdmV6eXhUenl1WElzVnF1QnBZTmE4akdiNHRZV3RMcHVhd1BXUDN2SkZqNHQySnpGWW9XSGZHakVoMElQSUJRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal-debug.app.tar.gz"
+    },
+    "darwin-aarch64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZQUlkxOVFjSmxKMmFDYUVuTC9Xb2k5RnpMSFVwMVlDY2JrWnV5TDJKTkVsY0NScWdJYWR2NEk2ZnM3MGN5TWtIcFRUTGduUGMwQzgzNTVjZlpzeUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNjMyCWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6CnBNdk5jL3YrVFlCOGlucW5PbnJVbjZmdmV6eXhUenl1WElzVnF1QnBZTmE4akdiNHRZV3RMcHVhd1BXUDN2SkZqNHQySnpGWW9XSGZHakVoMElQSUJRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal-debug.app.tar.gz"
+    },
+    "darwin-x86_64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZQUlkxOVFjSmxKMmFDYUVuTC9Xb2k5RnpMSFVwMVlDY2JrWnV5TDJKTkVsY0NScWdJYWR2NEk2ZnM3MGN5TWtIcFRUTGduUGMwQzgzNTVjZlpzeUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNjMyCWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6CnBNdk5jL3YrVFlCOGlucW5PbnJVbjZmdmV6eXhUenl1WElzVnF1QnBZTmE4akdiNHRZV3RMcHVhd1BXUDN2SkZqNHQySnpGWW9XSGZHakVoMElQSUJRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal-debug.app.tar.gz"
+    },
+    "darwin-aarch64-app-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZQUlkxOVFjSmxKMmFDYUVuTC9Xb2k5RnpMSFVwMVlDY2JrWnV5TDJKTkVsY0NScWdJYWR2NEk2ZnM3MGN5TWtIcFRUTGduUGMwQzgzNTVjZlpzeUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNjMyCWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6CnBNdk5jL3YrVFlCOGlucW5PbnJVbjZmdmV6eXhUenl1WElzVnF1QnBZTmE4akdiNHRZV3RMcHVhd1BXUDN2SkZqNHQySnpGWW9XSGZHakVoMElQSUJRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal-debug.app.tar.gz"
+    },
+    "darwin-x86_64-app-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZQUlkxOVFjSmxKMmFDYUVuTC9Xb2k5RnpMSFVwMVlDY2JrWnV5TDJKTkVsY0NScWdJYWR2NEk2ZnM3MGN5TWtIcFRUTGduUGMwQzgzNTVjZlpzeUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNjMyCWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6CnBNdk5jL3YrVFlCOGlucW5PbnJVbjZmdmV6eXhUenl1WElzVnF1QnBZTmE4akdiNHRZV3RMcHVhd1BXUDN2SkZqNHQySnpGWW9XSGZHakVoMElQSUJRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal-debug.app.tar.gz"
+    },
+    "darwin-universal": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FES2N6aVFWdFE1ZGxtUlBVd09Sc3RYMHR5UDBxTjRsaTVXbms4ZmVhYWV0VUptYVZNd0piMXpjZ2p1S1NEOEJKdE84R0N5d0JOMmx2RCtsblVkUVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNDM0CWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6Ckk5NzR6STRLREI4QTF3akV1ak9wM0dRdjF5U1Y4UjkyTmZBejhadSs3eFdrY0VVRFp2TkNnY2d1ZE9ram1Bd3pnb2FUYUNBOFgvVlFGS1NrenBmK0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal.app.tar.gz"
+    },
+    "darwin-universal-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FES2N6aVFWdFE1ZGxtUlBVd09Sc3RYMHR5UDBxTjRsaTVXbms4ZmVhYWV0VUptYVZNd0piMXpjZ2p1S1NEOEJKdE84R0N5d0JOMmx2RCtsblVkUVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNDM0CWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6Ckk5NzR6STRLREI4QTF3akV1ak9wM0dRdjF5U1Y4UjkyTmZBejhadSs3eFdrY0VVRFp2TkNnY2d1ZE9ram1Bd3pnb2FUYUNBOFgvVlFGS1NrenBmK0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FES2N6aVFWdFE1ZGxtUlBVd09Sc3RYMHR5UDBxTjRsaTVXbms4ZmVhYWV0VUptYVZNd0piMXpjZ2p1S1NEOEJKdE84R0N5d0JOMmx2RCtsblVkUVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNDM0CWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6Ckk5NzR6STRLREI4QTF3akV1ak9wM0dRdjF5U1Y4UjkyTmZBejhadSs3eFdrY0VVRFp2TkNnY2d1ZE9ram1Bd3pnb2FUYUNBOFgvVlFGS1NrenBmK0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FES2N6aVFWdFE1ZGxtUlBVd09Sc3RYMHR5UDBxTjRsaTVXbms4ZmVhYWV0VUptYVZNd0piMXpjZ2p1S1NEOEJKdE84R0N5d0JOMmx2RCtsblVkUVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNDM0CWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6Ckk5NzR6STRLREI4QTF3akV1ak9wM0dRdjF5U1Y4UjkyTmZBejhadSs3eFdrY0VVRFp2TkNnY2d1ZE9ram1Bd3pnb2FUYUNBOFgvVlFGS1NrenBmK0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FES2N6aVFWdFE1ZGxtUlBVd09Sc3RYMHR5UDBxTjRsaTVXbms4ZmVhYWV0VUptYVZNd0piMXpjZ2p1S1NEOEJKdE84R0N5d0JOMmx2RCtsblVkUVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNDM0CWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6Ckk5NzR6STRLREI4QTF3akV1ak9wM0dRdjF5U1Y4UjkyTmZBejhadSs3eFdrY0VVRFp2TkNnY2d1ZE9ram1Bd3pnb2FUYUNBOFgvVlFGS1NrenBmK0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal.app.tar.gz"
+    },
+    "darwin-x86_64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0FES2N6aVFWdFE1ZGxtUlBVd09Sc3RYMHR5UDBxTjRsaTVXbms4ZmVhYWV0VUptYVZNd0piMXpjZ2p1S1NEOEJKdE84R0N5d0JOMmx2RCtsblVkUVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY5MzQyNDM0CWZpbGU6QXJnb24gQ2FwaXRhbC5hcHAudGFyLmd6Ckk5NzR6STRLREI4QTF3akV1ak9wM0dRdjF5U1Y4UjkyTmZBejhadSs3eFdrY0VVRFp2TkNnY2d1ZE9ram1Bd3pnb2FUYUNBOFgvVlFGS1NrenBmK0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.2.3/Argon.Capital_universal.app.tar.gz"
+    }
+  }
+}
