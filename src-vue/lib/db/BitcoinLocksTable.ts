@@ -95,9 +95,10 @@ export class BitcoinLocksTable extends BaseTable {
 
     for (const lock of records) {
       let needsSave = false;
-      for (const ratchet of lock.ratchets) {
-        if ('peggedPrice' in ratchet) {
-          ratchet.lockedMarketRate = ratchet.peggedPrice as any;
+      type LegacyRatchet = IRatchet & { peggedPrice?: bigint };
+      for (const ratchet of lock.ratchets as LegacyRatchet[]) {
+        if (ratchet.peggedPrice !== undefined) {
+          ratchet.lockedMarketRate = ratchet.peggedPrice;
           delete ratchet.peggedPrice;
           needsSave = true;
         }

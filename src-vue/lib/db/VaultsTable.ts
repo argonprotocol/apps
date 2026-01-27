@@ -15,7 +15,7 @@ export interface IVaultRecord {
 export class VaultsTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
     date: ['createdAt', 'updatedAt'],
-    bigint: ['prebondedMicrogons', 'operationalFeeMicrogons'],
+    bigint: ['operationalFeeMicrogons'],
   };
 
   public async insert(
