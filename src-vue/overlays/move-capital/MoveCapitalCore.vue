@@ -401,7 +401,7 @@ async function updatedAmountToMove(microgons: bigint, tries = 3) {
       amountToMove.value = 0n;
       return;
     }
-    void updatedAmountToMove(newAmount, tries - 1);
+    await updatedAmountToMove(newAmount, tries - 1);
   }
 }
 

@@ -82,7 +82,6 @@ const hasError = Vue.ref<boolean>(false);
 
 function updateProgress() {
   const details = bitcoinLocks.getLockProcessingDetails(props.personalLock);
-  console.log(details);
   progressPct.value = details.progressPct;
   blockConfirmations.value = details.confirmations;
   expectedConfirmations = details.expectedConfirmations;

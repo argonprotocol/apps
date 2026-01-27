@@ -236,8 +236,9 @@ const personalLock = Vue.computed(() => {
     return bitcoinLocks.data.pendingLock;
   }
 
-  const locks = bitcoinLocks.data.locksByUtxoId;
-  for (const lock of Object.values(locks)) {
+  const locks = Object.values(bitcoinLocks.data.locksByUtxoId);
+  locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  for (const lock of locks) {
     if (
       lock.vaultId === myVault.vaultId &&
       ![BitcoinLockStatus.LockFailedToHappen, BitcoinLockStatus.ReleaseComplete].includes(lock.status)

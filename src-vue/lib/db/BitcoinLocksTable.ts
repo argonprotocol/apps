@@ -77,7 +77,7 @@ export interface IBitcoinLockRecord {
 
 export class BitcoinLocksTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
-    bigint: ['satoshis', 'lockedMarketRate', 'liquidityPromised', 'releaseBitcoinNetworkFee'],
+    bigint: ['satoshis', 'lockedMarketRate', 'liquidityPromised', 'releaseBitcoinNetworkFee', 'lockedUtxoSatoshis'],
     json: ['lockDetails', 'ratchets', 'lockMempool', 'releaseMempool'],
     date: [
       'lockProcessingOnBitcoinAtTime',
