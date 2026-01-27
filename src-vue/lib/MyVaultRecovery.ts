@@ -213,15 +213,23 @@ export class MyVaultRecovery {
         }
 
         const lock = await bitcoinLocksStore.getFromApi(utxoId.args[0].toNumber());
-        const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(lock.utxoId);
-        const bitcoinTxAddition = await StorageFinder.binarySearchForStorageAddition(
-          mainchainClients,
-          bitcoinTxKey,
-          vaultSetupBlockNumber,
-        ).catch(err => {
-          console.warn('Unable to find bitcoin lock creation block:', err);
-          return undefined;
-        });
+        let bitcoinTxAddition: { blockHash: Uint8Array; blockNumber: number } | undefined;
+        if (lock.createdAtArgonBlock > 0) {
+          bitcoinTxAddition = {
+            blockNumber: lock.createdAtArgonBlock,
+            blockHash: await client.rpc.chain.getBlockHash(lock.createdAtArgonBlock),
+          };
+        } else {
+          const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(lock.utxoId);
+          bitcoinTxAddition = await StorageFinder.binarySearchForStorageAddition(
+            mainchainClients,
+            bitcoinTxKey,
+            vaultSetupBlockNumber,
+          ).catch(err => {
+            console.warn('Unable to find bitcoin lock creation block:', err);
+            return undefined;
+          });
+        }
         const addedAtBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
         let bitcoinTxFee = 0n;
         if (bitcoinTxAddition) {

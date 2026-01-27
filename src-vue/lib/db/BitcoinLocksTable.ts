@@ -12,7 +12,7 @@ dayjs.extend(utc);
 export interface IRatchet {
   mintAmount: bigint;
   mintPending: bigint;
-  peggedPrice: bigint;
+  lockedMarketRate: bigint;
   securityFee: bigint;
   txFee: bigint;
   burned: bigint;
@@ -25,7 +25,6 @@ export enum BitcoinLockStatus {
   LockReadyForBitcoin = 'LockReadyForBitcoin', // Submitted to the Argon chain & vault's securitization has been locked
   LockFailedToHappen = 'LockFailedToHappen', // The lock expired before it could be verified in argon
   LockIsProcessingOnBitcoin = 'LockIsProcessingOnBitcoin', // Found on bitcoin mempool but not in blocks or requires more confirmations
-  LockReceivedWrongAmount = 'LockReceivedWrongAmount', // Submitted to bitcoin network with wrong amount
   LockedAndIsMinting = 'LockedAndIsMinting', // Is fully locked but has been promised more argon minting
   LockedAndMinted = 'LockedAndMinted', // Is fully locked and fully minted
 
@@ -42,7 +41,7 @@ export interface IBitcoinLockRecord {
   status: BitcoinLockStatus;
   satoshis: bigint;
   liquidityPromised: bigint;
-  peggedPrice: bigint;
+  lockedMarketRate: bigint;
   ratchets: IRatchet[]; // array of ratchets
   cosignVersion: string;
   lockDetails: IBitcoinLock;
@@ -54,6 +53,7 @@ export interface IBitcoinLockRecord {
   lockProcessingLastOracleBlockHeight?: number;
   lockedTxid?: string;
   lockedVout?: number;
+  lockedUtxoSatoshis?: bigint;
   requestedReleaseAtTick?: number;
   releaseBitcoinNetworkFee?: bigint;
   releaseToDestinationAddress?: string;
@@ -77,7 +77,7 @@ export interface IBitcoinLockRecord {
 
 export class BitcoinLocksTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
-    bigint: ['satoshis', 'peggedPrice', 'liquidityPromised', 'releaseBitcoinNetworkFee'],
+    bigint: ['satoshis', 'lockedMarketRate', 'liquidityPromised', 'releaseBitcoinNetworkFee', 'lockedUtxoSatoshis'],
     json: ['lockDetails', 'ratchets', 'lockMempool', 'releaseMempool'],
     date: [
       'lockProcessingOnBitcoinAtTime',
@@ -89,6 +89,28 @@ export class BitcoinLocksTable extends BaseTable {
     ],
     uint8array: ['releaseCosignVaultSignature'],
   };
+
+  public override async loadState(): Promise<void> {
+    const records = await this.fetchAll();
+
+    for (const lock of records) {
+      let needsSave = false;
+      type LegacyRatchet = IRatchet & { peggedPrice?: bigint };
+      for (const ratchet of lock.ratchets as LegacyRatchet[]) {
+        if (ratchet.peggedPrice !== undefined) {
+          ratchet.lockedMarketRate = ratchet.peggedPrice;
+          delete ratchet.peggedPrice;
+          needsSave = true;
+        }
+      }
+      if (needsSave) {
+        await this.db.execute(
+          `UPDATE BitcoinLocks SET ratchets = ? WHERE uuid = ?`,
+          toSqlParams([lock.ratchets, lock.uuid]),
+        );
+      }
+    }
+  }
 
   public static createUuid(): string {
     return nanoid(5);
@@ -133,7 +155,7 @@ export class BitcoinLocksTable extends BaseTable {
       {
         mintAmount: lock.liquidityPromised,
         mintPending: lock.liquidityPromised,
-        peggedPrice: lock.peggedPrice,
+        lockedMarketRate: lock.lockedMarketRate,
         blockHeight: createdAtArgonBlockHeight,
         burned: 0n,
         securityFee: lock.securityFees,
@@ -147,11 +169,11 @@ export class BitcoinLocksTable extends BaseTable {
         status = ?,
         utxoId = ?,
         liquidityPromised = ?,
-        peggedPrice = ?,
+        lockedMarketRate = ?,
         lockDetails = ?, 
         ratchets = ?
       WHERE uuid = ? AND utxoId IS NULL RETURNING *`,
-      toSqlParams([status, lock.utxoId, lock.liquidityPromised, lock.peggedPrice, lock, ratchets, uuid]),
+      toSqlParams([status, lock.utxoId, lock.liquidityPromised, lock.lockedMarketRate, lock, ratchets, uuid]),
     );
     if (!rawRecords.length) {
       throw new Error(`Failed to finalize Bitcoin lock record (uuid = ${uuid}, utxoId = ${lock.utxoId})`);
@@ -289,8 +311,15 @@ export class BitcoinLocksTable extends BaseTable {
   public async saveNewRatchet(lock: IBitcoinLockRecord): Promise<void> {
     lock.status = BitcoinLockStatus.LockedAndIsMinting;
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = ?, peggedPrice = ?, liquidityPromised = ?, lockDetails = ?, ratchets = ? WHERE uuid = ?`,
-      toSqlParams([lock.status, lock.peggedPrice, lock.liquidityPromised, lock.lockDetails, lock.ratchets, lock.uuid]),
+      `UPDATE BitcoinLocks SET status = ?, lockedMarketRate = ?, liquidityPromised = ?, lockDetails = ?, ratchets = ? WHERE uuid = ?`,
+      toSqlParams([
+        lock.status,
+        lock.lockedMarketRate,
+        lock.liquidityPromised,
+        lock.lockDetails,
+        lock.ratchets,
+        lock.uuid,
+      ]),
     );
   }
 
@@ -346,14 +375,21 @@ export class BitcoinLocksTable extends BaseTable {
       lock.status = BitcoinLockStatus.LockedAndIsMinting;
     }
     await this.db.execute(
-      'UPDATE BitcoinLocks SET status = ?, lockedTxid = ?, lockedVout = ?, lockDetails = ? WHERE uuid = ?',
-      toSqlParams([lock.status, lock.lockedTxid, lock.lockedVout, lock.lockDetails, lock.uuid]),
+      `UPDATE BitcoinLocks SET status = ?, lockedTxid = ?, lockedVout = ?, 
+                lockedUtxoSatoshis = ?, lockDetails = ?, lockedMarketRate = ?, liquidityPromised = ?, ratchets = ? 
+              WHERE uuid = ?`,
+      toSqlParams([
+        lock.status,
+        lock.lockedTxid,
+        lock.lockedVout,
+        lock.lockedUtxoSatoshis,
+        lock.lockDetails,
+        lock.lockedMarketRate,
+        lock.liquidityPromised,
+        lock.ratchets,
+        lock.uuid,
+      ]),
     );
-  }
-
-  public async setLockReceivedWrongAmount(lock: IBitcoinLockRecord) {
-    lock.status = BitcoinLockStatus.LockReceivedWrongAmount;
-    await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
   }
 
   public async setLockFailedToHappen(lock: IBitcoinLockRecord) {

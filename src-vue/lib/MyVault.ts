@@ -180,12 +180,22 @@ export class MyVault {
           void this.onModifySettings(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation) {
           void this.onIncreaseVaultAllocations(txInfo);
-        } else if (tx.extrinsicType === ExtrinsicType.BitcoinRequestLock) {
-          void this.onLockBitcoin(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
           void this.onCosignResult(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCollect) {
           void this.onVaultCollect(txInfo);
+        }
+      }
+      if (!this.#singleRunTransactions.has(ExtrinsicType.VaultInitialAllocate)) {
+        const completedTxInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.VaultInitialAllocate];
+        if (completedTxInfo) {
+          this.#singleRunTransactions.set(ExtrinsicType.VaultInitialAllocate, Promise.resolve(completedTxInfo));
+        }
+      }
+      if (!this.#singleRunTransactions.has(ExtrinsicType.VaultCreate)) {
+        const completedTxInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.VaultCreate];
+        if (completedTxInfo) {
+          this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, Promise.resolve(completedTxInfo));
         }
       }
 
@@ -391,7 +401,7 @@ export class MyVault {
 
     const blockHash = await txResult.waitForFinalizedBlock;
     console.log(`Cosigned and submitted transaction for utxoId ${utxoId} at ${u8aToHex(blockHash)}`);
-    await this.trackTxResultFee(txResult, true);
+    await this.trackTxResultFee(txResult);
     postProcessor.resolve();
   }
 
@@ -511,7 +521,7 @@ export class MyVault {
     }
     await txInfo.followOnTxInfo;
     await txResult.waitForFinalizedBlock;
-    await this.trackTxResultFee(txInfo.txResult, true);
+    await this.trackTxResultFee(txInfo.txResult);
     this.data.pendingCollectTxInfo = null;
 
     postProcessor.resolve();
@@ -678,21 +688,6 @@ export class MyVault {
     this.vaults.vaultsById[vault.vaultId] = vault;
   }
 
-  public async clearPersonalBitcoin(): Promise<void> {
-    this.metadata!.personalUtxoId = undefined;
-    const table = await this.getTable();
-    await table.save(this.metadata!);
-  }
-  public async recordPersonalBitcoins(bitcoins: IBitcoinLockRecord[]): Promise<void> {
-    if (bitcoins.length === 0) {
-      return;
-    }
-    const bitcoin = bitcoins[0];
-    this.metadata!.personalUtxoId = bitcoin.utxoId;
-    const table = await this.getTable();
-    await table.save(this.metadata!);
-  }
-
   public async recoverAccountVault(args: {
     onProgress: (progress: number) => void;
   }): Promise<IVaultingRules | undefined> {
@@ -727,8 +722,6 @@ export class MyVault {
     });
     if (prebond) {
       // add fee from update
-      this.metadata!.prebondedMicrogons = prebond.prebondedMicrogons;
-      this.metadata!.prebondedMicrogonsAtTick = prebond.tick;
       this.metadata!.operationalFeeMicrogons ??= 0n;
       this.metadata!.operationalFeeMicrogons += prebond.txFee ?? 0n;
     }
@@ -744,7 +737,6 @@ export class MyVault {
         vault,
       });
       bitcoin = myBitcoins[0];
-      await this.recordPersonalBitcoins(myBitcoins);
     }
 
     const table = await this.getTable();
@@ -815,7 +807,7 @@ export class MyVault {
     const { txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
     await txResult.waitForFinalizedBlock;
-    await this.trackTxResultFee(txResult, false);
+    await this.trackTxResultFee(txResult);
     console.log('Vault settings updated');
     postProcessor.resolve();
   }
@@ -909,28 +901,20 @@ export class MyVault {
   ): Promise<{ txResult: TxResult }> {
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
-    const blockHash = await txResult.waitForFinalizedBlock;
-    await this.trackTxResultFee(txResult, false);
-    const client = await getMainchainClient(true);
-    const api = await client.at(blockHash);
-    const tick = await api.query.ticks.currentTick().then(x => x.toNumber());
-    const metadata = this.metadata!;
+    await txResult.waitForFinalizedBlock;
+    await this.trackTxResultFee(txResult);
+
     const { microgonsForTreasury, microgonsForSecuritization, bitcoin } = tx.metadataJson;
-    metadata.prebondedMicrogons = microgonsForTreasury;
-    metadata.prebondedMicrogonsAtTick = tick;
     if (bitcoin) {
       // create a separate tx info since we want to chain
       const bitcoinTxInfo = new TransactionInfo<any>({ tx, txResult });
-      const { getUtxoId } = await this.bitcoinLocksStore.createPendingBitcoinLock(bitcoinTxInfo);
-      metadata.personalUtxoId = await getUtxoId();
+      await this.bitcoinLocksStore.createPendingBitcoinLock(bitcoinTxInfo);
       await bitcoinTxInfo?.waitForPostProcessing;
     }
     console.log('Saving vault updates', {
       microgonsForTreasury,
       microgonsForSecuritization,
-      meta: metadata,
     });
-    await this.saveMetadata();
     postProcessor.resolve();
 
     return { txResult };
@@ -974,14 +958,6 @@ export class MyVault {
     }
 
     await this.bitcoinLocksStore.createPendingBitcoinLock(txInfo);
-    void this.onLockBitcoin(txInfo);
-  }
-
-  private async onLockBitcoin(txInfo: TransactionInfo<{ bitcoin: { uuid: string } }>): Promise<void> {
-    await txInfo.waitForPostProcessing;
-    const bitcoinUuid = txInfo.tx.metadataJson.bitcoin.uuid;
-    this.metadata!.personalUtxoId = await this.bitcoinLocksStore.getUtxoForBitcoinLockUuid(bitcoinUuid);
-    await this.saveMetadata();
   }
 
   public async getVaultAllocations(unusedBalance: bigint, rules: IVaultingRules) {
@@ -1083,29 +1059,19 @@ export class MyVault {
   private async onIncreaseVaultAllocations(txInfo: TransactionInfo<{ prebondedMicrogons: bigint }>): Promise<void> {
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
-    const blockHash = await txResult.waitForFinalizedBlock;
+    await txResult.waitForFinalizedBlock;
     this.data.pendingAllocateTxInfo = null;
     console.log('Vault allocations increased');
-    const metadata = this.metadata!;
-    const client = await getMainchainClient(true);
-    const api = await client.at(blockHash);
-    const tick = await api.query.ticks.currentTick();
-    const { prebondedMicrogons } = tx.metadataJson;
-    await this.trackTxResultFee(txResult, false);
-    metadata.prebondedMicrogons = prebondedMicrogons;
-    metadata.prebondedMicrogonsAtTick = tick.toNumber();
-    await this.saveMetadata();
+    await this.trackTxResultFee(txResult);
     postProcessor.resolve();
   }
 
-  private async trackTxResultFee(txResult: TxResult, saveMetadataOnSuccess = true): Promise<void> {
+  private async trackTxResultFee(txResult: TxResult): Promise<void> {
     try {
       await txResult.waitForFinalizedBlock;
       txResult.txProgressCallback = undefined;
       this.recordFee(txResult);
-      if (saveMetadataOnSuccess) {
-        await this.saveMetadata();
-      }
+      await this.saveMetadata();
     } catch (error) {
       this.recordFee(txResult);
       await this.saveMetadata();

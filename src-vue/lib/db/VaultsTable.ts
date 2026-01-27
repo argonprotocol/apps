@@ -6,13 +6,7 @@ export interface IVaultRecord {
   hdPath: string;
   createdAtBlockHeight: number;
   lastTermsUpdateHeight?: number;
-  personalUtxoId?: number;
   operationalFeeMicrogons?: bigint;
-  /**
-   * The amount of microgons that have been prebonded to this vault as well as tip and fee
-   */
-  prebondedMicrogons?: bigint;
-  prebondedMicrogonsAtTick?: number;
   isClosed: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -21,7 +15,7 @@ export interface IVaultRecord {
 export class VaultsTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
     date: ['createdAt', 'updatedAt'],
-    bigint: ['prebondedMicrogons', 'operationalFeeMicrogons'],
+    bigint: ['operationalFeeMicrogons'],
   };
 
   public async insert(
@@ -42,16 +36,8 @@ export class VaultsTable extends BaseTable {
 
   public async save(record: IVaultRecord): Promise<void> {
     await this.db.execute(
-      'UPDATE Vaults SET operationalFeeMicrogons = ?, prebondedMicrogons = ?, prebondedMicrogonsAtTick = ?, lastTermsUpdateHeight = ?, ' +
-        'personalUtxoId = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
-      toSqlParams([
-        record.operationalFeeMicrogons,
-        record.prebondedMicrogons,
-        record.prebondedMicrogonsAtTick,
-        record.lastTermsUpdateHeight,
-        record.personalUtxoId,
-        record.id,
-      ]),
+      'UPDATE Vaults SET operationalFeeMicrogons = ?, lastTermsUpdateHeight = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+      toSqlParams([record.operationalFeeMicrogons, record.lastTermsUpdateHeight, record.id]),
     );
   }
 

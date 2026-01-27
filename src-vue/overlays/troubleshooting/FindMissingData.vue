@@ -137,9 +137,6 @@ async function checkBitcoins() {
     mainchainClients: getMainchainClients(),
   });
   const newlyFound = bitcoins.filter(b => !existing.some(e => e.utxoId === b.utxoId));
-  if (newlyFound.length > 0) {
-    await myVault.recordPersonalBitcoins(bitcoins);
-  }
 
   return {
     isUnchanged: newlyFound.length === 0,

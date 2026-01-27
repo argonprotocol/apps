@@ -73,7 +73,7 @@
                   Winning a mining seat require you to create a bid that contains two tokens:
                   <ol>
                     <li>
-                      <strong>Argonots</strong>. Argonots are a special governance token of the Argon network. They have several unique properities,
+                      <strong>Argonots</strong>. Argonots are a special governance token of the Argon network. They have several unique properties,
                       but for the sake of this description, they show proof of ownership. Every bid must contain a preset quantity of Argonots in order to be valid.
                       This amount required changes over time based on the network's demand for mining seats. The following table shows the
                       current quantity of Argonots required per bid:

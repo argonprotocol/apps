@@ -27,7 +27,7 @@
             </tr>
           </thead>
           <tbody class="text-left font-light">
-            <tr v-for="block in Object.values(blocks)" :key="block.number" class="text-gray-500">
+            <tr v-for="block in sortedBlocks" :key="block.number" class="text-gray-500">
               <td class="border-t border-slate-400/30 text-left">
                 {{ numeral(block.number).format('0,0') }}
               </td>
@@ -88,6 +88,10 @@ const blockchainStore = useBlockchainStore();
 
 const blocks = Vue.ref<{ [number: number]: IBlock }>({});
 const isOpen = Vue.ref(false);
+
+const sortedBlocks = Vue.computed(() => {
+  return Object.values(blocks.value).sort((a, b) => b.number - a.number);
+});
 
 const subaccounts = Vue.ref(new Set<string>());
 Vue.onMounted(() => {
