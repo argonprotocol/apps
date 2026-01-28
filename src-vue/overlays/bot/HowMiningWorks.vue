@@ -149,7 +149,7 @@
                       <tr v-if="isLoaded" v-for="winningBid in winningBids">
                         <td>Today</td>
                         <td>{{ winningBid.bidPosition === undefined ? 'N/A' : winningBid.bidPosition + 1 }}</td>
-                        <td>{{ micronotToArgonotNm(winningBid.microgonsPerSeat || 0n).format('0,0.[00000000]') }}</td>
+                        <td>{{ micronotToArgonotNm(winningBid.micronotsStakedPerSeat || 0n).format('0,0.[00000000]') }}</td>
                         <td>{{ currency.symbol }}{{ microgonToArgonNm(winningBid.microgonsPerSeat || 0n).format('0,0.00') }}</td>
                         <td>Won</td>
                       </tr>
