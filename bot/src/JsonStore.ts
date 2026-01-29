@@ -4,6 +4,7 @@ import Queue from 'p-queue';
 import Path from 'node:path';
 
 export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
+  public onMutate: ((data: T) => any)[] = [];
   private data: T | undefined;
   private defaults!: Omit<T, 'lastModified'>;
   private saveQueue = new Queue({ concurrency: 1 });
@@ -42,6 +43,9 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
         console.log(`[JsonStore]: Saving changes to ${this.key}:`, changesProps);
       }
       this.data = newData;
+      for (const fn of this.onMutate) {
+        fn(newData);
+      }
       await atomicWrite(this.path, JsonExt.stringify(this.data, 2));
       return true;
     });

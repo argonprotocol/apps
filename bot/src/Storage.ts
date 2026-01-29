@@ -2,6 +2,7 @@ import Path from 'node:path';
 import { LRU } from 'tiny-lru';
 import * as fs from 'node:fs';
 import {
+  createTypedEventEmitter,
   type IBidsFile,
   type IBlockSyncFile,
   type IBotStateFile,
@@ -9,10 +10,20 @@ import {
   type IHistoryFile,
 } from '@argonprotocol/apps-core';
 import { JsonStore } from './JsonStore.ts';
-import { RewardTicksMigration } from './migrations/01-RewardTicks.ts';
 import type { IMigration } from './migrations/IMigration.ts';
 
 export class Storage {
+  public events = createTypedEventEmitter<{
+    'data:updated': (
+      event:
+        | { data: 'bot-state' }
+        | { data: 'block-sync' }
+        | { data: 'bids'; cohortBiddingFrameId: number; cohortActivationFrameId: number }
+        | { data: 'earnings'; frameId: number }
+        | { data: 'history'; frameId: number },
+      id?: string,
+    ) => void;
+  }>();
   public get botBidsDir(): string {
     return Path.join(this.basedir, 'bot-bids');
   }
@@ -33,7 +44,7 @@ export class Storage {
   private readonly botState: JsonStore<IBotStateFile>;
   private readonly blockSync: JsonStore<IBlockSyncFile>;
   private readonly storageVersion: JsonStore<{ version: number }>;
-  private migrations: IMigration[] = [new RewardTicksMigration()];
+  private migrations: IMigration[] = [];
 
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });
@@ -48,12 +59,12 @@ export class Storage {
         earningsLastModifiedAt: new Date(),
         oldestFrameIdToSync: 0,
         currentFrameId: 0,
-        currentFrameFirstTick: 0,
-        currentFrameRewardTicksRemaining: 0,
         currentTick: 0,
         syncProgress: 0,
-        lastBlockNumberByFrameId: {},
       };
+    });
+    this.botState.onMutate.push(() => {
+      this.events.emit('data:updated', { data: 'bot-state' });
     });
     this.blockSync = new JsonStore(this.basedir, 'bot-blocks.json', () => ({
       blocksByNumber: {},
@@ -61,6 +72,9 @@ export class Storage {
       finalizedBlockNumber: 0,
       bestBlockNumber: 0,
     }));
+    this.blockSync.onMutate.push(() => {
+      this.events.emit('data:updated', { data: 'block-sync' });
+    });
     this.storageVersion = new JsonStore(this.basedir, 'storage-version.json', () => ({
       version: 0,
     }));
@@ -129,6 +143,9 @@ export class Storage {
           previousFrameAccruedMicronotProfits: null,
         };
       });
+      entry.onMutate.push(() => {
+        this.events.emit('data:updated', { data: 'earnings', frameId });
+      });
       this.lruCache.set(key, entry);
     }
     return entry;
@@ -154,6 +171,9 @@ export class Storage {
           winningBids: [],
         };
       });
+      entry.onMutate.push(() => {
+        this.events.emit('data:updated', { data: 'bids', cohortBiddingFrameId, cohortActivationFrameId });
+      });
       this.lruCache.set(key, entry);
     }
     return entry;
@@ -167,6 +187,9 @@ export class Storage {
         return {
           activities: [],
         };
+      });
+      entry.onMutate.push(() => {
+        this.events.emit('data:updated', { data: 'history', frameId });
       });
       this.lruCache.set(key, entry);
     }

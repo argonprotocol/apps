@@ -189,7 +189,7 @@ export class FramesTable extends BaseTable {
     const records = convertFromSqliteFields<{ id: number; microgonToArgonot: bigint[] }[]>(rawRecords, this.fieldTypes);
     const pricesByFrameId: { [frameId: number]: bigint } = {};
     for (const record of records) {
-      pricesByFrameId[record.id] = record.microgonToArgonot[record.microgonToArgonot.length - 1] || 0n;
+      pricesByFrameId[record.id] = record.microgonToArgonot.at(0) || 0n;
     }
     return pricesByFrameId;
   }
@@ -203,10 +203,14 @@ export class FramesTable extends BaseTable {
       seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
       FROM Frames ORDER BY id DESC LIMIT 365
     `);
+    await miningFrames.load();
 
     const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
       .map((x: any) => {
         const miningFrame = miningFrames.framesById[x.id];
+        if (!miningFrame) {
+          return null;
+        }
         const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
           .plus(x.microgonsMintedTotal)
           .plus(currency.convertMicronotTo(x.micronotsMinedTotal, UnitOfMeasurement.Microgon));
@@ -222,7 +226,7 @@ export class FramesTable extends BaseTable {
 
         const record: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
           id: x.id,
-          date: dayjs.utc(miningFrame.dateStart).format('YYYY-MM-DD'),
+          date: dayjs.utc(miningFrame.dateStart ?? new Date()).format('YYYY-MM-DD'),
           firstTick: miningFrame.frameStartTick,
           allMinersCount: x.allMinersCount,
           seatCountActive: x.seatCountActive,
@@ -243,6 +247,7 @@ export class FramesTable extends BaseTable {
 
         return record;
       })
+      .filter(x => x !== null)
       .reverse();
 
     const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;

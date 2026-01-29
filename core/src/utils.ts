@@ -173,3 +173,27 @@ export function isValidEthereumAddress(address: string): { valid: boolean; check
     return { valid: false, checksum: false };
   }
 }
+
+export function debounce<T extends (...args: any[]) => void>(args: { wait: number; maxWait?: number }, fn: T) {
+  let t: any;
+  let lastInvoke = 0;
+  const { wait, maxWait } = args;
+
+  return (...args: Parameters<T>) => {
+    const now = Date.now();
+
+    // hard guarantee: send if we've waited too long
+    if (maxWait !== undefined && now - lastInvoke >= maxWait) {
+      lastInvoke = now;
+      clearTimeout(t);
+      void fn(...args);
+      return;
+    }
+
+    clearTimeout(t);
+    t = setTimeout(() => {
+      lastInvoke = Date.now();
+      void fn(...args);
+    }, wait).unref();
+  };
+}

@@ -55,12 +55,13 @@ it('can autobid and store stats', async () => {
       bidsLastModifiedAt: new Date(),
       oldestFrameIdToSync: 0,
       hasMiningBids: false,
-      lastBlockNumberByFrameId: {},
       currentTick: 100,
       earningsLastModifiedAt: new Date(),
       hasMiningSeats: false,
       syncProgress: 100,
-    } as Omit<IBotStateFile, 'currentFrameFirstTick' | 'currentFrameRewardTicksRemaining'>),
+    } as Omit<IBotStateFile, 'currentFrameFirstTick' | 'currentFrameRewardTicksRemaining'> & {
+      currentFrameTickRange: [number, number];
+    }),
   );
   await expect(storage.version).resolves.toBe(0);
   await expect(storage.migrate()).resolves.toBeUndefined();

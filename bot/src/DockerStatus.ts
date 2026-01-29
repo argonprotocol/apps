@@ -3,7 +3,7 @@ import { requireEnv } from './utils.js';
 
 const statusApi = requireEnv('STATUS_URL');
 
-export class Dockers {
+export class DockerStatus {
   public static async getArgonBlockNumbers(): Promise<IBlockNumbers> {
     try {
       const result = await fetch(`${statusApi}/argon/latestblocks`).then(res => res.json());

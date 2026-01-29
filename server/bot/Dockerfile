@@ -8,4 +8,4 @@ RUN apt-get update && \
 COPY . .
 
 EXPOSE 3000
-ENTRYPOINT [ "node", "src/server.js" ]
+ENTRYPOINT [ "node", "src/index.js" ]
