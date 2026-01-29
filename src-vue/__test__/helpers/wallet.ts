@@ -39,14 +39,6 @@ export function createMockWalletKeys(mnemonic?: string) {
     return HDKey.fromMasterSeed(xpriv, version).derive(path);
   });
   vi.spyOn(walletKeys, 'getVaultingKeypair').mockImplementation(async () => vaultingAccount);
-  vi.spyOn(walletKeys, 'getMiningBotSubaccounts').mockImplementation(async count => {
-    const derivedAddresses: { [address: string]: { index: number } } = {};
-    for (let index = 0; index < (count ?? 144); index++) {
-      const address = miningBotAccount.derive(`//${index}`).address;
-      derivedAddresses[address] = { index };
-    }
-    return derivedAddresses;
-  });
   vi.spyOn(walletKeys, 'exposeMasterMnemonic').mockImplementation(async () => mnemonic);
   vi.spyOn(walletKeys, 'getMiningSessionMiniSecret').mockImplementation(async () => {
     return miniSecretFromUri(`${mnemonic}//mining//session`);

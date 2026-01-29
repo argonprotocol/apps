@@ -99,7 +99,10 @@ export class WalletRecovery {
           const frameId = frameIdRaw.args[0].toNumber();
           for (const [seatPosition, seatRaw] of seatsInFrame.entries()) {
             const address = seatRaw.accountId.toHuman();
-            const isOurAccount = !!accountSubaccounts[address];
+            const isOurAccount =
+              !!accountSubaccounts[address] ||
+              (seatRaw.externalFundingAccount.isSome &&
+                seatRaw.externalFundingAccount.unwrap().toHuman() === this.walletKeys.miningBotAddress);
             if (!isOurAccount) continue;
             dataByFrameId[frameId] ??= { frameId, seats: [], bids: [] };
             dataByFrameId[frameId].seats.push({
