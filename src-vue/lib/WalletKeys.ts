@@ -55,16 +55,7 @@ export class WalletKeys {
     }
 
     const indexes = getRange(0, count);
-    // TODO: can remove 10 days after deploying new formats (as of 11/19/2025)
-    const includeDeprecatedAddressDerivation = true;
-    const derivedAddresses = includeDeprecatedAddressDerivation
-      ? await invokeWithTimeout<string[]>('derive_sr25519_address', { suris: indexes.map(i => `//mining//${i}`) }, 60e3)
-      : undefined;
     for (const index of indexes) {
-      if (derivedAddresses) {
-        const deprecatedAddress = derivedAddresses[index];
-        this.miningBotSubaccountsCache[deprecatedAddress] = { index };
-      }
       const address = Accountset.createMiningSubaccount(this.miningBotAddress, index);
       this.miningBotSubaccountsCache[address] = { index };
     }

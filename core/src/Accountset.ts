@@ -19,7 +19,6 @@ export interface ISubaccountMiner {
   subaccountIndex: number;
   seat?: IMiningIndex;
   isLastDay: boolean;
-  isDeprecatedAddress: boolean;
 }
 
 const registry = getOfflineRegistry();
@@ -35,7 +34,7 @@ export class Accountset {
   public isProxy = false;
   public seedAddress: string;
   public subAccountsByAddress: {
-    [address: string]: { index: number; isDeprecated: boolean };
+    [address: string]: { index: number };
   } = {};
   public readonly client: ArgonClient;
 
@@ -46,7 +45,6 @@ export class Accountset {
       client: ArgonClient;
       subaccountRange?: SubaccountRange;
       sessionMiniSecretOrMnemonic?: string;
-      includeDerivedSubaccounts?: boolean;
       name?: string;
     } & (
       | { seedAccount: KeyringPair }
@@ -70,12 +68,8 @@ export class Accountset {
     this.client = options.client;
     const defaultRange = options.subaccountRange ?? getRange();
     for (const i of defaultRange) {
-      if (options.includeDerivedSubaccounts !== false && 'seedAccount' in options) {
-        const pair = options.seedAccount.derive(`//${i}`);
-        this.subAccountsByAddress[pair.address] = { index: i, isDeprecated: true };
-      }
       const hashedAccount = Accountset.createMiningSubaccount(this.seedAddress, i);
-      this.subAccountsByAddress[hashedAccount] = { index: i, isDeprecated: false };
+      this.subAccountsByAddress[hashedAccount] = { index: i };
     }
   }
 
@@ -117,7 +111,7 @@ export class Accountset {
     const miningSeats = await this.miningSeatsAndBids();
     const subaccountRange = [];
     for (const seat of miningSeats) {
-      if (seat.hasWinningBid || seat.isDeprecatedAddress) {
+      if (seat.hasWinningBid) {
         continue;
       }
       if (seat.isLastDay || seat.seat === undefined) {
@@ -136,16 +130,13 @@ export class Accountset {
 
   public async loadRegisteredMiners(api: ApiDecoration<'promise'>): Promise<ISubaccountMiner[]> {
     const addressToMiningIndex = await Mining.fetchMiningSeats(this.seedAddress, api);
-    const addresses = Object.entries(this.subAccountsByAddress).filter(([address, v]) => {
-      return !!addressToMiningIndex[address] || !v.isDeprecated;
-    });
 
-    return addresses.map(([address, _]) => {
+    return Object.entries(this.subAccountsByAddress).map(([address, { index }]) => {
       return {
         ...addressToMiningIndex[address],
         address,
-        subaccountIndex: this.subAccountsByAddress[address]?.index ?? Number.NaN,
-        isDeprecatedAddress: this.subAccountsByAddress[address]?.isDeprecated ?? true,
+        // this can be -1 if the miner was registered in older version where subaccounts were calculated differently
+        subaccountIndex: index ?? -1,
       };
     });
   }
@@ -179,7 +170,6 @@ export class Accountset {
           miners.push({
             ...details,
             subaccountIndex: this.subAccountsByAddress[address]?.index ?? Number.NaN,
-            isDeprecatedAddress: this.subAccountsByAddress[address]?.isDeprecated ?? true,
           });
         }
       }
@@ -265,13 +255,10 @@ export class Accountset {
     return new TxSubmitter(client, tx, this.txSubmitterPair);
   }
 
-  public getAccountsInRange(range?: SubaccountRange, includeDeprecatedAddresses: boolean = false): IAccountAndIndex[] {
+  public getAccountsInRange(range?: SubaccountRange): IAccountAndIndex[] {
     const entries = new Set(range ?? getRange());
     return Object.entries(this.subAccountsByAddress)
       .filter(([_, account]) => {
-        if (account.isDeprecated && !includeDeprecatedAddresses) {
-          return false;
-        }
         return entries.has(account.index);
       })
       .map(([address, { index }]) => ({ index, address }));

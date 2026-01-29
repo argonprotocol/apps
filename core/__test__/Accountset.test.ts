@@ -34,11 +34,8 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
 
-    expect(Object.keys(accountset.subAccountsByAddress).length).toBe(100);
-    expect(new Set(Object.values(accountset.subAccountsByAddress)).size).toBe(100); // all unique
-    // half should be deprecated addresses
-    const deprecatedAccounts = Object.values(accountset.subAccountsByAddress).filter(x => x.isDeprecated);
-    expect(deprecatedAccounts.length).toBe(50);
+    expect(Object.keys(accountset.subAccountsByAddress).length).toBe(50);
+    expect(new Set(Object.values(accountset.subAccountsByAddress)).size).toBe(50);
 
     // generating a second time should yield the same accounts
     const accountset2 = new Accountset({
@@ -47,7 +44,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
       subaccountRange: getRange(0, 50),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
-    expect(Object.keys(accountset2.subAccountsByAddress).length).toBe(100);
+    expect(Object.keys(accountset2.subAccountsByAddress).length).toBe(50);
     expect(Object.keys(accountset.subAccountsByAddress).every(x => accountset2.subAccountsByAddress[x])).toBe(true);
   });
 
@@ -70,7 +67,6 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
       seedAccount,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
-      includeDerivedSubaccounts: true,
     });
     const txSubmitter = new TxSubmitter(
       client,
