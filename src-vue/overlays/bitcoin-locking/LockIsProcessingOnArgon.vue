@@ -56,11 +56,12 @@ const progressLabel = Vue.computed(() => {
   return generateProgressLabel(blockConfirmations.value, expectedConfirmations, { blockType: 'Argon' });
 });
 
+let subscription: (() => void) | undefined = undefined;
 Vue.onMounted(async () => {
   const txInfo = myVault.getTxInfoByType(ExtrinsicType.BitcoinRequestLock);
   console.log('TX INFO', txInfo);
   if (txInfo) {
-    txInfo.subscribeToProgress(
+    subscription = txInfo.subscribeToProgress(
       (
         args: { progressPct: number; confirmations: number; expectedConfirmations: number },
         error: Error | undefined,
@@ -70,6 +71,12 @@ Vue.onMounted(async () => {
         expectedConfirmations = args.expectedConfirmations;
       },
     );
+  }
+});
+Vue.onUnmounted(() => {
+  if (subscription) {
+    subscription();
+    subscription = undefined;
   }
 });
 </script>

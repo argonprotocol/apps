@@ -88,20 +88,6 @@ export default class BitcoinLocksStore {
     return this.data.oracleBitcoinBlockHeight;
   }
 
-  public get totalMintPending() {
-    return Object.values(this.locksByUtxoId).reduce(
-      (sum, lock) => sum + lock.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n),
-      0n,
-    );
-  }
-
-  public get totalMinted() {
-    return Object.values(this.locksByUtxoId).reduce(
-      (sum, lock) => sum + lock.ratchets.reduce((sum, ratchet) => sum + ratchet.mintAmount - ratchet.mintPending, 0n),
-      0n,
-    );
-  }
-
   public get config(): IBitcoinLockConfig {
     return this.#config;
   }
@@ -115,6 +101,8 @@ export default class BitcoinLocksStore {
   #waitForLoad?: IDeferred;
   #currency: CurrencyBase;
   #transactionTracker: TransactionTracker;
+  #blockQueue = new SingleFileQueue();
+  #txQueueByUuid: { [uuid: string]: SingleFileQueue } = {};
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -132,6 +120,17 @@ export default class BitcoinLocksStore {
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
       latestArgonBlockHeight: 0,
     };
+  }
+
+  public getActiveLocksForVault(vaultId: number): IBitcoinLockRecord[] {
+    const locks = Object.values(this.data.locksByUtxoId);
+    if (this.data.pendingLock?.vaultId === vaultId) {
+      locks.unshift(this.data.pendingLock);
+    }
+    locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return locks.filter(lock => {
+      return lock.vaultId === vaultId && !this.isFinishedStatus(lock);
+    });
   }
 
   public approximateExpirationTime(lock: IBitcoinLockRecord): number {
@@ -184,10 +183,7 @@ export default class BitcoinLocksStore {
       for (const lock of locks) {
         if (lock.utxoId) {
           this.locksByUtxoId[lock.utxoId] = lock;
-          if (
-            lock.status !== BitcoinLockStatus.ReleaseComplete &&
-            lock.status !== BitcoinLockStatus.LockFailedToHappen
-          ) {
+          if (!this.isFinishedStatus(lock)) {
             await this.checkForMissingBitcoinLockState(lock);
           }
         } else {
@@ -204,15 +200,17 @@ export default class BitcoinLocksStore {
         } else if (tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease) {
           const { utxoId } = tx.metadataJson!;
           const lock = this.locksByUtxoId[utxoId];
-          void this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
+          await this.onRequestedReleaseInBlock(lock, txInfo, tx.metadataJson);
         }
       }
 
       await this.blockWatch.start();
       this.#subscription = this.blockWatch.events.on('best-blocks', async headers => {
-        await this.checkIncomingArgonBlock(headers.at(-1)!);
+        void this.#blockQueue.add(() => this.checkIncomingArgonBlock(headers.at(-1)!), { timeoutMs: 120e3 });
       });
-      await this.checkIncomingArgonBlock(this.blockWatch.bestBlockHeader);
+      await this.#blockQueue.add(() => this.checkIncomingArgonBlock(this.blockWatch.bestBlockHeader), {
+        timeoutMs: 120e3,
+      }).promise;
       this.#waitForLoad.resolve();
     } catch (error) {
       console.error('Error loading BitcoinLocksStore:', error);
@@ -440,11 +438,6 @@ export default class BitcoinLocksStore {
     return result;
   }
 
-  public async getUtxoForBitcoinLockUuid(bitcoinUuid: string): Promise<number | undefined> {
-    const table = await this.getTable();
-    return await table.getUtxoUuid(bitcoinUuid);
-  }
-
   public async calculateBitcoinNetworkFee(
     lock: IBitcoinLockRecord,
     feeRatePerSatVb: bigint,
@@ -494,7 +487,7 @@ export default class BitcoinLocksStore {
 
   public async ratchet(lock: IBitcoinLockRecord, argonKeyring: KeyringPair, tip = 0n) {
     const table = await this.getTable();
-    if (lock.status !== BitcoinLockStatus.LockedAndMinted && lock.status !== BitcoinLockStatus.LockedAndIsMinting) {
+    if (!this.isLockedStatus(lock)) {
       throw new Error(`Lock with ID ${lock.utxoId} is not verified.`);
     }
 
@@ -542,7 +535,11 @@ export default class BitcoinLocksStore {
     await table.saveNewRatchet(lock);
   }
 
-  public async ownerCosignAndSendToBitcoin(lock: IBitcoinLockRecord): Promise<void> {
+  private async ownerCosignAndSendToBitcoin(lock: IBitcoinLockRecord): Promise<void> {
+    const utxoId = lock.utxoId;
+    if (!utxoId) {
+      throw new Error(`Lock has not been initialized yet.`);
+    }
     if (lock.status !== BitcoinLockStatus.ReleaseSigned) return;
     const table = await this.getTable();
 
@@ -550,7 +547,7 @@ export default class BitcoinLocksStore {
       lock.releaseError = undefined;
 
       const { bytes, txid } = await this.ownerCosignAndGenerateTxBytes(lock);
-      const existingTxStatus = await this.checkMempoolReleaseStatus(lock.utxoId!, txid);
+      const existingTxStatus = await this.checkMempoolReleaseStatus(utxoId, txid);
       if (existingTxStatus?.isConfirmed) {
         await table.setReleaseIsProcessingOnBitcoin(
           lock,
@@ -562,7 +559,8 @@ export default class BitcoinLocksStore {
       }
 
       const mempoolPostTxUrl = this.getMempoolApi('tx');
-      const response = await fetch(mempoolPostTxUrl, {
+      const response = await fetchWithTimeout(mempoolPostTxUrl, {
+        timeoutMs: 20e3,
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: u8aToHex(bytes, undefined, false),
@@ -576,8 +574,7 @@ export default class BitcoinLocksStore {
         throw new Error(`Invalid transaction ID returned from broadcast: ${releasedTxid}`);
       }
       const mempoolBlockTipUrl = this.getMempoolApi('blocks/tip/height');
-      const blockTipResponse = await fetch(mempoolBlockTipUrl);
-      const tip: number = await blockTipResponse.json();
+      const tip = await fetchJsonWithTimeout<number>(mempoolBlockTipUrl);
 
       await table.setReleaseIsProcessingOnBitcoin(lock, releasedTxid, tip, this.oracleBitcoinBlockHeight);
     } catch (e) {
@@ -609,7 +606,10 @@ export default class BitcoinLocksStore {
       throw new Error(`Lock with ID ${lock.utxoId} has not been released yet.`);
     }
 
-    const cosign = new CosignScript(lock.lockDetails, this.bitcoinNetwork);
+    const cosign = new CosignScript(
+      { ...lock.lockDetails, utxoSatoshis: lock.lockedUtxoSatoshis },
+      this.bitcoinNetwork,
+    );
     const tx = cosign.cosignAndGenerateTx({
       releaseRequest: {
         toScriptPubkey: lock.releaseToDestinationAddress,
@@ -644,7 +644,7 @@ export default class BitcoinLocksStore {
       const dueFrame = startFrame + this.#config.lockReleaseCosignDeadlineFrames;
       const startTickOfDue = miningFrames.estimateTickForFrame(dueFrame);
       const totalTicks = startTickOfDue + NetworkConfig.rewardTicksPerFrame - startTick;
-      const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
+      const currentTick = miningFrames.currentTick;
       return getPercent(currentTick - startTick, totalTicks);
     }
     return 100;
@@ -664,6 +664,17 @@ export default class BitcoinLocksStore {
     }
     if (lock.status === BitcoinLockStatus.LockReadyForBitcoin)
       return { progressPct: 0, confirmations: -1, expectedConfirmations };
+    if (lock.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+      const txInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.BitcoinRequestLock];
+      if (txInfo) {
+        const progress = txInfo.getStatus();
+        return {
+          progressPct: progress.progressPct,
+          confirmations: progress.confirmations,
+          expectedConfirmations: progress.expectedConfirmations,
+        };
+      }
+    }
     if (lock.status !== BitcoinLockStatus.LockIsProcessingOnBitcoin)
       return {
         progressPct: 100,
@@ -758,35 +769,54 @@ export default class BitcoinLocksStore {
     if (!lockRecord) {
       throw new Error(`No lock found with UTXO ID ${args.utxoId}`);
     }
-    const { bitcoinNetworkFee, toScriptPubkey } = args;
-    if (
-      lockRecord.status !== BitcoinLockStatus.LockedAndMinted &&
-      lockRecord.status !== BitcoinLockStatus.LockedAndIsMinting
-    ) {
-      return;
-    }
+    return this.runInQueueForUtxo(lockRecord, 60e3, async () => {
+      const { bitcoinNetworkFee, toScriptPubkey } = args;
+      if (!this.isLockedStatus(lockRecord)) {
+        const existingTxInfo = this.#transactionTracker.data.txInfos.find(
+          txInfo =>
+            txInfo.tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease &&
+            (txInfo.tx.metadataJson as any)?.utxoId === lockRecord.utxoId,
+        );
+        if (existingTxInfo) {
+          return existingTxInfo;
+        }
 
-    const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
-    const txResult = await bitcoinLock.requestRelease({
-      ...args,
-      client: await getMainchainClient(false),
-      priceIndex: this.#currency.priceIndex,
-      releaseRequest: {
-        toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinNetwork),
-        bitcoinNetworkFee,
-      },
-      argonKeyring: await this.walletKeys.getVaultingKeypair(),
-      disableAutomaticTxTracking: true,
+        throw new Error("This Bitcoin Lock is not fully locked, which means it's unable to be released.");
+      }
+
+      const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
+      const txResult = await bitcoinLock.requestRelease({
+        ...args,
+        client: await getMainchainClient(false),
+        priceIndex: this.#currency.priceIndex,
+        releaseRequest: {
+          toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinNetwork),
+          bitcoinNetworkFee,
+        },
+        argonKeyring: await this.walletKeys.getVaultingKeypair(),
+        disableAutomaticTxTracking: true,
+      });
+
+      const txInfo = await this.#transactionTracker.trackTxResult({
+        txResult,
+        extrinsicType: ExtrinsicType.BitcoinRequestRelease,
+        metadata: { utxoId: lockRecord.utxoId, toScriptPubkey, bitcoinNetworkFee },
+      });
+
+      void this.onRequestedReleaseInBlock(lockRecord, txInfo, { toScriptPubkey, bitcoinNetworkFee });
+      return txInfo;
     });
+  }
 
-    const txInfo = await this.#transactionTracker.trackTxResult({
-      txResult,
-      extrinsicType: ExtrinsicType.BitcoinRequestRelease,
-      metadata: { utxoId: lockRecord.utxoId, toScriptPubkey, bitcoinNetworkFee },
-    });
+  public isLockedStatus(lockRecord: IBitcoinLockRecord): boolean {
+    return (
+      lockRecord.status === BitcoinLockStatus.LockedAndIsMinting ||
+      lockRecord.status === BitcoinLockStatus.LockedAndMinted
+    );
+  }
 
-    void this.onRequestedReleaseInBlock(lockRecord, txInfo, { toScriptPubkey, bitcoinNetworkFee });
-    return txInfo;
+  public isFinishedStatus(lock: IBitcoinLockRecord): boolean {
+    return lock.status === BitcoinLockStatus.ReleaseComplete || lock.status === BitcoinLockStatus.LockFailedToHappen;
   }
 
   public isReleaseStatus(lock: IBitcoinLockRecord): boolean {
@@ -833,12 +863,36 @@ export default class BitcoinLocksStore {
     return db.bitcoinLocksTable;
   }
 
-  private async checkIncomingArgonBlock(header: Pick<IBlockHeaderInfo, 'blockHash' | 'blockNumber'>): Promise<void> {
+  private async runInQueueForUtxo<T>(
+    lockRecord: IBitcoinLockRecord,
+    timeoutMs: number,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const { uuid } = lockRecord;
+    this.#txQueueByUuid[uuid] ??= new SingleFileQueue();
+    return this.#txQueueByUuid[uuid].add(task, { timeoutMs }).promise;
+  }
+
+  private async checkIncomingArgonBlock(
+    newestHeader: Pick<IBlockHeaderInfo, 'blockHash' | 'blockNumber'>,
+  ): Promise<void> {
+    if (newestHeader.blockNumber === 0) {
+      return;
+    }
+    const generalClient = await this.blockWatch.getRpcClient(newestHeader.blockNumber - 1);
+    const header = await this.blockWatch.getHeader(newestHeader.blockNumber - 1);
+
+    console.log(
+      `Checking incoming Argon block for Bitcoin Locks ${header.blockNumber}. Latest is ${this.data.latestArgonBlockHeight}`,
+    );
+
+    if (header.blockNumber <= this.data.latestArgonBlockHeight) {
+      return;
+    }
     const table = await this.getTable();
     const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
     this.data.latestArgonBlockHeight = header.blockNumber;
 
-    const generalClient = await this.blockWatch.getRpcClient(header.blockNumber);
     const clientAt = await generalClient.at(header.blockHash);
 
     this.data.oracleBitcoinBlockHeight = await clientAt.query.bitcoinUtxos
@@ -847,88 +901,125 @@ export default class BitcoinLocksStore {
 
     const hasNewOracleBitcoinBlockHeight = archivedBitcoinBlockHeight !== this.data.oracleBitcoinBlockHeight;
 
-    for (const lockRecord of Object.values(this.data.locksByUtxoId)) {
-      if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
-        // waiting for a utxo to be found
-        continue;
-      }
-      if (
-        [
-          BitcoinLockStatus.LockReadyForBitcoin,
-          BitcoinLockStatus.LockedAndMinted,
-          BitcoinLockStatus.LockedAndIsMinting,
-          BitcoinLockStatus.LockIsProcessingOnBitcoin,
-        ].includes(lockRecord.status)
-      ) {
-        await this.updateLockingStatus(lockRecord, clientAt);
-      }
-
-      if (hasNewOracleBitcoinBlockHeight && lockRecord.status === BitcoinLockStatus.LockIsProcessingOnBitcoin) {
-        lockRecord.lockProcessingLastOracleBlockDate = dayjs.utc().toDate();
-        lockRecord.lockProcessingLastOracleBlockHeight = this.data.oracleBitcoinBlockHeight;
-        await table.updateLockProcessingLastOracleBlock(lockRecord);
-      }
-
-      if (
-        [BitcoinLockStatus.LockReadyForBitcoin, BitcoinLockStatus.LockIsProcessingOnBitcoin].includes(lockRecord.status)
-      ) {
-        await this.updateLockIsProcessingOnBitcoin(lockRecord);
-      }
-
-      if (this.isReleaseStatus(lockRecord) && !lockRecord.releaseToDestinationAddress) {
-        const archiveClient = await getMainchainClient(true);
-        await this.tryUpdateReleaseRequested(lockRecord, archiveClient);
-      }
-
-      if (lockRecord.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
-        const archiveClient = await getMainchainClient(true);
-        await this.tryUpdateVaultSignature(lockRecord, archiveClient);
-      }
-
-      if (lockRecord.status === BitcoinLockStatus.ReleaseSigned) {
-        await this.ownerCosignAndSendToBitcoin(lockRecord);
-      }
-
-      if (lockRecord.status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) {
-        lockRecord.releaseProcessingLastOracleBlockDate = new Date();
-        lockRecord.releaseProcessingLastOracleBlockHeight = this.data.oracleBitcoinBlockHeight;
-        await table.updateReleaseProcessingLastOracleBlock(lockRecord);
-        try {
-          await this.tryUpdateReleaseComplete(lockRecord);
-          lockRecord.releaseError = undefined;
-        } catch (e) {
-          lockRecord.releaseError = String(e);
+    const promises = Object.values(this.data.locksByUtxoId)
+      .map(lockRecord => {
+        if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+          // waiting for a utxo to be found
+          return undefined;
         }
-      }
-
-      const localPendingMint = lockRecord.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n);
-      if (localPendingMint > 0n && lockRecord.lockedTxid) {
-        const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
-        const chainPendingArray = await bitcoinLock.findPendingMints(clientAt);
-        const chainPendingMint = chainPendingArray.reduce((sum, x) => sum + x, 0n);
-
-        let amountFulfilled = localPendingMint - chainPendingMint;
-        // account for the pending amount by allocating to the last entrants in the ratchet list
-        for (const ratchet of lockRecord.ratchets) {
-          if (chainPendingMint === 0n) {
-            ratchet.mintPending = 0n;
-            continue;
+        return this.runInQueueForUtxo(lockRecord, 30e3, async () => {
+          if (
+            this.isLockedStatus(lockRecord) ||
+            [BitcoinLockStatus.LockReadyForBitcoin, BitcoinLockStatus.LockIsProcessingOnBitcoin].includes(
+              lockRecord.status,
+            )
+          ) {
+            await this.updateLockingStatus(lockRecord, clientAt).catch(err =>
+              console.warn(`[BitcoinLockStore] Error updating locking status for utxo ${lockRecord.uuid}`, err),
+            );
           }
-          if (amountFulfilled === 0n) break;
-          if (ratchet.mintPending > 0) {
-            if (amountFulfilled >= ratchet.mintPending) {
-              amountFulfilled -= ratchet.mintPending;
-              ratchet.mintPending = 0n;
-            } else {
-              ratchet.mintPending -= amountFulfilled;
-              amountFulfilled = 0n;
+
+          if (hasNewOracleBitcoinBlockHeight && lockRecord.status === BitcoinLockStatus.LockIsProcessingOnBitcoin) {
+            lockRecord.lockProcessingLastOracleBlockDate = dayjs.utc().toDate();
+            lockRecord.lockProcessingLastOracleBlockHeight = this.data.oracleBitcoinBlockHeight;
+            await table.updateLockProcessingLastOracleBlock(lockRecord).catch(err => {
+              console.warn(
+                `[BitcoinLockStore] Error updating lock processing last oracle block for utxo ${lockRecord.uuid}`,
+                err,
+              );
+            });
+          }
+
+          if (
+            [BitcoinLockStatus.LockReadyForBitcoin, BitcoinLockStatus.LockIsProcessingOnBitcoin].includes(
+              lockRecord.status,
+            )
+          ) {
+            await this.updateLockIsProcessingOnBitcoin(lockRecord).catch(err => {
+              console.warn(
+                `[BitcoinLockStore] Error updating lock processing on bitcoin for utxo ${lockRecord.uuid}`,
+                err,
+              );
+            });
+          }
+
+          if (this.isReleaseStatus(lockRecord) && !lockRecord.releaseToDestinationAddress) {
+            const archiveClient = await getMainchainClient(true);
+            await this.tryUpdateReleaseRequested(lockRecord, archiveClient).catch(err => {
+              console.warn(`[BitcoinLockStore] Error updating release request for utxo ${lockRecord.uuid}`, err);
+            });
+          }
+
+          if (lockRecord.status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
+            const archiveClient = await getMainchainClient(true);
+            await this.tryUpdateVaultSignature(lockRecord, archiveClient).catch(err => {
+              console.warn(`[BitcoinLockStore] Error updating vault signature for utxo ${lockRecord.uuid}`, err);
+            });
+          }
+
+          if (lockRecord.status === BitcoinLockStatus.ReleaseSigned) {
+            await this.ownerCosignAndSendToBitcoin(lockRecord).catch(err => {
+              console.warn(
+                `[BitcoinLockStore] Error cosigning and sending to bitcoin for utxo ${lockRecord.uuid}`,
+                err,
+              );
+            });
+          }
+
+          if (lockRecord.status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) {
+            lockRecord.releaseProcessingLastOracleBlockDate = new Date();
+            lockRecord.releaseProcessingLastOracleBlockHeight = this.data.oracleBitcoinBlockHeight;
+            try {
+              await table.updateReleaseProcessingLastOracleBlock(lockRecord);
+            } catch (e) {
+              console.warn(
+                `[BitcoinLockStore] Error updating release processing last oracle block for utxo ${lockRecord.uuid}`,
+                e,
+              );
+            }
+            try {
+              await this.tryUpdateReleaseComplete(lockRecord);
+              lockRecord.releaseError = undefined;
+            } catch (e) {
+              lockRecord.releaseError = String(e);
+              console.warn(`[BitcoinLockStore] Error updating release complete for utxo ${lockRecord.uuid}`, e);
             }
           }
-        }
 
-        await table.updateMintState(lockRecord);
-      }
-    }
+          const localPendingMint = lockRecord.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n);
+          if (localPendingMint > 0n && lockRecord.lockedTxid) {
+            const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
+            const chainPendingArray = await bitcoinLock.findPendingMints(clientAt);
+            const chainPendingMint = chainPendingArray.reduce((sum, x) => sum + x, 0n);
+
+            let amountFulfilled = localPendingMint - chainPendingMint;
+            // account for the pending amount by allocating to the last entrants in the ratchet list
+            for (const ratchet of lockRecord.ratchets) {
+              if (chainPendingMint === 0n) {
+                ratchet.mintPending = 0n;
+                continue;
+              }
+              if (amountFulfilled === 0n) break;
+              if (ratchet.mintPending > 0) {
+                if (amountFulfilled >= ratchet.mintPending) {
+                  amountFulfilled -= ratchet.mintPending;
+                  ratchet.mintPending = 0n;
+                } else {
+                  ratchet.mintPending -= amountFulfilled;
+                  amountFulfilled = 0n;
+                }
+              }
+            }
+
+            await table.updateMintState(lockRecord).catch(err => {
+              console.warn(`[BitcoinLockStore] Error updating mint state for utxo ${lockRecord.uuid}`, err);
+            });
+          }
+        });
+      })
+      .filter(x => x !== undefined);
+    await Promise.allSettled(promises);
+    console.log(`Completed checking Bitcoin Locks for Argon block ${header.blockNumber}`);
   }
 
   private async tryUpdateVaultSignature(lock: IBitcoinLockRecord, archiveClient: ArgonClient) {
@@ -970,11 +1061,10 @@ export default class BitcoinLocksStore {
       lock.lockedTxid = utxoRef.txid;
       lock.lockedVout = utxoRef.vout;
       if (latestBitcoinLock.utxoSatoshis) {
-        if (latestBitcoinLock.utxoSatoshis < lock.satoshis) {
-          lock.satoshis = latestBitcoinLock.utxoSatoshis;
-        }
+        lock.satoshis = latestBitcoinLock.satoshis;
         lock.lockedUtxoSatoshis = latestBitcoinLock.utxoSatoshis;
       }
+      lock.lockDetails = latestBitcoinLock;
       lock.lockedMarketRate = latestBitcoinLock.lockedMarketRate;
       lock.liquidityPromised = latestBitcoinLock.liquidityPromised;
       lock.ratchets[0].lockedMarketRate = latestBitcoinLock.lockedMarketRate;
@@ -1046,15 +1136,13 @@ export default class BitcoinLocksStore {
 
   private async getMempoolTip(): Promise<number> {
     const mempoolBlockTipUrl = this.getMempoolApi('blocks/tip/height');
-    const blockTipResponse = await fetch(mempoolBlockTipUrl);
-    return (await blockTipResponse.json()) as number;
+    return await fetchJsonWithTimeout<number>(mempoolBlockTipUrl);
   }
 
   private async checkMempoolFundingStatus(lock: IBitcoinLockRecord): Promise<IMempoolFundingStatus | undefined> {
     const payToScriptAddress = lock.lockDetails.p2wshScriptHashHex;
     const mempoolUtxoUrl = this.getMempoolApi(`address/${this.formatP2swhAddress(payToScriptAddress)}/utxo`);
-    const response = await fetch(mempoolUtxoUrl);
-    const txs = (await response.json()) as AddressTxsUtxo[];
+    const txs = await fetchJsonWithTimeout<AddressTxsUtxo[]>(mempoolUtxoUrl);
     if (!txs.length) return undefined;
 
     const tx = txs[0]; // Get the most recent transaction
@@ -1076,14 +1164,13 @@ export default class BitcoinLocksStore {
     const releasedTxid = txid;
     console.log('Checking release finalize status for lock', { utxoId: utxoId, releasedTxid: releasedTxid });
     const mempoolStatusUrl = this.getMempoolApi(`tx/${releasedTxid}/status`);
-    const response = await fetch(mempoolStatusUrl);
-    if (!response.ok) {
-      console.warn(
-        `Transaction status for txid ${releasedTxid} not found in mempool. Status: ${response.status} ${response.statusText}`,
-      );
+    let status: TxStatus;
+    try {
+      status = await fetchJsonWithTimeout(mempoolStatusUrl, 10e3);
+    } catch (err) {
+      console.warn(`Transaction status for txid ${releasedTxid} not found in mempool. ${(err as Error).message}`);
       return;
     }
-    const status = (await response.json()) as TxStatus;
     if (!status) {
       console.warn(`Transaction status for txid ${releasedTxid} not found.`);
       return;
@@ -1098,8 +1185,7 @@ export default class BitcoinLocksStore {
   }
 
   public static async getFeeRates() {
-    const res = await fetch('https://mempool.space/api/v1/fees/recommended');
-    const data = await res.json();
+    const data = await fetchJsonWithTimeout<any>('https://mempool.space/api/v1/fees/recommended');
     return {
       fast: { feeRate: BigInt(data.fastestFee), estimatedMinutes: 10 } as IFeeRate,
       medium: { feeRate: BigInt(data.halfHourFee), estimatedMinutes: 30 } as IFeeRate,
@@ -1111,4 +1197,51 @@ export default class BitcoinLocksStore {
 export interface IFeeRate {
   feeRate: bigint; // sat/vB
   estimatedMinutes: number; // estimated time in minutes for the transaction to be included
+}
+
+async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number = 15e3): Promise<T> {
+  const response = await fetchWithTimeout(url, { timeoutMs });
+  if (!response.ok) {
+    let errorBody = '';
+    try {
+      errorBody = (await response.text()).trim();
+    } catch {
+      // ignore
+    }
+    const suffix = errorBody ? ` - ${errorBody}` : '';
+    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}${suffix}`);
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit & { timeoutMs: number }): Promise<Response> {
+  const { timeoutMs, signal: callerSignal, ...init } = options;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  // If the caller provided a signal, propagate its abort to our controller.
+  const onCallerAbort = () => controller.abort();
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort();
+    } else {
+      callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+  }
+
+  try {
+    return await fetch(url, {
+      ...init,
+      // Prefer the caller signal if it is already aborted; otherwise use our timeout-backed signal.
+      signal: controller.signal,
+      // Avoid stale caching behavior in some environments.
+      cache: init.cache ?? 'no-store',
+    });
+  } finally {
+    clearTimeout(timeout);
+    if (callerSignal && !callerSignal.aborted) {
+      callerSignal.removeEventListener('abort', onCallerAbort);
+    }
+  }
 }

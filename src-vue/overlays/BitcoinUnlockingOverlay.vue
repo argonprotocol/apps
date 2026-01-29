@@ -108,7 +108,9 @@ import UnlockComplete from './bitcoin-locking/UnlockComplete.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import Arrows from '../assets/arrows.svg?component';
 import RoundCap from './bitcoin-locking/components/RoundCap.vue';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 
+const bitcoinLocks = getBitcoinLocks();
 dayjs.extend(utc);
 
 const props = defineProps<{
@@ -131,18 +133,9 @@ const wasOpenedWithoutBitcoin = personalLock.value?.status === BitcoinLockStatus
 const unlockStep = Vue.computed<UnlockStep>(() => {
   if (!personalLock.value || wasOpenedWithoutBitcoin) return UnlockStep.Start;
 
-  const status = personalLock.value.status;
-  const startStatuses = [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted];
-  const processingStatuses = [
-    BitcoinLockStatus.ReleaseIsProcessingOnArgon,
-    BitcoinLockStatus.ReleaseIsWaitingForVault,
-    BitcoinLockStatus.ReleaseSigned,
-    BitcoinLockStatus.ReleaseIsProcessingOnBitcoin,
-  ];
-
-  if (startStatuses.includes(status)) {
+  if (bitcoinLocks.isLockedStatus(personalLock.value)) {
     return UnlockStep.Start;
-  } else if (processingStatuses.includes(status)) {
+  } else if (bitcoinLocks.isReleaseStatus(personalLock.value)) {
     return UnlockStep.IsProcessing;
   } else {
     return UnlockStep.Complete;

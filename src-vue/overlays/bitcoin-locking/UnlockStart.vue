@@ -66,7 +66,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import BitcoinLocksStore from '../../lib/BitcoinLocksStore.ts';
@@ -163,9 +163,7 @@ async function submitRelease() {
 }
 
 async function updateFeeRates() {
-  const isLocked = [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(
-    props.personalLock.status,
-  );
+  const isLocked = bitcoinLocks.isLockedStatus(props.personalLock);
   if (!isLocked) return;
 
   releasePrice.value = await vaults.getRedemptionRate(props.personalLock);

@@ -181,16 +181,11 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return props.personalLock;
 });
 
-const isAtBeginning =
-  !personalLock.value ||
-  [BitcoinLockStatus.ReleaseComplete, BitcoinLockStatus.LockFailedToHappen].includes(personalLock.value.status);
+const isAtBeginning = !personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value);
 const shouldShowFullProcess = bitcoinLocks.recordCount > 1 || isAtBeginning;
 
 const lockStep = Vue.computed<LockStep>(() => {
-  if (
-    !personalLock.value ||
-    [BitcoinLockStatus.ReleaseComplete, BitcoinLockStatus.LockFailedToHappen].includes(personalLock.value.status)
-  ) {
+  if (!personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value)) {
     return LockStep.Start;
   } else if (personalLock.value.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
     return LockStep.IsProcessingOnArgon;

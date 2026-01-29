@@ -152,7 +152,7 @@ async function submitLiquidLock() {
     }
 
     await myVault.startBitcoinLocking({
-      microgonLiquidity: microgonLiquidity,
+      microgonLiquidity,
     });
   } catch (e: any) {
     console.error('Error initializing liquid lock:', e);

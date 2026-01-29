@@ -1,4 +1,4 @@
-<!-- prettier-ignore -->
+<!--prettier-ignore -->
 <template>
   <div class="Component ProgressBar relative" :class="twMerge('h-8', props.class)" :hasError="props.hasError">
     <div Bar :style="{ width: `calc(${progress}% + 2px)` }" :data-progress="progress">
@@ -46,7 +46,7 @@ const progressLabel = Vue.computed(() => {
   border-color: rgba(0, 0, 0, 0.15);
   box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.15);
   div[Bar] {
-    @apply flex items-center justify-end overflow-hidden rounded-l-xl border-r bg-white transition-[width] duration-100;
+    @apply flex items-center justify-end overflow-hidden rounded-l-xl border-r bg-white transition-[width] duration-300 ease-out;
     border-color: rgba(0, 0, 0, 0.3);
     height: calc(100%);
     position: absolute;
@@ -76,7 +76,7 @@ const progressLabel = Vue.computed(() => {
     }
   }
   span {
-    @apply pr-2 text-xs text-gray-500 transition-opacity duration-100;
+    @apply pr-2 text-xs text-gray-500 transition-opacity duration-200 ease-out;
   }
 }
 </style>
