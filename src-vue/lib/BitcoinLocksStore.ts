@@ -880,12 +880,11 @@ export default class BitcoinLocksStore {
     if (newestHeader.blockNumber === 0) {
       return;
     }
+    // We look at the previous block to give more time for blocks to settle so we don't bounce data around, but don't
+    // wait for finality because of how long it can take. We might need to revisit this for anything where finality is
+    // important.
     const generalClient = await this.blockWatch.getRpcClient(newestHeader.blockNumber - 1);
     const header = await this.blockWatch.getHeader(newestHeader.blockNumber - 1);
-
-    console.log(
-      `Checking incoming Argon block for Bitcoin Locks ${header.blockNumber}. Latest is ${this.data.latestArgonBlockHeight}`,
-    );
 
     if (header.blockNumber <= this.data.latestArgonBlockHeight) {
       return;
@@ -1016,11 +1015,12 @@ export default class BitcoinLocksStore {
               console.warn(`[BitcoinLockStore] Error updating mint state for utxo ${lockRecord.uuid}`, err);
             });
           }
+        }).catch(err => {
+          console.warn(`[BitcoinLockStore] Error processing lock for utxo ${lockRecord.uuid}`, err);
         });
       })
       .filter(x => x !== undefined);
     await Promise.allSettled(promises);
-    console.log(`Completed checking Bitcoin Locks for Argon block ${header.blockNumber}`);
   }
 
   private async tryUpdateVaultSignature(lock: IBitcoinLockRecord, archiveClient: ArgonClient) {
@@ -1239,6 +1239,11 @@ async function fetchWithTimeout(url: string, options: RequestInit & { timeoutMs:
       // Avoid stale caching behavior in some environments.
       cache: init.cache ?? 'no-store',
     });
+  } catch(error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Fetch to ${url} aborted due to timeout after ${timeoutMs} ms`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
     if (callerSignal && !callerSignal.aborted) {

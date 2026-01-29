@@ -521,7 +521,12 @@ export class MyVault {
         });
         followOnTx.resolve(followOnTxInfo);
       }
-      await txInfo.followOnTxInfo;
+      try {
+        await txInfo.followOnTxInfo;
+      } catch (error) {
+        console.error('Error in follow-on move after vault collect:', error);
+        // don't block the main collect finalization
+      }
     }
     await txResult.waitForFinalizedBlock;
     await this.trackTxResultFee(txInfo.txResult);

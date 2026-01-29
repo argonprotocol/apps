@@ -66,9 +66,6 @@ export class SingleFileQueue {
         this.queue.shift();
       }
       if (this.isStopped) break;
-      if (this.queue.length) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
     }
 
     this.isRunning = false;
