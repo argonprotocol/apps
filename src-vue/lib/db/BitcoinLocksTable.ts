@@ -116,6 +116,15 @@ export class BitcoinLocksTable extends BaseTable {
     return nanoid(5);
   }
 
+  public async findUtxoWithHdPath(hdPath: string): Promise<IBitcoinLockRecord | undefined> {
+    const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
+      'SELECT * FROM BitcoinLocks WHERE hdPath = ?',
+      toSqlParams([hdPath]),
+    );
+    if (rawRecords.length === 0) return undefined;
+    return convertFromSqliteFields(rawRecords[0], this.fieldTypes);
+  }
+
   public async getUtxoUuid(uuid: string): Promise<number | undefined> {
     const rawRecords = await this.db.select<{ utxoId: number }[]>(
       'SELECT utxoId FROM BitcoinLocks WHERE uuid = ?',

@@ -7,7 +7,7 @@ import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { BitcoinLocksTable, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
 
@@ -247,19 +247,25 @@ export class MyVaultRecovery {
           bitcoinTxFee = result?.fee ?? 0n;
         }
 
-        const uuid = BitcoinLocksTable.createUuid();
-        await bitcoinLocksStore.insertPending({
-          uuid,
-          vaultId,
-          satoshis: lock.satoshis,
-          hdPath: thisHdPath.hdPath,
-        });
-        const record = await table.finalizePending({
-          uuid,
-          lock,
-          createdAtArgonBlockHeight: addedAtBlockNumber,
-          finalFee: bitcoinTxFee,
-        });
+        let record = await table.findUtxoWithHdPath(thisHdPath.hdPath);
+        if (!record) {
+          const uuid = BitcoinLocksTable.createUuid();
+          record = await bitcoinLocksStore.insertPending({
+            uuid,
+            vaultId,
+            satoshis: lock.satoshis,
+            hdPath: thisHdPath.hdPath,
+          });
+        }
+
+        if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+          record = await table.finalizePending({
+            uuid: record.uuid,
+            lock,
+            createdAtArgonBlockHeight: addedAtBlockNumber,
+            finalFee: bitcoinTxFee,
+          });
+        }
 
         records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
       }

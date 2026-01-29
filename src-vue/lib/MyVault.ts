@@ -937,24 +937,15 @@ export class MyVault {
 
       const keyring = await this.walletKeys.getVaultingKeypair();
       const client = await getMainchainClient(false);
-      const couponProofKeypair = this.createCouponProofKeypair(client);
 
       const initialTx = await this.bitcoinLocksStore.createInitializeTx({
         ...args,
         argonKeyring: keyring,
         vault,
-        couponProofKeypair,
-        skipCouponValidation: true,
       });
       const bitcoinUuid = BitcoinLocksTable.createUuid();
       const txs: SubmittableExtrinsic[] = [];
 
-      this.registerFeeCoupon({
-        client,
-        couponProofKeypair,
-        maxSatoshis: initialTx.satoshis,
-        txs,
-      });
       txs.push(initialTx.tx);
 
       const txInfo = await this.#transactionTracker.submitAndWatch({
