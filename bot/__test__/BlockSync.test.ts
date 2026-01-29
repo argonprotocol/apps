@@ -1,19 +1,12 @@
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
 import { getClient, mnemonicGenerate } from '@argonprotocol/mainchain';
-import {
-  AccountMiners,
-  Accountset,
-  type IBotSyncStatus,
-  MainchainClients,
-  MiningFrames,
-  NetworkConfig,
-} from '@argonprotocol/apps-core';
+import { AccountMiners, Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import { Storage } from '../src/Storage.js';
-import { Dockers } from '../src/Dockers.js';
+import { DockerStatus } from '../src/DockerStatus.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
@@ -37,9 +30,6 @@ it.skipIf(skipE2E)('can backfill sync data', async () => {
   const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'block-sync-'));
   runOnTeardown(() => fs.promises.rm(botDataDir, { recursive: true, force: true }));
 
-  const botStatus = {
-    isReady: false,
-  } as IBotSyncStatus;
   const storage = new Storage(botDataDir);
   const accountset = new Accountset({
     client,
@@ -54,7 +44,7 @@ it.skipIf(skipE2E)('can backfill sync data', async () => {
   await miningFrames.load();
   // don't auto-progress during test
   blockWatch.stop();
-  const blockSync = new BlockSync(botStatus, accountset, storage, mainchainClients, miningFrames, blockWatch, 0);
+  const blockSync = new BlockSync(accountset, storage, mainchainClients, miningFrames, blockWatch, 0);
   // @ts-expect-error - it's private
   blockSync.localClient = await mainchainClients.archiveClientPromise;
   // @ts-expect-error - it's private
@@ -70,13 +60,13 @@ it.skipIf(skipE2E)('can backfill sync data', async () => {
     });
   });
 
-  vi.spyOn(Dockers, 'getArgonBlockNumbers').mockImplementation(async () => {
+  vi.spyOn(DockerStatus, 'getArgonBlockNumbers').mockImplementation(async () => {
     return {
       localNode: 0,
       mainNode: 0,
     };
   });
-  vi.spyOn(Dockers, 'getBitcoinBlockNumbers').mockImplementation(async () => {
+  vi.spyOn(DockerStatus, 'getBitcoinBlockNumbers').mockImplementation(async () => {
     return {
       localNode: 0,
       mainNode: 0,
@@ -115,7 +105,6 @@ it.skipIf(skipE2E)('can backfill sync data', async () => {
   });
 
   await expect(blockSync.syncToLatest()).resolves.toBeUndefined();
-  const status = await blockSync.state();
-  expect(status.syncedToBlockNumber).toBeGreaterThanOrEqual(result!.bestBlockNumber);
+  const status = await blockSync.botStateFile.get();
   expect(status.syncProgress).toBe(100);
 });

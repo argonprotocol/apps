@@ -1,244 +1,183 @@
 import 'source-map-support/register';
-import { getClient, Keyring, type KeyringPair, waitForLoad } from '@argonprotocol/mainchain';
-import { jsonExt, onExit, requireAll, requireEnv } from './utils.ts';
 import Bot from './Bot.ts';
 import express from 'express';
 import cors from 'cors';
-import { Dockers } from './Dockers.ts';
-import {
-  type IBlockNumbers,
-  type IBotStateError,
-  type IBotStateStarting,
-  NetworkConfig,
-  NetworkConfigSettings,
-} from '@argonprotocol/apps-core';
-import os from 'node:os';
-import { promises as Fs } from 'node:fs';
+import { DockerStatus } from './DockerStatus.ts';
+import { JsonExt } from '@argonprotocol/apps-core';
+import { type WebSocket, WebSocketServer } from 'ws';
+import type {
+  IBotApiMethod,
+  IBotApiResponse,
+  IBotApiSpec,
+  JsonRpcRequest,
+  JsonRpcResponse,
+} from '@argonprotocol/apps-core/src/interfaces/IBotApiSpec.ts';
+import type { Server } from 'node:http';
 
-// wait for crypto wasm to be loaded
-await waitForLoad();
+export class BotServer {
+  public startupError = '';
+  private server!: Server;
+  private wss!: WebSocketServer;
+  private readonly rpcHandlers: {
+    [K in IBotApiMethod]: (...args: Parameters<IBotApiSpec[K]>) => IBotApiResponse<K>;
+  };
 
-let errorMessage = '';
-let oldestFrameIdToSync: number | undefined;
-
-if (process.env.OLDEST_FRAME_ID_TO_SYNC) {
-  oldestFrameIdToSync = parseInt(process.env.OLDEST_FRAME_ID_TO_SYNC, 10);
-}
-
-let pair: KeyringPair;
-{
-  const path = requireEnv('KEYPAIR_PATH').replace('~', os.homedir());
-  const json = JSON.parse(await Fs.readFile(path, 'utf-8'));
-  pair = new Keyring().createFromJson(json);
-  pair.decodePkcs8(process.env.KEYPAIR_PASSPHRASE);
-}
-
-let networkName: keyof typeof NetworkConfigSettings = (process.env.ARGON_CHAIN as any) ?? 'mainnet';
-if ((networkName as any) === 'local') {
-  networkName = 'localnet';
-}
-if (!(networkName in NetworkConfigSettings)) {
-  throw new Error(`${networkName} is not a valid Network chain name`);
-}
-// set archive url from env since we might be in docker and can't use localhost
-NetworkConfigSettings[networkName].archiveUrl = requireEnv('ARCHIVE_NODE_URL');
-NetworkConfig.setNetwork(networkName);
-if (networkName === 'localnet' || networkName === 'dev-docker') {
-  const client = await getClient(NetworkConfigSettings[networkName].archiveUrl);
-  await NetworkConfig.updateConfig(client);
-  await client.disconnect();
-}
-
-const bot = new Bot({
-  oldestFrameIdToSync: oldestFrameIdToSync,
-  ...requireAll({
-    datadir: process.env.DATADIR!,
-    pair,
-    biddingRulesPath: process.env.BIDDING_RULES_PATH,
-    archiveRpcUrl: process.env.ARCHIVE_NODE_URL,
-    localRpcUrl: process.env.LOCAL_RPC_URL,
-    sessionMiniSecret: process.env.SESSION_MINI_SECRET,
-  }),
-});
-
-const app = express();
-
-app.use(cors({ origin: true, methods: ['GET', 'POST', 'PUT', 'DELETE'] }));
-
-app.get('/state', async (_req, res) => {
-  if (await hasError(res)) return;
-  if (await isStarting(res)) return;
-  const botState = await bot.blockSync.state();
-  let lastBlockNumberByFrameId = botState.lastBlockNumberByFrameId;
-  // only keep the last 10 frames
-  if (lastBlockNumberByFrameId) {
-    const frameIds = Object.keys(lastBlockNumberByFrameId)
-      .map(x => Number(x))
-      .sort((a, b) => b - a)
-      .slice(0, 10);
-    lastBlockNumberByFrameId = frameIds.reduce(
-      (acc, frameId) => {
-        acc[frameId] = lastBlockNumberByFrameId[frameId];
-        return acc;
+  constructor(
+    public bot: Bot,
+    public port: number | string,
+  ) {
+    this.rpcHandlers = {
+      '/state': async () => await bot.state(this.startupError),
+      '/bitcoin-recent-blocks': async () => await DockerStatus.getBitcoinLatestBlocks(),
+      '/history': async () => (await bot.history?.recent) || { activities: [] },
+      '/bids': async cohortBiddingFrameId => {
+        const startingFrameId = cohortBiddingFrameId ?? (await bot.currentFrameId);
+        return await bot.storage.bidsFile(startingFrameId, startingFrameId + 1).get();
       },
-      {} as Record<number, number>,
+      '/earnings': async frameId => await bot.storage.earningsFile(frameId).get(),
+      '/heartbeat': async () => {
+        /* no-op */
+      },
+    };
+  }
+
+  public start() {
+    const app = express();
+    const wss = new WebSocketServer({ noServer: true });
+    this.wss = wss;
+    const bot = this.bot;
+
+    app.use(cors({ origin: true, methods: ['GET'] }));
+
+    app.get('/is-ready', async (_req, res) => {
+      res.status(200).type('application/json').send(bot.isReady);
+    });
+
+    wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
+      ws.isAlive = true;
+      ws.on('pong', () => (ws.isAlive = true));
+      ws.on('message', data => this.onMessage(ws, data));
+
+      const interval = setInterval(() => {
+        if (!ws.isAlive) {
+          ws.terminate();
+          return;
+        }
+
+        ws.isAlive = false;
+        ws.ping();
+        ws.send(
+          JsonExt.stringify({
+            jsonrpc: '2.0',
+            event: '/heartbeat',
+            data: undefined,
+          } as JsonRpcResponse),
+        );
+      }, 30_000).unref();
+
+      ws.on('close', () => {
+        ws.isAlive = false;
+        clearInterval(interval);
+      });
+    });
+
+    app.use((_req, res) => {
+      res.status(404).send('Not Found');
+    });
+
+    this.server = app.listen(this.port, () => {
+      console.log(`Server is running on port ${this.port}`);
+    });
+    this.server.on('upgrade', (request, socket, head) => {
+      wss.handleUpgrade(request, socket, head, ws => {
+        console.log('[BotServer] New WebSocket connection established', { remoteClient: request.socket.remoteAddress });
+        wss.emit('connection', ws, request);
+      });
+    });
+  }
+
+  public async broadcast(method: IBotApiMethod, ...params: Parameters<IBotApiSpec[typeof method]>) {
+    if (!this.wss.clients.size) {
+      return;
+    }
+    const handler = this.rpcHandlers[method] as (...args: any[]) => any;
+    const data = await handler(...params);
+    for (const client of this.wss.clients) {
+      client.send(
+        JsonExt.stringify({
+          jsonrpc: '2.0',
+          event: method,
+          data: data,
+        } as JsonRpcResponse<typeof method>),
+      );
+    }
+  }
+
+  public async close() {
+    this.wss.close();
+    return new Promise<void>((resolve, reject) => {
+      this.server.close(err => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  private async onMessage(ws: WebSocket, raw: WebSocket.Data) {
+    // This method is no longer used. Message handling is done in onConnection.
+    let msg: JsonRpcRequest;
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string
+      msg = JsonExt.parse(raw.toString('utf8'));
+    } catch {
+      return;
+    }
+
+    const msgLogKey = `[BotServer] ${msg.method}${msg.id ? ` #${msg.id}` : ''}${'params' in msg ? ` params: ${JsonExt.stringify(msg.params)}` : ''}`;
+
+    console.time(msgLogKey);
+    if (msg.jsonrpc !== '2.0') return;
+
+    let method = msg.method;
+    if (!this.bot.isReady || this.startupError || this.bot.errorMessage) {
+      method = '/state';
+    }
+    const handler = this.rpcHandlers[method] as (...args: any[]) => any;
+    if (!handler) {
+      this.wsReply(ws, msg.id, new Error(`Method not found: ${msg.method}`));
+      console.warn(`[BotServer] Method not found: ${msg.method}`);
+      console.timeEnd(msgLogKey);
+      return;
+    }
+
+    try {
+      const result = await handler(...(msg.params ?? []));
+      this.wsReply(ws, msg.id, result);
+    } catch (e) {
+      this.wsReply(ws, msg.id, e as Error);
+      console.error(`[BotServer] Error handling ${msg.method}:`, e);
+    }
+    console.timeEnd(msgLogKey);
+  }
+
+  private wsReply(ws: WebSocket, id: number, responseOrError: object | Error) {
+    ws.send(
+      JsonExt.stringify({
+        jsonrpc: '2.0',
+        id,
+        result: responseOrError instanceof Error ? undefined : responseOrError,
+        error: responseOrError instanceof Error ? { code: -32000, message: String(responseOrError) } : undefined,
+      } as JsonRpcResponse),
     );
   }
-
-  jsonExt({ ...botState, lastBlockNumberByFrameId }, res);
-});
-
-app.get('/last-modified', async (_req, res) => {
-  if (await hasError(res)) return;
-  let lastModifiedDate = new Date();
-  if (!bot.isReady) {
-    return jsonExt({ lastModifiedDate }, res);
-  }
-
-  const state = await bot.blockSync.state();
-  lastModifiedDate = new Date(state.bidsLastModifiedAt);
-  if (new Date(state.earningsLastModifiedAt) > lastModifiedDate) {
-    lastModifiedDate = state.earningsLastModifiedAt;
-  }
-  jsonExt({ lastModifiedDate }, res);
-});
-
-app.get('/argon-blockchain-status', async (_req, res) => {
-  if (await hasError(res)) return;
-  const status = await Dockers.getArgonBlockNumbers();
-  jsonExt(status, res);
-});
-
-app.get('/bitcoin-blockchain-status', async (_req, res) => {
-  if (await hasError(res)) return;
-  const status = await Dockers.getBitcoinBlockNumbers();
-  jsonExt(status, res);
-});
-
-app.get('/bitcoin-recent-blocks', async (_req, res) => {
-  if (await hasError(res)) return;
-  const status = await Dockers.getBitcoinLatestBlocks();
-  jsonExt(status, res);
-});
-
-app.get('/bids', async (_req, res) => {
-  if (await hasError(res)) return;
-  if (await isStarting(res)) return;
-  const currentFrameId = await bot.currentFrameId;
-  const nextFrameId = currentFrameId + 1;
-  console.log(`Getting bids file for ${currentFrameId}-${nextFrameId}`);
-  const data = await bot.storage.bidsFile(currentFrameId, nextFrameId).get();
-  jsonExt(data, res);
-});
-
-app.get('/history', async (_req, res) => {
-  if (await hasError(res)) return;
-  const data = (await bot.history?.recent) || [];
-  jsonExt(data, res);
-});
-
-app.get('/bids/:cohortBiddingFrameId-:cohortActivationFrameId', async (req, res) => {
-  if (await hasError(res)) return;
-  if (await isStarting(res)) return;
-  const cohortBiddingFrameId = Number(req.params.cohortBiddingFrameId);
-  const cohortActivationFrameId = Number(req.params.cohortActivationFrameId);
-  const data = await bot.storage.bidsFile(cohortBiddingFrameId, cohortActivationFrameId).get();
-  jsonExt(data, res);
-});
-
-app.get('/earnings/:frameId', async (req, res) => {
-  if (await hasError(res)) return;
-  if (await isStarting(res)) return;
-  const frameId = Number(req.params.frameId);
-  const data = await bot.storage.earningsFile(frameId).get();
-  jsonExt(data, res);
-});
-
-app.use((_req, res) => {
-  res.status(404).send('Not Found');
-});
-
-const server = app.listen(process.env.PORT ?? 3000, () => {
-  console.log(`Server is running on port ${process.env.PORT ?? 3000}`);
-});
-
-onExit(() => new Promise<void>(resolve => server.close(() => resolve())));
-
-bot.start().catch(e => {
-  console.error('Error starting bot', e);
-
-  if (e && typeof e === 'object' && 'message' in e && typeof e.message === 'string') {
-    errorMessage = e.message as string;
-  } else {
-    errorMessage = `An unknown error occurred while starting the bot -> ${e}`;
-  }
-  bot.history.handleError(e);
-});
-
-onExit(() => bot.shutdown());
-
-// Helper functions //////////////////////////////
-
-async function createStartingPayload(): Promise<IBotStateStarting> {
-  let syncProgress = 0;
-  let argonBlockNumbers: IBlockNumbers = {
-    localNode: 0,
-    mainNode: 0,
-  };
-
-  let bitcoinBlockNumbers: IBlockNumbers = {
-    localNode: 0,
-    mainNode: 0,
-  };
-
-  try {
-    [argonBlockNumbers, bitcoinBlockNumbers] = await Promise.all([
-      Dockers.getArgonBlockNumbers(),
-      Dockers.getBitcoinBlockNumbers(),
-    ]);
-  } catch (e) {
-    console.error('Error getting block numbers', e);
-  }
-
-  try {
-    syncProgress = (await bot.blockSync?.calculateSyncProgress()) ?? 0;
-  } catch (e) {
-    console.error('Error calculating sync progress', e);
-  }
-
-  const blockData = {
-    argonBlockNumbers: argonBlockNumbers,
-    bitcoinBlockNumbers: bitcoinBlockNumbers,
-  };
-
-  const payload: IBotStateStarting = {
-    isReady: bot.isReady,
-    isStarting: bot.isStarting || undefined,
-    isSyncing: bot.isSyncing || undefined,
-    isWaitingForBiddingRules: bot.isWaitingForBiddingRules || undefined,
-    syncProgress,
-    ...blockData,
-  };
-
-  return payload;
 }
 
-async function isStarting(res: express.Response): Promise<boolean> {
-  if (bot.isReady) return false;
-
-  jsonExt(await createStartingPayload(), res);
-
-  return true;
-}
-
-async function hasError(res: express.Response): Promise<boolean> {
-  if (!errorMessage && !bot.errorMessage) return false;
-
-  const payload: IBotStateError = {
-    ...(await createStartingPayload()),
-    serverError: bot.errorMessage || errorMessage,
-  };
-  jsonExt(payload, res);
-
-  return true;
+export function startServer(bot: Bot, port: number | string) {
+  const server = new BotServer(bot, port);
+  server.start();
+  return server;
 }

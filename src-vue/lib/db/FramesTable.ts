@@ -189,7 +189,7 @@ export class FramesTable extends BaseTable {
     const records = convertFromSqliteFields<{ id: number; microgonToArgonot: bigint[] }[]>(rawRecords, this.fieldTypes);
     const pricesByFrameId: { [frameId: number]: bigint } = {};
     for (const record of records) {
-      pricesByFrameId[record.id] = record.microgonToArgonot[record.microgonToArgonot.length - 1] || 0n;
+      pricesByFrameId[record.id] = record.microgonToArgonot.at(0) || 0n;
     }
     return pricesByFrameId;
   }
@@ -202,7 +202,8 @@ export class FramesTable extends BaseTable {
       id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, 
       seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
       FROM Frames ORDER BY id DESC LIMIT 365
-    `);
+      `);
+    await miningFrames.load();
 
     const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
       .map((x: any) => {
@@ -245,6 +246,7 @@ export class FramesTable extends BaseTable {
 
         return record;
       })
+      .filter(x => x !== null)
       .reverse();
 
     const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;

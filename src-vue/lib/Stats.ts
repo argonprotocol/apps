@@ -4,8 +4,7 @@ import {
   bigNumberToBigInt,
   createDeferred,
   type IBidsFile,
-  IBotActivity,
-  type IDeferred,
+  IDeferred,
   type IWinningBid,
   MICRONOTS_PER_ARGONOT,
   MiningFrames,
@@ -54,7 +53,6 @@ export class Stats {
   public frames: IDashboardFrameStats[];
 
   public serverState: IServerStateRecord;
-  public biddingActivity: IBotActivity[];
 
   public accruedMicrogonProfits: bigint;
   public accruedMicronotProfits: bigint;
@@ -130,13 +128,10 @@ export class Stats {
       bitcoinBlocksLastUpdatedAt: null as any,
       bitcoinLocalNodeBlockNumber: 0,
       bitcoinMainNodeBlockNumber: 0,
-      botActivities: [],
       botActivityLastUpdatedAt: null as any,
       botActivityLastBlockNumber: 0,
       latestFrameId: 0,
     };
-
-    this.biddingActivity = [];
 
     this.accruedMicrogonProfits = 0n;
     this.accruedMicronotProfits = 0n;
@@ -286,7 +281,6 @@ export class Stats {
     const state = await this.db.syncStateTable.get(SyncStateKeys.Server);
     if (state) {
       this.serverState = state;
-      this.biddingActivity = state.botActivities;
     }
   }
 
@@ -306,7 +300,6 @@ export class Stats {
     const myWinningBids = this.allWinningBids.filter(bid => typeof bid.subAccountIndex === 'number');
     this.myMiningBids.bidCount = myWinningBids.length;
     this.myMiningBids.microgonsBidTotal = myWinningBids.reduce((acc, bid) => acc + (bid.microgonsPerSeat || 0n), 0n);
-    console.log('MINING BID TOTAL: ', this.myMiningBids.microgonsBidTotal);
     this.myMiningBids.micronotsStakedTotal = myWinningBids.reduce(
       (acc, bid) => acc + (bid.micronotsStakedPerSeat ?? 0n),
       0n,
@@ -331,7 +324,15 @@ export class Stats {
     for (const cohort of activeCohorts) {
       // Scale factor to preserve precision (cohort.progress has 3 decimal places)
       // factor = (100 - progress) / 100, scaled by 100000 for 3 decimal precision
-      const argonotPrice = argonotPrices[cohort.id];
+      const argonotPrice =
+        argonotPrices[cohort.id] || argonotPrices[cohort.id - 1] || this.currency.microgonsPer.ARGNOT;
+      if (!argonotPrice) {
+        console.warn(
+          `[Stats] Missing argonot price for cohort ${cohort.id}, cannot calculate expected rewards for mining seats`,
+          argonotPrices,
+        );
+        continue;
+      }
       const remainingRewardsPerSeat = this.calculateExpectedBlockRewardsPerSeat(
         cohort,
         argonotPrice,
@@ -421,6 +422,7 @@ export class Stats {
     const framesById = new Map<number, IDashboardFrameStats>();
 
     this.activeFrames = 0;
+    let lastFrame: IDashboardFrameStats | undefined;
     for (const frame of lastYear) {
       const cohortAtFrame = cohortsById[frame.id];
       // count an active frame if we bid but didn't win any seats
@@ -438,7 +440,7 @@ export class Stats {
         if (!cohort) continue;
         const expectedCohortReturns = this.calculateExpectedBlockRewardsPerSeat(
           cohort,
-          frame.microgonToArgonot[0],
+          frame.microgonToArgonot[0] ?? lastFrame?.microgonToArgonot.at(-1) ?? this.currency.microgonsPer.ARGNOT,
           // Get one frame (1/10th) of the cohort rewards, times the frame progress
           BigNumber(frame.progress).dividedBy(10).toNumber(),
         );
@@ -454,6 +456,7 @@ export class Stats {
       }
 
       framesById.set(frame.id, frame);
+      lastFrame = frame;
     }
 
     const maxProfitPct = Math.min(Math.max(...lastYear.map(x => x.profitPct)), 1_000);

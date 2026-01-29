@@ -4,7 +4,7 @@ import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
 import { Storage } from './Storage.ts';
 import { AutoBidder } from './AutoBidder.ts';
 import { BlockSync } from './BlockSync.ts';
-import { Dockers } from './Dockers.ts';
+import { DockerStatus } from './DockerStatus.ts';
 import {
   Accountset,
   createDeferred,
@@ -12,7 +12,7 @@ import {
   getRange,
   type IBiddingRules,
   type IBidReductionReason,
-  type IBotSyncStatus,
+  type IBotState,
   JsonExt,
   MainchainClients,
   MiningFrames,
@@ -31,7 +31,7 @@ interface IBotOptions {
   shouldSkipDockerSync?: boolean;
 }
 
-export default class Bot implements IBotSyncStatus {
+export default class Bot {
   public autobidder!: AutoBidder;
   public accountset!: Accountset;
   public blockSync!: BlockSync;
@@ -62,6 +62,36 @@ export default class Bot implements IBotSyncStatus {
 
   constructor(options: IBotOptions) {
     this.options = options;
+  }
+
+  public async state(startupError: string | null = null): Promise<IBotState> {
+    const [argonBlockNumbers, bitcoinBlockNumbers, botStateData] = await Promise.all([
+      DockerStatus.getArgonBlockNumbers(),
+      DockerStatus.getBitcoinBlockNumbers(),
+      this.blockSync.botStateFile.get(),
+    ]);
+    const currentBidder = this.autobidder.currentBidder;
+    const previousBidder = this.autobidder.previousBidder;
+
+    return {
+      ...botStateData,
+      botLastActiveDate: currentBidder?.latestUpdateDate ?? MiningFrames.getTickDate(this.history.lastActivityTick),
+      botLastActiveBlockNumber: currentBidder?.latestBlockNumber ?? this.history.lastProcessedBlockNumber,
+      syncProgress: this.blockSync.calculateSyncProgress(),
+      isReady: this.isReady,
+      isStarting: this.isStarting,
+      isSyncing: this.isSyncing,
+      argonBlockNumbers,
+      bitcoinBlockNumbers,
+      maxSeatsInPlay: this.maxSeatsInPlay,
+      maxSeatsReductionReason: this.maxSeatsReductionReason,
+      bidsInCurrentFrame: currentBidder?.bidsAttempted ?? 0,
+      bidsInPreviousFrame: previousBidder?.bidsAttempted ?? 0,
+      isBiddingOpen: currentBidder?.isBiddingOpen ?? false,
+      nextBid: currentBidder?.nextBid,
+      lastBid: currentBidder?.lastBid,
+      serverError: this.errorMessage ?? startupError,
+    } as IBotState;
   }
 
   public get currentFrameId(): Promise<number> {
@@ -100,7 +130,6 @@ export default class Bot implements IBotSyncStatus {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       this.options.shouldSkipDockerSync || (await this.waitForDockerConfirmation());
       this.history.handleDockersConfirmed();
-      await new Promise(resolve => setTimeout(resolve, 5000));
 
       console.log('CONNECTING TO LOCAL RPC');
       this.errorMessage = null;
@@ -139,7 +168,6 @@ export default class Bot implements IBotSyncStatus {
         this.miningFrames,
       );
       this.blockSync = new BlockSync(
-        this,
         this.accountset,
         this.storage,
         this.mainchainClients,
@@ -239,15 +267,15 @@ export default class Bot implements IBotSyncStatus {
   }
 
   private async areDockersSynced() {
-    const bitcoinBlockNumbers = await Dockers.getBitcoinBlockNumbers();
+    const bitcoinBlockNumbers = await DockerStatus.getBitcoinBlockNumbers();
     if (!bitcoinBlockNumbers.mainNode) return false;
     if (bitcoinBlockNumbers.localNode < bitcoinBlockNumbers.mainNode) return false;
 
-    const argonBlockNumbers = await Dockers.getArgonBlockNumbers();
+    const argonBlockNumbers = await DockerStatus.getArgonBlockNumbers();
     if (!argonBlockNumbers.mainNode) return false;
     if (argonBlockNumbers.localNode < argonBlockNumbers.mainNode) return false;
 
-    const isArgonMinerReady = await Dockers.isArgonMinerReady();
+    const isArgonMinerReady = await DockerStatus.isArgonMinerReady();
     if (!isArgonMinerReady) return false;
 
     return true;

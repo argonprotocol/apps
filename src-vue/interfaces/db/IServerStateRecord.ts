@@ -8,7 +8,6 @@ export interface IServerStateRecord {
   bitcoinLocalNodeBlockNumber: number;
   bitcoinMainNodeBlockNumber: number;
   bitcoinBlocksLastUpdatedAt?: Date;
-  botActivities: IBotActivity[];
   botActivityLastUpdatedAt: Date;
   botActivityLastBlockNumber: number;
 }

@@ -24,7 +24,7 @@ export class SyncStateTable extends BaseTable {
       const record = await this.db.select<IServerStateRecord[]>(`SELECT * FROM ServerState LIMIT 1`, []);
       if (record.length > 0) {
         const serverState = convertFromSqliteFields<IServerStateRecord>(record[0], {
-          json: ['botActivities'],
+          json: [],
           date: [
             'createdAt',
             'insertedAt',

@@ -18,7 +18,7 @@ export function getBot(): Vue.Reactive<Bot> {
     bot = Vue.reactive(new Bot(config as Config, dbPromise));
     const installer = getInstaller();
     const miningFrames = getMiningFrames();
-    bot.load(installer as Installer, miningFrames).catch(handleFatalError.bind('useBot'));
+    bot.load(installer as Installer, miningFrames).catch(handleFatalError.bind('getBot'));
   }
 
   return bot;

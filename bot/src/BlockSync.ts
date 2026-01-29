@@ -11,9 +11,7 @@ import {
   type Accountset,
   type IBlock,
   type IBlockSyncFile,
-  type IBotState,
   type IBotStateFile,
-  type IBotSyncStatus,
   type IEarningsFile,
   type IWinningBid,
   MainchainClients,
@@ -24,7 +22,6 @@ import {
 } from '@argonprotocol/apps-core';
 import { type Storage } from './Storage.ts';
 import { JsonStore } from './JsonStore.ts';
-import { Dockers } from './Dockers.ts';
 import type { BlockWatch, IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 export interface ILastProcessed {
@@ -66,7 +63,6 @@ export class BlockSync {
   private currency: Currency;
 
   constructor(
-    public bot: IBotSyncStatus,
     public accountset: Accountset,
     public storage: Storage,
     public mainchainClients: MainchainClients,
@@ -87,7 +83,7 @@ export class BlockSync {
     }
     // ensure local client has state
     await localClient.query.system.number().catch(x => {
-      console.error('Error getting system number from local client', x);
+      console.error('[BlockSync] Error getting system number from local client', x);
       throw new Error('Local client is not ready');
     });
 
@@ -117,13 +113,13 @@ export class BlockSync {
         if (x.oldestFrameIdToSync === 0 && !NetworkConfig.canFrameBeZero()) {
           throw new Error(`Oldest frame to sync cannot be be 0`);
         }
-        console.log(`Set oldest frame to ${x.oldestFrameIdToSync}`);
+        console.log(`[BlockSync] Set oldest frame to ${x.oldestFrameIdToSync}`);
       }
 
       this.oldestTickToSync = this.miningFrames.getTickStart(x.oldestFrameIdToSync);
       this.oldestFrameIdToSync = x.oldestFrameIdToSync;
 
-      console.log('Sync starting', {
+      console.log('[BlockSync] Sync starting', {
         ...x,
       });
     });
@@ -131,7 +127,7 @@ export class BlockSync {
     await this.backfillBestBlockHeader(this.blockWatch.bestBlockHeader, true);
 
     const data = await this.blockSyncFile.get();
-    console.log('After initial sync state', {
+    console.log('[BlockSync] After initial sync state', {
       ...data,
       blocksByNumber: Object.keys(data.blocksByNumber).length,
     });
@@ -172,7 +168,7 @@ export class BlockSync {
       while (headerInfo != null) {
         const { tick, author, blockHash, blockNumber } = headerInfo;
         if (blockNumber === 0) {
-          console.info('Block sync backfill reached genesis block, stopping');
+          console.info('[BlockSync] Block sync backfill reached genesis block, stopping');
           break;
         }
         await this.miningFrames.waitForTick(tick);
@@ -186,7 +182,7 @@ export class BlockSync {
 
         if (x.blocksByNumber[blockNumber]?.hash === blockHash || frameId < this.oldestFrameIdToSync!) {
           if (isFirstLoad) {
-            console.info('Found oldest block to backfill', {
+            console.info('[BlockSync] Found oldest block to backfill', {
               blockNumber,
               headerFrameId: frameId,
               oldestToKeep: this.oldestFrameIdToSync,
@@ -194,7 +190,9 @@ export class BlockSync {
           }
           break;
         }
-        console.log(`Queueing block to sync. Block: ${blockNumber}, Frame ID: ${frameId}, Hash: ${blockHash}`);
+        console.log(
+          `[BlockSync] Queueing block to sync. Block: ${blockNumber}, Frame ID: ${frameId}, Hash: ${blockHash}`,
+        );
         // set synced back if we are syncing to a block that is older than the current synced block
         if (x.syncedToBlockNumber >= blockNumber) {
           x.syncedToBlockNumber = blockNumber - 1;
@@ -215,13 +213,13 @@ export class BlockSync {
         }
         // don't go back to genesis
         if (blockNumber === 1) {
-          console.log('Reached genesis block, stopping backfill');
+          console.log('[BlockSync] Reached genesis block, stopping backfill');
           break;
         }
         try {
           headerInfo = await this.blockWatch.getParentHeader(headerInfo);
         } catch (e) {
-          console.error(`Error getting parent header for ${blockNumber}`, e);
+          console.error(`[BlockSync] Error getting parent header for ${blockNumber}`, e);
           if (isFirstLoad) {
             x.blocksByNumber = {};
             x.syncedToBlockNumber = 0;
@@ -261,7 +259,7 @@ export class BlockSync {
 
   public async stop() {
     if (this.isStopping) return;
-    console.log('BLOCKSYNC STOPPING');
+    console.time('[BlockSync] STOPPING');
     this.isStopping = true;
     if (this.unsubscribe) {
       this.unsubscribe();
@@ -274,35 +272,11 @@ export class BlockSync {
     await this.inProcessSync;
     this.inProcessSync = undefined;
     await this.archiveClient.disconnect();
-    console.log('BLOCKSYNC STOPPED');
+    console.timeEnd('[BlockSync] STOPPING');
     // local client is not owned by this service
   }
 
-  public async state(): Promise<IBotState> {
-    const [argonBlockNumbers, bitcoinBlockNumbers, botStateData, blockSyncData] = await Promise.all([
-      Dockers.getArgonBlockNumbers(),
-      Dockers.getBitcoinBlockNumbers(),
-      this.botStateFile.get(),
-      this.blockSyncFile.get(),
-    ]);
-    const { syncedToBlockNumber, bestBlockNumber, finalizedBlockNumber } = blockSyncData;
-    return {
-      ...botStateData,
-      isReady: this.bot.isReady || false,
-      isStarting: this.bot.isStarting || undefined,
-      isSyncing: this.bot.isSyncing || undefined,
-      lastBlockNumber: bestBlockNumber,
-      lastFinalizedBlockNumber: finalizedBlockNumber,
-      syncedToBlockNumber,
-      argonBlockNumbers,
-      bitcoinBlockNumbers,
-      queueDepth: bestBlockNumber - syncedToBlockNumber,
-      maxSeatsPossible: this.bot.maxSeatsInPlay ?? 10, // TODO: instead of hardcoded 10, fetch from chain
-      maxSeatsReductionReason: this.bot.maxSeatsReductionReason,
-    };
-  }
-
-  public async calculateSyncProgress(): Promise<number> {
+  public calculateSyncProgress(): number {
     const processingProgress = this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
 
     let queueProgress = 100;
@@ -326,7 +300,7 @@ export class BlockSync {
         break;
       }
     }
-    console.log('Synched to latest');
+    console.log('[BlockSync] Synched to latest');
   }
 
   public async scheduleNext(waitTime: number = 500, throwIfFails = false): Promise<void> {
@@ -344,7 +318,7 @@ export class BlockSync {
         waitTime = 0;
       }
     } catch (e) {
-      console.error(`Error processing next header`, e);
+      console.error(`[BlockSync] Error processing next header`, e);
       if (this.isStopping) return;
       if (throwIfFails) throw e;
     }
@@ -364,7 +338,7 @@ export class BlockSync {
     if (blockNumber < 1) return;
     const blockMeta = blockSyncData.blocksByNumber[blockNumber];
 
-    console.log(`Processing block ${blockNumber}`, blockMeta);
+    console.log(`[BlockSync] Processing block ${blockNumber}`, blockMeta);
 
     const client = this.getRpcClient(blockNumber);
     const api = await client.at(blockMeta.hash);
@@ -475,17 +449,14 @@ export class BlockSync {
       x.earningsLastModifiedAt = new Date();
       x.currentTick = tick;
       x.currentFrameId = currentFrameId;
-      x.currentFrameFirstTick = this.miningFrames.getTickStart(currentFrameId);
-      x.currentFrameRewardTicksRemaining = this.miningFrames.getFrameRewardTicksRemaining(currentFrameId);
       x.syncProgress = syncProgress;
-      x.lastBlockNumberByFrameId[currentFrameId] = blockNumber;
     });
 
     this.didProcessBlock?.(this.lastProcessed);
     const remaining = bestBlockNumber - blockNumber;
     const syncPercent = (blockNumber * 100) / bestBlockNumber;
     const syncString = syncPercent >= 100 ? '' : ` (synced ${syncPercent.toFixed(1)}%)`;
-    console.log(`Processed block ${blockNumber} at tick ${tick}${syncString}.`);
+    console.log(`[BlockSync] Processed block ${blockNumber}${syncString}.`);
     return {
       processed: blockMeta,
       remaining,
@@ -517,7 +488,7 @@ export class BlockSync {
 
       if (phase.isFinalization && client.events.miningSlot.NewMiners.is(event)) {
         console.log(
-          `New miners event for frame #${event.data.frameId.toNumber()} (${event.data.newMiners.length} miners added).`,
+          `[BlockSync] New miners event for frame #${event.data.frameId.toNumber()} (${event.data.newMiners.length} miners added).`,
         );
         const { frameId, newMiners } = event.data;
         const activationFrameIdOfNewCohort = frameId.toNumber();
