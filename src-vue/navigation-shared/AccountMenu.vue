@@ -127,7 +127,7 @@ function onMouseLeave() {
   }
   mouseLeaveTimeoutId = setTimeout(() => {
     isOpen.value = false;
-  }, 100);
+  }, 250);
 }
 
 function openLink(url: string) {

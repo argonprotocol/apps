@@ -97,7 +97,7 @@ function onMouseLeave() {
   }
   mouseLeaveTimeoutId = setTimeout(() => {
     isOpen.value = false;
-  }, 100);
+  }, 250);
 }
 
 function clickOutside(e: PointerDownOutsideEvent) {
