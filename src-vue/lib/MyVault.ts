@@ -26,6 +26,7 @@ import {
   MoveFrom,
   MoveTo,
   NetworkConfig,
+  SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
@@ -92,6 +93,8 @@ export class MyVault {
     timeToCollectFrames: number;
   };
   #singleRunTransactions: Map<ExtrinsicType, Promise<TransactionInfo<unknown>>> = new Map();
+  // The vault currently only keeps a single active bitcoin at once
+  #singleActiveBitcoinQueue = new SingleFileQueue();
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -518,8 +521,13 @@ export class MyVault {
         });
         followOnTx.resolve(followOnTxInfo);
       }
+      try {
+        await txInfo.followOnTxInfo;
+      } catch (error) {
+        console.error('Error in follow-on move after vault collect:', error);
+        // don't block the main collect finalization
+      }
     }
-    await txInfo.followOnTxInfo;
     await txResult.waitForFinalizedBlock;
     await this.trackTxResultFee(txInfo.txResult);
     this.data.pendingCollectTxInfo = null;
@@ -924,40 +932,52 @@ export class MyVault {
     const vault = this.createdVault;
     if (!vault) throw new Error('No vault created to lock bitcoin');
 
-    console.log('Saving vault bitcoin lock', { microgonLiquidity: args.microgonLiquidity, metadata: this.metadata! });
+    await this.#singleActiveBitcoinQueue.add(async () => {
+      const activeLock = this.bitcoinLocksStore.getActiveLocksForVault(vault.vaultId);
+      if (activeLock.length > 0) {
+        console.log('Active bitcoin lock already exists for vault, skipping new lock creation');
+        return;
+      }
+      console.log('Saving vault bitcoin lock', { microgonLiquidity: args.microgonLiquidity, metadata: this.metadata! });
 
-    const keyring = await this.walletKeys.getVaultingKeypair();
-    const initialTx = await this.bitcoinLocksStore.createInitializeTx({
-      ...args,
-      argonKeyring: keyring,
-      vault,
-    });
-    console.log('initialTx', initialTx);
-    const bitcoinUuid = BitcoinLocksTable.createUuid();
-    const txInfo = await this.#transactionTracker.submitAndWatch({
-      tx: initialTx.tx,
-      signer: keyring,
-      extrinsicType: ExtrinsicType.BitcoinRequestLock,
-      metadata: {
-        bitcoin: {
-          uuid: bitcoinUuid,
-          vaultId: vault.vaultId,
-          satoshis: initialTx.satoshis,
-          hdPath: initialTx.hdPath,
-          securityFee: initialTx.securityFee,
+      const keyring = await this.walletKeys.getVaultingKeypair();
+      const client = await getMainchainClient(false);
+
+      const initialTx = await this.bitcoinLocksStore.createInitializeTx({
+        ...args,
+        argonKeyring: keyring,
+        vault,
+      });
+      const bitcoinUuid = BitcoinLocksTable.createUuid();
+      const txs: SubmittableExtrinsic[] = [];
+
+      txs.push(initialTx.tx);
+
+      const txInfo = await this.#transactionTracker.submitAndWatch({
+        tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
+        signer: keyring,
+        extrinsicType: ExtrinsicType.BitcoinRequestLock,
+        metadata: {
+          bitcoin: {
+            uuid: bitcoinUuid,
+            vaultId: vault.vaultId,
+            satoshis: initialTx.satoshis,
+            hdPath: initialTx.hdPath,
+            securityFee: initialTx.securityFee,
+          },
         },
-      },
-      tip: args.tip,
-    });
+        tip: args.tip,
+      });
 
-    const {
-      bitcoin: { vaultId },
-    } = txInfo.tx.metadataJson;
-    if (vaultId !== this.createdVault?.vaultId) {
-      throw new Error('Vault ID mismatch');
-    }
+      const {
+        bitcoin: { vaultId },
+      } = txInfo.tx.metadataJson;
+      if (vaultId !== this.createdVault?.vaultId) {
+        throw new Error('Vault ID mismatch');
+      }
 
-    await this.bitcoinLocksStore.createPendingBitcoinLock(txInfo);
+      await this.bitcoinLocksStore.createPendingBitcoinLock(txInfo);
+    }).promise;
   }
 
   public async getVaultAllocations(unusedBalance: bigint, rules: IVaultingRules) {

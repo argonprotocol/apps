@@ -90,11 +90,11 @@
           <template v-if="signatures">Sign Transactions</template>
         </button>
       </div>
-      <div v-if="transactionError" class="flex flex-col px-5 pt-6 pb-3">
+      <div v-if="transactionError" class="flex flex-col px-5 pt-6 pb-3 text-red-700">
         <div class="flex flex-row items-center justify-center">
           <div class="flex flex-col items-center justify-center">
-            <div class="text-2xl font-bold">Error</div>
-            <div class="text-sm text-gray-500">{{ transactionError }}</div>
+            <div class="text-2xl font-bold">An Error has Occurred</div>
+            <div class="text-sm text-gray-500 p-5 bg-red-50">{{ transactionError }}</div>
           </div>
         </div>
       </div>

@@ -61,14 +61,14 @@
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
           <div class="text-xl font-bold opacity-60 pb-1.5">
-            Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} In BTC
+            Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC
             Is Being Processed by Bitcoin's Network
           </div>
           <ProgressBar :progress="bitcoinLockProcessingPercent" />
         </div>
       </div>
     </div>
-    <div v-else-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lockStatus!)" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
+    <div v-else-if="isLockedStatus" box class="grow flex flex-row items-center justify-start pl-[5%] pr-[3%] !py-5">
       <BitcoinIcon class="w-22 inline-block mr-5 -rotate-24 opacity-60" />
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60">
@@ -232,20 +232,7 @@ function showReleaseOverlay() {
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const personalLock = Vue.computed(() => {
-  if (bitcoinLocks.data.pendingLock) {
-    return bitcoinLocks.data.pendingLock;
-  }
-
-  const locks = Object.values(bitcoinLocks.data.locksByUtxoId);
-  locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  for (const lock of locks) {
-    if (
-      lock.vaultId === myVault.vaultId &&
-      ![BitcoinLockStatus.LockFailedToHappen, BitcoinLockStatus.ReleaseComplete].includes(lock.status)
-    ) {
-      return lock;
-    }
-  }
+  return bitcoinLocks.getActiveLocksForVault(myVault.vaultId!)[0];
 });
 
 const lockExpirationTime = Vue.ref(dayjs.utc());
@@ -259,13 +246,15 @@ function updateBitcoinLockProcessingPercent() {
 }
 
 const lockStatus = Vue.computed(() => {
-  if (
-    !personalLock.value ||
-    [BitcoinLockStatus.LockFailedToHappen, BitcoinLockStatus.ReleaseComplete].includes(personalLock.value.status)
-  ) {
+  if (!personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value)) {
     return null;
   }
   return personalLock.value.status;
+});
+const isLockedStatus = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return false;
+  return bitcoinLocks.isLockedStatus(lock);
 });
 
 const releasingBitcoinDetails = Vue.computed<{ progressPct: number; confirmations: number }>(() => {
@@ -306,7 +295,7 @@ async function updateBitcoinUnlockPrices() {
 
   btcMarketRate.value = await vaults.getMarketRateInMicrogons(lock.lockedUtxoSatoshis ?? lock.satoshis).catch(() => 0n);
 
-  if (lock.status !== BitcoinLockStatus.LockedAndIsMinting && lock.status !== BitcoinLockStatus.LockedAndMinted) {
+  if (!isLockedStatus.value) {
     unlockPrice.value = 0n;
     return;
   }
