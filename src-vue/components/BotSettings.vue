@@ -444,7 +444,10 @@ Vue.watch(
   { deep: true },
 );
 
-Vue.onMounted(() => updateAPYs());
+Vue.onMounted(async () => {
+  await Promise.all([bot.loadServerBiddingRules(), calculator.load()]);
+  updateAPYs();
+});
 
 defineExpose({
   closeEditBoxOverlay,
