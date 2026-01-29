@@ -564,11 +564,6 @@ Vue.watch(
     if (props.isOpen) {
       isLoaded.value = false;
       await updatedAmountToMove(maxAmountToMove.value);
-      if (moveFrom.value === MoveFrom.VaultingTreasury && maxAmountToMove.value > 10_000n) {
-        comingSoon.value = 'Withdrawing from treasury will be in a near-future release';
-        isLoaded.value = true;
-        return;
-      }
 
       const pendingTx = pendingTxInfo.value;
       if (!pendingTx || (pendingTx.isPostProcessed && pendingTx.txResult.isFinalized)) {

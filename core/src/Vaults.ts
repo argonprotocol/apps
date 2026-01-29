@@ -1,17 +1,23 @@
-import { BitcoinLock, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
+import {
+  type AccountId32,
+  BitcoinLock,
+  type PalletVaultsVaultFrameRevenue,
+  u128,
+  Vault,
+} from '@argonprotocol/mainchain';
 import {
   bigNumberToBigInt,
+  convertBigIntStringToNumber,
+  createDeferred,
+  Currency,
   FrameIterator,
+  type IAllVaultStats,
+  type IDeferred,
+  type IVaultFrameStats,
   MainchainClients,
   Mining,
   MiningFrames,
   NetworkConfig,
-  Currency,
-  convertBigIntStringToNumber,
-  createDeferred,
-  type IDeferred,
-  type IAllVaultStats,
-  type IVaultFrameStats,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
@@ -64,15 +70,17 @@ export class Vaults {
       balanceByFrameId[frameId] = balanceByFrameId[frameId] ?? 0n;
 
       for (const [_, pool] of vaultPools) {
-        const bondHolders = pool?.bondHolders as any[];
+        const bondHolders = pool?.bondHolders;
         for (const bondHolder of bondHolders) {
-          const [bondHolderIdRaw, bondHolderBalance] = bondHolder as [string, any];
-          const bondHolderId = bondHolderIdRaw.toString();
+          const [bondHolderIdRaw, bondHolderBalance] = bondHolder as [AccountId32, { startingBalance: u128 } | u128];
+          const bondHolderId = bondHolderIdRaw.toHuman();
           if (bondHolderId !== accountIdFilter) continue;
 
-          const startingBalance = (bondHolderBalance.startingBalance as u128).toBigInt();
-          const earnings = (bondHolderBalance.earnings as u128).toBigInt();
-          balanceByFrameId[frameId] += startingBalance + earnings;
+          const startingBalance =
+            'startingBalance' in bondHolderBalance
+              ? bondHolderBalance.startingBalance.toBigInt()
+              : bondHolderBalance.toBigInt();
+          balanceByFrameId[frameId] += startingBalance;
         }
       }
     }

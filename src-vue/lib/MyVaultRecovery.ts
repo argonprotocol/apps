@@ -1,4 +1,4 @@
-import { ArgonClient, ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
+import { ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import BitcoinLocksStore from './BitcoinLocksStore.ts';
@@ -51,56 +51,6 @@ export class MyVaultRecovery {
       btcFlatFee,
       baseMicrogonCommitment,
       personalBtcPct,
-    };
-  }
-
-  public static async findPrebonded(args: {
-    client: ArgonClient;
-    vaultId: number;
-    vaultCreatedBlockNumber: number;
-    walletKeys: WalletKeys;
-  }): Promise<{
-    prebondedMicrogons: bigint;
-    txFee?: bigint;
-    blockNumber?: number;
-    blockHash?: Uint8Array;
-    tick?: number;
-  }> {
-    const { walletKeys, vaultId, client, vaultCreatedBlockNumber } = args;
-    const prebondInitKey = client.query.treasury.prebondedByVaultId.key(vaultId);
-    const vaultPrebondBlock = await StorageFinder.iterateFindStorageAddition({
-      client,
-      startingBlock: vaultCreatedBlockNumber,
-      maxBlocksToCheck: 100,
-      storageKey: prebondInitKey,
-    }).catch(() => undefined);
-
-    let vaultPrebondFee: bigint | undefined;
-    let prebondedMicrogons = 0n;
-    if (!vaultPrebondBlock) {
-      console.warn('No prebond/vault setup transaction found');
-    } else {
-      const result = await TransactionEvents.findFromFeePaidEvent({
-        client,
-        accountAddress: walletKeys.vaultingAddress,
-        blockHash: vaultPrebondBlock.blockHash,
-        isMatchingEvent: ev => {
-          if (client.events.treasury.VaultOperatorPrebond.is(ev)) {
-            const { vaultId: vaultIdRaw, amountPerFrame } = ev.data;
-            if (vaultIdRaw.toNumber() === vaultId) {
-              prebondedMicrogons = amountPerFrame.toBigInt() * 10n;
-              return true;
-            }
-          }
-          return false;
-        },
-      });
-      vaultPrebondFee = result?.fee;
-    }
-    return {
-      prebondedMicrogons,
-      txFee: vaultPrebondFee,
-      ...vaultPrebondBlock,
     };
   }
 
@@ -266,7 +216,6 @@ export class MyVaultRecovery {
             finalFee: bitcoinTxFee,
           });
         }
-
         records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
       }
     }

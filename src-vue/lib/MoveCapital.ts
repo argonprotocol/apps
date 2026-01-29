@@ -137,19 +137,17 @@ export class MoveCapital {
       if (!vault) {
         throw new Error('No vault created');
       }
-      if (vault.securitization < assetsToMove.ARGN) {
-        throw new Error('Not enough securitization available to withdraw');
-      }
-
-      txs.push(
-        client.tx.vaults.modifyFunding(
-          vault.vaultId,
-          vault.securitization - assetsToMove.ARGN,
-          toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
-        ),
+      const newAmount = vault.securitization - assetsToMove[MoveToken.ARGN];
+      const tx = client.tx.vaults.modifyFunding(
+        vault.vaultId,
+        newAmount,
+        toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
       );
-    } else if (moveFrom === MoveFrom.VaultingTreasury) {
-      console.warn('Withdrawing from treasury is not yet supported');
+      txs.push(tx);
+    } else if (moveFrom === MoveFrom.VaultingTreasury && assetsToMove.ARGN) {
+      const newAmount = this.myVault.data.treasury.targetPrincipal - assetsToMove[MoveToken.ARGN];
+      const tx = await this.myVault.buildTreasuryAllocationTx(newAmount);
+      txs.push(tx);
     }
 
     /// 2. Transfer the argons / argonots

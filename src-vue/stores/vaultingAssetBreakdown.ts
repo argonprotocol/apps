@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
@@ -33,23 +33,15 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const securityMicrogonsUnused = Vue.computed<bigint>(() => {
     const vault = myVault.createdVault;
     if (!vault) return 0n;
-
-    const securitization = vault.securitization;
-    const everActivatedSecuritization = bigNumberToBigInt(vault.securitizationRatioBN().times(vault.argonsLocked));
-    return securitization - everActivatedSecuritization;
+    return bigIntMax(0n, vault.availableSecuritization() - vault.getRelockCapacity());
   });
 
   const securityMicrogonsPending = Vue.computed(() => {
-    const vault = myVault.createdVault;
-    if (!vault) return 0n;
-
-    return bigNumberToBigInt(vault.securitizationRatioBN().times(vault.argonsPendingActivation));
+    return myVault.createdVault?.securitizationPendingActivation ?? 0n;
   });
 
   const securityMicrogonsActivated = Vue.computed<bigint>(() => {
-    // TODO: this value is wrong when there are pending activations and relocks
-    // return myVault.createdVault?.activatedSecuritization() ?? 0n;
-    return securityMicrogons.value - securityMicrogonsUnused.value;
+    return myVault.createdVault?.securitizationLocked ?? 0n;
   });
 
   const securityMicrogonsActivatedPct = Vue.computed<number>(() => {
@@ -57,8 +49,8 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return pctBn.multipliedBy(100).toNumber();
   });
 
-  const securityMicronots = Vue.computed(() => 0n);
-  const securityMicronotsUnused = Vue.computed(() => 0n);
+  const securityMicronots = Vue.computed(() => wallets.vaultingWallet.availableMicronots);
+  const securityMicronotsUnused = Vue.computed(() => wallets.vaultingWallet.availableMicronots);
   const securityMicronotsPending = Vue.computed(() => 0n);
   const securityMicronotsActivated = Vue.computed(() => 0n);
   const securityMicronotsActivatedPct = Vue.computed(() => 100);
@@ -70,15 +62,15 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   // Treasury
 
   const treasuryMicrogons = Vue.computed(() => {
-    return myVault.data.treasuryMicrogonsCommitted || 0n;
+    return myVault.data.treasury.heldPrincipal;
   });
 
   const treasuryMicrogonsActivated = Vue.computed(() => {
-    return bigIntMin(securityMicrogonsActivated.value, treasuryMicrogons.value);
+    return bigIntMin(myVault.data.treasury.heldPrincipal, treasuryMicrogonsMaxCapacity.value);
   });
 
   const treasuryMicrogonsUnused = Vue.computed(() => {
-    return treasuryMicrogons.value - treasuryMicrogonsActivated.value;
+    return bigIntMax(0n, myVault.data.treasury.targetPrincipal, treasuryMicrogonsActivated.value);
   });
 
   const treasuryMicrogonsActivatedPct = Vue.computed(() => {
@@ -88,6 +80,10 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const treasuryTotalValue = Vue.computed(() => {
     return treasuryMicrogons.value;
+  });
+
+  const treasuryMicrogonsMaxCapacity = Vue.computed(() => {
+    return securityMicrogonsActivated.value;
   });
 
   // Operational Fees
@@ -125,6 +121,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     treasuryMicrogonsUnused,
     treasuryMicrogonsActivatedPct,
     treasuryTotalValue,
+    treasuryMicrogonsMaxCapacity,
 
     operationalFeeMicrogons,
     totalVaultValue,

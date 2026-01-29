@@ -1,11 +1,11 @@
 import { Keyring, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
+  Currency as CurrencyBase,
+  IAllVaultStats,
   MainchainClients,
   MiningFrames,
   NetworkConfig,
-  Currency as CurrencyBase,
-  IAllVaultStats,
 } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
@@ -149,14 +149,6 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(vault).toStrictEqual(createdVault);
       expect(masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
       vaultId = vault.vaultId;
-      await expect(
-        MyVaultRecovery.findPrebonded({
-          vaultCreatedBlockNumber: vaultCreatedBlockNumber,
-          walletKeys,
-          vaultId: vault.vaultId,
-          client,
-        }),
-      ).resolves.toMatchObject(expect.objectContaining({ prebondedMicrogons: 0n }));
     },
   );
 
@@ -176,7 +168,6 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const api = await client.at(await vaultSave!.txResult.waitForFinalizedBlock);
       const rulesSavedBlockNumber = await api.query.system.number().then(x => x.toNumber());
       console.log('finalized at', rulesSavedBlockNumber);
-      const tick = await api.query.ticks.currentTick();
 
       await vaultSave!.waitForPostProcessing;
       expect(Object.keys(bitcoinLocksStore.data.locksByUtxoId)).toHaveLength(1);
@@ -186,22 +177,6 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const recovery = await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
       expect(recovery).toBeTruthy();
       const { vault: recoveredVault } = recovery!;
-
-      // check treasury
-      const prebond = await MyVaultRecovery.findPrebonded({
-        vaultCreatedBlockNumber: vaultCreatedBlockNumber,
-        walletKeys,
-        vaultId: recoveredVault.vaultId,
-        client: await clients.archiveClientPromise,
-      });
-      expect(prebond).toMatchObject(
-        expect.objectContaining({
-          prebondedMicrogons:
-            (MyVault.getMicrogonSplit(vaultRules, vaultCreationFees).microgonsForTreasury / 10n) * 10n,
-          tick: tick.toNumber(),
-          txFee: vaultSave!.txResult.finalFee,
-        }),
-      );
 
       // check bitcoin
       const newDb = await createTestDb();
@@ -218,7 +193,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(Object.keys(bitcoinLocksStoreRecovery.data.locksByUtxoId)).toHaveLength(0);
       const bitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
         mainchainClients: clients,
-        vaultSetupBlockNumber: prebond.blockNumber!,
+        vaultSetupBlockNumber: vaultCreatedBlockNumber,
         vault: recoveredVault,
         bitcoinLocksStore: bitcoinLocksStoreRecovery,
       });
@@ -236,10 +211,14 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         updatedAt: undefined,
       });
 
+      const treasuryMicrogons = (await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault)).heldPrincipal;
+      expect(treasuryMicrogons).toBe(
+        (MyVault.getMicrogonSplit(vaultRules, vaultCreationFees).microgonsForTreasury / 10n) * 10n,
+      );
       const rules = MyVaultRecovery.rebuildRules({
         feesInMicrogons: vaultCreationFees + (vaultSave!.txResult.finalFee ?? 0n),
         vault: recoveredVault,
-        treasuryMicrogons: prebond.prebondedMicrogons,
+        treasuryMicrogons,
         bitcoin,
       });
       expect(rules).toStrictEqual(vaultRules);
