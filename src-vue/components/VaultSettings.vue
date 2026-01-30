@@ -174,7 +174,7 @@
           :calculateWidth="() => calculateElementWidth(poolRevenueShareParent)"
           side="top"
           :content="
-            rules.capitalForTreasuryPct === 50
+            rules.capitalForTreasuryPct === 50 && !isEditingSettings
               ? 'Since you are personally funding 100% of the Treasury Pool, there is no external capital to share profits with.'
               : 'Outside funders can contribute to your Treasury Pool, and in return you agree to share a portion of your profits with them.'
           ">

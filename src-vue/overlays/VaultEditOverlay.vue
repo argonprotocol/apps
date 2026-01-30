@@ -155,6 +155,15 @@ Vue.onMounted(async () => {
   isLoaded.value = false;
   await myVault.load();
 
+  const vault = myVault.createdVault;
+  if (vault) {
+    config.vaultingRules.profitSharingPct = vault.terms.treasuryProfitSharing.times(100).toNumber();
+    config.vaultingRules.securitizationRatio = vault.securitizationRatio;
+    config.vaultingRules.btcFlatFee = vault.terms.bitcoinBaseFee;
+    config.vaultingRules.btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
+    config.saveVaultingRules();
+  }
+
   await calculator.load(rules.value);
   previousVaultingRules = JsonExt.stringify(config.vaultingRules);
 

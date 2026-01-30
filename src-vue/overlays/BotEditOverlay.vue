@@ -71,13 +71,12 @@ import { getConfig } from '../stores/config';
 import { getVaultCalculator } from '../stores/mainchain';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { BidAmountAdjustmentType, BidAmountFormulaType, JsonExt } from '@argonprotocol/apps-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules';
 import Tooltip from '../components/Tooltip.vue';
 import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
 import { getBot } from '../stores/bot.ts';
-import { botEmitter } from '../lib/Bot.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 
 const config = getConfig();
@@ -147,6 +146,7 @@ basicEmitter.on('openBotEditOverlay', async () => {
   if (isOpen.value) return;
   isLoaded.value = false;
 
+  await bot.loadServerBiddingRules();
   await calculator.load(rules.value);
   previousVaultingRules = JsonExt.stringify(config.vaultingRules);
 

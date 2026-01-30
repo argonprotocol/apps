@@ -59,6 +59,9 @@ export class Bot {
     });
 
     await this.botSyncer.load();
+    await this.loadServerBiddingRules().catch(err => {
+      console.error('Error loading server bidding rules:', err);
+    });
   }
 
   public async restart(): Promise<void> {
@@ -67,6 +70,15 @@ export class Bot {
     await server.stopBotDocker();
     await server.startBotDocker();
     this.botSyncer.isPaused = false;
+  }
+
+  public async loadServerBiddingRules(): Promise<void> {
+    if (!this.config.isMinerInstalled) return;
+    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const remoteRules = await server.downloadBiddingRules();
+    if (!remoteRules) return;
+    this.config.biddingRules = remoteRules;
+    await this.config.saveBiddingRules();
   }
 
   public async resyncBiddingRules(): Promise<void> {

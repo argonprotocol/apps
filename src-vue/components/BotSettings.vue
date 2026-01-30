@@ -444,7 +444,9 @@ Vue.watch(
   { deep: true },
 );
 
-Vue.onMounted(() => updateAPYs());
+Vue.onMounted(() => {
+  updateAPYs();
+});
 
 defineExpose({
   closeEditBoxOverlay,
