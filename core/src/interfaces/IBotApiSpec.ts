@@ -10,7 +10,7 @@ export interface IBotApiSpec {
   '/history': () => Promise<IHistoryFile>;
   '/bids': (cohortBiddingFrameId?: number) => Promise<IBidsFile>;
   '/earnings': (frameId: number) => Promise<IEarningsFile>;
-  '/heartbeat': () => Promise<void>;
+  '/heartbeat': () => Promise<null>;
 }
 
 export type IBotApiMethod = keyof IBotApiSpec;

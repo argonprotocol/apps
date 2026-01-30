@@ -13,3 +13,4 @@ export * from './ILastModified.js';
 export * from './ITransferSources.js';
 export * from './IIndexerSpec.js';
 export * from './IVaultStats.js';
+export * from './IBotApiSpec.js';

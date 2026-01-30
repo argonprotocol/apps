@@ -3,15 +3,15 @@ import Bot from './Bot.ts';
 import express from 'express';
 import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
-import { type WebSocket, WebSocketServer } from 'ws';
 import type {
   IBotApiMethod,
   IBotApiResponse,
   IBotApiSpec,
   JsonRpcRequest,
   JsonRpcResponse,
-} from '@argonprotocol/apps-core/src/interfaces/IBotApiSpec.ts';
+} from '@argonprotocol/apps-core';
+import { JsonExt } from '@argonprotocol/apps-core';
+import { type WebSocket, WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
 
 export class BotServer {
@@ -25,6 +25,7 @@ export class BotServer {
   constructor(
     public bot: Bot,
     public port: number | string,
+    public heartbeatIntervalMs: number = 30e3,
   ) {
     this.rpcHandlers = {
       '/state': async () => await bot.state(this.startupError),
@@ -35,9 +36,7 @@ export class BotServer {
         return await bot.storage.bidsFile(startingFrameId, startingFrameId + 1).get();
       },
       '/earnings': async frameId => await bot.storage.earningsFile(frameId).get(),
-      '/heartbeat': async () => {
-        /* no-op */
-      },
+      '/heartbeat': async () => null,
     };
   }
 
@@ -70,10 +69,10 @@ export class BotServer {
           JsonExt.stringify({
             jsonrpc: '2.0',
             event: '/heartbeat',
-            data: undefined,
+            data: null,
           } as JsonRpcResponse),
         );
-      }, 30_000).unref();
+      }, this.heartbeatIntervalMs).unref();
 
       ws.on('close', () => {
         ws.isAlive = false;
@@ -113,6 +112,17 @@ export class BotServer {
     }
   }
 
+  public getAddress(): { host: string; port: number } {
+    const address = this.server?.address();
+    if (!address || typeof address === 'string') {
+      // When not yet listening, or if Node returns a pipe name
+      return { host: '127.0.0.1', port: Number(this.port) || 0 };
+    }
+    // Bind host for convenient test URLs; Node may return '::' for IPv6
+    const host = address.address === '::' ? '127.0.0.1' : address.address;
+    return { host, port: address.port };
+  }
+
   public async close() {
     this.wss.close();
     return new Promise<void>((resolve, reject) => {
@@ -127,12 +137,19 @@ export class BotServer {
   }
 
   private async onMessage(ws: WebSocket, raw: WebSocket.Data) {
-    // This method is no longer used. Message handling is done in onConnection.
+    // WebSocket message handler invoked via ws.on('message', ...).
     let msg: JsonRpcRequest;
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string
-      msg = JsonExt.parse(raw.toString('utf8'));
+      let text: string;
+      if (raw instanceof ArrayBuffer) {
+        text = Buffer.from(raw).toString('utf8');
+      } else if (Array.isArray(raw)) {
+        text = Buffer.concat(raw).toString('utf8');
+      } else {
+        text = (raw as Buffer).toString('utf8');
+      }
+      msg = JsonExt.parse(text);
     } catch {
       return;
     }
@@ -176,8 +193,8 @@ export class BotServer {
   }
 }
 
-export function startServer(bot: Bot, port: number | string) {
-  const server = new BotServer(bot, port);
+export function startServer(bot: Bot, port: number | string = 0, heartbeatIntervalMs: number = 30e3): BotServer {
+  const server = new BotServer(bot, port, heartbeatIntervalMs);
   server.start();
   return server;
 }

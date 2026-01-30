@@ -109,7 +109,7 @@ export class AutoBidder {
     const cohortBidder = this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId);
     if (cohortBidder) {
       cohortBidder.isBiddingOpen = false;
-      await cohortBidder.stop(isShuttingDown);
+      await cohortBidder.stop(!isShuttingDown);
       console.log('Bidding stopped', { cohortActivationFrameId });
     }
   }
