@@ -444,8 +444,7 @@ Vue.watch(
   { deep: true },
 );
 
-Vue.onMounted(async () => {
-  await Promise.all([bot.loadServerBiddingRules(), calculator.load()]);
+Vue.onMounted(() => {
   updateAPYs();
 });
 

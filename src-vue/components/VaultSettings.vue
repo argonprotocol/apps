@@ -210,7 +210,6 @@ import { getConfig } from '../stores/config';
 import { getCurrency } from '../stores/currency';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import Tooltip from '../components/Tooltip.vue';
-import { getMyVault } from '../stores/vaults.ts';
 
 const props = defineProps<{
   includeProjections?: boolean;
@@ -221,7 +220,6 @@ const emit = defineEmits<{
   (e: 'toggleEditBoxOverlay', value: boolean): void;
 }>();
 
-const myVault = getMyVault();
 const config = getConfig();
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -327,18 +325,6 @@ function calculateElementWidth(element: HTMLElement | null) {
   const elementWidth = element.getBoundingClientRect().width;
   return `${elementWidth}px`;
 }
-
-Vue.onMounted(async () => {
-  await myVault.load();
-  const vault = myVault.createdVault;
-  if (vault) {
-    config.vaultingRules.profitSharingPct = vault.terms.treasuryProfitSharing.times(100).toNumber();
-    config.vaultingRules.securitizationRatio = vault.securitizationRatio;
-    config.vaultingRules.btcFlatFee = vault.terms.bitcoinBaseFee;
-    config.vaultingRules.btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
-    config.saveVaultingRules();
-  }
-});
 
 defineExpose({
   closeEditBoxOverlay,
