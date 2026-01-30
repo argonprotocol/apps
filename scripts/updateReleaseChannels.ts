@@ -59,9 +59,9 @@ function createFileContent() {
 
 const files: { [str: string]: VersionContent } = {
   operations_stable: createFileContent(),
-  operations_experimental: createFileContent(),
   capital_stable: createFileContent(),
-  capital_experimental: createFileContent(),
+  // capital_experimental: createFileContent(),
+  // operations_experimental: createFileContent(),
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -96,6 +96,11 @@ for (const data of existingAssets.data) {
     /\/download\/(untagged-[^/]+)\//,
     `/download/${encodeURIComponent(tagName)}/`,
   ).replace('.sig', '');
+
+  if (isExperimental) {
+    console.warn(`Experimental builds are temporarily disabled: ${fileKey}`);
+    continue;
+  }
 
   if (!file) {
     console.warn(`No version found for ${fileKey}`);
