@@ -3,6 +3,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-01-28
+- How Mining Works now correctly shows the amount of argonots needed for auction bids.
+
 ## [1.3.0] - 2026-01-27
 - An exact amount of bitcoin is no longer required for locking. So long as you're within 10k sats, it will lock.
 
