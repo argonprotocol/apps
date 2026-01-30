@@ -2,6 +2,7 @@ use crate::ssh::SSH;
 use crate::ssh::SSHConfig;
 use anyhow::Result;
 use lazy_static::lazy_static;
+use secrecy::SecretString;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -29,10 +30,10 @@ pub async fn open_connection(
     host: &str,
     port: u16,
     username: String,
-    private_key_path: String,
+    private_key_openssh: SecretString,
 ) -> Result<SSH> {
     let address = address.to_string();
-    let ssh_config = SSHConfig::new(host, port, username, private_key_path)?;
+    let ssh_config = SSHConfig::new(host, port, username, private_key_openssh)?;
 
     let timeout_duration = Duration::from_secs(10);
     if let Some(existing) = CONNECTIONS_BY_ADDRESS.lock().await.get_mut(&address) {

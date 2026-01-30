@@ -6,10 +6,10 @@ use russh::keys::ssh_key::LineEnding;
 use russh::keys::ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey};
 use russh::keys::*;
 use russh::*;
+use secrecy::{ExposeSecret, SecretString};
 use sp_core::ed25519;
 use std::borrow::Cow;
 use std::fmt::Display;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -25,49 +25,44 @@ pub struct SSH {
     pub config: SSHConfig,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct SSHConfig {
     addrs: (String, u16),
     username: String,
-    private_key_path: String,
+    private_key_openssh: SecretString,
 }
 
 impl SSHConfig {
-    pub fn new(host: &str, port: u16, username: String, private_key_path: String) -> Result<Self> {
+    pub fn new(
+        host: &str,
+        port: u16,
+        username: String,
+        private_key_openssh: SecretString,
+    ) -> Result<Self> {
         let addrs = (host.to_string(), port);
 
         Ok(SSHConfig {
             addrs,
             username: username.to_string(),
-            private_key_path,
+            private_key_openssh,
         })
     }
 
     pub fn get_private_key(&self) -> Result<PrivateKey> {
-        SSHConfig::read_private_key(Path::new(&self.private_key_path))
+        let private_key = decode_secret_key(self.private_key_openssh.expose_secret(), None)?;
+        Ok(private_key)
     }
 
     pub fn host(&self) -> String {
         format!("{}:{}", self.addrs.0, self.addrs.1)
     }
+}
 
-    pub fn read_private_key(private_key_path: &Path) -> Result<PrivateKey> {
-        let private_key_str = std::fs::read_to_string(private_key_path).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to read private key from {}: {}",
-                private_key_path.to_string_lossy(),
-                e
-            )
-        })?;
-        let private_key = decode_secret_key(&private_key_str, None)?;
-        Ok(private_key)
-    }
-
-    pub fn get_pubkey_from_privkey_file(private_key_path: &Path) -> Result<String> {
-        let private_key = SSHConfig::read_private_key(private_key_path)?;
-        let public_key = PublicKey::from(&private_key);
-        let public_key_openssh = public_key.to_openssh()?;
-        Ok(public_key_openssh)
+impl PartialEq for SSHConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.addrs == other.addrs
+            && self.username == other.username
+            && self.private_key_openssh.expose_secret() == other.private_key_openssh.expose_secret()
     }
 }
 
@@ -334,7 +329,7 @@ impl SSH {
         }
     }
 
-    pub fn format_as_openssh(key: ed25519::Pair) -> Result<(String, String), String> {
+    pub fn format_as_openssh(key: ed25519::Pair) -> Result<(String, String)> {
         // Generate a new key pair using Ed25519
         let bytes = key.seed();
         let keypair = Ed25519Keypair::from(Ed25519PrivateKey::from_bytes(&bytes));
@@ -344,13 +339,10 @@ impl SSH {
         let public_key = PublicKey::from(&private_key);
 
         // Convert to OpenSSH format
-        let public_key_openssh = public_key.to_openssh().map_err(|e| e.to_string())?;
+        let public_key_openssh = public_key.to_openssh()?;
 
         // Convert private key to OpenSSH format
-        let private_key_openssh = private_key
-            .to_openssh(LineEnding::LF)
-            .map_err(|e| e.to_string())?
-            .to_string();
+        let private_key_openssh = private_key.to_openssh(LineEnding::LF)?.to_string();
 
         Ok((private_key_openssh, public_key_openssh))
     }

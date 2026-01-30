@@ -7,6 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
+use secrecy::ExposeSecret;
 use tauri::{Emitter, State};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use time::OffsetDateTime;
@@ -36,10 +37,9 @@ async fn open_ssh_connection(
     username: String,
 ) -> Result<String, String> {
     log::info!("ensure_ssh_connection");
-    let private_key_path = security::Security::get_ssh_private_key_path(&app)
-        .to_string_lossy()
-        .to_string();
-    ssh_pool::open_connection(address, host, port, username, private_key_path)
+    let private_key =
+        security::Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
+    ssh_pool::open_connection(address, host, port, username, private_key)
         .await
         .map_err(|e| {
             log::error!("Error connecting to SSH: {:#}", e);
@@ -54,7 +54,7 @@ async fn get_ssh_private_key(app: AppHandle) -> Result<String, String> {
     log::info!("get_ssh_private_key");
     let private_key =
         security::Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
-    Ok(private_key)
+    Ok(private_key.expose_secret().to_string())
 }
 
 #[tauri::command]
