@@ -189,7 +189,7 @@ export class FramesTable extends BaseTable {
     const records = convertFromSqliteFields<{ id: number; microgonToArgonot: bigint[] }[]>(rawRecords, this.fieldTypes);
     const pricesByFrameId: { [frameId: number]: bigint } = {};
     for (const record of records) {
-      pricesByFrameId[record.id] = record.microgonToArgonot.at(0) || 0n;
+      pricesByFrameId[record.id] = record.microgonToArgonot.at(-1) || 0n;
     }
     return pricesByFrameId;
   }

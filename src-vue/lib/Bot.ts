@@ -68,10 +68,9 @@ export class Bot {
       await this.loadServerBiddingRules().catch(err => {
         console.error('Error loading server bidding rules:', err);
       });
+      this.loadDeferred.resolve();
     } catch (err) {
       this.loadDeferred.reject(err);
-    } finally {
-      this.loadDeferred.resolve();
     }
     return this.loadDeferred.promise;
   }

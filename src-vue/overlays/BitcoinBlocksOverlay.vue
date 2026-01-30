@@ -62,7 +62,6 @@ import { WatchHandle } from 'vue';
 import numeral from '../lib/numeral';
 import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
-import { BotWsClient } from '../lib/BotWsClient.ts';
 import { getStats } from '../stores/stats.ts';
 import { getBot } from '../stores/bot.ts';
 

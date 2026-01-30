@@ -447,7 +447,7 @@ export class BotSyncer {
       savedState?.argonLocalNodeBlockNumber !== latestArgonBlockNumbers.localNode ||
       savedState?.argonMainNodeBlockNumber !== latestArgonBlockNumbers.mainNode;
     const botLastActivityDate = this.botState.botLastActiveDate;
-    const hasBotActivityChanges = botLastActivityDate !== savedState?.botActivityLastUpdatedAt;
+    const hasBotActivityChanges = botLastActivityDate?.getTime() !== savedState?.botActivityLastUpdatedAt?.getTime();
 
     if (!hasBotActivityChanges && !hasBitcoinChanges && !hasArgonChanges) {
       return;

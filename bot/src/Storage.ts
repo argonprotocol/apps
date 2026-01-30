@@ -11,6 +11,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { JsonStore } from './JsonStore.ts';
 import type { IMigration } from './migrations/IMigration.ts';
+import { RewardTicksMigration } from './migrations/01-RewardTicks.ts';
 
 export class Storage {
   public events = createTypedEventEmitter<{
@@ -44,7 +45,7 @@ export class Storage {
   private readonly botState: JsonStore<IBotStateFile>;
   private readonly blockSync: JsonStore<IBlockSyncFile>;
   private readonly storageVersion: JsonStore<{ version: number }>;
-  private migrations: IMigration[] = [];
+  private migrations: IMigration[] = [new RewardTicksMigration()];
 
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });

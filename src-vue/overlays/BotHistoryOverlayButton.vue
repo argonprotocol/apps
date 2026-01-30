@@ -96,23 +96,28 @@ const props = withDefaults(
 
 const bot = getBot();
 const isOpen = Vue.ref(false);
+
 function onOpen(open: boolean) {
-  console.log('BotHistoryOverlayButton onOpen', open);
   isOpen.value = open;
   if (open) {
-    updateActivities();
+    void updateActivities();
   }
 }
 
-botEmitter.on('updated-server-state', async () => {
+async function onServerStateUpdated() {
   if (!isOpen.value) return;
   await updateActivities();
+}
+Vue.onMounted(() => {
+  botEmitter.on('updated-server-state', onServerStateUpdated);
+});
+Vue.onUnmounted(() => {
+  botEmitter.off('updated-server-state', onServerStateUpdated);
 });
 
 async function updateActivities() {
   const client = await bot.getClient();
   const biddingActivity = await client.fetch('/history');
-  biddingActivity.activities.sort((a, b) => b.id - a.id);
   for (const activity of biddingActivity.activities) {
     if (activities.value.find(a => a.id === activity.id)) {
       continue;
@@ -127,7 +132,7 @@ async function updateActivities() {
     }
     const timestamp = MiningFrames.getTickDate(activity.tick);
     const message = extractMessage(activity);
-    activities.value.unshift({
+    activities.value.push({
       id,
       type,
       bidderAddress,
@@ -136,6 +141,8 @@ async function updateActivities() {
       message,
     });
   }
+
+  activities.value.sort((a, b) => b.id - a.id);
   if (activities.value.length > 15) {
     activities.value = activities.value.slice(0, 15);
   }

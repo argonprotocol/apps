@@ -29,6 +29,9 @@ export class JsonExt {
       if (typeof v === 'string' && v.match(/^-?\d+n$/)) {
         return BigInt(v.slice(0, -1));
       }
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v)) {
+        return new Date(v);
+      }
       // rehydrate Uint8Array objects
       if (typeof v === 'object' && v !== null && v.type === 'Buffer' && Array.isArray(v.data)) {
         return Uint8Array.from(v.data);

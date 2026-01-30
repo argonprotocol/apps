@@ -1,14 +1,18 @@
-import { createDeferred, createTypedEventEmitter, type IBotState, IDeferred, JsonExt } from '@argonprotocol/apps-core';
 import {
+  createDeferred,
+  createTypedEventEmitter,
   IBotApiMethod,
   type IBotApiSpec,
+  type IBotState,
+  IDeferred,
+  JsonExt,
   JsonRpcResponse,
-} from '@argonprotocol/apps-core/src/interfaces/IBotApiSpec.ts';
+} from '@argonprotocol/apps-core';
 
 export class BotWsClient {
   public events = createTypedEventEmitter<{
     '/state': (state: IBotState) => any;
-    '/heartbeat': (payload: { ts: number }) => any;
+    '/heartbeat': (payload: null) => any;
     'ws:disconnected': (payload: {
       source: 'close' | 'error' | 'heartbeat-timeout';
       code?: number;
