@@ -1239,7 +1239,7 @@ async function fetchWithTimeout(url: string, options: RequestInit & { timeoutMs:
       // Avoid stale caching behavior in some environments.
       cache: init.cache ?? 'no-store',
     });
-  } catch(error) {
+  } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Fetch to ${url} aborted due to timeout after ${timeoutMs} ms`);
     }
