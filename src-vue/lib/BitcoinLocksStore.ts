@@ -235,13 +235,19 @@ export default class BitcoinLocksStore {
       // see if we can update the vault signature
       await this.tryUpdateVaultSignature(lock, archiveClient);
       const hasMissingReleaseData = !lock.releaseToDestinationAddress || !lock.lockedTxid;
+      // the lock is gone, so it was either released or never happened. if it has release data, use that to fill missing data
       if (lock.releaseCosignHeight && hasMissingReleaseData) {
         const lastHashOfLock = await archiveClient.rpc.chain.getBlockHash(lock.releaseCosignHeight - 1);
         const lastLockApi = await archiveClient.at(lastHashOfLock);
         await this.tryUpdateLockTxid(lock, lastLockApi);
         await this.tryUpdateReleaseRequested(lock, lastLockApi);
       }
-      await table.setAppropriateReleasingStatus(lock);
+      // lock isn't on backend, so we should assume it was released if it ever got confirmed
+      if (lock.lockedTxid) {
+        await table.setAppropriateReleasingStatus(lock);
+      } else {
+        await table.setLockFailedToHappen(lock);
+      }
     }
   }
 
