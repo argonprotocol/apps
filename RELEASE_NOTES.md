@@ -3,6 +3,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-01-30
+- Fixed some dark mode issues that made the app unusable (dark mode isn't supported yet but at least it doesn't break).
+- Mining and Vaulting configs now pull from server or mainchain to allow multiple app instances to share the same config.
+- Fixed several bitcoin locking and unlocking issues.
+- App menus now have a slight delay when they lose mouse focus before closing.
+- How Mining Works now shows the correct amount of argonots per bid.
+
 ## [1.3.1] - 2026-01-28
 - How Mining Works now correctly shows the amount of argonots needed for auction bids.
 
