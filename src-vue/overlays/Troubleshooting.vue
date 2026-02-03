@@ -46,6 +46,13 @@
           <DiagnosticIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
           Server Diagnostics
         </li>
+        <li
+          @click="openSshAccess"
+          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
+          v-if="config.isMiningMachineCreated">
+          <CommandLineIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
+          Temporary SSH Access
+        </li>
         <li class="my-4 h-[1px] border-t border-dashed border-slate-300" />
         <li
           @click="goTo('options-for-restart')"
@@ -69,7 +76,7 @@ import basicEmitter from '../emitters/basicEmitter';
 import ServerDiagnostics from './troubleshooting/ServerDiagnostics.vue';
 import DataAndLogFiles from './troubleshooting/DataAndLogFiles.vue';
 import AdvancedRestart from './troubleshooting/AdvancedRestart.vue';
-import { ChevronLeftIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
+import { ChevronLeftIcon, MagnifyingGlassIcon, CommandLineIcon } from '@heroicons/vue/24/outline';
 import DiagnosticIcon from '../assets/diagnostics.svg?component';
 import LogsIcon from '../assets/logs.svg?component';
 import RestartIcon from '../assets/restart.svg?component';
@@ -99,5 +106,9 @@ basicEmitter.on('openTroubleshootingOverlay', async (data: any) => {
 function closeOverlay() {
   isOpen.value = false;
   isLoaded.value = false;
+}
+
+function openSshAccess() {
+  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ssh' });
 }
 </script>

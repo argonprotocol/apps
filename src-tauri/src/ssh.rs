@@ -30,6 +30,7 @@ pub struct SSHConfig {
     addrs: (String, u16),
     username: String,
     private_key_openssh: SecretString,
+    public_key_openssh: String,
 }
 
 impl SSHConfig {
@@ -40,11 +41,14 @@ impl SSHConfig {
         private_key_openssh: SecretString,
     ) -> Result<Self> {
         let addrs = (host.to_string(), port);
+        let public_key_openssh =
+            SSHConfig::get_pubkey_from_privkey(private_key_openssh.expose_secret())?;
 
         Ok(SSHConfig {
             addrs,
             username: username.to_string(),
             private_key_openssh,
+            public_key_openssh,
         })
     }
 
@@ -56,13 +60,20 @@ impl SSHConfig {
     pub fn host(&self) -> String {
         format!("{}:{}", self.addrs.0, self.addrs.1)
     }
+
+    pub fn get_pubkey_from_privkey(private_key_openssh: &str) -> Result<String> {
+        let private_key = decode_secret_key(private_key_openssh, None)?;
+        let public_key = PublicKey::from(&private_key);
+        let public_key_openssh = public_key.to_openssh()?;
+        Ok(public_key_openssh)
+    }
 }
 
 impl PartialEq for SSHConfig {
     fn eq(&self, other: &Self) -> bool {
         self.addrs == other.addrs
             && self.username == other.username
-            && self.private_key_openssh.expose_secret() == other.private_key_openssh.expose_secret()
+            && self.public_key_openssh == other.public_key_openssh
     }
 }
 

@@ -10,7 +10,7 @@
     <div class="px-3 py-4">
       <SecuritySettingsOverview v-if="currentScreen === 'overview'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsMnemonics v-if="currentScreen === 'mnemonics'" @close="closeOverlay" @goTo="goTo" />
-      <SecuritySettingsSSHKeys v-if="currentScreen === 'ssh'" @close="closeOverlay" @goTo="goTo" />
+      <SecuritySettingsSSHAccess v-if="currentScreen === 'ssh'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsEncrypt v-if="currentScreen === 'encrypt'" @close="closeOverlay" @goTo="goTo" />
       <ExportRecoveryFile v-if="currentScreen === 'export'" @close="closeOverlay" @goTo="goTo" />
     </div>
@@ -23,7 +23,7 @@ import basicEmitter from '../emitters/basicEmitter';
 import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
-import SecuritySettingsSSHKeys from './security-settings/SSHKeys.vue';
+import SecuritySettingsSSHAccess from './security-settings/SSHAccess.vue';
 import ExportRecoveryFile from './security-settings/ExportRecoveryFile.vue';
 import Overlay from './Overlay.vue';
 
@@ -37,7 +37,7 @@ const title = Vue.computed(() => {
   } else if (currentScreen.value === 'encrypt') {
     return 'Encryption Passphrase';
   } else if (currentScreen.value === 'ssh') {
-    return 'SSH Keys for Mining Machine';
+    return 'Connect to Mining Machine';
   } else if (currentScreen.value === 'mnemonics') {
     return 'Account Recovery Mnemonic';
   } else if (currentScreen.value === 'export') {
@@ -46,9 +46,9 @@ const title = Vue.computed(() => {
   throw new Error('Invalid screen name');
 });
 
-basicEmitter.on('openSecuritySettingsOverlay', async (data: any) => {
+basicEmitter.on('openSecuritySettingsOverlay', async data => {
   isOpen.value = true;
-  currentScreen.value = 'overview';
+  currentScreen.value = data?.screen ?? 'overview';
 });
 
 function closeOverlay() {

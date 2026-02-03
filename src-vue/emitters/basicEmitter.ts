@@ -9,7 +9,7 @@ type IBasicEmitter = {
 
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: void;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'export' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectOverlay: void;
   closeAllOverlays: void;

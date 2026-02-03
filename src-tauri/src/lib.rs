@@ -1,13 +1,12 @@
-use crate::security::Security;
 use log::trace;
 use nosleep::{NoSleep, NoSleepType};
+use secrecy::ExposeSecret;
 use sp_core::Pair;
 use sp_core::crypto::Ss58Codec;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
-use secrecy::ExposeSecret;
 use tauri::{Emitter, State};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
 use time::OffsetDateTime;
@@ -20,6 +19,7 @@ use zip::DateTime;
 mod migrations;
 mod security;
 mod ssh;
+mod ssh_access;
 mod ssh_pool;
 mod utils;
 mod vm;
@@ -47,14 +47,6 @@ async fn open_ssh_connection(
         })?;
 
     Ok("success".to_string())
-}
-
-#[tauri::command]
-async fn get_ssh_private_key(app: AppHandle) -> Result<String, String> {
-    log::info!("get_ssh_private_key");
-    let private_key =
-        security::Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
-    Ok(private_key.expose_secret().to_string())
 }
 
 #[tauri::command]
@@ -459,6 +451,9 @@ pub fn run() {
 
             let nosleep = NoSleep::new().map_err(|e| e.to_string())?;
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
+            app.manage(ssh_access::SshAccessState {
+                access: Mutex::new(None),
+            });
 
             init_config_instance_dir(handle, &relative_config_dir)?;
 
@@ -518,6 +513,9 @@ pub fn run() {
             read_embedded_file,
             run_db_migrations,
             create_zip,
+            ssh_access::ssh_access_status,
+            ssh_access::ssh_access_activate,
+            ssh_access::ssh_access_deactivate,
             toggle_nosleep,
             calculate_free_space,
             vm::create_local_vm,
@@ -530,10 +528,12 @@ pub fn run() {
             derive_ed25519_seed,
             derive_bitcoin_extended_key,
             expose_mnemonic,
-            get_ssh_private_key,
             overwrite_mnemonic,
             measure_latency,
             load_instance,
+            ssh_access::ssh_access_activate,
+            ssh_access::ssh_access_status,
+            ssh_access::ssh_access_deactivate,
         ])
         .run(context)
         .expect("error while running tauri application");

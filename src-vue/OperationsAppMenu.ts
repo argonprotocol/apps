@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { Menu, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
+import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from './emitters/basicEmitter';
@@ -152,6 +152,12 @@ export async function createMenu() {
     text: 'Troubleshooting',
     items: [
       {
+        id: 'ssh',
+        text: 'Connect to Mining Machine',
+        enabled: config.isLoaded && !!config.serverDetails.ipAddress && !!config.serverDetails.sshUser,
+        action: () => basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ssh' }),
+      },
+      {
         id: 'find-data',
         text: 'Find Missing Data',
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'find-missing-data' }),
@@ -225,6 +231,14 @@ export async function createMenu() {
     void miningMenu.setEnabled(!installer.isRunning && !bot.isSyncing);
   }
 
+  async function updateTroubleshootingMenu() {
+    if (!config.isLoaded) return;
+    const isCreated = !!config.serverDetails?.ipAddress && config.serverDetails.ipAddress !== '0.0.0.0';
+    const items = await troubleshootingMenu.items();
+    void (items[0] as MenuItem)?.setEnabled(isCreated);
+    void (items[3] as MenuItem)?.setEnabled(isCreated);
+  }
+
   await menu.setAsAppMenu().then(async res => {
     Vue.watch(
       () => installer.isRunning,
@@ -232,9 +246,15 @@ export async function createMenu() {
       { immediate: true },
     );
     Vue.watch(
+      () => [config.isLoaded, config.serverDetails],
+      async () => updateTroubleshootingMenu(),
+      { immediate: true, deep: true },
+    );
+    Vue.watch(
       () => bot.isSyncing,
       () => updateMiningMenu(),
       { immediate: true },
     );
+    await updateTroubleshootingMenu();
   });
 }

@@ -31,7 +31,7 @@ dotenvy = "0.15"
 
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "image-png"] }
+tauri = { version = "2", features = ["default", "macos-private-api", "image-png", "devtools"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
