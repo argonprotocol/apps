@@ -3,5 +3,7 @@
 yarn typecheck
 yarn run lint
 yarn run eslint
-yarn run precommit
+if git diff --cached --name-only | grep -Eq '^(package.json|yarn.lock)$'; then
+  yarn run precommit
+fi
 (cd src-tauri && cargo fmt --all)

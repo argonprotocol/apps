@@ -2,11 +2,12 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { IBidReductionReason, type IBidsFile, MiningFrames } from '@argonprotocol/apps-core';
+import { createDeferred, type IBidsFile, IBotState, MiningFrames } from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
 import { Server } from './Server';
+import { BotWsClient } from './BotWsClient';
 
 export type IBotEmitter = {
   'updated-cohort-data': number;
@@ -19,49 +20,59 @@ export const botEmitter: Emitter<IBotEmitter> = mitt<IBotEmitter>();
 
 export class Bot {
   public syncProgress: number;
-  public maxSeatsPossible: number;
-  public maxSeatsReductionReason: IBidReductionReason | null;
+  public state: IBotState | null;
 
   private readonly config: Config;
   private readonly dbPromise: Promise<Db>;
 
   private status: BotStatus | null;
   private botSyncer!: BotSyncer;
-  private isLoaded = false;
+  private loadDeferred = createDeferred<void>(false);
 
   constructor(config: Config, dbPromise: Promise<Db>) {
     ensureOnlyOneInstance(this.constructor);
 
     this.syncProgress = 0;
-    this.maxSeatsPossible = 10;
-    this.maxSeatsReductionReason = null;
+    this.state = null;
     this.status = null;
 
     this.config = config;
     this.dbPromise = dbPromise;
   }
 
-  public async load(installer: Installer, miningFrames: MiningFrames): Promise<void> {
-    if (this.isLoaded) return;
-    this.isLoaded = true;
-    const db = await this.dbPromise;
-    this.botSyncer = new BotSyncer(this.config, db, installer, miningFrames, {
-      onEvent: (type: keyof IBotEmitter, payload?: any) => botEmitter.emit(type, payload),
-      setStatus: (x: BotStatus) => {
-        if (this.status === x) return;
-        this.status = x;
-        botEmitter.emit('status-changed', x);
-      },
-      setServerSyncProgress: (x: number) => (this.syncProgress = x * 0.9),
-      setDbSyncProgress: (x: number) => (this.syncProgress = 90 + x * 0.1),
-      setMaxSeatsPossible: (x: number) => (this.maxSeatsPossible = x),
-      setMaxSeatsReductionReason: (x: IBidReductionReason | null) => (this.maxSeatsReductionReason = x),
-    });
+  public async getClient(): Promise<BotWsClient> {
+    await this.loadDeferred.promise;
+    return this.botSyncer.getClient();
+  }
 
-    await this.botSyncer.load();
-    await this.loadServerBiddingRules().catch(err => {
-      console.error('Error loading server bidding rules:', err);
-    });
+  public async load(installer: Installer, miningFrames: MiningFrames): Promise<void> {
+    if (this.loadDeferred.isSettled || this.loadDeferred.isRunning) {
+      return this.loadDeferred.promise;
+    }
+    this.loadDeferred.setIsRunning(true);
+    try {
+      const db = await this.dbPromise;
+      this.botSyncer = new BotSyncer(this.config, db, installer, miningFrames, {
+        onEvent: (type: keyof IBotEmitter, payload?: any) => botEmitter.emit(type, payload),
+        setStatus: (x: BotStatus) => {
+          if (this.status === x) return;
+          this.status = x;
+          botEmitter.emit('status-changed', x);
+        },
+        setBotState: x => (this.state = x),
+        setServerSyncProgress: (x: number) => (this.syncProgress = x * 0.9),
+        setDbSyncProgress: (x: number) => (this.syncProgress = 90 + x * 0.1),
+      });
+
+      await this.botSyncer.load();
+      await this.loadServerBiddingRules().catch(err => {
+        console.error('Error loading server bidding rules:', err);
+      });
+      this.loadDeferred.resolve();
+    } catch (err) {
+      this.loadDeferred.reject(err);
+    }
+    return this.loadDeferred.promise;
   }
 
   public async restart(): Promise<void> {

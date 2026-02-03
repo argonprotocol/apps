@@ -18,7 +18,7 @@ export function getStats(): Vue.Reactive<Stats> {
     const currency = getCurrency();
     const miningFrames = getMiningFrames();
     stats = Vue.reactive(new Stats(dbPromise, config as Config, currency as Currency, miningFrames));
-    stats.load().catch(handleFatalError.bind('useStats'));
+    stats.load().catch(handleFatalError.bind('getStats'));
   }
 
   return stats;

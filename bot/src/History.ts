@@ -16,6 +16,7 @@ export class History {
   public maxSeatsInPlay: number = 0;
   public maxSeatsReductionReason: IBidReductionReason | undefined;
   public lastProcessedBlockNumber: number = 0;
+  public lastActivityTick: number = 0;
 
   private storage: Storage;
   private lastBids: { address: string; bidMicrogons: bigint }[] = [];
@@ -286,6 +287,7 @@ export class History {
     for (const activity of activities) {
       (activity as IBotActivity).id ??= this.createId(activity.tick);
       const frameId = ((activity as IBotActivity).frameId ??= this.cohortStartingFrameId);
+      this.lastActivityTick = Math.max(this.lastActivityTick, activity.tick);
       void this.queue.add(() =>
         this.storage.historyFile(frameId).mutate((history: IHistoryFile) => {
           history.activities.push(...(activities as IBotActivity[]));

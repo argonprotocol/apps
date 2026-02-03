@@ -1,8 +1,7 @@
 import { Config } from './Config';
 import { Db } from './Db';
-import { BotFetch } from './BotFetch';
+import { BotWsClient } from './BotWsClient.ts';
 import {
-  IBidReductionReason,
   type IBidsFile,
   type IBotState,
   type IBotStateStarting,
@@ -12,11 +11,12 @@ import {
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { getMining } from '../stores/mainchain';
-import { BotServerIsLoading, BotServerIsSyncing } from '../interfaces/BotErrors';
 import { IBotEmitter } from './Bot';
 import Installer from './Installer';
 import { IBidEntry } from './db/FrameBidsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
+import { SERVER_ENV_VARS } from './Env.ts';
+import { SSH } from './SSH.ts';
 
 export enum BotStatus {
   Starting = 'Starting',
@@ -31,27 +31,26 @@ export type IBotFns = {
   setStatus: (x: BotStatus) => void;
   setServerSyncProgress: (x: number) => void;
   setDbSyncProgress: (x: number) => void;
-  setMaxSeatsPossible: (x: number) => void;
-  setMaxSeatsReductionReason: (x: IBidReductionReason | null) => void;
+  setBotState: (state: IBotState) => void;
 };
 
 export class BotSyncer {
   public isPaused: boolean = false;
-
   private db: Db;
+
   private config: Config;
   private botState!: IBotState;
   private botFns: IBotFns;
   private installer: Installer;
   private isLoaded: boolean = false;
-
   private isSyncingThePast: boolean = false;
 
   private mainchain = getMining();
   private miningFrames: MiningFrames;
+  private botWsClient: BotWsClient | undefined;
+  private lastIpWhitelistedTime: number = 0;
 
   private bidsFileCacheByActivationFrameId: Record<number, [number, IBidsFile]> = {};
-  private lastModifiedDate: Date | null = null;
 
   constructor(config: Config, db: Db, installer: Installer, miningFrames: MiningFrames, botFn: IBotFns) {
     this.config = config;
@@ -70,28 +69,69 @@ export class BotSyncer {
     await this.miningFrames.load();
 
     console.log('BotSyncer: Running...');
-    void this.runContinuously();
+    void this.loopToStayConnected();
   }
 
-  private async runContinuously(): Promise<void> {
-    if (this.isRunnable) {
-      try {
-        const lastModifiedDate = await BotFetch.lastModifiedDate();
-        if ((lastModifiedDate?.getTime() ?? 0) > (this.lastModifiedDate?.getTime() ?? 0)) {
-          this.lastModifiedDate = lastModifiedDate;
-          await this.runSync();
-        }
-      } catch (error) {
-        await this.installer.ensureIpAddressIsWhitelisted();
-      }
+  public async getClient(): Promise<BotWsClient> {
+    if (!this.botWsClient) {
+      const ipAddress = await SSH.getIpAddress();
+      const url = `ws://${ipAddress}:${SERVER_ENV_VARS.BOT_PORT}`;
+      const client = new BotWsClient(url);
+      await client.connectDeferred.promise;
+      this.botWsClient = client;
+
+      client.events.on('/state', async (state: IBotState) => {
+        await this.runSync(state);
+      });
+      client.events.on('ws:disconnected', () => {
+        // trigger a reconnect and full sync
+        this.botState = undefined!;
+      });
     }
-
-    setTimeout(this.runContinuously.bind(this), 1000);
+    return this.botWsClient;
   }
 
-  private async runSync(): Promise<void> {
+  private async loopToStayConnected(): Promise<void> {
     try {
-      console.log('BotSyncer: Running sync...');
+      if (this.isRunnable) {
+        try {
+          const client = await this.getClient();
+          if (!this.botState) {
+            const state = await client.fetch('/state');
+            await this.runSync(state);
+          }
+        } catch (error) {
+          // try to whitelist IP again if connection fails, but only ever once every 10 minutes
+          if (!this.lastIpWhitelistedTime || Date.now() - this.lastIpWhitelistedTime >= 10 * 60e3) {
+            await this.installer.ensureIpAddressIsWhitelisted();
+            this.lastIpWhitelistedTime = Date.now();
+          }
+        }
+      }
+    } catch (e) {
+      console.error('BotSyncer loop error:', e);
+    } finally {
+      setTimeout(this.loopToStayConnected.bind(this), 1000);
+    }
+  }
+
+  private async runSync(state: IBotState | IBotStateStarting): Promise<void> {
+    console.log('BotState: Updating bot state...', state);
+    try {
+      if (state.serverError) {
+        this.botFns.setStatus(BotStatus.Broken);
+        console.error('BotSyncer error:', state.serverError);
+        return;
+      } else if (state.isSyncing) {
+        this.botFns.setStatus(BotStatus.ServerSyncing);
+        this.botFns.setServerSyncProgress(state.syncProgress);
+        return;
+      } else if (!state.isReady) {
+        this.botFns.setStatus(BotStatus.Starting);
+        return;
+      }
+
+      this.botState = state as IBotState;
       await this.updateBotState();
       await this.syncServerState();
       await this.syncCurrentBids();
@@ -101,16 +141,8 @@ export class BotSyncer {
         this.botFns.onEvent('updated-cohort-data', this.botState.currentFrameId);
       }
     } catch (e) {
-      this.lastModifiedDate = null; // Reset last modified date to ensure we re-fetch on next run
-      if (e instanceof BotServerIsLoading) {
-        this.botFns.setStatus(BotStatus.Starting);
-      } else if (e instanceof BotServerIsSyncing) {
-        this.botFns.setStatus(BotStatus.ServerSyncing);
-        this.botFns.setServerSyncProgress(e.progress);
-      } else {
-        this.botFns.setStatus(BotStatus.Broken);
-        console.error('BotSyncer error:', e);
-      }
+      this.botFns.setStatus(BotStatus.Broken);
+      console.error('BotSyncer error:', e);
     }
   }
 
@@ -125,7 +157,8 @@ export class BotSyncer {
   }
 
   private async syncCurrentBids() {
-    const activeBidsFile = await BotFetch.fetchBidsFile();
+    const client = await this.getClient();
+    const activeBidsFile = await client.fetch(`/bids`);
     console.log('BotSyncer: Syncing bids for bidding frame...', activeBidsFile.cohortBiddingFrameId);
     await this.db.frameBidsTable.insertOrUpdate(
       activeBidsFile.cohortBiddingFrameId,
@@ -146,11 +179,7 @@ export class BotSyncer {
   }
 
   private async updateBotState(): Promise<void> {
-    this.botState = await BotFetch.fetchBotState();
-    console.log('BotState: Updating bot state...', this.botState);
-
-    this.botFns.setMaxSeatsReductionReason(this.botState.maxSeatsReductionReason ?? null);
-    this.botFns.setMaxSeatsPossible(this.botState.maxSeatsPossible);
+    this.botFns.setBotState(this.botState);
 
     if (this.botState.oldestFrameIdToSync > 0) {
       this.config.oldestFrameIdToSync = this.botState.oldestFrameIdToSync;
@@ -228,7 +257,8 @@ export class BotSyncer {
   }
 
   public async syncDbFrame(frameId: number): Promise<void> {
-    const earningsFile = await BotFetch.fetchEarningsFile(frameId);
+    const client = await this.getClient();
+    const earningsFile = await client.fetch(`/earnings`, frameId);
     const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
 
     await this.db.framesTable.insertOrUpdate({
@@ -339,11 +369,9 @@ export class BotSyncer {
   }
 
   private async syncDbCohort(cohortActivationFrameId: number, earningsFile: IEarningsFile): Promise<void> {
-    console.info('syncDbCohort', cohortActivationFrameId);
     const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId });
     const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameRewardTicksRemaining);
     if (biddingFrameProgress < 100.0) {
-      console.info('syncDbCohort SKIPPING', cohortActivationFrameId, bidsFile);
       return;
     }
 
@@ -391,7 +419,8 @@ export class BotSyncer {
     }
 
     if (!bidsFile) {
-      bidsFile = await BotFetch.fetchBidsFile(cohortActivationFrameId);
+      const client = await this.getClient();
+      bidsFile = await client.fetch('/bids', cohortActivationFrameId - 1);
     }
 
     const isCurrentFrame = cohortActivationFrameId === this.botState.currentFrameId;
@@ -410,10 +439,6 @@ export class BotSyncer {
     const latestBitcoinBlockNumbers = this.botState.bitcoinBlockNumbers;
     const latestArgonBlockNumbers = this.botState.argonBlockNumbers;
     const savedState = await this.db.syncStateTable.get(SyncStateKeys.Server);
-    const history = await BotFetch.fetchHistory().then(x => {
-      x.activities.sort((a, b) => b.id - a.id);
-      return x;
-    });
 
     const hasBitcoinChanges =
       savedState?.bitcoinLocalNodeBlockNumber !== latestBitcoinBlockNumbers.localNode ||
@@ -421,18 +446,15 @@ export class BotSyncer {
     const hasArgonChanges =
       savedState?.argonLocalNodeBlockNumber !== latestArgonBlockNumbers.localNode ||
       savedState?.argonMainNodeBlockNumber !== latestArgonBlockNumbers.mainNode;
-    const lastActivityTick = history.activities.at(0)?.tick;
-    const lastActivityDate = lastActivityTick ? new Date(NetworkConfig.tickMillis * lastActivityTick) : null;
-    const hasBotActivityChanges =
-      savedState?.botActivities?.length !== history.activities.length ||
-      lastActivityDate !== savedState?.botActivityLastUpdatedAt;
+    const botLastActivityDate = this.botState.botLastActiveDate;
+    const hasBotActivityChanges = botLastActivityDate?.getTime() !== savedState?.botActivityLastUpdatedAt?.getTime();
 
     if (!hasBotActivityChanges && !hasBitcoinChanges && !hasArgonChanges) {
       return;
     }
     let bitcoinLastUpdatedAt = savedState?.bitcoinBlocksLastUpdatedAt;
     if (hasBitcoinChanges) {
-      bitcoinLastUpdatedAt = new Date(this.botState.bitcoinBlockNumbers.localNodeBlockTime * 1000);
+      bitcoinLastUpdatedAt = new Date(latestBitcoinBlockNumbers.localNodeBlockTime * 1000);
       if (bitcoinLastUpdatedAt > new Date()) {
         bitcoinLastUpdatedAt = new Date();
       }
@@ -450,15 +472,13 @@ export class BotSyncer {
     await this.db.syncStateTable.upsert(SyncStateKeys.Server, {
       latestFrameId: this.botState.currentFrameId,
       argonBlocksLastUpdatedAt,
-      argonLocalNodeBlockNumber: this.botState.argonBlockNumbers.localNode,
-      argonMainNodeBlockNumber: this.botState.argonBlockNumbers.mainNode,
+      argonLocalNodeBlockNumber: latestArgonBlockNumbers.localNode,
+      argonMainNodeBlockNumber: latestArgonBlockNumbers.mainNode,
       bitcoinLocalNodeBlockNumber: latestBitcoinBlockNumbers.localNode,
       bitcoinMainNodeBlockNumber: latestBitcoinBlockNumbers.mainNode,
       bitcoinBlocksLastUpdatedAt: bitcoinLastUpdatedAt,
-      botActivities: history.activities,
-      botActivityLastUpdatedAt: lastActivityDate || savedState?.botActivityLastUpdatedAt || new Date(),
-      botActivityLastBlockNumber:
-        (history.activities.at(-1)?.blockNumber || savedState?.botActivityLastBlockNumber) ?? 0,
+      botActivityLastUpdatedAt: botLastActivityDate || savedState?.botActivityLastUpdatedAt || new Date(),
+      botActivityLastBlockNumber: this.botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
     });
 
     this.botFns.onEvent('updated-server-state');

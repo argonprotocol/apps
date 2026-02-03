@@ -5,6 +5,7 @@ import {
   type ICohortBidderOptions,
   MainchainClients,
   Mining,
+  MiningFrames,
 } from '../src/index.js';
 import { startArgonTestNetwork } from './startArgonTestNetwork.js';
 import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
@@ -33,7 +34,7 @@ describe('CohortBidder unit tests', () => {
   });
 
   it('increases bids correctly', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       accountBalance: Argons(10),
     });
@@ -41,15 +42,14 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.atTick = 10;
 
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(0.51));
-    expect(accountsToBidWith.length).toBe(10);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+    expect(cohortBidder.nextBid!.microgonsPerSeat).toBe(Argons(0.51));
+    expect(cohortBidder.nextBid!.subaccounts.length).toBe(10);
   });
 
   it('bids with min bid before increment', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(5),
       accountBalance: Argons(51),
       bidIncrement: Argons(10),
@@ -57,30 +57,29 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.bids = createBids(10, Argons(1.0));
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(5));
-    expect(accountsToBidWith.length).toBe(10);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+    expect(cohortBidder.nextBid!.microgonsPerSeat).toBe(Argons(5));
+    expect(cohortBidder.nextBid!.subaccounts.length).toBe(10);
   });
 
   it('bids up to max budget', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       maxBid: Argons(0.51),
       accountBalance: Argons(10),
     });
     cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(0.51));
-    expect(accountsToBidWith.length).toBe(10);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(0.51));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
   });
 
   it('does not bid if next bid is over max', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       maxBid: Argons(0.6),
       accountBalance: Argons(10),
     });
@@ -93,8 +92,8 @@ describe('CohortBidder unit tests', () => {
     // works fine with
 
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(0);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeUndefined();
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
     expect(onBidParamsAdjusted.mock.calls[0][0]).toMatchObject(
       expect.objectContaining({
@@ -105,22 +104,21 @@ describe('CohortBidder unit tests', () => {
   });
 
   it('reduces bids to fit budget', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       maxBid: Argons(4.9),
       accountBalance: Argons(10),
     });
     cohortBidder.currentBids.bids = createBids(10, Argons(4.4));
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(4.41));
-    expect(accountsToBidWith.length).toBe(2);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(4.41));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(2);
   });
 
   it('submits bids for all seats if no others are present', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(4.9),
       accountBalance: Argons(50),
@@ -128,15 +126,15 @@ describe('CohortBidder unit tests', () => {
     cohortBidder.currentBids.bids = [];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(0.5));
-    expect(accountsToBidWith.length).toBe(10);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(0.5));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
   });
 
   it('can bid up existing seats', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       maxBid: Argons(4.9),
       accountBalance: Argons(50),
     });
@@ -148,15 +146,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(4.11));
-    expect(accountsToBidWith.length).toBe(10);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(4.11));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
   });
 
   it('can bid up only some existing seats', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(4),
       maxBid: Argons(5.5),
       accountBalance: Argons(50),
@@ -169,15 +167,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(4));
-    expect(accountsToBidWith.length).toBe(6);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(4));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(6);
   });
 
   it('can beat out multiple tiers of seats', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(3),
       maxBid: Argons(5.5),
       accountBalance: Argons(50),
@@ -190,15 +188,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(3.54));
-    expect(accountsToBidWith.length).toBe(10);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(3.54));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
   });
 
   it('can beat out multiple tiers of seats when some are own', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(3),
       maxBid: Argons(5.5),
       accountBalance: Argons(40 + 0.06 - 3 * 3.53),
@@ -213,15 +211,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(accountsToBidWith.length).toBe(6);
-    expect(microgonsPerSeat).toBe(Argons(3.52)); // should take available spot
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(6);
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(3.52)); // should take available spot
   });
 
   it('fills empty bids at lowest price when owning high bid', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(10),
       accountBalance: Argons(90 + 0.6),
@@ -233,15 +231,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(accountsToBidWith.length).toBe(9);
-    expect(microgonsPerSeat).toBe(Argons(0.5)); // should take available spot
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(9);
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(0.5)); // should take available spot
   });
 
   it('can take lower bids if only competing against self', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(10),
       accountBalance: Argons(90 + 0.6),
@@ -255,15 +253,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(accountsToBidWith.length).toBe(9);
-    expect(microgonsPerSeat).toBe(Argons(1.01));
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(9);
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(1.01));
   });
 
   it('can maximize seats', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(3),
       maxBid: Argons(8),
       bidIncrement: Argons(1),
@@ -280,15 +278,15 @@ describe('CohortBidder unit tests', () => {
     ];
     cohortBidder.currentBids.atTick = 10;
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(5));
-    expect(accountsToBidWith.length).toBe(8);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(5));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(8);
   });
 
   it("should not bid if it doesn't increase seats", async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(3),
       maxBid: Argons(8),
       bidIncrement: Argons(1),
@@ -306,14 +304,14 @@ describe('CohortBidder unit tests', () => {
       onBidParamsAdjusted,
     };
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(0);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeUndefined();
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
     expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-bid-too-low');
   });
 
   it('should be not exceed available argonots', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(5),
       accountBalance: Argons(10),
@@ -328,15 +326,15 @@ describe('CohortBidder unit tests', () => {
     };
 
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(0.51));
-    expect(accountsToBidWith.length).toBe(2);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(0.51));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(2);
   });
 
   it('should be able to set a max argonot budget', async () => {
-    const { cohortBidder, submitBids } = await createBidderWithMocks(accountset, [0, 9], {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(5),
       accountBalance: Argons(10),
@@ -358,11 +356,11 @@ describe('CohortBidder unit tests', () => {
     };
 
     // @ts-expect-error - private var
-    await expect(cohortBidder.checkWinningBids()).resolves.toBeUndefined();
-    expect(submitBids).toHaveBeenCalledTimes(1);
-    const [microgonsPerSeat, accountsToBidWith] = submitBids.mock.calls[0];
-    expect(microgonsPerSeat).toBe(Argons(0.51));
-    expect(accountsToBidWith.length).toBe(1);
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+    expect(cohortBidder.nextBid).toBeTruthy();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(Argons(0.51));
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(1);
 
     expect(onBidParamsAdjusted).toHaveBeenCalledTimes(1);
     expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('insufficient-argonot-balance');
@@ -400,7 +398,7 @@ async function createBidderWithMocks(
   options.bidIncrement ??= 10_000n;
   options.bidDelay ??= 1;
 
-  const cohortBidder = new CohortBidder(accountset, 10, subaccounts, options as ICohortBidderOptions);
+  const cohortBidder = new CohortBidder(accountset, null as any, 10, subaccounts, options as ICohortBidderOptions);
   // @ts-expect-error - private var
   cohortBidder.nextCohortSize = 10;
   // @ts-expect-error - private var
@@ -491,6 +489,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         console.log(`Cohort ${cohortStartingFrameId} started bidding`);
         bobBidder = new CohortBidder(
           bob,
+          new MiningFrames(new MainchainClients(bobAddress, () => false, bob.client)),
           cohortStartingFrameId,
           await bob.getAvailableMinerAccounts(10),
           {
@@ -505,6 +504,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         );
         aliceBidder = new CohortBidder(
           alice,
+          new MiningFrames(clients),
           cohortStartingFrameId,
           await alice.getAvailableMinerAccounts(10),
           {

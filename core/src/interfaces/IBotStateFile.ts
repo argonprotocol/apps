@@ -1,5 +1,4 @@
 import type { IBlockNumbers } from './IBlockNumbers.ts';
-import type { ILastModifiedAt } from './ILastModified.ts';
 import type { IBidReductionReason } from '../CohortBidder.js';
 
 export interface IBotStateStarting {
@@ -9,30 +8,35 @@ export interface IBotStateStarting {
   isSyncing?: boolean;
   syncProgress: number;
   argonBlockNumbers: IBlockNumbers;
-  bitcoinBlockNumbers: IBlockNumbers;
-}
-
-export interface IBotStateError extends IBotStateStarting {
+  bitcoinBlockNumbers: IBlockNumbers & { localNodeBlockTime: number };
   serverError: string | null;
 }
 
-export interface IBotSyncStatus {
-  isReady: boolean;
-  isStarting?: boolean;
-  isWaitingForBiddingRules?: boolean;
-  isSyncing?: boolean;
-  maxSeatsInPlay?: number;
+export interface IBotSyncStatus extends IBotStateStarting {
+  maxSeatsInPlay: number;
   maxSeatsReductionReason?: IBidReductionReason;
 }
 
-export interface IBotState extends ILastModifiedAt, IBotSyncStatus, IBotStateFile {
-  argonBlockNumbers: IBlockNumbers;
-  bitcoinBlockNumbers: IBlockNumbers & { localNodeBlockTime: number };
-  lastBlockNumber: number;
-  syncedToBlockNumber: number;
-  lastFinalizedBlockNumber: number;
-  queueDepth: number;
-  maxSeatsPossible: number;
+export interface IBotState extends IBotSyncStatus, IBotStateFile {
+  botLastActiveDate: Date;
+  botLastActiveBlockNumber: number;
+  bidsInCurrentFrame: number;
+  bidsInPreviousFrame: number;
+  isBiddingOpen: boolean;
+  nextBid?: {
+    atTick: number;
+    microgonsPerSeat: bigint;
+    alreadyWinningSeats: number;
+    seats: number;
+  };
+  lastBid?: {
+    submittedAtTick: number;
+    expectedFinalizationTick: number;
+    isFinalized: boolean;
+    microgonsPerSeat: bigint;
+    seats: number;
+    seatsWon?: number;
+  };
 }
 
 export interface IBotStateFile {
@@ -44,9 +48,4 @@ export interface IBotStateFile {
   hasMiningSeats: boolean;
   currentTick: number;
   currentFrameId: number;
-  currentFrameFirstTick: number;
-  currentFrameRewardTicksRemaining: number;
-  lastBlockNumberByFrameId: {
-    [frameId: number]: number;
-  };
 }

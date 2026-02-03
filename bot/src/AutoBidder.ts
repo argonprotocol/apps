@@ -20,10 +20,19 @@ import BiddingCalculator from '@argonprotocol/apps-core/src/BiddingCalculator.ts
  */
 export class AutoBidder {
   public readonly mining: Mining;
-  private readonly biddingCalculator: BiddingCalculator;
+  public get currentBidder(): CohortBidder | undefined {
+    return this.cohortBiddersByActivationFrameId.get(this.nextCohortActivationFrameId ?? 0);
+  }
+  public get previousBidder(): CohortBidder | undefined {
+    if (!this.nextCohortActivationFrameId) return undefined;
+    return this.cohortBiddersByActivationFrameId.get(this.nextCohortActivationFrameId - 1);
+  }
   private cohortBiddersByActivationFrameId = new Map<number, CohortBidder>();
+  private nextCohortActivationFrameId: number | null = null;
   private isStopped: boolean = false;
   private unsubscribe?: () => void;
+  private readonly biddingCalculator: BiddingCalculator;
+  private onUpdatedFn?: () => void;
 
   constructor(
     private readonly accountset: Accountset,
@@ -36,6 +45,13 @@ export class AutoBidder {
     this.mining = new Mining(this.mainchainClients);
     const calculatorData = new BiddingCalculatorData(this.mining, this.miningFrames);
     this.biddingCalculator = new BiddingCalculator(calculatorData, this.biddingRules);
+  }
+
+  public subscribeToUpdates(onUpdatedFn: () => void) {
+    this.onUpdatedFn = onUpdatedFn;
+    for (const bidder of this.cohortBiddersByActivationFrameId.values()) {
+      bidder.onUpdatedFn = onUpdatedFn;
+    }
   }
 
   public async start(localRpcUrl: string): Promise<void> {
@@ -60,6 +76,7 @@ export class AutoBidder {
     for (const key of this.cohortBiddersByActivationFrameId.keys()) {
       await this.onBiddingEnd(key, true);
     }
+    this.onUpdatedFn = undefined;
     this.cohortBiddersByActivationFrameId.clear();
     console.log('AUTOBIDDER STOPPED');
   }
@@ -89,9 +106,12 @@ export class AutoBidder {
   }
 
   private async onBiddingEnd(cohortActivationFrameId: number, isShuttingDown = false): Promise<void> {
-    await this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId)?.stop(!isShuttingDown);
-    this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
-    console.log('Bidding stopped', { cohortActivationFrameId });
+    const cohortBidder = this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId);
+    if (cohortBidder) {
+      cohortBidder.isBiddingOpen = false;
+      await cohortBidder.stop(!isShuttingDown);
+      console.log('Bidding stopped', { cohortActivationFrameId });
+    }
   }
 
   private async onBiddingStart(cohortActivationFrameId: number) {
@@ -129,58 +149,80 @@ export class AutoBidder {
         subaccounts.push(...added);
       }
 
-      const cohortBidder = new CohortBidder(this.accountset, cohortActivationFrameId, subaccounts, params, {
-        onBidParamsAdjusted: args => {
-          const { availableBalanceForBids, availableMicronots, blockNumber, reason, tick, maxSeats, winningBidCount } =
-            args;
-          const seatsInPlay = Math.max(maxSeats, winningBidCount);
+      const cohortBidder = new CohortBidder(
+        this.accountset,
+        this.miningFrames,
+        cohortActivationFrameId,
+        subaccounts,
+        params,
+        {
+          onBidParamsAdjusted: args => {
+            const {
+              availableBalanceForBids,
+              availableMicronots,
+              blockNumber,
+              reason,
+              tick,
+              maxSeats,
+              winningBidCount,
+            } = args;
+            const seatsInPlay = Math.max(maxSeats, winningBidCount);
 
-          this.history.handleSeatFluctuation({
-            tick,
-            blockNumber,
-            newMaxSeats: seatsInPlay,
-            reason,
-            availableMicrogons: availableBalanceForBids,
-            availableMicronots,
-            frameId: cohortActivationFrameId,
-          });
+            this.history.handleSeatFluctuation({
+              tick,
+              blockNumber,
+              newMaxSeats: seatsInPlay,
+              reason,
+              availableMicrogons: availableBalanceForBids,
+              availableMicronots,
+              frameId: cohortActivationFrameId,
+            });
+          },
+          onBidsUpdated: args => {
+            const { tick, bids, atBlockNumber, isReloadingInitialState } = args;
+            this.history.handleIncomingBids({
+              tick,
+              blockNumber: atBlockNumber,
+              nextEntrants: bids,
+              frameId: cohortActivationFrameId,
+              isReloadingInitialState,
+            });
+          },
+          onBidsSubmitted: args => {
+            const { tick, blockNumber, microgonsPerSeat, submittedCount, txFeePlusTip } = args;
+            this.history.handleBidsSubmitted({
+              tick,
+              blockNumber,
+              microgonsPerSeat,
+              submittedCount,
+              txFeePlusTip,
+              frameId: cohortActivationFrameId,
+            });
+          },
+          onBidsRejected: args => {
+            const { tick, blockNumber, bidError, microgonsPerSeat, rejectedCount, submittedCount } = args;
+            this.history.handleBidsRejected({
+              tick,
+              blockNumber,
+              bidError,
+              microgonsPerSeat,
+              rejectedCount,
+              submittedCount,
+              frameId: cohortActivationFrameId,
+            });
+          },
         },
-        onBidsUpdated: args => {
-          const { tick, bids, atBlockNumber, isReloadingInitialState } = args;
-          this.history.handleIncomingBids({
-            tick,
-            blockNumber: atBlockNumber,
-            nextEntrants: bids,
-            frameId: cohortActivationFrameId,
-            isReloadingInitialState,
-          });
-        },
-        onBidsSubmitted: args => {
-          const { tick, blockNumber, microgonsPerSeat, submittedCount, txFeePlusTip } = args;
-          this.history.handleBidsSubmitted({
-            tick,
-            blockNumber,
-            microgonsPerSeat,
-            submittedCount,
-            txFeePlusTip,
-            frameId: cohortActivationFrameId,
-          });
-        },
-        onBidsRejected: args => {
-          const { tick, blockNumber, bidError, microgonsPerSeat, rejectedCount, submittedCount } = args;
-          this.history.handleBidsRejected({
-            tick,
-            blockNumber,
-            bidError,
-            microgonsPerSeat,
-            rejectedCount,
-            submittedCount,
-            frameId: cohortActivationFrameId,
-          });
-        },
-      });
+      );
       if (this.isStopped) return;
+      cohortBidder.onUpdatedFn = this.onUpdatedFn;
+      this.nextCohortActivationFrameId = cohortActivationFrameId;
       this.cohortBiddersByActivationFrameId.set(cohortActivationFrameId, cohortBidder);
+      for (const activationFrameId of this.cohortBiddersByActivationFrameId.keys()) {
+        // keep only the current and previous cohort bidders
+        if (activationFrameId < cohortActivationFrameId - 1) {
+          this.cohortBiddersByActivationFrameId.delete(activationFrameId);
+        }
+      }
       this.history.initCohort(cohortActivationFrameId, cohortBidder.myAddresses);
       await cohortBidder.start();
     } catch (err) {

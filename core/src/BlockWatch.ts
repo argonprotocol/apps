@@ -46,6 +46,8 @@ export class BlockWatch {
   public isLoaded = createDeferred(false);
   private processingQueue = new SingleFileQueue();
 
+  public subscriptionClient!: ArgonClient;
+
   private unsubscribe: (() => void) | undefined;
   private isPrunedClientSubscription: boolean = false;
 
@@ -74,6 +76,7 @@ export class BlockWatch {
         this.isPrunedClientSubscription = true;
       }
       client ??= await this.clients.archiveClientPromise;
+      this.subscriptionClient = client;
       const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
       this.latestHeaders = [BlockWatch.readHeader(finalizedHeader)];
       const hasBlockData = createDeferred();

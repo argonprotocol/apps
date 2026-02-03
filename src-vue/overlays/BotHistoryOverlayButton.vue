@@ -1,16 +1,17 @@
 <!-- prettier-ignore -->
 <template>
-  <Popover as="div" class="relative">
-    <PopoverButton class="focus:outline-none">
+  <PopoverRoot as="div" class="relative" @update:open="onOpen">
+    <PopoverTrigger class="focus:outline-none">
       <slot>
         <span class="border border-argon-300 text-center text-lg font-bold mt-10 whitespace-nowrap text-argon-600 px-7 py-2 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           View Bidding Activity
         </span>
       </slot>
-    </PopoverButton>
-    <PopoverPanel as="div" :class="panelPositioningClasses" class="absolute w-220 text-center text-lg font-bold mt-10 bg-white rounded-lg shadow-lg border border-gray-300 z-50">
-      <div :class="arrowPositioningClasses" class="absolute w-[30px] h-[15px] overflow-hidden">
-        <div class="relative top-[5px] left-[5px] w-[20px] h-[20px] rotate-45 bg-white ring-1 ring-gray-900/20"></div>
+    </PopoverTrigger>
+    <PopoverContent as="div" :class="panelPositioningClasses"
+      class="absolute w-220 text-center text-lg font-bold mt-3 mr-4 bg-white rounded-lg shadow-lg border border-gray-300 z-50">
+      <div :class="arrowPositioningClasses" class="absolute h-[15px] w-[30px] overflow-hidden">
+        <div class="relative top-[5px] left-[5px] h-[20px] w-[20px] rotate-45 bg-white ring-1 ring-gray-900/20"></div>
       </div>
       <div class="flex flex-col text-base px-6 pt-4 pb-2 h-full max-w-full">
         <h2 class="text-left text-2xl font-bold mb-2">Recent Bidding Activity</h2>
@@ -53,16 +54,15 @@
           </tbody>
         </table>
       </div>
-    </PopoverPanel>
-  </Popover>
+    </PopoverContent>
+  </PopoverRoot>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getCurrency } from '../stores/currency';
-import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
+import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { createNumeralHelpers } from '../lib/numeral';
-import { getStats } from '../stores/stats';
 import {
   BotActivityType,
   type IBotActivity,
@@ -79,6 +79,8 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { botEmitter } from '../lib/Bot.ts';
+import { getBot } from '../stores/bot.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -92,7 +94,60 @@ const props = withDefaults(
   },
 );
 
-const stats = getStats();
+const bot = getBot();
+const isOpen = Vue.ref(false);
+
+function onOpen(open: boolean) {
+  isOpen.value = open;
+  if (open) {
+    void updateActivities();
+  }
+}
+
+async function onServerStateUpdated() {
+  if (!isOpen.value) return;
+  await updateActivities();
+}
+Vue.onMounted(() => {
+  botEmitter.on('updated-server-state', onServerStateUpdated);
+});
+Vue.onUnmounted(() => {
+  botEmitter.off('updated-server-state', onServerStateUpdated);
+});
+
+async function updateActivities() {
+  const client = await bot.getClient();
+  const biddingActivity = await client.fetch('/history');
+  for (const activity of biddingActivity.activities) {
+    if (activities.value.find(a => a.id === activity.id)) {
+      continue;
+    }
+    const id = activity.id;
+    const type = extractBidType(activity);
+    let bidderAddress: string | undefined = undefined;
+    let isMine = false;
+    if (activity.type === BotActivityType.BidReceived) {
+      bidderAddress = activity.data.bidderAddress;
+      isMine = subaccounts.value.has(bidderAddress);
+    }
+    const timestamp = MiningFrames.getTickDate(activity.tick);
+    const message = extractMessage(activity);
+    activities.value.push({
+      id,
+      type,
+      bidderAddress,
+      isMine,
+      timestamp: dayjs.utc(timestamp),
+      message,
+    });
+  }
+
+  activities.value.sort((a, b) => b.id - a.id);
+  if (activities.value.length > 15) {
+    activities.value = activities.value.slice(0, 15);
+  }
+}
+
 const walletKeys = getWalletKeys();
 const currency = getCurrency();
 
@@ -125,30 +180,16 @@ Vue.onMounted(() => {
   });
 });
 
-const activities = Vue.computed(() => {
-  return stats.biddingActivity
-    .map(activity => {
-      const id = activity.id;
-      const type = extractBidType(activity);
-      let bidderAddress: string | undefined = undefined;
-      let isMine = false;
-      if (activity.type === BotActivityType.BidReceived) {
-        bidderAddress = activity.data.bidderAddress;
-        isMine = subaccounts.value.has(bidderAddress);
-      }
-      const timestamp = MiningFrames.getTickDate(activity.tick);
-      const message = extractMessage(activity);
-      return {
-        id,
-        type,
-        bidderAddress,
-        isMine,
-        timestamp: dayjs.utc(timestamp),
-        message,
-      };
-    })
-    .slice(0, 15);
-});
+const activities = Vue.ref(
+  [] as {
+    id: number;
+    type: string;
+    bidderAddress: string | undefined;
+    isMine: boolean;
+    timestamp: dayjs.Dayjs;
+    message: string;
+  }[],
+);
 
 function extractMessage(activity: IBotActivity): string {
   if (activity.type === BotActivityType.BidReceived) {
@@ -174,7 +215,7 @@ function extractMessage(activity: IBotActivity): string {
       return `Existing bid #${previousBidPosition + 1} (${currency.symbol}${microgonToMoneyNm(microgonsBid ?? 0n).format('0,0.00')}) ${action}`;
     }
   } else if (activity.type === BotActivityType.BidsSubmitted) {
-    const { microgonsPerSeat, txFeePlusTip, submittedCount } = activity.data as IBotActivityBidsSubmitted;
+    const { microgonsPerSeat, submittedCount } = activity.data as IBotActivityBidsSubmitted;
     return `${submittedCount} new bids were submitted for ${currency.symbol}${microgonToMoneyNm(microgonsPerSeat).format('0,0.00')} per seat`;
   } else if (activity.type === BotActivityType.SeatReduction) {
     const { prevSeatsInPlay, maxSeatsInPlay } = activity.data as IBotActivitySeatReduction;

@@ -62,10 +62,11 @@ import { WatchHandle } from 'vue';
 import numeral from '../lib/numeral';
 import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
-import { BotFetch } from '../lib/BotFetch.ts';
 import { getStats } from '../stores/stats.ts';
+import { getBot } from '../stores/bot.ts';
 
 const stats = getStats();
+const bot = getBot();
 
 const blocks = Vue.ref<IBitcoinBlockMeta[]>([]);
 
@@ -107,7 +108,8 @@ let lastBlockNumber = 0;
 let watcher: WatchHandle | undefined;
 
 async function load() {
-  blocks.value = await BotFetch.fetchLatestBitcoinBlocks();
+  const client = await bot.getClient();
+  blocks.value = await client.fetch('/bitcoin-recent-blocks');
   watcher = Vue.watch(
     stats.serverState,
     async value => {
@@ -115,7 +117,7 @@ async function load() {
         return;
       }
       lastBlockNumber = value.bitcoinLocalNodeBlockNumber;
-      blocks.value = await BotFetch.fetchLatestBitcoinBlocks();
+      blocks.value = await client.fetch('/bitcoin-recent-blocks');
     },
     { deep: true },
   );
@@ -125,6 +127,5 @@ function unload() {
   watcher?.stop();
 }
 
-Vue.onMounted(load);
 Vue.onBeforeUnmount(unload);
 </script>

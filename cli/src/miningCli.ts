@@ -1,5 +1,5 @@
 import { Command } from '@commander-js/extra-typings';
-import { CohortBidder, MainchainClients, Mining } from '@argonprotocol/apps-core';
+import { CohortBidder, MainchainClients, Mining, MiningFrames } from '@argonprotocol/apps-core';
 import { getClient, type KeyringPair, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
 
 import { accountsetFromCli, globalOptions, saveKeyringPair } from './index.js';
@@ -28,8 +28,11 @@ export default function miningCli() {
       async ({ maxSeats, runContinuous, maxBid, minBid, maxBalance, bidDelay, bidIncrement, proxyForAddress }) => {
         const accountset = await accountsetFromCli(program, proxyForAddress);
 
-        const miningBids = new Mining(new MainchainClients('', () => true, accountset.client));
+        const clients = new MainchainClients('', () => true, accountset.client);
+        const miningBids = new Mining(clients);
         const biddersByFrames: { [frameId: number]: CohortBidder } = {};
+        const miningFrames = new MiningFrames(clients);
+        await miningFrames.load();
 
         const stopBidder = async (cohortStartingFrameId: number, unsubscribe: () => void) => {
           const cohortBidder = biddersByFrames[cohortStartingFrameId];
@@ -81,7 +84,7 @@ export default function miningCli() {
             const subaccountRange = await accountset.getAvailableMinerAccounts(seatsToWin);
 
             await stopBidder(cohortStartingFrameId - 1, unsubscribe);
-            const cohortBidder = new CohortBidder(accountset, cohortStartingFrameId, subaccountRange, {
+            const cohortBidder = new CohortBidder(accountset, miningFrames, cohortStartingFrameId, subaccountRange, {
               maxBid: maxBidAmount,
               minBid: BigInt((minBid ?? 0) * MICROGONS_PER_ARGON),
               bidIncrement: BigInt(Math.floor(bidIncrement * MICROGONS_PER_ARGON)),
