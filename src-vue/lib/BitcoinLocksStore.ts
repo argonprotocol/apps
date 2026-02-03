@@ -1081,7 +1081,7 @@ export default class BitcoinLocksStore {
 
     latestBitcoinLock ??= await BitcoinLock.get(apiClient, lock.utxoId!);
     if (!latestBitcoinLock) return;
-    const utxoRef = await latestBitcoinLock.getUtxoRef(apiClient).catch(() => undefined);
+    const utxoRef = await latestBitcoinLock.getFundingUtxoRef(apiClient).catch(() => undefined);
     if (utxoRef) {
       lock.lockedTxid = utxoRef.txid;
       lock.lockedVout = utxoRef.vout;
@@ -1148,7 +1148,7 @@ export default class BitcoinLocksStore {
       return;
     }
 
-    if (!bitcoinLock.isVerified) {
+    if (!bitcoinLock.isFunded) {
       return;
     }
     await this.tryUpdateLockTxid(lock, finalizedApi, bitcoinLock);

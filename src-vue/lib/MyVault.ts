@@ -332,7 +332,7 @@ export class MyVault {
       console.warn('No release request found for utxoId:', utxoId);
       return;
     }
-    const utxoRef = await lock.getUtxoRef(finalizedClient);
+    const utxoRef = await lock.getFundingUtxoRef(finalizedClient);
     if (!utxoRef) {
       console.warn('No UTXO reference found for utxoId:', utxoId);
       return;
