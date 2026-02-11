@@ -1,12 +1,27 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ES2022",
-    "moduleResolution": "Node",
-    "strict": false,
-    "esModuleInterop": true,
+    // Enable latest features
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "NodeNext",
+    "allowJs": true,
+
+    // Bundler mode
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    // Best practices
+    "strict": true,
     "skipLibCheck": true,
-    "types": ["node", "@wdio/globals/types", "@wdio/mocha-framework", "expect-webdriverio"],
+    "noFallthroughCasesInSwitch": true,
+
+    // Some stricter flags
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "rootDir": "."
   },
-  "include": ["./tests/**/*.ts", "./wdio.conf.ts", "./argon/*.ts"]
+  "include": ["./**/*.ts"]
 }

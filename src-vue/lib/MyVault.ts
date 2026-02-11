@@ -319,7 +319,9 @@ export class MyVault {
         bitcoinNetworkFee: lock.releaseBitcoinNetworkFee!,
       });
       if (!result) {
-        throw new Error("Failed to add the vault's co-signature.");
+        // The release request can lag briefly on finalized views. Treat as retryable and
+        // let the next lock-processing poll attempt cosign again.
+        return;
       }
       return result;
     } catch (error) {

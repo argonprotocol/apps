@@ -81,7 +81,7 @@ export const useBlockchainStore = defineStore('blockchain', () => {
     await blockWatch.start();
 
     let blockNumber = lastBlockNumber ?? blockWatch.bestBlockHeader.blockNumber;
-    while (blocks.length < maxBlockCount) {
+    while (blocks.length < maxBlockCount && blockNumber >= 0) {
       const headerInfo = await blockWatch.getHeader(blockNumber);
       const block = await fetchBlock(headerInfo);
       blocks.push(block);

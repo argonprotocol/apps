@@ -16,6 +16,9 @@ export const APP_NAME = __ARGON_APP_NAME__ || 'Argon';
 
 export const NETWORK_NAME = __ARGON_NETWORK_NAME__ || 'mainnet';
 NetworkConfig.setNetwork(NETWORK_NAME as any);
+if (__ARGON_NETWORK_CONFIG_OVERRIDE__) {
+  NetworkConfig.setRuntimeOverride(NETWORK_NAME as any, __ARGON_NETWORK_CONFIG_OVERRIDE__ as any);
+}
 export const ENABLE_AUTO_UPDATE = __ARGON_APP_ENABLE_AUTOUPDATE__ ?? false;
 
 export const SERVER_ENV_VARS = __SERVER_ENV_VARS__ ?? {};

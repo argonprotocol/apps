@@ -82,7 +82,7 @@ export class Vaults {
   public async updateVaultRevenue(vaultId: number, frameRevenues: PalletVaultsVaultFrameRevenue[], skipSaving = false) {
     this.stats ??= { synchedToFrame: 0, vaultsById: {} };
     this.stats.vaultsById[vaultId] ??= {
-      openedTick: this.vaultsById[vaultId]?.openedTick ?? 0n,
+      openedTick: this.vaultsById[vaultId]?.openedTick ?? 0,
       baseline: {
         bitcoinLocks: 0,
         feeRevenue: 0n,

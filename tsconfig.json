@@ -37,11 +37,11 @@
     "bot/**/*.ts",
     "cli/**/*.ts",
     "core/**/*.ts",
-    "indexer/**/*.ts"
+    "indexer/**/*.ts",
+    "e2e/**/*.ts"
   ],
   "exclude": [
-    "**/*.js",
-    "e2e"
+    "**/*.js"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

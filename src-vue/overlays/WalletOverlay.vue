@@ -93,7 +93,7 @@
 
       <div class="flex flex-col w-full max-w-44 items-end justify-end">
         <img :src="qrCode" width="100%" />
-        <CopyToClipboard :content="wallet.address" class="relative mb-3 mr-5 cursor-pointer">
+        <CopyToClipboard data-testid="walletAddress" :content="wallet.address" class="relative mb-3 mr-5 cursor-pointer">
           <span class="opacity-80">
             {{ abbreviateAddress(wallet.address) }}
             <CopyIcon class="w-4 h-4 ml-1 inline-block" />

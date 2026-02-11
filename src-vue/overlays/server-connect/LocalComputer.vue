@@ -6,15 +6,17 @@
       connected to the internet at all times. It also requires you to install Docker.
     </DialogDescription>
 
-    <div v-if="blockedPorts.length" Warning>
+    <div v-if="blockedPorts.length" Warning data-testid="ServerConnectOverlay.local.warning">
       <strong>INELIGIBLE:</strong>
       This option requires that port{{ blockedPorts.length === 1 ? '' : 's' }}
-      <strong class="font-bold">{{ formatPorts(blockedPorts) }}</strong>
+      <strong data-testid="ServerConnectOverlay.local.blockedPorts" class="font-bold">
+        {{ formatPorts(blockedPorts) }}
+      </strong>
       be available for Argon's mining machine. It seems that some other application is using these ports. Please release
       these ports on your computer or use another server option.
     </div>
 
-    <div v-else Warning>
+    <div v-else Warning data-testid="ServerConnectOverlay.local.warning">
       <strong>WARNING:</strong>
       You should ONLY proceed if you can keep this app running and connected to the internet at all times. If this app
       closes for any reason, you will lose all revenue while its closed, and you will not be able to claw it back. This
@@ -41,13 +43,15 @@
         </div>
 
         <div class="flex grow flex-col">
-          <header class="text-2xl font-bold text-slate-800/80">
+          <header data-testid="ServerConnectOverlay.local.diskStatus" class="text-2xl font-bold text-slate-800/80">
             <template v-if="isCheckingDiskSpace">Checking Available Disk Space</template>
             <template v-if="hasEnoughDiskSpace">Found 100+ GB of Available Disk Space</template>
             <template v-else>Could Not Find Enough Disk Space</template>
           </header>
           <p class="mt-1">Argon Miner requires a minimum of 100GB of available hard disk space.</p>
-          <div class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase">
+          <div
+            data-testid="ServerConnectOverlay.local.diskSummary"
+            class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase">
             {{ numeral(availableGBs).format('0,0.[000]') }} GB of available space was found on this machine
           </div>
         </div>
@@ -64,7 +68,7 @@
           <DockerIcon class="w-full" />
         </div>
         <div class="flex grow flex-col">
-          <header class="text-2xl font-bold text-slate-800/80">
+          <header data-testid="ServerConnectOverlay.local.dockerStatus" class="text-2xl font-bold text-slate-800/80">
             {{ isDockerStarted ? 'Found' : 'Checking for' }} Docker v27+
           </header>
           <p class="mt-1">
@@ -75,7 +79,9 @@
             .
           </p>
           <p class="mt-3">If you've already installed Docker, make sure it is running.</p>
-          <div class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase">
+          <div
+            data-testid="ServerConnectOverlay.local.dockerSummary"
+            class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase">
             {{ isDockerStarted ? 'DOCKER VERSION 27+ WAS FOUND RUNNING ON THIS MACHINE' : 'WAITING...' }}
           </div>
         </div>

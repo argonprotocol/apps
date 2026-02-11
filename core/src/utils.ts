@@ -37,6 +37,9 @@ export function bigNumberToInteger(bn: BigNumber): number {
 }
 
 export function bigNumberToBigInt(bn: BigNumber): bigint {
+  if (!bn || !bn.isFinite()) {
+    return 0n;
+  }
   return BigInt(bn.integerValue(BigNumber.ROUND_DOWN).toString());
 }
 

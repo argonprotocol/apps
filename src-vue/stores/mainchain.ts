@@ -8,13 +8,14 @@ import {
   MiningFrames,
 } from '@argonprotocol/apps-core';
 import { ApiDecoration } from '@argonprotocol/mainchain';
-import { LOG_DEBUG, NETWORK_NAME, NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
+import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL, SERVER_ENV_VARS } from '../lib/Env.ts';
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
 import { getBot } from './bot.ts';
 import { VaultCalculator } from '../lib/VaultCalculator.ts';
 import { SSH } from '../lib/SSH.ts';
+import { Config } from '../lib/Config.ts';
 import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
@@ -94,16 +95,25 @@ export function getMiningFrames(): MiningFrames {
   if (!miningFrames) {
     console.log('Initializing MiningFrames', NETWORK_NAME);
     const clients = getMainchainClients();
-    const storageFile = `${NETWORK_NAME}/miningFrames.json`;
+    const storageFile = `${NETWORK_NAME}/${INSTANCE_NAME}/miningFrames.json`;
+    const dir = {
+      baseDir: BaseDirectory.AppConfig,
+    };
     miningFrames = new MiningFrames(clients, getBlockWatch(), {
-      read: () =>
-        readTextFile(storageFile, {
-          baseDir: BaseDirectory.AppConfig,
-        }),
-      write: data =>
-        writeTextFile(storageFile, data, {
-          baseDir: BaseDirectory.AppConfig,
-        }),
+      read: async () => {
+        // First try the old location for backward compatibility, then the new location
+        return (
+          (await readTextFile(`${NETWORK_NAME}/miningFrames.json`, dir).catch(() => null)) ??
+          (await readTextFile(storageFile, dir).catch(err => {
+            const message = String(err).toLowerCase();
+            if (!message.includes('no such file or directory') && !message.includes('not found')) {
+              console.error(`Error reading from mining frames file`, err);
+            }
+            return null;
+          }))
+        );
+      },
+      write: data => writeTextFile(storageFile, data, dir),
     });
   }
   return miningFrames;
@@ -118,11 +128,16 @@ export function getMining(): Mining {
 
 export function getBiddingCalculator(): BiddingCalculator {
   const config = getConfig();
-  if (!config.isLoaded) {
-    throw new Error('Config must be loaded before BiddingCalculator can be initialized');
-  }
   if (!biddingCalculator) {
-    biddingCalculator = new BiddingCalculator(getBiddingCalculatorData(), config.biddingRules as IBiddingRules);
+    const defaultRules = Config.getDefault('biddingRules') as IBiddingRules;
+    const initialRules = config.isLoaded ? (config.biddingRules as IBiddingRules) : defaultRules;
+    biddingCalculator = new BiddingCalculator(getBiddingCalculatorData(), initialRules);
+    if (!config.isLoaded) {
+      void config.isLoadedPromise.then(() => {
+        biddingCalculator?.updateBiddingRules(config.biddingRules as IBiddingRules);
+        biddingCalculator?.calculateBidAmounts();
+      });
+    }
   }
   return biddingCalculator;
 }

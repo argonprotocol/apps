@@ -7,6 +7,11 @@ interface ILastErrorInfo {
   lastErrorTime: number;
 }
 
+interface IDisconnectLogInfo {
+  message: string;
+  time: number;
+}
+
 export class MainchainClients {
   public events = createTypedEventEmitter<{
     degraded: (error: Error | undefined, clientType: 'archive' | 'pruned') => void;
@@ -26,6 +31,11 @@ export class MainchainClients {
     archive: { errors: [], lastErrorTime: 0 },
     pruned: { errors: [], lastErrorTime: 0 },
   };
+  private readonly lastDisconnectLogByClient: { archive: IDisconnectLogInfo; pruned: IDisconnectLogInfo } = {
+    archive: { message: '', time: 0 },
+    pruned: { message: '', time: 0 },
+  };
+  private isShuttingDown = false;
 
   constructor(
     archiveUrl: string,
@@ -72,6 +82,7 @@ export class MainchainClients {
   }
 
   public async disconnect() {
+    this.isShuttingDown = true;
     await Promise.allSettled([
       this.archiveClientPromise.then(client => client.disconnect()),
       this.prunedClientPromise?.then(client => client.disconnect()),
@@ -83,6 +94,21 @@ export class MainchainClients {
     const name = clientType === 'archive' ? 'ARCHIVE_RPC' : 'PRUNED_RPC';
     const api = wrapApi(client, name, {
       onError: (path, error, ...args) => {
+        const disconnectMessage = error instanceof Error ? error.message : '';
+        const lowered = disconnectMessage.toLowerCase();
+        const isDisconnect = lowered.includes('disconnected from ws://') || lowered.includes('abnormal closure');
+        if (isDisconnect) {
+          if (!this.isShuttingDown) {
+            const logInfo = this.lastDisconnectLogByClient[clientType];
+            const shouldLog = logInfo.message !== disconnectMessage || Date.now() - logInfo.time > 5_000;
+            if (shouldLog) {
+              this.lastDisconnectLogByClient[clientType] = { message: disconnectMessage, time: Date.now() };
+              console.info(`[${name}] ${path} disconnected: ${disconnectMessage}`);
+            }
+          }
+          return;
+        }
+
         if (apiError === error) return;
         apiError = error;
         const errorTracker = this.lastErrorByClient[clientType];

@@ -229,6 +229,7 @@ const isBrandNew = Vue.ref(true);
 const isSuggestingTour = Vue.ref(false);
 const currentTourStep = Vue.ref<number>(0);
 const isLoaded = Vue.ref(false);
+const isCalculatorReady = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const hasEditBoxOverlay = Vue.ref(false);
 
@@ -412,11 +413,13 @@ function updateAPYs() {
 }
 
 function updateCapitalRequirements() {
+  if (!isCalculatorReady.value) return;
   updateTokenRequirements();
   updateMinimumCapitalCommitment();
 }
 
 function updateTokenRequirements() {
+  if (!isCalculatorReady.value) return;
   const projections = calculator.runProjections(rules.value, 'maximum');
   rules.value.initialMicrogonRequirement = projections.microgonRequirement;
   rules.value.initialMicronotRequirement = projections.micronotRequirement;
@@ -459,6 +462,7 @@ Vue.onMounted(async () => {
 
   calculator.onLoad(() => updateCapitalRequirements());
   await calculator.load();
+  isCalculatorReady.value = true;
   Vue.watch(rules, () => updateAPYs(), { deep: true });
 
   previousBiddingRules = JsonExt.stringify(config.biddingRules);

@@ -6,38 +6,13 @@ permissions:
   contents: read
 
 jobs:
-  app-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'yarn'
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install
-
-      - name: Build
-        run: yarn build:indexer
-
-      - name: Test
-        run: yarn test
-        env:
-          CI: true
-  e2e:
+  tests:
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: 'ubuntu-latest'
-#          - platform: 'windows-latest'
+          - platform: 'windows-latest'
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
@@ -50,6 +25,7 @@ jobs:
           cache: 'yarn'
 
       - name: Install system dependencies
+        if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -57,14 +33,6 @@ jobs:
             libayatana-appindicator3-dev \
             webkit2gtk-driver \
             xvfb
-
-      # install a matching Microsoft Edge Driver version using msedgedriver-tool
-      - name: install msdgedriver (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          cargo install --git https://github.com/chippers/msedgedriver-tool
-          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
-          $PWD.Path >> $env:GITHUB_PATH
 
       # install latest stable Rust release
       - name: Setup rust-toolchain stable
@@ -76,10 +44,13 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # install the latest version of `tauri-driver`.
-      # note: the tauri-driver version is independent of any other Tauri versions
-      - name: Install tauri-driver
-        run: cargo install tauri-driver --locked
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
+
+      - name: Install SQLite on Windows
+        if: runner.os == 'Windows'
+        run: choco install sqlite
 
       - name: Enable Corepack
         run: corepack enable
@@ -87,31 +58,28 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
-      - name: Install E2E
-        run: yarn install
-        working-directory: e2e
+      - name: Build
+        run: yarn build:indexer
 
       - name: Make docker.sock world-writable
+        if: matrix.platform == 'ubuntu-latest'
         run: sudo chmod 666 /var/run/docker.sock
 
-      # run the WebdriverIO test suite on Linux.
-      # we run it through `xvfb-run` (the dependency we installed earlier) to have a fake
-      # display server which allows our application to run headless without any changes to the code
-      - name: WebdriverIO (Linux)
+      # xvfb-run provides a virtual display required by WebKit/GTK in CI.
+      - name: Tests (Linux)
         if: matrix.platform == 'ubuntu-latest'
         run: xvfb-run yarn test
-        working-directory: e2e
         env:
           CI: true
+          ARGON_E2E_HEADLESS: true
 
-      # run the WebdriverIO test suite on Windows.
-      # in this case we can run the tests directly.
-      - name: WebdriverIO (Windows)
+      - name: Tests (Windows)
         if: matrix.platform == 'windows-latest'
         run: yarn test
-        working-directory: e2e
         env:
           CI: true
+          ARGON_E2E_HEADLESS: true
+          DISABLE_E2E_TEST: '1'
 
       - name: Upload test artifacts
         if: failure()

@@ -162,6 +162,9 @@ export class BlockWatch {
   }
 
   public async getHeader(blockNumber: number): Promise<IBlockHeaderInfo> {
+    if (blockNumber < 0) {
+      throw new Error(`[BlockWatch] getHeader called with negative blockNumber (${blockNumber})`);
+    }
     const best = this.latestHeaders.find(x => x.blockNumber === blockNumber);
     if (best) {
       return best;

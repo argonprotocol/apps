@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="$el" class="relative" @click="copyContent">
+  <div :data-testid="triggerTestId" ref="$el" class="relative" @click="copyContent">
     <slot></slot>
     <div
       v-if="isCopied || hasNotCopied"
@@ -17,8 +17,13 @@ import * as Vue from 'vue';
 
 const props = defineProps<{
   content: string;
+  dataTestid?: string;
 }>();
 
+const triggerTestId = Vue.computed(() => {
+  const target = props.dataTestid ?? 'CopyToClipboard';
+  return `${target}.copyContent()`;
+});
 const hasNotCopied = Vue.ref(true);
 const isCopied = Vue.ref(false);
 const isFading = Vue.ref(false);
@@ -34,7 +39,9 @@ let highlightAndCopyTimeout3: ReturnType<typeof setTimeout> | undefined = undefi
 
 function copyContent(event: MouseEvent) {
   event?.stopImmediatePropagation();
-  navigator.clipboard.writeText(props.content);
+  void navigator.clipboard.writeText(props.content).catch(() => {
+    // Ignore clipboard failures; the UI feedback still confirms the click action.
+  });
 
   clearTimeout(highlightAndCopyTimeout1);
   clearTimeout(highlightAndCopyTimeout2);

@@ -116,3 +116,11 @@ body.isDraggingDecrease {
     cursor: s-resize !important;
   }
 }
+
+html[data-e2e-no-motion='1'] *,
+html[data-e2e-no-motion='1'] *::before,
+html[data-e2e-no-motion='1'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}

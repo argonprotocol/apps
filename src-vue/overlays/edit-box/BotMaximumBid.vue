@@ -31,14 +31,14 @@
       Formula Type
     </label>
     <div v-if="options.length" class="flex flex-row items-center justify-between">
-      <InputMenu v-model="config.biddingRules.maximumBidFormulaType" :options="options" :selectFirst="true" />
+      <InputMenu data-testid="maximumBidFormulaType" v-model="config.biddingRules.maximumBidFormulaType" :options="options" :selectFirst="true" />
     </div>
 
     <template v-if="config.biddingRules.maximumBidFormulaType === BidAmountFormulaType.Custom">
       <label class="mt-3 font-bold opacity-60 mb-0.5">
         Value
       </label>
-      <InputMoney v-model="config.biddingRules.maximumBidCustom" :min="0n" class="min-w-60" />
+      <InputMoney data-testid="maximumBidCustomAmount" v-model="config.biddingRules.maximumBidCustom" :min="0n" class="min-w-60" />
     </template>
     <template v-else>
       <label class="mt-3 font-bold opacity-60 mb-0.5">

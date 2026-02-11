@@ -1,5 +1,11 @@
 <template>
-  <Overlay :isOpen="true" @close="closeOverlay" @esc="closeOverlay" class="BitcoinLockingOverlay min-h-60 w-240">
+  <Overlay
+    :isOpen="true"
+    data-testid="BitcoinLockingOverlay"
+    :data-e2e-state="lockStep"
+    @close="closeOverlay"
+    @esc="closeOverlay"
+    class="BitcoinLockingOverlay min-h-60 w-240">
     <template #title>
       <div v-if="isLoaded" class="mr-6 flex w-full flex-row items-center">
         <TooltipRoot v-if="shouldShowFullProcess" :delayDuration="100">

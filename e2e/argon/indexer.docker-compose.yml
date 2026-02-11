@@ -14,6 +14,7 @@ services:
     ports:
       - "0:3262"
     volumes:
+      - ../../indexer/lib:/usr/src/app/lib:ro
       - indexer-data:/indexer
 volumes:
   indexer-data:

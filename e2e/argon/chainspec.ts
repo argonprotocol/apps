@@ -1,7 +1,6 @@
 import Path from 'path';
 import docker from 'docker-compose';
 import * as Fs from 'fs';
-import { ARGON_DOCKER_COMPOSE } from './index';
 
 const runtimeWasmPath = process.argv[2];
 if (!runtimeWasmPath) {
@@ -11,7 +10,7 @@ const runtimeBytes = await Fs.promises.readFile(Path.resolve(runtimeWasmPath)).c
   throw new Error(`Failed to read runtime wasm file at ${Path.resolve(runtimeWasmPath)}: ${err.message}`);
 });
 
-const config = ARGON_DOCKER_COMPOSE;
+const config = Path.resolve(import.meta.dirname, 'docker-compose.yml');
 
 const outputDir = import.meta.dirname;
 const humanPath = Path.resolve(outputDir, 'chainspec.json');

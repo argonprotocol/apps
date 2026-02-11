@@ -2,7 +2,7 @@
 <template>
   <SelectRoot v-model="selectedOption" @update:open="handleToggleOpen" @update:modelValue="handleUpdateModelValue">
     <SelectTrigger
-      data-testid="input-menu-trigger"
+      :data-testid="triggerTestId"
       ref="triggerInstance"
       :class="triggerClasses"
     >
@@ -103,6 +103,7 @@ const props = withDefaults(
     disabled?: boolean;
     selectFirst?: boolean;
     class?: string;
+    dataTestid?: string;
   }>(),
   {
     disabled: false,
@@ -121,6 +122,7 @@ const triggerInstance = Vue.ref<any>(null);
 const menuWidth = Vue.ref('auto');
 
 const selectedOption: Vue.Ref<IOption | undefined> = Vue.ref(undefined);
+const triggerTestId = Vue.computed(() => props.dataTestid ?? 'input-menu-trigger');
 
 const value = Vue.computed({
   get: () => props.modelValue,

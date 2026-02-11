@@ -5,7 +5,7 @@
       <VaultIcon :class="errorMessage ? '' : 'pulse-animation'" class="w-36 block mb-3 mx-auto text-argon-800/80" />
       <h1 class="mt-5 text-4xl font-bold text-center text-argon-600">Creating Your Vault</h1>
 
-      <p v-if="errorMessage != ''" class="pt-3 font-light w-140 text-center">
+      <p v-if="errorMessage != ''" data-testid="VaultIsInstalling.errorMessage" class="pt-3 font-light w-140 text-center">
         There was an error setting up your vault: <span class="text-red-700">{{ errorMessage }}</span>
       </p>
 
