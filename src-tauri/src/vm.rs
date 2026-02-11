@@ -105,7 +105,7 @@ impl Vm {
 
         let env_path = vm_path.join(".env");
         let (uid, gid) = get_uid_gid();
-        env_text.push_str(&format!("\nUID={}\nGID={}\n", uid, gid));
+        env_text.push_str(&format!("\nUID={uid}\nGID={gid}\n"));
         fs::write(&env_path, env_text)
             .map_err(|e| format!("Error writing file {}: {}", env_path.display(), e))?;
 
@@ -133,7 +133,7 @@ impl Vm {
             .split(':')
             .next_back()
             .ok_or("Failed to parse port")?;
-        log::info!("VM SSH port: {}", port);
+        log::info!("VM SSH port: {port}");
         let vm_port = port.parse::<u16>().map_err(|e| e.to_string())?;
         Ok(Vm { ssh_port: vm_port })
     }
@@ -160,12 +160,7 @@ impl Vm {
             .args(["compose"].iter().chain(args))
             .current_dir(vm_path)
             .output()
-            .map_err(|e| {
-                format!(
-                    "Failed to run docker compose: {} at {:?}. {:?}",
-                    e, vm_path, args
-                )
-            })?;
+            .map_err(|e| format!("Failed to run docker compose: {e} at {vm_path:?}. {args:?}"))?;
 
         if !output.status.success() {
             return Err(format!(

@@ -82,7 +82,7 @@ impl SSH {
         let client = timeout(timeout_duration, Self::authenticate(config))
             .await
             .map_err(|_| {
-                anyhow::anyhow!("SSH connection timed out after {:?}", timeout_duration)
+                anyhow::anyhow!("SSH connection timed out after {timeout_duration:?}")
             })??;
         let ssh = SSH {
             client: Arc::new(Mutex::new(client)),
@@ -149,8 +149,8 @@ impl SSH {
 
     pub async fn run_command(&self, command: impl Display) -> Result<(String, u32)> {
         let final_command = command.to_string().replace('\'', "'\\''");
-        trace!("Executing ssh command: {}", final_command);
-        let shell_command = format!("bash -c '{}'", final_command);
+        trace!("Executing ssh command: {final_command}");
+        let shell_command = format!("bash -c '{final_command}'");
         let mut channel = self.open_channel().await?;
         channel.exec(true, shell_command).await?;
         channel.eof().await?;
@@ -190,7 +190,7 @@ impl SSH {
     pub async fn upload_file(&self, contents: &[u8], remote_path: &str) -> Result<()> {
         // First, create the script in the remote server's home directory
         let mut channel = self.open_channel().await?;
-        let scp_command = format!("cat > {}", remote_path);
+        let scp_command = format!("cat > {remote_path}");
         channel.exec(true, scp_command).await?;
 
         // Write the contents of the setup script
@@ -214,10 +214,10 @@ impl SSH {
         let file = File::open(&path).await?;
 
         // ensure old file is removed
-        let _ = self.run_command(format!("rm -f {}", remote_path)).await;
+        let _ = self.run_command(format!("rm -f {remote_path}")).await;
 
         let mut channel = self.open_channel().await?;
-        channel.exec(true, format!("cat > {}", remote_path)).await?;
+        channel.exec(true, format!("cat > {remote_path}")).await?;
         let mut writer = channel.make_writer();
 
         let file_size = file.metadata().await?.len();
@@ -236,7 +236,7 @@ impl SSH {
             let percent = (total * 100 / file_size) as i32;
             if percent != last_percent {
                 last_percent = percent;
-                trace!("Uploading {}: {}%", file_name, percent);
+                trace!("Uploading {file_name}: {percent}%");
                 app.emit(&event_progress_key, percent)?;
             }
         }
@@ -262,7 +262,7 @@ impl SSH {
         // Best-effort: get remote file size for progress (may fail; then size=0)
         let mut remote_size: u64 = 0;
         if let Ok((out, _code)) = self
-            .run_command(format!("stat -c %s {}", escaped_remote))
+            .run_command(format!("stat -c %s {escaped_remote}"))
             .await
         {
             if let Ok(sz) = out.trim().parse::<u64>() {
@@ -279,9 +279,7 @@ impl SSH {
 
         // Open a channel and stream the remote file via `cat`
         let mut channel = self.open_channel().await?;
-        channel
-            .exec(true, format!("cat {}", escaped_remote))
-            .await?;
+        channel.exec(true, format!("cat {escaped_remote}")).await?;
         {
             let mut reader = channel.make_reader();
 
@@ -334,7 +332,7 @@ impl SSH {
                         || msg.contains("connection closed");
 
                     if !is_benign {
-                        log::error!("Error closing existing SSH connection: {:#}", e);
+                        log::error!("Error closing existing SSH connection: {e:#}");
                     }
                 });
         }

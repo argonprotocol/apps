@@ -20,7 +20,7 @@ fn main() {
             "production".to_string()
         }
     };
-    println!("Loading environment variables for mode: {}", mode);
+    println!("Loading environment variables for mode: {mode}");
 
     // 1. Load .env (loaded in all cases)
     dotenvy::dotenv().ok();
@@ -28,18 +28,18 @@ fn main() {
     dotenvy::from_filename_override(".env.local").ok();
 
     // 3. Load .env.[mode] (only loaded in specified mode)
-    dotenvy::from_filename_override(format!(".env.{}", mode)).ok();
+    dotenvy::from_filename_override(format!(".env.{mode}")).ok();
 
     // 4. Load .env.[mode].local (only loaded in specified mode, ignored by git)
-    dotenvy::from_filename_override(format!(".env.{}.local", mode)).ok();
+    dotenvy::from_filename_override(format!(".env.{mode}.local")).ok();
     for (key, value) in env::vars() {
         if key.starts_with("RUST_LOG")
             || key == "CI"
             || key == "ARGON_APP_ENABLE_AUTOUPDATE"
             || key == "NODE_ENV"
         {
-            println!("cargo:rustc-env={}={}", key, value);
-            println!("set-env:  {}={}", key, value);
+            println!("cargo:rustc-env={key}={value}");
+            println!("set-env:  {key}={value}");
         }
     }
 

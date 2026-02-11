@@ -48,7 +48,7 @@ pub fn get_migrations() -> Vec<Migration> {
             let dir_name = dir.path().file_stem()?.to_str()?;
             let up_path = dir.path().join("up.sql");
             let file = dir.get_file(up_path)?;
-            println!("Processing migration dir: {}", dir_name,);
+            println!("Processing migration dir: {dir_name}",);
             let mut parts = dir_name.splitn(2, '-');
             let version = parts.next()?.parse::<i64>().ok()?;
             let description = parts.next()?;
@@ -73,16 +73,16 @@ pub async fn run_db_migrations(absolute_db_path: PathBuf) -> Result<(), String> 
 
     let pool = sqlx::SqlitePool::connect_with(opts)
         .await
-        .map_err(|e| format!("Failed to connect to database: {}", e))?;
+        .map_err(|e| format!("Failed to connect to database: {e}"))?;
 
     let migrations = MigrationList(get_migrations());
     let migrator = Migrator::new(migrations)
         .await
-        .map_err(|e| format!("Failed to create migrator: {}", e))?;
+        .map_err(|e| format!("Failed to create migrator: {e}"))?;
     migrator
         .run(&pool)
         .await
-        .map_err(|e| format!("Failed to run migrations: {}", e))?;
+        .map_err(|e| format!("Failed to run migrations: {e}"))?;
 
     pool.close().await;
     Ok(())

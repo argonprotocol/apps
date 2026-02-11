@@ -42,7 +42,7 @@ async fn open_ssh_connection(
     ssh_pool::open_connection(address, host, port, username, private_key)
         .await
         .map_err(|e| {
-            log::error!("Error connecting to SSH: {:#}", e);
+            log::error!("Error connecting to SSH: {e:#}");
             e.to_string()
         })?;
 
@@ -75,7 +75,7 @@ async fn ssh_upload_file(
     contents: String,
     remote_path: String,
 ) -> Result<String, String> {
-    log::info!("ssh_upload_file: {}", remote_path);
+    log::info!("ssh_upload_file: {remote_path}");
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
@@ -94,7 +94,7 @@ async fn ssh_download_file(
     download_path: String,
     event_progress_key: String,
 ) -> Result<String, String> {
-    log::info!("ssh_download_file: {}, {}", remote_path, download_path);
+    log::info!("ssh_download_file: {remote_path}, {download_path}");
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
@@ -113,11 +113,7 @@ async fn ssh_upload_embedded_file(
     remote_path: String,
     event_progress_key: String,
 ) -> Result<String, String> {
-    log::info!(
-        "ssh_upload_embedded_file: {}, {}",
-        local_relative_path,
-        remote_path
-    );
+    log::info!("ssh_upload_embedded_file: {local_relative_path}, {remote_path}");
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
@@ -141,16 +137,16 @@ async fn measure_latency(url: String) -> Result<u128, String> {
 
 #[tauri::command]
 async fn read_embedded_file(app: AppHandle, local_relative_path: String) -> Result<String, String> {
-    log::info!("read_embedded_file: {}", local_relative_path);
+    log::info!("read_embedded_file: {local_relative_path}");
     let absolute_local_path = Utils::get_embedded_path(&app, local_relative_path.clone())
-        .map_err(|e| format!("Error resolving embedded path: {}", e))?;
+        .map_err(|e| format!("Error resolving embedded path: {e}"))?;
 
     if !absolute_local_path.exists() {
-        return Err(format!("File does not exist: {}", local_relative_path).to_string());
+        return Err(format!("File does not exist: {local_relative_path}").to_string());
     }
 
     let content = fs::read_to_string(&absolute_local_path)
-        .map_err(|e| format!("Error reading file {}: {}", local_relative_path, e))?;
+        .map_err(|e| format!("Error reading file {local_relative_path}: {e}"))?;
     Ok(content)
 }
 
@@ -204,7 +200,7 @@ async fn derive_bitcoin_extended_key(
 ) -> Result<String, String> {
     let extended_key =
         Security::derive_bitcoin_extended_key(&app, hd_path, version).map_err(|e| e.to_string())?;
-    let bs58_key = format!("{}", extended_key);
+    let bs58_key = format!("{extended_key}");
     Ok(bs58_key)
 }
 
@@ -299,7 +295,7 @@ fn calculate_free_space(path: Option<String>) -> Result<u64, String> {
 
 #[tauri::command]
 async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
-    log::info!("Loading instance: {}", name);
+    log::info!("Loading instance: {name}");
     unsafe {
         std::env::set_var("ARGON_APP_INSTANCE", &name);
     }
@@ -320,7 +316,7 @@ fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_lo
         .clear_targets()
         .target(tauri_plugin_log::Target::new(
             tauri_plugin_log::TargetKind::LogDir {
-                file_name: Some(format!("{}-{}", network_name, instance_name)),
+                file_name: Some(format!("{network_name}-{instance_name}")),
             },
         ))
         .target(tauri_plugin_log::Target::new(
@@ -395,7 +391,7 @@ pub fn run() {
         updater_target += "-debug";
     }
 
-    println!("Updater target = {}", updater_target);
+    println!("Updater target = {updater_target}");
     let app_name_clone = app_name.clone();
 
     tauri::Builder::default()
@@ -408,17 +404,17 @@ pub fn run() {
             let security = security::Security::load(handle);
             let security_json = match security {
                 Ok(sec) => serde_json::to_string(&sec).unwrap_or_else(|e| {
-                    log::error!("Failed to serialize security config: {}", e);
+                    log::error!("Failed to serialize security config: {e}");
                     "null".to_string()
                 }),
                 Err(e) => {
-                    log::error!("Failed to load security config: {}", e);
+                    log::error!("Failed to load security config: {e}");
                     "null".to_string()
                 }
             };
             let app_id = &handle.config().identifier;
 
-            log::info!("Page loaded for instance '{}'", instance_name);
+            log::info!("Page loaded for instance '{instance_name}'");
             window.emit("tauri://page-loaded", ()).unwrap();
             window
                 .eval(format!(
@@ -442,10 +438,7 @@ pub fn run() {
             let handle = app.handle();
             let config_path = Utils::get_absolute_config_instance_dir(handle);
             log::info!(
-                "Starting instance '{}' on network '{}'. Config = {:?}",
-                instance_name,
-                network_name,
-                config_path
+                "Starting instance '{instance_name}' on network '{network_name}'. Config = {config_path:?}"
             );
             log::info!("Database URL = {}", db_relative_path.display());
 

@@ -74,14 +74,12 @@ pub async fn ssh_access_activate(
     let (private_key_openssh, public_key_openssh) =
         ssh::SSH::format_as_openssh(pair).map_err(|e| e.to_string())?;
     let now = now_epoch();
-    let comment = format!("argon-app-ssh:{}", now);
+    let comment = format!("argon-app-ssh:{now}");
     let public_key_with_comment = format!("{} {}", public_key_openssh.trim(), comment);
     let public_key_material = public_key_openssh.trim().to_string();
 
     let add_cmd = format!(
-        "grep -q '{key}' ~/.ssh/authorized_keys || echo '{line}' >> ~/.ssh/authorized_keys",
-        key = public_key_material,
-        line = public_key_with_comment
+        "grep -q '{public_key_material}' ~/.ssh/authorized_keys || echo '{public_key_with_comment}' >> ~/.ssh/authorized_keys"
     );
     ssh.run_command(add_cmd).await.map_err(|e| e.to_string())?;
 
