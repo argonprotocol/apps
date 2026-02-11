@@ -1,3 +1,4 @@
+use crate::security::Security;
 use log::trace;
 use nosleep::{NoSleep, NoSleepType};
 use sp_core::Pair;
@@ -14,7 +15,6 @@ use utils::Utils;
 #[cfg(target_os = "macos")]
 use window_vibrancy::*;
 use zip::DateTime;
-use crate::security::Security;
 
 mod migrations;
 mod security;
