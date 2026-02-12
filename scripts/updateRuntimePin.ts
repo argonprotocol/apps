@@ -2,13 +2,16 @@ import { execFileSync } from 'node:child_process';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { parseEnv } from 'node:util';
+import Semver from 'semver';
 
 const RUNTIME_PACKAGES = ['@argonprotocol/mainchain', '@argonprotocol/testing', '@argonprotocol/bitcoin'] as const;
+const AUTHORITATIVE_RUNTIME_PACKAGE = '@argonprotocol/mainchain' as const;
 const REPO_ROOT = Path.resolve(import.meta.dirname, '..');
 const PACKAGE_JSON_PATH = Path.join(REPO_ROOT, 'package.json');
 const ARGON_ENV_PATH = Path.join(REPO_ROOT, 'e2e/argon/.env');
 const SERVER_DEV_DOCKER_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.dev-docker');
 const MAINCHAIN_GIT_REPO = 'https://github.com/argonprotocol/mainchain.git';
+type RuntimePackage = (typeof RUNTIME_PACKAGES)[number];
 
 void main().catch(error => {
   const message = error instanceof Error ? error.message : String(error);
@@ -18,29 +21,28 @@ void main().catch(error => {
 
 async function main(): Promise<void> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.info('Usage: yarn runtime:pin <tag-or-commit-hash|main>');
+    console.info('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
     return;
   }
   const args = process.argv.slice(2);
   if (args.length !== 1) {
-    throw new Error('Usage: yarn runtime:pin <tag-or-commit-hash|main>');
+    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
   }
 
   const ref = normalizeRef(args[0]);
-  const dockerVersion = toDockerVersion(ref);
-  const mainRepoCommitHash = ref === 'main' ? resolveMainRepoCommitHash() : undefined;
+  const resolvedPin = resolveRuntimePin(ref);
   const envRaw = Fs.readFileSync(ARGON_ENV_PATH, 'utf8');
   const serverEnvRaw = Fs.readFileSync(SERVER_DEV_DOCKER_ENV_PATH, 'utf8');
   const packageJsonRaw = Fs.readFileSync(PACKAGE_JSON_PATH, 'utf8');
 
   const envResult = updateEnvContents(envRaw, {
-    VERSION: dockerVersion,
+    VERSION: resolvedPin.dockerVersion,
   });
   const serverEnvResult = updateEnvContents(serverEnvRaw, {
-    ARGON_VERSION: dockerVersion,
+    ARGON_VERSION: resolvedPin.dockerVersion,
   });
 
-  const packageJsonResult = updatePackageJson(packageJsonRaw, ref, mainRepoCommitHash);
+  const packageJsonResult = updatePackageJson(packageJsonRaw, resolvedPin.runtimePackageVersions);
 
   if (envResult.changedKeys.length) {
     Fs.writeFileSync(ARGON_ENV_PATH, envResult.next, 'utf8');
@@ -56,15 +58,20 @@ async function main(): Promise<void> {
   console.info(`- e2e/argon/.env: ${envResult.changedKeys.join(', ') || 'no changes'}`);
   console.info(`- server/.env.dev-docker: ${serverEnvResult.changedKeys.join(', ') || 'no changes'}`);
   console.info(`- package.json resolutions: ${packageJsonResult.changedPackages.join(', ') || 'no changes'}`);
-  if (mainRepoCommitHash) {
-    console.info(`- main repo commit: ${mainRepoCommitHash}`);
+  console.info(`- docker/runtime ref: ${resolvedPin.dockerVersion}`);
+  console.info(
+    `- npm runtime versions: ${RUNTIME_PACKAGES.map(pkg => `${pkg}=${resolvedPin.runtimePackageVersions[pkg]}`).join(', ')}`,
+  );
+  if (resolvedPin.mainRepoCommitHash) {
+    console.info(`- main repo commit: ${resolvedPin.mainRepoCommitHash}`);
   }
+  console.info('- next step: run yarn install to sync yarn.lock and node_modules');
 }
 
 function normalizeRef(value: string | undefined): string {
   const normalized = value?.trim();
   if (!normalized) {
-    throw new Error('Usage: yarn runtime:pin <tag-or-commit-hash|main>');
+    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
   }
   return normalized;
 }
@@ -77,21 +84,47 @@ function isSemverLike(value: string): boolean {
   return /^v?\d+\.\d+\.\d+(?:[-+][0-9a-z.-]+)?$/i.test(value);
 }
 
-function toDockerVersion(ref: string): string {
-  if (ref === 'main') {
-    return 'dev';
-  }
-  if (isCommitHash(ref)) {
-    return `sha-${ref.slice(0, 7).toLowerCase()}`;
-  }
-  if (isSemverLike(ref) && !ref.startsWith('v')) {
-    return `v${ref}`;
-  }
-  return ref;
-}
-
 function toNpmVersion(ref: string): string {
   return ref.startsWith('v') ? ref.slice(1) : ref;
+}
+
+function toDockerVersionFromNpmVersion(version: string): string {
+  return version.startsWith('v') ? version : `v${version}`;
+}
+
+function resolveRuntimePin(ref: string): {
+  dockerVersion: string;
+  runtimePackageVersions: Record<RuntimePackage, string>;
+  mainRepoCommitHash?: string;
+} {
+  if (ref === 'main') {
+    const mainRepoCommitHash = resolveMainRepoCommitHash();
+    const sharedRuntimeVersion = resolveSharedRuntimeVersionByCommit(mainRepoCommitHash);
+    return {
+      dockerVersion: mainRepoCommitHash,
+      runtimePackageVersions: createRuntimePackageVersions(sharedRuntimeVersion),
+      mainRepoCommitHash,
+    };
+  }
+
+  if (isCommitHash(ref)) {
+    const commitHash = ref.toLowerCase();
+    const sharedRuntimeVersion = resolveSharedRuntimeVersionByCommit(commitHash);
+    return {
+      dockerVersion: commitHash,
+      runtimePackageVersions: createRuntimePackageVersions(sharedRuntimeVersion),
+    };
+  }
+
+  if (!isSemverLike(ref)) {
+    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
+  }
+
+  const npmVersion = toNpmVersion(ref);
+  return {
+    dockerVersion: toDockerVersionFromNpmVersion(npmVersion),
+    runtimePackageVersions: createRuntimePackageVersions(npmVersion),
+  };
 }
 
 function updateEnvContents(
@@ -134,10 +167,6 @@ function setEnvValue(input: string, key: string, value: string): string {
   return lines.join('\n');
 }
 
-function toGitWorkspaceResolution(workspace: string, commitHash: string): string {
-  return `${MAINCHAIN_GIT_REPO}#workspace=${workspace}&commit=${commitHash}`;
-}
-
 function resolveMainRepoCommitHash(): string {
   const output = execFileSync('git', ['ls-remote', MAINCHAIN_GIT_REPO, 'refs/heads/main'], {
     encoding: 'utf8',
@@ -149,10 +178,50 @@ function resolveMainRepoCommitHash(): string {
   return hash.toLowerCase();
 }
 
+function getPublishedPackageVersions(packageName: RuntimePackage): string[] {
+  const raw = execFileSync('npm', ['view', packageName, 'versions', '--json'], {
+    cwd: REPO_ROOT,
+    env: process.env,
+    encoding: 'utf8',
+  }).trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as string[] | string;
+  if (Array.isArray(parsed)) return parsed;
+  if (typeof parsed === 'string') return [parsed];
+  return [];
+}
+
+function createRuntimePackageVersions(sharedVersion: string): Record<RuntimePackage, string> {
+  const runtimePackageVersions = {} as Record<RuntimePackage, string>;
+  for (const runtimePackage of RUNTIME_PACKAGES) {
+    runtimePackageVersions[runtimePackage] = sharedVersion;
+  }
+  return runtimePackageVersions;
+}
+
+function resolveSharedRuntimeVersionByCommit(commitHash: string): string {
+  const shortHash = commitHash.slice(0, 8).toLowerCase();
+  const publishedVersions = getPublishedPackageVersions(AUTHORITATIVE_RUNTIME_PACKAGE);
+  const candidateVersions = publishedVersions.filter(version => version.toLowerCase().includes(`-dev.${shortHash}`));
+  if (!candidateVersions.length) {
+    throw new Error(
+      `No published ${AUTHORITATIVE_RUNTIME_PACKAGE} version matches commit ${commitHash} (-dev.${shortHash}).`,
+    );
+  }
+
+  const sorted = Semver.rsort(candidateVersions);
+  const selectedVersion = sorted[0];
+  if (!selectedVersion) {
+    throw new Error(
+      `Unable to select published version for ${AUTHORITATIVE_RUNTIME_PACKAGE} with commit ${commitHash}.`,
+    );
+  }
+  return selectedVersion;
+}
+
 function updatePackageJson(
   packageJsonRaw: string,
-  ref: string,
-  mainRepoCommitHash?: string,
+  runtimePackageVersions: Record<RuntimePackage, string>,
 ): {
   next: string;
   changedPackages: string[];
@@ -163,20 +232,8 @@ function updatePackageJson(
 
   packageJson.resolutions ??= {};
   const changedPackages: string[] = [];
-  const pinnedNpmVersion = ref === 'main' || isCommitHash(ref) ? undefined : toNpmVersion(ref);
-
   for (const runtimePackage of RUNTIME_PACKAGES) {
-    let nextValue: string;
-    if (ref === 'main') {
-      if (!mainRepoCommitHash) {
-        throw new Error('Missing resolved main repo commit hash');
-      }
-      nextValue = toGitWorkspaceResolution(runtimePackage, mainRepoCommitHash);
-    } else if (isCommitHash(ref)) {
-      nextValue = toGitWorkspaceResolution(runtimePackage, ref);
-    } else {
-      nextValue = pinnedNpmVersion!;
-    }
+    const nextValue = runtimePackageVersions[runtimePackage];
     if (packageJson.resolutions[runtimePackage] !== nextValue) {
       packageJson.resolutions[runtimePackage] = nextValue;
       changedPackages.push(runtimePackage);

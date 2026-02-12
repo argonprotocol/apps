@@ -31,7 +31,7 @@
     "test": "vitest --run",
     "typecheck": "vue-tsc --noEmit && yarn workspaces foreach --all run tsc --noEmit",
     "update-data": "yarn workspace @argonprotocol/apps-core run update-frames && tsx data-generators/all.ts",
-    "runtime:pin": "tsx scripts/updateRuntimePin.ts",
+    "mainchain:pin": "tsx scripts/updateRuntimePin.ts",
     "docker:config": "tsx e2e/argon/updateConfig.ts",
     "docker:argon:download": "tsx e2e/argon/download.ts",
     "docker:argon:chainspec": "tsx e2e/argon/chainspec.ts",

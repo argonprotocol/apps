@@ -115,7 +115,7 @@ yarn tauri build
 For local mainchain/dev-docker work, keep runtime pinning and e2e in sync:
 
 ```bash
-yarn runtime:pin <tag-or-commit>
+yarn mainchain:pin <tag-or-commit>
 yarn install
 ```
 

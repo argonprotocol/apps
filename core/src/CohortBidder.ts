@@ -217,18 +217,24 @@ export class CohortBidder {
     // wait for any pending request to finish updating stats
     void (await this.pendingRequest);
 
-    const currentFrameId = await this.client.query.miningSlot.nextFrameId();
-    let blockNumber: number;
-    // go back to last block with this cohort
-    if (currentFrameId.toNumber() > this.cohortStartingFrameId) {
-      blockNumber = (await this.client.query.miningSlot.frameStartBlockNumbers().then(x => x[0]?.toNumber())) - 1;
-    } else {
-      blockNumber = await this.client.query.system.number().then(x => x.toNumber());
-    }
+    const stopBlockHash = await this.client.rpc.chain.getFinalizedHead();
+    const stopApi = await this.client.at(stopBlockHash);
+    const blockNumber = await stopApi.query.system.number().then(x => x.toNumber());
+    const cohortWinners = await stopApi.query.miningSlot.minersByCohort(this.cohortStartingFrameId);
+    this.myWinningBids = cohortWinners
+      .filter(
+        x =>
+          x.externalFundingAccount.isSome && this.accountset.seedAddress === x.externalFundingAccount.value.toHuman(),
+      )
+      .map(x => {
+        return {
+          address: x.accountId.toHuman(),
+          micronotsStaked: x.argonots.toBigInt(),
+          bidMicrogons: x.bid.toBigInt(),
+          bidAtTick: this.currentBids.atTick,
+        };
+      });
 
-    const blockHash = await this.client.rpc.chain.getBlockHash(blockNumber);
-    const header = await this.client.rpc.chain.getHeader(blockHash);
-    await this.onHeader(header, false);
     this.log('Bidder stopped', {
       cohortStartingFrameId: this.cohortStartingFrameId,
       blockNumber,

@@ -7,9 +7,10 @@ Vitest specs wrap the same flows for test reporting.
 
 ```bash
 # 1) Pin runtime/docker + package resolutions
-#    (tag or commit)
-yarn runtime:pin v1.3.27
-# yarn runtime:pin <commit-hash>
+#    (tag, commit, or main)
+yarn mainchain:pin v1.3.27
+# yarn mainchain:pin <commit-hash>
+# yarn mainchain:pin main
 
 # 2) Install after pinning
 yarn install
@@ -36,7 +37,7 @@ yarn docker:down
 Pinning is managed by one entrypoint:
 
 ```bash
-yarn runtime:pin <tag-or-commit>
+yarn mainchain:pin <tag-or-commit|main>
 yarn install
 ```
 
@@ -45,8 +46,8 @@ Pinning updates:
 - `server/.env.dev-docker` (`ARGON_VERSION`)
 - root `package.json` `resolutions` for `@argonprotocol/mainchain`, `@argonprotocol/testing`, and `@argonprotocol/bitcoin`
 
-Commit pins are written as `VERSION=sha-<first7>` in `e2e/argon/.env`.
-Compose download maps that back to `<first7>` for GitHub raw fetches.
+`main` and commit pins resolve runtime package versions from published npm versions using
+`-dev.<first8-of-commit-hash>`, and write the full commit hash to docker env versions.
 
 ## Run Flows
 
