@@ -47,7 +47,7 @@ Pinning updates:
 - root `package.json` `resolutions` for `@argonprotocol/mainchain`, `@argonprotocol/testing`, and `@argonprotocol/bitcoin`
 
 `main` and commit pins resolve runtime package versions from published npm versions using
-`-dev.<first8-of-commit-hash>`, and write the full commit hash to docker env versions.
+`-dev.<first8-of-commit-hash>`, and write `sha-<first7-of-commit-hash>` to docker env versions.
 
 ## Run Flows
 

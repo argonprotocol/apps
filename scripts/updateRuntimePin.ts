@@ -21,12 +21,12 @@ void main().catch(error => {
 
 async function main(): Promise<void> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.info('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
+    console.info('Usage: yarn mainchain:pin <tag-or-commit-hash|sha-commit-hash|main>');
     return;
   }
   const args = process.argv.slice(2);
   if (args.length !== 1) {
-    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
+    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|sha-commit-hash|main>');
   }
 
   const ref = normalizeRef(args[0]);
@@ -71,13 +71,19 @@ async function main(): Promise<void> {
 function normalizeRef(value: string | undefined): string {
   const normalized = value?.trim();
   if (!normalized) {
-    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
+    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|sha-commit-hash|main>');
   }
   return normalized;
 }
 
 function isCommitHash(value: string): boolean {
   return /^[a-f0-9]{7,40}$/i.test(value);
+}
+
+function toCommitHashFromShaTag(value: string): string | null {
+  const match = /^sha-([a-f0-9]{7,40})$/i.exec(value.trim());
+  if (!match) return null;
+  return match[1].toLowerCase();
 }
 
 function isSemverLike(value: string): boolean {
@@ -92,6 +98,10 @@ function toDockerVersionFromNpmVersion(version: string): string {
   return version.startsWith('v') ? version : `v${version}`;
 }
 
+function toDockerVersionFromCommitHash(commitHash: string): string {
+  return `sha-${commitHash.slice(0, 7).toLowerCase()}`;
+}
+
 function resolveRuntimePin(ref: string): {
   dockerVersion: string;
   runtimePackageVersions: Record<RuntimePackage, string>;
@@ -101,23 +111,24 @@ function resolveRuntimePin(ref: string): {
     const mainRepoCommitHash = resolveMainRepoCommitHash();
     const sharedRuntimeVersion = resolveSharedRuntimeVersionByCommit(mainRepoCommitHash);
     return {
-      dockerVersion: mainRepoCommitHash,
+      dockerVersion: toDockerVersionFromCommitHash(mainRepoCommitHash),
       runtimePackageVersions: createRuntimePackageVersions(sharedRuntimeVersion),
       mainRepoCommitHash,
     };
   }
 
-  if (isCommitHash(ref)) {
-    const commitHash = ref.toLowerCase();
+  const shaTaggedCommitHash = toCommitHashFromShaTag(ref);
+  if (shaTaggedCommitHash || isCommitHash(ref)) {
+    const commitHash = (shaTaggedCommitHash ?? ref).toLowerCase();
     const sharedRuntimeVersion = resolveSharedRuntimeVersionByCommit(commitHash);
     return {
-      dockerVersion: commitHash,
+      dockerVersion: toDockerVersionFromCommitHash(commitHash),
       runtimePackageVersions: createRuntimePackageVersions(sharedRuntimeVersion),
     };
   }
 
   if (!isSemverLike(ref)) {
-    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|main>');
+    throw new Error('Usage: yarn mainchain:pin <tag-or-commit-hash|sha-commit-hash|main>');
   }
 
   const npmVersion = toNpmVersion(ref);
