@@ -667,6 +667,9 @@ export class MyVault {
             const funderState = state.unwrap();
             this.data.treasury.heldPrincipal = funderState.heldPrincipal.toBigInt();
             this.data.treasury.targetPrincipal = funderState.targetPrincipal.toBigInt();
+          } else {
+            this.data.treasury.heldPrincipal = 0n;
+            this.data.treasury.targetPrincipal = 0n;
           }
         },
       );
