@@ -1,7 +1,7 @@
 export type E2ECommandArgs = Record<string, unknown>;
 
 export type E2ETarget = string | { testId?: string; selector?: string; index?: number };
-export type E2EWaitState = 'visible' | 'hidden' | 'exists' | 'missing' | 'enabled';
+export type E2EWaitState = 'visible' | 'hidden' | 'exists' | 'missing' | 'enabled' | 'clickable';
 
 export interface E2ETimeoutOptions {
   timeoutMs?: number;

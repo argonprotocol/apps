@@ -41,6 +41,15 @@ async function fileExists(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
+function runYarn(...args: string[]): void {
+  execFileSync('yarn', args, {
+    cwd: REPO_ROOT,
+    env: process.env,
+    shell: true,
+    stdio: 'inherit',
+  });
+}
+
 async function ensureIndexerBundle(): Promise<void> {
   const indexerEntry = Path.resolve(REPO_ROOT, 'indexer/lib/index.js');
   const hasIndexerBundle = await fileExists(indexerEntry);
@@ -48,11 +57,7 @@ async function ensureIndexerBundle(): Promise<void> {
   if (hasIndexerBundle) return;
 
   console.info('[E2E] Building indexer bundle (missing indexer/lib/index.js)');
-  execFileSync('yarn', ['workspace', '@argonprotocol/apps-indexer', 'run', 'build'], {
-    cwd: REPO_ROOT,
-    env: process.env,
-    stdio: 'inherit',
-  });
+  runYarn('workspace', '@argonprotocol/apps-indexer', 'run', 'build');
 }
 
 async function ensureServerBundle(): Promise<void> {
@@ -62,11 +67,7 @@ async function ensureServerBundle(): Promise<void> {
   const version = typeof packageJson.version === 'string' ? packageJson.version : '';
   if (!version) {
     console.info('[E2E] Building server bundle (missing package version)');
-    execFileSync('yarn', ['build:server'], {
-      cwd: REPO_ROOT,
-      env: process.env,
-      stdio: 'inherit',
-    });
+    runYarn('build:server');
     return;
   }
 
@@ -84,20 +85,12 @@ async function ensureServerBundle(): Promise<void> {
   }
 
   console.info(`[E2E] Building server bundle (missing resources/${serverTarName} or SHASUM256 entry)`);
-  execFileSync('yarn', ['build:server'], {
-    cwd: REPO_ROOT,
-    env: process.env,
-    stdio: 'inherit',
-  });
+  runYarn('build:server');
 }
 
 function ensureDockerComposeAssets(): void {
   console.info('[E2E] Ensuring argon docker compose assets are current');
-  execFileSync('yarn', ['docker:argon:download'], {
-    cwd: REPO_ROOT,
-    env: process.env,
-    stdio: 'inherit',
-  });
+  runYarn('docker:argon:download');
 }
 
 export async function startArgonTestNetwork(

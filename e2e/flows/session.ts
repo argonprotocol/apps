@@ -271,6 +271,7 @@ function runCleanDevDocker(repoRoot: string, env: NodeJS.ProcessEnv, reason: str
     execFileSync('yarn', ['clean:dev:docker'], {
       cwd: repoRoot,
       env,
+      shell: true,
       stdio: 'inherit',
     });
   } catch (error) {

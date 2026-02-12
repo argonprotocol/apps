@@ -57,6 +57,7 @@ async function main(): Promise<void> {
       execFileSync('yarn', ['clean:dev:docker'], {
         cwd: REPO_ROOT,
         env: cleanupEnv,
+        shell: true,
         stdio: 'inherit',
       });
     } catch (error) {

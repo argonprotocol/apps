@@ -9,6 +9,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
+import os from 'node:os';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
 import {
@@ -20,20 +21,23 @@ import {
 import { Dockers } from '../src/Dockers.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 
+const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
+
 afterEach(teardown);
 afterAll(teardown);
 
 let clientAddress: string;
 beforeAll(async () => {
+  if (skipE2E) return;
   NetworkConfig.setNetwork('dev-docker');
   const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
 
-it('can autobid and store stats', async () => {
+it.skipIf(skipE2E)('can autobid and store stats', async () => {
   const client = await getClient(clientAddress);
 
-  const botDataDir = fs.mkdtempSync('/tmp/bot-');
+  const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot-'));
   await fs.promises.rm(botDataDir, { recursive: true, force: true });
   // submit a price index
 
@@ -223,7 +227,7 @@ it('can autobid and store stats', async () => {
 
   // try to recover from blocks
 
-  const path2 = fs.mkdtempSync('/tmp/bot2-');
+  const path2 = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot2-'));
   runOnTeardown(() => fs.promises.rm(path2, { recursive: true, force: true }));
   const botRestart = new Bot({
     pair: sudo(),

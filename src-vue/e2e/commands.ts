@@ -51,6 +51,7 @@ class CommandError extends Error {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_INTERVAL_MS = 50;
 const DEFAULT_READY_TIMEOUT_MS = 45_000;
+const MAX_TIMEOUT_MS = 300_000;
 const VISUAL_MOVE_MS = 140;
 const VISUAL_HIGHLIGHT_MS = 280;
 const VISUAL_STEP_DELAY_MS = 80;
@@ -491,12 +492,12 @@ function getString(value: unknown, field: string, required = true, allowEmpty = 
   return value;
 }
 
-function getNumber(value: unknown, field: string, fallback: number): number {
+function getTimeoutMs(value: unknown, field: string, fallback: number): number {
   if (value == null) return fallback;
-  if (typeof value !== 'number' || Number.isNaN(value) || value < 0) {
-    throw new CommandError('invalid_args', `'${field}' must be a non-negative number`);
+  if (typeof value !== 'number' || !Number.isFinite(value) || Number.isNaN(value) || value < 0) {
+    throw new CommandError('invalid_args', `'${field}' must be a finite non-negative number`);
   }
-  return value;
+  return Math.min(value, MAX_TIMEOUT_MS);
 }
 
 function getBoolean(value: unknown, field: string, fallback: boolean): boolean {
@@ -1044,12 +1045,12 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
   };
 
   if (command.startsWith('ui.')) {
-    const readyTimeoutMs = getNumber(args.readyTimeoutMs, 'readyTimeoutMs', DEFAULT_READY_TIMEOUT_MS);
+    const readyTimeoutMs = getTimeoutMs(args.readyTimeoutMs, 'readyTimeoutMs', DEFAULT_READY_TIMEOUT_MS);
     await ensureAppReadyForUi(readyTimeoutMs);
   }
 
   if (command === 'app.waitForReady') {
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_READY_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_READY_TIMEOUT_MS);
     await waitForAppReady(timeoutMs);
     return { ok: true };
   }
@@ -1057,7 +1058,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
   if (command === 'ui.waitFor') {
     const target = getTarget(args);
     const state = getWaitState(args.state);
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const element = await waitForState(target, state, timeoutMs, buildProgressEmitter(target, state));
     if (state !== 'missing') {
       await visualizeAction(element, `waitFor:${state}`);
@@ -1097,7 +1098,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
 
   if (command === 'ui.click') {
     const target = getTarget(args);
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const startedAt = Date.now();
     const visibleElement = await waitForState(target, 'visible', timeoutMs, buildProgressEmitter(target, 'visible'));
     if (!visibleElement) {
@@ -1123,7 +1124,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
 
   if (command === 'ui.type') {
     const target = getTarget(args);
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const text = getString(args.text, 'text', true, true);
     const clear = getBoolean(args.clear, 'clear', false);
     const element = await waitForState(target, 'enabled', timeoutMs, buildProgressEmitter(target, 'enabled'));
@@ -1138,7 +1139,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
 
   if (command === 'ui.copy') {
     const target = getTarget(args);
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const element = await waitForState(target, 'visible', timeoutMs, buildProgressEmitter(target, 'visible'));
     if (!element) {
       throw new CommandError('not_found', `Target ${getTargetLabel(target)} not found`);
@@ -1151,7 +1152,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
 
   if (command === 'ui.paste') {
     const target = getTarget(args);
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const clear = getBoolean(args.clear, 'clear', false);
     const element = await waitForState(target, 'enabled', timeoutMs, buildProgressEmitter(target, 'enabled'));
     if (!element) {
@@ -1165,7 +1166,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
 
   if (command === 'ui.getText') {
     const target = getTarget(args);
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const element = await waitForState(target, 'exists', timeoutMs, buildProgressEmitter(target, 'exists'));
     if (!element) {
       throw new CommandError('not_found', `Target ${getTargetLabel(target)} not found`);
@@ -1176,7 +1177,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
   if (command === 'ui.getAttribute') {
     const target = getTarget(args);
     const attribute = getString(args.attribute, 'attribute') as string;
-    const timeoutMs = getNumber(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const element = await waitForState(target, 'exists', timeoutMs, undefined, {
       suppressStatusClear: true,
       suppressVisualWait: true,

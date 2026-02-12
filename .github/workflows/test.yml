@@ -79,7 +79,7 @@ jobs:
         env:
           CI: true
           ARGON_E2E_HEADLESS: true
-          DISABLE_E2E_TEST: '1'
+          SKIP_E2E: '1'
 
       - name: Upload test artifacts
         if: failure()

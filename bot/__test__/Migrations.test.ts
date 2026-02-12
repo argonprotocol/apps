@@ -1,6 +1,7 @@
 import { teardown } from '@argonprotocol/testing';
 import { afterAll, afterEach, expect, it } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import { Storage } from '../src/Storage.ts';
 import { type IBidsFile, type IBotStateFile, JsonExt } from '@argonprotocol/apps-core';
 import Path from 'node:path';
@@ -9,7 +10,7 @@ afterEach(teardown);
 afterAll(teardown);
 
 it('can autobid and store stats', async () => {
-  const botDataDir = fs.mkdtempSync('/tmp/bot-storage-');
+  const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot-storage-'));
   await fs.promises.rm(botDataDir, { recursive: true, force: true });
 
   const storage = new Storage(botDataDir);

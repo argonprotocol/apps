@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createFlowSession, getDefaultFlowInput, type FlowSession } from '../flows/session.js';
 
+const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
+
 async function runIsolatedFlow(flowName: 'miningOnboarding' | 'vaultingOnboarding'): Promise<number> {
   const sessionName = `onboarding-spec-${flowName}`;
   const session: FlowSession = await createFlowSession({
@@ -16,7 +18,7 @@ async function runIsolatedFlow(flowName: 'miningOnboarding' | 'vaultingOnboardin
   }
 }
 
-describe.skipIf(process.env.DISABLE_E2E_TEST === '1').sequential('Onboarding Flows', () => {
+describe.skipIf(skipE2E).sequential('Onboarding Flows', () => {
   it(
     'mining onboarding',
     async () => {

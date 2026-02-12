@@ -84,10 +84,19 @@ export class MiningFrames {
       console.time('[Mining Frames] loaded');
 
       if (this.updatesWriter) {
-        const updates = await this.updatesWriter.read().then(x => JSON.parse(x ?? '[]') as IFrameHistory[]);
+        const savedFrameHistory = await this.updatesWriter
+          .read()
+          .then(x => JSON.parse(x ?? '[]') as IFrameHistory[])
+          .catch(err => {
+            const message = String(err).toLowerCase();
+            if (!message.includes('no such file or directory') && !message.includes('not found')) {
+              console.error(`Error reading from mining frames file`, err);
+            }
+            return [];
+          });
 
-        if (Array.isArray(updates) && updates.length > 0) {
-          for (const frame of updates) {
+        if (Array.isArray(savedFrameHistory) && savedFrameHistory.length > 0) {
+          for (const frame of savedFrameHistory) {
             frame.dateStart = toDateSafe(frame.dateStart);
             this.framesById[frame.frameId] = frame;
           }

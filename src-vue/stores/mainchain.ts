@@ -95,24 +95,15 @@ export function getMiningFrames(): MiningFrames {
   if (!miningFrames) {
     console.log('Initializing MiningFrames', NETWORK_NAME);
     const clients = getMainchainClients();
-    const storageFile = `${NETWORK_NAME}/${INSTANCE_NAME}/miningFrames.json`;
+    let storageFile = `${NETWORK_NAME}/miningFrames.json`;
+    if (NETWORK_NAME === 'dev-docker') {
+      storageFile = `${NETWORK_NAME}/${INSTANCE_NAME}/dev-docker.json`;
+    }
     const dir = {
       baseDir: BaseDirectory.AppConfig,
     };
     miningFrames = new MiningFrames(clients, getBlockWatch(), {
-      read: async () => {
-        // First try the old location for backward compatibility, then the new location
-        return (
-          (await readTextFile(`${NETWORK_NAME}/miningFrames.json`, dir).catch(() => null)) ??
-          (await readTextFile(storageFile, dir).catch(err => {
-            const message = String(err).toLowerCase();
-            if (!message.includes('no such file or directory') && !message.includes('not found')) {
-              console.error(`Error reading from mining frames file`, err);
-            }
-            return null;
-          }))
-        );
-      },
+      read: () => readTextFile(storageFile, dir),
       write: data => writeTextFile(storageFile, data, dir),
     });
   }
