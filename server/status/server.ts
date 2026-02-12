@@ -243,7 +243,10 @@ class BitcoinApis {
     const hashes = await Promise.all(
       Array.from({ length: blockCount }, (_, i) => callBitcoinRpc<string>('getblockhash', blockcount - i)),
     );
-    return await Promise.all(hashes.map(h => callBitcoinRpc<IBitcoinBlockMeta>('getblock', h, 1)));
+    const blocks = await Promise.all(
+      hashes.map(h => callBitcoinRpc<IBitcoinBlockMeta & { tx: string[] }>('getblock', h, 1)),
+    );
+    return blocks.map(({ tx, ...block }) => block);
   }
 }
 
@@ -373,5 +376,4 @@ interface IBitcoinBlockMeta {
   strippedsize: number;
   nonce: number;
   mediantime: number;
-  tx: string[];
 }

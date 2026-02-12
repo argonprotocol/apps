@@ -17,5 +17,4 @@ export interface IBitcoinBlockMeta {
   strippedsize: number;
   nonce: number;
   mediantime: number;
-  tx: string[];
 }
