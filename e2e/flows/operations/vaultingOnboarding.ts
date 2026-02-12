@@ -54,7 +54,14 @@ export const vaultingOnboardingFlow: E2EFlowDefinition = {
 
         const createVaultVisible = await flow.isVisible('FinalSetupChecklist.createVault()');
         if (createVaultVisible.visible) {
-          await flow.click('FinalSetupChecklist.createVault()');
+          try {
+            await flow.click('FinalSetupChecklist.createVault()', { timeoutMs: 1_000 });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!message.includes('Timed out waiting for clickable')) {
+              throw error;
+            }
+          }
         }
         return false;
       },

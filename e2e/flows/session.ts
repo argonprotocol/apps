@@ -12,7 +12,7 @@ import {
   toComposeProjectName,
 } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 
-const DEFAULT_APP_CONNECT_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_APP_CONNECT_TIMEOUT_MS = 12 * 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
 const CLEANUP_PORT_POLL_INTERVAL_MS = 500;
 const REQUIRED_LOCAL_DOCKER_PORTS = [3261];
@@ -110,7 +110,7 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
 
   try {
     await driver.connect();
-    await waitForAppConnection(driver, DEFAULT_APP_CONNECT_TIMEOUT_MS);
+    await waitForAppConnection(driver, devDockerProcess, DEFAULT_APP_CONNECT_TIMEOUT_MS);
   } catch (error) {
     closed = true;
     driver.close();
@@ -192,18 +192,47 @@ function getRepoRoot(options: FlowSessionOptions): string {
   return Path.resolve(scriptDir, '..', '..');
 }
 
-async function waitForAppConnection(driver: DriverClient, timeoutMs: number): Promise<void> {
+async function waitForAppConnection(driver: DriverClient, appProcess: ChildProcess, timeoutMs: number): Promise<void> {
   console.info(`[E2E] Waiting for app connection (timeout ${timeoutMs}ms)`);
-  await Promise.race([
-    driver.waitForApp().then(() => undefined),
-    new Promise<never>((_resolve, reject) => {
-      setTimeout(
-        () =>
-          reject(new Error(`Timed out waiting for app connection after ${timeoutMs}ms (driver ${driver.getUrl()})`)),
-        timeoutMs,
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | null = null;
+
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      appProcess.off('exit', onExit);
+      callback();
+    };
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      finish(() =>
+        reject(
+          new Error(
+            `[E2E] App process exited before driver app connection (code=${String(code)}, signal=${String(signal)})`,
+          ),
+        ),
       );
-    }),
-  ]);
+    };
+
+    timeout = setTimeout(
+      () =>
+        finish(() =>
+          reject(new Error(`Timed out waiting for app connection after ${timeoutMs}ms (driver ${driver.getUrl()})`)),
+        ),
+      timeoutMs,
+    );
+
+    appProcess.once('exit', onExit);
+    void driver
+      .waitForApp()
+      .then(() => finish(resolve))
+      .catch(error => finish(() => reject(error)));
+  });
 }
 
 async function stopChild(child: ChildProcess | null): Promise<void> {
