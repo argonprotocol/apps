@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import docker from 'docker-compose';
 import { runOnTeardown } from '@argonprotocol/testing';
 import { NetworkConfig, NetworkConfigSettings, stripNetworkPrefix, toComposeProjectName } from '../src/index.js';
-import { getClient } from '@argonprotocol/mainchain';
+import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
 
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -18,6 +18,8 @@ export interface StartArgonTestNetworkOptions {
   profiles?: StartProfile[];
   registerTeardown?: boolean;
   composeProjectName?: string;
+  chainStartTimeoutMs?: number;
+  chainStartPollMs?: number;
 }
 
 export interface ResolvedTestSessionIdentity {
@@ -108,6 +110,9 @@ export interface StartedArgonTestNetwork {
   stop: () => Promise<void>;
 }
 
+const DEFAULT_CHAIN_START_TIMEOUT_MS = 120_000;
+const DEFAULT_CHAIN_START_POLL_MS = 500;
+
 export async function startArgonTestNetwork(
   uniqueTestName: string,
   options: StartArgonTestNetworkOptions = {},
@@ -178,41 +183,91 @@ export async function startArgonTestNetwork(
   const port = portResult.data.port;
   const archiveUrl = `ws://127.0.0.1:${port}`;
   const client = await getClient(archiveUrl);
-  while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
-    await new Promise(res => setTimeout(res, 100));
-  }
-  const miningConfig = await NetworkConfig.loadConfigs(client);
-  console.log('Loaded mining config:', miningConfig);
-  const updatedConfig: Record<string, unknown> = {
-    ...miningConfig,
-    archiveUrl,
-    bitcoinBlockMillis: miningConfig.tickMillis * 10,
-    esploraHost: `http://localhost:${esploraPortResult.data.port}`,
-  };
-  if (indexerPortResult?.data?.port) {
-    updatedConfig.indexerHost = `http://localhost:${indexerPortResult.data.port}`;
-  }
-  Object.assign(NetworkConfigSettings['dev-docker'], updatedConfig);
+  await waitForFirstMainchainBlock(client, archiveUrl, {
+    timeoutMs: Number.isFinite(options.chainStartTimeoutMs ?? NaN)
+      ? Number(options.chainStartTimeoutMs)
+      : DEFAULT_CHAIN_START_TIMEOUT_MS,
+    pollMs: Number.isFinite(options.chainStartPollMs ?? NaN)
+      ? Number(options.chainStartPollMs)
+      : DEFAULT_CHAIN_START_POLL_MS,
+    composeProjectName:
+      options.composeProjectName ??
+      toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
+  });
 
-  await client.disconnect();
-
-  return {
-    archiveUrl,
-    networkConfigOverride: {
+  try {
+    const miningConfig = await NetworkConfig.loadConfigs(client);
+    console.log('Loaded mining config:', miningConfig);
+    const updatedConfig: Record<string, unknown> = {
+      ...miningConfig,
       archiveUrl,
-      bitcoinBlockMillis: updatedConfig.bitcoinBlockMillis as number,
-      esploraHost: updatedConfig.esploraHost as string,
-      ...(updatedConfig.indexerHost ? { indexerHost: updatedConfig.indexerHost as string } : {}),
-    },
-    composeEnv,
-    notaryUrl: `ws://127.0.0.1:${notaryPortResult.data.port}`,
-    stop,
-    getPort(service, internalPort) {
-      return docker
-        .port(service, internalPort, { config: COMPOSE_CONFIG, cwd: COMPOSE_DIR, env: composeEnv })
-        .then(res => res.data.port);
-    },
-  };
+      bitcoinBlockMillis: miningConfig.tickMillis * 10,
+      esploraHost: `http://localhost:${esploraPortResult.data.port}`,
+    };
+    if (indexerPortResult?.data?.port) {
+      updatedConfig.indexerHost = `http://localhost:${indexerPortResult.data.port}`;
+    }
+    Object.assign(NetworkConfigSettings['dev-docker'], updatedConfig);
+
+    return {
+      archiveUrl,
+      networkConfigOverride: {
+        archiveUrl,
+        bitcoinBlockMillis: updatedConfig.bitcoinBlockMillis as number,
+        esploraHost: updatedConfig.esploraHost as string,
+        ...(updatedConfig.indexerHost ? { indexerHost: updatedConfig.indexerHost as string } : {}),
+      },
+      composeEnv,
+      notaryUrl: `ws://127.0.0.1:${notaryPortResult.data.port}`,
+      stop,
+      getPort(service, internalPort) {
+        return docker
+          .port(service, internalPort, { config: COMPOSE_CONFIG, cwd: COMPOSE_DIR, env: composeEnv })
+          .then(res => res.data.port);
+      },
+    };
+  } finally {
+    await client.disconnect();
+  }
+}
+
+async function waitForFirstMainchainBlock(
+  client: ArgonClient,
+  archiveUrl: string,
+  options: {
+    timeoutMs: number;
+    pollMs: number;
+    composeProjectName: string;
+  },
+): Promise<void> {
+  const startedAt = Date.now();
+  let lastLogAt = Date.now();
+  const timeoutMs = Math.max(
+    1,
+    Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_CHAIN_START_TIMEOUT_MS,
+  );
+  const pollMs = Math.max(10, Number.isFinite(options.pollMs) ? options.pollMs : DEFAULT_CHAIN_START_POLL_MS);
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    try {
+      const header = await client.rpc.chain.getHeader();
+      const blockNumber = header.number.toNumber();
+      if (blockNumber > 0) return;
+    } catch (_error) {
+      // Wait for chain websocket to become usable.
+    }
+    if (Date.now() - lastLogAt >= 10_000) {
+      console.info(
+        `[E2E] Waiting for first chain block from archive node at ${archiveUrl} (compose=${options.composeProjectName})`,
+      );
+      lastLogAt = Date.now();
+    }
+    await new Promise(res => setTimeout(res, pollMs));
+  }
+
+  throw new Error(
+    `[E2E] archive node at ${archiveUrl} never produced block >0 within ${timeoutMs}ms (compose=${options.composeProjectName})`,
+  );
 }
 
 async function fileExists(path: string): Promise<boolean> {

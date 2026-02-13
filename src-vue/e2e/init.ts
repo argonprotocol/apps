@@ -196,6 +196,17 @@ export function initE2EClient(): void {
   const socket = new WebSocket(driverUrl.toString());
   let hasOpened = false;
   let hasClosed = false;
+  const emitFrontEndError = (
+    label: string,
+    details: { message?: string; filename?: string; line?: number; column?: number; stack?: string },
+  ): void => {
+    sendMessage(socket, {
+      type: 'client.event',
+      event: 'frontend.error',
+      label,
+      ...details,
+    });
+  };
   socket.addEventListener('open', () => {
     hasOpened = true;
     sendMessage(socket, {
@@ -211,6 +222,21 @@ export function initE2EClient(): void {
   socket.addEventListener('message', event => {
     if (typeof event.data !== 'string') return;
     void onDriverMessage(socket, event.data, session);
+  });
+  window.addEventListener('error', event => {
+    emitFrontEndError('window.error', {
+      message: event.message,
+      filename: event.filename,
+      line: event.lineno,
+      column: event.colno,
+      stack: event.error?.stack,
+    });
+  });
+  window.addEventListener('unhandledrejection', event => {
+    const reason = event.reason as Error;
+    const message = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? reason.stack : undefined;
+    emitFrontEndError('unhandledrejection', { message, stack });
   });
   socket.addEventListener('close', event => {
     hasClosed = true;

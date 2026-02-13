@@ -136,6 +136,13 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
         await runFlow(driver, flowName, { input });
       } catch (error) {
         await printInstallFailureLogs(sessionIdentity.composeNetwork, appInstanceName, flowName, error);
+        const frontendErrors = driver.getFrontendErrors();
+        if (frontendErrors.length > 0) {
+          console.error('[E2E] Frontend errors captured during flow:');
+          for (const [index, frontendError] of frontendErrors.entries()) {
+            console.error(`[E2E] frontend.error #${index + 1}: ${frontendError}`);
+          }
+        }
         throw error;
       }
       return {

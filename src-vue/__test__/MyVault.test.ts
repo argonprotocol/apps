@@ -52,7 +52,11 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
   beforeAll(async () => {
     db = await createTestDb();
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
+    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
+      profiles: ['bob'],
+      chainStartTimeoutMs: 120_000,
+      chainStartPollMs: 250,
+    });
 
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
@@ -67,7 +71,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
     setMainchainClients(clients);
     NetworkConfig.setNetwork('dev-docker');
-  }, 60e3);
+  }, 120e3);
 
   it('should work when no vault is found', async () => {
     const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
@@ -212,9 +216,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       });
 
       const treasuryMicrogons = (await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault)).heldPrincipal;
-      expect(treasuryMicrogons).toBe(
-        (MyVault.getMicrogonSplit(vaultRules, vaultCreationFees).microgonsForTreasury / 10n) * 10n,
-      );
+      expect(treasuryMicrogons).toBe(MyVault.getMicrogonSplit(vaultRules, vaultCreationFees).microgonsForTreasury);
       const rules = MyVaultRecovery.rebuildRules({
         feesInMicrogons: vaultCreationFees + (vaultSave!.txResult.finalFee ?? 0n),
         vault: recoveredVault,
