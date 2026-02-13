@@ -3,6 +3,8 @@ import { toRaw } from 'vue';
 import dayjs from 'dayjs';
 import { u8aToHex } from '@argonprotocol/mainchain';
 
+const MAX_BACKEND_LOG_CHARS = 8_000;
+
 function forwardConsole(
   fnName: 'log' | 'debug' | 'info' | 'warn' | 'error',
   backendLogger: (message: string, options?: LogOptions) => Promise<void>,
@@ -25,6 +27,7 @@ function forwardConsole(
       if (arg !== undefined) msg += ` | ${safeStringify(arg)}`;
     }
 
+    msg = truncateBackendLog(msg);
     void backendLogger(msg);
   };
 }
@@ -105,4 +108,12 @@ function safeStringify(value: any): string {
       return '[unserializable data]';
     }
   }
+}
+
+function truncateBackendLog(message: string): string {
+  if (message.length <= MAX_BACKEND_LOG_CHARS) {
+    return message;
+  }
+  const omittedChars = message.length - MAX_BACKEND_LOG_CHARS;
+  return `${message.slice(0, MAX_BACKEND_LOG_CHARS)} ... [truncated ${omittedChars} chars]`;
 }
