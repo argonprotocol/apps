@@ -71,8 +71,8 @@ yarn workspace @argonprotocol/apps-e2e run flows
 # Opt in to isolated ephemeral docker test-network mode
 E2E_USE_TEST_NETWORK=1 yarn e2e:docker
 
-# Optional: force a specific test-network session/project identity
-E2E_USE_TEST_NETWORK=1 E2E_SESSION_NAME=vaultingOnboarding yarn e2e:docker
+# Optional: force a specific test-network identity
+E2E_USE_TEST_NETWORK=1 ARGON_APP_INSTANCE=vaultingOnboarding yarn e2e:docker
 ```
 
 Common flow inputs:

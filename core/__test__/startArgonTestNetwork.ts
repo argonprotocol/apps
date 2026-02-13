@@ -4,7 +4,7 @@ import Path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import docker from 'docker-compose';
 import { runOnTeardown } from '@argonprotocol/testing';
-import { NetworkConfig, NetworkConfigSettings } from '../src/index.js';
+import { NetworkConfig, NetworkConfigSettings, stripNetworkPrefix, toComposeProjectName } from '../src/index.js';
 import { getClient } from '@argonprotocol/mainchain';
 
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
@@ -13,10 +13,6 @@ const REPO_ROOT = Path.resolve(__dirname, '..', '..');
 const COMPOSE_DIR = Path.resolve(__dirname, '..', '..', 'e2e/argon');
 const COMPOSE_CONFIG = ['docker-compose.yml', 'indexer.docker-compose.yml'];
 
-export function toComposeProjectName(uniqueTestName: string): string {
-  return `argon-test-${uniqueTestName.replace('.test.ts', '').replace(/\W+/g, '-').toLowerCase()}`;
-}
-
 export interface StartArgonTestNetworkOptions {
   shouldLog?: boolean;
   profiles?: StartProfile[];
@@ -24,73 +20,92 @@ export interface StartArgonTestNetworkOptions {
   composeProjectName?: string;
 }
 
+export interface ResolvedTestSessionIdentity {
+  composeNetwork: string;
+  sessionName: string;
+  composeProjectName: string;
+  appInstanceName: string;
+  appInstancePort: string;
+}
+
+export interface TestSessionIdentityOptions {
+  networkName?: string;
+  rawAppInstance?: string;
+  fallbackSessionName?: string;
+  processEnv?: NodeJS.ProcessEnv;
+}
+
+export function resolveTestSessionIdentity(options: TestSessionIdentityOptions = {}): ResolvedTestSessionIdentity {
+  const env = options.processEnv ?? process.env;
+  const networkName = options.networkName?.trim() || env.ARGON_NETWORK_NAME?.trim() || 'dev-docker';
+  const normalizedNetworkName = networkName.trim() || 'dev-docker';
+  const [appInstanceName, appInstancePort = ''] = (options.rawAppInstance ?? env.ARGON_APP_INSTANCE ?? '')
+    .trim()
+    .split(':');
+  const normalizedInstance = stripNetworkPrefix(appInstanceName || '', normalizedNetworkName);
+  const sessionName = normalizedInstance || options.fallbackSessionName?.trim() || 'e2e';
+  const composeProjectName = toComposeProjectName(sessionName, normalizedNetworkName);
+  return {
+    composeNetwork: normalizedNetworkName,
+    sessionName,
+    composeProjectName,
+    appInstanceName: normalizedInstance,
+    appInstancePort,
+  };
+}
+
+export interface ResolvedTestSessionCommandEnv {
+  composeNetwork: string;
+  sessionName: string;
+  composeProjectName: string;
+  appInstance: string;
+  appEnv: NodeJS.ProcessEnv;
+}
+
+export interface TestSessionCommandEnvOptions extends TestSessionIdentityOptions {
+  appPort: number;
+  baseEnv?: NodeJS.ProcessEnv;
+}
+
+export function resolveTestSessionCommandEnv(options: TestSessionCommandEnvOptions): ResolvedTestSessionCommandEnv {
+  const baseEnv = options.baseEnv ?? process.env;
+  const identity = resolveTestSessionIdentity({
+    networkName: options.networkName,
+    rawAppInstance: options.rawAppInstance,
+    fallbackSessionName: options.fallbackSessionName,
+    processEnv: baseEnv,
+  });
+  const appInstance = `${identity.sessionName}:${options.appPort}`;
+  const appEnv: NodeJS.ProcessEnv = {
+    ...baseEnv,
+    ARGON_NETWORK_NAME: identity.composeNetwork,
+    ARGON_APP_INSTANCE: appInstance,
+    COMPOSE_PROJECT_NAME: identity.composeProjectName,
+  };
+  return {
+    composeNetwork: identity.composeNetwork,
+    sessionName: identity.sessionName,
+    composeProjectName: identity.composeProjectName,
+    appInstance,
+    appEnv,
+  };
+}
+
 export interface StartedArgonTestNetwork {
   archiveUrl: string;
   notaryUrl: string;
+  networkConfigOverride: {
+    archiveUrl: string;
+    bitcoinBlockMillis: number;
+    esploraHost: string;
+    indexerHost?: string;
+  };
   composeEnv: Record<string, string>;
   getPort: (
     service: 'miner-1' | 'miner-2' | 'bitcoin' | 'indexer' | 'bitcoin-electrs',
     internalPort: number,
   ) => Promise<number>;
   stop: () => Promise<void>;
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  return Fs.stat(path)
-    .then(() => true)
-    .catch(() => false);
-}
-
-function runYarn(...args: string[]): void {
-  execFileSync('yarn', args, {
-    cwd: REPO_ROOT,
-    env: process.env,
-    shell: true,
-    stdio: 'inherit',
-  });
-}
-
-async function ensureIndexerBundle(): Promise<void> {
-  const indexerEntry = Path.resolve(REPO_ROOT, 'indexer/lib/index.js');
-  const hasIndexerBundle = await fileExists(indexerEntry);
-
-  if (hasIndexerBundle) return;
-
-  console.info('[E2E] Building indexer bundle (missing indexer/lib/index.js)');
-  runYarn('workspace', '@argonprotocol/apps-indexer', 'run', 'build');
-}
-
-async function ensureServerBundle(): Promise<void> {
-  const packageJsonPath = Path.resolve(REPO_ROOT, 'package.json');
-  const packageJsonRaw = await Fs.readFile(packageJsonPath, 'utf-8');
-  const packageJson = JSON.parse(packageJsonRaw) as { version?: unknown };
-  const version = typeof packageJson.version === 'string' ? packageJson.version : '';
-  if (!version) {
-    console.info('[E2E] Building server bundle (missing package version)');
-    runYarn('build:server');
-    return;
-  }
-
-  const resourcesDir = Path.resolve(REPO_ROOT, 'resources');
-  const serverTarName = `server-${version}.tar.gz`;
-  const serverTarPath = Path.join(resourcesDir, serverTarName);
-  const shasumPath = Path.join(resourcesDir, 'SHASUM256');
-  const [hasServerTar, hasShasum] = await Promise.all([fileExists(serverTarPath), fileExists(shasumPath)]);
-
-  if (hasServerTar && hasShasum) {
-    const shasum = await Fs.readFile(shasumPath, 'utf-8').catch(() => '');
-    if (shasum.includes(`  ${serverTarName}`)) {
-      return;
-    }
-  }
-
-  console.info(`[E2E] Building server bundle (missing resources/${serverTarName} or SHASUM256 entry)`);
-  runYarn('build:server');
-}
-
-function ensureDockerComposeAssets(): void {
-  console.info('[E2E] Ensuring argon docker compose assets are current');
-  runYarn('docker:argon:download');
 }
 
 export async function startArgonTestNetwork(
@@ -107,7 +122,9 @@ export async function startArgonTestNetwork(
   const composeEnv: Record<string, string> = {
     ...process.env,
     RPC_PORT: '0',
-    COMPOSE_PROJECT_NAME: options.composeProjectName ?? toComposeProjectName(uniqueTestName),
+    COMPOSE_PROJECT_NAME:
+      options.composeProjectName ??
+      toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
     PATH: `${process.env.PATH ?? ''}:/opt/homebrew/bin:/usr/local/bin`,
   };
 
@@ -181,6 +198,12 @@ export async function startArgonTestNetwork(
 
   return {
     archiveUrl,
+    networkConfigOverride: {
+      archiveUrl,
+      bitcoinBlockMillis: updatedConfig.bitcoinBlockMillis as number,
+      esploraHost: updatedConfig.esploraHost as string,
+      ...(updatedConfig.indexerHost ? { indexerHost: updatedConfig.indexerHost as string } : {}),
+    },
     composeEnv,
     notaryUrl: `ws://127.0.0.1:${notaryPortResult.data.port}`,
     stop,
@@ -190,4 +213,39 @@ export async function startArgonTestNetwork(
         .then(res => res.data.port);
     },
   };
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  return Fs.stat(path)
+    .then(() => true)
+    .catch(() => false);
+}
+
+function runYarn(...args: string[]): void {
+  execFileSync('yarn', args, {
+    cwd: REPO_ROOT,
+    env: process.env,
+    shell: true,
+    stdio: 'inherit',
+  });
+}
+
+async function ensureIndexerBundle(): Promise<void> {
+  const indexerEntry = Path.resolve(REPO_ROOT, 'indexer/lib/index.js');
+  const hasIndexerBundle = await fileExists(indexerEntry);
+
+  if (hasIndexerBundle) return;
+
+  console.info('[E2E] Building indexer bundle (missing indexer/lib/index.js)');
+  runYarn('workspace', '@argonprotocol/apps-indexer', 'run', 'build');
+}
+
+async function ensureServerBundle(): Promise<void> {
+  console.info('[E2E] Building server bundle (ensuring latest for test network)');
+  runYarn('build:server');
+}
+
+function ensureDockerComposeAssets(): void {
+  console.info('[E2E] Ensuring argon docker compose assets are current');
+  runYarn('docker:argon:download');
 }

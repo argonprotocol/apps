@@ -4,11 +4,12 @@ import { execFileSync } from 'node:child_process';
 import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { toComposeProjectName } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { resolveTestSessionCommandEnv } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { getFlow } from './flows/index.js';
 import { createFlowSession, getDefaultFlowInput, type FlowSession } from './flows/session.js';
 
 const DEFAULT_FLOWS = ['miningOnboarding', 'vaultingOnboarding'];
+const DEFAULT_APP_PORT = 1420;
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = Path.resolve(__dirname, '..');
 let shutdownRequested = false;
@@ -26,10 +27,15 @@ function parseNonEmptyCsv(value: string | undefined, fallback: string[]): string
 async function main(): Promise<void> {
   const flowNames = parseNonEmptyCsv(process.env.E2E_FLOWS, DEFAULT_FLOWS);
   const useTestNetwork = (process.env.E2E_USE_TEST_NETWORK ?? '1').trim() === '1';
-  const explicitSessionName = process.env.E2E_SESSION_NAME?.trim();
-  const sessionName =
-    explicitSessionName ||
-    (useTestNetwork ? (flowNames.length === 1 ? flowNames[0] : `flows-${flowNames.join('-')}`) : undefined);
+  const flowDefaultSessionName = useTestNetwork
+    ? flowNames.length === 1
+      ? flowNames[0]
+      : `flows-${flowNames.join('-')}`
+    : undefined;
+  const { sessionName, composeProjectName, appEnv } = resolveTestSessionCommandEnv({
+    appPort: DEFAULT_APP_PORT,
+    fallbackSessionName: flowDefaultSessionName,
+  });
 
   let session: FlowSession | null = null;
   let isClosing = false;
@@ -45,14 +51,8 @@ async function main(): Promise<void> {
   };
 
   const cleanupTestNetworkArtifacts = (): void => {
-    if (!useTestNetwork || !sessionName) return;
-    const composeProjectName = toComposeProjectName(sessionName);
-    const cleanupEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ARGON_NETWORK_NAME: 'dev-docker',
-      ARGON_APP_INSTANCE: sessionName,
-      COMPOSE_PROJECT_NAME: composeProjectName,
-    };
+    if (!useTestNetwork) return;
+    const cleanupEnv: NodeJS.ProcessEnv = { ...appEnv };
     try {
       execFileSync('yarn', ['clean:dev:docker'], {
         cwd: REPO_ROOT,

@@ -23,6 +23,7 @@ console.info(
 );
 
 bringDownArgonComposeProject();
+removeConflictingComposeNetwork(composeProjectName);
 bringDownLocalMachineComposeProjects();
 
 console.info('[clean:dev:docker] Completed');
@@ -101,6 +102,47 @@ function bringDownArgonComposeProject(): void {
     console.warn(
       `[clean:dev:docker] argon compose down failed for ${composeProjectName}: ${(error as Error).message}`,
     );
+  }
+}
+
+function removeConflictingComposeNetwork(composeProjectName: string): void {
+  const networkName = `${composeProjectName}-net`;
+  let networkInfoJson: string;
+
+  try {
+    networkInfoJson = execFileSync('docker', ['network', 'inspect', networkName], { encoding: 'utf8' });
+  } catch (_error) {
+    return;
+  }
+
+  try {
+    const networks = JSON.parse(networkInfoJson) as Array<{
+      Labels?: Record<string, string>;
+      Containers?: Record<string, unknown>;
+    }>;
+    const network = networks[0];
+    if (!network) return;
+
+    const composeNetworkLabel = network.Labels?.['com.docker.compose.network'];
+    if (composeNetworkLabel === 'default') {
+      return;
+    }
+
+    if (network.Containers && Object.keys(network.Containers).length > 0) {
+      console.warn(
+        `[clean:dev:docker] ${networkName} exists with unexpected label "${composeNetworkLabel}" and is in use; skipping removal`,
+      );
+      return;
+    }
+
+    console.warn(
+      `[clean:dev:docker] Removing stale network "${networkName}" with unexpected compose label "${composeNetworkLabel}"`,
+    );
+    execFileSync('docker', ['network', 'rm', networkName], {
+      stdio: 'inherit',
+    });
+  } catch (_error) {
+    console.warn(`[clean:dev:docker] Unable to inspect network "${networkName}" before start; continuing`);
   }
 }
 

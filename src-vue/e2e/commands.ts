@@ -79,6 +79,38 @@ let visualState: VisualState | null = null;
 let activeCommandLabel = '';
 let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 const QUIET_VISUAL_COMMANDS = new Set(['ui.getAttribute', 'ui.count', 'ui.isVisible']);
+type CursorVisualMode = 'click' | 'wait';
+
+function setCursorMode(state: VisualState, mode: CursorVisualMode): void {
+  if (mode === 'click') {
+    Object.assign(state.cursor.style, {
+      width: '18px',
+      height: '24px',
+      transform: 'translate(-2px, -2px)',
+      borderRadius: '0',
+      clipPath: 'polygon(0 0, 0 100%, 34% 72%, 50% 100%, 62% 94%, 48% 64%, 80% 64%)',
+      border: '1px solid #0f172a',
+      background: 'linear-gradient(145deg, #f8fafc 0%, #e2e8f0 65%, #cbd5e1 100%)',
+      boxShadow: '0 2px 8px rgba(15, 23, 42, 0.35)',
+    });
+    state.cursor.style.animation = 'none';
+    return;
+  }
+
+  Object.assign(state.cursor.style, {
+    width: '18px',
+    height: '18px',
+    transform: 'translate(-50%, -50%)',
+    borderRadius: '9999px',
+    clipPath: 'none',
+    border: '2px solid rgba(226, 232, 240, 0.75)',
+    background: 'rgba(56, 189, 248, 0.14)',
+    boxShadow: '0 0 0 3px rgba(56, 189, 248, 0.28), 0 2px 8px rgba(15, 23, 42, 0.25)',
+  });
+  Object.assign(state.cursor.style, {
+    animation: 'argon-e2e-wait 900ms linear infinite',
+  });
+}
 
 function setFallbackClipboard(text: string): void {
   inMemoryClipboard = text;
@@ -101,6 +133,25 @@ function isVisualsEnabled(): boolean {
 function ensureVisualState(): VisualState | null {
   if (!isVisualsEnabled() || !document.body) return null;
   if (visualState) return visualState;
+
+  const styleId = 'argon-e2e-visual-styles';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+@keyframes argon-e2e-wait {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.16), 0 2px 8px rgba(15, 23, 42, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.32), 0 2px 8px rgba(15, 23, 42, 0.25);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.16), 0 2px 8px rgba(15, 23, 42, 0.25);
+  }
+}`;
+    (document.head ?? document.body).append(style);
+  }
 
   const root = document.createElement('div');
   root.setAttribute('data-argon-e2e-visual', 'true');
@@ -184,13 +235,15 @@ function ensureVisualState(): VisualState | null {
   root.append(highlight, cursor, label, status);
   document.body.append(root);
   visualState = { root, cursor, highlight, label, status, hideTimer: null };
+  setCursorMode(visualState, 'click');
   return visualState;
 }
 
-function positionVisuals(point: { x: number; y: number }, text: string): void {
+function positionVisuals(point: { x: number; y: number }, text: string, mode: CursorVisualMode = 'click'): void {
   const state = ensureVisualState();
   if (!state) return;
 
+  setCursorMode(state, mode);
   state.cursor.style.left = `${point.x}px`;
   state.cursor.style.top = `${point.y}px`;
   state.cursor.style.opacity = '1';
@@ -199,6 +252,21 @@ function positionVisuals(point: { x: number; y: number }, text: string): void {
   state.label.style.left = `${point.x}px`;
   state.label.style.top = `${point.y}px`;
   state.label.style.opacity = '1';
+
+  scheduleActionVisualHide(state);
+}
+
+function scheduleActionVisualHide(state: VisualState): void {
+  if (state.hideTimer) {
+    clearTimeout(state.hideTimer);
+  }
+  state.hideTimer = setTimeout(() => {
+    if (!visualState) return;
+    state.cursor.style.opacity = '0';
+    state.highlight.style.opacity = '0';
+    state.label.style.opacity = '0';
+    state.hideTimer = null;
+  }, VISUAL_HIGHLIGHT_MS);
 }
 
 function hideVisuals(): void {
@@ -218,14 +286,17 @@ function truncateLabel(text: string, maxLength = VISUAL_LABEL_MAX_LENGTH): strin
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
-function setWaitStatusText(text: string): void {
+const WAIT_STATUS_PREFIX = '⏳ ';
+
+function setWaitStatusText(text: string, mode: CursorVisualMode = 'click'): void {
   const state = ensureVisualState();
   if (!state) return;
   if (statusClearTimer) {
     clearTimeout(statusClearTimer);
     statusClearTimer = null;
   }
-  state.status.textContent = truncateLabel(text, VISUAL_STATUS_MAX_LENGTH);
+  const prefix = mode === 'wait' ? WAIT_STATUS_PREFIX : '';
+  state.status.textContent = truncateLabel(`${prefix}${text}`, VISUAL_STATUS_MAX_LENGTH);
   state.status.style.opacity = '1';
 }
 
@@ -266,25 +337,14 @@ function positionHighlight(element: HTMLElement): VisualState | null {
 function showHighlight(element: HTMLElement): void {
   const state = positionHighlight(element);
   if (!state) return;
-  if (state.hideTimer) {
-    clearTimeout(state.hideTimer);
-    state.hideTimer = null;
-  }
   state.highlight.style.opacity = '1';
+  scheduleActionVisualHide(state);
 }
 
 function flashHighlight(element: HTMLElement): void {
   const state = positionHighlight(element);
   if (!state) return;
   state.highlight.style.opacity = '1';
-
-  if (state.hideTimer) {
-    clearTimeout(state.hideTimer);
-  }
-  state.hideTimer = setTimeout(() => {
-    state.highlight.style.opacity = '0';
-    state.hideTimer = null;
-  }, VISUAL_HIGHLIGHT_MS);
 }
 
 function getElementCenter(element: HTMLElement): { x: number; y: number } | null {
@@ -296,11 +356,15 @@ function getElementCenter(element: HTMLElement): { x: number; y: number } | null
   };
 }
 
-async function visualizeAction(element: HTMLElement | null, text: string): Promise<void> {
+async function visualizeAction(
+  element: HTMLElement | null,
+  text: string,
+  mode: CursorVisualMode = 'click',
+): Promise<void> {
   if (!element) return;
   const point = getElementCenter(element);
   if (!point) return;
-  positionVisuals(point, text);
+  positionVisuals(point, text, mode);
   flashHighlight(element);
   await sleep(VISUAL_STEP_DELAY_MS);
 }
@@ -310,9 +374,10 @@ function visualizeWait(target: ElementTarget, state: WaitState, element: HTMLEle
   const label = truncateLabel(`waiting ${state}: ${targetLabel}`);
   const pointer = element ? getPointerInteractableResult(element) : null;
   const blockerInfo = pointer && !pointer.clickable ? (pointer.hitLabel ?? pointer.reason ?? 'unknown') : '';
-  const commandPrefix = activeCommandLabel ? `Running: ${activeCommandLabel} | ` : '';
+  const commandPrefix = activeCommandLabel ? `Waiting: ${activeCommandLabel} | ` : '';
   setWaitStatusText(
     `${commandPrefix}waiting for ${state}: ${targetLabel}${blockerInfo ? ` | blocked by ${blockerInfo}` : ''}`,
+    'wait',
   );
   const point = element ? getElementCenter(element) : null;
   const fallbackPoint = {
@@ -320,7 +385,7 @@ function visualizeWait(target: ElementTarget, state: WaitState, element: HTMLEle
     y: Math.max(24, Math.min(window.innerHeight - 24, Math.max(64, window.innerHeight * 0.18))),
   };
 
-  positionVisuals(point ?? fallbackPoint, label);
+  positionVisuals(point ?? fallbackPoint, label, 'wait');
   if (element && point) {
     showHighlight(element);
     return;
@@ -477,6 +542,33 @@ function summarizeCommandResult(result: unknown): string {
 
 function shouldShowVisualCommandStatus(command: string): boolean {
   return command.startsWith('ui.') || command.startsWith('clipboard.') || command === 'app.waitForReady';
+}
+
+function getCommandStatusVerb(command: string, phase: 'start' | 'success' | 'error', quiet = false): string {
+  if (command === 'ui.waitFor') {
+    if (phase === 'start') return 'Waiting';
+    if (phase === 'success') return 'Wait complete';
+    return 'Wait failed';
+  }
+  if (command === 'ui.click') {
+    if (phase === 'start') return 'Clicking';
+    if (phase === 'success') return 'Clicked';
+    return 'Click failed';
+  }
+  if (quiet) {
+    return phase === 'error' ? 'Failed' : 'Polling';
+  }
+  if (phase === 'start') return 'Running';
+  if (phase === 'success') return 'Done';
+  return 'Failed';
+}
+
+function getCommandStatusTargetLabel(command: string, commandLabel: string): string {
+  if (command === 'ui.click') {
+    const trimmed = commandLabel.replace(/^click\s*/, '');
+    return trimmed || commandLabel;
+  }
+  return commandLabel;
 }
 
 function getString(value: unknown, field: string, required = true, allowEmpty = false): string | undefined {
@@ -1061,7 +1153,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const element = await waitForState(target, state, timeoutMs, buildProgressEmitter(target, state));
     if (state !== 'missing') {
-      await visualizeAction(element, `waitFor:${state}`);
+      await visualizeAction(element, `waitFor:${state}`, 'wait');
     } else {
       hideVisuals();
     }
@@ -1231,11 +1323,16 @@ export async function runCommand(
 ): Promise<CommandExecutionResult> {
   const commandLabel = describeCommand(command, argsInput);
   const showVisualStatus = shouldShowVisualCommandStatus(command);
+  const isWaitCommand = command === 'ui.waitFor';
   const quietVisualStatus = QUIET_VISUAL_COMMANDS.has(command);
+  const statusLabel = getCommandStatusTargetLabel(command, commandLabel);
   const startedAt = Date.now();
   activeCommandLabel = commandLabel;
   if (showVisualStatus) {
-    setWaitStatusText(`${quietVisualStatus ? 'Polling' : 'Running'}: ${commandLabel}`);
+    setWaitStatusText(
+      `${getCommandStatusVerb(command, 'start', quietVisualStatus)}: ${statusLabel}`,
+      isWaitCommand ? 'wait' : 'click',
+    );
   }
   console.info(`[E2E] command:start ${commandLabel}`);
   try {
@@ -1246,9 +1343,12 @@ export async function runCommand(
     if (showVisualStatus) {
       if (quietVisualStatus) {
         // Keep polling status visible during high-frequency loops (install progress checks).
-        setWaitStatusText(`Polling: ${commandLabel}`);
+        setWaitStatusText(`Polling: ${statusLabel}`, isWaitCommand ? 'wait' : 'click');
+      } else if (isWaitCommand) {
+        setWaitStatusText(`${getCommandStatusVerb(command, 'success', quietVisualStatus)}: ${statusLabel}`, 'wait');
+        clearWaitStatusTextSoon();
       } else {
-        setWaitStatusText(`Done: ${commandLabel}`);
+        setWaitStatusText(`${getCommandStatusVerb(command, 'success', quietVisualStatus)}: ${statusLabel}`, 'click');
         clearWaitStatusTextSoon();
       }
     }
@@ -1259,7 +1359,10 @@ export async function runCommand(
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[E2E] command:error ${commandLabel} elapsedMs=${elapsedMs} ${message}`);
     if (showVisualStatus) {
-      setWaitStatusText(`Failed: ${commandLabel}`);
+      setWaitStatusText(
+        `${getCommandStatusVerb(command, 'error', quietVisualStatus)}: ${statusLabel}`,
+        isWaitCommand ? 'wait' : 'click',
+      );
       clearWaitStatusTextSoon(quietVisualStatus ? 3_000 : 2_000);
     }
     activeCommandLabel = '';

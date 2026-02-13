@@ -207,6 +207,8 @@ export class FramesTable extends BaseTable {
     const records = convertFromSqliteFields<IDashboardFrameStats[]>(rawRecords, this.fieldTypes)
       .map((x: any) => {
         const miningFrame = miningFrames.framesById[x.id];
+        const fallbackDate = new Date(x.firstTick * NetworkConfig.tickMillis);
+        const dateStart = miningFrame?.dateStart ?? fallbackDate;
         const microgonValueEarnedBn = BigNumber(x.microgonsMinedTotal)
           .plus(x.microgonsMintedTotal)
           .plus(currency.convertMicronotTo(x.micronotsMinedTotal, UnitOfMeasurement.Microgon));
@@ -222,8 +224,8 @@ export class FramesTable extends BaseTable {
 
         const record: Omit<IDashboardFrameStats, 'score' | 'expected'> = {
           id: x.id,
-          date: dayjs.utc(miningFrame.dateStart).format('YYYY-MM-DD'),
-          firstTick: miningFrame.frameStartTick,
+          date: dayjs.utc(dateStart).format('YYYY-MM-DD'),
+          firstTick: miningFrame?.frameStartTick ?? x.firstTick,
           allMinersCount: x.allMinersCount,
           seatCountActive: x.seatCountActive,
           seatCostTotalFramed: x.seatCostTotalFramed,

@@ -16,13 +16,8 @@
 <script setup lang="ts">
 import CopyToClipboard from './CopyToClipboard.vue';
 
-const { content, rows } = withDefaults(
-  defineProps<{
-    content: string;
-    rows?: number;
-  }>(),
-  {
-    rows: 6,
-  },
-);
+const { content, rows = 6 } = defineProps<{
+  content: string;
+  rows?: number;
+}>();
 </script>

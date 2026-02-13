@@ -8,13 +8,9 @@ import {
   parseRequiredNumber,
   pollEvery,
 } from '../shared/utils.js';
-import {
-  getWalletOverlayFundingNeeded,
-  sudoFundWallet,
-  type SudoFundWalletInput,
-} from '../shared/sudoFundWallet.js';
+import { getWalletOverlayFundingNeeded, sudoFundWallet, type SudoFundWalletInput } from '../shared/sudoFundWallet.js';
 
-const DEFAULT_MINING_FUNDING_MULTIPLIER = 3n;
+const DEFAULT_MINING_FUNDING_MULTIPLIER = 10n;
 
 export const miningOnboardingFlow: E2EFlowDefinition = {
   name: 'miningOnboarding',
@@ -137,13 +133,16 @@ export const miningOnboardingFlow: E2EFlowDefinition = {
       async () => {
         if (await didFinishInstall()) return true;
 
-        const failedCount = await flow.count({ selector: '.InstallProgressStep.Failed' });
-        assert.equal(failedCount, 0, 'InstallProgress contains failed steps');
-
         const stepCount = await flow.count({ selector: '.InstallProgressStep' });
         if (stepCount === 0) {
           return didFinishInstall();
         }
+        const failedStepNames = await getFailedInstallStepNames(flow, stepCount);
+        assert.equal(
+          failedStepNames.length,
+          0,
+          `InstallProgress contains failed steps: ${failedStepNames.join(', ') || 'unknown'}`,
+        );
 
         let incompleteSteps = 0;
         let hasActiveInstallStep = false;
@@ -154,9 +153,6 @@ export const miningOnboardingFlow: E2EFlowDefinition = {
             'data-status',
             2_000,
           );
-          if (status === 'Failed') {
-            assert.notEqual(status, 'Failed', `InstallProgressStep[${index}] status is Failed`);
-          }
           if (status == null) {
             if (await didFinishInstall()) return true;
             incompleteSteps += 1;
@@ -211,16 +207,7 @@ export const miningOnboardingFlow: E2EFlowDefinition = {
       },
     );
 
-    if (!(await didFinishInstall())) {
-      console.info('[E2E] miningOnboarding: install still in progress; continuing after launch validation');
-      return;
-    }
-
-    const dashboardState = await flow.isVisible('Dashboard');
-    if (!dashboardState.visible) {
-      await flow.waitFor('FirstAuction', { timeoutMs: 60_000 });
-      await flow.waitFor('Dashboard', { timeoutMs: 60_000 });
-    }
+    await flow.waitFor('Dashboard', { timeoutMs: 60_000 });
 
     const totalBlocksMinedRaw = await flow.getAttribute('TotalBlocksMined', 'data-value', { timeoutMs: 120_000 });
     const totalBlocksMined = parseRequiredNumber(totalBlocksMinedRaw, 'TotalBlocksMined');
@@ -255,6 +242,27 @@ async function enterMiningSetup(flow: E2EFlowRuntime): Promise<void> {
   if (await clickIfVisible(flow, 'BlankSlate.startSettingUpMiner()')) {
     await flow.waitFor('FinalSetupChecklist.openHowMiningWorksOverlay()', { timeoutMs: 30_000 });
   }
+}
+
+async function getFailedInstallStepNames(flow: E2EFlowRuntime, stepCount: number): Promise<string[]> {
+  const failedSteps: string[] = [];
+  for (let index = 0; index < stepCount; index += 1) {
+    const status = await getAttributeOrNull(
+      flow,
+      { selector: '.InstallProgressStep', index },
+      'data-status',
+      500,
+    );
+    if (status !== 'Failed') continue;
+
+    const failedLabel = await flow
+      .getText({ selector: '.InstallProgressStep', index }, { timeoutMs: 1_000 })
+      .catch(() => null);
+    const normalized = (failedLabel ?? '').replace(/\s+/g, ' ').trim() || `index-${index}`;
+    const parsed = normalized.match(/FAILED to (.+?)(?:\s+Retry|$)/i);
+    failedSteps.push(parsed?.[1]?.trim() ? `${index}: ${parsed[1].trim()}` : `${index}: ${normalized}`);
+  }
+  return failedSteps;
 }
 
 async function applyCustomBid(
