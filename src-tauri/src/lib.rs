@@ -370,9 +370,15 @@ pub fn run() {
     let app_id = context.config().identifier.clone();
     let network_name = Utils::get_network_name(&app_id);
     let instance_name = Utils::get_instance_name();
-    let enable_auto_update =
-        option_env!("ARGON_APP_ENABLE_AUTOUPDATE").map_or(true, |v| v == "true");
-    let is_test = option_env!("CI").map_or(false, |v| v == "true" || v == "1");
+    let enable_auto_update = std::env::var("ARGON_APP_ENABLE_AUTOUPDATE")
+        .ok()
+        .is_none_or(|v| v == "true" || v == "1");
+    let is_test = std::env::var("CI")
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1");
+    let e2e_headless = std::env::var("ARGON_E2E_HEADLESS")
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1");
     let logger = init_logger(&network_name, &instance_name);
 
     let app_name = context.config().product_name.clone().unwrap_or_default();
@@ -385,6 +391,10 @@ pub fn run() {
     let network_name_clone = network_name.clone();
     let env_vars = Utils::get_server_env_vars(&app_id).unwrap_or_default();
     let env_vars_json = serde_json::to_string(&env_vars).unwrap_or_default();
+    let network_config_override_json = std::env::var("ARGON_NETWORK_CONFIG_OVERRIDE")
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .map_or("null".to_string(), |v| v.to_string());
 
     let mut updater_target = tauri_plugin_updater::target().unwrap_or_default();
     if cfg!(debug_assertions) {
@@ -393,6 +403,7 @@ pub fn run() {
 
     println!("Updater target = {updater_target}");
     let app_name_clone = app_name.clone();
+    let network_config_override_json_clone = network_config_override_json.clone();
 
     tauri::Builder::default()
         .on_page_load(move |window, _payload| {
@@ -426,7 +437,9 @@ pub fn run() {
             __ARGON_APP_SECURITY__: {security_json},
             __ARGON_APP_INSTANCE__: '{instance_name}',
             __ARGON_APP_ENABLE_AUTOUPDATE__: {enable_auto_update},
+            __ARGON_E2E_HEADLESS__: {e2e_headless},
             __ARGON_NETWORK_NAME__: '{network_name_clone}',
+            __ARGON_NETWORK_CONFIG_OVERRIDE__: {network_config_override_json_clone},
             __SERVER_ENV_VARS__: {env_vars_json},
             __IS_TEST__: {is_test},
         }});
@@ -451,6 +464,21 @@ pub fn run() {
             init_config_instance_dir(handle, &relative_config_dir)?;
 
             let window = app.get_webview_window("main").unwrap();
+
+            if e2e_headless {
+                log::info!("E2E headless mode enabled (ARGON_E2E_HEADLESS)");
+
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+                if let Err(error) = window.set_skip_taskbar(true) {
+                    log::warn!("Unable to set skip taskbar on main window: {}", error);
+                }
+
+                if let Err(error) = window.hide() {
+                    log::warn!("Unable to hide main window in e2e mode: {}", error);
+                }
+            }
 
             // Adjust window height if it exceeds available screen space
             if let Some(monitor) = window.current_monitor().ok().flatten() {

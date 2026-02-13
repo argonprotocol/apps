@@ -6,13 +6,14 @@ import wasm from 'vite-plugin-wasm';
 import vitePluginTopLevelAwait from 'vite-plugin-top-level-await';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
-import { NodeTypes, ElementTypes } from '@vue/compiler-core';
+import { NodeTypes } from '@vue/compiler-core';
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const require = createRequire(__filename);
+const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 const defaultOperationsPortString = '1420';
 const defaultCapitalPortString = '1430';
@@ -35,6 +36,32 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
+function getValidatedDriverWs(rawDriverWs: string | undefined): string | null {
+  const trimmed = rawDriverWs?.trim();
+  if (!trimmed) return null;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch (error: any) {
+    throw new Error(`⚠️ ARGON_DRIVER_WS is not a valid URL (${error.message})`);
+  }
+
+  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+    throw new Error(`⚠️ ARGON_DRIVER_WS must use ws:// or wss://`);
+  }
+  if (!ALLOWED_DRIVER_HOSTS.has(url.hostname)) {
+    throw new Error(`⚠️ ARGON_DRIVER_WS host must be localhost, 127.0.0.1, or ::1`);
+  }
+
+  const session = url.searchParams.get('session')?.trim();
+  if (!session) {
+    throw new Error(`⚠️ ARGON_DRIVER_WS must include query param 'session'`);
+  }
+
+  return url.toString();
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(async ({ mode }) => {
   mode = process.env.NODE_ENV || 'development';
@@ -43,7 +70,7 @@ export default defineConfig(async ({ mode }) => {
   const host = envFile.TAURI_DEV_HOST;
 
   const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
-  const app = process.env.ARGON_APP || "operations";
+  const app = process.env.ARGON_APP || 'operations';
   const defaultPort = app.startsWith('i') ? defaultCapitalPortString : defaultOperationsPortString;
 
   const instancePort = parseInt(instance[1] || defaultPort, 10);
@@ -57,6 +84,8 @@ export default defineConfig(async ({ mode }) => {
   if (!portAvailable) {
     throw new Error(`⚠️ Port ${instancePort} is already in use. The server may fail to start.`);
   }
+
+  const driverWs = getValidatedDriverWs(process.env.ARGON_DRIVER_WS);
 
   return {
     resolve: {
@@ -72,12 +101,25 @@ export default defineConfig(async ({ mode }) => {
           compilerOptions: {
             nodeTransforms: [
               (() => {
-                const templateCounter: { [name: string]: number } = {};
                 return (node, ctx) => {
                   if (node.type !== NodeTypes.ELEMENT) return;
                   if (!ctx.filename) return;
 
                   if (node.props.some(p => p.name === 'data-testid')) return;
+
+                  const pushTestId = (value: string) => {
+                    node.props.push({
+                      type: NodeTypes.ATTRIBUTE,
+                      name: 'data-testid',
+                      nameLoc: node.loc,
+                      value: {
+                        type: NodeTypes.TEXT,
+                        content: value,
+                        loc: node.loc,
+                      },
+                      loc: node.loc,
+                    });
+                  };
 
                   let testId = ctx.selfName;
                   // Look for click handlers
@@ -90,22 +132,10 @@ export default defineConfig(async ({ mode }) => {
                   );
                   if (!clickDir || clickDir.type !== NodeTypes.DIRECTIVE || !clickDir.exp) return;
 
-                  const expContent = clickDir.exp.type === NodeTypes.SIMPLE_EXPRESSION ? clickDir.exp.content : '';
-                  let fnName = expContent;
+                  let fnName = clickDir.exp.type === NodeTypes.SIMPLE_EXPRESSION ? clickDir.exp.content : '';
                   if (!fnName.includes('(') && !fnName.includes('=')) fnName += '()';
                   testId = `${testId}.${fnName}`;
-
-                  node.props.push({
-                    type: NodeTypes.ATTRIBUTE,
-                    name: 'data-testid',
-                    nameLoc: node.loc,
-                    value: {
-                      type: NodeTypes.TEXT,
-                      content: testId,
-                      loc: node.loc,
-                    },
-                    loc: node.loc,
-                  });
+                  pushTestId(testId);
                 };
               })(),
             ],
@@ -140,6 +170,7 @@ export default defineConfig(async ({ mode }) => {
     // Define environment variables for the frontend
     define: {
       'process.env': {},
+      __ARGON_DRIVER_WS__: JSON.stringify(driverWs ?? ''),
     },
     // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
     //

@@ -31,7 +31,7 @@
         Alternatively, many Bitcoin wallets allow you scan the following QR code to pre-fill the transfer details.
       </p>
       <BitcoinQrCode class="mt-5 h-44 w-44 text-center" :bip21="fundingBip21" v-if="fundingBip21" />
-      <CopyToClipboard :content="fundingBip21" class="relative mb-4 cursor-pointer">
+      <CopyToClipboard data-testid="fundingBip21" :content="fundingBip21" class="relative mb-4 cursor-pointer">
         <span class="opacity-80">
           {{ abbreviateAddress(fundingBip21, 10) }}
           <CopyIcon class="ml-1 inline-block h-4 w-4" />

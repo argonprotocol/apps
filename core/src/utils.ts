@@ -4,6 +4,43 @@ import { decodeAddress, encodeAddress } from '@argonprotocol/mainchain';
 
 export { formatArgons } from '@argonprotocol/mainchain';
 
+export function stripNetworkPrefix(instanceName: string, networkName: string): string {
+  const normalized = instanceName.trim();
+  const normalizedNetwork = networkName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!normalized || !normalizedNetwork) {
+    return normalized;
+  }
+  const prefix = `${normalizedNetwork}-`;
+  return normalized.toLowerCase().startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
+}
+
+export function toComposeProjectName(uniqueTestName: string, networkName: string = 'dev-docker'): string {
+  function normalize(value: string): string {
+    const normalized = value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return normalized || 'default';
+  }
+
+  const sanitizedNetwork = networkName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const sanitizedName = uniqueTestName
+    .replace('.test.ts', '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${normalize(sanitizedNetwork)}-${normalize(sanitizedName)}`;
+}
+
 export function bigIntMin(...args: Array<bigint | null>): bigint {
   if (args.length === 0) return 0n;
   return args.filter(x => x !== null).reduce((min, current) => (current < min ? current : min)) ?? 0n;
@@ -37,6 +74,9 @@ export function bigNumberToInteger(bn: BigNumber): number {
 }
 
 export function bigNumberToBigInt(bn: BigNumber): bigint {
+  if (!bn || !bn.isFinite()) {
+    return 0n;
+  }
   return BigInt(bn.integerValue(BigNumber.ROUND_DOWN).toString());
 }
 

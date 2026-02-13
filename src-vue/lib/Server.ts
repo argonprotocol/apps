@@ -1,5 +1,5 @@
 import { parse as parseEnv } from 'dotenv';
-import { IBiddingRules, JsonExt } from '@argonprotocol/apps-core';
+import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
@@ -27,7 +27,7 @@ const installStepStatusPriorityByType: Record<InstallStepStatusType, number> = {
   [InstallStepStatusType.Finished]: 2,
   [InstallStepStatusType.Failed]: 3,
 };
-export const DOCKER_COMPOSE_PROJECT_NAME = `${NETWORK_NAME}-${INSTANCE_NAME}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
+export const DOCKER_COMPOSE_PROJECT_NAME = toComposeProjectName(INSTANCE_NAME, NETWORK_NAME);
 
 export interface IBitcoinBlockChainInfo {
   chain: string;

@@ -28,6 +28,7 @@
           <input
             v-model="destinationAddress"
             type="text"
+            data-testid="UnlockStart.destinationAddress"
             placeholder="bc1q..."
             class="focus:ring-argon-500 w-full rounded-md border border-slate-700/50 px-3 py-3 focus:border-transparent focus:ring-2" />
         </div>

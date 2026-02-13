@@ -16,6 +16,9 @@ export const APP_NAME = __ARGON_APP_NAME__ || 'Argon';
 
 export const NETWORK_NAME = __ARGON_NETWORK_NAME__ || 'mainnet';
 NetworkConfig.setNetwork(NETWORK_NAME as any);
+if (__ARGON_NETWORK_CONFIG_OVERRIDE__) {
+  NetworkConfig.setRuntimeOverride(NETWORK_NAME as any, __ARGON_NETWORK_CONFIG_OVERRIDE__ as any);
+}
 export const ENABLE_AUTO_UPDATE = __ARGON_APP_ENABLE_AUTOUPDATE__ ?? false;
 
 export const SERVER_ENV_VARS = __SERVER_ENV_VARS__ ?? {};
@@ -24,12 +27,13 @@ export const NETWORK_URL = networkConfig.archiveUrl;
 export const [INSTANCE_NAME, INSTANCE_PORT] = (__ARGON_APP_INSTANCE__ || 'default:1420').split(':');
 
 export const env = (import.meta as any).env ?? {};
+export const IS_E2E = __ARGON_DRIVER_WS__.trim().length > 0;
 export const TICK_MILLIS: number = networkConfig.tickMillis;
 export const ESPLORA_HOST: string = networkConfig.esploraHost;
 export const BITCOIN_BLOCK_MILLIS: number = networkConfig.bitcoinBlockMillis;
 export const DEPLOY_ENV_FILE = `.env.${NETWORK_NAME}`;
 export const SECURITY = __ARGON_APP_SECURITY__ as ISecurity;
-export const IS_TEST = __IS_TEST__ ?? false;
+export const IS_TEST = __IS_TEST__ || IS_E2E;
 // eslint-disable-next-line prefer-const
 export let LOG_DEBUG = __LOG_DEBUG__ ?? false;
 delete (globalThis as any).__ARGON_APP_SECURITY__; // remove from global scope

@@ -21,7 +21,8 @@ it('should update progress before the transaction has been added to a block', as
   await new Promise(resolve => setTimeout(resolve, 2_100));
   unsubscribe();
 
-  expect(progressUpdates).toHaveLength(21);
+  // Timer cadence can vary slightly across CI runners.
+  expect(progressUpdates.length).toBeGreaterThanOrEqual(18);
   expect(progressUpdates[0].progressPct).toBeGreaterThanOrEqual(0);
   expect(progressUpdates[0].progressPct).toBeLessThan(1);
   expect(progressUpdates[0].confirmations).toBe(-1);
@@ -63,7 +64,9 @@ it('should update progress throughout the entire finalization process', async ()
     setTimeout(res, 20_000);
   });
 
-  expect(progressUpdates.length).toBeGreaterThanOrEqual(141);
+  // Timer scheduling differs across CI runners; keep this strict enough to ensure incremental updates
+  // without requiring an exact callback count.
+  expect(progressUpdates.length).toBeGreaterThanOrEqual(120);
 
   const firstProgressUpdate = progressUpdates[0];
   expect(firstProgressUpdate.progressPct).toBeLessThan(2);

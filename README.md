@@ -109,3 +109,36 @@ You can build this project from source by running:
 yarn install
 yarn tauri build
 ```
+
+## Local Docker + E2E
+
+For local mainchain/dev-docker work, keep runtime pinning and e2e in sync:
+
+```bash
+yarn mainchain:pin <tag-or-commit>
+yarn install
+```
+
+Flows are the primary automation path and are documented in [`e2e/README.md`](./e2e/README.md).
+
+Common commands:
+
+```bash
+# Full dev stack
+yarn dev:docker
+
+# Run e2e Vitest specs (flows-based, from root Vitest project)
+yarn vitest --run --project e2e
+
+# Run selected flow(s) directly
+yarn e2e:docker
+E2E_FLOWS=miningOnboarding yarn e2e:docker
+E2E_FLOWS=vaultingOnboarding yarn e2e:docker
+
+# Keep UI visible while running e2e flows
+ARGON_E2E_HEADLESS=0 yarn e2e:docker
+
+# Cleanup/reset e2e docker state
+yarn clean:dev:docker
+yarn docker:down
+```

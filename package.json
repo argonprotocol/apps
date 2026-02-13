@@ -15,30 +15,31 @@
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
-    "clean:dev:docker": "rm -rf \"$HOME/Library/Application Support/com.argon.operations.local/dev-docker\" && rm -rf \"$HOME/Library/Application Support/com.argon.capital.local/dev-docker\"",
-    "dev": "yarn build:config && vite",
+    "clean:dev:docker": "tsx scripts/cleanDevDocker.ts",
+    "dev": "vite",
     "dev:docker": "yarn clean:dev:docker && yarn docker:up && yarn tauri:dev:docker",
     "dev:docker:custom": "ARGON_CHAIN=/chainspec.raw.json yarn dev:docker",
+    "e2e:docker": "yarn workspace @argonprotocol/apps-e2e run flows",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tsx src-tauri/dev.ts",
     "tauri:dev:local": "NODE_ENV=localnet yarn tauri:dev",
-    "tauri:dev:docker": "RUST_BACKTRACE=full ARGON_APP_INSTANCE=e2e ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
+    "tauri:dev:docker": "RUST_BACKTRACE=full ARGON_APP_INSTANCE=${ARGON_APP_INSTANCE:-e2e} ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
     "lint": "prettier -w bot core src-vue cli",
     "lint:check": "prettier --check bot core cli src-vue && eslint bot core cli src-vue --ext .ts --cache --max-warnings=0",
     "eslint": "eslint bot core cli src-vue --ext .ts --cache --fix",
     "test": "vitest --run",
     "typecheck": "vue-tsc --noEmit && yarn workspaces foreach --all run tsc --noEmit",
     "update-data": "yarn workspace @argonprotocol/apps-core run update-frames && tsx data-generators/all.ts",
-    "docker:config": "tsx e2e/argon/updateConfig.ts",
+    "mainchain:pin": "tsx scripts/updateRuntimePin.ts",
     "docker:argon:download": "tsx e2e/argon/download.ts",
     "docker:argon:chainspec": "tsx e2e/argon/chainspec.ts",
     "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml -f indexer.docker-compose.yml -f chainspec.docker-compose.yml",
     "docker:down": "yarn docker:argon down -v --timeout=0",
     "docker:pull": "yarn docker:argon pull",
-    "docker:up:workspace": "yarn docker:down && yarn docker:argon -f miners.workspace.docker-compose.yml up -d --wait && yarn docker:config",
+    "docker:up:workspace": "yarn docker:down && yarn docker:argon -f miners.workspace.docker-compose.yml up -d --wait",
     "docker:up:test": "yarn docker:argon -f miners.workspace.docker-compose.yml config",
-    "docker:up": "yarn docker:down && yarn docker:argon up -d --force-recreate --wait && yarn docker:config",
+    "docker:up": "yarn docker:down && yarn docker:argon up -d --force-recreate --wait",
     "docker:btc": "cd e2e/argon && docker compose --profile tooling run --rm btc-cli",
     "prepare": "husky",
     "postversion": "yarn update-data && yarn build:version"
@@ -92,7 +93,6 @@
     "semver": "^7.7.3",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.16",
-    "vitest": "^4.0.5",
     "vue": "^3.5.20",
     "zod": "^3.25.55"
   },
@@ -100,7 +100,8 @@
     "bot",
     "core",
     "cli",
-    "indexer"
+    "indexer",
+    "e2e"
   ],
   "devDependencies": {
     "@argonprotocol/testing": "^1.3.27",
@@ -132,6 +133,7 @@
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.5.0",
     "vite-svg-loader": "^5.1.0",
+    "vitest": "^4.0.5",
     "vue-tsc": "^2.2.12"
   },
   "resolutions_disabled": {
@@ -140,6 +142,9 @@
     "@argonprotocol/bitcoin": "portal:../mainchain/bitcoin/nodejs"
   },
   "resolutions": {
+    "@argonprotocol/mainchain": "1.3.27",
+    "@argonprotocol/testing": "1.3.27",
+    "@argonprotocol/bitcoin": "1.3.27",
     "axios": "^1.12.1",
     "form-data": "^2.5.4",
     "request": "^2.88.2",

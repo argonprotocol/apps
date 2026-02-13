@@ -14,19 +14,19 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
+  createDeferred,
   ICurrencyKey,
+  type IDeferred,
   JsonExt,
   MicronotPriceChangeType,
   SeatGoalInterval,
   SeatGoalType,
-  type IDeferred,
-  createDeferred,
 } from '@argonprotocol/apps-core';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { ensureOnlyOneInstance } from './Utils';
 import { UnitOfMeasurement } from './Currency';
 import { getUserJurisdiction } from './Countries';
-import { NETWORK_NAME } from './Env.ts';
+import { IS_TEST, NETWORK_NAME } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
@@ -212,7 +212,9 @@ export class Config implements IConfig {
 
       if (loadedData.serverDetails.type === ServerType.LocalComputer && loadedData.isMinerInstalled) {
         const { sshPort } = await LocalMachine.activate();
-        await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
+        if (!IS_TEST) {
+          await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
+        }
         loadedData.serverDetails.ipAddress = `127.0.0.1`;
         loadedData.serverDetails.port = sshPort;
         fieldsToSave.add(dbFields.serverDetails);

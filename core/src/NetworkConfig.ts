@@ -2,9 +2,11 @@ import NetworkConfigSettings from '../network.config.json' with { type: 'json' }
 import type { ArgonClient } from '@argonprotocol/mainchain';
 
 export { NetworkConfigSettings };
+export type INetworkConfigOverride = Partial<INetworkConfig>;
 
 export class NetworkConfig {
   public static networkName: keyof typeof NetworkConfigSettings | undefined = undefined;
+  private static runtimeOverrides: Partial<Record<keyof typeof NetworkConfigSettings, INetworkConfig>> = {};
 
   public static get tickMillis() {
     return this.get().tickMillis;
@@ -29,6 +31,27 @@ export class NetworkConfig {
     this.networkName = networkName as any;
   }
 
+  public static setRuntimeOverride(
+    networkName: keyof typeof NetworkConfigSettings,
+    override: INetworkConfigOverride,
+  ): void {
+    if (!(networkName in NetworkConfigSettings)) {
+      throw new Error(`${networkName} is not a valid Network chain name`);
+    }
+    this.runtimeOverrides[networkName] = {
+      ...NetworkConfigSettings[networkName],
+      ...override,
+    };
+  }
+
+  public static clearRuntimeOverride(networkName?: keyof typeof NetworkConfigSettings): void {
+    if (!networkName) {
+      this.runtimeOverrides = {};
+      return;
+    }
+    delete this.runtimeOverrides[networkName];
+  }
+
   public static get(): INetworkConfig {
     if (!this.networkName) {
       throw new Error(`Network name must be defined prior to loading configs`);
@@ -38,7 +61,7 @@ export class NetworkConfig {
       throw new Error(`Network name ${this.networkName} is not a key of the app configs`);
     }
 
-    return config as INetworkConfig;
+    return this.runtimeOverrides[this.networkName] ?? (config as INetworkConfig);
   }
 
   public static async updateConfig(client: ArgonClient): Promise<void> {
@@ -81,6 +104,6 @@ export interface INetworkConfig {
   biddingStartTick: number;
   archiveUrl: string;
   indexerHost: string;
-  bitcoinBlockMillis: 20000;
+  bitcoinBlockMillis: number;
   esploraHost: string;
 }

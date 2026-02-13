@@ -2,23 +2,27 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
 import { getClient, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
 import fs from 'node:fs';
+import os from 'node:os';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
 import { IndexerServer } from '../src/IndexerServer.ts';
+
+const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 afterEach(teardown);
 afterAll(teardown);
 
 let clientAddress: string;
 beforeAll(async () => {
+  if (skipE2E) return;
   const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
 
-it('syncs transfers', async () => {
+it.skipIf(skipE2E)('syncs transfers', async () => {
   const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
 
-  const indexerDir = fs.mkdtempSync('/tmp/indexer-');
+  const indexerDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'indexer-'));
   runOnTeardown(() => fs.promises.rm(indexerDir, { recursive: true, force: true }));
 
   const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');

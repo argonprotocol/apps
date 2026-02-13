@@ -246,7 +246,7 @@ export async function createMenu() {
       { immediate: true },
     );
     Vue.watch(
-      () => [config.isLoaded, config.serverDetails],
+      () => [config.isLoaded, config.isLoaded ? config.serverDetails : null],
       async () => updateTroubleshootingMenu(),
       { immediate: true, deep: true },
     );

@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { type ApiDecoration } from '@argonprotocol/mainchain';
-import type { IFrameHistory, IFrameHistoryMap, IFramesHistory } from './interfaces/IFramesHistory.js';
+import type { IFrameHistory, IFrameHistoryMap } from './interfaces/IFramesHistory.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import FramesHistoryTestnet from './data/frames.testnet.json' with { type: 'json' };
 import FramesHistoryMainnet from './data/frames.mainnet.json' with { type: 'json' };
@@ -63,11 +63,13 @@ export class MiningFrames {
     this.currentFrameRewardTicksRemaining = NetworkConfig.rewardTicksPerFrame;
 
     if (NetworkConfig.networkName === 'mainnet') {
-      for (const frame of FramesHistoryMainnet as any) {
+      for (const frame of FramesHistoryMainnet as unknown as IFrameHistory[]) {
+        frame.dateStart = toDateSafe(frame.dateStart);
         this.framesById[frame.frameId] = frame;
       }
     } else if (NetworkConfig.networkName === 'testnet') {
-      for (const frame of FramesHistoryTestnet as any) {
+      for (const frame of FramesHistoryTestnet as unknown as IFrameHistory[]) {
+        frame.dateStart = toDateSafe(frame.dateStart);
         this.framesById[frame.frameId] = frame;
       }
     }
@@ -80,17 +82,22 @@ export class MiningFrames {
     this.loadDeferred.setIsRunning(true);
     try {
       console.time('[Mining Frames] loaded');
+
       if (this.updatesWriter) {
-        const updates = await this.updatesWriter
+        const savedFrameHistory = await this.updatesWriter
           .read()
-          .then(x => JSON.parse(x ?? '[]') as IFramesHistory)
+          .then(x => JSON.parse(x ?? '[]') as IFrameHistory[])
           .catch(err => {
-            console.error(`Error reading from mining frames file`, err);
+            const message = String(err).toLowerCase();
+            if (!message.includes('no such file or directory') && !message.includes('not found')) {
+              console.error(`Error reading from mining frames file`, err);
+            }
             return [];
           });
-        console.log('[Mining Frames] Loaded frame updates:', updates.length);
-        if (updates.length > 0) {
-          for (const frame of updates) {
+
+        if (Array.isArray(savedFrameHistory) && savedFrameHistory.length > 0) {
+          for (const frame of savedFrameHistory) {
+            frame.dateStart = toDateSafe(frame.dateStart);
             this.framesById[frame.frameId] = frame;
           }
           this.currentFrameId = Math.max(...this.frameIds);
@@ -99,10 +106,10 @@ export class MiningFrames {
       console.log(
         `[Mining Frames] Loading with current frame ID: ${this.currentFrameId} of known frames ${this.frameIds.length}`,
       );
-      const client = await this.clients.prunedClientOrArchivePromise;
-      const genesisHash = client.genesisHash.toHex();
 
       if (!this.framesById[0]) {
+        const client = await this.clients.prunedClientOrArchivePromise;
+        const genesisHash = client.genesisHash.toHex();
         const spec = client.runtimeVersion;
         const genesisTick = NetworkConfig.get().genesisTick;
 
@@ -429,4 +436,12 @@ export class MiningFrames {
     const config = NetworkConfig.get();
     return Math.floor(Date.now() / config.tickMillis);
   }
+}
+
+function toDateSafe(date: string | number | Date): Date {
+  const result = new Date(date);
+  if (Number.isNaN(result.getTime())) {
+    throw new Error(`Invalid date: ${date.toString()}`);
+  }
+  return result;
 }

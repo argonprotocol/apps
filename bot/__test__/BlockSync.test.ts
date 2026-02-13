@@ -11,26 +11,30 @@ import {
 } from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
+import os from 'node:os';
 import { Storage } from '../src/Storage.js';
 import { Dockers } from '../src/Dockers.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
+const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
+
 afterEach(teardown);
 afterAll(teardown);
 
 let clientAddress: string;
 beforeAll(async () => {
+  if (skipE2E) return;
   NetworkConfig.setNetwork('dev-docker');
   const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
   clientAddress = result.archiveUrl;
 });
 
-it('can backfill sync data', async () => {
+it.skipIf(skipE2E)('can backfill sync data', async () => {
   const client = await getClient(clientAddress);
 
-  const botDataDir = fs.mkdtempSync('/tmp/block-sync-');
+  const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'block-sync-'));
   runOnTeardown(() => fs.promises.rm(botDataDir, { recursive: true, force: true }));
 
   const botStatus = {

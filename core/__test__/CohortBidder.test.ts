@@ -456,7 +456,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const bobAddress = `ws://localhost:${bobPort}`;
 
     const bob = new Accountset({
-      client: await getClient(bobAddress),
+      client: aliceClient,
       seedAccount: bobRing,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
@@ -470,6 +470,9 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const miningBids = new Mining(clients);
     let bobBidder: CohortBidder;
     let aliceBidder: CohortBidder;
+    let bobWinningBidsAtStop: { address: string }[] = [];
+    let aliceWinningBidsAtStop: { address: string }[] = [];
+    let hasStoppedBidders = false;
     // wait for the cohort to change so we have enough time
     const startingCohort = await aliceClient.query.miningSlot.nextFrameId();
     await new Promise(resolve => {
@@ -521,9 +524,15 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         await aliceBidder.start();
       },
       async onBiddingEnd(cohortStartingFrameId) {
+        if (hasStoppedBidders) return;
+        if (!aliceBidder || !bobBidder) return;
+        if (cohortStartingFrameId < bobBidder.cohortStartingFrameId) return;
+        hasStoppedBidders = true;
         console.log(`Cohort ${cohortStartingFrameId} ended bidding`);
-        await aliceBidder.stop(true);
-        await bobBidder.stop(true);
+        [aliceWinningBidsAtStop, bobWinningBidsAtStop] = await Promise.all([
+          aliceBidder.stop(true),
+          bobBidder.stop(true),
+        ]);
         resolveWaitForStopPromise();
       },
     });
@@ -570,35 +579,45 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         ]),
       );
     }
-    const aliceMiners = await alice.miningSeatsAndBids();
     const cohortStartingFrameId = aliceBidder!.cohortStartingFrameId;
-    const bobMiners = await bob.miningSeatsAndBids();
 
     const aliceStats = {
-      seatsWon: aliceBidder!.myWinningBids.length,
+      seatsWon: aliceWinningBidsAtStop.length,
       fees: aliceBidder!.txFees,
       bidsAttempted: aliceBidder!.bidsAttempted,
     };
     const bobStats = {
-      seatsWon: bobBidder!.myWinningBids.length,
+      seatsWon: bobWinningBidsAtStop.length,
       fees: bobBidder!.txFees,
       bidsAttempted: bobBidder!.bidsAttempted,
     };
+
+    const finalizedHead = await aliceClient.rpc.chain.getFinalizedHead();
+    const finalizedApi = await aliceClient.at(finalizedHead);
+    const cohortSeats = await finalizedApi.query.miningSlot.minersByCohort(cohortStartingFrameId);
+
+    const bobSeatsWonOnChain = cohortSeats.filter(x => {
+      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === bob.seedAddress;
+    }).length;
+    const aliceSeatsWonOnChain = cohortSeats.filter(x => {
+      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === alice.seedAddress;
+    }).length;
+
     console.log({
       cohortStartingFrameId,
       aliceStats,
       bobStats,
-      bobMiners: bobMiners.filter(x => x.hasWinningBid || !!x.seat),
+      onChainSeats: {
+        bobSeatsWonOnChain,
+        aliceSeatsWonOnChain,
+      },
     });
 
-    const bobActive = bobMiners.filter(x => x.seat?.startingFrameId === cohortStartingFrameId);
-    const aliceActive = aliceMiners.filter(x => x.seat?.startingFrameId === cohortStartingFrameId);
-
-    expect(bobActive.length).toBe(bobStats.seatsWon);
+    expect(bobSeatsWonOnChain).toBe(bobStats.seatsWon);
     expect(bobBidder!.bidsAttempted).toBeGreaterThanOrEqual(4);
     expect(bobStats.fees).toBeGreaterThanOrEqual(6_000n * 4n);
 
-    expect(aliceActive.length).toBe(aliceStats.seatsWon);
+    expect(aliceSeatsWonOnChain).toBe(aliceStats.seatsWon);
     expect(aliceBidder!.bidsAttempted).toBeGreaterThanOrEqual(6);
     console.log('Waiting for each bidder to mine');
     if (bobStats.seatsWon > 0) {

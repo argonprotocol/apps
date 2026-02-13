@@ -11,6 +11,25 @@
     ]
   },
   "app": {
+    "windows": [
+      {
+        "title": "Argon",
+        "devtools": true,
+        "hiddenTitle": true,
+        "width": 1400,
+        "height": 1000,
+        "decorations": false,
+        "resizable": true,
+        "alwaysOnTop": false,
+        "backgroundThrottling": "disabled",
+        "center": true,
+        "maximized": false,
+        "minWidth": 1000,
+        "minHeight": 800,
+        "shadow": true,
+        "transparent": true
+      }
+    ],
     "security": {
       "capabilities": ["default", "dev"]
     }
