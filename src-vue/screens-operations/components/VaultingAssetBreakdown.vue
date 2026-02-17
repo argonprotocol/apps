@@ -263,13 +263,22 @@
             <div class="grow">
               {{ microgonToArgonNm(breakdown.treasuryMicrogons).format('0,0.[00]') }} ARGN
             </div>
-            <div class="opacity-60">{{ numeral(breakdown.treasuryMicrogonsActivatedPct).format('0,0.[00]')}}%</div>
+            <div v-if="breakdown.treasuryMicrogonsMaxCapacity > breakdown.treasuryMicrogons" class="flex flex-row items-center gap-x-1">
+              <ExclamationTriangleIcon class="size-5 text-yellow-600" aria-hidden="true" />
+              LOW
+            </div>
+            <div class="opacity-60" v-else>{{ numeral(breakdown.treasuryMicrogonsActivatedPct).format('0,0.[00]')}}%</div>
           </div>
           <template #tooltip>
             <div class="break-words whitespace-normal">
               <p v-if="breakdown.treasuryMicrogons">
-                These are the argons that have been allocated to Treasury Bonds. The amount
-                cannot exceed the bitcoin value in your vault.
+                These are the argons that have been allocated to Treasury Bonds.
+                <template v-if="breakdown.treasuryMicrogonsMaxCapacity > breakdown.treasuryMicrogons">
+                  You can add more argons here to increase your vault's yield. The maximum amount you can allocate
+                  is {{ microgonToArgonNm(breakdown.treasuryMicrogonsMaxCapacity).format('0,0.[00]') }} ARGN,
+                  which is determined by the bitcoin value in your vault.
+                </template>
+                <template v-else>The amount cannot exceed the bitcoin value in your vault.</template>
               </p>
               <p v-else>
                 You have no argons allocated to Treasury Bonds.
@@ -334,6 +343,7 @@ import { getConfig } from '../../stores/config.ts';
 import NeedsSetup from '../../components/asset-breakdown/NeedsSetup.vue';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 
 const props = withDefaults(
   defineProps<{

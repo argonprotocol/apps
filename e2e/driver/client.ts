@@ -29,6 +29,7 @@ export class DriverClient {
   private appHello: UnknownRecord | null = null;
   private appHelloWaiters: Array<() => void> = [];
   private messageBuffer: UnknownRecord[] = [];
+  private frontendErrors: string[] = [];
   private readonly commandTimeoutMs: number;
 
   constructor(private readonly url: string) {
@@ -38,6 +39,10 @@ export class DriverClient {
 
   getUrl(): string {
     return this.url;
+  }
+
+  getFrontendErrors(): string[] {
+    return [...this.frontendErrors];
   }
 
   async connect(): Promise<void> {
@@ -133,6 +138,10 @@ export class DriverClient {
           const elapsedMs = typeof payload.elapsedMs === 'number' ? payload.elapsedMs : null;
           const elapsed = elapsedMs == null ? '' : ` elapsedMs=${elapsedMs}`;
           console.info(`[E2E] App command completed ${command} (${id}) ok=${String(payload.ok === true)}${elapsed}`);
+        } else if (eventName === 'frontend.error') {
+          const details = formatFrontendError(payload);
+          this.frontendErrors.push(details);
+          console.error(`[E2E] App event ${eventName} ${details}`);
         } else {
           console.info(`[E2E] App event ${eventName}`);
         }
@@ -206,4 +215,14 @@ export class DriverClient {
     }
     this.pending.clear();
   }
+}
+
+function formatFrontendError(payload: UnknownRecord): string {
+  const label = typeof payload.label === 'string' ? payload.label : 'frontend.error';
+  const message = typeof payload.message === 'string' ? payload.message : 'unknown message';
+  const filename = typeof payload.filename === 'string' ? ` filename=${payload.filename}` : '';
+  const line = typeof payload.line === 'number' ? ` line=${payload.line}` : '';
+  const column = typeof payload.column === 'number' ? ` column=${payload.column}` : '';
+  const stack = typeof payload.stack === 'string' ? ` stack=${payload.stack}` : '';
+  return `[${label}] ${message}${filename}${line}${column}${stack}`;
 }

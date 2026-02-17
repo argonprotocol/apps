@@ -26,6 +26,7 @@ import { type AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/
 import { type TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
 import {
   bigIntAbs,
+  bigNumberToBigInt,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -39,6 +40,7 @@ import {
 } from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
+import BigNumber from 'bignumber.js';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -314,13 +316,25 @@ export default class BitcoinLocksStore {
     addingVaultSpace?: bigint;
     tip?: bigint;
     txProgressCallback?: ITxProgressCallback;
+    couponProofKeypair?: KeyringPair;
+    skipCouponValidation?: boolean;
   }) {
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey(args);
-    const { vault, argonKeyring, maxMicrogonSpend, tip = 0n, addingVaultSpace = 0n } = args;
+    const {
+      vault,
+      argonKeyring,
+      maxMicrogonSpend,
+      tip = 0n,
+      addingVaultSpace = 0n,
+      skipCouponValidation,
+      couponProofKeypair,
+    } = args;
 
     const minimumSatoshis = await this.minimumSatoshiPerLock();
     let microgonLiquidity = args.microgonLiquidity;
-    const availableBtcSpace = vault.availableBitcoinSpace() + addingVaultSpace;
+    const availableBtcSpace =
+      vault.availableBitcoinSpace() +
+      bigNumberToBigInt(BigNumber(addingVaultSpace).dividedBy(vault.securitizationRatioBN()));
     if (availableBtcSpace < microgonLiquidity) {
       console.info('Vault liquidity is less than requested microgon liquidity, using vault available space instead.', {
         availableBtcSpace,
@@ -354,6 +368,8 @@ export default class BitcoinLocksStore {
         microgonsPerBtc,
         satoshis,
         tip,
+        couponProofKeypair,
+        skipCouponProofCheck: skipCouponValidation,
       });
 
       if (canAfford && (maxMicrogonSpend === undefined || maxMicrogonSpend >= txFee)) {
@@ -374,6 +390,8 @@ export default class BitcoinLocksStore {
       microgonsPerBtc,
       satoshis,
       tip,
+      couponProofKeypair,
+      skipCouponProofCheck: skipCouponValidation,
     });
 
     return { hdPath, tx, ownerBitcoinPubkey, satoshis, securityFee };
@@ -1063,7 +1081,7 @@ export default class BitcoinLocksStore {
 
     latestBitcoinLock ??= await BitcoinLock.get(apiClient, lock.utxoId!);
     if (!latestBitcoinLock) return;
-    const utxoRef = await latestBitcoinLock.getUtxoRef(apiClient).catch(() => undefined);
+    const utxoRef = await latestBitcoinLock.getFundingUtxoRef(apiClient).catch(() => undefined);
     if (utxoRef) {
       lock.lockedTxid = utxoRef.txid;
       lock.lockedVout = utxoRef.vout;
@@ -1130,7 +1148,7 @@ export default class BitcoinLocksStore {
       return;
     }
 
-    if (!bitcoinLock.isVerified) {
+    if (!bitcoinLock.isFunded) {
       return;
     }
     await this.tryUpdateLockTxid(lock, finalizedApi, bitcoinLock);

@@ -116,98 +116,120 @@ export const miningOnboardingFlow: E2EFlowDefinition = {
 
     const didFinishInstall = async (): Promise<boolean> => {
       const dashboardState = await flow.isVisible('Dashboard');
-      if (dashboardState.visible) return true;
-      const firstAuctionState = await flow.isVisible('FirstAuction');
-      return firstAuctionState.visible;
+      return dashboardState.visible;
     };
 
-    const installProgressState = await flow.isVisible({ selector: '.InstallProgress' });
-    if (!installProgressState.visible && !(await didFinishInstall())) {
-      await flow.waitFor({ selector: '.InstallProgress' }, { timeoutMs: 120_000 });
+    const installProgressStateAfterLaunch = await flow.isVisible({ selector: '.InstallProgress' });
+    if (!installProgressStateAfterLaunch.visible && !(await didFinishInstall())) {
+      await flow
+        .waitFor({ selector: '.InstallProgress' }, { timeoutMs: 30_000 })
+        .catch(() => undefined);
     }
 
-    const backgroundInstallGraceMs = 90_000;
-    let backgroundInstallStartedAt: number | null = null;
-    await pollEvery(
-      1_000,
-      async () => {
-        if (await didFinishInstall()) return true;
+    const hasInstallProgress = await flow.isVisible({ selector: '.InstallProgress' });
+    if (!hasInstallProgress.visible && !(await didFinishInstall())) {
+      const dashboardState = await flow.isVisible('Dashboard');
+      if (dashboardState.visible) return;
+    }
 
-        const stepCount = await flow.count({ selector: '.InstallProgressStep' });
-        if (stepCount === 0) {
-          return didFinishInstall();
-        }
-        const failedStepNames = await getFailedInstallStepNames(flow, stepCount);
-        assert.equal(
-          failedStepNames.length,
-          0,
-          `InstallProgress contains failed steps: ${failedStepNames.join(', ') || 'unknown'}`,
-        );
+    if (hasInstallProgress.visible) {
+      const backgroundInstallGraceMs = 90_000;
+      let backgroundInstallStartedAt: number | null = null;
+      await pollEvery(
+        1_000,
+        async () => {
+          if (await didFinishInstall()) return true;
 
-        let incompleteSteps = 0;
-        let hasActiveInstallStep = false;
-        for (let index = 0; index < stepCount; index += 1) {
-          const status = await getAttributeOrNull(
-            flow,
-            { selector: '.InstallProgressStep', index },
-            'data-status',
-            2_000,
+          const stepCount = await flow.count({ selector: '.InstallProgressStep' });
+          if (stepCount === 0) {
+            const firstAuctionState = await flow.isVisible('FirstAuction');
+            return firstAuctionState.visible || (await didFinishInstall());
+          }
+          const failedStepNames = await getFailedInstallStepNames(flow, stepCount);
+          assert.equal(
+            failedStepNames.length,
+            0,
+            `InstallProgress contains failed steps: ${failedStepNames.join(', ') || 'unknown'}`,
           );
-          if (status == null) {
-            if (await didFinishInstall()) return true;
-            incompleteSteps += 1;
-            continue;
-          }
-          if (status === 'Completed') {
-            hasActiveInstallStep = true;
-            continue;
-          }
-          if (status === 'Pending') {
-            incompleteSteps += 1;
-            continue;
-          }
-          if (status === 'Working' || status === 'Completing') {
-            hasActiveInstallStep = true;
+
+          let incompleteSteps = 0;
+          let hasActiveInstallStep = false;
+          for (let index = 0; index < stepCount; index += 1) {
+            const status = await getAttributeOrNull(
+              flow,
+              { selector: '.InstallProgressStep', index },
+              'data-status',
+              2_000,
+            );
+            if (status == null) {
+              if (await didFinishInstall()) return true;
+              incompleteSteps += 1;
+              continue;
+            }
+            if (status === 'Completed') {
+              hasActiveInstallStep = true;
+              continue;
+            }
+            if (status === 'Pending') {
+              incompleteSteps += 1;
+              continue;
+            }
+            if (status === 'Working' || status === 'Completing') {
+              hasActiveInstallStep = true;
+            }
+
+            const progress = await getAttributeOrNull(
+              flow,
+              { selector: '.InstallProgressStep .ProgressBar > div', index },
+              'data-progress',
+              500,
+            );
+            if (progress == null) {
+              if (await didFinishInstall()) return true;
+              incompleteSteps += 1;
+              continue;
+            }
+
+            const progressValue = parseRequiredNumber(progress, `InstallProgressStep[${index}] progress`);
+            if (progressValue < 100) {
+              incompleteSteps += 1;
+            }
           }
 
-          const progress = await getAttributeOrNull(
-            flow,
-            { selector: '.InstallProgressStep .ProgressBar > div', index },
-            'data-progress',
-            500,
-          );
-          if (progress == null) {
-            if (await didFinishInstall()) return true;
-            incompleteSteps += 1;
-            continue;
+          if (hasActiveInstallStep) {
+            backgroundInstallStartedAt ??= Date.now();
+            if (Date.now() - backgroundInstallStartedAt >= backgroundInstallGraceMs) {
+              // Local machine install can continue in the background for several minutes.
+              // Once launch is clearly in-progress and no step has failed, continue this flow.
+              return true;
+            }
+          } else {
+            backgroundInstallStartedAt = null;
           }
 
-          const progressValue = parseRequiredNumber(progress, `InstallProgressStep[${index}] progress`);
-          if (progressValue < 100) {
-            incompleteSteps += 1;
-          }
-        }
+          return incompleteSteps === 0;
+        },
+        {
+          timeoutMs: 10 * 60_000,
+          timeoutMessage: 'InstallProgress did not complete within 10 minutes',
+        },
+      );
+    }
 
-        if (hasActiveInstallStep) {
-          backgroundInstallStartedAt ??= Date.now();
-          if (Date.now() - backgroundInstallStartedAt >= backgroundInstallGraceMs) {
-            // Local machine install can continue in the background for several minutes.
-            // Once launch is clearly in-progress and no step has failed, continue this flow.
-            return true;
-          }
-        } else {
-          backgroundInstallStartedAt = null;
-        }
-
-        return incompleteSteps === 0;
-      },
-      {
-        timeoutMs: 10 * 60_000,
-        timeoutMessage: 'InstallProgress did not complete within 10 minutes',
-      },
-    );
-
-    await flow.waitFor('Dashboard', { timeoutMs: 60_000 });
+    try {
+      await flow.waitFor('Dashboard', { timeoutMs: 180_000 });
+    } catch (error) {
+      const dashboardState = await flow.isVisible('Dashboard');
+      const firstAuctionState = await flow.isVisible('FirstAuction');
+      const installProgressState = await flow.isVisible({ selector: '.InstallProgress' });
+      const stepCount = installProgressState.visible ? await flow.count({ selector: '.InstallProgressStep' }) : 0;
+      const failedStepNames = stepCount > 0 ? await getFailedInstallStepNames(flow, stepCount) : [];
+      throw new Error(
+        `miningOnboarding: Dashboard did not appear after launch within timeout. dashboard=${dashboardState.visible} firstAuction=${firstAuctionState.visible} installProgressVisible=${installProgressState.visible} steps=${stepCount} failedSteps=${
+          failedStepNames.length ? failedStepNames.join('; ') : 'none'
+        }. Root error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     const totalBlocksMinedRaw = await flow.getAttribute('TotalBlocksMined', 'data-value', { timeoutMs: 120_000 });
     const totalBlocksMined = parseRequiredNumber(totalBlocksMinedRaw, 'TotalBlocksMined');

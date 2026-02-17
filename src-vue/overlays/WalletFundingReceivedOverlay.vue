@@ -7,7 +7,7 @@
       </div>
     </template>
 
-    <div class="flex min-h-60 w-full flex-row items-center justify-center gap-x-5 px-5 pt-3 pb-5" :class="{ 'flash-overlay': flash }">
+    <div class="flex min-h-60 w-full flex-col items-center justify-center gap-x-5 px-5 pt-3 pb-5" :class="{ 'flash-overlay': flash }">
       <div v-if="walletType === WalletType.miningHold">
         <strong>{{ fundsReceivedMessage }}</strong> been added to your <strong>mining</strong> wallet.
         You can choose how to distribute these funds from your Mining tab.

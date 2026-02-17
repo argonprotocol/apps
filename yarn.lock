@@ -109,17 +109,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/bitcoin@npm:1.3.27":
-  version: 1.3.27
-  resolution: "@argonprotocol/bitcoin@npm:1.3.27"
+"@argonprotocol/bitcoin@npm:1.3.27-dev.a662ef5c":
+  version: 1.3.27-dev.a662ef5c
+  resolution: "@argonprotocol/bitcoin@npm:1.3.27-dev.a662ef5c"
   dependencies:
-    "@argonprotocol/mainchain": "npm:1.3.27"
+    "@argonprotocol/mainchain": "npm:1.3.27-dev.a662ef5c"
     "@noble/secp256k1": "npm:^2.3.0"
     "@scure/bip32": "npm:^1.7.0"
     "@scure/bip39": "npm:^1.6.0"
     "@scure/btc-signer": "npm:^1.8.1"
     bignumber.js: "npm:^9.3.1"
-  checksum: 10c0/3cba81dffd4ee3ba4f1edcffee70870819767857c1ebd5a8d237050a49e5695f5ff884257e03e986711f71dd9876ff06e2f213ac6001f83ac10d68435a0fec0e
+  checksum: 10c0/28831ec8036e9630b934d8d5acb0d4952205bf66709521a232cc1e20c7af9dee398a510de0cd1fb68587331b45b77472255365a9d6cc8b46df35f663a728a786
   languageName: node
   linkType: hard
 
@@ -143,9 +143,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/mainchain@npm:1.3.27":
-  version: 1.3.27
-  resolution: "@argonprotocol/mainchain@npm:1.3.27"
+"@argonprotocol/mainchain@npm:1.3.27-dev.a662ef5c":
+  version: 1.3.27-dev.a662ef5c
+  resolution: "@argonprotocol/mainchain@npm:1.3.27-dev.a662ef5c"
   dependencies:
     "@polkadot/api": "npm:^16.4.4"
     "@polkadot/api-base": "npm:^16.4.4"
@@ -158,15 +158,15 @@ __metadata:
     "@polkadot/util-crypto": "npm:^13.5.5"
     bignumber.js: "npm:^9.3.1"
     bs58check: "npm:^4.0.0"
-  checksum: 10c0/2b653dfe090bfe9c1f2c1f21aa4a1ac05865022120fbefc8f4a279c7793c4de9f06cec5222c74be4be287fa709967b79a49ba67206ed3251f49fec5955100392
+  checksum: 10c0/51b85fa02e529174458b1d12f390033f3e6d51febc28616e02b01bc07a98c45ba210a67ad4b97d63b270855ce791e4ad590aff9b859a3812a7b74226bdc25719
   languageName: node
   linkType: hard
 
-"@argonprotocol/testing@npm:1.3.27":
-  version: 1.3.27
-  resolution: "@argonprotocol/testing@npm:1.3.27"
+"@argonprotocol/testing@npm:1.3.27-dev.a662ef5c":
+  version: 1.3.27-dev.a662ef5c
+  resolution: "@argonprotocol/testing@npm:1.3.27-dev.a662ef5c"
   dependencies:
-    "@argonprotocol/mainchain": "npm:1.3.27"
+    "@argonprotocol/mainchain": "npm:1.3.27-dev.a662ef5c"
     bitcoin-core: "npm:^5.0.0"
     detect-port: "npm:^2.1.0"
     docker-compose: "npm:^1.2.0"
@@ -175,7 +175,7 @@ __metadata:
     pg: "npm:^8.16.3"
     proper-lockfile: "npm:^4.1.2"
     vitest: "npm:^4.0.5"
-  checksum: 10c0/7e921aa6ae8141d4c892a703f5f2e151dd443d849f3165b5104eef9ec452c01952320c5e4fc95b5af43cfe9f1b0f98ac659003eccd7447508981aa93e84f3203
+  checksum: 10c0/ca8a0bb98923dacf903c4f834becea5f5bb91b8883cc22ef62dff9334108efb1a91327b4c6aff88e118b4d86e1e146b55da9eb2451f2c68c424b8ec816d3cd1e
   languageName: node
   linkType: hard
 

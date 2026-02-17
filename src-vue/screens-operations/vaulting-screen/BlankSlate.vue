@@ -84,8 +84,8 @@
           <div class="flex flex-row h-full animate-scroll" :class="{ 'animate-paused': !isLoaded }">
             <template v-for="i in cloneCount" :key="'clone' + i">
               <template v-for="(vault, idx) in vaults" :key="vault.id">
-                <li 
-                  :style="{ animationDelay: `${getAnimationDelay(idx)}ms`, '--sweep-delay': `${getAnimationDelay(idx)}ms` }" 
+                <li
+                  :style="{ animationDelay: `${getAnimationDelay(idx)}ms`, '--sweep-delay': `${getAnimationDelay(idx)}ms` }"
                   :class="{ 'opacity-50': vault.isFiller }"
                   class="flex flex-row rounded-lg bg-white/30 mr-4 h-full pulse-highlight"
                 >
@@ -149,7 +149,7 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { getVaults } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config';
-import { abbreviateAddress } from '../../lib/Utils.ts';
+import { abbreviateAddress, getPercent } from '../../lib/Utils.ts';
 import { useVaultingStats } from '../../stores/vaultingStats.ts';
 
 const currency = getCurrency();
@@ -189,15 +189,15 @@ async function updateRevenue() {
     const list = Object.values(vaultsStore.vaultsById);
     vaults.value = [];
     for (const vault of list) {
-      const maxSpace = vault.securitization - vault.recoverySecuritization();
-      const bitcoinSpaceUsed = maxSpace - vault.availableBitcoinSpace();
+      const securitization = vault.securitization;
+      const availableSecuritization = vault.availableSecuritization();
       const isAlreadyFound = vaults.value.some(v => v.operatorAccountId === vault.operatorAccountId);
       if (isAlreadyFound) continue;
 
       vaults.value.push({
         id: vault.vaultId,
         operatorAccountId: vault.operatorAccountId,
-        btcFillPct: Math.round((Number(bitcoinSpaceUsed) / Number(maxSpace)) * 100),
+        btcFillPct: getPercent(securitization - availableSecuritization, securitization),
         treasuryFillPct: vaultsStore.getTreasuryFillPct(vault.vaultId),
       });
     }

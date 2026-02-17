@@ -391,6 +391,7 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
+import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -400,6 +401,8 @@ const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const currency = getCurrency();
+
+const vaultingBreakdown = useVaultingAssetBreakdown();
 
 const rules = config.vaultingRules;
 
@@ -427,12 +430,7 @@ const totalTreasuryPoolBonds = Vue.computed(() => {
 });
 
 const internalTreasuryPoolBonds = Vue.computed(() => {
-  const revenue = myVault.data.stats;
-  if (!revenue) return 0n;
-  return revenue.changesByFrame
-    .slice(0, 10)
-    .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
-    .reduce((acc, change) => acc + (change.treasuryPool.vaultCapital ?? 0n), 0n);
+  return vaultingBreakdown.treasuryMicrogons;
 });
 
 const externalTreasuryBonds = Vue.computed(() => {
@@ -445,8 +443,7 @@ const externalTreasuryBonds = Vue.computed(() => {
 });
 
 const bitcoinLockedValue = Vue.computed<bigint>(() => {
-  if (!myVault.createdVault) return 0n;
-  return myVault.createdVault.activatedSecuritization() - myVault.createdVault.getRelockCapacity();
+  return vaultingBreakdown.securityMicrogonsActivated;
 });
 
 const currentApy = Vue.computed(() => {
