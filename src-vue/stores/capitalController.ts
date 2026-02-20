@@ -37,6 +37,9 @@ export const useCapitalController = defineStore('capitalController', () => {
 
     basicEmitter.emit('closeAllOverlays');
     selectedTab.value = value;
+    if (config.isLoaded) {
+      void config.save();
+    }
   }
 
   async function load() {
