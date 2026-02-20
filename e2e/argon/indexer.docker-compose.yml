@@ -1,5 +1,4 @@
 ---
-
 services:
   indexer:
     build:
@@ -12,7 +11,7 @@ services:
       - PORT=3262
     restart: on-failure
     ports:
-      - "0:3262"
+      - '0:3262'
     volumes:
       - ../../indexer/lib:/usr/src/app/lib:ro
       - indexer-data:/indexer

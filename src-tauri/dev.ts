@@ -33,17 +33,22 @@ async function main(): Promise<void> {
   const configJson = JSON.stringify(baseConfig);
 
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
-  delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
   if (network === 'dev-docker') {
-    const override = await resolveDevDockerNetworkConfigOverride();
-    if (override) {
-      tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(override);
-      console.log(
-        `[tauri-dev] Runtime override archive=${override.archiveUrl} esplora=${override.esploraHost}${override.indexerHost ? ` indexer=${override.indexerHost}` : ''}`,
-      );
+    const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
+    if (inheritedOverride) {
+      tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = inheritedOverride;
+      console.log('[tauri-dev] Using preconfigured network override from parent environment');
     } else {
-      delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
-      console.warn('[tauri-dev] Runtime override unavailable, falling back to static network config');
+      const override = await resolveDevDockerNetworkConfigOverride();
+      if (override) {
+        tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(override);
+        console.log(
+          `[tauri-dev] Runtime override archive=${override.archiveUrl} esplora=${override.esploraHost}${override.indexerHost ? ` indexer=${override.indexerHost}` : ''}`,
+        );
+      } else {
+        delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
+        console.warn('[tauri-dev] Runtime override unavailable, falling back to static network config');
+      }
     }
   }
 

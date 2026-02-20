@@ -6,7 +6,6 @@ x-workspace-config: &cli-workspace
     additional_contexts:
       mainchain: ../../../mainchain
 
-
 services:
   miner-1-setup:
     <<: *cli-workspace

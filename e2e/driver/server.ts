@@ -293,7 +293,9 @@ export async function startDriverServer(): Promise<DriverServer> {
             failPendingCommand(
               pending,
               'driver_command_timeout',
-              `Driver did not receive a response for '${pending.commandName}' within ${pending.timeoutMs}ms (elapsed=${now - pending.startedAt}ms, appConnected=${details.appConnected}, sinceLastAppMessageMs=${details.sinceLastAppMessageMs})`,
+              `Driver did not receive a response for '${pending.commandName}' within ${pending.timeoutMs}ms (elapsed=${now - pending.startedAt}ms, appConnected=${String(
+                details.appConnected,
+              )}, sinceLastAppMessageMs=${String(details.sinceLastAppMessageMs)})`,
               details,
             );
           }, pendingTimeoutMs);
