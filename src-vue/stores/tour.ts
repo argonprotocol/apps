@@ -1,6 +1,7 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { getConfig } from './config';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 export interface ITourPos {
   left: number;
@@ -21,9 +22,9 @@ export const useTour = defineStore('tour', () => {
 
   void config.load().then(() => {
     Vue.watch(
-      () => config.isPreparingMinerSetup,
-      isPreparingMinerSetup => {
-        isDisabled.value = isPreparingMinerSetup;
+      () => config.miningSetupStatus,
+      miningSetupStatus => {
+        isDisabled.value = miningSetupStatus === MiningSetupStatus.None;
       },
     );
   });

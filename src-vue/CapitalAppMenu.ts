@@ -120,12 +120,6 @@ export async function createMenu() {
         text: 'View Data and Logs',
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'data-and-log-files' }),
       },
-      {
-        id: 'server-diagnostics',
-        text: 'Server Diagnostics',
-        enabled: config.isLoaded && config.isMiningMachineCreated,
-        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'server-diagnostics' }),
-      },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {
         id: 'options-for-restart',

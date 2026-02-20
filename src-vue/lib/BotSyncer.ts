@@ -17,6 +17,7 @@ import { IBidEntry } from './db/FrameBidsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { SERVER_ENV_VARS } from './Env.ts';
 import { SSH } from './SSH.ts';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 export enum BotStatus {
   Starting = 'Starting',
@@ -147,13 +148,11 @@ export class BotSyncer {
   }
 
   private get isRunnable(): boolean {
-    return (
-      !this.isPaused &&
-      this.config.isMinerReadyToInstall &&
-      this.config.isMinerInstalled &&
-      this.config.isMinerInstalling &&
-      this.config.hasSavedBiddingRules
-    );
+    try {
+      return !this.isPaused && this.config.isServerInstalled;
+    } catch (e) {
+      return false;
+    }
   }
 
   private async syncCurrentBids() {

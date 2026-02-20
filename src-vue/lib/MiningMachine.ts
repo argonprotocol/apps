@@ -1,5 +1,5 @@
 import { enable as enableAutostart } from '@tauri-apps/plugin-autostart';
-import { IConfigServerCreationCustomServer, IConfigServerDetails, ServerType } from '../interfaces/IConfig';
+import { IConfigServerAddCustomServer, IConfigServerDetails, ServerType } from '../interfaces/IConfig';
 import { Config } from './Config';
 import { LocalMachine } from './LocalMachine';
 import { ITryServerData, SSH } from './SSH';
@@ -35,8 +35,8 @@ export class MiningMachine {
   ): Promise<IConfigServerDetails> {
     const sshPublicKey = walletKeys.sshPublicKey;
 
-    if (config.serverCreation?.digitalOcean) {
-      const { apiKey } = config.serverCreation.digitalOcean;
+    if (config.serverAdd?.digitalOcean) {
+      const { apiKey } = config.serverAdd.digitalOcean;
       return await this.setupDigitalOcean(
         apiKey,
         sshPublicKey,
@@ -44,9 +44,9 @@ export class MiningMachine {
         config.userJurisdiction,
         progressFn,
       );
-    } else if (config.serverCreation?.customServer) {
-      return await this.setupCustomServer(config.serverCreation.customServer, walletKeys.miningBotAddress, progressFn);
-    } else if (config.serverCreation?.localComputer) {
+    } else if (config.serverAdd?.customServer) {
+      return await this.setupCustomServer(config.serverAdd.customServer, walletKeys.miningBotAddress, progressFn);
+    } else if (config.serverAdd?.localComputer) {
       return await this.setupLocalComputer(walletKeys.sshPublicKey, progressFn);
     } else {
       throw new MiningMachineError('No server creation data found');
@@ -382,7 +382,7 @@ export class MiningMachine {
   }
 
   private static async setupCustomServer(
-    customServer: IConfigServerCreationCustomServer,
+    customServer: IConfigServerAddCustomServer,
     miningBotAccountAddress: string,
     progressFn?: (pct: number) => void,
   ): Promise<IConfigServerDetails> {

@@ -16,20 +16,6 @@
     </button>
   </div>
   <div
-    InstallerInBackground
-    v-else-if="showInstallerInBackgroundAlert"
-    class="group alert-bar info"
-    style="box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.1)"
-  >
-    <AlertIcon />
-    <div class="grow"><span class="font-bold">Installer Is Running In Background</span>. You can close this app and the installer will continue without interruption.</div>
-    <button
-      @click="hideInstallerInBackgroundAlert = true"
-    >
-      Okay
-    </button>
-  </div>
-  <div
     BotBroken
     v-else-if="bot.isBroken"
     class="group alert-bar error"
@@ -141,13 +127,6 @@ clients.events.on('working', () => {
 });
 clients.events.on('degraded', () => {
   isApiClientDegraded.value = true;
-});
-
-const hideInstallerInBackgroundAlert = Vue.ref(false);
-
-const showInstallerInBackgroundAlert = Vue.computed(() => {
-  if (config.isMinerInstalling) return false;
-  return installer.isRunning && installer.isRunningInBackground && !hideInstallerInBackgroundAlert.value;
 });
 
 function openBotCreateOverlay() {

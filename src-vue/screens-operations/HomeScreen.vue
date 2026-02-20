@@ -41,7 +41,7 @@
             <CopyAddressMenu :walletType="WalletType.miningHold" class="mr-1" />
             <AssetMenu :walletType="WalletType.miningHold" class="pr-3" />
           </header>
-          <div class="flex grow flex-row pt-2 text-center" v-if="config.isMinerInstalled">
+          <div class="flex grow flex-row pt-2 text-center" v-if="config.miningSetupStatus === MiningSetupStatus.Finished">
             <div class="flex w-1/2 flex-col items-center gap-x-2">
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
                 <div Stat class="text-2xl!">
@@ -127,7 +127,7 @@
             <CopyAddressMenu :walletType="WalletType.vaulting" class="mr-1" />
             <AssetMenu :walletType="WalletType.vaulting" class="mr-3" />
           </header>
-          <div class="flex grow flex-row pt-2 text-center" v-if="config.isVaultActivated">
+          <div class="flex grow flex-row pt-2 text-center" v-if="config.vaultingSetupStatus === VaultingSetupStatus.Finished">
             <div class="flex w-1/2 flex-col items-center gap-x-2">
               <div StatWrapper class="flex h-1/2 w-full flex-col border-b border-slate-600/20 pb-1">
                 <div Stat class="text-2xl!">
@@ -537,13 +537,11 @@ import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { TooltipProvider } from 'reka-ui';
-import { ScreenKey } from '../interfaces/IConfig.ts';
-import { useController } from '../stores/controller.ts';
-import { getDbPromise } from '../stores/helpers/dbPromise.ts';
-import { getWalletBalances, getWalletKeys, useWallets } from '../stores/wallets.ts';
+import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { useWallets } from '../stores/wallets.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
-import { ICurrencyKey, MICRONOTS_PER_ARGONOT, UnitOfMeasurement } from '../lib/Currency';
+import { ICurrencyKey, UnitOfMeasurement } from '../lib/Currency';
 import BigNumber from 'bignumber.js';
 import LineArrow from '../components/asset-breakdown/LineArrow.vue';
 import {
@@ -570,8 +568,9 @@ import AssetMenu from './components/AssetMenu.vue';
 import { WalletType } from '../lib/Wallet.ts';
 import CopyAddressMenu from './components/CopyAddressMenu.vue';
 import { usePortfolio } from '../stores/portfolio.ts';
+import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
-const controller = useController();
+const controller = useOperationsController();
 const vaultingStats = useVaultingStats();
 const miningStats = useMiningStats();
 const tour = useTour();
@@ -718,15 +717,15 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
 }
 
 function setupVault() {
-  controller.setScreenKey(ScreenKey.Vaulting);
+  controller.setScreenKey(OperationsTab.Vaulting);
   controller.backButtonTriggersHome = true;
-  config.isPreparingVaultSetup = true;
+  config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 function setupMining() {
-  controller.setScreenKey(ScreenKey.Mining);
+  controller.setScreenKey(OperationsTab.Mining);
   controller.backButtonTriggersHome = true;
-  config.isPreparingMinerSetup = true;
+  config.miningSetupStatus = MiningSetupStatus.Checklist;
 }
 
 function getBitcoinReturnAsPercent(simulatedPriceInUsd: number): number {

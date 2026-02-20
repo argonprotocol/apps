@@ -190,12 +190,12 @@ export class Stats {
         this.dashboardHasUpdates = true;
       }
 
-      if (this.isSubscribedToActivity) {
-        await this.updateServerState();
-        this.activityHasUpdates = false;
-      } else {
-        this.activityHasUpdates = true;
-      }
+      // if (this.isSubscribedToActivity) {
+      await this.updateServerState();
+      this.activityHasUpdates = false;
+      // } else {
+      //   this.activityHasUpdates = true;
+      // }
     });
 
     botEmitter.on('updated-bids-data', async (_: IBidsFile['winningBids']) => {
@@ -203,12 +203,12 @@ export class Stats {
     });
 
     botEmitter.on('updated-server-state', async () => {
-      if (this.isSubscribedToActivity) {
-        await this.updateServerState();
-        this.activityHasUpdates = false;
-      } else {
-        this.activityHasUpdates = true;
-      }
+      // if (this.isSubscribedToActivity) {
+      await this.updateServerState();
+      this.activityHasUpdates = false;
+      // } else {
+      //   this.activityHasUpdates = true;
+      // }
     });
 
     await this.updateMiningSeats();

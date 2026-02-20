@@ -18,6 +18,9 @@ export class BotServer {
   public startupError = '';
   private server!: Server;
   private wss!: WebSocketServer;
+  private readonly listeningPromise: Promise<void>;
+  private resolveListening!: () => void;
+  private rejectListening!: (error: Error) => void;
   private readonly rpcHandlers: {
     [K in IBotApiMethod]: (...args: Parameters<IBotApiSpec[K]>) => IBotApiResponse<K>;
   };
@@ -27,6 +30,10 @@ export class BotServer {
     public port: number | string,
     public heartbeatIntervalMs: number = 30e3,
   ) {
+    this.listeningPromise = new Promise<void>((resolve, reject) => {
+      this.resolveListening = resolve;
+      this.rejectListening = reject;
+    });
     this.rpcHandlers = {
       '/state': async () => await bot.state(this.startupError),
       '/bitcoin-recent-blocks': async () => await DockerStatus.getBitcoinLatestBlocks(),
@@ -43,8 +50,8 @@ export class BotServer {
   public start() {
     const app = express();
     const wss = new WebSocketServer({ noServer: true });
-    this.wss = wss;
     const bot = this.bot;
+    this.wss = wss;
 
     app.use(cors({ origin: true, methods: ['GET'] }));
 
@@ -86,6 +93,10 @@ export class BotServer {
 
     this.server = app.listen(this.port, () => {
       console.log(`Server is running on port ${this.port}`);
+      this.resolveListening();
+    });
+    this.server.once('error', err => {
+      this.rejectListening(err);
     });
     this.server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket, head, ws => {
@@ -93,6 +104,10 @@ export class BotServer {
         wss.emit('connection', ws, request);
       });
     });
+  }
+
+  public async waitForListening(): Promise<void> {
+    return this.listeningPromise;
   }
 
   public async broadcast(method: IBotApiMethod, ...params: Parameters<IBotApiSpec[typeof method]>) {

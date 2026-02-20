@@ -98,6 +98,7 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import basicEmitter from '../../emitters/basicEmitter';
 import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
+import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
 
 const miningStats = useMiningStats();
 const currency = getCurrency();
@@ -110,7 +111,7 @@ function openHowMiningWorksOverlay() {
 }
 
 function startSettingUpMiner() {
-  config.isPreparingMinerSetup = true;
+  config.miningSetupStatus = MiningSetupStatus.Checklist;
 }
 
 Vue.onMounted(async () => {

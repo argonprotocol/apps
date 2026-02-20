@@ -10,7 +10,11 @@
       :class="[enableTopBar ? 'top-14 bottom-0 inset-x-0' : 'inset-0', enableTopBar ? roundedBottomClass : roundedClass]"
       data-tauri-drag-region
     >
-      <div v-if="showWindowControls && !enableTopBar" @click.stop class="absolute left-0" :class="[getPlatform() === 'macos' ? 'top-[22px]' : 'top-[16px]']">
+      <div
+        v-if="showWindowControls && !enableTopBar"
+        @click.stop class="absolute left-0"
+        :class="[getPlatform() === 'macos' ? 'top-[22px]' : 'top-[16px]']"
+      >
         <WindowControls />
       </div>
     </div>

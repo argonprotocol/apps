@@ -19,7 +19,7 @@
         />
       </svg>
     </div>
-    <div v-else class="w-full h-full border-2 border-gray-300 mr-4" />
+    <div v-else class="w-full h-full border-2 border-gray-300 mr-4 rounded-full" />
   </div>
 </template>
 

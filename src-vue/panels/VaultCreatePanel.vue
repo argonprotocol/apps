@@ -53,7 +53,7 @@
                   <div PrimaryStat :isTouring="currentTourStep === 1" ref="capitalToCommitElement" class="flex flex-col grow group border border-slate-500/30 rounded-lg shadow-sm">
                     <header StatHeader class="mx-0.5 pt-5 pb-0 relative">
                       <tooltip side="top" content="The amount you're willing to invest in your vault">
-                        Capital {{ config.isVaultActivated ? 'Committed' : 'to Commit' }}
+                        Capital {{ config.vaultingSetupStatus === VaultingSetupStatus.Finished ? 'Committed' : 'to Commit' }}
                       </tooltip>
                     </header>
                     <div class="grow flex flex-col mt-3 border-t border-slate-500/30 border-dashed w-10/12 mx-auto">
@@ -122,7 +122,7 @@
                 </div>
               </section>
 
-              <VaultSettings ref="vaultSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
+              <VaultSettings ref="vaultSettingsInstance" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -172,19 +172,20 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import InputMoney from '../components/InputMoney.vue';
-import ExistingNetworkVaultsOverlayButton from '../overlays/ExistingNetworkVaultsOverlayButton.vue';
-import CapitalOverlay from '../overlays/vault/VaultCapital.vue';
-import ReturnsOverlay from '../overlays/vault/VaultReturns.vue';
+import ExistingNetworkVaultsOverlayButton from '../overlays-operations/ExistingNetworkVaultsOverlayButton.vue';
+import CapitalOverlay from '../overlays-operations/vault/VaultCapital.vue';
+import ReturnsOverlay from '../overlays-operations/vault/VaultReturns.vue';
 import VaultTour from './vault-create-tour/Base.vue';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
-import { useController } from '../stores/controller.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import VaultSettings from '../components/VaultSettings.vue';
+import { VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
 const config = getConfig();
 const currency = getCurrency();
-const controller = useController();
+const controller = useOperationsController();
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -206,7 +207,7 @@ const hasEditBoxOverlay = Vue.ref(false);
 
 const capitalToCommitElement = Vue.ref<HTMLElement | null>(null);
 const returnOnCapitalElement = Vue.ref<HTMLElement | null>(null);
-const vaultSettings = Vue.ref<typeof VaultSettings | null>(null);
+const vaultSettingsInstance = Vue.ref<typeof VaultSettings | null>(null);
 const saveButtonElement = Vue.ref<HTMLElement | null>(null);
 
 const averageAPY = Vue.ref(0);
@@ -245,7 +246,7 @@ function getTourPositionCheck(name: string): ITourPos {
       height: rect.height,
     };
   } else if (name === 'configBoxes') {
-    const rect = vaultSettings.value?.getBoundingClientRect() as DOMRect;
+    const rect = vaultSettingsInstance.value?.$el.getBoundingClientRect() as DOMRect;
     const left = rect.left + 20;
     const width = rect.width - 40;
     return {
@@ -284,7 +285,7 @@ function cancelPanel() {
 }
 
 function closeEditBoxOverlay() {
-  vaultSettings.value?.closeEditBoxOverlay();
+  vaultSettingsInstance.value?.closeEditBoxOverlay();
 }
 
 async function saveRules() {

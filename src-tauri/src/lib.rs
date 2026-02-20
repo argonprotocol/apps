@@ -208,6 +208,7 @@ async fn derive_bitcoin_extended_key(
 async fn run_db_migrations(app: AppHandle) -> Result<(), String> {
     log::info!("run_db_migrations");
     let absolute_db_path = Utils::get_absolute_config_instance_dir(&app).join("database.sqlite");
+    log::info!("Running DB migrations for {}", absolute_db_path.display());
     migrations::run_db_migrations(absolute_db_path)
         .await
         .map_err(|e| e.to_string())?;
@@ -295,7 +296,9 @@ fn calculate_free_space(path: Option<String>) -> Result<u64, String> {
 
 #[tauri::command]
 async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
-    log::info!("Loading instance: {name}");
+    log::info!(
+        "--------------------------------------------------------------\nLoading instance: {name}"
+    );
     unsafe {
         std::env::set_var("ARGON_APP_INSTANCE", &name);
     }
@@ -406,6 +409,7 @@ pub fn run() {
     let network_config_override_json_clone = network_config_override_json.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .on_page_load(move |window, _payload| {
             if window.label() != "main" {
               return;

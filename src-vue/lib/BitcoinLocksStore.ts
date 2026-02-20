@@ -667,7 +667,7 @@ export default class BitcoinLocksStore {
       const startTick = lock.requestedReleaseAtTick!;
       const startFrame = miningFrames.getForTick(startTick);
       const dueFrame = startFrame + this.#config.lockReleaseCosignDeadlineFrames;
-      const startTickOfDue = miningFrames.estimateTickForFrame(dueFrame);
+      const startTickOfDue = miningFrames.estimateTickStart(dueFrame);
       const totalTicks = startTickOfDue + NetworkConfig.rewardTicksPerFrame - startTick;
       const currentTick = miningFrames.currentTick;
       return getPercent(currentTick - startTick, totalTicks);

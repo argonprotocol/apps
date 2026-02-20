@@ -260,13 +260,13 @@
             MainWrapper
             @click="openEditBoxOverlay('cloudMachine')"
             class="flex h-full w-full flex-col items-center justify-center px-8">
-            <div StatHeader>Mining Machine</div>
+            <div StatHeader>Cloud Server</div>
             <div MainRule class="flex w-full flex-row items-center justify-center tracking-widest">
               <span>{{ config.serverDetails.ipAddress || '0.0.0.0' }}</span>
               <EditIcon EditIcon />
             </div>
             <div class="text-md font-mono text-gray-500/60">
-              {{ config.isMinerInstalled ? 'Existing Server' : 'New Server' }}
+              {{ config.miningSetupStatus === MiningSetupStatus.Finished ? 'Existing Server' : 'New Server' }}
             </div>
           </div>
         </tooltip>
@@ -289,11 +289,12 @@ import {
   type IBiddingRules,
   SeatGoalType,
 } from '@argonprotocol/apps-core';
-import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../overlays/EditBoxOverlay.vue';
+import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../overlays-operations/EditBoxOverlay.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import { bigIntAbs } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain';
 import Tooltip from '../components/Tooltip.vue';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 const props = defineProps<{
   includeProjections?: boolean;
@@ -450,5 +451,6 @@ Vue.onMounted(() => {
 
 defineExpose({
   closeEditBoxOverlay,
+  $el: editBoxParent,
 });
 </script>

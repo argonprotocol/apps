@@ -11,7 +11,7 @@ type IBasicEmitter = {
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'export' } | undefined;
   openProvisioningCompleteOverlay: void;
-  openServerConnectOverlay: void;
+  openServerConnectPanel: void;
   closeAllOverlays: void;
   openAboutOverlay: void;
   openJurisdictionOverlay: void;
@@ -26,6 +26,8 @@ type IBasicEmitter = {
 
   openPortfolioPanel: PortfolioTab;
   openImportAccountOverlay: void;
+
+  openServerOverlay: void;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

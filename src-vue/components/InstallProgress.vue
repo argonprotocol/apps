@@ -1,13 +1,14 @@
 <!-- prettier-ignore -->
 <template>
   <div class="Component InstallProgress flex flex-col grow relative h-full">
-    <ul :isCompact="isCompact" class="flex flex-col grow relative h-full">
+    <ul class="flex flex-col grow relative h-full">
       <template v-for="(stepLabel, index) in stepLabels" :key="stepLabel.key">
         <InstallProgressStep
           :stepLabel="stepLabel"
           :stepIndex="index"
           :stepsCount="stepLabels.length"
           :isCompact="isCompact"
+          :class="index ? '' : 'border-t-transparent'"
         />
       </template>
     </ul>
@@ -25,8 +26,4 @@ const props = defineProps<{
 
 <style>
 @reference "../main.css";
-
-.Component.InstallProgress {
-  @apply mt-4; /* border-b border-slate-300 */
-}
 </style>

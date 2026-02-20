@@ -30,6 +30,7 @@ describe('BotServer basic behavior', () => {
 
   it('GET /is-ready returns bot.isReady', async () => {
     server = startServer(createMockBot({ isReady: true }), 0);
+    await server.waitForListening();
     const { host, port } = server.getAddress();
 
     const response = await fetch(`http://${host}:${port}/is-ready`);
@@ -45,6 +46,7 @@ describe('BotServer basic behavior', () => {
     // NOTE: With the current implementation, first heartbeat is at 30s.
     // If you want this test fast, see the note below about making heartbeat interval injectable.
     server = startServer(createMockBot(), 0, 100);
+    await server.waitForListening();
     const { host, port } = server.getAddress();
 
     const ws = new WebSocket(`ws://${host}:${port}`);
@@ -93,6 +95,7 @@ describe('BotServer basic behavior', () => {
       }),
       0,
     );
+    await server.waitForListening();
     const { host, port } = server.getAddress();
 
     const ws = new WebSocket(`ws://${host}:${port}`);
@@ -136,6 +139,7 @@ describe('BotServer basic behavior', () => {
 
   it('unknown RPC method returns Method not found error', async () => {
     server = startServer(createMockBot(), 0);
+    await server.waitForListening();
     const { host, port } = server.getAddress();
 
     const ws = new WebSocket(`ws://${host}:${port}`);

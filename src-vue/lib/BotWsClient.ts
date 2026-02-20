@@ -27,7 +27,8 @@ export class BotWsClient {
   private webSocket!: WebSocket;
   private messageWaiters: Map<number, IDeferred<any>> = new Map();
 
-  private shouldReconnect = true;
+  // Temporary behavior: disable automatic reconnect attempts.
+  private shouldReconnect = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly reconnectBaseDelayMs = 250;

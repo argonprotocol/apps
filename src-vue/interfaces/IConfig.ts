@@ -44,10 +44,18 @@ export enum InstallStepStatus {
   Hidden = 'Hidden',
 }
 
-export enum ScreenKey {
-  Home = 'Home',
-  Mining = 'Mining',
-  Vaulting = 'Vaulting',
+export enum MiningSetupStatus {
+  None = 'None',
+  Checklist = 'Checklist',
+  Installing = 'Installing',
+  Finished = 'Finished',
+}
+
+export enum VaultingSetupStatus {
+  None = 'None',
+  Checklist = 'Checklist',
+  Installing = 'Installing',
+  Finished = 'Finished',
 }
 
 export enum ServerType {
@@ -56,21 +64,21 @@ export enum ServerType {
   LocalComputer = 'LocalComputer',
 }
 
-export const ConfigServerCreationDigitalOceanSchema = z.object({
+export const ConfigServerAddDigitalOceanSchema = z.object({
   apiKey: z.string(),
 });
-export const ConfigServerCreationLocalComputerSchema = z.object({});
-export const ConfigServerCreationCustomServerSchema = z.object({
+export const ConfigServerAddLocalComputerSchema = z.object({});
+export const ConfigServerAddCustomServerSchema = z.object({
   port: z.number(),
   sshUser: z.string(),
   ipAddress: z.string().ip().or(z.literal('')),
   hasRunningBot: z.boolean().optional(),
 });
 
-export const ConfigServerCreationSchema = z.object({
-  localComputer: ConfigServerCreationLocalComputerSchema.optional(),
-  digitalOcean: ConfigServerCreationDigitalOceanSchema.optional(),
-  customServer: ConfigServerCreationCustomServerSchema.optional(),
+export const ConfigServerAddSchema = z.object({
+  localComputer: ConfigServerAddLocalComputerSchema.optional(),
+  digitalOcean: ConfigServerAddDigitalOceanSchema.optional(),
+  customServer: ConfigServerAddCustomServerSchema.optional(),
 });
 
 export const ConfigServerDetailsSchema = z.object({
@@ -81,20 +89,20 @@ export const ConfigServerDetailsSchema = z.object({
   workDir: z.string(),
 });
 
-export const ConfigInstallStep = z.object({
+export const ConfigInstallerStep = z.object({
   progress: z.number(),
   status: z.nativeEnum(InstallStepStatus),
-  startDate: z.string().nullable(),
+  startDate: z.date().nullable(),
 });
 
-export const ConfigInstallDetailsSchema = z.object({
-  [InstallStepKey.ServerConnect]: ConfigInstallStep,
-  [InstallStepKey.FileUpload]: ConfigInstallStep,
-  [InstallStepKey.UbuntuCheck]: ConfigInstallStep,
-  [InstallStepKey.DockerInstall]: ConfigInstallStep,
-  [InstallStepKey.BitcoinInstall]: ConfigInstallStep,
-  [InstallStepKey.ArgonInstall]: ConfigInstallStep,
-  [InstallStepKey.MiningLaunch]: ConfigInstallStep,
+export const ConfigServerInstallerSchema = z.object({
+  [InstallStepKey.ServerConnect]: ConfigInstallerStep,
+  [InstallStepKey.FileUpload]: ConfigInstallerStep,
+  [InstallStepKey.UbuntuCheck]: ConfigInstallerStep,
+  [InstallStepKey.DockerInstall]: ConfigInstallerStep,
+  [InstallStepKey.BitcoinInstall]: ConfigInstallerStep,
+  [InstallStepKey.ArgonInstall]: ConfigInstallerStep,
+  [InstallStepKey.MiningLaunch]: ConfigInstallerStep,
   errorType: z.nativeEnum(InstallStepErrorType).nullable(),
   errorMessage: z.string().nullable(),
   isRunning: z.boolean(),
@@ -129,14 +137,16 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 // ---- Main Schema ---- //
 
 export const ConfigSchema = z.object({
-  screenKey: z.nativeEnum(ScreenKey),
   version: z.string(),
   requiresPassword: z.boolean(),
   showWelcomeOverlay: z.boolean(),
 
-  serverCreation: ConfigServerCreationSchema.optional(),
+  miningSetupStatus: z.nativeEnum(MiningSetupStatus),
+  vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
+
+  serverAdd: ConfigServerAddSchema.optional(),
   serverDetails: ConfigServerDetailsSchema,
-  installDetails: ConfigInstallDetailsSchema,
+  serverInstaller: ConfigServerInstallerSchema,
   oldestFrameIdToSync: z.number(),
   latestFrameIdProcessed: z.number(),
 
@@ -145,16 +155,10 @@ export const ConfigSchema = z.object({
   miningBotAccountPreviousHistory: z.array(MiningAccountPreviousHistoryRecordSchema).nullable(),
 
   hasReadMiningInstructions: z.boolean(),
-  isPreparingMinerSetup: z.boolean(),
-  isMinerReadyToInstall: z.boolean(), // isConnected
-  isMiningMachineCreated: z.boolean(), // isMiningMachineCreated
-  isMinerInstalled: z.boolean(), // isNewServer
-  isMinerInstalling: z.boolean(), // isInstalling
+  isServerInstalled: z.boolean(), // is set once after first install
+  isServerInstalling: z.boolean(), // is true whenever the Installer is running
 
   hasReadVaultingInstructions: z.boolean(),
-  isPreparingVaultSetup: z.boolean(),
-  isVaultReadyToCreate: z.boolean(),
-  isVaultActivated: z.boolean(),
 
   hasMiningSeats: z.boolean(), // hasMiningSeats
   hasMiningBids: z.boolean(), // hasMiningBids
@@ -179,14 +183,14 @@ export type IMiningAccountPreviousHistoryBid = z.infer<typeof MiningAccountPrevi
 export type IMiningAccountPreviousHistorySeat = z.infer<typeof MiningAccountPreviousHistorySeatSchema>;
 export type IMiningAccountPreviousHistoryRecord = z.infer<typeof MiningAccountPreviousHistoryRecordSchema>;
 
-export type IConfigServerCreationDigitalOcean = z.infer<typeof ConfigServerCreationDigitalOceanSchema>;
-export type IConfigServerCreationLocalComputer = z.infer<typeof ConfigServerCreationLocalComputerSchema>;
-export type IConfigServerCreationCustomServer = z.infer<typeof ConfigServerCreationCustomServerSchema>;
-export type IConfigServerCreation = z.infer<typeof ConfigServerCreationSchema>;
+export type IConfigServerAddDigitalOcean = z.infer<typeof ConfigServerAddDigitalOceanSchema>;
+export type IConfigServerAddLocalComputer = z.infer<typeof ConfigServerAddLocalComputerSchema>;
+export type IConfigServerAddCustomServer = z.infer<typeof ConfigServerAddCustomServerSchema>;
+export type IConfigServerAdd = z.infer<typeof ConfigServerAddSchema>;
 
 export type IConfigServerDetails = z.infer<typeof ConfigServerDetailsSchema>;
-export type IConfigInstallDetails = z.infer<typeof ConfigInstallDetailsSchema>;
-export type IConfigInstallStep = z.infer<typeof ConfigInstallStep>;
+export type IConfigServerInstallDetails = z.infer<typeof ConfigServerInstallerSchema>;
+export type IConfigInstallStep = z.infer<typeof ConfigInstallerStep>;
 export type IConfigSyncDetails = z.infer<typeof ConfigSyncDetailsSchema>;
 export type IConfig = z.infer<typeof ConfigSchema>;
 
@@ -195,13 +199,15 @@ export type IConfigStringified = {
 };
 
 export interface IConfigDefaults {
-  screenKey: () => IConfig['screenKey'];
   requiresPassword: () => IConfig['requiresPassword'];
   showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
 
-  serverCreation: () => IConfig['serverCreation'];
+  miningSetupStatus: () => IConfig['miningSetupStatus'];
+  vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
+
+  serverAdd: () => IConfig['serverAdd'];
   serverDetails: () => IConfig['serverDetails'];
-  installDetails: () => IConfig['installDetails'];
+  serverInstaller: () => IConfig['serverInstaller'];
   oldestFrameIdToSync: () => IConfig['oldestFrameIdToSync'];
   latestFrameIdProcessed: () => IConfig['latestFrameIdProcessed'];
   walletAccountsHadPreviousLife: () => IConfig['walletAccountsHadPreviousLife'];
@@ -209,16 +215,10 @@ export interface IConfigDefaults {
   miningBotAccountPreviousHistory: () => IConfig['miningBotAccountPreviousHistory'];
 
   hasReadMiningInstructions: () => IConfig['hasReadMiningInstructions'];
-  isPreparingMinerSetup: () => IConfig['isPreparingMinerSetup'];
-  isMinerReadyToInstall: () => IConfig['isMinerReadyToInstall'];
-  isMiningMachineCreated: () => IConfig['isMiningMachineCreated'];
-  isMinerInstalled: () => IConfig['isMinerInstalled'];
-  isMinerInstalling: () => IConfig['isMinerInstalling'];
+  isServerInstalled: () => IConfig['isServerInstalled'];
+  isServerInstalling: () => IConfig['isServerInstalling'];
 
   hasReadVaultingInstructions: () => IConfig['hasReadVaultingInstructions'];
-  isPreparingVaultSetup: () => IConfig['isPreparingVaultSetup'];
-  isVaultReadyToCreate: () => IConfig['isVaultReadyToCreate'];
-  isVaultActivated: () => IConfig['isVaultActivated'];
 
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];

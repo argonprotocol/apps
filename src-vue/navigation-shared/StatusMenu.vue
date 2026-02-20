@@ -90,7 +90,10 @@
           <div
             class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <div
-              v-if="!config.isMinerInstalled && !hasVault"
+              v-if="
+                config.miningSetupStatus !== MiningSetupStatus.Finished &&
+                config.vaultingSetupStatus !== VaultingSetupStatus.Finished
+              "
               class="flex w-full flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80">
               <p>
                 Once your mining bot has been setup, this is where you'll be notified of important alerts such as when
@@ -391,6 +394,7 @@ import { getInstaller } from '../stores/installer';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
 import { WalletType } from '../lib/Wallet.ts';
+import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
 enum Status {
   WaitingForSetup = 'WaitingForSetup',
@@ -430,14 +434,13 @@ const miningMicrogonsNeeded = Vue.computed(() => {
   return bigIntMax(requiredMicrogonsForGoal.value - wallets.totalMiningMicrogons, 0n);
 });
 
-const hasVault = Vue.computed(() => {
-  return config.isVaultActivated;
-});
-
 const miningStatus = Vue.computed<Status>(() => {
-  if (!config.hasSavedBiddingRules || !config.isMinerInstalled) {
+  if (config.miningSetupStatus !== MiningSetupStatus.Finished || !config.hasSavedBiddingRules) {
     return Status.WaitingForSetup;
-  } else if (!config.isMinerReadyToInstall && wallets.miningBotWallet.availableMicrogons === 0n) {
+  } else if (
+    config.miningSetupStatus !== MiningSetupStatus.Finished &&
+    wallets.miningBotWallet.availableMicrogons === 0n
+  ) {
     return Status.WaitingForFunding;
   } else if (miningMicrogonsNeeded.value > 0n || miningMicrogonsNeeded.value > 0n) {
     return Status.Underfunded;
@@ -448,7 +451,10 @@ const miningStatus = Vue.computed<Status>(() => {
 const vaultingStatus = Vue.computed<Status>(() => {
   if (!config.hasSavedVaultingRules) {
     return Status.WaitingForSetup;
-  } else if (!config.isVaultReadyToCreate && wallets.vaultingWallet.availableMicrogons === 0n) {
+  } else if (
+    config.vaultingSetupStatus !== VaultingSetupStatus.Finished &&
+    wallets.vaultingWallet.availableMicrogons === 0n
+  ) {
     return Status.WaitingForFunding;
   }
 
