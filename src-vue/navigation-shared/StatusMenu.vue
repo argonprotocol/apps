@@ -437,12 +437,9 @@ const miningMicrogonsNeeded = Vue.computed(() => {
 const miningStatus = Vue.computed<Status>(() => {
   if (config.miningSetupStatus !== MiningSetupStatus.Finished || !config.hasSavedBiddingRules) {
     return Status.WaitingForSetup;
-  } else if (
-    config.miningSetupStatus !== MiningSetupStatus.Finished &&
-    wallets.miningBotWallet.availableMicrogons === 0n
-  ) {
+  } else if (wallets.totalMiningMicrogons === 0n && wallets.totalMiningMicronots === 0n) {
     return Status.WaitingForFunding;
-  } else if (miningMicrogonsNeeded.value > 0n || miningMicrogonsNeeded.value > 0n) {
+  } else if (miningMicrogonsNeeded.value > 0n || miningMicronotsNeeded.value > 0n) {
     return Status.Underfunded;
   }
   return Status.Funded;
