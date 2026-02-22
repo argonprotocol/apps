@@ -74,6 +74,7 @@
           "path": "$TEMP/**"
         }
       ]
-    }
+    },
+    "deep-link:default"
   ]
 }

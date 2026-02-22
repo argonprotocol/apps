@@ -569,25 +569,13 @@ function handleBeforeInput(event: InputEvent) {
   }
 }
 
-let updateInputValueTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-
 function handleInput() {
   const currentText = inputElem.value?.textContent || '';
   const inputValue = Number(currentText.replace(/,/g, ''));
   if (isNaN(inputValue)) return;
 
-  const boundedInputValue = calculateBoundedInputValue(inputValue);
-  currentInputValue = boundedInputValue;
+  currentInputValue = calculateBoundedInputValue(inputValue);
   currentInputValueFormatted.value = formatFn(inputValue);
-
-  if (inputValue === boundedInputValue) {
-    if (updateInputValueTimer) {
-      clearTimeout(updateInputValueTimer);
-    }
-    updateInputValueTimer = setTimeout(() => {
-      updateInputValue(boundedInputValue, true, true);
-    }, 1e3);
-  }
 
   inputValueInserted.value = currentText;
 }

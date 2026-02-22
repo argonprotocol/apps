@@ -129,7 +129,7 @@ export class Accountset {
   }
 
   public async loadRegisteredMiners(api: ApiDecoration<'promise'>): Promise<ISubaccountMiner[]> {
-    const addressToMiningIndex = await Mining.fetchMiningSeats(this.seedAddress, api);
+    const addressToMiningIndex = await Mining.fetchMiningSeatsForAccount(this.seedAddress, api);
 
     return Object.entries(this.subAccountsByAddress).map(([address, { index }]) => {
       return {

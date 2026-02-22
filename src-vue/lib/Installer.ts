@@ -37,9 +37,6 @@ export enum ReasonsToSkipInstall {
 }
 
 export default class Installer {
-  public isFreshInstall: boolean = false;
-  public remoteFilesNeedUpdating: boolean = false;
-
   public isLoaded: boolean = false;
   public isLoadedPromise: Promise<void>;
   public isReadyToRun: boolean = false;
@@ -55,6 +52,9 @@ export default class Installer {
   public get isDockerHostProxy(): boolean {
     return this.config.serverDetails.type === ServerType.LocalComputer;
   }
+
+  private isFreshInstall: boolean = true;
+  private remoteFilesNeedUpdating: boolean = false;
 
   private isLoadedDeferred!: IDeferred<void>;
   private installerCheck: InstallerCheck;
@@ -84,8 +84,9 @@ export default class Installer {
   public async load(): Promise<void> {
     await this.config.isLoadedPromise;
 
-    if (this.config.isMinerReadyToInstall && !this.isRunning) {
-      if (this.config.isMiningMachineCreated) {
+    if (this.config.isServerAdded && !this.isRunning) {
+      const hasServerDetails = !!this.config.serverDetails.ipAddress;
+      if (hasServerDetails) {
         const server = await this.getServer();
         const accountAddressOnServer = await server.downloadAccountAddress();
         if (accountAddressOnServer && accountAddressOnServer !== this.walletKeys.miningBotAddress) {
@@ -123,7 +124,7 @@ export default class Installer {
           if (isAllowedToRun) {
             await this.run(false);
           } else {
-            this.config.isMinerInstalling = true;
+            this.config.isServerInstalling = false;
           }
         } else {
           await this.activateInstallerCheck(false);
@@ -147,11 +148,13 @@ export default class Installer {
   }
 
   public async run(waitForLoaded: boolean = true): Promise<void> {
+    console.log('RUNNING INSTALLER');
     if (waitForLoaded) {
       await this.isLoadedPromise;
     }
 
-    if (this.config.isMiningMachineCreated) {
+    const hasServerDetails = !!this.config.serverDetails.ipAddress;
+    if (hasServerDetails) {
       if ((this.isRunning ||= await this.calculateIsRunning())) {
         console.log('CANNOT run because Installer is already running');
         return;
@@ -166,15 +169,12 @@ export default class Installer {
         this.isRunning = false;
         return;
       }
-    } else if (this.isRunning) {
-      console.log('CANNOT run because Installer is already running');
-      return;
     }
 
     console.log('RUNNING ACTUAL INSTALL');
     this.isRunning = true;
     this.isRunningInBackground = false;
-    this.config.isMinerInstalling = false;
+    this.config.isServerInstalling = true;
 
     if (this.remoteFilesNeedUpdating) {
       const stepsToClear = [
@@ -188,8 +188,8 @@ export default class Installer {
       console.info('Clearing step files');
       await this.clearStepFiles(stepsToClear);
     } else {
-      this.config.installDetails.errorMessage = null;
-      this.config.installDetails.errorType = null;
+      this.config.serverInstaller.errorMessage = null;
+      this.config.serverInstaller.errorType = null;
     }
     await this.config.save();
 
@@ -202,14 +202,14 @@ export default class Installer {
     try {
       console.info('Setting up mining machine');
 
-      if (!this.config.isMiningMachineCreated) {
+      if (!this.config.serverDetails.ipAddress) {
         this.config.serverDetails = await MiningMachine.setup(this.config, this.walletKeys, pct => {
           this.serverConnectProgress = pct * 0.5;
         });
-        this.config.isMiningMachineCreated = true;
         this.remoteFilesNeedUpdating = true;
         await this.config.save();
       }
+
       this.serverConnectProgress = 60;
       const server = await this.getServer(5);
       this.serverConnectProgress = 90;
@@ -248,9 +248,9 @@ export default class Installer {
       console.info('Installer finished');
     } catch (e: any) {
       console.error(`Installation failed: `, e);
-      this.config.installDetails.errorType = installPhase ?? InstallStepErrorType.Unknown;
-      this.config.installDetails.errorMessage = e.message ?? `Installation failed - ${String(e)}`;
-      this.config.installDetails = this.config.installDetails;
+      this.config.serverInstaller.errorType = installPhase ?? InstallStepErrorType.Unknown;
+      this.config.serverInstaller.errorMessage = e.message ?? `Installation failed - ${String(e)}`;
+      this.config.serverInstaller = this.config.serverInstaller;
     }
 
     if (!this.disableWrites) {
@@ -272,14 +272,14 @@ export default class Installer {
 
     await this.clearStepFiles([stepKey], { setFirstStepToWorking: true });
 
-    for (const step of Object.values(this.config.installDetails) as any) {
+    for (const step of Object.values(this.config.serverInstaller) as any) {
       if (!step?.status) continue;
       if (step.status === InstallStepStatus.Hidden) {
         step.status = InstallStepStatus.Pending;
-        step.startDate = dayjs.utc().toISOString();
+        step.startDate = dayjs.utc().toDate();
       }
     }
-    this.config.installDetails = this.config.installDetails;
+    this.config.serverInstaller = this.config.serverInstaller;
     await this.config.save();
 
     this.installerCheck.clearCachedFilenames();
@@ -315,18 +315,15 @@ export default class Installer {
     this.reasonToSkipInstall = '';
     this.reasonToSkipInstallData = {};
 
-    if (!this.config.isMinerReadyToInstall) {
-      this.isReadyToRun = false;
-      this.reasonToSkipInstall = ReasonsToSkipInstall.ServerNotConnected;
-      this.reasonToSkipInstallData = { isMinerReadyToInstall: this.config.isMinerReadyToInstall };
-      this.config.isMinerInstalling = false;
-      await this.config.save();
-      return false;
-    }
-
     // We will begin by running through a series of checks to determine if the install process
     // should be started. We don't use serverDetails.isInstalling because the local value could
     // be out of date with the server.
+
+    if (!this.config.isServerAdded) {
+      this.reasonToSkipInstall = ReasonsToSkipInstall.ServerNotConnected;
+      return false;
+    }
+
     const tmpInstallChecks = await this.extractTmpInstallChecks();
     const isFreshInstall = tmpInstallChecks.isFreshInstall;
     const isServerInstallComplete = tmpInstallChecks.isServerInstallComplete;
@@ -340,7 +337,7 @@ export default class Installer {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerUpToDate;
       this.reasonToSkipInstallData = { isServerInstallComplete, remoteFilesNeedUpdating };
-      this.config.isMinerInstalling = true;
+      this.config.isServerInstalling = false;
       await this.config.save();
       return false;
     }
@@ -360,10 +357,10 @@ export default class Installer {
       // even if next two conditions are met.
       this.isReadyToRun = true;
       this.removeReasonsToSkipInstall();
-      this.config.resetField('installDetails');
+      this.config.resetField('serverInstaller');
       this.installerCheck.clearCachedFilenames();
       this.installerCheck.shouldUseCachedInstallSteps = true;
-      this.config.isMinerInstalling = false;
+      this.config.isServerInstalling = true;
       await this.config.save();
       return true;
     }
@@ -372,12 +369,12 @@ export default class Installer {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
       this.reasonToSkipInstallData = { hasInstallError: this.installerCheck.hasError };
-      this.config.isMinerInstalling = false;
+      this.config.isServerInstalling = true;
       await this.config.save();
       return false;
     }
 
-    const isWaitingForMinersToSync = this.config.installDetails.MiningLaunch.progress > 0.0;
+    const isWaitingForMinersToSync = this.config.serverInstaller.MiningLaunch.progress > 0.0;
     if (isWaitingForMinersToSync && !remoteFilesNeedUpdating) {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.MinersAreSyncing;
@@ -386,7 +383,7 @@ export default class Installer {
       return false;
     }
 
-    this.config.isMinerInstalling = remoteFilesNeedUpdating;
+    this.config.isServerInstalling = remoteFilesNeedUpdating;
     this.isReadyToRun = true;
     return true;
   }
@@ -397,14 +394,11 @@ export default class Installer {
       return true;
     }
 
-    if (!this.config.isMinerReadyToInstall) {
-      return false;
-    }
-
     const server = await this.getServer();
     this.isRunning = await server.isInstallerScriptRunning();
     if (this.isRunning) {
       this.isRunningInBackground = true;
+      this.config.isServerInstalling = true;
       console.log('Install process IS running remotely');
     }
 
@@ -416,11 +410,12 @@ export default class Installer {
       await this.isLoadedPromise;
     }
 
-    const hasProgress = this.config.installDetails.ServerConnect.progress > 0.0;
-    const isComplete = this.config.installDetails.MiningLaunch.progress >= 100;
+    const hasProgress = this.config.serverInstaller.ServerConnect.progress > 0.0;
+    const isComplete = this.config.serverInstaller.MiningLaunch.progress >= 100;
     if (!hasProgress || isComplete) return;
 
     this.isRunning = true;
+    this.config.isServerInstalling = true;
     const server = await this.getServer();
     this.installerCheck.activateServer(server);
     this.installerCheck.start();
@@ -587,16 +582,16 @@ export default class Installer {
   ): Promise<void> {
     const server = await this.getServer();
     if (stepKeys.includes('all')) {
-      this.config.resetField('installDetails');
+      this.config.resetField('serverInstaller');
       await this.config.save();
       await server.removeAllLogFiles();
       return;
     }
 
-    const installDetails = this.config.installDetails;
+    const serverInstaller = this.config.serverInstaller;
 
-    installDetails.errorType = null;
-    installDetails.errorMessage = null;
+    serverInstaller.errorType = null;
+    serverInstaller.errorMessage = null;
     const defaultStepObj: IConfigInstallStep = {
       status: InstallStepStatus.Pending,
       progress: 0,
@@ -608,12 +603,12 @@ export default class Installer {
       if (stepKey === stepKeys[0] && options.setFirstStepToWorking) {
         console.log('SETTING SERVER STEP TO WORKING', stepKey);
         stepObj.status = InstallStepStatus.Working;
-        stepObj.startDate = dayjs.utc().toISOString();
+        stepObj.startDate = dayjs.utc().toDate();
       }
-      installDetails[stepKey] = { ...stepObj };
+      serverInstaller[stepKey] = { ...stepObj };
       await server.removeLogStep(stepKey);
     }
-    this.config.installDetails = installDetails;
+    this.config.serverInstaller = serverInstaller;
     await this.config.save();
   }
 

@@ -58,6 +58,11 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNjgzNUE1MEU4MTNFNEMKUldSTVBvRU9wVFZvM0tYUUdSWkdnRFo1VnB0NHV6QzVnRnFRdVRXSVRYUWdobS9WbnpnbjYrSVQK",
       "endpoints": []
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["argon-capital"]
+      }
     }
   }
 }

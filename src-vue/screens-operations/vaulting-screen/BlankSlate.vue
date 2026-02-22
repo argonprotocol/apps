@@ -151,6 +151,7 @@ import { getVaults } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config';
 import { abbreviateAddress, getPercent } from '../../lib/Utils.ts';
 import { useVaultingStats } from '../../stores/vaultingStats.ts';
+import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 
 const currency = getCurrency();
 const config = getConfig();
@@ -176,7 +177,7 @@ function openHowVaultingWorksOverlay() {
 }
 
 function startSettingUpVault() {
-  config.isPreparingVaultSetup = true;
+  config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 // Animation delay calculation based on visual position

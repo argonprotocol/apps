@@ -5,7 +5,7 @@ import { Config } from '../lib/Config';
 import Installer, { resetInstaller } from '../lib/Installer';
 import { createMockedDbPromise } from './helpers/db';
 import { IInstallStepStatuses, InstallStepStatusType } from '../lib/Server';
-import { InstallStepKey, ServerType } from '../interfaces/IConfig';
+import { InstallStepKey, MiningSetupStatus, ServerType } from '../interfaces/IConfig';
 import { InstallerCheck } from '../lib/InstallerCheck.ts';
 import { MiningMachine } from '../lib/MiningMachine.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 
 it('should skip install if server is not connected', async () => {
-  const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'false' });
+  const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.None}"` });
 
   const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(dbPromise, walletKeys);
@@ -33,7 +33,7 @@ it('should skip install if server is not connected', async () => {
 });
 
 it('should skip install if install is already running', async () => {
-  const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'true' });
+  const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Installing}"` });
   const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(dbPromise, walletKeys);
   await config.load();
@@ -57,12 +57,14 @@ it('should install if all conditions are met', async () => {
   installer.ensureIpAddressIsWhitelisted = vi.fn().mockResolvedValue(null);
   await installer.load();
 
-  config.isMinerReadyToInstall = true;
-  config.isMinerInstalled = false;
-  config.isMinerInstalling = false;
+  config.miningSetupStatus = MiningSetupStatus.None;
+  config.isServerInstalling = false;
   config.serverDetails = {
     ...config.serverDetails,
     ipAddress: '127.0.0.1',
+  };
+  config.serverAdd = {
+    localComputer: undefined,
   };
   await config.save();
 
@@ -82,7 +84,7 @@ it('should install if all conditions are met', async () => {
 });
 
 it('should run through entire install process', async () => {
-  const dbPromise = createMockedDbPromise({ isMinerReadyToInstall: 'true', serverCreation: '{ "localComputer": {} }' });
+  const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const walletKeys = createMockWalletKeys();
   const config = Vue.reactive(new Config(dbPromise, walletKeys)) as Config;
   await config.load();
@@ -135,5 +137,5 @@ it('should run through entire install process', async () => {
   // should call run
   await installer.load();
 
-  expect(config.installDetails.ServerConnect.status).toBe('Completed');
+  expect(config.serverInstaller.ServerConnect.status).toBe('Completed');
 });

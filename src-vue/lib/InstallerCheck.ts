@@ -1,11 +1,13 @@
 import dayjs, { Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
-  IConfigInstallDetails,
   IConfigInstallStep,
+  IConfigServerInstallDetails,
   InstallStepErrorType,
   InstallStepKey,
   InstallStepStatus,
+  MiningSetupStatus,
+  VaultingSetupStatus,
 } from '../interfaces/IConfig';
 import { Config } from './Config';
 import Installer from './Installer';
@@ -36,7 +38,7 @@ export class InstallerCheck {
       while (true) {
         await this.updateInstallStatus().catch(() => null);
         if (this.hasError) {
-          console.log('InstallerCheck has error', this.config.installDetails.errorMessage);
+          console.log('InstallerCheck has error', this.config.serverInstaller.errorMessage);
           resolve();
           return;
         }
@@ -68,17 +70,17 @@ export class InstallerCheck {
   }
 
   public get hasError(): boolean {
-    return this.config.installDetails.errorType !== null;
+    return this.config.serverInstaller.errorType !== null;
   }
 
   public get isServerInstallComplete(): boolean {
     return (
-      this.config.installDetails.UbuntuCheck.progress >= 100 &&
-      this.config.installDetails.FileUpload.progress >= 100 &&
-      this.config.installDetails.DockerInstall.progress >= 100 &&
-      this.config.installDetails.BitcoinInstall.progress >= 100 &&
-      this.config.installDetails.ArgonInstall.progress >= 100 &&
-      this.config.installDetails.MiningLaunch.progress >= 100
+      this.config.serverInstaller.UbuntuCheck.progress >= 100 &&
+      this.config.serverInstaller.FileUpload.progress >= 100 &&
+      this.config.serverInstaller.DockerInstall.progress >= 100 &&
+      this.config.serverInstaller.BitcoinInstall.progress >= 100 &&
+      this.config.serverInstaller.ArgonInstall.progress >= 100 &&
+      this.config.serverInstaller.MiningLaunch.progress >= 100
     );
   }
 
@@ -95,7 +97,7 @@ export class InstallerCheck {
   public async updateInstallStatus(bypassSimulatedProgressIfFinished = false): Promise<void> {
     const serverInstallStepStatuses = await this.fetchInstallStepStatuses();
     console.log('serverInstallStepStatuses', serverInstallStepStatuses);
-    const installDetailsPending = Config.getDefault('installDetails') as IConfigInstallDetails;
+    const serverInstallerPending = Config.getDefault('serverInstaller') as IConfigServerInstallDetails;
 
     const stepsToProcess: Record<InstallStepKey, number> = {
       [InstallStepKey.ServerConnect]: 1,
@@ -110,14 +112,14 @@ export class InstallerCheck {
     let prevStep: IConfigInstallStep | null = null;
 
     for (const [stepKey, estimatedMinutes] of Object.entries(stepsToProcess) as [InstallStepKey, number][]) {
-      const stepNewData = installDetailsPending[stepKey];
-      const stepOldData = this.config.installDetails[stepKey];
+      const stepNewData = serverInstallerPending[stepKey];
+      const stepOldData = this.config.serverInstaller[stepKey];
       const prevStepHasCompleted = !prevStep || prevStep.status === InstallStepStatus.Completed;
       const filenameStatus = this.extractFilenameStatus(stepKey, serverInstallStepStatuses);
       if (prevStep?.status === InstallStepStatus.Failed) {
         stepNewData.status = InstallStepStatus.Hidden;
       } else if (prevStepHasCompleted && filenameStatus === InstallStepStatusType.Finished) {
-        stepNewData.startDate = stepOldData.startDate || dayjs.utc().toISOString();
+        stepNewData.startDate = stepOldData.startDate || dayjs.utc().toDate();
         stepNewData.progress = stepOldData.progress;
         if (bypassSimulatedProgressIfFinished) {
           stepNewData.progress = 100;
@@ -138,17 +140,17 @@ export class InstallerCheck {
       } else if (prevStepHasCompleted && filenameStatus === InstallStepStatusType.Failed) {
         stepNewData.status = InstallStepStatus.Failed;
         stepNewData.progress = stepOldData.progress;
-        installDetailsPending.errorType = stepKey as unknown as InstallStepErrorType;
+        serverInstallerPending.errorType = stepKey as unknown as InstallStepErrorType;
         if (stepKey === InstallStepKey.ServerConnect || stepKey === InstallStepKey.FileUpload) {
-          installDetailsPending.errorMessage = this.config.installDetails.errorMessage;
+          serverInstallerPending.errorMessage = this.config.serverInstaller.errorMessage;
         } else {
-          installDetailsPending.errorMessage = this.server
+          serverInstallerPending.errorMessage = this.server
             ? await this.server.extractInstallStepFailureMessage(stepKey)
             : 'An unknown error occurred during installation.';
         }
       } else if (prevStepHasCompleted && this.installer.isRunning) {
         stepNewData.status = InstallStepStatus.Working;
-        stepNewData.startDate = stepOldData.startDate || dayjs.utc().toISOString();
+        stepNewData.startDate = stepOldData.startDate || dayjs.utc().toDate();
         stepNewData.progress = stepOldData.progress;
         stepNewData.progress = await this.calculateWorkingStepProgress(stepKey, stepNewData, estimatedMinutes);
       } else if (prevStepHasCompleted) {
@@ -165,10 +167,10 @@ export class InstallerCheck {
       prevStep = stepNewData;
     }
 
-    this.config.installDetails = installDetailsPending;
+    this.config.serverInstaller = serverInstallerPending;
     if (this.isServerInstallComplete) {
-      this.config.isMinerInstalled = true;
-      this.config.isMinerInstalling = true;
+      this.config.isServerInstalling = false;
+      this.config.isServerInstalled = true;
       this.config.walletAccountsHadPreviousLife = false;
       this.config.walletPreviousLifeRecovered = false;
       this.config.miningBotAccountPreviousHistory = null;
@@ -186,14 +188,14 @@ export class InstallerCheck {
   ): InstallStepStatusType {
     if (
       [InstallStepKey.ServerConnect, InstallStepKey.FileUpload].includes(stepName) &&
-      this.config.installDetails.errorType === (stepName as any) &&
-      this.config.installDetails.errorMessage
+      this.config.serverInstaller.errorType === (stepName as any) &&
+      this.config.serverInstaller.errorMessage
     ) {
       return InstallStepStatusType.Failed;
     }
 
     if (stepName === InstallStepKey.ServerConnect) {
-      if (!this.config.isMiningMachineCreated) {
+      if (!this.config.isServerAdded) {
         return InstallStepStatusType.Started;
       }
     }

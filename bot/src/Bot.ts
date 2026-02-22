@@ -65,6 +65,37 @@ export default class Bot {
   }
 
   public async state(startupError: string | null = null): Promise<IBotState> {
+    const isBooted = !!this.blockSync && !!this.history && !!this.autobidder;
+    if (!isBooted) {
+      const [argonBlockNumbers, bitcoinBlockNumbers] = await Promise.all([
+        DockerStatus.getArgonBlockNumbers(),
+        DockerStatus.getBitcoinBlockNumbers(),
+      ]);
+      return {
+        bidsLastModifiedAt: new Date(),
+        earningsLastModifiedAt: new Date(),
+        oldestFrameIdToSync: this.options.oldestFrameIdToSync ?? 0,
+        syncProgress: 0,
+        hasMiningBids: false,
+        hasMiningSeats: false,
+        currentTick: 0,
+        currentFrameId: 0,
+        botLastActiveDate: new Date(),
+        botLastActiveBlockNumber: 0,
+        isReady: this.isReady,
+        ...(this.isStarting ? { isStarting: true } : {}),
+        ...(this.isWaitingForBiddingRules ? { isWaitingForBiddingRules: true } : {}),
+        ...(this.isSyncing ? { isSyncing: true } : {}),
+        argonBlockNumbers,
+        bitcoinBlockNumbers,
+        maxSeatsInPlay: 0,
+        bidsInCurrentFrame: 0,
+        bidsInPreviousFrame: 0,
+        isBiddingOpen: false,
+        serverError: this.errorMessage ?? startupError,
+      } as IBotState;
+    }
+
     const [argonBlockNumbers, bitcoinBlockNumbers, botStateData] = await Promise.all([
       DockerStatus.getArgonBlockNumbers(),
       DockerStatus.getBitcoinBlockNumbers(),

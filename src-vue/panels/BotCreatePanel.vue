@@ -64,7 +64,7 @@
                   <div PrimaryStat :isTouring="currentTourStep === 1" ref="capitalToCommitElement" class="flex flex-col grow group border border-slate-500/30 rounded-lg shadow-sm">
                     <header StatHeader class="mx-0.5 pt-5 pb-0 relative">
                       <tooltip side="top" content="The amount you're willing to invest in mining seats">
-                        Capital {{ config.isMinerInstalled ? 'Committed' : 'to Commit' }}
+                        Capital {{ config.miningSetupStatus === MiningSetupStatus.Finished ? 'Committed' : 'to Commit' }}
                       </tooltip>
                     </header>
                     <div class="grow flex flex-col mt-3 border-t border-slate-500/30 border-dashed w-10/12 mx-auto">
@@ -80,7 +80,7 @@
                         </CapitalOverlay>
                       </div>
                       <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full mx-auto">
-                        This is the <tooltip content="Click the capital amount listed above to directly change your commitment">amount of capital you'll need</tooltip> for acquiring<br/>
+                        This <tooltip content="Click the capital amount listed above to directly change your commitment">capital amount will allow</tooltip> you to acquire<br/>
                         <tooltip content="Argons are the stable currency of the network">
                           {{ microgonToArgonNm(rules.initialMicrogonRequirement).formatIfElse('<100', '0,0.[00]', '0,0') }}
                           argon{{ microgonToArgonNm(rules.initialMicrogonRequirement).formatIfElse('<100', '0.[00]', '0,0') === '1' ? '' : 's' }}
@@ -132,7 +132,7 @@
                 </div>
               </section>
 
-              <BotSettings ref="botSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" @update:data="updateCapitalRequirements" :includeProjections="true" />
+              <BotSettings ref="botSettingsInstance" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" @update:data="updateCapitalRequirements" :includeProjections="true" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -189,20 +189,21 @@ import {
   JsonExt,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
-import ActiveBidsOverlayButton from '../overlays/ActiveBidsOverlayButton.vue';
+import ActiveBidsOverlayButton from '../overlays-operations/ActiveBidsOverlayButton.vue';
 import { bigIntCeil, bigNumberToInteger } from '@argonprotocol/apps-core/src/utils.ts';
 import InputMoney from '../components/InputMoney.vue';
-import NeedMoreCapitalHover from '../overlays/bot/NeedMoreCapitalHover.vue';
-import ReturnsOverlay from '../overlays/bot/BotReturns.vue';
-import CapitalOverlay from '../overlays/bot/BotCapital.vue';
+import NeedMoreCapitalHover from '../overlays-operations/bot/NeedMoreCapitalHover.vue';
+import ReturnsOverlay from '../overlays-operations/bot/BotReturns.vue';
+import CapitalOverlay from '../overlays-operations/bot/BotCapital.vue';
 import { getBot } from '../stores/bot.ts';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
 import BotTour from './bot-create-tour/Base.vue';
-import { useController } from '../stores/controller.ts';
-import Draggable from '../overlays/helpers/Draggable.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
+import Draggable from '../overlays-operations/helpers/Draggable.ts';
 import BotSettings from '../components/BotSettings.vue';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -216,7 +217,7 @@ let previousBiddingRules: string | null = null;
 const currency = getCurrency();
 const config = getConfig();
 const bot = getBot();
-const controller = useController();
+const controller = useOperationsController();
 
 const draggable = Vue.reactive(new Draggable());
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -235,7 +236,7 @@ const hasEditBoxOverlay = Vue.ref(false);
 
 const capitalToCommitElement = Vue.ref<HTMLElement | null>(null);
 const returnOnCapitalElement = Vue.ref<HTMLElement | null>(null);
-const botSettings = Vue.ref<typeof BotSettings | null>(null);
+const botSettingsInstance = Vue.ref<typeof BotSettings | null>(null);
 const saveButtonElement = Vue.ref<HTMLElement | null>(null);
 
 const probableMinSeats = Vue.ref(0);
@@ -278,7 +279,7 @@ function getTourPositionCheck(name: string): ITourPos {
       height: rect.height,
     };
   } else if (name === 'configBoxes') {
-    const rect = botSettings.value?.getBoundingClientRect() as DOMRect;
+    const rect = botSettingsInstance.value?.$el.getBoundingClientRect() as DOMRect;
     const left = rect.left + 20;
     const width = rect.width - 40;
     return {
@@ -312,7 +313,7 @@ function getEpochSeatGoalCount() {
 }
 
 function cancelEditOverlay() {
-  botSettings.value?.closeEditBoxOverlay();
+  botSettingsInstance.value?.closeEditBoxOverlay();
 }
 
 function cancelPanel() {
@@ -335,7 +336,7 @@ async function saveRules() {
 
   isSaving.value = false;
   emit('close');
-  if (config.isMinerInstalled && didSave) {
+  if (config.miningSetupStatus === MiningSetupStatus.Finished && didSave) {
     try {
       await bot.resyncBiddingRules();
     } catch (error) {

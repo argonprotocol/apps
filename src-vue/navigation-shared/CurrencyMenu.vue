@@ -4,7 +4,7 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
-        class="flex flex-row items-center justify-center text-sm/6 font-semibold text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 px-3 h-[30px] focus:outline-none hover:border-slate-400/50"
+        class="flex flex-row items-center justify-center text-sm/6 font-semibold font-mono text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 px-3.5 h-[30px] focus:outline-none hover:border-slate-400/50"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
         <slot>
@@ -51,7 +51,7 @@
                 </span>
                 <span class="ml-2" v-html="record.symbol" />
               </div>
-              <div class="flex flex-row justify-end font-light text-gray-400 text-sm mt-0.5">
+              <div class="flex flex-row justify-end font-light text-gray-500 text-sm mt-0.5">
                 1 ARGN = {{ record.symbol }}{{ microgonToNm(1_000_000n, key).format('0,0.00') }},
                 1 ARGNOT = {{ record.symbol }}{{ micronotToNm(1_000_000n, key).format('0,0.00') }},
               </div>

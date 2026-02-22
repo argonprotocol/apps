@@ -367,7 +367,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
+import MoveCapitalButton from '../../overlays-operations/MoveCapitalButton.vue';
 import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import { useMiningAssetBreakdown } from '../../stores/miningAssetBreakdown.ts';

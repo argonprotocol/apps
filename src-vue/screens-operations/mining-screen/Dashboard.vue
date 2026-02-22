@@ -102,91 +102,6 @@
         </div>
 
         <div class="flex flex-col grow gap-y-2">
-          <section box class="flex flex-col text-center px-2 h-[15%]">
-            <div class="flex flex-row pt-2 pb-1 h-full">
-              <TooltipRoot>
-                <TooltipTrigger as="div" class="flex flex-col w-4/12 items-center justify-center gap-x-2 pb-2 pt-3 hover:text-argon-600">
-                  <div class="font-bold">Bitcoin Node</div>
-                  <div class="flex flex-row items-center justify-center gap-x-2 whitespace-nowrap">
-                    <div>Last Block</div>
-                    <CountupClock as="span" :time="lastBitcoinActivityAt" v-slot="{ hours, minutes, seconds, isNull }" class="font-mono">
-                      <template v-if="hours">{{ hours }}h, </template>
-                      <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
-                      <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
-                      <template v-else-if="isNull">-- ----</template>
-                    </CountupClock>
-                    <BitcoinBlocksOverlay :position="'right'">
-                      <span class="flex items-center justify-center group border border-transparent hover:border-argon-200 rounded cursor-pointer w-7 h-7 relative top-0.5">
-                        <BlocksIcon class="w-4.5 h-4.5 group-hover:text-argon-600" />
-                      </span>
-                    </BitcoinBlocksOverlay>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
-                  Your mining software runs a lightweight bitcoin node to monitor transactions related to locking and unlocking.
-                  <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </TooltipContent>
-              </TooltipRoot>
-
-              <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-              <TooltipRoot>
-                <TooltipTrigger as="div" class="flex flex-col w-4/12 items-center justify-center gap-x-2 pb-2 pt-3 hover:text-argon-600">
-                  <div class="font-bold">Argon Node</div>
-                  <div class="flex flex-row items-center justify-center gap-x-2 whitespace-nowrap">
-                    <div>Last Block</div>
-                    <CountupClock as="span" :time="lastArgonActivityAt" v-slot="{ hours, minutes, seconds, isNull }" class="font-mono">
-                      <template v-if="hours">{{ hours }}h, </template>
-                      <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
-                      <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
-                      <template v-else-if="isNull">-- ----</template>
-                    </CountupClock>
-                    <ArgonBlocksOverlay :position="'left'">
-                      <span class="flex items-center justify-center group border border-transparent hover:border-argon-200 rounded cursor-pointer w-7 h-7 relative top-0.5">
-                        <BlocksIcon class="w-4.5 h-4.5 group-hover:text-argon-600" />
-                      </span>
-                    </ArgonBlocksOverlay>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
-                  This is the core of your mining operations. It's a full argon node that helps manage and operate the network.
-                  <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </TooltipContent>
-              </TooltipRoot>
-
-              <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-              <TooltipRoot>
-                <TooltipTrigger as="div" class="flex flex-col w-4/12 items-center justify-center gap-x-2 pb-1 pt-3 hover:text-argon-600">
-                  <div class="font-bold">Mining Bot</div>
-                  <div class="flex flex-row items-center justify-center gap-x-2 whitespace-nowrap">
-                    <div>Last Active</div>
-                    <CountupClock as="span" :time="botActivityLastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }" class="font-mono">
-                      <template v-if="hours">{{ hours }}h, </template>
-                      <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
-                      <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
-                      <template v-else-if="isNull">-- ----</template>
-                    </CountupClock>
-                    <ActiveBidsOverlayButton :position="'left'" class="ml-1.5">
-                      <span class="flex items-center justify-center group border border-transparent hover:border-argon-200 rounded cursor-pointer w-7 h-7 relative top-0.5">
-                        <AuctionIcon class="w-5 h-5 group-hover:text-argon-600" />
-                      </span>
-                    </ActiveBidsOverlayButton>
-                    <BotHistoryOverlayButton :position="'left'">
-                      <span class="flex items-center justify-center group border border-transparent hover:border-argon-200 rounded cursor-pointer w-7 h-7 relative top-0.5">
-                        <ActivityIcon class="w-5 h-5 group-hover:text-argon-600" />
-                      </span>
-                    </BotHistoryOverlayButton>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-sm text-slate-900/60">
-                  This is your personal mining bot. It works while you're sleeping, monitoring auctions and placing bids on your behalf.
-                  <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                </TooltipContent>
-              </TooltipRoot>
-            </div>
-          </section>
-
           <section box class="flex flex-col grow text-center px-2">
             <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
@@ -197,163 +112,33 @@
                 <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
                 <span v-if="stats.selectedFrameId > stats.latestFrameId - 10" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
               </span>
-              <div @click="goToNextFrame" :class="hasNextFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+              <div v-if="currentFrame.progress >= 100" @click="goToNextFrame" class="flex flex-row opacity-60 items-center font-light text-base cursor-pointer group hover:opacity-80">
                 NEXT
                 <ChevronRightIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
               </div>
+              <div v-else class="flex flex-row opacity-60 items-center font-light text-base group px-2">
+                {{ numeral(currentFrame.progress).format('0.0') }}%
+              </div>
             </header>
-            <div v-if="currentFrame.seatCountActive" class="flex flex-row h-full">
-              <div class="flex flex-col w-full h-full pt-2 gap-y-2">
-                <div class="flex flex-row w-full h-1/2 gap-x-2">
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full border-b border-slate-400/30 pb-3 group">
-                      <span>{{ currentFrame.seatCountActive }}</span>
-                      <label class="relative block w-full">
-                        Active Mining Seat{{ currentFrame.seatCountActive === 1 ? '' : 's' }}
-                        <p class="absolute -bottom-4 uppercase h-[10px] text-center w-full text-xs text-gray-400">Out of {{ currentFrame.allMinersCount }} in network</p>
-                      </label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      The number of seats actively mining on your behalf during this frame.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
-                  <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full border-b border-slate-400/30 pb-3 group">
-                      <span data-testid="TotalBlocksMined" :data-value="currentFrame.blocksMinedTotal">{{ numeral(currentFrame.blocksMinedTotal).format('0,0') }}</span>
-                      <label class="relative block w-full">
-                        Blocks Mined
-                        <HealthIndicatorBar :percent="getPercent(currentFrame.blocksMinedTotal, currentFrame.expected.blocksMinedTotal)" />
-                      </label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      You were expected to mine {{ numeral(currentFrame.expected.blocksMinedTotal).format('0,0') }} blocks by this point. You are at {{ numeral(getPercent(currentFrame.blocksMinedTotal, currentFrame.expected.blocksMinedTotal)).format('0.[00]') }}% of goal.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
-                  <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full border-b border-slate-400/30 pb-3 group">
-                      <span>
-                        {{
-                          microgonToArgonNm(
-                            currentFrame.microgonsMinedTotal + currentFrame.microgonsMintedTotal,
-                          ).formatIfElse('< 1_000', '0,0.00', '0,0')
-                        }}
-                      </span>
-                      <label class="relative block w-full">
-                        Argons Collected
-                        <HealthIndicatorBar :percent="getPercent(currentFrame.microgonsMinedTotal + currentFrame.microgonsMintedTotal, currentFrame.expected.microgonsMinedTotal + currentFrame.expected.microgonsMintedTotal)" />
-                      </label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      You were expected to collect {{ microgonToArgonNm(currentFrame.expected.microgonsMinedTotal + currentFrame.expected.microgonsMintedTotal).format('0,0.00') }} argons by this point. You are at {{ numeral(getPercent(currentFrame.microgonsMinedTotal + currentFrame.microgonsMintedTotal, currentFrame.expected.microgonsMinedTotal + currentFrame.expected.microgonsMintedTotal)).format('0.[00]') }}% of goal.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
-                  <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full border-b border-slate-400/30 pb-3 group">
-                      <span>
-                        {{
-                          microgonToMoneyNm(currentFrame.micronotsMinedTotal).formatIfElse('< 1_000', '0,0.00', '0,0')
-                        }}
-                      </span>
-                      <label class="relative block w-full" :title="'Expected Argonots Collected ' + micronotToMoneyNm(currentFrame.expected.micronotsMinedTotal).format('0,0.00')">
-                        Argonots Collected
-                        <HealthIndicatorBar :percent="getPercent(currentFrame.micronotsMinedTotal, currentFrame.expected.micronotsMinedTotal)" />
-                      </label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      You were expected to collect {{ micronotToArgonotNm(currentFrame.expected.micronotsMinedTotal).format('0,0.00') }} argonots by this point. You are at {{ numeral(getPercent(currentFrame.micronotsMinedTotal, currentFrame.expected.micronotsMinedTotal)).format('0.[00]') }}% of goal.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
+            <div v-if="currentFrame.seatCountActive" class="flex flex-col h-full">
+              <div class="flex w-full grow pt-4 px-2">
+                <MiningSeats />
+              </div>
+              <div class="pt-4 pb-3">
+                <div class="mb-2 flex items-center gap-x-3 text-center">
+                  <span class="h-px grow bg-slate-400/30"></span>
+                  <span class="text-base leading-none font-bold text-slate-700/60">Mining Auction Stats</span>
+                  <span class="h-px grow bg-slate-400/30"></span>
                 </div>
-
-                <div class="flex flex-row w-full h-1/2 gap-x-2">
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full group">
-                      <div class="relative size-28">
-                        <svg class="size-full -rotate-90" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
-                          <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-gray-200 dark:text-neutral-700" stroke-width="3"></circle>
-                          <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-argon-600 dark:text-argon-500" stroke-width="3" stroke-dasharray="100" :stroke-dashoffset="100-currentFrame.progress" stroke-linecap="butt"></circle>
-                        </svg>
-
-                        <div class="absolute top-1/2 start-1/2 transform -translate-y-1/2 -translate-x-1/2">
-                          <span class="text-center text-2xl font-bold text-argon-600 dark:text-argon-500">{{ Math.round(currentFrame.progress) }}%</span>
-                        </div>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      In the world of Argon, a frame represents ~24 hours. This shows how much of the frame is complete.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
-                  <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3 group">
-                      <span>
-                        {{ currency.symbol
-                        }}{{ microgonToMoneyNm(currentFrameCost).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-                      </span>
-                      <label>{{ currentFrame.progress < 100 ? 'Relative' : '' }} Frame Cost</label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      This is how much you paid for the right to mine the current frame that has completed ({{ numeral(currentFrame.progress).format('0.[00]') }}%).
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
-                  <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3 group">
-                      <span>
-                        {{ currency.symbol
-                        }}{{ microgonToMoneyNm(currentFrameEarnings).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-                      </span>
-                      <label class="relative block w-full">
-                        {{ currentFrame.progress < 100 ? 'Relative' : '' }} Frame Earnings
-                        <HealthIndicatorBar :percent="getPercent(currentFrameEarnings, expectedFrameEarnings)" />
-                      </label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      You were expected to earn {{ currency.symbol}}{{ microgonToMoneyNm(expectedFrameEarnings).format('0,0.00') }}
-                      by this point. You are at {{ numeral(getPercent(currentFrameEarnings, expectedFrameEarnings)).format('0.[00]') }}% of goal.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
-                  <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                  <TooltipRoot>
-                    <TooltipTrigger as="div" stat-box class="flex flex-col w-1/3 h-full pb-3 group">
-                      <span>{{ numeral(currentFrameProfit).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</span>
-                      <label class="relative block w-full">
-                        {{ currentFrame.progress < 100 ? 'Current' : '' }} Frame Profit
-                        <HealthIndicatorBar :percent="getPercent(currentFrameProfit, expectedFrameProfit)" />
-                      </label>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" :sideOffset="-20" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-                      Your profits were expected to be {{ numeral(expectedFrameProfit).format('0,0.00') }}%
-                      by this point. You are at {{ numeral(getPercent(currentFrameProfit, expectedFrameProfit)).format('0.[00]') }}% of goal.
-                      <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                    </TooltipContent>
-                  </TooltipRoot>
-
+                <div class="grid grid-cols-4 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
+                  <div>{{ numeral(auctionBidCount).format('0,0') }} Bids Placed this Frame</div>
+                  <div>{{ formatBidAmount(highestWinningBid) }} Is the Highest Bid</div>
+                  <div>{{ formatBidAmount(myNextBidMicrogons) }} Is Your Next Bid</div>
+                  <div>Your Next Bid In {{ nextBidInText }}</div>
+                  <div>{{ auctionStatsLabel }}</div>
+                  <div>{{ formatBidAmount(lowestWinningBid) }} Is the Lowest Bid</div>
+                  <div>{{ formatBidAmount(myLastBidMicrogons) }} Was Your Last Bid</div>
+                  <div class="titleize">Auction Closes In {{ auctionClosesInText }}</div>
                 </div>
               </div>
             </div>
@@ -424,25 +209,18 @@ import { calculateProfitPct } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats';
 import { getCurrency } from '../../stores/currency';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
-import CountupClock from '../../components/CountupClock.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
-import AuctionIcon from '../../assets/auction.svg?component';
-import ActivityIcon from '../../assets/activity.svg?component';
-import BlocksIcon from '../../assets/blocks.svg?component';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
-import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import ConfigIcon from '../../assets/config.svg?component';
 import InstructionsIcon from '../../assets/instructions.svg?component';
-import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import ArgonBlocksOverlay from '../../overlays/ArgonBlocksOverlay.vue';
-import BitcoinBlocksOverlay from '../../overlays/BitcoinBlocksOverlay.vue';
 import FrameSlider from '../../components/FrameSlider.vue';
 import { IChartItem } from '../../interfaces/IChartItem.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import MiningAssetBreakdown from '../components/MiningAssetBreakdown.vue';
-import { getMiningFrames } from '../../stores/mainchain.ts';
+import MiningSeats from './components/MiningSeats.vue';
+import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
+import { getConfig } from '../../stores/config.ts';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import ProjectionsIcon from '../../assets/projections.svg';
@@ -450,17 +228,91 @@ import RoiIcon from '../../assets/roi.svg';
 import { WalletType } from '../../lib/Wallet.ts';
 import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
-import { useWallets } from '../../stores/wallets.ts';
+import { getBot } from '../../stores/bot.ts';
 
+const bot = getBot();
 const stats = getStats();
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
-const wallets = useWallets();
+const config = getConfig();
 
 const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const chartItems = Vue.ref<IChartItem[]>([]);
+
+const auctionBids = Vue.computed(() => {
+  return stats.allWinningBids ?? [];
+});
+
+const auctionBidCount = Vue.ref(0);
+
+const highestWinningBid = Vue.computed<bigint | null>(() => {
+  const bidAmounts = auctionBids.value
+    .map(bid => bid.microgonsPerSeat)
+    .filter((amount): amount is bigint => amount !== undefined);
+  if (!bidAmounts.length) return null;
+  return bidAmounts.reduce((max, amount) => (amount > max ? amount : max), bidAmounts[0]);
+});
+
+const lowestWinningBid = Vue.computed<bigint | null>(() => {
+  const bidAmounts = auctionBids.value
+    .map(bid => bid.microgonsPerSeat)
+    .filter((amount): amount is bigint => amount !== undefined);
+  if (!bidAmounts.length) return null;
+  return bidAmounts.reduce((min, amount) => (amount < min ? amount : min), bidAmounts[0]);
+});
+
+const myWinningBids = Vue.computed(() => {
+  return auctionBids.value.filter(bid => typeof bid.subAccountIndex === 'number');
+});
+
+const myLastBidMicrogons = Vue.computed<bigint | null>(() => {
+  if (!myWinningBids.value.length) return null;
+  const sorted = [...myWinningBids.value].sort((a, b) => (a.lastBidAtTick ?? 0) - (b.lastBidAtTick ?? 0));
+  return sorted.at(-1)?.microgonsPerSeat ?? null;
+});
+
+const myNextBidMicrogons = Vue.computed<bigint | null>(() => {
+  if (myLastBidMicrogons.value === null) return null;
+  const bidIncrement = config.biddingRules?.rebiddingIncrementBy ?? 0n;
+  return myLastBidMicrogons.value + bidIncrement;
+});
+
+const avgMicronotsPerWinningBid = Vue.computed<bigint | null>(() => {
+  if (!auctionBids.value.length) return null;
+  const total = auctionBids.value.reduce((sum, bid) => sum + (bid.micronotsStakedPerSeat ?? 0n), 0n);
+  return total / BigInt(auctionBids.value.length);
+});
+
+const nextBidInText = Vue.computed(() => {
+  const delayMinutes = config.biddingRules?.rebiddingDelay;
+  if (!delayMinutes) return '---';
+  return `${delayMinutes} Minute${delayMinutes === 1 ? '' : 's'}`;
+});
+
+const auctionClosesInText = Vue.computed(() => {
+  if (currentFrame.value.id !== stats.latestFrameId) return '---';
+  const frameEndTick = miningFrames.getTickEnd(currentFrame.value.id);
+  if (!frameEndTick) return '---';
+  const relativeTime = dayjs
+    .utc(frameEndTick * TICK_MILLIS)
+    .local()
+    .add(1, 'minute')
+    .fromNow(true);
+  return relativeTime.replace(/\b\w/g, char => char.toUpperCase());
+});
+
+const auctionStatsLabel = Vue.computed(() => {
+  const total = avgMicronotsPerWinningBid.value;
+  if (total === null) return '--- ARGNOT Per Seat';
+  return `${micronotToArgonotNm(total).format('0,0.[00]')} ARGNOT / Seat`;
+});
+
+function formatBidAmount(microgons: bigint | null): string {
+  if (microgons === null) return '---';
+  return `${currency.symbol}${microgonToMoneyNm(microgons).format('0,0')}`;
+}
 
 function getPercent(value: bigint | number, total: bigint | number): number {
   if (total === 0n || total === 0) return 0;
@@ -543,21 +395,6 @@ const currentFrameEndDate = Vue.computed(() => {
   return date.local().add(1, 'minute').format('MMMM D, h:mm A');
 });
 
-const lastBitcoinActivityAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.bitcoinBlocksLastUpdatedAt;
-  return lastActivity ? dayjs.utc(lastActivity).local() : null;
-});
-
-const lastArgonActivityAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.argonBlocksLastUpdatedAt;
-  return lastActivity ? dayjs.utc(lastActivity).local() : null;
-});
-
-const botActivityLastUpdatedAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.botActivityLastUpdatedAt;
-  return lastActivity ? dayjs.utc(lastActivity).local() : null;
-});
-
 const hasNextFrame = Vue.computed(() => {
   return sliderFrameIndex.value < stats.frames.length - 1;
 });
@@ -632,6 +469,9 @@ Vue.onMounted(async () => {
   stats.subscribeToActivity();
   loadChartData();
   await miningFrames.load();
+  const client = await getMainchainClient(false);
+  const historical = await client.query.miningSlot.historicalBidsPerSlot();
+  auctionBidCount.value = historical[0].bidsCount.toNumber();
 });
 
 Vue.onUnmounted(() => {

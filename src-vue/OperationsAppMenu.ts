@@ -4,10 +4,9 @@ import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from './emitters/basicEmitter';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { useController } from './stores/controller';
+import { useOperationsController, OperationsTab } from './stores/operationsController.ts';
 import { getInstaller } from './stores/installer';
 import { getBot } from './stores/bot';
-import { ScreenKey } from './interfaces/IConfig';
 import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
 import { WalletType } from './lib/Wallet.ts';
@@ -18,7 +17,7 @@ function openAboutOverlay() {
 }
 
 export async function createMenu() {
-  const controller = useController();
+  const controller = useOperationsController();
   const installer = getInstaller();
   const config = getConfig();
   const bot = getBot();
@@ -78,7 +77,7 @@ export async function createMenu() {
       {
         id: 'mining-dashboard',
         text: 'Open Mining',
-        action: () => controller.setScreenKey(ScreenKey.Mining),
+        action: () => controller.setScreenKey(OperationsTab.Mining),
       },
       {
         id: 'token-transfer-to-mining',
@@ -94,7 +93,7 @@ export async function createMenu() {
       {
         id: 'vaulting-dashboard',
         text: 'Open Vaulting',
-        action: () => controller.setScreenKey(ScreenKey.Vaulting),
+        action: () => controller.setScreenKey(OperationsTab.Vaulting),
       },
       {
         id: 'token-transfer-to-vaulting',
@@ -170,7 +169,7 @@ export async function createMenu() {
       {
         id: 'server-diagnostics',
         text: 'Server Diagnostics',
-        enabled: config.isLoaded && config.isMiningMachineCreated,
+        enabled: config.isLoaded && config.isServerAdded,
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'server-diagnostics' }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
@@ -231,12 +230,24 @@ export async function createMenu() {
     void miningMenu.setEnabled(!installer.isRunning && !bot.isSyncing);
   }
 
+  let isWatchingServerDetails = false;
+
   async function updateTroubleshootingMenu() {
     if (!config.isLoaded) return;
+
     const isCreated = !!config.serverDetails?.ipAddress && config.serverDetails.ipAddress !== '0.0.0.0';
     const items = await troubleshootingMenu.items();
     void (items[0] as MenuItem)?.setEnabled(isCreated);
     void (items[3] as MenuItem)?.setEnabled(isCreated);
+
+    if (!isWatchingServerDetails) {
+      isWatchingServerDetails = true;
+      Vue.watch(
+        () => config.serverDetails,
+        async () => updateTroubleshootingMenu(),
+        { deep: true },
+      );
+    }
   }
 
   await menu.setAsAppMenu().then(async res => {
@@ -246,7 +257,7 @@ export async function createMenu() {
       { immediate: true },
     );
     Vue.watch(
-      () => [config.isLoaded, config.isLoaded ? config.serverDetails : null],
+      () => config.isLoaded,
       async () => updateTroubleshootingMenu(),
       { immediate: true, deep: true },
     );

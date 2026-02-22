@@ -69,6 +69,13 @@ export function ceilTo(x: number | bigint, decimals: number): number {
   return Math.ceil(Number(x) * factor) / factor;
 }
 
+export function numericToAlpha(num: number): string {
+  if (!Number.isFinite(num)) return '';
+  const index = Math.floor(num);
+  if (index < 0 || index > 25) return '';
+  return String.fromCharCode(65 + index);
+}
+
 export function bigNumberToInteger(bn: BigNumber): number {
   return bn.integerValue(BigNumber.ROUND_DOWN).toNumber();
 }

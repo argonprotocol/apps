@@ -4,7 +4,9 @@
     <LeftBar />
     <main v-if="controller.isLoaded && !controller.isImporting" class="flex flex-col grow relative h-full overflow-scroll">
       <TopBar />
-      <MainScreen />
+      <MainchainScreen v-if="controller.selectedTab === CapitalTab.Mainchain" />
+      <LocalchainScreen v-if="controller.selectedTab === CapitalTab.Localchain" />
+      <EthereumScreen v-if="controller.selectedTab === CapitalTab.Ethereum" />
     </main>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
@@ -18,6 +20,7 @@
       <AboutOverlay />
       <JurisdictionOverlay />
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
+      <VaultingNodeRequirement v-else />
     </template>
     <TroubleshootingOverlay />
     <ImportingOverlay />
@@ -29,23 +32,26 @@
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import { createMenu } from './CapitalAppMenu.ts';
-import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
-import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
-import { useController } from './stores/controller';
+import SecuritySettingsOverlay from './overlays-operations/SecuritySettingsOverlay.vue';
+import ImportAccountOverlay from './overlays-operations/ImportAccountOverlay.vue';
 import { getConfig } from './stores/config';
 import { waitForLoad } from '@argonprotocol/mainchain';
-import AboutOverlay from './overlays/AboutOverlay.vue';
-import JurisdictionOverlay from './overlays/JurisdictionOverlay.vue';
-import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
-import ImportingOverlay from './overlays/ImportingOverlay.vue';
-import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
-import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
-import MainScreen from './screens-capital/MainScreen.vue';
-import BootingOverlay from './overlays/BootingOverlay.vue';
+import AboutOverlay from './overlays-shared/AboutOverlay.vue';
+import JurisdictionOverlay from './overlays-shared/JurisdictionOverlay.vue';
+import TroubleshootingOverlay from './overlays-shared/Troubleshooting.vue';
+import ImportingOverlay from './overlays-operations/ImportingOverlay.vue';
+import AppUpdatesOverlay from './overlays-operations/AppUpdatesOverlay.vue';
+import WelcomeOverlay from './overlays-operations/WelcomeOverlay.vue';
+import BootingOverlay from './overlays-shared/BootingOverlay.vue';
 import LeftBar from './navigation-capital/LeftBar.vue';
 import TopBar from './navigation-capital/TopBar.vue';
+import MainchainScreen from './screens-capital/MainchainScreen.vue';
+import LocalchainScreen from './screens-capital/LocalchainScreen.vue';
+import EthereumScreen from './screens-capital/EthereumScreen.vue';
+import VaultingNodeRequirement from './overlays-capital/VaultingNodeRequirement.vue';
+import { CapitalTab, useCapitalController } from './stores/capitalController.ts';
 
-const controller = useController();
+const controller = useCapitalController();
 const config = getConfig();
 
 Vue.onBeforeMount(async () => {

@@ -8,6 +8,7 @@ import Installer from './Installer';
 import { SSH } from './SSH';
 import { Server } from './Server';
 import { BotWsClient } from './BotWsClient';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 export type IBotEmitter = {
   'updated-cohort-data': number;
@@ -84,7 +85,7 @@ export class Bot {
   }
 
   public async loadServerBiddingRules(): Promise<void> {
-    if (!this.config.isMinerInstalled) return;
+    if (this.config.miningSetupStatus !== MiningSetupStatus.Finished) return;
     const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
     const remoteRules = await server.downloadBiddingRules();
     if (!remoteRules) return;
