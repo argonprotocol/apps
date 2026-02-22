@@ -21,9 +21,9 @@
 <script setup lang="ts">
 import CurrencyMenu from '../navigation-shared/CurrencyMenu.vue';
 import AccountMenu from '../navigation-shared/AccountMenu.vue';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCapitalController } from '../stores/capitalController.ts';
 import { useWallets } from '../stores/wallets.ts';
 
-const controller = useOperationsController();
+const controller = useCapitalController();
 const wallets = useWallets();
 </script>

@@ -476,11 +476,11 @@ pub fn run() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
                 if let Err(error) = window.set_skip_taskbar(true) {
-                    log::warn!("Unable to set skip taskbar on main window: {}", error);
+                    log::warn!("Unable to set skip taskbar on main window: {error}");
                 }
 
                 if let Err(error) = window.hide() {
-                    log::warn!("Unable to hide main window in e2e mode: {}", error);
+                    log::warn!("Unable to hide main window in e2e mode: {error}");
                 }
             }
 
