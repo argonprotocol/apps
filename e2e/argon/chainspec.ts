@@ -2,6 +2,43 @@ import Path from 'path';
 import docker from 'docker-compose';
 import * as Fs from 'fs';
 
+interface IDockerRunResult {
+  out?: unknown;
+}
+
+interface IChainspecJson {
+  genesis?: {
+    runtimeGenesis?: {
+      code?: string;
+    };
+  };
+  [key: string]: unknown;
+}
+
+function readDockerOut(result: unknown, label: string): string {
+  const out = (result as IDockerRunResult | null | undefined)?.out;
+  if (typeof out !== 'string') {
+    throw new Error(`${label} did not return a stdout string.`);
+  }
+  return out;
+}
+
+function hasRuntimeGenesisCode(chainspec: IChainspecJson): chainspec is IChainspecJson & {
+  genesis: {
+    runtimeGenesis: {
+      code: string;
+    };
+  };
+} {
+  return (
+    typeof chainspec.genesis === 'object' &&
+    chainspec.genesis != null &&
+    typeof chainspec.genesis.runtimeGenesis === 'object' &&
+    chainspec.genesis.runtimeGenesis != null &&
+    typeof chainspec.genesis.runtimeGenesis.code === 'string'
+  );
+}
+
 const runtimeWasmPath = process.argv[2];
 if (!runtimeWasmPath) {
   throw new Error('Usage: tsx chainspec.ts <path-to-runtime-wasm>');
@@ -28,17 +65,18 @@ const humanResult = await docker.run('archive-node', ['build-spec', '--chain', '
   commandOptions: ['--rm', '--no-deps'],
 } as any);
 
-let chainspecJson: any;
+let chainspecJson: IChainspecJson;
 try {
-  chainspecJson = JSON.parse((humanResult as any)?.out ?? '');
-  if (!chainspecJson || typeof chainspecJson !== 'object') {
+  const parsed = JSON.parse(readDockerOut(humanResult, 'human chainspec'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Parsed chainspec is not an object');
   }
+  chainspecJson = parsed as IChainspecJson;
 } catch (error) {
   throw new Error(`Failed to parse human chainspec JSON from stdout: ${(error as Error).message}`);
 }
 
-if (!chainspecJson.genesis || !chainspecJson.genesis.runtimeGenesis || !chainspecJson.genesis.runtimeGenesis.code) {
+if (!hasRuntimeGenesisCode(chainspecJson)) {
   // log all keys in structure
   console.log(
     'chainspec empty json: ',
@@ -48,7 +86,7 @@ if (!chainspecJson.genesis || !chainspecJson.genesis.runtimeGenesis || !chainspe
         if (typeof value === 'string' || Buffer.isBuffer(value)) {
           return '';
         }
-        return value;
+        return value as unknown;
       },
       2,
     ),
@@ -66,7 +104,7 @@ const rawResult = await docker.run('archive-node', ['build-spec', '--chain', '/c
   composeOptions: [],
 });
 
-const rawSpecOutput = (rawResult as any)?.out ?? '';
+const rawSpecOutput = readDockerOut(rawResult, 'raw chainspec');
 if (!rawSpecOutput.trim()) {
   throw new Error('Failed to generate raw chainspec: docker-compose returned empty stdout.');
 }

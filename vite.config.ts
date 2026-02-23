@@ -14,9 +14,52 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const require = createRequire(__filename);
 const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+const GENERIC_COMPONENT_NAMES = new Set([
+  'App',
+  'Dashboard',
+  'Dialog',
+  'Index',
+  'Layout',
+  'Modal',
+  'Overlay',
+  'Page',
+  'Panel',
+  'Screen',
+  'View',
+]);
 
 const defaultOperationsPortString = '1420';
 const defaultCapitalPortString = '1430';
+
+function toPascalCase(value: string): string {
+  return value
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map(part => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
+    .join('');
+}
+
+function deriveComponentTestId(filename: string, selfName: string | null): string {
+  const normalizedFilename = filename.replace(/\\/g, '/');
+  const pathSegments = normalizedFilename.split('/');
+  const rawFileName = pathSegments[pathSegments.length - 1] ?? '';
+  const rawBaseName = rawFileName.replace(/\.[^/.]+$/, '');
+  const baseName = toPascalCase(rawBaseName);
+  const fallback = selfName ? toPascalCase(selfName) : baseName || 'Component';
+  if (!baseName) return fallback;
+
+  if (!GENERIC_COMPONENT_NAMES.has(baseName)) {
+    return baseName;
+  }
+
+  const parentSegment = pathSegments[pathSegments.length - 2] ?? '';
+  const parentName = toPascalCase(parentSegment);
+  if (!parentName) {
+    return fallback;
+  }
+  const parentPrefix = parentName.replace(/(Dialog|Layout|Overlay|Page|Panel|Screen|View)$/, '');
+  return `${parentPrefix || parentName}${baseName}`;
+}
 
 // Function to check if a port is available
 function isPortAvailable(port: number): Promise<boolean> {
@@ -120,6 +163,13 @@ export default defineConfig(async ({ mode }) => {
                       loc: node.loc,
                     });
                   };
+
+                  const primaryRootElement = ctx.root.children.find(child => child.type === NodeTypes.ELEMENT);
+                  const isPrimaryRootElement = ctx.parent?.type === NodeTypes.ROOT && primaryRootElement === node;
+                  if (isPrimaryRootElement) {
+                    pushTestId(deriveComponentTestId(ctx.filename, ctx.selfName));
+                    return;
+                  }
 
                   let testId = ctx.selfName;
                   // Look for click handlers

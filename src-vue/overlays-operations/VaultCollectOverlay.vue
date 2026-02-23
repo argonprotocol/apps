@@ -58,11 +58,11 @@
               ]"
               class="mt-5 flex max-w-2/3" />
           </span>
-          <span v-else-if="myVault.data.pendingCosignUtxoIds.size">
+          <span v-else-if="myVault.data.pendingCosignUtxosById.size">
             {{ collectRevenue ? 'Also, you' : 'You' }} have
             <strong>
-              {{ myVault.data.pendingCosignUtxoIds.size }} transaction{{
-                myVault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'
+              {{ myVault.data.pendingCosignUtxosById.size }} transaction{{
+                myVault.data.pendingCosignUtxosById.size === 1 ? '' : 's'
               }}
             </strong>
             that must be signed. Failure to do so within
@@ -75,7 +75,7 @@
             </CountdownClock>
             will result in your vault forfeiting
             <strong>
-              {{ currency.symbol }}{{ microgonToMoneyNm(securitization).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(pendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}
             </strong>
             in securitization.
           </span>
@@ -138,7 +138,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import InputMenu from '../components/InputMenu.vue';
-import { MoveTo } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, MoveTo } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 
@@ -155,13 +155,14 @@ const isProcessing = Vue.ref(false);
 const myVault = getMyVault();
 const currency = getCurrency();
 
-const signatures = Vue.ref(myVault.data.pendingCosignUtxoIds.size);
+const signatures = Vue.ref(myVault.data.pendingCosignUtxosById.size);
 const collectRevenue = Vue.ref(myVault.data.pendingCollectRevenue);
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const securitization = Vue.computed(() => {
-  return myVault.createdVault?.securitization ?? 0n;
+const pendingCosignSum = Vue.computed(() => {
+  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce((acc, utxo) => acc + utxo, 0n);
+  return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
 });
 
 const nextCollectDueDate = Vue.computed(() => {

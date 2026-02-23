@@ -1,6 +1,7 @@
-import { type ArgonClient } from '@argonprotocol/mainchain';
+import { type ApiDecoration, type ArgonClient } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt } from './utils.js';
 import BigNumber from 'bignumber.js';
+import { SpecLte146 } from './MainchainCompat.js';
 
 export class TreasuryPool {
   public static async getActiveCapital(
@@ -25,11 +26,20 @@ export class TreasuryPool {
     };
   }
 
+  public static getBidPoolPercentForVaults(client: ArgonClient | ApiDecoration<'promise'>): number {
+    const treasuryConstsCompat = client.consts.treasury as SpecLte146.ITreasuryConstants;
+
+    const percent = (
+      treasuryConstsCompat.bidPoolBurnPercent ?? client.consts.treasury.percentForTreasuryReserves
+    ).toNumber();
+    return (100 - percent) / 100;
+  }
+
   public static async getTreasuryPayoutPotential(client: ArgonClient): Promise<bigint> {
     const revenue = await TreasuryPool.getAuctionRevenue(client);
-    const bidBurnPercent = (100 - client.consts.treasury.bidPoolBurnPercent.toNumber()) / 100;
-    const treasuryTake = BigNumber(revenue).times(bidBurnPercent);
-    return bigNumberToBigInt(treasuryTake);
+    const percentForVaults = TreasuryPool.getBidPoolPercentForVaults(client);
+    const calculatedPayout = BigNumber(revenue).times(percentForVaults);
+    return bigNumberToBigInt(calculatedPayout);
   }
 
   public static async getAuctionRevenue(client: ArgonClient): Promise<bigint> {
