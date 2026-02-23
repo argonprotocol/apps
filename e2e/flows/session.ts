@@ -226,9 +226,7 @@ async function printInstallFailureLogs(
     const failedFiles = entries.filter(name => /\.Failed$/.test(name)).sort((a, b) => a.localeCompare(b));
     if (failedFiles.length === 0) {
       console.warn(`[E2E] No .Failed install step files found under ${logDir}`);
-      const finishedFiles = entries
-        .filter(name => /\.Finished$/i.test(name))
-        .sort((a, b) => a.localeCompare(b));
+      const finishedFiles = entries.filter(name => /\.Finished$/i.test(name)).sort((a, b) => a.localeCompare(b));
       const logFiles = entries.filter(name => /\.log$/i.test(name)).sort((a, b) => a.localeCompare(b));
       const fallbackTargets = [...new Set([...finishedFiles.slice(-2), ...logFiles.slice(-2)])];
 

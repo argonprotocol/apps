@@ -57,7 +57,6 @@ describe('BotServer basic behavior', () => {
       const timeout = setTimeout(() => reject(new Error('Timed out waiting for message')), 5000);
 
       ws.on('message', data => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const msg: JsonRpcResponse = JsonExt.parse(String(data));
         if ('event' in msg && msg.event === '/heartbeat') {
           heartbeatCount += 1;
@@ -115,7 +114,6 @@ describe('BotServer basic behavior', () => {
       });
 
       ws.on('message', data => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const msg = JSON.parse(String(data));
         if (msg.id === 1) {
           clearTimeout(timeout);
@@ -159,7 +157,6 @@ describe('BotServer basic behavior', () => {
       });
 
       ws.on('message', data => {
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         const msg = JSON.parse(String(data));
         if (msg.id === 2) {
           clearTimeout(timeout);

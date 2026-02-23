@@ -28,7 +28,7 @@ export class TreasuryPool {
 
   public static getBidPoolPercentForVaults(client: ArgonClient | ApiDecoration<'promise'>): number {
     const treasuryConstsCompat = client.consts.treasury as SpecLte146.ITreasuryConstants;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+
     const percent = (
       treasuryConstsCompat.bidPoolBurnPercent ?? client.consts.treasury.percentForTreasuryReserves
     ).toNumber();

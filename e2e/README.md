@@ -42,6 +42,7 @@ yarn install
 ```
 
 Pinning updates:
+
 - `e2e/argon/.env` (`VERSION`)
 - `server/.env.dev-docker` (`ARGON_VERSION`)
 - root `package.json` `resolutions` for `@argonprotocol/mainchain`, `@argonprotocol/testing`, and `@argonprotocol/bitcoin`
@@ -52,6 +53,7 @@ Pinning updates:
 ## Run Flows
 
 Available flows:
+
 - `miningOnboarding`
 - `vaultingOnboarding`
 
@@ -93,6 +95,7 @@ yarn workspace @argonprotocol/apps-e2e run test
 ```
 
 Headless behavior:
+
 - `yarn e2e:docker` inherits `ARGON_E2E_HEADLESS` (use `0` for visible UI).
 - `yarn workspace @argonprotocol/apps-e2e run test` defaults to headless (`ARGON_E2E_HEADLESS=1`) and runs the root Vitest `e2e` project.
 
@@ -126,6 +129,7 @@ Frontend command payload shape:
 ```
 
 Supported commands:
+
 - `ui.waitFor` (`testId` or `selector`, `state`, `timeoutMs`)
 - `ui.isVisible` (`testId` or `selector`)
 - `ui.count` (`testId` or `selector`, optional `index`)

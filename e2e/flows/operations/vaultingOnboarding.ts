@@ -112,9 +112,7 @@ export const vaultingOnboardingFlow: E2EFlowDefinition = {
       'Missing unlock completion state (overlay or lock-state None)',
     );
     if (!releaseProgress.personalReleaseProcessingBitcoinSeen) {
-      console.warn(
-        '[E2E] vaultingOnboarding: unlock completed without observing ReleaseIsProcessingOnBitcoin state',
-      );
+      console.warn('[E2E] vaultingOnboarding: unlock completed without observing ReleaseIsProcessingOnBitcoin state');
     }
 
     if (releaseProgress.overlayUnlockCompleteSeen) {
