@@ -34,7 +34,6 @@ import {
   SingleFileQueue,
   SpecLte146,
 } from '@argonprotocol/apps-core';
-import { SpecLte146 } from './MainchainCompat.ts';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "preinstall": "husky install",
-    "precommit": "tsx scripts/checkPrecommit.ts",
+    "precommit": "tsx scripts/checkPrecommit.ts && yarn check:operation-rules",
     "cli": "yarn workspace @argonprotocol/cli run cli",
     "tsc": "tsc && yarn workspaces foreach --all run tsc",
     "tsc:watch": "tsc --watch",
@@ -26,7 +26,8 @@
     "tauri:dev:local": "NODE_ENV=localnet yarn tauri:dev",
     "tauri:dev:docker": "RUST_BACKTRACE=full ARGON_APP_INSTANCE=${ARGON_APP_INSTANCE:-e2e} ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
     "lint": "prettier -w bot core src-vue cli e2e",
-    "lint:check": "prettier --check bot core cli src-vue e2e && eslint bot core cli src-vue e2e --ext .ts --cache --max-warnings=0",
+    "lint:check": "prettier --check bot core cli src-vue e2e && eslint bot core cli src-vue e2e --ext .ts --cache --max-warnings=0 && yarn check:operation-rules",
+    "check:operation-rules": "yarn workspace @argonprotocol/apps-e2e run check:operation-rules",
     "eslint": "eslint bot core cli src-vue e2e --ext .ts --cache --fix",
     "test": "vitest --run",
     "typecheck": "vue-tsc --noEmit && yarn workspaces foreach --all run tsc --noEmit",

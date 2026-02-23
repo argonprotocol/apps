@@ -19,7 +19,7 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
   async inspect({ flow }) {
     const [blankSlateVisible, postStartReadyVisible] = await Promise.all([
       flow.isVisible('BlankSlate.startSettingUpVault()').then(state => state.visible),
-      flow.isVisible('FinalSetupChecklist.openHowVaultingWorksOverlay()').then(state => state.visible),
+      flow.isVisible('SetupChecklist.openHowVaultingWorksOverlay()').then(state => state.visible),
     ]);
 
     const hasEntrypoint = blankSlateVisible || postStartReadyVisible;
@@ -51,12 +51,12 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
     }
 
     if (state.blankSlateVisible && (await clickIfVisible(flow, 'BlankSlate.startSettingUpVault()'))) {
-      await flow.waitFor('FinalSetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
+      await flow.waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
       return;
     }
 
     const checklistVisible = await flow
-      .waitFor('FinalSetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 20_000 })
+      .waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 20_000 })
       .then(() => true)
       .catch(() => false);
     if (checklistVisible) {
@@ -65,7 +65,7 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
 
     const blankSlate = await flow.isVisible('BlankSlate.startSettingUpVault()');
     if (blankSlate.visible && (await clickIfVisible(flow, 'BlankSlate.startSettingUpVault()'))) {
-      await flow.waitFor('FinalSetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
+      await flow.waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
       return;
     }
 

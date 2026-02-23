@@ -6,7 +6,7 @@ import wasm from 'vite-plugin-wasm';
 import vitePluginTopLevelAwait from 'vite-plugin-top-level-await';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
-import { NodeTypes } from '@vue/compiler-core';
+import { createDataTestIdNodeTransform } from './e2e/scripts/testIdNaming.mjs';
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -14,52 +14,9 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const require = createRequire(__filename);
 const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
-const GENERIC_COMPONENT_NAMES = new Set([
-  'App',
-  'Dashboard',
-  'Dialog',
-  'Index',
-  'Layout',
-  'Modal',
-  'Overlay',
-  'Page',
-  'Panel',
-  'Screen',
-  'View',
-]);
 
 const defaultOperationsPortString = '1420';
 const defaultCapitalPortString = '1430';
-
-function toPascalCase(value: string): string {
-  return value
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map(part => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
-    .join('');
-}
-
-function deriveComponentTestId(filename: string, selfName: string | null): string {
-  const normalizedFilename = filename.replace(/\\/g, '/');
-  const pathSegments = normalizedFilename.split('/');
-  const rawFileName = pathSegments[pathSegments.length - 1] ?? '';
-  const rawBaseName = rawFileName.replace(/\.[^/.]+$/, '');
-  const baseName = toPascalCase(rawBaseName);
-  const fallback = selfName ? toPascalCase(selfName) : baseName || 'Component';
-  if (!baseName) return fallback;
-
-  if (!GENERIC_COMPONENT_NAMES.has(baseName)) {
-    return baseName;
-  }
-
-  const parentSegment = pathSegments[pathSegments.length - 2] ?? '';
-  const parentName = toPascalCase(parentSegment);
-  if (!parentName) {
-    return fallback;
-  }
-  const parentPrefix = parentName.replace(/(Dialog|Layout|Overlay|Page|Panel|Screen|View)$/, '');
-  return `${parentPrefix || parentName}${baseName}`;
-}
 
 // Function to check if a port is available
 function isPortAvailable(port: number): Promise<boolean> {
@@ -144,49 +101,7 @@ export default defineConfig(async ({ mode }) => {
           compilerOptions: {
             nodeTransforms: [
               (() => {
-                return (node, ctx) => {
-                  if (node.type !== NodeTypes.ELEMENT) return;
-                  if (!ctx.filename) return;
-
-                  if (node.props.some(p => p.name === 'data-testid')) return;
-
-                  const pushTestId = (value: string) => {
-                    node.props.push({
-                      type: NodeTypes.ATTRIBUTE,
-                      name: 'data-testid',
-                      nameLoc: node.loc,
-                      value: {
-                        type: NodeTypes.TEXT,
-                        content: value,
-                        loc: node.loc,
-                      },
-                      loc: node.loc,
-                    });
-                  };
-
-                  const primaryRootElement = ctx.root.children.find(child => child.type === NodeTypes.ELEMENT);
-                  const isPrimaryRootElement = ctx.parent?.type === NodeTypes.ROOT && primaryRootElement === node;
-                  if (isPrimaryRootElement) {
-                    pushTestId(deriveComponentTestId(ctx.filename, ctx.selfName));
-                    return;
-                  }
-
-                  let testId = ctx.selfName;
-                  // Look for click handlers
-                  const clickDir = node.props.find(
-                    p =>
-                      p.type === NodeTypes.DIRECTIVE &&
-                      p.name === 'on' &&
-                      p.arg?.type === NodeTypes.SIMPLE_EXPRESSION &&
-                      p.arg.content === 'click',
-                  );
-                  if (!clickDir || clickDir.type !== NodeTypes.DIRECTIVE || !clickDir.exp) return;
-
-                  let fnName = clickDir.exp.type === NodeTypes.SIMPLE_EXPRESSION ? clickDir.exp.content : '';
-                  if (!fnName.includes('(') && !fnName.includes('=')) fnName += '()';
-                  testId = `${testId}.${fnName}`;
-                  pushTestId(testId);
-                };
+                return createDataTestIdNodeTransform();
               })(),
             ],
           },

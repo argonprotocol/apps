@@ -24,7 +24,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
   async inspect({ flow }) {
     const lockOverlayEntry = await flow.isVisible('PersonalBitcoin.showLockingOverlay()');
     const dashboard = await flow.isVisible('VaultingDashboard');
-    const fundOverlayEntry = await flow.isVisible('FinalSetupChecklist.openFundVaultingAccountOverlay()');
+    const fundOverlayEntry = await flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()');
     const runnable = fundOverlayEntry.visible && !lockOverlayEntry.visible && !dashboard.visible;
     const isComplete = lockOverlayEntry.visible || dashboard.visible;
     const isRunnable = !isComplete && runnable;
@@ -52,7 +52,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       return;
     }
 
-    await flow.click('FinalSetupChecklist.openFundVaultingAccountOverlay()');
+    await flow.click('SetupChecklist.openFundVaultingAccountOverlay()');
     const { address, microgons, micronots } = await getWalletOverlayFundingNeeded(flow);
     const extraMicrogons = parseDecimalToUnits(
       input.extraFundingArgons ?? '1000',

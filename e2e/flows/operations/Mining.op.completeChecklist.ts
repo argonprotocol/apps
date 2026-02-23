@@ -17,9 +17,9 @@ interface ICompleteChecklistState extends IE2EOperationInspectState<Record<strin
 
 export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
-    const checklistEntry = await flow.isVisible('FinalSetupChecklist.openHowMiningWorksOverlay()');
+    const checklistEntry = await flow.isVisible('SetupChecklist.openHowMiningWorksOverlay()');
     const botConfigText = await flow
-      .getText('FinalSetupChecklist.openBotCreateOverlay()', { timeoutMs: 2_000 })
+      .getText('SetupChecklist.openBotCreateOverlay()', { timeoutMs: 2_000 })
       .catch(() => null);
     const botConfigured = (botConfigText ?? '').toLowerCase().includes('capital commitment of');
 
@@ -48,10 +48,10 @@ export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import
       return;
     }
 
-    await flow.click('FinalSetupChecklist.openHowMiningWorksOverlay()');
+    await flow.click('SetupChecklist.openHowMiningWorksOverlay()');
     await flow.click('HowMiningWorks.closeOverlay()');
 
-    await flow.click('FinalSetupChecklist.openBotCreateOverlay()');
+    await flow.click('SetupChecklist.openBotCreateOverlay()');
     await clickIfVisible(flow, 'BotCreatePanel.stopSuggestingTour()');
 
     if (input.startingBidArgons) {
@@ -62,7 +62,7 @@ export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import
     }
 
     await flow.click('BotCreatePanel.saveRules()');
-    await flow.waitFor('FinalSetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 30_000 });
+    await flow.waitFor('SetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 30_000 });
   },
 });
 

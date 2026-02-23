@@ -22,8 +22,8 @@ interface ICompleteChecklistState extends IE2EOperationInspectState<Record<strin
 export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
     const [checklistEntry, fundOverlayEntry, lockOverlayEntry, dashboard] = await Promise.all([
-      flow.isVisible('FinalSetupChecklist.openHowVaultingWorksOverlay()'),
-      flow.isVisible('FinalSetupChecklist.openFundVaultingAccountOverlay()'),
+      flow.isVisible('SetupChecklist.openHowVaultingWorksOverlay()'),
+      flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
     ]);
@@ -56,18 +56,18 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       return;
     }
 
-    const checklist = await flow.isVisible('FinalSetupChecklist.openHowVaultingWorksOverlay()');
+    const checklist = await flow.isVisible('SetupChecklist.openHowVaultingWorksOverlay()');
     if (!checklist.visible) {
       return;
     }
 
-    await flow.click('FinalSetupChecklist.openHowVaultingWorksOverlay()');
+    await flow.click('SetupChecklist.openHowVaultingWorksOverlay()');
     await flow.click('HowVaultingWorks.closeOverlay()', { timeoutMs: 30_000 });
     await flow.waitFor('HowVaultingWorks.closeOverlay()', { state: 'missing', timeoutMs: 30_000 });
 
-    await flow.click('FinalSetupChecklist.openVaultCreateOverlay()');
+    await flow.click('SetupChecklist.openVaultCreateOverlay()');
     await clickIfVisible(flow, 'VaultCreatePanel.stopSuggestingTour()');
     await flow.click('VaultCreatePanel.saveRules()');
-    await flow.waitFor('FinalSetupChecklist.openFundVaultingAccountOverlay()', { timeoutMs: 15_000 });
+    await flow.waitFor('SetupChecklist.openFundVaultingAccountOverlay()', { timeoutMs: 15_000 });
   },
 });

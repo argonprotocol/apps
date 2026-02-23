@@ -232,8 +232,8 @@ function openFundVaultingAccountOverlay() {
 }
 
 async function createVault() {
-  config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
-  config.save();
+  config.vaultingSetupStatus = VaultingSetupStatus.Installing;
+  await config.save();
 }
 
 function openHowVaultingWorksOverlay() {
