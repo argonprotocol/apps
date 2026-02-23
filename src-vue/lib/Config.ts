@@ -7,8 +7,9 @@ import {
   IConfigStringified,
   InstallStepKey,
   InstallStepStatus,
-  ScreenKey,
+  MiningSetupStatus,
   ServerType,
+  VaultingSetupStatus,
 } from '../interfaces/IConfig';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import {
@@ -68,7 +69,6 @@ export class Config implements IConfig {
     this._dbPromise = dbPromise;
     this._loadedData = {
       version: packageJson.version,
-      screenKey: ScreenKey.Home,
       requiresPassword: false,
       showWelcomeOverlay: false,
       serverDetails: {
@@ -77,7 +77,9 @@ export class Config implements IConfig {
         type: ServerType.DigitalOcean,
         workDir: '~',
       },
-      installDetails: Config.getDefault(dbFields.installDetails) as IConfig['installDetails'],
+      miningSetupStatus: Config.getDefault(dbFields.miningSetupStatus) as MiningSetupStatus,
+      vaultingSetupStatus: Config.getDefault(dbFields.vaultingSetupStatus) as VaultingSetupStatus,
+      serverInstaller: Config.getDefault(dbFields.serverInstaller) as IConfig['serverInstaller'],
       oldestFrameIdToSync: Config.getDefault(dbFields.oldestFrameIdToSync) as number,
       latestFrameIdProcessed: Config.getDefault(dbFields.latestFrameIdProcessed) as number,
       walletAccountsHadPreviousLife: Config.getDefault(dbFields.walletAccountsHadPreviousLife) as boolean,
@@ -87,16 +89,10 @@ export class Config implements IConfig {
       ) as IConfig['miningBotAccountPreviousHistory'],
 
       hasReadMiningInstructions: Config.getDefault(dbFields.hasReadMiningInstructions) as boolean,
-      isPreparingMinerSetup: Config.getDefault(dbFields.isPreparingMinerSetup) as boolean,
-      isMinerReadyToInstall: Config.getDefault(dbFields.isMinerReadyToInstall) as boolean,
-      isMiningMachineCreated: Config.getDefault(dbFields.isMiningMachineCreated) as boolean,
-      isMinerInstalled: Config.getDefault(dbFields.isMinerInstalled) as boolean,
-      isMinerInstalling: Config.getDefault(dbFields.isMinerInstalling) as boolean,
+      isServerInstalled: Config.getDefault(dbFields.isServerInstalled) as boolean,
+      isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
 
       hasReadVaultingInstructions: Config.getDefault(dbFields.hasReadVaultingInstructions) as boolean,
-      isPreparingVaultSetup: Config.getDefault(dbFields.isPreparingVaultSetup) as boolean,
-      isVaultReadyToCreate: Config.getDefault(dbFields.isVaultReadyToCreate) as boolean,
-      isVaultActivated: Config.getDefault(dbFields.isVaultActivated) as boolean,
 
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
@@ -117,14 +113,12 @@ export class Config implements IConfig {
 
   public async restoreToConnection(sql: PluginSql): Promise<void> {
     const preserveFields: (keyof IConfig)[] = [
-      'serverCreation',
+      'serverAdd',
       'serverDetails',
       'biddingRules',
       'vaultingRules',
       'hasReadVaultingInstructions',
       'hasReadMiningInstructions',
-      'isMiningMachineCreated',
-      'isPreparingMinerSetup',
       'oldestFrameIdToSync',
       'defaultCurrencyKey',
       'requiresPassword',
@@ -210,7 +204,8 @@ export class Config implements IConfig {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
       }
 
-      if (loadedData.serverDetails.type === ServerType.LocalComputer && loadedData.isMinerInstalled) {
+      const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
+      if (isLocalComputer && !loadedData.isServerInstalling) {
         const { sshPort } = await LocalMachine.activate();
         if (!IS_TEST) {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
@@ -268,11 +263,18 @@ export class Config implements IConfig {
     return Math.min(this._walletPreviousHistoryLoadPct, 100);
   }
 
-  public get screenKey(): ScreenKey {
-    return this.getField('screenKey');
+  public get miningSetupStatus(): MiningSetupStatus {
+    return this.getField('miningSetupStatus');
   }
-  public set screenKey(value: ScreenKey) {
-    this.setField('screenKey', value);
+  public set miningSetupStatus(value: MiningSetupStatus) {
+    this.setField('miningSetupStatus', value);
+  }
+
+  public get vaultingSetupStatus(): VaultingSetupStatus {
+    return this.getField('vaultingSetupStatus');
+  }
+  public set vaultingSetupStatus(value: VaultingSetupStatus) {
+    this.setField('vaultingSetupStatus', value);
   }
 
   public get requiresPassword(): boolean {
@@ -289,11 +291,11 @@ export class Config implements IConfig {
     this.setField('showWelcomeOverlay', value);
   }
 
-  public get serverCreation(): IConfig['serverCreation'] {
-    return this.getField('serverCreation');
+  public get serverAdd(): IConfig['serverAdd'] {
+    return this.getField('serverAdd');
   }
-  public set serverCreation(value: IConfig['serverCreation']) {
-    this.setField('serverCreation', value);
+  public set serverAdd(value: IConfig['serverAdd']) {
+    this.setField('serverAdd', value);
   }
 
   public get serverDetails(): IConfig['serverDetails'] {
@@ -303,11 +305,11 @@ export class Config implements IConfig {
     this.setField('serverDetails', value);
   }
 
-  public get installDetails(): IConfig['installDetails'] {
-    return this.getField('installDetails');
+  public get serverInstaller(): IConfig['serverInstaller'] {
+    return this.getField('serverInstaller');
   }
-  public set installDetails(value: IConfig['installDetails']) {
-    this.setField('installDetails', value);
+  public set serverInstaller(value: IConfig['serverInstaller']) {
+    this.setField('serverInstaller', value);
   }
 
   public get oldestFrameIdToSync(): number {
@@ -331,39 +333,26 @@ export class Config implements IConfig {
     this.setField('hasReadMiningInstructions', value);
   }
 
-  public get isPreparingMinerSetup(): boolean {
-    return this.getField('isPreparingMinerSetup');
+  public get isServerInstalled(): boolean {
+    return this.getField('isServerInstalled');
   }
-  public set isPreparingMinerSetup(value: boolean) {
-    this.setField('isPreparingMinerSetup', value);
-  }
-
-  public get isMinerReadyToInstall(): boolean {
-    return this.getField('isMinerReadyToInstall');
-  }
-  public set isMinerReadyToInstall(value: boolean) {
-    this.setField('isMinerReadyToInstall', value);
+  public set isServerInstalled(value: boolean) {
+    this.setField('isServerInstalled', value);
   }
 
-  public get isMiningMachineCreated(): boolean {
-    return this.getField('isMiningMachineCreated');
-  }
-  public set isMiningMachineCreated(value: boolean) {
-    this.setField('isMiningMachineCreated', value);
-  }
-
-  public get isMinerInstalling(): boolean {
-    return this.getField('isMinerInstalling');
-  }
-  public set isMinerInstalling(value: boolean) {
-    this.setField('isMinerInstalling', value);
+  public get isServerAdded(): boolean {
+    const serverAdd = this.getField('serverAdd');
+    const serverDetails = this.getField('serverDetails');
+    const isServerInstalled = this.getField('isServerInstalled');
+    const hasServerIp = !!serverDetails?.ipAddress && serverDetails.ipAddress !== '0.0.0.0';
+    return isServerInstalled || hasServerIp || (serverAdd ? !!Object.keys(serverAdd).length : false);
   }
 
-  public get isMinerInstalled(): boolean {
-    return this.getField('isMinerInstalled');
+  public get isServerInstalling(): boolean {
+    return this.getField('isServerInstalling');
   }
-  public set isMinerInstalled(value: boolean) {
-    this.setField('isMinerInstalled', value);
+  public set isServerInstalling(value: boolean) {
+    this.setField('isServerInstalling', value);
   }
 
   public get hasReadVaultingInstructions(): boolean {
@@ -372,30 +361,6 @@ export class Config implements IConfig {
 
   public set hasReadVaultingInstructions(value: boolean) {
     this.setField('hasReadVaultingInstructions', value);
-  }
-
-  public get isPreparingVaultSetup(): boolean {
-    return this.getField('isPreparingVaultSetup');
-  }
-
-  public set isPreparingVaultSetup(value: boolean) {
-    this.setField('isPreparingVaultSetup', value);
-  }
-
-  public get isVaultReadyToCreate(): boolean {
-    return this.getField('isVaultReadyToCreate');
-  }
-
-  public set isVaultReadyToCreate(value: boolean) {
-    this.setField('isVaultReadyToCreate', value);
-  }
-
-  public get isVaultActivated(): boolean {
-    return this.getField('isVaultActivated');
-  }
-
-  public set isVaultActivated(value: boolean) {
-    this.setField('isVaultActivated', value);
   }
 
   public get hasMiningSeats(): boolean {
@@ -561,22 +526,23 @@ export class Config implements IConfig {
         this.hasMiningSeats = true;
       }
       this.miningBotAccountPreviousHistory = miningHistory;
-      this.isPreparingMinerSetup = true;
+      this.miningSetupStatus = MiningSetupStatus.Checklist;
       this.hasReadMiningInstructions = miningHistory.length > 0;
       if (this.serverDetails.ipAddress) {
-        this.isMinerReadyToInstall = true;
-        this.isMinerInstalled = true;
-        this.isMinerInstalling = true;
+        this.miningSetupStatus = MiningSetupStatus.Finished;
         this.miningBotAccountPreviousHistory = null;
       }
+    }
+
+    if (this.serverDetails.ipAddress) {
+      this.isServerInstalled = true;
+      this.isServerInstalling = false;
     }
 
     if (vaultingRules) {
       console.log('Config: Previous vaulting rules found');
       this.vaultingRules = vaultingRules;
-      this.isVaultReadyToCreate = true;
-      this.isPreparingVaultSetup = true;
-      this.isVaultActivated = true;
+      this.vaultingSetupStatus = VaultingSetupStatus.Finished;
       this.hasReadVaultingInstructions = true;
 
       this._tryFieldsToSave(dbFields.vaultingRules, vaultingRules);
@@ -607,13 +573,15 @@ export class Config implements IConfig {
 }
 
 const dbFields = {
-  screenKey: 'screenKey',
+  miningSetupStatus: 'miningSetupStatus',
+  vaultingSetupStatus: 'vaultingSetupStatus',
+
   requiresPassword: 'requiresPassword',
   showWelcomeOverlay: 'showWelcomeOverlay',
 
-  serverCreation: 'serverCreation',
+  serverAdd: 'serverAdd',
   serverDetails: 'serverDetails',
-  installDetails: 'installDetails',
+  serverInstaller: 'serverInstaller',
   oldestFrameIdToSync: 'oldestFrameIdToSync',
   latestFrameIdProcessed: 'latestFrameIdProcessed',
   miningBotAccountPreviousHistory: 'miningBotAccountPreviousHistory',
@@ -621,16 +589,10 @@ const dbFields = {
   walletPreviousLifeRecovered: 'walletPreviousLifeRecovered',
 
   hasReadMiningInstructions: 'hasReadMiningInstructions',
-  isPreparingMinerSetup: 'isPreparingMinerSetup',
-  isMinerReadyToInstall: 'isMinerReadyToInstall',
-  isMiningMachineCreated: 'isMiningMachineCreated',
-  isMinerInstalled: 'isMinerInstalled',
-  isMinerInstalling: 'isMinerInstalling',
+  isServerInstalled: 'isServerInstalled',
+  isServerInstalling: 'isServerInstalling',
 
   hasReadVaultingInstructions: 'hasReadVaultingInstructions',
-  isPreparingVaultSetup: 'isPreparingVaultSetup',
-  isVaultReadyToCreate: 'isVaultReadyToCreate',
-  isVaultActivated: 'isVaultActivated',
 
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
@@ -641,11 +603,13 @@ const dbFields = {
 } as const;
 
 const defaults: IConfigDefaults = {
-  screenKey: () => ScreenKey.Home,
+  miningSetupStatus: () => MiningSetupStatus.None,
+  vaultingSetupStatus: () => VaultingSetupStatus.None,
+
   requiresPassword: () => false,
   showWelcomeOverlay: () => true,
 
-  serverCreation: () => undefined,
+  serverAdd: () => undefined,
   serverDetails: () => {
     return {
       ipAddress: '',
@@ -654,7 +618,7 @@ const defaults: IConfigDefaults = {
       workDir: '~',
     };
   },
-  installDetails: () => {
+  serverInstaller: () => {
     const defaultStep = {
       progress: 0,
       status: InstallStepStatus.Pending,
@@ -680,16 +644,10 @@ const defaults: IConfigDefaults = {
   walletPreviousLifeRecovered: () => false,
 
   hasReadMiningInstructions: () => false,
-  isPreparingMinerSetup: () => false,
-  isMinerReadyToInstall: () => false,
-  isMiningMachineCreated: () => false,
-  isMinerInstalled: () => false,
-  isMinerInstalling: () => false,
+  isServerInstalled: () => false,
+  isServerInstalling: () => false,
 
   hasReadVaultingInstructions: () => false,
-  isPreparingVaultSetup: () => false,
-  isVaultReadyToCreate: () => false,
-  isVaultActivated: () => false,
 
   hasMiningSeats: () => false,
   hasMiningBids: () => false,

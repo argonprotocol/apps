@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 import { wasmLoader } from 'esbuild-plugin-wasm';
 
 export default defineConfig({
-  entry: ['src/server.ts'],
+  entry: ['src/index.ts'],
   dts: false,
   format: 'esm',
   target: 'esnext',

@@ -410,18 +410,13 @@ fi
 
 while true; do
     sleep 1
-    RESPONSE=$(curl -s -w "\n%{http_code}" "http://${LOCALHOST}:${BOT_PORT}/state" || echo -e "\n000")
+    RESPONSE=$(curl -s -w "\n%{http_code}" "http://${LOCALHOST}:${BOT_PORT}/is-ready" || echo -e "\n000")
     echo "$RESPONSE"
     status=${RESPONSE##*$'\n'}        # last line
     json=${RESPONSE%$'\n'*}           # all but last line
-    if [[ "$status" == "200" ]]; then
-      ready_or_sync=$(
-        jq -r '((.isSyncing // false) or (.isReady // false))' <<<"$json" 2>/dev/null || echo false
-      )
-      if [[ "$ready_or_sync" == "true" ]]; then
-        echo "Bot is running"
-        break;
-      fi
+    if [[ "$status" == "200" && "$json" == "true" ]]; then
+      echo "Bot is running"
+      break;
     fi
     echo "Bot is not ready, waiting..."
 done

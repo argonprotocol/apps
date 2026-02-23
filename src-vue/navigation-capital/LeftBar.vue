@@ -5,7 +5,7 @@
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >
-    <div class="flex flex-row items-center pointer-events-none relative py-3 mx-1 border-b border-slate-500/20">
+    <div class="flex flex-row items-center pointer-events-none relative pt-1 mx-1 border-b border-slate-500/20 h-[55px]">
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
         {{ APP_NAME }}
@@ -14,45 +14,45 @@
     </div>
 
     <div class="text-center flex-row items-center justify-center py-10 border-b border-slate-500/20">
-      <div class="font-bold text-4xl">₳41,464.66</div>
+      <div class="font-bold text-4xl">₳0.00</div>
       <div>Total Value</div>
     </div>
 
-    <ul class="mt-5 px-5">
-      <li>
+    <ul class="mt-5 px-3">
+      <li @click="controller.setScreenKey(CapitalTab.Mainchain)" :Selected="controller.selectedTab === CapitalTab.Mainchain || undefined">
         <div>Mainchain Balance</div>
         <div>{{currency.symbol}}0.00</div>
       </li>
-      <li>
+      <li @click="controller.setScreenKey(CapitalTab.Localchain)" :Selected="controller.selectedTab === CapitalTab.Localchain || undefined">
         <div>Localchain Balance</div>
         <div>{{currency.symbol}}0.00</div>
       </li>
-      <li>
-        <div>External Balance</div>
+      <li @click="controller.setScreenKey(CapitalTab.Ethereum)" :Selected="controller.selectedTab === CapitalTab.Ethereum || undefined">
+        <div>Ethereum Balance</div>
         <div>{{currency.symbol}}0.00</div>
       </li>
     </ul>
 
-    <div class="mt-10 px-5">
-      <header>INVESTMENT RETURNS</header>
+    <div class="mt-10 px-3">
+      <header class="px-2 opacity-40">INVESTMENT RETURNS</header>
       <ul class="mt-2">
         <li>
           <div>Argon Bonds</div>
-          <div>{{currency.symbol}}0.00%</div>
+          <div>0.00%</div>
         </li>
         <li>
           <div>Bitcoin Locks</div>
-          <div>{{currency.symbol}}0.00%</div>
+          <div>0.00%</div>
         </li>
         <li>
           <div>Stable Swaps</div>
-          <div>{{currency.symbol}}0.00%</div>
+          <div>0.00%</div>
         </li>
       </ul>
     </div>
 
-    <div class="mt-10 px-5">
-      <header>NETWORK HEALTH</header>
+    <div class="mt-10 px-3">
+      <header class="px-2 opacity-40">NETWORK HEALTH</header>
       <ul class="mt-2">
         <li>
           <div>Operational Agents</div>
@@ -82,7 +82,9 @@ import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
 import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { getCurrency } from '../stores/currency.ts';
+import { CapitalTab, useCapitalController } from '../stores/capitalController.ts';
 
+const controller = useCapitalController();
 const currency = getCurrency();
 const tour = useTour();
 
@@ -131,9 +133,18 @@ Vue.onMounted(async () => {
 @reference "../main.css";
 
 ul li {
-  @apply flex flex-row items-center py-2;
+  @apply my-1 flex cursor-pointer flex-row items-center rounded border border-transparent px-2 py-1.5;
   div:first-child {
     @apply grow;
+  }
+  &[Selected] {
+    @apply bg-argon-400/10;
+    &:hover {
+      @apply border-transparent;
+    }
+  }
+  &:hover {
+    @apply border-dashed border-slate-500/60;
   }
 }
 </style>

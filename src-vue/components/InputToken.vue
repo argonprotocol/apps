@@ -3,6 +3,7 @@
     v-bind="$attrs"
     format="number"
     :prefix="prefix"
+    :suffix="suffix"
     :dragBy="dragBy"
     :dragByMin="dragByMin"
     :disabled="props.disabled"
@@ -35,6 +36,7 @@ const props = withDefaults(
     minDecimals?: number;
     maxDecimals?: number;
     prefix?: string;
+    suffix?: string;
   }>(),
   {
     options: () => [],
@@ -44,6 +46,7 @@ const props = withDefaults(
     minDecimals: 2,
     maxDecimals: 2,
     prefix: '',
+    suffix: '',
   },
 );
 

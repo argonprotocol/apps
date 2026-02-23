@@ -274,6 +274,24 @@ export class MiningFrames {
     return getPercent(ticksPerFrame - ticksRemaining, ticksPerFrame);
   }
 
+  public getMiningSeatProgress(startFrameId: number): number {
+    const frameSpan = 10;
+    const endExclusiveFrameId = startFrameId + frameSpan;
+
+    if (this.currentFrameId < startFrameId) {
+      return 0;
+    }
+    if (this.currentFrameId >= endExclusiveFrameId) {
+      return 100;
+    }
+
+    const completedFrames = this.currentFrameId - startFrameId;
+    const currentFrameProgress = this.getCurrentFrameProgress() / 100;
+    const progress = ((completedFrames + currentFrameProgress) / frameSpan) * 100;
+
+    return Math.max(0, Math.min(100, progress));
+  }
+
   public isFirstFrameTick(tick: number): boolean {
     const frameId = this.getForTick(tick);
     const frameStartTick = this.getTickStart(frameId);
@@ -293,7 +311,7 @@ export class MiningFrames {
   }
 
   public getFrameDate(frameId: number): Date {
-    const tick = frameId > this.currentFrameId ? this.estimateTickForFrame(frameId) : this.getTickStart(frameId);
+    const tick = frameId > this.currentFrameId ? this.estimateTickStart(frameId) : this.getTickStart(frameId);
     return MiningFrames.getTickDate(tick);
   }
 
@@ -315,7 +333,7 @@ export class MiningFrames {
     return frame.frameStartTick;
   }
 
-  public estimateTickForFrame(frameId: number): number {
+  public estimateTickStart(frameId: number): number {
     const latestFrame = this.framesById[this.currentFrameId];
     if (!latestFrame) {
       throw new Error('No latest frame data available for tick estimation');
@@ -323,6 +341,16 @@ export class MiningFrames {
     const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;
     const framesAhead = frameId - this.currentFrameId;
     return latestFrame.frameStartTick + framesAhead * ticksPerFrame;
+  }
+
+  public estimateTickEnd(frameId: number): number {
+    const latestFrame = this.framesById[this.currentFrameId];
+    if (!latestFrame) {
+      throw new Error('No latest frame data available for tick estimation');
+    }
+    const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;
+    const framesAhead = frameId - this.currentFrameId + 1;
+    return latestFrame.frameStartTick + framesAhead * ticksPerFrame - 1;
   }
 
   private setFrameHistory(data: IFrameHistory): boolean {

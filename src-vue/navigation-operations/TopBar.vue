@@ -21,10 +21,13 @@
       class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/3 grow pointer-events-none relative top-[1px]"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
-      <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <CurrencyMenu ref="currencyMenuRef" />
       </div>
-      <div :class="[controller.screenKey === ScreenKey.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <ServerMenu ref="serverMenuRef" />
+      </div>
+      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <AccountMenu ref="accountMenuRef" />
       </div>
     </div>
@@ -33,23 +36,22 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useController } from '../stores/controller.ts';
+import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import CurrencyMenu from '../navigation-shared/CurrencyMenu.vue';
-import StatusMenu from '../navigation-shared/StatusMenu.vue';
 import AccountMenu from '../navigation-shared/AccountMenu.vue';
 import InstanceMenu from '../navigation-shared/InstanceMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getBot } from '../stores/bot.ts';
-import { ScreenKey } from '../interfaces/IConfig.ts';
 import { useTour } from '../stores/tour.ts';
 import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
 import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { IInstance } from '../navigation-shared/InstanceMenu.vue';
-import TabSwitcher from '../navigation-shared/TabSwitcher.vue';
+import TabSwitcher from './TabSwitcher.vue';
+import ServerMenu from './ServerMenu.vue';
 
-const controller = useController();
+const controller = useOperationsController();
 const wallets = useWallets();
 const tour = useTour();
 const bot = getBot();

@@ -21,6 +21,14 @@ export class CohortsTable extends BaseTable {
     }
   }
 
+  public async getTxFees(cohortId: number): Promise<bigint> {
+    const [result] = await this.db.select<[{ transactionFeesTotal: bigint }]>(
+      'SELECT transactionFeesTotal FROM Cohorts WHERE id = ?',
+      [cohortId],
+    );
+    return result ? fromSqliteBigInt(result.transactionFeesTotal as any) : 0n;
+  }
+
   public async fetchCohortIdsSince(idStart: number, limit = 10): Promise<number[]> {
     const ids = [];
     for (let id = idStart; id < idStart + limit; id++) {

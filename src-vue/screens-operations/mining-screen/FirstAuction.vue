@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div data-testid="FirstAuction" class="flex flex-col h-full w-full">
-    <FirstAuctionFailed v-if="!bot.maxSeatsPossible" />
+    <FirstAuctionFailed v-if="bot.state?.maxSeatsInPlay === 0" />
     <FirstAuctionWinning v-else-if="config.hasMiningBids" />
     <FirstAuctionStarting v-else />
   </div>

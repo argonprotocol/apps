@@ -7,13 +7,40 @@ import {
   fromFixedNumber,
   type u64,
 } from '@argonprotocol/mainchain';
-import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, numericToAlpha } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
 import type { IMiningIndex } from './Accountset.ts';
 import { NetworkConfig } from './NetworkConfig.js';
 
 const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.8;
 const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.2;
+
+export interface IMiningSeat {
+  id: string;
+  index: number;
+  slotId: number;
+  miner: IMiningSeatMiner | null;
+  bid: IMiningSlotBid | null;
+}
+
+export interface IMiningSeatMiner {
+  startingFrameId: number;
+  address: string;
+  isOurs: boolean;
+  bidAmount: bigint;
+}
+
+export interface IMiningSlotBid {
+  startingFrameId: number;
+  slotId: number;
+  address: string;
+  bidAmount: bigint;
+}
+
+export interface IMiningSlot {
+  slotId: number;
+  seats: IMiningSeat[];
+}
 
 export class Mining {
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
@@ -141,6 +168,92 @@ export class Mining {
     return tickAtStartOfNextCohort - ticksBeforeBidEndForVrfClose;
   }
 
+  public async fetchCurrentMiningSeats(managedByAccount: string): Promise<IMiningSlot[]> {
+    const client = await this.clients.prunedClientOrArchivePromise;
+    const [cohorts, bidsForNextSlotCohort] = await Promise.all([
+      client.query.miningSlot.minersByCohort.entries(),
+      client.query.miningSlot.bidsForNextSlotCohort(),
+    ]);
+    const bidsBySlotId = new Map<number, IMiningSlotBid[]>();
+    for (const bid of bidsForNextSlotCohort) {
+      const startingFrameId = bid.startingFrameId.toNumber();
+      const slotId = startingFrameId % 10;
+      const bids = bidsBySlotId.get(slotId) ?? [];
+      bids.push({
+        startingFrameId,
+        slotId,
+        address: bid.accountId.toHuman(),
+        bidAmount: bid.bid.toBigInt(),
+      });
+      bidsBySlotId.set(slotId, bids);
+    }
+
+    const slots: IMiningSlot[] = [];
+    const processedSlotIds = new Set<number>();
+    const sortByBidDescending = (
+      a: { bidAmount: bigint; address: string },
+      b: { bidAmount: bigint; address: string },
+    ) => {
+      if (a.bidAmount === b.bidAmount) return a.address.localeCompare(b.address);
+      return a.bidAmount > b.bidAmount ? -1 : 1;
+    };
+
+    for (const [key, cohort] of cohorts) {
+      const startingFrameId = key.args[0].toNumber();
+      const slotId = startingFrameId % 10;
+      processedSlotIds.add(slotId);
+      const seats: IMiningSeat[] = [];
+      for (const [index, member] of cohort.entries()) {
+        const address = member.accountId.toHuman();
+        const isOurs = member.externalFundingAccount.value.toHuman() === managedByAccount;
+        const bidAmount = member.bid.toBigInt();
+        const id = `${numericToAlpha(slotId)}${index + 1}`;
+        seats.push({
+          id,
+          index,
+          slotId,
+          miner: { startingFrameId, address, isOurs, bidAmount },
+          bid: null,
+        });
+      }
+
+      const bids = (bidsBySlotId.get(slotId) ?? []).sort(sortByBidDescending);
+
+      const alignedSeats: IMiningSeat[] = [];
+      const totalSeats = Math.max(seats.length, bids.length);
+      for (let i = 0; i < totalSeats; i += 1) {
+        const existingSeat = seats[i];
+        alignedSeats.push({
+          id: existingSeat?.id ?? `${numericToAlpha(slotId)}${i + 1}`,
+          index: existingSeat?.index ?? i,
+          slotId,
+          miner: existingSeat?.miner ?? null,
+          bid: bids[i] ?? null,
+        });
+      }
+      alignedSeats.sort((a, b) => a.index - b.index);
+
+      slots.push({ slotId, seats: alignedSeats });
+    }
+
+    for (const [slotId, unsortedBids] of bidsBySlotId) {
+      if (processedSlotIds.has(slotId)) continue;
+      const bids = [...unsortedBids].sort(sortByBidDescending);
+      slots.push({
+        slotId,
+        seats: bids.map((bid, index) => ({
+          id: `${numericToAlpha(slotId)}${index + 1}`,
+          index,
+          slotId,
+          miner: null,
+          bid,
+        })),
+      });
+    }
+
+    return slots.sort((a, b) => Number(a.slotId) - Number(b.slotId));
+  }
+
   public static async fetchWinningBids(
     api: ApiDecoration<'promise'>,
   ): Promise<(IWinningBid & { managedByAddress?: string; micronotsStakedPerSeat: bigint })[]> {
@@ -165,7 +278,7 @@ export class Mining {
     });
   }
 
-  public static async fetchMiningSeats(
+  public static async fetchMiningSeatsForAccount(
     managedByAccount: string,
     api: ApiDecoration<'promise'>,
   ): Promise<{ [address: string]: { seat: IMiningIndex; isLastDay: boolean } }> {
@@ -179,17 +292,18 @@ export class Mining {
         if (member.externalFundingAccount.isNone) {
           continue;
         }
-        if (member.externalFundingAccount.value.toHuman() === managedByAccount) {
-          const address = member.accountId.toHuman();
-          addressToMiningIndex[address] = {
-            seat: {
-              startingFrameId: frameId,
-              index,
-              bidAmount: member.bid.toBigInt(),
-            },
-            isLastDay: nextFrameId - frameId === 10,
-          };
+        if (member.externalFundingAccount.value.toHuman() !== managedByAccount) {
+          continue;
         }
+        const address = member.accountId.toHuman();
+        addressToMiningIndex[address] = {
+          seat: {
+            startingFrameId: frameId,
+            index,
+            bidAmount: member.bid.toBigInt(),
+          },
+          isLastDay: nextFrameId - frameId === 10,
+        };
       }
     }
     return addressToMiningIndex;
@@ -343,13 +457,13 @@ export class Mining {
     const microgonsPerBlockByCohort = await api.query.blockRewards.blockRewardsByCohort();
     for (const [cohortFrameActivationId, blockReward] of microgonsPerBlockByCohort) {
       if (cohortFrameActivationId.toNumber() === frameId) {
-        return this.getMinerRewardPercent(blockReward.toBigInt());
+        return this.getMiningRewardCut(blockReward.toBigInt());
       }
     }
     throw new Error(`No block reward found for cohort starting at frame ID ${frameId}`);
   }
 
-  public async getMinerRewardPercent(microgons: bigint): Promise<bigint> {
+  public async getMiningRewardCut(microgons: bigint): Promise<bigint> {
     const client = await this.prunedClientOrArchivePromise;
     const minerPercent = fromFixedNumber(client.consts.blockRewards.minerPayoutPercent.toBigInt(), FIXED_U128_DECIMALS);
     return bigNumberToBigInt(minerPercent.times(microgons));
@@ -396,7 +510,7 @@ export class Mining {
       }
       totalRewards += rewardsPerBlock;
     }
-    return this.getMinerRewardPercent(totalRewards);
+    return this.getMiningRewardCut(totalRewards);
   }
 
   private getTicksSinceGenesis(currentTick: number): number {

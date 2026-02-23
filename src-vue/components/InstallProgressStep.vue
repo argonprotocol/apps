@@ -4,7 +4,10 @@
     v-if="!['Hidden', 'Failed'].includes(stepStatus)"
     :data-status="stepStatus"
     :style="{ height: `${stepHeightPct}%`, opacity: hasError ? '0.7' : '1' }"
-    class="Component InstallProgressStep max-h-24 relative flex flex-row items-center border-t border-dashed border-slate-300 text-black/30 whitespace-nowrap w-full"
+    :class="twMerge(
+      'Component InstallProgressStep max-h-24 relative flex flex-row items-center border-t border-dashed text-inherit border-slate-300  whitespace-nowrap w-full',
+      props.class
+    )"
   >
     <div v-if="stepStatus === 'Working'" spinner />
     <CheckboxGray
@@ -36,19 +39,11 @@
       <label class="font-bold text-lg truncate grow text-left">FAILED to {{ getLabel(stepLabel, -1) }}</label>
       <button
         v-if="!isRetrying && stepLabel.key === InstallStepKey.ServerConnect"
-        @click="openServerConnectOverlay"
+        @click="openServerConnectPanel"
         class="text-argon-button font-bold px-4 py-0.5 border border-argon-button rounded cursor-pointer hover:border-argon-button-hover hover:text-argon-button-hover mr-2"
       >
         Configure Mining Machine
       </button>
-<!-- I HID THIS FOR NOW BECAUSE I'M NOT SURE IT'S A GOOD IDEA WITHOUT BETTER WARNINGS TO THE USER -->
-<!--      <button-->
-<!--        v-else-if="!isRetrying"-->
-<!--        @click="openServerRemoveOverlay"-->
-<!--        class="text-argon-button font-bold px-4 py-0.5 border border-argon-button rounded cursor-pointer hover:border-argon-button-hover hover:text-argon-button-hover mr-2"-->
-<!--      >-->
-<!--        Remove Server-->
-<!--      </button>-->
       <button
         @click="retryAll"
         class="text-argon-button font-bold px-4 py-0.5 border border-argon-button rounded cursor-pointer hover:border-argon-button-hover hover:text-argon-button-hover mr-2"
@@ -92,12 +87,14 @@ import CheckboxGray from '../components/CheckboxGray.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
 import { getInstaller } from '../stores/installer';
+import { twMerge } from 'tailwind-merge';
 
 const props = defineProps<{
   isCompact?: boolean;
   stepLabel: IStepLabel;
   stepsCount: number;
   stepIndex: number;
+  class: string;
 }>();
 
 const config = getConfig();
@@ -107,17 +104,17 @@ const stepLabel = Vue.ref<IStepLabel>(props.stepLabel);
 
 const isRetrying = Vue.ref(false);
 const hasError = Vue.computed(() => {
-  return !!config.installDetails.errorType;
+  return !!config.serverInstaller.errorType;
 });
 
 const errorDetails = Vue.computed(() => {
-  const message = config.installDetails.errorMessage;
+  const message = config.serverInstaller.errorMessage;
   if (!message) return null;
   return message.replace('Installation failed:', '').trim().replace('MiningMachineError:', '').trim();
 });
 
 const stepStatus = Vue.computed(() => {
-  let stepStatus = config.installDetails[stepLabel.value.key].status;
+  let stepStatus = config.serverInstaller[stepLabel.value.key].status;
   if (stepStatus === InstallStepStatus.Pending && props.stepIndex === 0) {
     stepStatus = InstallStepStatus.Working;
   }
@@ -130,16 +127,16 @@ const stepProgress = Vue.computed(() => {
   } else if (stepStatus.value === InstallStepStatus.Pending) {
     return 0;
   }
-  return config.installDetails[stepLabel.value.key].progress;
+  return config.serverInstaller[stepLabel.value.key].progress;
 });
 
 const stepHeightPct = Vue.computed(() => {
   let totalHeight = 100;
-  if (config.installDetails.errorType === InstallStepErrorType.BitcoinInstall) {
+  if (config.serverInstaller.errorType === InstallStepErrorType.BitcoinInstall) {
     totalHeight -= 7;
-  } else if (config.installDetails.errorType === InstallStepErrorType.ArgonInstall) {
+  } else if (config.serverInstaller.errorType === InstallStepErrorType.ArgonInstall) {
     totalHeight -= 22;
-  } else if (config.installDetails.errorType === InstallStepErrorType.MiningLaunch) {
+  } else if (config.serverInstaller.errorType === InstallStepErrorType.MiningLaunch) {
     totalHeight -= 35;
   }
   return totalHeight / props.stepsCount;
@@ -181,8 +178,8 @@ function openServerRemoveOverlay() {
   basicEmitter.emit('openServerRemoveOverlay');
 }
 
-function openServerConnectOverlay() {
-  basicEmitter.emit('openServerConnectOverlay');
+function openServerConnectPanel() {
+  basicEmitter.emit('openServerConnectPanel');
 }
 </script>
 
@@ -229,7 +226,7 @@ li.Component.InstallProgressStep {
   }
 
   label {
-    @apply mr-5 font-bold;
+    @apply pointer-events-none mr-5 font-bold;
   }
 
   [spinner] {

@@ -18,7 +18,7 @@ import {
   type IBiddingRules,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
-import { Dockers } from '../src/Dockers.js';
+import { DockerStatus } from '../src/DockerStatus.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -89,13 +89,13 @@ it.skipIf(skipE2E)('can autobid and store stats', async () => {
     } as IBiddingRules;
   });
 
-  vi.spyOn(Dockers, 'getArgonBlockNumbers').mockImplementation(async () => {
+  vi.spyOn(DockerStatus, 'getArgonBlockNumbers').mockImplementation(async () => {
     return {
       localNode: 0,
       mainNode: 0,
     };
   });
-  vi.spyOn(Dockers, 'getBitcoinBlockNumbers').mockImplementation(async () => {
+  vi.spyOn(DockerStatus, 'getBitcoinBlockNumbers').mockImplementation(async () => {
     return {
       localNode: 0,
       mainNode: 0,
@@ -115,8 +115,7 @@ it.skipIf(skipE2E)('can autobid and store stats', async () => {
   runOnTeardown(() => bot.shutdown());
 
   await expect(bot.start()).resolves.toBeUndefined();
-  const status = await bot.blockSync.state();
-  expect(status.lastBlockNumber).toBeGreaterThanOrEqual(status.lastFinalizedBlockNumber);
+  const status = await bot.state();
   console.log('BotState', status);
   let firstCohortActivationFrameId: number | undefined = undefined;
 

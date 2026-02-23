@@ -31,42 +31,30 @@ export const stepLabels: IStepLabel[] = [
   },
   {
     key: InstallStepKey.UbuntuCheck,
-    options: [
-      `Check Ubuntu 24.04 and Related Libraries`,
-      `Checking Ubuntu 24.04 and Related Libraries`,
-      `Checked Ubuntu 24.04 and Related Libraries`,
-    ],
+    options: [`Check Ubuntu 24.04`, `Checking Ubuntu 24.04`, `Checked Ubuntu 24.04`],
   },
   {
     key: InstallStepKey.DockerInstall,
-    options: [
-      `Verify Docker v27+ and Install Required Images`,
-      `Verifying Docker v27+ and Installing Required Images`,
-      `Verified Docker v27+ and Installed Required Images`,
-    ],
+    options: [`Set Up Docker v27+`, `Setting Up Docker v27+`, `Setup Docker v27+`],
   },
   {
     key: InstallStepKey.BitcoinInstall,
     options: [
-      `Install Bitcoin v${SERVER_ENV_VARS.BITCOIN_VERSION} and Sync Bitcoin Block Data`,
-      `Installing Bitcoin v${SERVER_ENV_VARS.BITCOIN_VERSION} and Syncing Bitcoin Block Data`,
-      `Installed Bitcoin v${SERVER_ENV_VARS.BITCOIN_VERSION} and Synced Bitcoin Block Data`,
+      `Install Bitcoin v${SERVER_ENV_VARS.BITCOIN_VERSION}`,
+      `Installing Bitcoin v${SERVER_ENV_VARS.BITCOIN_VERSION}`,
+      `Installed Bitcoin v${SERVER_ENV_VARS.BITCOIN_VERSION}`,
     ],
   },
   {
     key: InstallStepKey.ArgonInstall,
     options: [
-      `Install Argon ${SERVER_ENV_VARS.ARGON_VERSION} and Sync Argon Block Data`,
-      `Installing Argon ${SERVER_ENV_VARS.ARGON_VERSION} and Syncing Argon Block Data`,
-      `Installed Argon ${SERVER_ENV_VARS.ARGON_VERSION} and Synced Argon Block Data`,
+      `Install Argon ${SERVER_ENV_VARS.ARGON_VERSION}`,
+      `Installing Argon ${SERVER_ENV_VARS.ARGON_VERSION}`,
+      `Installed Argon ${SERVER_ENV_VARS.ARGON_VERSION}`,
     ],
   },
   {
     key: InstallStepKey.MiningLaunch,
-    options: [
-      `Launch Bitcoin & Argon Mining Nodes`,
-      `Launching Bitcoin & Argon Mining Nodes`,
-      `Launched Bitcoin & Argon Mining Nodes`,
-    ],
+    options: [`Launch Bitcoin & Argon Nodes`, `Launching Bitcoin & Argon Nodes`, `Launched Bitcoin & Argon Nodes`],
   },
 ];

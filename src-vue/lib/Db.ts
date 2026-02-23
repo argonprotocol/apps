@@ -51,6 +51,7 @@ export class Db {
   }
 
   public static async load(retries: number = 0): Promise<Db> {
+    console.log('LOADING DB...');
     try {
       const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
       const db = new Db(sql, !!retries);
@@ -62,6 +63,7 @@ export class Db {
       return db;
     } catch (error) {
       if (typeof error == 'string' && error.startsWith('migration ') && retries < 1) {
+        console.log('DB MIGRATION ERROR: ', error);
         return this.load(retries + 1);
       }
       throw error;

@@ -5,6 +5,7 @@ import { createMockedDbPromise } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 beforeAll(() => {
   WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
@@ -17,19 +18,18 @@ it('can load config defaults', async () => {
   const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(dbPromise, walletKeys);
   await config.load();
-  expect(config.isMinerReadyToInstall).toBe(false);
-  expect(config.isMinerInstalled).toBe(false);
-  expect(config.isMinerInstalling).toBe(false);
+  expect(config.miningSetupStatus).toBe(MiningSetupStatus.None);
+  expect(config.isServerInstalling).toBe(false);
   expect(config.hasMiningSeats).toBe(false);
   expect(config.hasMiningBids).toBe(false);
   expect(config.biddingRules).toBeTruthy();
 });
 
 it('can load config from db state', async () => {
-  const dbPromise = createMockedDbPromise({ isMinerInstalled: 'true' });
+  const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Finished}"` });
   const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
   const config = new Config(dbPromise, walletKeys);
   await config.load();
-  expect(config.isMinerInstalled).toBe(true);
+  expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
 });
