@@ -2,6 +2,7 @@ import { WebSocket, type RawData } from 'ws';
 
 type UnknownRecord = Record<string, unknown>;
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60_000;
+const DRIVER_TRACE_ENABLED = (process.env.E2E_DRIVER_TRACE ?? '0').trim() !== '0';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -9,18 +10,59 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+function formatLogValue(value: unknown): string {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (value == null) {
+    return 'null';
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : '[unserializable]';
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function rawDataToString(data: RawData): string {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (data instanceof Buffer) {
+    return data.toString('utf8');
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString('utf8');
+  }
+  if (Array.isArray(data)) {
+    return Buffer.concat(data).toString('utf8');
+  }
+  return Buffer.from(data).toString('utf8');
+}
+
 function summarizeArgs(args: UnknownRecord | undefined): string {
   if (!args) return '';
   const parts: string[] = [];
-  for (const key of ['testId', 'selector', 'state', 'timeoutMs', 'index', 'attribute']) {
+  for (const key of ['__operationName', 'testId', 'selector', 'state', 'timeoutMs', 'index', 'attribute']) {
     const value = args[key];
     if (value == null) continue;
-    parts.push(`${key}=${String(value)}`);
+    parts.push(`${key}=${formatLogValue(value)}`);
   }
   if (typeof args.text === 'string') {
     parts.push(`textLength=${args.text.length}`);
   }
   return parts.join(' ');
+}
+
+function logDriverTrace(message: string): void {
+  if (!DRIVER_TRACE_ENABLED) return;
+  console.info(message);
 }
 
 export class DriverClient {
@@ -37,15 +79,15 @@ export class DriverClient {
     this.commandTimeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_COMMAND_TIMEOUT_MS;
   }
 
-  getUrl(): string {
+  public getUrl(): string {
     return this.url;
   }
 
-  getFrontendErrors(): string[] {
+  public getFrontendErrors(): string[] {
     return [...this.frontendErrors];
   }
 
-  async connect(): Promise<void> {
+  public async connect(): Promise<void> {
     if (this.socket) return;
     console.info(`[E2E] Connecting to driver at ${this.url}`);
     this.socket = new WebSocket(this.url);
@@ -58,7 +100,7 @@ export class DriverClient {
     this.socket.on('message', (data: RawData) => {
       let payload: UnknownRecord;
       try {
-        payload = JSON.parse(data.toString()) as UnknownRecord;
+        payload = JSON.parse(rawDataToString(data)) as UnknownRecord;
       } catch (_error) {
         return;
       }
@@ -123,27 +165,29 @@ export class DriverClient {
           const target = typeof payload.target === 'string' ? payload.target : 'unknown-target';
           const state = typeof payload.state === 'string' ? payload.state : 'unknown-state';
           const commandLabel = typeof payload.commandLabel === 'string' ? payload.commandLabel : null;
+          const operationLabel = typeof payload.operationLabel === 'string' ? payload.operationLabel : null;
+          const operationPrefix = operationLabel ? `[${operationLabel}] ` : '';
           const commandPrefix = commandLabel ? `${commandLabel} | ` : '';
           const pointerBlocker = typeof payload.pointerBlocker === 'string' ? payload.pointerBlocker : '';
           const blockerSuffix = pointerBlocker ? ` blocker=${pointerBlocker}` : '';
-          console.info(`[E2E] App wait ${commandPrefix}${state} ${target}${blockerSuffix}`);
+          logDriverTrace(`[E2E] App wait ${operationPrefix}${commandPrefix}${state} ${target}${blockerSuffix}`);
         } else if (eventName === 'driver.command.received') {
           const command = typeof payload.command === 'string' ? payload.command : 'unknown';
           const id = typeof payload.id === 'string' ? payload.id : 'unknown';
           const summary = typeof payload.summary === 'string' && payload.summary ? ` ${payload.summary}` : '';
-          console.info(`[E2E] App command received ${command} (${id})${summary}`);
+          logDriverTrace(`[E2E] App command received ${command} (${id})${summary}`);
         } else if (eventName === 'driver.command.completed') {
           const command = typeof payload.command === 'string' ? payload.command : 'unknown';
           const id = typeof payload.id === 'string' ? payload.id : 'unknown';
           const elapsedMs = typeof payload.elapsedMs === 'number' ? payload.elapsedMs : null;
           const elapsed = elapsedMs == null ? '' : ` elapsedMs=${elapsedMs}`;
-          console.info(`[E2E] App command completed ${command} (${id}) ok=${String(payload.ok === true)}${elapsed}`);
+          logDriverTrace(`[E2E] App command completed ${command} (${id}) ok=${String(payload.ok === true)}${elapsed}`);
         } else if (eventName === 'frontend.error') {
           const details = formatFrontendError(payload);
           this.frontendErrors.push(details);
           console.error(`[E2E] App event ${eventName} ${details}`);
         } else {
-          console.info(`[E2E] App event ${eventName}`);
+          logDriverTrace(`[E2E] App event ${eventName}`);
         }
       }
     });
@@ -159,19 +203,19 @@ export class DriverClient {
     this.send({ type: 'driver.hello' });
   }
 
-  async waitForApp(): Promise<UnknownRecord> {
+  public async waitForApp(): Promise<UnknownRecord> {
     if (this.appHello) return this.appHello;
     return new Promise(resolve => {
       this.appHelloWaiters.push(() => resolve(this.appHello ?? {}));
     });
   }
 
-  async command<T = unknown>(command: string, args?: UnknownRecord): Promise<T> {
+  public async command<T = unknown>(command: string, args?: UnknownRecord): Promise<T> {
     if (!this.socket) throw new Error('Driver not connected');
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const summary = summarizeArgs(args);
     const suffix = summary ? ` ${summary}` : '';
-    console.info(`[E2E] -> ${command} (${id})${suffix}`);
+    logDriverTrace(`[E2E] -> ${command} (${id})${suffix}`);
     const payload: UnknownRecord = {
       type: 'driver.command',
       id,
@@ -195,7 +239,7 @@ export class DriverClient {
     return promise;
   }
 
-  close(): void {
+  public close(): void {
     this.rejectAllPending(new Error('Driver client closed'));
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.close();

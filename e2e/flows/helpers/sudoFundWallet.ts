@@ -1,16 +1,16 @@
 import { getClient, isAddress, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
-import type { E2EFlowRuntime } from '../types.js';
-import { readClipboardWithRetries } from './readClipboardWithRetries.js';
-import { NetworkConfigSettings } from '@argonprotocol/apps-core';
+import type { IE2EFlowRuntime } from '../types.ts';
+import { readClipboardWithRetries } from './readClipboardWithRetries.ts';
+import { NetworkConfigSettings } from '@argonprotocol/apps-core/src/NetworkConfig.js';
 
-export interface SudoFundWalletInput {
+export interface ISudoFundWalletInput {
   address: string;
   microgons: bigint;
   micronots: bigint;
   archiveUrl?: string;
 }
 
-export interface SudoFundWalletResult {
+export interface ISudoFundWalletResult {
   address: string;
   requestedMicrogons: bigint;
   requestedMicronots: bigint;
@@ -18,7 +18,7 @@ export interface SudoFundWalletResult {
   fundedMicronots: bigint;
 }
 
-export async function getWalletOverlayFundingNeeded(flow: E2EFlowRuntime): Promise<SudoFundWalletInput> {
+export async function getWalletOverlayFundingNeeded(flow: IE2EFlowRuntime): Promise<ISudoFundWalletInput> {
   const micronotsNeededRaw = await flow.getAttribute('WalletOverlay.micronotsNeeded', 'data-value');
   const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
   const address = await readClipboardWithRetries(
@@ -47,11 +47,8 @@ export async function getWalletOverlayFundingNeeded(flow: E2EFlowRuntime): Promi
   };
 }
 
-export async function sudoFundWallet(input: SudoFundWalletInput): Promise<SudoFundWalletResult> {
-  const networkName = process.env.ARGON_NETWORK_NAME ?? 'dev-docker';
-  const config = NetworkConfigSettings[networkName as keyof typeof NetworkConfigSettings];
-
-  const client = await getClient(input.archiveUrl ?? config?.archiveUrl);
+export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudoFundWalletResult> {
+  const client = await getClient(resolveArchiveUrl(input.archiveUrl));
   try {
     const tx = client.tx.sudo.sudo(
       client.tx.utility.batch([
@@ -89,5 +86,40 @@ export async function sudoFundWallet(input: SudoFundWalletInput): Promise<SudoFu
     };
   } finally {
     await client.disconnect();
+  }
+}
+
+function resolveArchiveUrl(archiveUrl?: string): string {
+  if (archiveUrl?.trim()) {
+    return archiveUrl.trim();
+  }
+
+  const runtimeOverride = readRuntimeArchiveUrl();
+  if (runtimeOverride) {
+    return runtimeOverride;
+  }
+
+  const networkName = process.env.ARGON_NETWORK_NAME ?? 'dev-docker';
+  const config = NetworkConfigSettings[networkName as keyof typeof NetworkConfigSettings];
+  if (config?.archiveUrl) {
+    return config.archiveUrl;
+  }
+
+  throw new Error(
+    `sudoFundWallet: unable to resolve archive URL for network "${networkName}". Set ARGON_NETWORK_CONFIG_OVERRIDE or provide archiveUrl.`,
+  );
+}
+
+function readRuntimeArchiveUrl(): string | null {
+  const raw = process.env.ARGON_NETWORK_CONFIG_OVERRIDE?.trim();
+  if (!raw) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const candidate = (parsed as { archiveUrl?: unknown }).archiveUrl;
+    return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null;
+  } catch {
+    return null;
   }
 }

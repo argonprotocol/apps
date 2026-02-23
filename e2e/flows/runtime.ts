@@ -1,20 +1,21 @@
-import type { DriverClient } from '../driver/client.js';
+import type { DriverClient } from '../driver/client.ts';
+import { runOperations } from './operations/index.ts';
 import type {
   E2ECommandArgs,
-  E2EClipboardOptions,
-  E2EFlowDefinition,
-  E2EFlowExecutionOptions,
-  E2EFlowExecutionResult,
-  E2EFlowRuntime,
+  IE2EClipboardOptions,
+  IE2EFlowDefinition,
+  IE2EFlowExecutionOptions,
+  IE2EFlowExecutionResult,
+  IE2EFlowRuntime,
   E2ETarget,
-  E2ETimeoutOptions,
-  E2ETypeOptions,
-  E2EWaitOptions,
-} from './types.js';
+  IE2ETimeoutOptions,
+  IE2ETypeOptions,
+  IE2EWaitOptions,
+} from './types.ts';
 
 const DEFAULT_FLOW_TIMEOUT_MS = 15_000;
 
-function normalizeInput(input: E2EFlowExecutionOptions['input']): E2ECommandArgs {
+function normalizeInput(input: IE2EFlowExecutionOptions['input']): E2ECommandArgs {
   if (!input) return {};
   return input;
 }
@@ -31,45 +32,67 @@ function resolveTarget(target: E2ETarget): { testId?: string; selector?: string;
 
 export async function executeFlow(
   driver: DriverClient,
-  flow: E2EFlowDefinition,
-  execution: E2EFlowExecutionOptions = {},
-): Promise<E2EFlowExecutionResult> {
+  flow: IE2EFlowDefinition,
+  execution: IE2EFlowExecutionOptions = {},
+): Promise<IE2EFlowExecutionResult> {
   const data = new Map<string, unknown>();
   const input = normalizeInput(execution.input);
   const defaultTimeoutMs = flow.defaultTimeoutMs ?? DEFAULT_FLOW_TIMEOUT_MS;
+  let activeOperationName = '';
 
-  const runtime: E2EFlowRuntime = {
+  const withCommandMeta = (args?: E2ECommandArgs): E2ECommandArgs => {
+    const payload: E2ECommandArgs = { ...(args ?? {}) };
+    if (activeOperationName && typeof payload.__operationName !== 'string') {
+      payload.__operationName = activeOperationName;
+    }
+    return payload;
+  };
+
+  const runtime: IE2EFlowRuntime = {
     input,
     defaultTimeoutMs,
-    run: (command, args) => driver.command(command, args ?? {}),
+    setActiveOperation: (operationName?: string) => {
+      activeOperationName = operationName?.trim() ?? '';
+    },
+    run: (command, args) => driver.command(command, withCommandMeta(args)),
+    runOperations: async (context, operations) => {
+      await runOperations(context, operations);
+    },
     click: (target, options) =>
       driver.command('ui.click', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
       }),
-    type: (target, text, options: E2ETypeOptions = {}) =>
+    type: (target, text, options: IE2ETypeOptions = {}) =>
       driver.command('ui.type', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         text,
         clear: options?.clear ?? false,
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
       }),
-    waitFor: (target, options: E2EWaitOptions = {}) =>
+    waitFor: (target, options: IE2EWaitOptions = {}) =>
       driver.command('ui.waitFor', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         state: options?.state ?? 'visible',
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
       }),
-    isVisible: target => driver.command('ui.isVisible', resolveTarget(target)),
+    isVisible: target => driver.command('ui.isVisible', { ...withCommandMeta(), ...resolveTarget(target) }),
     count: async target => {
-      const result = await driver.command<{ count?: unknown }>('ui.count', resolveTarget(target));
+      const result = await driver.command<{ count?: unknown }>('ui.count', {
+        ...withCommandMeta(),
+        ...resolveTarget(target),
+      });
       if (typeof result?.count !== 'number' || !Number.isInteger(result.count) || result.count < 0) {
         throw new Error('ui.count returned an invalid payload');
       }
       return result.count;
     },
-    getText: async (target, options: E2ETimeoutOptions = {}) => {
+    getText: async (target, options: IE2ETimeoutOptions = {}) => {
       const result = await driver.command<{ text?: unknown }>('ui.getText', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
       });
@@ -78,8 +101,9 @@ export async function executeFlow(
       }
       return result.text;
     },
-    getAttribute: async (target, attribute: string, options: E2ETimeoutOptions = {}) => {
+    getAttribute: async (target, attribute: string, options: IE2ETimeoutOptions = {}) => {
       const result = await driver.command<{ value?: unknown }>('ui.getAttribute', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         attribute,
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
@@ -89,13 +113,15 @@ export async function executeFlow(
       }
       throw new Error('ui.getAttribute returned a non-string payload');
     },
-    copy: (target, options: E2ETimeoutOptions = {}) =>
+    copy: (target, options: IE2ETimeoutOptions = {}) =>
       driver.command('ui.copy', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
       }),
-    paste: (target, options: E2EClipboardOptions = {}) =>
+    paste: (target, options: IE2EClipboardOptions = {}) =>
       driver.command('ui.paste', {
+        ...withCommandMeta(),
         ...resolveTarget(target),
         clear: options?.clear ?? false,
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
@@ -106,6 +132,7 @@ export async function executeFlow(
     getData: <T = unknown>(key: string) => data.get(key) as T | undefined,
   };
 
+  await ensureRuntimeUiReady(runtime);
   await flow.run(runtime);
 
   return {
@@ -113,4 +140,8 @@ export async function executeFlow(
   };
 }
 
-export type { E2EFlowDefinition, E2ECommandArgs } from './types.js';
+async function ensureRuntimeUiReady(runtime: IE2EFlowRuntime): Promise<void> {
+  await runtime.waitFor({ selector: '#app' }, { state: 'exists', timeoutMs: 30_000 });
+}
+
+export type { IE2EFlowDefinition, E2ECommandArgs } from './types.ts';

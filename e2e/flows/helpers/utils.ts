@@ -1,8 +1,8 @@
-import type { E2ETarget, E2EFlowRuntime } from '../types.js';
+import type { E2ETarget, IE2EFlowRuntime } from '../types.ts';
 
 const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
 
-export interface PollEveryOptions {
+export interface IPollEveryOptions {
   timeoutMs: number;
   timeoutMessage?: string;
 }
@@ -14,7 +14,7 @@ export function sleep(ms: number): Promise<void> {
 export async function pollEvery(
   intervalMs: number,
   check: () => Promise<boolean>,
-  options: PollEveryOptions,
+  options: IPollEveryOptions,
 ): Promise<void> {
   const startedAt = Date.now();
 
@@ -29,7 +29,19 @@ export async function pollEvery(
 export function normalizeAmountInput(value: unknown, label: string): string | null {
   if (value == null) return null;
 
-  const raw = typeof value === 'number' ? String(value) : String(value);
+  let raw: string;
+  if (typeof value === 'string') {
+    raw = value;
+  } else if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new Error(`${label}: expected a finite number`);
+    }
+    raw = value.toString();
+  } else if (typeof value === 'bigint') {
+    raw = value.toString();
+  } else {
+    throw new Error(`${label}: expected a string or number`);
+  }
   const normalized = raw.replace(/,/g, '').trim();
   if (!normalized) return null;
 
@@ -37,6 +49,32 @@ export function normalizeAmountInput(value: unknown, label: string): string | nu
     throw new Error(`${label}: expected a positive decimal`);
   }
   return normalized;
+}
+
+export function parsePositiveBigIntInput(value: unknown, label: string): bigint | undefined {
+  if (value == null) return undefined;
+
+  if (typeof value === 'bigint') {
+    if (value <= 0n) throw new Error(`${label} must be a positive integer`);
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(`${label} must be a positive integer`);
+    }
+    return BigInt(value);
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error(`${label} must be a positive integer`);
+  }
+
+  const normalized = value.trim();
+  if (!/^[0-9]+$/.test(normalized) || normalized === '0') {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return BigInt(normalized);
 }
 
 export function parseRequiredNumber(value: string | null, label: string): number {
@@ -48,13 +86,6 @@ export function parseRequiredNumber(value: string | null, label: string): number
     throw new Error(`${label}: expected a numeric value`);
   }
   return parsed;
-}
-
-export function parseRequiredBigInt(value: string | null, label: string): bigint {
-  if (!value) {
-    throw new Error(`${label}: expected a value`);
-  }
-  return BigInt(value);
 }
 
 function getScaleDecimals(unitScale: bigint, label: string): number {
@@ -92,12 +123,12 @@ export function parseDecimalToUnits(value: string | number, unitScale: bigint, l
   return whole + fraction;
 }
 
-export interface Bip21Details {
+export interface IBip21Details {
   address: string;
   amount: string | null;
 }
 
-export function parseBip21(uri: string): Bip21Details {
+export function parseBip21(uri: string): IBip21Details {
   const trimmed = uri.trim();
   if (!trimmed.startsWith('bitcoin:')) {
     throw new Error('BIP21: expected bitcoin: URI');
@@ -120,7 +151,7 @@ export function parseBip21(uri: string): Bip21Details {
   };
 }
 
-export async function clickIfVisible(flow: E2EFlowRuntime, target: E2ETarget): Promise<boolean> {
+export async function clickIfVisible(flow: IE2EFlowRuntime, target: E2ETarget): Promise<boolean> {
   const state = await flow.isVisible(target);
   if (!state.visible) return false;
   await flow.click(target);

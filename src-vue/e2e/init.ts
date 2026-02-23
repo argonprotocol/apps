@@ -81,6 +81,26 @@ function isDriverCommandPayload(payload: UnknownObject): payload is DriverComman
   return payload.type === 'driver.command' && typeof payload.id === 'string';
 }
 
+function formatLogValue(value: unknown): string {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (value == null) {
+    return 'null';
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : '[unserializable]';
+  } catch {
+    return '[unserializable]';
+  }
+}
+
 function summarizeCommandArgs(args: unknown): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
   const source = args as UnknownObject;
@@ -88,8 +108,8 @@ function summarizeCommandArgs(args: unknown): string {
   for (const key of LOGGABLE_ARG_KEYS) {
     const value = source[key];
     if (value == null) continue;
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
-    parts.push(`${key}=${String(value)}`);
+
+    parts.push(`${key}=${formatLogValue(value)}`);
   }
   if (typeof source.text === 'string') {
     parts.push(`textLength=${source.text.length}`);

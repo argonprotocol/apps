@@ -62,6 +62,11 @@ export default defineConfig({
             CI: process.env.CI ?? '1',
           },
         },
+        server: {
+          deps: {
+            inline: ['@argonprotocol/apps-core'],
+          },
+        },
       },
     ],
   },

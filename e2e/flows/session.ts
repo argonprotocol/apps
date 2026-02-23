@@ -4,15 +4,15 @@ import { createServer } from 'node:net';
 import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { DriverClient } from '../driver/client.js';
-import { type DriverServer, startDriverServer } from '../driver/server.js';
-import { getFlow, runFlow } from './index.js';
+import { DriverClient } from '../driver/client.ts';
+import { type DriverServer, startDriverServer } from '../driver/server.ts';
+import { getFlow, runFlow } from './index.ts';
 import {
   resolveTestSessionIdentity,
   resolveTestSessionCommandEnv,
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
-} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
 
 const DEFAULT_APP_CONNECT_TIMEOUT_MS = 12 * 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
@@ -20,21 +20,41 @@ const CLEANUP_PORT_POLL_INTERVAL_MS = 500;
 const REQUIRED_LOCAL_DOCKER_PORTS = [3261];
 const APP_IDS = ['com.argon.operations.local', 'com.argon.capital.local'] as const;
 const FAILED_STEP_LOG_TAIL_LINES = 180;
+const APP_STARTUP_READY_TIMEOUT_MS = 120_000;
+const APP_STARTUP_READY_RETRY_DELAY_MS = 1_000;
+const APP_STARTUP_READY_WAIT_TIMEOUT_MS = 15_000;
+const APP_PROCESS_OUTPUT_MAX_LINES = 600;
+const APP_PROCESS_OUTPUT_TAIL_LINES = 120;
 
-export interface FlowSessionOptions {
+export type E2ESessionMode = 'isolated' | 'stateful';
+export type E2EFlowAppLogsMode = 'inherit' | 'quiet';
+
+export interface IFlowSessionOptions {
   repoRoot?: string;
   useTestNetwork?: boolean;
   sessionName?: string;
+  sessionMode?: E2ESessionMode;
+  appLogsMode?: E2EFlowAppLogsMode;
 }
 
-export interface FlowSession {
-  run: (flowName: string, input?: Record<string, unknown>) => Promise<{ elapsedMs: number }>;
+export interface IFlowSession {
+  run: (
+    flowName: string,
+    input?: Record<string, unknown>,
+  ) => Promise<{ elapsedMs: number; data: Record<string, unknown> }>;
   close: () => Promise<void>;
 }
 
-export async function createFlowSession(options: FlowSessionOptions = {}): Promise<FlowSession> {
+export async function createFlowSession(options: IFlowSessionOptions = {}): Promise<IFlowSession> {
   const repoRoot = getRepoRoot(options);
+  const sessionMode = options.sessionMode ?? resolveFlowSessionMode(process.env.E2E_SESSION_MODE);
   const useTestNetwork = options.useTestNetwork ?? process.env.E2E_USE_TEST_NETWORK === '1';
+  const appLogsMode = options.appLogsMode ?? resolveFlowSessionAppLogsMode(process.env.E2E_FLOW_APP_LOGS);
+  if (sessionMode === 'stateful' && useTestNetwork) {
+    throw new Error('[E2E] sessionMode=stateful requires useTestNetwork=false (test-network mode always resets).');
+  }
+  const shouldRunCleanup = sessionMode === 'isolated';
+  const appProcessOutput = createAppProcessOutputTracker(appLogsMode);
 
   const driverServer: DriverServer = await startDriverServer();
   const driver = new DriverClient(driverServer.url);
@@ -43,6 +63,7 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
   let testNetwork: StartedArgonTestNetwork | null = null;
   let closed = false;
   const previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
+  const previousNetworkConfigOverride = process.env.ARGON_NETWORK_CONFIG_OVERRIDE;
 
   const defaultSessionName = options.sessionName || 'e2e';
   const sessionIdentity = resolveTestSessionIdentity({
@@ -64,9 +85,11 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
   };
   try {
     if (useTestNetwork) {
-      // Reset prior local VM/docker state for this session before bringing up the test network.
-      runCleanDevDocker(repoRoot, cleanupEnv, 'startup');
-      await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'startup');
+      if (shouldRunCleanup) {
+        // Reset prior local VM/docker state for this session before bringing up the test network.
+        runCleanDevDocker(repoRoot, cleanupEnv, 'startup');
+        await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'startup');
+      }
 
       testNetwork = await startArgonTestNetwork(sessionIdentity.sessionName, {
         profiles: ['price-oracle'],
@@ -74,55 +97,57 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
         composeProjectName,
       });
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(testNetwork.networkConfigOverride);
+      process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
       const composeEnv = testNetwork.composeEnv;
 
       // Keep helper commands (btc-cli, funding RPC) pointed at the same ephemeral compose project.
       process.env.COMPOSE_PROJECT_NAME = composeEnv.COMPOSE_PROJECT_NAME;
 
-      devDockerProcess = spawn('yarn', ['tauri:dev:docker'], {
-        cwd: repoRoot,
-        env: tauriEnv,
-        stdio: 'inherit',
-        detached: process.platform !== 'win32',
-      });
+      devDockerProcess = spawn('yarn', ['tauri:dev:docker'], createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
     } else {
-      devDockerProcess = spawn('yarn', ['dev:docker'], {
-        cwd: repoRoot,
-        env: tauriEnv,
-        stdio: 'inherit',
-        detached: process.platform !== 'win32',
-      });
+      const appCommand = sessionMode === 'stateful' ? ['tauri:dev:docker'] : ['dev:docker'];
+      devDockerProcess = spawn('yarn', appCommand, createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
     }
+    attachAppProcessOutput(devDockerProcess, appProcessOutput);
   } catch (error) {
     driver.close();
     await driverServer.close();
     if (testNetwork) {
       await testNetwork.stop();
     }
-    runCleanDevDocker(repoRoot, cleanupEnv, 'startup-error');
+    if (shouldRunCleanup) {
+      runCleanDevDocker(repoRoot, cleanupEnv, 'startup-error');
+    }
     restoreComposeProjectName(previousComposeProjectName);
+    restoreNetworkConfigOverride(previousNetworkConfigOverride);
     throw error;
   }
 
   devDockerProcess.once('exit', code => {
     if (code !== 0 && !closed) {
       console.error(`[E2E] dev:docker exited with code ${code}`);
+      printAppProcessOutputTail(appProcessOutput, 'process-exit');
     }
   });
 
   try {
     await driver.connect();
     await waitForAppConnection(driver, devDockerProcess, DEFAULT_APP_CONNECT_TIMEOUT_MS);
+    await waitForInitialUiReady(driver, devDockerProcess, APP_STARTUP_READY_TIMEOUT_MS);
   } catch (error) {
+    printAppProcessOutputTail(appProcessOutput, 'connect-error');
     closed = true;
     driver.close();
     await stopChild(devDockerProcess);
     if (testNetwork) {
       await testNetwork.stop();
     }
-    runCleanDevDocker(repoRoot, cleanupEnv, 'connect-error');
+    if (shouldRunCleanup) {
+      runCleanDevDocker(repoRoot, cleanupEnv, 'connect-error');
+    }
     await driverServer.close();
     restoreComposeProjectName(previousComposeProjectName);
+    restoreNetworkConfigOverride(previousNetworkConfigOverride);
     throw error;
   }
 
@@ -133,9 +158,14 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
       }
       const startedAt = Date.now();
       try {
-        await runFlow(driver, flowName, { input });
+        const result = await runFlow(driver, flowName, { input });
+        return {
+          elapsedMs: Date.now() - startedAt,
+          data: result.data,
+        };
       } catch (error) {
         await printInstallFailureLogs(sessionIdentity.composeNetwork, appInstanceName, flowName, error);
+        printAppProcessOutputTail(appProcessOutput, 'flow-failure');
         const frontendErrors = driver.getFrontendErrors();
         if (frontendErrors.length > 0) {
           console.error('[E2E] Frontend errors captured during flow:');
@@ -145,9 +175,6 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
         }
         throw error;
       }
-      return {
-        elapsedMs: Date.now() - startedAt,
-      };
     },
     close: async () => {
       if (closed) return;
@@ -158,13 +185,16 @@ export async function createFlowSession(options: FlowSessionOptions = {}): Promi
         if (testNetwork) {
           await testNetwork.stop();
         }
-        runCleanDevDocker(repoRoot, cleanupEnv, 'session-close');
-        await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'session-close').catch(error => {
-          console.warn(`[E2E] ${error instanceof Error ? error.message : String(error)}`);
-        });
+        if (shouldRunCleanup) {
+          runCleanDevDocker(repoRoot, cleanupEnv, 'session-close');
+          await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'session-close').catch(error => {
+            console.warn(`[E2E] ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
         await driverServer.close();
       } finally {
         restoreComposeProjectName(previousComposeProjectName);
+        restoreNetworkConfigOverride(previousNetworkConfigOverride);
       }
     },
   };
@@ -226,9 +256,7 @@ async function printInstallFailureLogs(
     const failedFiles = entries.filter(name => /\.Failed$/.test(name)).sort((a, b) => a.localeCompare(b));
     if (failedFiles.length === 0) {
       console.warn(`[E2E] No .Failed install step files found under ${logDir}`);
-      const finishedFiles = entries
-        .filter(name => /\.Finished$/i.test(name))
-        .sort((a, b) => a.localeCompare(b));
+      const finishedFiles = entries.filter(name => /\.Finished$/i.test(name)).sort((a, b) => a.localeCompare(b));
       const logFiles = entries.filter(name => /\.log$/i.test(name)).sort((a, b) => a.localeCompare(b));
       const fallbackTargets = [...new Set([...finishedFiles.slice(-2), ...logFiles.slice(-2)])];
 
@@ -288,40 +316,127 @@ async function printInstallFailureLogs(
   console.error('[E2E] ==========================================');
 }
 
-export function getDefaultFlowInput(flowName: string, env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
-  if (flowName === 'miningOnboarding') {
-    const input: Record<string, unknown> = {
-      serverTab: getOptionalEnv(env, 'MINING_SERVER_TAB') ?? 'local',
-    };
-    const startingBidArgons = getOptionalEnv(env, 'MINING_STARTING_BID_ARGONS');
-    const maximumBidArgons = getOptionalEnv(env, 'MINING_MAXIMUM_BID_ARGONS');
-    const fundingArgons = getOptionalEnv(env, 'MINING_FUNDING_ARGONS');
-
-    if (startingBidArgons) input.startingBidArgons = startingBidArgons;
-    if (maximumBidArgons) input.maximumBidArgons = maximumBidArgons;
-    if (fundingArgons) input.fundingArgons = fundingArgons;
-    return input;
+export function resolveFlowSessionMode(value: string | undefined): E2ESessionMode {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'stateful') {
+    return 'stateful';
   }
-
-  if (flowName === 'vaultingOnboarding') {
-    const input: Record<string, unknown> = {};
-    const extraFundingArgons = getOptionalEnv(env, 'VAULTING_EXTRA_FUNDING_ARGONS');
-    if (extraFundingArgons) input.extraFundingArgons = extraFundingArgons;
-    return input;
-  }
-
-  return {};
+  return 'isolated';
 }
 
-function getOptionalEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  const value = env[name]?.trim();
-  return value ? value : undefined;
+export function resolveFlowSessionAppLogsMode(value: string | undefined): E2EFlowAppLogsMode {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'quiet') {
+    return 'quiet';
+  }
+  return 'inherit';
 }
 
-function getRepoRoot(options: FlowSessionOptions): string {
+function getRepoRoot(options: IFlowSessionOptions): string {
   if (options.repoRoot) return options.repoRoot;
   const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
   return Path.resolve(scriptDir, '..', '..');
+}
+
+function createAppSpawnOptions(
+  repoRoot: string,
+  env: NodeJS.ProcessEnv,
+  appLogsMode: E2EFlowAppLogsMode,
+): {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  stdio: 'inherit' | ['ignore', 'pipe', 'pipe'];
+  detached: boolean;
+} {
+  return {
+    cwd: repoRoot,
+    env,
+    stdio: appLogsMode === 'quiet' ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    detached: process.platform !== 'win32',
+  };
+}
+
+interface IAppProcessOutputTracker {
+  appLogsMode: E2EFlowAppLogsMode;
+  lines: string[];
+  pendingStdout: string;
+  pendingStderr: string;
+}
+
+function createAppProcessOutputTracker(appLogsMode: E2EFlowAppLogsMode): IAppProcessOutputTracker {
+  return {
+    appLogsMode,
+    lines: [],
+    pendingStdout: '',
+    pendingStderr: '',
+  };
+}
+
+function attachAppProcessOutput(child: ChildProcess, tracker: IAppProcessOutputTracker): void {
+  if (tracker.appLogsMode !== 'quiet') return;
+  attachAppOutputStream(child.stdout, 'stdout', tracker);
+  attachAppOutputStream(child.stderr, 'stderr', tracker);
+}
+
+function attachAppOutputStream(
+  stream: NodeJS.ReadableStream | null,
+  source: 'stdout' | 'stderr',
+  tracker: IAppProcessOutputTracker,
+): void {
+  if (!stream) return;
+  if (typeof (stream as { setEncoding?: (encoding: string) => void }).setEncoding === 'function') {
+    (stream as { setEncoding: (encoding: string) => void }).setEncoding('utf8');
+  }
+  stream.on('data', chunk => {
+    appendAppOutputChunk(tracker, source, String(chunk ?? ''));
+  });
+}
+
+function appendAppOutputChunk(tracker: IAppProcessOutputTracker, source: 'stdout' | 'stderr', rawChunk: string): void {
+  if (!rawChunk) return;
+  const normalizedChunk = rawChunk.replace(/\r\n?/g, '\n');
+  const previous = source === 'stdout' ? tracker.pendingStdout : tracker.pendingStderr;
+  const combined = `${previous}${normalizedChunk}`;
+  const lines = combined.split('\n');
+  const trailing = lines.pop() ?? '';
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    pushAppOutputLine(tracker, `[${source}] ${line}`);
+  }
+  if (source === 'stdout') {
+    tracker.pendingStdout = trailing;
+  } else {
+    tracker.pendingStderr = trailing;
+  }
+}
+
+function pushAppOutputLine(tracker: IAppProcessOutputTracker, line: string): void {
+  tracker.lines.push(line);
+  if (tracker.lines.length > APP_PROCESS_OUTPUT_MAX_LINES) {
+    tracker.lines.splice(0, tracker.lines.length - APP_PROCESS_OUTPUT_MAX_LINES);
+  }
+}
+
+function collectAppOutputTail(tracker: IAppProcessOutputTracker, lineLimit: number): string[] {
+  const lines = [...tracker.lines];
+  if (tracker.pendingStdout.trim().length > 0) {
+    lines.push(`[stdout] ${tracker.pendingStdout.trimEnd()}`);
+  }
+  if (tracker.pendingStderr.trim().length > 0) {
+    lines.push(`[stderr] ${tracker.pendingStderr.trimEnd()}`);
+  }
+  if (lines.length <= lineLimit) return lines;
+  return lines.slice(lines.length - lineLimit);
+}
+
+function printAppProcessOutputTail(tracker: IAppProcessOutputTracker, reason: string): void {
+  if (tracker.appLogsMode !== 'quiet') return;
+  const tail = collectAppOutputTail(tracker, APP_PROCESS_OUTPUT_TAIL_LINES);
+  if (tail.length === 0) return;
+  console.error(`[E2E] Recent app output (${reason}):`);
+  for (const line of tail) {
+    console.error(`[E2E] ${line}`);
+  }
 }
 
 async function waitForAppConnection(driver: DriverClient, appProcess: ChildProcess, timeoutMs: number): Promise<void> {
@@ -365,6 +480,49 @@ async function waitForAppConnection(driver: DriverClient, appProcess: ChildProce
       .then(() => finish(resolve))
       .catch(error => finish(() => reject(error)));
   });
+}
+
+async function waitForInitialUiReady(driver: DriverClient, appProcess: ChildProcess, timeoutMs: number): Promise<void> {
+  const startedAt = Date.now();
+  let attempt = 0;
+  while (Date.now() - startedAt < timeoutMs) {
+    if (appProcess.exitCode !== null || appProcess.signalCode !== null) {
+      throw new Error(
+        `[E2E] App process exited before initial UI readiness check (code=${String(appProcess.exitCode)}, signal=${String(appProcess.signalCode)})`,
+      );
+    }
+
+    attempt += 1;
+    try {
+      await driver.command('ui.waitFor', {
+        selector: '#app',
+        state: 'exists',
+        timeoutMs: APP_STARTUP_READY_WAIT_TIMEOUT_MS,
+      });
+      if (attempt > 1) {
+        console.info(`[E2E] App became ready after startup retry (attempt=${attempt})`);
+      }
+      return;
+    } catch (error) {
+      if (!isRetryableStartupDriverError(error)) {
+        throw error;
+      }
+
+      const elapsedMs = Date.now() - startedAt;
+      const remainingMs = Math.max(0, timeoutMs - elapsedMs);
+      console.warn(
+        `[E2E] Initial UI readiness command failed during app startup (attempt=${attempt}, remainingMs=${remainingMs}); retrying`,
+      );
+      await sleep(APP_STARTUP_READY_RETRY_DELAY_MS);
+    }
+  }
+
+  throw new Error(`[E2E] Timed out waiting for initial UI readiness after ${timeoutMs}ms`);
+}
+
+function isRetryableStartupDriverError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
 }
 
 async function stopChild(child: ChildProcess | null): Promise<void> {
@@ -425,6 +583,14 @@ function restoreComposeProjectName(previousValue: string | undefined): void {
     return;
   }
   process.env.COMPOSE_PROJECT_NAME = previousValue;
+}
+
+function restoreNetworkConfigOverride(previousValue: string | undefined): void {
+  if (previousValue === undefined) {
+    delete process.env.ARGON_NETWORK_CONFIG_OVERRIDE;
+    return;
+  }
+  process.env.ARGON_NETWORK_CONFIG_OVERRIDE = previousValue;
 }
 
 function runCleanDevDocker(repoRoot: string, env: NodeJS.ProcessEnv, reason: string): void {

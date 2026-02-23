@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <TooltipProvider :disableHoverableContent="true" data-testid="Dashboard" class="flex flex-col h-full">
+  <TooltipProvider :disableHoverableContent="true" data-testid="VaultingDashboard" class="flex flex-col h-full">
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
       <section v-if="showCollectBar" box class="flex flex-row items-center text-slate-900/90 !py-3">
         <div class="flex flex-row items-center w-full min-h-[6%]">

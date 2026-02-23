@@ -4,10 +4,14 @@
   "type": "module",
   "scripts": {
     "flows": "tsx runFlows.ts",
+    "flows:console": "tsx scripts/operationConsole.ts",
     "test": "yarn --cwd .. vitest --run --project e2e",
     "test:flows": "yarn flows",
-    "tsc": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "lint": "yarn lint:check",
+    "lint:check": "yarn check:operation-rules",
+    "check:operation-rules": "node scripts/checkOperationRules.mjs",
+    "tsc": "yarn check:operation-rules && tsc --noEmit",
+    "build": "yarn check:operation-rules && tsc --noEmit"
   },
   "devDependencies": {
     "@argonprotocol/apps-core": "workspace:*",
