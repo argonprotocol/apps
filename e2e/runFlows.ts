@@ -61,10 +61,7 @@ async function main(): Promise<void> {
         stdio: 'inherit',
       });
     } catch (error) {
-      console.error(
-        `[E2E] Failed to clean test network project "${composeProjectName}" on shutdown`,
-        error,
-      );
+      console.error(`[E2E] Failed to clean test network project "${composeProjectName}" on shutdown`, error);
     }
   };
 

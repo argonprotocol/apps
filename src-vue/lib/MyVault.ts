@@ -31,6 +31,7 @@ import {
   MoveTo,
   NetworkConfig,
   SingleFileQueue,
+  SpecLte146,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
@@ -43,7 +44,6 @@ import { TransactionTracker } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { SpecLte146 } from './MainchainCompat.ts';
 
 export const FEE_ESTIMATE = 75_000n;
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";

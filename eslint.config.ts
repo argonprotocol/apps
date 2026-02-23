@@ -6,7 +6,7 @@ export default tseslint.config(
   tseslint.configs.recommendedTypeChecked,
   importX.flatConfigs.recommended,
   importX.flatConfigs.typescript,
-  { ignores: ['**/node_modules/**', '**/lib/**/*.js', '**/target', 'e2e'] },
+  { ignores: ['**/node_modules/**', '**/lib/**/*.js', '**/target', 'e2e/scripts/**/*.mjs'] },
   {
     rules: {
       'import-x/no-named-as-default-member': 'off',
@@ -14,6 +14,7 @@ export default tseslint.config(
       '@typescript-eslint/prefer-promise-reject-errors': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-base-to-string': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unused-vars': 'off',

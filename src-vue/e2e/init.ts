@@ -88,7 +88,7 @@ function summarizeCommandArgs(args: unknown): string {
   for (const key of LOGGABLE_ARG_KEYS) {
     const value = source[key];
     if (value == null) continue;
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
+
     parts.push(`${key}=${String(value)}`);
   }
   if (typeof source.text === 'string') {

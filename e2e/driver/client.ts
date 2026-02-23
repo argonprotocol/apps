@@ -37,15 +37,15 @@ export class DriverClient {
     this.commandTimeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_COMMAND_TIMEOUT_MS;
   }
 
-  getUrl(): string {
+  public getUrl(): string {
     return this.url;
   }
 
-  getFrontendErrors(): string[] {
+  public getFrontendErrors(): string[] {
     return [...this.frontendErrors];
   }
 
-  async connect(): Promise<void> {
+  public async connect(): Promise<void> {
     if (this.socket) return;
     console.info(`[E2E] Connecting to driver at ${this.url}`);
     this.socket = new WebSocket(this.url);
@@ -159,14 +159,14 @@ export class DriverClient {
     this.send({ type: 'driver.hello' });
   }
 
-  async waitForApp(): Promise<UnknownRecord> {
+  public async waitForApp(): Promise<UnknownRecord> {
     if (this.appHello) return this.appHello;
     return new Promise(resolve => {
       this.appHelloWaiters.push(() => resolve(this.appHello ?? {}));
     });
   }
 
-  async command<T = unknown>(command: string, args?: UnknownRecord): Promise<T> {
+  public async command<T = unknown>(command: string, args?: UnknownRecord): Promise<T> {
     if (!this.socket) throw new Error('Driver not connected');
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const summary = summarizeArgs(args);
@@ -195,7 +195,7 @@ export class DriverClient {
     return promise;
   }
 
-  close(): void {
+  public close(): void {
     this.rejectAllPending(new Error('Driver client closed'));
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.close();

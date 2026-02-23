@@ -20,7 +20,7 @@ export function abbreviateAddress(address: string, length = 4) {
 }
 
 export function toSqlParams(
-  params: (bigint | number | string | Uint8Array | Date | boolean | object | undefined)[],
+  params: (bigint | number | string | Uint8Array | Date | boolean | object | null | undefined)[],
 ): (string | number | Uint8Array | null | Date)[] {
   return params.map(param => {
     if (param === undefined || param === null) {

@@ -121,9 +121,7 @@ export const miningOnboardingFlow: E2EFlowDefinition = {
 
     const installProgressStateAfterLaunch = await flow.isVisible({ selector: '.InstallProgress' });
     if (!installProgressStateAfterLaunch.visible && !(await didFinishInstall())) {
-      await flow
-        .waitFor({ selector: '.InstallProgress' }, { timeoutMs: 30_000 })
-        .catch(() => undefined);
+      await flow.waitFor({ selector: '.InstallProgress' }, { timeoutMs: 30_000 }).catch(() => undefined);
     }
 
     const hasInstallProgress = await flow.isVisible({ selector: '.InstallProgress' });
@@ -269,12 +267,7 @@ async function enterMiningSetup(flow: E2EFlowRuntime): Promise<void> {
 async function getFailedInstallStepNames(flow: E2EFlowRuntime, stepCount: number): Promise<string[]> {
   const failedSteps: string[] = [];
   for (let index = 0; index < stepCount; index += 1) {
-    const status = await getAttributeOrNull(
-      flow,
-      { selector: '.InstallProgressStep', index },
-      'data-status',
-      500,
-    );
+    const status = await getAttributeOrNull(flow, { selector: '.InstallProgressStep', index }, 'data-status', 500);
     if (status !== 'Failed') continue;
 
     const failedLabel = await flow

@@ -409,7 +409,7 @@ function summarizeCommandArgs(args: unknown): string {
   const parts: string[] = [];
   for (const key of LOGGABLE_ARG_KEYS) {
     if (source[key] == null) continue;
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
+
     parts.push(`${key}=${String(source[key])}`);
   }
   if (typeof source.text === 'string') {
@@ -504,7 +504,6 @@ function describeCommand(command: string, argsInput: unknown): string {
 function summarizeCommandResult(result: unknown): string {
   if (result == null) return 'result=null';
   if (typeof result !== 'object' || Array.isArray(result)) {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
     return `result=${String(result)}`;
   }
   const source = result as UnknownRecord;
@@ -521,7 +520,7 @@ function summarizeCommandResult(result: unknown): string {
     'backend',
   ]) {
     if (source[key] == null) continue;
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string
+
     parts.push(`${key}=${String(source[key])}`);
   }
   if (typeof source.value === 'string') {
