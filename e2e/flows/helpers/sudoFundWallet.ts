@@ -1,7 +1,7 @@
 import { getClient, isAddress, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
 import type { IE2EFlowRuntime } from '../types.ts';
 import { readClipboardWithRetries } from './readClipboardWithRetries.ts';
-import { NetworkConfigSettings } from '@argonprotocol/apps-core/src/NetworkConfig.js';
+import { NetworkConfigSettings } from '@argonprotocol/apps-core/src/NetworkConfig.ts';
 
 export interface ISudoFundWalletInput {
   address: string;
