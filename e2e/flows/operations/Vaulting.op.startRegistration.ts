@@ -22,11 +22,15 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
       flow.isVisible('FinalSetupChecklist.openHowVaultingWorksOverlay()').then(state => state.visible),
     ]);
 
-    const runnable = !postStartReadyVisible;
+    const hasEntrypoint = blankSlateVisible || postStartReadyVisible;
     const isComplete = postStartReadyVisible;
-    const isRunnable = !isComplete && runnable;
+    const runnable = !isComplete && hasEntrypoint;
+    const isRunnable = runnable;
     const blockers: string[] = [];
     if (isComplete) blockers.push('ALREADY_COMPLETE');
+    if (!isComplete && !hasEntrypoint) {
+      blockers.push('Vaulting setup entry is not visible (neither blank-slate nor checklist).');
+    }
     return {
       chainState: {},
       uiState: {

@@ -20,17 +20,31 @@ interface IFundLockExactState extends IE2EOperationInspectState<Record<string, n
   blockers: string[];
 }
 
+const POST_FUNDING_LOCK_STATES = new Set([
+  'LockIsProcessingOnBitcoin',
+  'LockedAndIsMinting',
+  'LockedAndMinted',
+  'ReleaseIsProcessingOnArgon',
+  'ReleaseIsWaitingForVault',
+  'ReleaseSigned',
+  'ReleaseIsProcessingOnBitcoin',
+  'ReleaseComplete',
+]);
+
 export default new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
   async inspect({ flow }) {
     const ui = await readFundLockUiState(flow);
     const inFundingState = ui.lockState === 'LockReadyForBitcoin';
     const fundingEntryVisible = ui.fundingBip21Visible || ui.lockOverlayVisible || ui.lockingEntryVisible;
     const runnable = inFundingState && fundingEntryVisible;
-    const isComplete = !inFundingState;
+    const isComplete = ui.lockState != null && POST_FUNDING_LOCK_STATES.has(ui.lockState);
     const isRunnable = !isComplete && runnable;
     const blockers: string[] = [];
     if (isComplete) blockers.push('ALREADY_COMPLETE');
-    if (!isComplete && !fundingEntryVisible) {
+    if (!isComplete && !inFundingState) {
+      blockers.push('Lock is not ready for bitcoin funding.');
+    }
+    if (!isComplete && inFundingState && !fundingEntryVisible) {
       blockers.push('Lock funding UI entry point is not visible.');
     }
     return {

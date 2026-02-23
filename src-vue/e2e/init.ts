@@ -214,6 +214,7 @@ export function initE2EClient(): void {
   installClipboardShim();
 
   const socket = new WebSocket(driverUrl.toString());
+  let driverMessageQueue: Promise<void> = Promise.resolve();
   let hasOpened = false;
   let hasClosed = false;
   const emitFrontEndError = (
@@ -241,7 +242,14 @@ export function initE2EClient(): void {
   });
   socket.addEventListener('message', event => {
     if (typeof event.data !== 'string') return;
-    void onDriverMessage(socket, event.data, session);
+    const payload = event.data;
+    driverMessageQueue = driverMessageQueue
+      .then(async () => {
+        await onDriverMessage(socket, payload, session);
+      })
+      .catch(error => {
+        console.error('[E2E] Failed to process driver message', error);
+      });
   });
   window.addEventListener('error', event => {
     emitFrontEndError('window.error', {
