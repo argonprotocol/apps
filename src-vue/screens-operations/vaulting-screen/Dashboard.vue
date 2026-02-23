@@ -53,10 +53,10 @@
               Collect Revenue
             </button>
           </div>
-          <div v-else-if="myVault.data.pendingCosignUtxoIds.size" class="px-6 flex flex-row items-center w-full h-full">
+          <div v-else-if="myVault.data.pendingCosignUtxosById.size" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
-              <strong>{{myVault.data.pendingCosignUtxoIds.size || 2}} bitcoin transaction{{myVault.data.pendingCosignUtxoIds.size === 1 ? '' : 's'}} require signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
+              <strong>{{myVault.data.pendingCosignUtxosById.size || 2}} bitcoin transaction{{myVault.data.pendingCosignUtxosById.size === 1 ? '' : 's'}} require{{myVault.data.pendingCosignUtxosById.size === 1 ? 's' : ''}} signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(pendingCosignPenalty).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
               <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
                 <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
                 <template v-else>
@@ -378,7 +378,7 @@ import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import SuccessIcon from '../../assets/success.svg?component';
 import ConfigIcon from '../../assets/config.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
-import { NetworkConfig, calculateAPY } from '@argonprotocol/apps-core';
+import { NetworkConfig, bigIntMin, calculateAPY } from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import PersonalBitcoin from './components/PersonalBitcoin.vue';
@@ -457,6 +457,11 @@ const revenueMicrogons = Vue.computed(() => {
   return earnings;
 });
 
+const pendingCosignPenalty = Vue.computed(() => {
+  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce((acc, amount) => acc + amount, 0n);
+  return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
+});
+
 const showCollectOverlay = Vue.ref(false);
 const showEditOverlay = Vue.ref(false);
 
@@ -464,7 +469,7 @@ const showCollectBar = Vue.computed(() => {
   return (
     myVault.data.pendingCollectTxInfo ||
     myVault.data.pendingCollectRevenue ||
-    myVault.data.pendingCosignUtxoIds.size ||
+    myVault.data.pendingCosignUtxosById.size ||
     !bitcoinLockedValue
   );
 });

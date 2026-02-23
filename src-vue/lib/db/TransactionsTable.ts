@@ -11,8 +11,9 @@ export enum ExtrinsicType {
   VaultCollect = 'VaultCollect',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
-  BitcoinRequestRelease = 'BitcoinRequestRelease', // ReleaseIsProcessingOnBitcoin
-  VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease', // ReleaseIsWaitingForVault
+  BitcoinRequestRelease = 'BitcoinRequestRelease',
+  VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease',
+  VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',
 
   Transfer = 'Transfer',
 }
