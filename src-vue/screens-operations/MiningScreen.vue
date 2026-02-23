@@ -1,13 +1,15 @@
 <!-- prettier-ignore -->
 <template>
-  <BlankSlate v-if="config.miningSetupStatus === MiningSetupStatus.None && !config.miningBotAccountPreviousHistory" />
-  <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist" />
-  <SetupInstalling v-else-if="config.miningSetupStatus === MiningSetupStatus.Installing" />
-  <template v-else-if="config.miningSetupStatus === MiningSetupStatus.Finished">
-    <StartingBot v-if="!bot.isReady && !config.isServerInstalling" />
-    <Dashboard v-else-if="config.hasMiningSeats" />
-    <FirstAuction v-else />
-  </template>
+  <div data-testid="MiningScreen" class="h-full">
+    <BlankSlate v-if="config.miningSetupStatus === MiningSetupStatus.None && !config.miningBotAccountPreviousHistory" />
+    <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist" />
+    <SetupInstalling v-else-if="config.miningSetupStatus === MiningSetupStatus.Installing" />
+    <template v-else-if="config.miningSetupStatus === MiningSetupStatus.Finished">
+      <StartingBot v-if="!bot.isReady && !config.isServerInstalling" />
+      <Dashboard v-else-if="config.hasMiningSeats" />
+      <FirstAuction v-else />
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">

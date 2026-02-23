@@ -4,6 +4,7 @@ import { URL } from 'node:url';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 
 type UnknownRecord = Record<string, unknown>;
+const DRIVER_TRACE_ENABLED = (process.env.E2E_DRIVER_TRACE ?? '0').trim() !== '0';
 
 export interface DriverServer {
   url: string;
@@ -25,6 +26,42 @@ interface PendingCommand {
   timeoutMs: number;
   timeout: ReturnType<typeof setTimeout>;
   receivedTimeout: ReturnType<typeof setTimeout> | null;
+}
+
+function formatLogValue(value: unknown): string {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (value == null) {
+    return 'null';
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : '[unserializable]';
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function rawDataToString(data: RawData): string {
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (data instanceof Buffer) {
+    return data.toString('utf8');
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data).toString('utf8');
+  }
+  if (Array.isArray(data)) {
+    return Buffer.concat(data).toString('utf8');
+  }
+  return Buffer.from(data).toString('utf8');
 }
 
 function readCommandTimeoutMs(payload: UnknownRecord): number | undefined {
@@ -61,7 +98,7 @@ function summarizeCommandArgs(payload: UnknownRecord): UnknownRecord {
 
   const source = args as UnknownRecord;
   const summary: UnknownRecord = {};
-  for (const key of ['testId', 'selector', 'state', 'timeoutMs', 'index', 'attribute']) {
+  for (const key of ['__operationName', 'testId', 'selector', 'state', 'timeoutMs', 'index', 'attribute']) {
     if (key in source) {
       summary[key] = source[key];
     }
@@ -75,7 +112,12 @@ function summarizeCommandArgs(payload: UnknownRecord): UnknownRecord {
 function formatArgsSummary(summary: UnknownRecord): string {
   const entries = Object.entries(summary);
   if (!entries.length) return '';
-  return entries.map(([key, value]) => `${key}=${String(value)}`).join(' ');
+  return entries.map(([key, value]) => `${key}=${formatLogValue(value)}`).join(' ');
+}
+
+function logDriverTrace(message: string): void {
+  if (!DRIVER_TRACE_ENABLED) return;
+  console.info(message);
 }
 
 function send(socket: WebSocket, payload: UnknownRecord) {
@@ -189,7 +231,7 @@ export async function startDriverServer(): Promise<DriverServer> {
     socket.on('message', (raw: RawData) => {
       let payload: UnknownRecord;
       try {
-        payload = JSON.parse(raw.toString()) as UnknownRecord;
+        payload = JSON.parse(rawDataToString(raw)) as UnknownRecord;
       } catch (_error) {
         return;
       }
@@ -227,7 +269,7 @@ export async function startDriverServer(): Promise<DriverServer> {
         const argsSummary = summarizeCommandArgs(payload);
         const summaryText = formatArgsSummary(argsSummary);
         const summarySuffix = summaryText ? ` ${summaryText}` : '';
-        console.info(`[E2E] Forwarding command ${commandName} (${commandId})${summarySuffix}`);
+        logDriverTrace(`[E2E] Forwarding command ${commandName} (${commandId})${summarySuffix}`);
         if (!appSocket || appSocket.readyState !== WebSocket.OPEN) {
           send(socket, {
             type: 'client.commandResult',
@@ -328,7 +370,7 @@ export async function startDriverServer(): Promise<DriverServer> {
           }
           const commandName = commandFromPayload ?? commandFromPending ?? 'unknown';
           const ok = payload.ok === true;
-          console.info(`[E2E] Received command result ${commandName} (${commandId}) ok=${ok}`);
+          logDriverTrace(`[E2E] Received command result ${commandName} (${commandId}) ok=${ok}`);
         }
         if (payload.type === 'client.event') {
           lastAppEventAt = Date.now();
@@ -354,7 +396,7 @@ export async function startDriverServer(): Promise<DriverServer> {
             eventName !== 'driver.command.completed' &&
             eventName !== 'ui.wait.progress'
           ) {
-            console.info(`[E2E] App event (${eventName})`);
+            logDriverTrace(`[E2E] App event (${eventName})`);
           }
         }
         if (controllerSocket) {

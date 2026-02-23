@@ -1,8 +1,20 @@
+import { JsonExt } from '@argonprotocol/apps-core';
 import { getConfig } from '../stores/config';
-import { getMiningFrames } from '../stores/mainchain';
+import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
+import { getBitcoinLocks } from '../stores/bitcoin';
+import { getMyVault } from '../stores/vaults';
+import { getDbPromise } from '../stores/helpers/dbPromise';
 
 type UnknownRecord = Record<string, unknown>;
-export const LOGGABLE_ARG_KEYS = ['testId', 'selector', 'state', 'timeoutMs', 'index', 'attribute'] as const;
+export const LOGGABLE_ARG_KEYS = [
+  '__operationName',
+  'testId',
+  'selector',
+  'state',
+  'timeoutMs',
+  'index',
+  'attribute',
+] as const;
 
 type WaitState = 'visible' | 'hidden' | 'exists' | 'missing' | 'enabled' | 'clickable';
 
@@ -15,6 +27,14 @@ interface ElementTarget {
 interface CommandContext {
   session: string;
   emit?: (payload: UnknownRecord) => void;
+}
+
+interface InspectRefs {
+  bitcoinLocks: ReturnType<typeof getBitcoinLocks>;
+  myVault: ReturnType<typeof getMyVault>;
+  db: Awaited<ReturnType<typeof getDbPromise>>;
+  getMainchainClient: typeof getMainchainClient;
+  JsonExt: typeof JsonExt;
 }
 
 interface WaitForStateOptions {
@@ -77,6 +97,7 @@ type VisualState = {
 };
 let visualState: VisualState | null = null;
 let activeCommandLabel = '';
+let activeOperationLabel = '';
 let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 const QUIET_VISUAL_COMMANDS = new Set(['ui.getAttribute', 'ui.count', 'ui.isVisible']);
 type CursorVisualMode = 'click' | 'wait';
@@ -300,6 +321,16 @@ function setWaitStatusText(text: string, mode: CursorVisualMode = 'click'): void
   state.status.style.opacity = '1';
 }
 
+function withOperationStatusPrefix(text: string): string {
+  if (!activeOperationLabel) return text;
+  return `Operation: ${activeOperationLabel} | ${text}`;
+}
+
+function withOperationLogPrefix(text: string): string {
+  if (!activeOperationLabel) return text;
+  return `[${activeOperationLabel}] ${text}`;
+}
+
 function clearWaitStatusText(): void {
   if (statusClearTimer) {
     clearTimeout(statusClearTimer);
@@ -374,9 +405,10 @@ function visualizeWait(target: ElementTarget, state: WaitState, element: HTMLEle
   const label = truncateLabel(`waiting ${state}: ${targetLabel}`);
   const pointer = element ? getPointerInteractableResult(element) : null;
   const blockerInfo = pointer && !pointer.clickable ? (pointer.hitLabel ?? pointer.reason ?? 'unknown') : '';
+  const operationPrefix = activeOperationLabel ? `Operation: ${activeOperationLabel} | ` : '';
   const commandPrefix = activeCommandLabel ? `Waiting: ${activeCommandLabel} | ` : '';
   setWaitStatusText(
-    `${commandPrefix}waiting for ${state}: ${targetLabel}${blockerInfo ? ` | blocked by ${blockerInfo}` : ''}`,
+    `${operationPrefix}${commandPrefix}waiting for ${state}: ${targetLabel}${blockerInfo ? ` | blocked by ${blockerInfo}` : ''}`,
     'wait',
   );
   const point = element ? getElementCenter(element) : null;
@@ -403,6 +435,26 @@ function asObject(value: unknown, command: string): UnknownRecord {
   throw new CommandError('invalid_args', `Command '${command}' expects an object payload`);
 }
 
+function formatLogValue(value: unknown): string {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (value == null) {
+    return 'null';
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : '[unserializable]';
+  } catch {
+    return '[unserializable]';
+  }
+}
+
 function summarizeCommandArgs(args: unknown): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
   const source = args as UnknownRecord;
@@ -410,7 +462,7 @@ function summarizeCommandArgs(args: unknown): string {
   for (const key of LOGGABLE_ARG_KEYS) {
     if (source[key] == null) continue;
 
-    parts.push(`${key}=${String(source[key])}`);
+    parts.push(`${key}=${formatLogValue(source[key])}`);
   }
   if (typeof source.text === 'string') {
     parts.push(`textLength=${source.text.length}`);
@@ -431,6 +483,12 @@ function getTargetLabelFromArgs(args: UnknownRecord): string | null {
   const target = getTargetFromArgs(args);
   if (!target) return null;
   return getTargetLabel(target);
+}
+
+function getOperationLabelFromArgs(args: UnknownRecord): string {
+  const value = args.__operationName;
+  if (typeof value !== 'string') return '';
+  return value.trim();
 }
 
 function describeCommand(command: string, argsInput: unknown): string {
@@ -504,7 +562,7 @@ function describeCommand(command: string, argsInput: unknown): string {
 function summarizeCommandResult(result: unknown): string {
   if (result == null) return 'result=null';
   if (typeof result !== 'object' || Array.isArray(result)) {
-    return `result=${String(result)}`;
+    return `result=${formatLogValue(result)}`;
   }
   const source = result as UnknownRecord;
   const parts: string[] = [];
@@ -521,7 +579,7 @@ function summarizeCommandResult(result: unknown): string {
   ]) {
     if (source[key] == null) continue;
 
-    parts.push(`${key}=${String(source[key])}`);
+    parts.push(`${key}=${formatLogValue(source[key])}`);
   }
   if (typeof source.value === 'string') {
     const clipped = source.value.length > 60 ? `${source.value.slice(0, 59)}…` : source.value;
@@ -686,13 +744,7 @@ async function waitForAppReady(timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<vo
 }
 
 async function ensureAppReadyForUi(timeoutMs: number): Promise<void> {
-  try {
-    await waitForAppReady(timeoutMs);
-  } catch (error) {
-    // During startup, network/store initialization can briefly fail or stall.
-    // UI commands should still proceed and rely on element-level timeouts.
-    console.warn('[E2E] App readiness check failed; continuing ui command', error);
-  }
+  await waitForAppReady(timeoutMs);
 }
 
 function isVisible(element: HTMLElement): boolean {
@@ -1077,6 +1129,66 @@ function getSessionFromArgs(args: UnknownRecord): string | undefined {
   return getString(args.session, 'session', false);
 }
 
+type InspectFunction = (refs: InspectRefs, args: UnknownRecord) => unknown;
+
+function hydrateInspectFunction(fnSource: string): InspectFunction {
+  const source = fnSource.trim();
+  if (!source) {
+    throw new CommandError('invalid_args', `'fn' must be a non-empty function source`);
+  }
+
+  let compiled: unknown;
+  try {
+    // Expected shape: "(refs, args) => ({ ... })" or "async (refs, args) => { ... }"
+    // Vite may emit "__name(fn, 'label')" wrappers in function toString output.
+    // Provide a no-op shim so hydrated inspect functions keep working in that case.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const createFunction = new Function(
+      '"use strict"; const __name = (fn) => fn; return (' + source + ');',
+    ) as () => unknown;
+    compiled = createFunction();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CommandError('invalid_args', `Failed to hydrate 'fn': ${message}`);
+  }
+
+  if (typeof compiled !== 'function') {
+    throw new CommandError('invalid_args', `'fn' must evaluate to a function`);
+  }
+
+  return compiled as InspectFunction;
+}
+
+function serializeInspectResult(result: unknown): unknown {
+  if (result === undefined) return null;
+  try {
+    const serialized = JsonExt.stringify(result);
+    if (typeof serialized !== 'string') {
+      throw new Error('result is not serializable');
+    }
+    return JsonExt.parse(serialized);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CommandError('invalid_result', `Failed to serialize inspect result: ${message}`);
+  }
+}
+
+async function getInspectRefs(): Promise<InspectRefs> {
+  const myVault = getMyVault();
+  const bitcoinLocks = getBitcoinLocks();
+  await myVault.load().catch(() => undefined);
+  await bitcoinLocks.load().catch(() => undefined);
+  const db = await getDbPromise();
+
+  return {
+    bitcoinLocks,
+    myVault,
+    db,
+    getMainchainClient,
+    JsonExt,
+  };
+}
+
 async function writeClipboard(text: string): Promise<{ backend: 'navigator' | 'memory' }> {
   setFallbackClipboard(text);
   try {
@@ -1116,6 +1228,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
         event: 'ui.wait.progress',
         command,
         commandLabel,
+        operationLabel: activeOperationLabel || null,
         target: getTargetLabel(target),
         state,
         elapsedMs: Math.round(elapsedMs),
@@ -1137,7 +1250,11 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
 
   if (command.startsWith('ui.')) {
     const readyTimeoutMs = getTimeoutMs(args.readyTimeoutMs, 'readyTimeoutMs', DEFAULT_READY_TIMEOUT_MS);
-    await ensureAppReadyForUi(readyTimeoutMs);
+    const isAppRootProbe =
+      command === 'ui.waitFor' && args.selector === '#app' && (args.state === 'exists' || args.state == null);
+    if (!isAppRootProbe) {
+      await ensureAppReadyForUi(readyTimeoutMs);
+    }
   }
 
   if (command === 'app.waitForReady') {
@@ -1302,6 +1419,27 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     };
   }
 
+  if (command === 'command.inspect') {
+    if (import.meta.env.PROD) {
+      throw new CommandError('disabled', `'command.inspect' is unavailable in production builds`);
+    }
+    if (!__ARGON_DRIVER_WS__) {
+      throw new CommandError('disabled', `'command.inspect' is only available when e2e driver mode is enabled`);
+    }
+
+    const fnSource = getString(args.fn, 'fn') as string;
+    const inspectArgs = args.args == null ? {} : asObject(args.args, 'command.inspect.args');
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_READY_TIMEOUT_MS);
+    const inspectFn = hydrateInspectFunction(fnSource);
+    const refs = await getInspectRefs();
+    const rawResult = await withTimeout(Promise.resolve(inspectFn(refs, inspectArgs)), timeoutMs, 'command.inspect');
+
+    return {
+      ok: true,
+      value: serializeInspectResult(rawResult),
+    };
+  }
+
   throw new CommandError('unknown_command', `Unknown command '${command}'`);
 }
 
@@ -1321,6 +1459,11 @@ export async function runCommand(
   context: CommandContext,
 ): Promise<CommandExecutionResult> {
   const commandLabel = describeCommand(command, argsInput);
+  const args =
+    argsInput && typeof argsInput === 'object' && !Array.isArray(argsInput)
+      ? (argsInput as UnknownRecord)
+      : ({} as UnknownRecord);
+  activeOperationLabel = getOperationLabelFromArgs(args);
   const showVisualStatus = shouldShowVisualCommandStatus(command);
   const isWaitCommand = command === 'ui.waitFor';
   const quietVisualStatus = QUIET_VISUAL_COMMANDS.has(command);
@@ -1329,42 +1472,50 @@ export async function runCommand(
   activeCommandLabel = commandLabel;
   if (showVisualStatus) {
     setWaitStatusText(
-      `${getCommandStatusVerb(command, 'start', quietVisualStatus)}: ${statusLabel}`,
+      withOperationStatusPrefix(`${getCommandStatusVerb(command, 'start', quietVisualStatus)}: ${statusLabel}`),
       isWaitCommand ? 'wait' : 'click',
     );
   }
-  console.info(`[E2E] command:start ${commandLabel}`);
+  console.info(withOperationLogPrefix(`[E2E] command:start ${commandLabel}`));
   try {
     const result = await runCommandInternal(command, argsInput, context);
     const elapsedMs = Date.now() - startedAt;
     const resultSummary = summarizeCommandResult(result);
-    console.info(`[E2E] command:ok ${commandLabel} elapsedMs=${elapsedMs} ${resultSummary}`);
+    console.info(withOperationLogPrefix(`[E2E] command:ok ${commandLabel} elapsedMs=${elapsedMs} ${resultSummary}`));
     if (showVisualStatus) {
       if (quietVisualStatus) {
         // Keep polling status visible during high-frequency loops (install progress checks).
-        setWaitStatusText(`Polling: ${statusLabel}`, isWaitCommand ? 'wait' : 'click');
+        setWaitStatusText(withOperationStatusPrefix(`Polling: ${statusLabel}`), isWaitCommand ? 'wait' : 'click');
       } else if (isWaitCommand) {
-        setWaitStatusText(`${getCommandStatusVerb(command, 'success', quietVisualStatus)}: ${statusLabel}`, 'wait');
+        setWaitStatusText(
+          withOperationStatusPrefix(`${getCommandStatusVerb(command, 'success', quietVisualStatus)}: ${statusLabel}`),
+          'wait',
+        );
         clearWaitStatusTextSoon();
       } else {
-        setWaitStatusText(`${getCommandStatusVerb(command, 'success', quietVisualStatus)}: ${statusLabel}`, 'click');
+        setWaitStatusText(
+          withOperationStatusPrefix(`${getCommandStatusVerb(command, 'success', quietVisualStatus)}: ${statusLabel}`),
+          'click',
+        );
         clearWaitStatusTextSoon();
       }
     }
     activeCommandLabel = '';
+    activeOperationLabel = '';
     return { ok: true, result };
   } catch (error) {
     const elapsedMs = Date.now() - startedAt;
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[E2E] command:error ${commandLabel} elapsedMs=${elapsedMs} ${message}`);
+    console.warn(withOperationLogPrefix(`[E2E] command:error ${commandLabel} elapsedMs=${elapsedMs} ${message}`));
     if (showVisualStatus) {
       setWaitStatusText(
-        `${getCommandStatusVerb(command, 'error', quietVisualStatus)}: ${statusLabel}`,
+        withOperationStatusPrefix(`${getCommandStatusVerb(command, 'error', quietVisualStatus)}: ${statusLabel}`),
         isWaitCommand ? 'wait' : 'click',
       );
       clearWaitStatusTextSoon(quietVisualStatus ? 3_000 : 2_000);
     }
     activeCommandLabel = '';
+    activeOperationLabel = '';
     if (error instanceof CommandError) {
       return {
         ok: false,

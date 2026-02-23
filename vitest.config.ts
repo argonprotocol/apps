@@ -61,6 +61,9 @@ export default defineConfig({
             ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS ?? '1',
             CI: process.env.CI ?? '1',
           },
+          deps: {
+            inline: ['@argonprotocol/apps-core'],
+          },
         },
       },
     ],

@@ -81,6 +81,26 @@ function isDriverCommandPayload(payload: UnknownObject): payload is DriverComman
   return payload.type === 'driver.command' && typeof payload.id === 'string';
 }
 
+function formatLogValue(value: unknown): string {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (value == null) {
+    return 'null';
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : '[unserializable]';
+  } catch {
+    return '[unserializable]';
+  }
+}
+
 function summarizeCommandArgs(args: unknown): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
   const source = args as UnknownObject;
@@ -89,7 +109,7 @@ function summarizeCommandArgs(args: unknown): string {
     const value = source[key];
     if (value == null) continue;
 
-    parts.push(`${key}=${String(value)}`);
+    parts.push(`${key}=${formatLogValue(value)}`);
   }
   if (typeof source.text === 'string') {
     parts.push(`textLength=${source.text.length}`);
@@ -194,6 +214,7 @@ export function initE2EClient(): void {
   installClipboardShim();
 
   const socket = new WebSocket(driverUrl.toString());
+  let driverMessageQueue: Promise<void> = Promise.resolve();
   let hasOpened = false;
   let hasClosed = false;
   const emitFrontEndError = (
@@ -221,7 +242,14 @@ export function initE2EClient(): void {
   });
   socket.addEventListener('message', event => {
     if (typeof event.data !== 'string') return;
-    void onDriverMessage(socket, event.data, session);
+    const payload = event.data;
+    driverMessageQueue = driverMessageQueue
+      .then(async () => {
+        await onDriverMessage(socket, payload, session);
+      })
+      .catch(error => {
+        console.error('[E2E] Failed to process driver message', error);
+      });
   });
   window.addEventListener('error', event => {
     emitFrontEndError('window.error', {

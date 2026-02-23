@@ -4,14 +4,15 @@ import { execFileSync } from 'node:child_process';
 import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { resolveTestSessionCommandEnv } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
-import { getFlow } from './flows/index.js';
-import { createFlowSession, getDefaultFlowInput, type FlowSession } from './flows/session.js';
+import { resolveTestSessionCommandEnv } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
+import { getFlow, listFlows } from './flows/index.ts';
+import { createFlowSession, resolveFlowSessionMode, type IFlowSession } from './flows/session.ts';
 
-const DEFAULT_FLOWS = ['miningOnboarding', 'vaultingOnboarding'];
-const DEFAULT_APP_PORT = 1420;
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = Path.resolve(__dirname, '..');
+const DISCOVERED_FLOW_NAMES = listFlows().map(flow => flow.name);
+const DEFAULT_FLOWS = DISCOVERED_FLOW_NAMES.filter(name => name !== 'App.flow.runManual');
+const DEFAULT_APP_PORT = 1420;
 let shutdownRequested = false;
 let shutdownExitCode = 130;
 
@@ -24,9 +25,15 @@ function parseNonEmptyCsv(value: string | undefined, fallback: string[]): string
   return entries.length > 0 ? entries : fallback;
 }
 
+const ALL_FLOW_NAMES = DISCOVERED_FLOW_NAMES.join(', ');
+
 async function main(): Promise<void> {
   const flowNames = parseNonEmptyCsv(process.env.E2E_FLOWS, DEFAULT_FLOWS);
-  const useTestNetwork = (process.env.E2E_USE_TEST_NETWORK ?? '1').trim() === '1';
+  const sessionMode = resolveFlowSessionMode(process.env.E2E_SESSION_MODE);
+  const useTestNetwork = (process.env.E2E_USE_TEST_NETWORK ?? (sessionMode === 'stateful' ? '0' : '1')).trim() === '1';
+  if (sessionMode === 'stateful' && useTestNetwork) {
+    throw new Error('[E2E] E2E_SESSION_MODE=stateful requires E2E_USE_TEST_NETWORK=0.');
+  }
   const flowDefaultSessionName = useTestNetwork
     ? flowNames.length === 1
       ? flowNames[0]
@@ -37,7 +44,7 @@ async function main(): Promise<void> {
     fallbackSessionName: flowDefaultSessionName,
   });
 
-  let session: FlowSession | null = null;
+  let session: IFlowSession | null = null;
   let isClosing = false;
 
   const closeSession = async (): Promise<void> => {
@@ -51,7 +58,7 @@ async function main(): Promise<void> {
   };
 
   const cleanupTestNetworkArtifacts = (): void => {
-    if (!useTestNetwork) return;
+    if (!useTestNetwork || sessionMode === 'stateful') return;
     const cleanupEnv: NodeJS.ProcessEnv = { ...appEnv };
     try {
       execFileSync('yarn', ['clean:dev:docker'], {
@@ -85,20 +92,19 @@ async function main(): Promise<void> {
 
   for (const name of flowNames) {
     if (!getFlow(name)) {
-      throw new Error(`Unknown flow '${name}'. Available flows: ${DEFAULT_FLOWS.join(', ')}`);
+      throw new Error(`Unknown flow '${name}'. Available flows: ${ALL_FLOW_NAMES}`);
     }
   }
 
-  session = await createFlowSession({ useTestNetwork, sessionName });
+  session = await createFlowSession({ useTestNetwork, sessionName, sessionMode });
 
   try {
     for (const name of flowNames) {
       if (shutdownRequested) break;
-      const input = getDefaultFlowInput(name);
       const startedAt = Date.now();
       console.log(`[E2E] Running flow '${name}'`);
       try {
-        await session.run(name, input);
+        await session.run(name);
       } catch (error) {
         if (shutdownRequested && isDriverDisconnectError(error)) {
           console.warn(`[E2E] Flow '${name}' interrupted during shutdown.`);

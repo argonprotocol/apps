@@ -1,17 +1,17 @@
-import type { E2EFlowRuntime } from '../types.js';
-import { pollEvery } from './utils.js';
+import type { IE2EFlowRuntime } from '../types.ts';
+import { pollEvery } from './utils.ts';
 
-interface ReadClipboardWithRetriesOptions {
+interface IReadClipboardWithRetriesOptions {
   label?: string;
   timeoutMs?: number;
   intervalMs?: number;
 }
 
 export async function readClipboardWithRetries(
-  flow: E2EFlowRuntime,
+  flow: IE2EFlowRuntime,
   triggerCopy: () => Promise<void>,
   isValid: (value: string) => boolean,
-  options?: ReadClipboardWithRetriesOptions,
+  options?: IReadClipboardWithRetriesOptions,
 ): Promise<string> {
   options ??= {};
   const timeoutMs = options.timeoutMs ?? 10_000;

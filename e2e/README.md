@@ -54,8 +54,10 @@ Pinning updates:
 
 Available flows:
 
-- `miningOnboarding`
-- `vaultingOnboarding`
+- `Mining.flow.onboarding`
+- `Vaulting.flow.onboarding`
+- `Bitcoin.flow.lockUnlock`
+- `App.flow.runManual`
 
 Run flow scripts:
 
@@ -64,8 +66,8 @@ Run flow scripts:
 yarn e2e:docker
 
 # Run a single flow
-E2E_FLOWS=miningOnboarding yarn e2e:docker
-E2E_FLOWS=vaultingOnboarding yarn e2e:docker
+E2E_FLOWS=Mining.flow.onboarding yarn e2e:docker
+E2E_FLOWS=Vaulting.flow.onboarding yarn e2e:docker
 
 # Directly through the e2e workspace script
 yarn workspace @argonprotocol/apps-e2e run flows
@@ -74,15 +76,72 @@ yarn workspace @argonprotocol/apps-e2e run flows
 E2E_USE_TEST_NETWORK=1 yarn e2e:docker
 
 # Optional: force a specific test-network identity
-E2E_USE_TEST_NETWORK=1 ARGON_APP_INSTANCE=vaultingOnboarding yarn e2e:docker
+E2E_USE_TEST_NETWORK=1 ARGON_APP_INSTANCE=Vaulting.flow.onboarding yarn e2e:docker
 ```
 
 Common flow inputs:
 
 ```bash
-E2E_FLOWS=miningOnboarding MINING_FUNDING_ARGONS=500 yarn e2e:docker
-E2E_FLOWS=vaultingOnboarding VAULTING_EXTRA_FUNDING_ARGONS=1200 yarn e2e:docker
+E2E_FLOWS=Mining.flow.onboarding MINING_FUNDING_ARGONS=500 yarn e2e:docker
+E2E_FLOWS=Vaulting.flow.onboarding VAULTING_EXTRA_FUNDING_ARGONS=1200 yarn e2e:docker
+E2E_FLOWS=Bitcoin.flow.lockUnlock yarn e2e:docker
 ```
+
+Run operations directly (state-aware debugging on top of current app state):
+
+```bash
+# Example: drive bitcoin lock/unlock path step-by-step
+E2E_FLOWS=Vaulting.flow.onboarding,App.flow.runManual \
+E2E_OPERATION_CONTEXT=bitcoin \
+E2E_OPERATIONS=Bitcoin.op.ensureLockFundingDetails,Bitcoin.op.fundLockExact,Bitcoin.op.waitUnlockReady,Bitcoin.op.unlockBitcoin \
+yarn e2e:docker
+
+# Continue from existing runtime/chain state (no auto reset)
+E2E_SESSION_MODE=stateful \
+E2E_USE_TEST_NETWORK=0 \
+E2E_FLOWS=App.flow.runManual \
+E2E_OPERATION_CONTEXT=bitcoin \
+E2E_OPERATIONS=Bitcoin.op.waitUnlockReady,Bitcoin.op.unlockBitcoin \
+yarn workspace @argonprotocol/apps-e2e run flows
+
+# Inspect preconditions only (no clicks/submissions)
+E2E_FLOWS=App.flow.runManual \
+E2E_OPERATION_CONTEXT=bitcoin \
+E2E_OPERATIONS=Bitcoin.op.waitUnlockReady \
+E2E_OPERATION_MODE=inspect \
+yarn workspace @argonprotocol/apps-e2e run flows
+```
+
+Run operations interactively (step -> inspect result -> next step in same live session):
+
+```bash
+E2E_SESSION_MODE=stateful \
+E2E_USE_TEST_NETWORK=0 \
+ARGON_E2E_HEADLESS=1 \
+E2E_CONSOLE_APP_LOGS=quiet \
+yarn workspace @argonprotocol/apps-e2e run flows:console
+
+# then in the console:
+# ops> status
+# ops> runnable
+# ops> inspect Bitcoin.op.waitUnlockReady
+# ops> run Bitcoin.op.waitUnlockReady
+# ops> run Bitcoin.op.unlockBitcoin
+# ops> exit
+```
+
+Notes:
+
+- `E2E_SESSION_MODE=stateful` runs `tauri:dev:docker` only and skips cleanup/reset on close.
+- Stateful mode requires `E2E_USE_TEST_NETWORK=0`.
+- `E2E_OPERATIONS` is a comma-separated list and must match operation names under `e2e/flows/operations`.
+- `E2E_OPERATION_TIMEOUT_MS` overrides per-command driver timeout for that operation run.
+- `E2E_OPERATION_MODE=inspect` runs operation `inspect` only; it does not execute side effects.
+- `flows:console` defaults to `E2E_CONSOLE_APP_LOGS=quiet` to keep the prompt readable; set `E2E_CONSOLE_APP_LOGS=inherit` for full app/runtime logs.
+- `flows:console` also defaults to `E2E_CONSOLE_DRIVER_TRACE=0`; set `E2E_CONSOLE_DRIVER_TRACE=1` to see per-command driver trace logs.
+- `flows:console` defaults to `E2E_CONSOLE_SUPPRESS_POLKADOT_WARNINGS=1`; set `E2E_CONSOLE_SUPPRESS_POLKADOT_WARNINGS=0` if you need dependency dedupe warnings.
+- `E2E_FLOW_APP_LOGS=quiet` can also be used with non-console flow runs when you only want operation output.
+- `E2E_DRIVER_TRACE=0` suppresses per-command driver trace logs for any flow runner.
 
 ## Run Vitest
 
