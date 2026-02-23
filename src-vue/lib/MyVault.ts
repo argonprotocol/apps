@@ -324,13 +324,21 @@ export class MyVault {
     }
     try {
       this.data.finalizeMyBitcoinError = undefined;
-      if (!releaseRequest) {
+      const effectiveReleaseRequest =
+        releaseRequest ??
+        (lock.releaseToDestinationAddress !== undefined && lock.releaseBitcoinNetworkFee !== undefined
+          ? {
+              toScriptPubkey: lock.releaseToDestinationAddress,
+              bitcoinNetworkFee: lock.releaseBitcoinNetworkFee,
+            }
+          : undefined);
+      if (!effectiveReleaseRequest) {
         return;
       }
       const result = await this.cosignRelease({
         utxoId: lock.utxoId!,
-        toScriptPubkey: releaseRequest.toScriptPubkey,
-        bitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
+        toScriptPubkey: effectiveReleaseRequest.toScriptPubkey,
+        bitcoinNetworkFee: effectiveReleaseRequest.bitcoinNetworkFee,
       });
       if (!result) {
         // The release request can lag briefly on finalized views. Treat as retryable and
