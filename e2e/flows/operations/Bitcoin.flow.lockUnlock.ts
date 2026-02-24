@@ -5,7 +5,7 @@ import bitcoinFundLockExact from './Bitcoin.op.fundLockExact.ts';
 import bitcoinUnlockBitcoin from './Bitcoin.op.unlockBitcoin.ts';
 import bitcoinWaitUnlockReady from './Bitcoin.op.waitUnlockReady.ts';
 import { OperationalFlow } from './index.ts';
-import vaultingEnsureOperational from './Vaulting.op.ensureOperational.ts';
+import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
 type ILockUnlockState = IE2EOperationInspectState<Record<string, never>, Record<string, never>>;
@@ -25,7 +25,7 @@ export default new OperationalFlow<IBitcoinFlowContext, ILockUnlockState>(import
   },
   async run({ flow, flowName }, _state, api) {
     const vaultingContext = createVaultingFlowContext(flow, flowName);
-    await flow.runOperations(vaultingContext, [vaultingEnsureOperational]);
+    await flow.runOperations(vaultingContext, [vaultingOnboarding]);
     await api.run(bitcoinEnsureLockFundingDetails);
     await api.run(bitcoinFundLockExact);
     await api.run(bitcoinWaitUnlockReady);

@@ -115,6 +115,19 @@ function formatArgsSummary(summary: UnknownRecord): string {
   return entries.map(([key, value]) => `${key}=${formatLogValue(value)}`).join(' ');
 }
 
+function summarizeLastAppEvent(lastAppEvent: UnknownRecord | null): UnknownRecord | null {
+  if (!lastAppEvent) return null;
+  const summary: UnknownRecord = {};
+  for (const key of ['event', 'name', 'id', 'command', 'target', 'state', 'elapsedMs', 'ok']) {
+    if (!(key in lastAppEvent)) continue;
+    summary[key] = lastAppEvent[key];
+  }
+  if (Object.keys(summary).length > 0) {
+    return summary;
+  }
+  return lastAppEvent;
+}
+
 function logDriverTrace(message: string): void {
   if (!DRIVER_TRACE_ENABLED) return;
   console.info(message);
@@ -150,6 +163,26 @@ export async function startDriverServer(): Promise<DriverServer> {
   let lastAppEventAt: number | null = null;
   let lastAppEvent: UnknownRecord | null = null;
   const pendingCommands = new Map<string, PendingCommand>();
+
+  const buildPendingDiagnostics = (pending: PendingCommand, extra: UnknownRecord = {}): UnknownRecord => {
+    const now = Date.now();
+    return {
+      commandId: pending.commandId,
+      command: pending.commandName,
+      elapsedMs: now - pending.startedAt,
+      timeoutMs: pending.timeoutMs,
+      receivedAt: pending.receivedAt,
+      args: pending.argsSummary,
+      appConnected: !!appSocket && appSocket.readyState === WebSocket.OPEN,
+      appSocketState: appSocket?.readyState ?? null,
+      controllerSocketState: controllerSocket?.readyState ?? null,
+      pendingCount: pendingCommands.size,
+      sinceLastAppMessageMs: lastAppMessageAt ? now - lastAppMessageAt : null,
+      sinceLastAppEventMs: lastAppEventAt ? now - lastAppEventAt : null,
+      lastAppEvent: summarizeLastAppEvent(lastAppEvent),
+      ...extra,
+    };
+  };
 
   const clearPendingCommand = (commandId: string): void => {
     const pending = pendingCommands.get(commandId);
@@ -191,9 +224,13 @@ export async function startDriverServer(): Promise<DriverServer> {
     }
   };
 
-  const failAllPending = (code: string, message: string): void => {
+  const failAllPending = (
+    code: string,
+    message: string,
+    detailsForPending?: (pending: PendingCommand) => UnknownRecord | undefined,
+  ): void => {
     for (const pending of [...pendingCommands.values()]) {
-      failPendingCommand(pending, code, message);
+      failPendingCommand(pending, code, message, detailsForPending?.(pending));
     }
   };
 
@@ -271,6 +308,18 @@ export async function startDriverServer(): Promise<DriverServer> {
         const summarySuffix = summaryText ? ` ${summaryText}` : '';
         logDriverTrace(`[E2E] Forwarding command ${commandName} (${commandId})${summarySuffix}`);
         if (!appSocket || appSocket.readyState !== WebSocket.OPEN) {
+          const details: UnknownRecord = {
+            commandId: typeof payload.id === 'string' ? payload.id : null,
+            command: commandName,
+            args: argsSummary,
+            appSocketState: appSocket?.readyState ?? null,
+            controllerSocketState: controllerSocket?.readyState ?? null,
+            pendingCount: pendingCommands.size,
+            sinceLastAppMessageMs: lastAppMessageAt ? Date.now() - lastAppMessageAt : null,
+            sinceLastAppEventMs: lastAppEventAt ? Date.now() - lastAppEventAt : null,
+            lastAppEvent: summarizeLastAppEvent(lastAppEvent),
+          };
+          console.warn('[E2E] Rejecting command because app is not connected', details);
           send(socket, {
             type: 'client.commandResult',
             id: payload.id,
@@ -278,6 +327,7 @@ export async function startDriverServer(): Promise<DriverServer> {
             error: {
               code: 'app_not_connected',
               message: 'App is not connected to the driver',
+              details,
             },
           });
           return;
@@ -289,21 +339,9 @@ export async function startDriverServer(): Promise<DriverServer> {
           const receivedTimeout = setTimeout(() => {
             const pending = pendingCommands.get(payload.id as string);
             if (!pending || pending.receivedAt) return;
-            const now = Date.now();
-            const details: UnknownRecord = {
-              commandId: pending.commandId,
-              command: pending.commandName,
+            const details = buildPendingDiagnostics(pending, {
               receivedTimeoutMs: COMMAND_RECEIVED_TIMEOUT_MS,
-              elapsedMs: now - pending.startedAt,
-              args: pending.argsSummary,
-              appConnected: !!appSocket && appSocket.readyState === WebSocket.OPEN,
-              appSocketState: appSocket?.readyState ?? null,
-              controllerSocketState: controllerSocket?.readyState ?? null,
-              pendingCount: pendingCommands.size,
-              sinceLastAppMessageMs: lastAppMessageAt ? now - lastAppMessageAt : null,
-              sinceLastAppEventMs: lastAppEventAt ? now - lastAppEventAt : null,
-              lastAppEvent,
-            };
+            });
             console.warn('[E2E] Driver command was not acknowledged by app', details);
             failPendingCommand(
               pending,
@@ -315,27 +353,14 @@ export async function startDriverServer(): Promise<DriverServer> {
           const timeout = setTimeout(() => {
             const pending = pendingCommands.get(payload.id as string);
             if (!pending) return;
-            const now = Date.now();
-            const details: UnknownRecord = {
-              commandId: pending.commandId,
-              command: pending.commandName,
-              timeoutMs: pending.timeoutMs,
-              elapsedMs: now - pending.startedAt,
-              receivedAt: pending.receivedAt,
-              args: pending.argsSummary,
-              appConnected: !!appSocket && appSocket.readyState === WebSocket.OPEN,
-              appSocketState: appSocket?.readyState ?? null,
-              controllerSocketState: controllerSocket?.readyState ?? null,
-              pendingCount: pendingCommands.size,
-              sinceLastAppMessageMs: lastAppMessageAt ? now - lastAppMessageAt : null,
-              sinceLastAppEventMs: lastAppEventAt ? now - lastAppEventAt : null,
-              lastAppEvent,
-            };
+            const details = buildPendingDiagnostics(pending);
             console.warn('[E2E] Driver command timeout', details);
             failPendingCommand(
               pending,
               'driver_command_timeout',
-              `Driver did not receive a response for '${pending.commandName}' within ${pending.timeoutMs}ms (elapsed=${now - pending.startedAt}ms, appConnected=${String(
+              `Driver did not receive a response for '${pending.commandName}' within ${pending.timeoutMs}ms (elapsed=${String(
+                details.elapsedMs,
+              )}ms, appConnected=${String(
                 details.appConnected,
               )}, sinceLastAppMessageMs=${String(details.sinceLastAppMessageMs)})`,
               details,
@@ -406,10 +431,18 @@ export async function startDriverServer(): Promise<DriverServer> {
       }
     });
 
-    socket.on('close', () => {
-      console.info(`[E2E] Driver socket closed (role=${role})`);
+    socket.on('close', (closeCode, closeReasonBuffer) => {
+      const closeReason = closeReasonBuffer.toString();
+      console.info(
+        `[E2E] Driver socket closed (role=${role}, code=${closeCode}${closeReason ? ` reason=${closeReason}` : ''})`,
+      );
       if (role === 'app') {
-        failAllPending('app_disconnected', 'App disconnected from driver before command completed');
+        failAllPending('app_disconnected', 'App disconnected from driver before command completed', pending =>
+          buildPendingDiagnostics(pending, {
+            socketCloseCode: closeCode,
+            socketCloseReason: closeReason || null,
+          }),
+        );
         appSocket = null;
       }
       if (role === 'controller') {

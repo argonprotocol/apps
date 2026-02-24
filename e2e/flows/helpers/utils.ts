@@ -1,10 +1,15 @@
 import type { E2ETarget, IE2EFlowRuntime } from '../types.ts';
+import { isPollDeadlineExceededError, withPollDeadline } from './pollDeadline.ts';
 
 const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
 
 export interface IPollEveryOptions {
   timeoutMs: number;
   timeoutMessage?: string;
+}
+
+export interface IClickIfVisibleOptions {
+  timeoutMs?: number;
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -17,13 +22,26 @@ export async function pollEvery(
   options: IPollEveryOptions,
 ): Promise<void> {
   const startedAt = Date.now();
+  const deadline = startedAt + options.timeoutMs;
 
-  while (Date.now() - startedAt <= options.timeoutMs) {
-    if (await check()) return;
-    await sleep(intervalMs);
+  while (true) {
+    const remainingBeforeCheck = deadline - Date.now();
+    if (remainingBeforeCheck < 0) break;
+
+    try {
+      if (await withPollDeadline(deadline, check)) return;
+    } catch (error) {
+      if (isPollDeadlineExceededError(error)) break;
+      throw error;
+    }
+
+    const remainingAfterCheck = deadline - Date.now();
+    if (remainingAfterCheck <= 0) break;
+
+    await sleep(Math.min(intervalMs, remainingAfterCheck));
   }
 
-  throw new Error(options.timeoutMessage ?? `Timed out after ${options.timeoutMs}ms`);
+  throw new Error(options.timeoutMessage ?? `Timed out after ${Date.now() - startedAt}ms`);
 }
 
 export function normalizeAmountInput(value: unknown, label: string): string | null {
@@ -151,9 +169,28 @@ export function parseBip21(uri: string): IBip21Details {
   };
 }
 
-export async function clickIfVisible(flow: IE2EFlowRuntime, target: E2ETarget): Promise<boolean> {
+export async function clickIfVisible(
+  flow: IE2EFlowRuntime,
+  target: E2ETarget,
+  options: IClickIfVisibleOptions = {},
+): Promise<boolean> {
   const state = await flow.isVisible(target);
-  if (!state.visible) return false;
-  await flow.click(target);
-  return true;
+  if (!state.visible || !state.enabled) return false;
+
+  try {
+    await flow.click(target, { timeoutMs: options.timeoutMs ?? 1_500 });
+    return true;
+  } catch (error) {
+    if (isTransientClickFailure(error)) return false;
+    throw error;
+  }
+}
+
+function isTransientClickFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('Timed out waiting for clickable') ||
+    message.includes('not_found') ||
+    (message.includes('Target') && message.includes('not found'))
+  );
 }

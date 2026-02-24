@@ -57,7 +57,7 @@ describe('BotServer basic behavior', () => {
       const timeout = setTimeout(() => reject(new Error('Timed out waiting for message')), 5000);
 
       ws.on('message', data => {
-        const msg: JsonRpcResponse = JsonExt.parse(String(data));
+        const msg: JsonRpcResponse = JsonExt.parse(readMessageData(data));
         if ('event' in msg && msg.event === '/heartbeat') {
           heartbeatCount += 1;
           if (heartbeatCount >= 2) {
@@ -114,7 +114,7 @@ describe('BotServer basic behavior', () => {
       });
 
       ws.on('message', data => {
-        const msg = JSON.parse(String(data));
+        const msg = JSON.parse(readMessageData(data));
         if (msg.id === 1) {
           clearTimeout(timeout);
           resolve(msg);
@@ -157,7 +157,7 @@ describe('BotServer basic behavior', () => {
       });
 
       ws.on('message', data => {
-        const msg = JSON.parse(String(data));
+        const msg = JSON.parse(readMessageData(data));
         if (msg.id === 2) {
           clearTimeout(timeout);
           resolve(msg);
@@ -179,3 +179,10 @@ describe('BotServer basic behavior', () => {
     expect(String(response.error.message)).toContain('Method not found');
   });
 });
+
+function readMessageData(data: WebSocket.RawData): string {
+  if (typeof data === 'string') return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
+  return data.toString('utf8');
+}

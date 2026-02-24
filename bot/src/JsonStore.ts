@@ -91,15 +91,18 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
 }
 
 export async function atomicWrite(path: string, contents: string) {
+  await fs.promises.mkdir(Path.dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
-  await fs.promises.writeFile(tmp, contents);
   try {
+    await fs.promises.writeFile(tmp, contents);
     await fs.promises.rename(tmp, path);
   } catch (e: unknown) {
     if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-      console.log(`It seems ${tmp} was already saved... nothing to worry about `);
+      return;
     } else {
       throw e;
     }
+  } finally {
+    await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
   }
 }

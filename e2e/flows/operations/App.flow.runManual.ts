@@ -15,7 +15,7 @@ import miningFundWallet from './Mining.op.fundWallet.ts';
 import miningStartRegistration from './Mining.op.startRegistration.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 import vaultingCompleteChecklist from './Vaulting.op.completeChecklist.ts';
-import vaultingEnsureOperational from './Vaulting.op.ensureOperational.ts';
+import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
 import vaultingFinalizeSetup from './Vaulting.op.finalizeSetup.ts';
 import vaultingFundWallet from './Vaulting.op.fundWallet.ts';
 import vaultingStartRegistration from './Vaulting.op.startRegistration.ts';
@@ -201,7 +201,7 @@ const OPERATION_CONTEXTS: Record<OperationContextName, IOperationContextDefiniti
     operationsByName: toOperationMap([
       vaultingActivateTab,
       vaultingCompleteChecklist,
-      vaultingEnsureOperational,
+      vaultingOnboarding,
       vaultingFinalizeSetup,
       vaultingFundWallet,
       vaultingStartRegistration,

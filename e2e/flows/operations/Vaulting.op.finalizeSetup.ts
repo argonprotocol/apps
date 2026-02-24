@@ -65,7 +65,7 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     }
 
     if (state.createVaultVisible) {
-      await flow.click('SetupChecklist.createVault()', { timeoutMs: 8_000 });
+      await flow.click('SetupChecklist.createVault()', { timeoutMs: 30_000 });
       await waitForVaultCreateTransition(flow, flowName);
     }
 

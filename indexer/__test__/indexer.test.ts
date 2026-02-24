@@ -23,7 +23,6 @@ it.skipIf(skipE2E)('syncs transfers', async () => {
   const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
 
   const indexerDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'indexer-'));
-  runOnTeardown(() => fs.promises.rm(indexerDir, { recursive: true, force: true }));
 
   const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
   const client = await getClient(clientAddress);
@@ -34,7 +33,10 @@ it.skipIf(skipE2E)('syncs transfers', async () => {
     mainchainUrl: clientAddress,
   });
   await indexer.start();
-  runOnTeardown(() => indexer.stop());
+  runOnTeardown(async () => {
+    await indexer.stop();
+    await fs.promises.rm(indexerDir, { recursive: true, force: true });
+  });
   // @ts-expect-error - private access
   const insertSpy = vi.spyOn(indexer.db, 'recordFinalizedBlock');
 

@@ -42,3 +42,4 @@ server/.env
 /indexer/lib
 /indexer/seeds/*-old.db
 /e2e/argon/chainspec*.json
+/e2e/artifacts

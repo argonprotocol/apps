@@ -18,11 +18,11 @@ import {
   Mining,
   MiningFrames,
   NetworkConfig,
-  TreasuryPool,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
+import { TreasuryPool } from './TreasuryPool.js';
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
@@ -433,7 +433,7 @@ export class Vaults {
     clients: MainchainClients,
   ): Promise<{ totalPoolRewards: bigint; totalActivatedCapital: bigint; participatingVaults: number }> {
     const client = await clients.prunedClientOrArchivePromise;
-    const percentForVaults = TreasuryPool.getBidPoolPercentForVaults(client);
+    const bidPoolPercentForVaults = TreasuryPool.getBidPoolPercentForVaults(client);
     const totalMicrogonsBid = await new Mining(clients).fetchAggregateBidCosts();
     const vaultRevenue = await client.query.vaults.revenuePerFrameByVault.entries();
     let totalActivatedCapital = 0n;
@@ -448,8 +448,8 @@ export class Vaults {
       }
     }
 
-    // treasury takes 20% of total bids
-    const totalPoolRewardsBn = BigNumber(totalMicrogonsBid).multipliedBy(percentForVaults);
+    // treasury burns 20% of total bids
+    const totalPoolRewardsBn = BigNumber(totalMicrogonsBid).multipliedBy(bidPoolPercentForVaults);
     const totalPoolRewards = bigNumberToBigInt(totalPoolRewardsBn);
 
     return {

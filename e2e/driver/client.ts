@@ -10,6 +10,11 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+interface IAppHelloWaiter {
+  resolve: (value: UnknownRecord) => void;
+  reject: (error: Error) => void;
+}
+
 function formatLogValue(value: unknown): string {
   if (
     typeof value === 'string' ||
@@ -69,7 +74,8 @@ export class DriverClient {
   private socket: WebSocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private appHello: UnknownRecord | null = null;
-  private appHelloWaiters: Array<() => void> = [];
+  private appHelloError: Error | null = null;
+  private appHelloWaiters: IAppHelloWaiter[] = [];
   private messageBuffer: UnknownRecord[] = [];
   private frontendErrors: string[] = [];
   private readonly commandTimeoutMs: number;
@@ -90,6 +96,7 @@ export class DriverClient {
   public async connect(): Promise<void> {
     if (this.socket) return;
     console.info(`[E2E] Connecting to driver at ${this.url}`);
+    this.appHelloError = null;
     this.socket = new WebSocket(this.url);
     await new Promise<void>((resolve, reject) => {
       if (!this.socket) return reject(new Error('Socket not initialized'));
@@ -107,7 +114,8 @@ export class DriverClient {
 
       if (payload.type === 'client.hello') {
         this.appHello = payload;
-        this.appHelloWaiters.forEach(fn => fn());
+        this.appHelloError = null;
+        this.appHelloWaiters.forEach(waiter => waiter.resolve(payload));
         this.appHelloWaiters = [];
         console.info('[E2E] Received app hello');
         return;
@@ -194,10 +202,14 @@ export class DriverClient {
     this.socket.on('close', (code, reason) => {
       const reasonText = reason.toString();
       const detail = reasonText ? `: ${reasonText}` : '';
-      this.rejectAllPending(new Error(`Driver socket closed (${code}${detail})`));
+      const error = new Error(`Driver socket closed (${code}${detail})`);
+      this.rejectAllPending(error);
+      this.rejectWaitForApp(error);
+      this.socket = null;
     });
     this.socket.on('error', (error: Error) => {
       this.rejectAllPending(error);
+      this.rejectWaitForApp(error);
     });
 
     this.send({ type: 'driver.hello' });
@@ -205,8 +217,11 @@ export class DriverClient {
 
   public async waitForApp(): Promise<UnknownRecord> {
     if (this.appHello) return this.appHello;
-    return new Promise(resolve => {
-      this.appHelloWaiters.push(() => resolve(this.appHello ?? {}));
+    if (this.appHelloError) {
+      throw this.appHelloError;
+    }
+    return new Promise((resolve, reject) => {
+      this.appHelloWaiters.push({ resolve, reject });
     });
   }
 
@@ -240,7 +255,9 @@ export class DriverClient {
   }
 
   public close(): void {
-    this.rejectAllPending(new Error('Driver client closed'));
+    const error = new Error('Driver client closed');
+    this.rejectAllPending(error);
+    this.rejectWaitForApp(error);
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.close();
     }
@@ -258,6 +275,14 @@ export class DriverClient {
       pending.reject(error);
     }
     this.pending.clear();
+  }
+
+  private rejectWaitForApp(error: Error): void {
+    this.appHelloError = error;
+    for (const waiter of this.appHelloWaiters) {
+      waiter.reject(error);
+    }
+    this.appHelloWaiters = [];
   }
 }
 
