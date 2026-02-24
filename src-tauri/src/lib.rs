@@ -14,6 +14,8 @@ use tokio::sync::Mutex;
 use utils::Utils;
 #[cfg(target_os = "macos")]
 use window_vibrancy::*;
+#[cfg(feature = "e2e-screenshots")]
+use xcap::Window as XcapWindow;
 use zip::DateTime;
 
 mod migrations;
@@ -312,6 +314,77 @@ async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn e2e_capture_main_window_screenshot(
+    _app: AppHandle,
+    output_path: Option<String>,
+    name: Option<String>,
+) -> Result<String, String> {
+    #[cfg(not(feature = "e2e-screenshots"))]
+    {
+        let _ = (&_app, &output_path, &name);
+        return Err("E2E screenshot support is disabled in this build".to_string());
+    }
+
+    #[cfg(feature = "e2e-screenshots")]
+    {
+        let current_pid = std::process::id();
+
+        let selected_window = XcapWindow::all()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|window| window.pid().is_ok_and(|pid| pid == current_pid))
+            .ok_or_else(|| format!("No capture window found for app pid {current_pid}"))?;
+
+        let destination_path = output_path
+            .and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(trimmed))
+                }
+            })
+            .unwrap_or_else(|| {
+                let fallback_dir = std::env::temp_dir().join("argon-e2e-screenshots");
+                let stamp = OffsetDateTime::now_utc().unix_timestamp_nanos();
+                let raw_label = name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("screenshot");
+                let normalized_label = raw_label
+                    .chars()
+                    .map(|ch| {
+                        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                            ch
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect::<String>();
+                let trimmed_label = normalized_label.trim_matches('-');
+                let label = if trimmed_label.is_empty() {
+                    "screenshot".to_string()
+                } else {
+                    trimmed_label.chars().take(96).collect::<String>()
+                };
+                fallback_dir.join(format!("{label}-{stamp}.png"))
+            });
+
+        if let Some(parent) = destination_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        } else {
+            return Err("output_path must include a filename".to_string());
+        }
+
+        let image = selected_window.capture_image().map_err(|e| e.to_string())?;
+        image.save(&destination_path).map_err(|e| e.to_string())?;
+
+        Ok(destination_path.to_string_lossy().to_string())
+    }
+}
+
 ////////////////////////////////////////////////////////////
 
 fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_log::Builder {
@@ -408,7 +481,7 @@ pub fn run() {
     let app_name_clone = app_name.clone();
     let network_config_override_json_clone = network_config_override_json.clone();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .on_page_load(move |window, _payload| {
             if window.label() != "main" {
@@ -527,7 +600,9 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_os::init());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             open_ssh_connection,
             close_ssh_connection,
@@ -556,9 +631,7 @@ pub fn run() {
             overwrite_mnemonic,
             measure_latency,
             load_instance,
-            ssh_access::ssh_access_activate,
-            ssh_access::ssh_access_status,
-            ssh_access::ssh_access_deactivate,
+            e2e_capture_main_window_screenshot,
         ])
         .run(context)
         .expect("error while running tauri application");

@@ -1,4 +1,5 @@
 import { JsonExt } from '@argonprotocol/apps-core';
+import { invoke } from '@tauri-apps/api/core';
 import { getConfig } from '../stores/config';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
@@ -14,6 +15,8 @@ export const LOGGABLE_ARG_KEYS = [
   'timeoutMs',
   'index',
   'attribute',
+  'outputPath',
+  'name',
 ] as const;
 
 type WaitState = 'visible' | 'hidden' | 'exists' | 'missing' | 'enabled' | 'clickable';
@@ -547,6 +550,15 @@ function describeCommand(command: string, argsInput: unknown): string {
       break;
     case 'clipboard.read':
       pieces.push('clipboard.read');
+      break;
+    case 'app.captureScreenshot':
+      pieces.push('captureScreenshot');
+      if (typeof args.outputPath === 'string' && args.outputPath.trim()) {
+        pieces.push(args.outputPath.trim());
+      }
+      if (typeof args.name === 'string' && args.name.trim()) {
+        pieces.push(`name=${args.name.trim()}`);
+      }
       break;
     default: {
       pieces.push(command);
@@ -1416,6 +1428,30 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     return {
       href: window.location.href,
       path: window.location.pathname,
+    };
+  }
+
+  if (command === 'app.captureScreenshot') {
+    if (!__ARGON_DRIVER_WS__) {
+      throw new CommandError('disabled', `'app.captureScreenshot' is only available when e2e driver mode is enabled`);
+    }
+
+    const outputPathRaw = getString(args.outputPath, 'outputPath', false, true);
+    const outputPath = outputPathRaw?.trim() ? outputPathRaw.trim() : undefined;
+    const nameRaw = getString(args.name, 'name', false, true);
+    const name = nameRaw?.trim() ? nameRaw.trim() : undefined;
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const path = await withTimeout(
+      invoke<string>('e2e_capture_main_window_screenshot', {
+        outputPath: outputPath ?? null,
+        name: name ?? null,
+      }),
+      timeoutMs,
+      'app.captureScreenshot',
+    );
+    return {
+      ok: true,
+      path,
     };
   }
 
