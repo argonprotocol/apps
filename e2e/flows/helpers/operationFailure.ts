@@ -55,10 +55,10 @@ export async function logDefaultAppFailureDiagnostics(
     flow.isVisible('MiningDashboard').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('VaultingDashboard').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
-      .isVisible('FinalSetupChecklist.openHowMiningWorksOverlay()')
+      .isVisible('SetupChecklist.openHowMiningWorksOverlay()')
       .catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
-      .isVisible('FinalSetupChecklist.openHowVaultingWorksOverlay()')
+      .isVisible('SetupChecklist.openHowVaultingWorksOverlay()')
       .catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('WelcomeOverlay.closeOverlay()').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
@@ -66,9 +66,7 @@ export async function logDefaultAppFailureDiagnostics(
       .catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('BitcoinLockingOverlay').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('BitcoinUnlockingOverlay').catch(() => ({ visible: false, exists: false, enabled: false })),
-    flow
-      .isVisible('ServerConnectOverlay.connectServer()')
-      .catch(() => ({ visible: false, exists: false, enabled: false })),
+    flow.isVisible('ServerConnectPanel.connect()').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.count({ selector: '[role="dialog"][data-state="open"]' }).catch(() => -1),
     flow.isVisible({ selector: '[role="dialog"][data-state="open"]' }).catch(() => ({ visible: false, exists: false })),
     flow

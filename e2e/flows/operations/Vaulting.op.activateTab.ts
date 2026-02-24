@@ -69,7 +69,7 @@ export default new Operation<IActivateVaultingTabContext, IActivateTabState>(imp
       return;
     }
 
-    await flow.click('TabSwitcher.goto(ScreenKey.Vaulting)', { timeoutMs: 5_000 });
+    await flow.click('TabSwitcher.goto(OperationsTab.Vaulting)', { timeoutMs: 10_000 });
     await flow.waitFor('VaultingScreen', {
       timeoutMs: 10_000,
     });

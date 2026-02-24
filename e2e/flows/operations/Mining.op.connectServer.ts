@@ -18,15 +18,17 @@ interface IConnectServerState extends IE2EOperationInspectState<Record<string, n
   blockers: string[];
 }
 
+const DEFAULT_CONNECT_READY_TIMEOUT_MS = 120_000;
+
 export default new Operation<IMiningFlowContext, IConnectServerState>(import.meta, {
   async inspect({ flow }) {
     const [connectEntry, connectOverlay, dashboard] = await Promise.all([
-      flow.isVisible('FinalSetupChecklist.openServerConnectOverlay()'),
+      flow.isVisible('SetupChecklist.openServerConnectPanel()'),
       flow.isVisible({ selector: '.ConnectOverlay' }),
       flow.isVisible('MiningDashboard'),
     ]);
     const connectText = await flow
-      .getText('FinalSetupChecklist.openServerConnectOverlay()', { timeoutMs: 2_000 })
+      .getText('SetupChecklist.openServerConnectPanel()', { timeoutMs: 2_000 })
       .catch(() => null);
     const serverConnected = /used to run your mining software|api key is ready to go|connected and verified/i.test(
       connectText ?? '',
@@ -58,15 +60,19 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
     };
   },
   async run({ flow, flowName, input, state: flowState }, state) {
+    const connectReadyTimeoutMs = getConnectReadyTimeoutMs();
+
     if (!state.connectOverlayVisible && (state.serverConnected || state.dashboardVisible)) {
       return;
     }
 
-    await flow.click('FinalSetupChecklist.openServerConnectOverlay()', { timeoutMs: 20_000 });
-    await flow.click(`ServerConnectOverlay.selectedTab='${input.serverTab}'`);
+    await flow.click('SetupChecklist.openServerConnectPanel()', { timeoutMs: 20_000 });
+    await flow.click(`ServerConnectPanel.selectedTab='${input.serverTab}'`);
     flowState.connectedServerTab = input.serverTab;
 
     if (input.serverTab === 'local') {
+      // Avoid racing with tab-state updates; ensure local tab content is rendered before connecting.
+      await flow.waitFor('ServerConnectOverlay.local.warning', { timeoutMs: 15_000 });
       const warningText = await flow
         .getText('ServerConnectOverlay.local.warning', { timeoutMs: 1_000 })
         .catch(() => null);
@@ -75,47 +81,58 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
       }
     }
 
-    await flow.waitFor('ServerConnectOverlay.connect()', { state: 'enabled', timeoutMs: 20_000 }).catch(async error => {
-      const connectState = await flow.isVisible('ServerConnectOverlay.connect()');
-      const warningText = await flow
-        .getText('ServerConnectOverlay.local.warning', { timeoutMs: 1_000 })
-        .catch(() => null);
-      const blockedPorts = await flow
-        .getText('ServerConnectOverlay.local.blockedPorts', { timeoutMs: 1_000 })
-        .catch(() => null);
-      const diskStatus = await flow
-        .getText('ServerConnectOverlay.local.diskStatus', { timeoutMs: 1_000 })
-        .catch(() => null);
-      const diskSummary = await flow
-        .getText('ServerConnectOverlay.local.diskSummary', { timeoutMs: 1_000 })
-        .catch(() => null);
-      const dockerStatus = await flow
-        .getText('ServerConnectOverlay.local.dockerStatus', { timeoutMs: 1_000 })
-        .catch(() => null);
-      const dockerSummary = await flow
-        .getText('ServerConnectOverlay.local.dockerSummary', { timeoutMs: 1_000 })
-        .catch(() => null);
+    await flow
+      .waitFor('ServerConnectPanel.connect()', { state: 'enabled', timeoutMs: connectReadyTimeoutMs })
+      .catch(async error => {
+        const connectState = await flow.isVisible('ServerConnectPanel.connect()');
+        const warningText = await flow
+          .getText('ServerConnectOverlay.local.warning', { timeoutMs: 1_000 })
+          .catch(() => null);
+        const blockedPorts = await flow
+          .getText('ServerConnectOverlay.local.blockedPorts', { timeoutMs: 1_000 })
+          .catch(() => null);
+        const diskStatus = await flow
+          .getText('ServerConnectOverlay.local.diskStatus', { timeoutMs: 1_000 })
+          .catch(() => null);
+        const diskSummary = await flow
+          .getText('ServerConnectOverlay.local.diskSummary', { timeoutMs: 1_000 })
+          .catch(() => null);
+        const dockerStatus = await flow
+          .getText('ServerConnectOverlay.local.dockerStatus', { timeoutMs: 1_000 })
+          .catch(() => null);
+        const dockerSummary = await flow
+          .getText('ServerConnectOverlay.local.dockerSummary', { timeoutMs: 1_000 })
+          .catch(() => null);
 
-      const details = [
-        `connectButton(visible=${connectState.visible}, enabled=${connectState.enabled}, exists=${connectState.exists})`,
-        warningText ? `warning="${warningText.replace(/\s+/g, ' ').trim()}"` : null,
-        blockedPorts ? `blockedPorts="${blockedPorts.replace(/\s+/g, ' ').trim()}"` : null,
-        diskStatus ? `diskStatus="${diskStatus.replace(/\s+/g, ' ').trim()}"` : null,
-        diskSummary ? `diskSummary="${diskSummary.replace(/\s+/g, ' ').trim()}"` : null,
-        dockerStatus ? `dockerStatus="${dockerStatus.replace(/\s+/g, ' ').trim()}"` : null,
-        dockerSummary ? `dockerSummary="${dockerSummary.replace(/\s+/g, ' ').trim()}"` : null,
-      ]
-        .filter(Boolean)
-        .join(', ');
+        const details = [
+          `connectReadyTimeoutMs=${connectReadyTimeoutMs}`,
+          `connectButton(visible=${connectState.visible}, enabled=${connectState.enabled}, exists=${connectState.exists})`,
+          warningText ? `warning="${warningText.replace(/\s+/g, ' ').trim()}"` : null,
+          blockedPorts ? `blockedPorts="${blockedPorts.replace(/\s+/g, ' ').trim()}"` : null,
+          diskStatus ? `diskStatus="${diskStatus.replace(/\s+/g, ' ').trim()}"` : null,
+          diskSummary ? `diskSummary="${diskSummary.replace(/\s+/g, ' ').trim()}"` : null,
+          dockerStatus ? `dockerStatus="${dockerStatus.replace(/\s+/g, ' ').trim()}"` : null,
+          dockerSummary ? `dockerSummary="${dockerSummary.replace(/\s+/g, ' ').trim()}"` : null,
+        ]
+          .filter(Boolean)
+          .join(', ');
 
-      throw new Error(
-        `${flowName}: server connect button did not become enabled. ${details}. Root error: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    });
+        throw new Error(
+          `${flowName}: server connect button did not become enabled. ${details}. Root error: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
 
-    await flow.click('ServerConnectOverlay.connect()', { timeoutMs: 8_000 });
+    await flow.click('ServerConnectPanel.connect()', { timeoutMs: 8_000 });
     await flow.waitFor({ selector: '.ConnectOverlay' }, { state: 'missing', timeoutMs: 30_000 });
   },
 });
+
+function getConnectReadyTimeoutMs(): number {
+  const raw = process.env.E2E_SERVER_CONNECT_READY_TIMEOUT_MS;
+  if (!raw) return DEFAULT_CONNECT_READY_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_CONNECT_READY_TIMEOUT_MS;
+  return Math.round(parsed);
+}

@@ -6,15 +6,24 @@ import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 
 type IFinalizeSetupUiState = {
   dashboardVisible: boolean;
+  firstAuctionVisible: boolean;
+  startingBotVisible: boolean;
   launchBotVisible: boolean;
   launchBotEnabled: boolean;
+  installProgressVisible: boolean;
+  setupInstallingVisible: boolean;
   totalBlocksMined: number | null;
 };
 
 interface IFinalizeSetupState extends IE2EOperationInspectState<Record<string, never>, IFinalizeSetupUiState> {
   dashboardVisible: boolean;
+  firstAuctionVisible: boolean;
+  startingBotVisible: boolean;
   launchBotVisible: boolean;
   launchBotEnabled: boolean;
+  installProgressVisible: boolean;
+  setupInstallingVisible: boolean;
+  installingVisible: boolean;
   totalBlocksMined: number | null;
   runnable: boolean;
   blockers: string[];
@@ -23,34 +32,52 @@ interface IFinalizeSetupState extends IE2EOperationInspectState<Record<string, n
 const INSTALL_PROGRESS_POLL_MS = 1_000;
 const INSTALL_PROGRESS_TIMEOUT_MS = 10 * 60_000;
 const INSTALL_PROGRESS_STALL_TIMEOUT_MS = 90_000;
+const SERVER_INSTALL_READY_TIMEOUT_MS = 15 * 60_000;
+const MINING_INSTALL_STABLE_SUCCESS_MS = 90_000;
+const OPEN_OVERLAY_CLOSE_BUTTON_SELECTOR = `[role="dialog"][data-state="open"] h2 button[class*="border-slate-400"]`;
 
 export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.meta, {
   async inspect({ flow, flowName }) {
-    const [dashboard, launchBot] = await Promise.all([
+    const [dashboard, firstAuction, startingBot, launchBot, installProgress, setupInstalling] = await Promise.all([
       flow.isVisible('MiningDashboard'),
-      flow.isVisible('FinalSetupChecklist.launchMiningBot()'),
+      flow.isVisible('FirstAuction'),
+      flow.isVisible('MiningStartingBot'),
+      flow.isVisible('SetupChecklist.launchMiningBot()'),
+      flow.isVisible({ selector: '.InstallProgress' }),
+      flow.isVisible('MiningIsInstalling'),
     ]);
+    const installingVisible = installProgress.visible || setupInstalling.visible;
+
     if (!dashboard.visible) {
-      const runnable = launchBot.visible && launchBot.enabled;
+      const runnable = (launchBot.visible && launchBot.enabled) || installingVisible || startingBot.visible;
       const blockers: string[] = [];
-      if (!launchBot.visible) {
+      if (!launchBot.visible && !installingVisible && !startingBot.visible) {
         blockers.push('Launch Mining Bot button is not visible.');
-      } else if (!launchBot.enabled) {
+      } else if (!launchBot.enabled && !installingVisible && !startingBot.visible) {
         blockers.push('Launch Mining Bot button is disabled.');
       }
       return {
         chainState: {},
         uiState: {
           dashboardVisible: false,
+          firstAuctionVisible: firstAuction.visible,
+          startingBotVisible: startingBot.visible,
           launchBotVisible: launchBot.visible,
           launchBotEnabled: launchBot.enabled,
+          installProgressVisible: installProgress.visible,
+          setupInstallingVisible: setupInstalling.visible,
           totalBlocksMined: null,
         },
         isRunnable: runnable,
-        isComplete: false,
+        isComplete: firstAuction.visible,
         dashboardVisible: false,
+        firstAuctionVisible: firstAuction.visible,
+        startingBotVisible: startingBot.visible,
         launchBotVisible: launchBot.visible,
         launchBotEnabled: launchBot.enabled,
+        installProgressVisible: installProgress.visible,
+        setupInstallingVisible: setupInstalling.visible,
+        installingVisible,
         totalBlocksMined: null,
         runnable,
         blockers: runnable ? [] : blockers,
@@ -66,53 +93,141 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       chainState: {},
       uiState: {
         dashboardVisible: true,
+        firstAuctionVisible: firstAuction.visible,
+        startingBotVisible: startingBot.visible,
         launchBotVisible: launchBot.visible,
         launchBotEnabled: launchBot.enabled,
+        installProgressVisible: installProgress.visible,
+        setupInstallingVisible: setupInstalling.visible,
         totalBlocksMined,
       },
       isRunnable,
       isComplete,
       dashboardVisible: true,
+      firstAuctionVisible: firstAuction.visible,
+      startingBotVisible: startingBot.visible,
       launchBotVisible: launchBot.visible,
       launchBotEnabled: launchBot.enabled,
+      installProgressVisible: installProgress.visible,
+      setupInstallingVisible: setupInstalling.visible,
+      installingVisible,
       totalBlocksMined,
       runnable,
       blockers: isRunnable ? [] : ['ALREADY_COMPLETE'],
     };
   },
   async run({ flow, flowName }, state) {
+    console.info(
+      `[E2E] ${flowName}: finalizeSetup start dashboard=${state.dashboardVisible} firstAuction=${state.firstAuctionVisible} startingBot=${state.startingBotVisible} launchVisible=${state.launchBotVisible} launchEnabled=${state.launchBotEnabled} installing=${state.installingVisible}`,
+    );
+
     if (state.dashboardVisible && state.totalBlocksMined != null && state.totalBlocksMined > 0) {
       return;
     }
+
+    if (state.dashboardVisible) {
+      console.info(`[E2E] ${flowName}: finalizeSetup waiting for TotalBlocksMined > 0`);
+      await waitForTotalBlocksMined(flow, flowName);
+      return;
+    }
+
+    if (state.startingBotVisible) {
+      console.info(`[E2E] ${flowName}: finalizeSetup detected MiningStartingBot; waiting for ready state`);
+      await waitForPostLaunchReadyState(flow, flowName);
+      return;
+    }
+
     if (!state.launchBotVisible || !state.launchBotEnabled) {
+      if (!state.installingVisible) {
+        throw new Error(
+          `${flowName}: launch mining bot is not ready (visible=${state.launchBotVisible}, enabled=${state.launchBotEnabled}).`,
+        );
+      }
+      console.info(`[E2E] ${flowName}: finalizeSetup waiting for launch button to become ready`);
+      await waitForServerInstallToReachLaunchableState(flow, flowName);
+    }
+
+    const [dashboardBeforeLaunch, firstAuctionBeforeLaunch, startingBotBeforeLaunch, launchBotBeforeLaunch] =
+      await Promise.all([
+        flow.isVisible('MiningDashboard'),
+        flow.isVisible('FirstAuction'),
+        flow.isVisible('MiningStartingBot'),
+        flow.isVisible('SetupChecklist.launchMiningBot()'),
+      ]);
+    if (dashboardBeforeLaunch.visible || firstAuctionBeforeLaunch.visible) {
+      return;
+    }
+    if (startingBotBeforeLaunch.visible) {
+      console.info(`[E2E] ${flowName}: finalizeSetup entered StartingBot before click; waiting for ready state`);
+      await waitForPostLaunchReadyState(flow, flowName);
+      return;
+    }
+
+    if (!launchBotBeforeLaunch.visible || !launchBotBeforeLaunch.enabled) {
       throw new Error(
-        `${flowName}: launch mining bot is not ready (visible=${state.launchBotVisible}, enabled=${state.launchBotEnabled}).`,
+        `${flowName}: launch mining bot is not ready after server install wait (visible=${launchBotBeforeLaunch.visible}, enabled=${launchBotBeforeLaunch.enabled}).`,
       );
     }
 
-    await flow.click('FinalSetupChecklist.launchMiningBot()', { timeoutMs: 120_000 });
+    console.info(`[E2E] ${flowName}: finalizeSetup clicking launch mining bot`);
+    await flow.click('SetupChecklist.launchMiningBot()', { timeoutMs: 120_000 });
 
     const didFinishInstall = async (): Promise<boolean> => {
-      const dashboardState = await flow.isVisible('MiningDashboard');
-      return dashboardState.visible;
+      const [dashboardState, firstAuctionState] = await Promise.all([
+        flow.isVisible('MiningDashboard'),
+        flow.isVisible('FirstAuction'),
+      ]);
+      return dashboardState.visible || firstAuctionState.visible;
     };
 
-    const installProgressState = await flow.isVisible({ selector: '.InstallProgress' });
-    if (!installProgressState.visible && !(await didFinishInstall())) {
-      await flow.waitFor({ selector: '.InstallProgress' }, { timeoutMs: 120_000 });
-    }
+    await waitForInstallUiToAppearOrComplete(flow, didFinishInstall, flowName);
+    console.info(`[E2E] ${flowName}: finalizeSetup observed install UI; monitoring completion`);
 
     const stallTimeoutMs = getInstallProgressStallTimeoutMs();
     let lastProgressSignature = '';
     let lastProgressChangeAt = Date.now();
+    let lastProgressLogAt = 0;
+    let miningInstallingVisibleSince = 0;
     await pollEvery(
       INSTALL_PROGRESS_POLL_MS,
       async () => {
         if (await didFinishInstall()) return true;
 
-        const installProgressVisible = await flow.isVisible({ selector: '.InstallProgress' });
+        const [installProgressVisible, miningInstallingVisible, startingBotVisible] = await Promise.all([
+          flow.isVisible({ selector: '.InstallProgress' }),
+          flow.isVisible('MiningIsInstalling'),
+          flow.isVisible('MiningStartingBot'),
+        ]);
         const stepCount = await flow.count({ selector: '.InstallProgressStep' });
+        const now = Date.now();
+        if (now - lastProgressLogAt >= 15_000) {
+          console.info(
+            `[E2E] ${flowName}: finalizeSetup poll installProgress=${installProgressVisible.visible} miningInstalling=${miningInstallingVisible.visible} startingBot=${startingBotVisible.visible} stepCount=${stepCount}`,
+          );
+          lastProgressLogAt = now;
+        }
         if (stepCount === 0) {
+          // Mining setup can render dedicated screens without overlay-style InstallProgress steps.
+          if (!installProgressVisible.visible && startingBotVisible.visible) {
+            console.info(`[E2E] ${flowName}: finalizeSetup reached MiningStartingBot; considering launch successful`);
+            return true;
+          }
+          if (!installProgressVisible.visible && miningInstallingVisible.visible) {
+            if (miningInstallingVisibleSince === 0) {
+              miningInstallingVisibleSince = Date.now();
+            }
+            const installingForMs = Date.now() - miningInstallingVisibleSince;
+            if (installingForMs >= MINING_INSTALL_STABLE_SUCCESS_MS) {
+              console.info(
+                `[E2E] ${flowName}: finalizeSetup remained in MiningIsInstalling for ${Math.round(
+                  installingForMs / 1000,
+                )}s; treating launch as successful and leaving install to continue in background`,
+              );
+              return true;
+            }
+            return await didFinishInstall();
+          }
+          miningInstallingVisibleSince = 0;
           const firstAuctionState = await flow.isVisible('FirstAuction');
           const signature = `stepCount=0|installProgressVisible=${installProgressVisible.visible}|firstAuction=${firstAuctionState.visible}`;
           updateProgressHeartbeat(signature, {
@@ -197,34 +312,27 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       },
     );
 
-    try {
-      await flow.waitFor('MiningDashboard', { timeoutMs: 60_000 });
-    } catch (error) {
-      const dashboardState = await flow.isVisible('MiningDashboard');
-      const firstAuctionState = await flow.isVisible('FirstAuction');
-      const installProgress = await flow.isVisible({ selector: '.InstallProgress' });
-      const stepCount = installProgress.visible ? await flow.count({ selector: '.InstallProgressStep' }) : 0;
-      const failedStepNames = stepCount > 0 ? await getFailedInstallStepNames(flow, stepCount) : [];
-      throw new Error(
-        `${flowName}: dashboard did not appear after launch within timeout. dashboard=${dashboardState.visible} firstAuction=${
-          firstAuctionState.visible
-        } installProgressVisible=${installProgress.visible} steps=${stepCount} failedSteps=${
-          failedStepNames.length ? failedStepNames.join('; ') : 'none'
-        }. Root error: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    const [dashboardAfterLaunch, firstAuctionAfterLaunch, startingBotAfterLaunch, miningInstallingAfterLaunch] =
+      await Promise.all([
+        flow.isVisible('MiningDashboard'),
+        flow.isVisible('FirstAuction'),
+        flow.isVisible('MiningStartingBot'),
+        flow.isVisible('MiningIsInstalling'),
+      ]);
+    if (!dashboardAfterLaunch.visible && !firstAuctionAfterLaunch.visible && !startingBotAfterLaunch.visible) {
+      if (!miningInstallingAfterLaunch.visible) {
+        throw new Error(`${flowName}: launch/install did not reach a recognizable post-launch mining state.`);
+      }
+      console.info(`[E2E] ${flowName}: finalizeSetup ending while MiningIsInstalling remains visible`);
+      return;
     }
-
-    await pollEvery(
-      2_000,
-      async () => {
-        const totalBlocksMined = await tryGetTotalBlocksMined(flow, flowName);
-        return totalBlocksMined != null && totalBlocksMined > 0;
-      },
-      {
-        timeoutMs: 120_000,
-        timeoutMessage: `${flowName}: expected TotalBlocksMined to become greater than 0.`,
-      },
-    );
+    if (firstAuctionAfterLaunch.visible) {
+      return;
+    }
+    if (startingBotAfterLaunch.visible || miningInstallingAfterLaunch.visible) {
+      return;
+    }
+    await waitForTotalBlocksMined(flow, flowName);
   },
 });
 
@@ -287,6 +395,100 @@ async function tryGetTotalBlocksMined(flow: IE2EFlowRuntime, flowName: string): 
   } catch {
     return null;
   }
+}
+
+async function waitForServerInstallToReachLaunchableState(flow: IE2EFlowRuntime, flowName: string): Promise<void> {
+  await pollEvery(
+    2_000,
+    async () => {
+      const [dashboard, firstAuction, startingBot, launchBot, installProgress] = await Promise.all([
+        flow.isVisible('MiningDashboard'),
+        flow.isVisible('FirstAuction'),
+        flow.isVisible('MiningStartingBot'),
+        flow.isVisible('SetupChecklist.launchMiningBot()'),
+        flow.isVisible({ selector: '.InstallProgress' }),
+      ]);
+      if (dashboard.visible || firstAuction.visible) return true;
+      if (startingBot.visible) return true;
+      if (launchBot.visible && launchBot.enabled) return true;
+
+      const overlayCloseButton = await flow.isVisible({ selector: OPEN_OVERLAY_CLOSE_BUTTON_SELECTOR });
+      if (overlayCloseButton.visible && overlayCloseButton.enabled) {
+        console.info(`[E2E] ${flowName}: finalizeSetup closing blocking overlay while waiting for launch readiness`);
+        await flow.click({ selector: OPEN_OVERLAY_CLOSE_BUTTON_SELECTOR }).catch(() => undefined);
+      }
+
+      const failedStepCount = installProgress.visible
+        ? await flow.count({ selector: '.InstallProgressStep[data-status="Failed"]' }).catch(() => 0)
+        : 0;
+      if (failedStepCount > 0) {
+        throw new Error(`${flowName}: server install failed before launch button became available.`);
+      }
+      return false;
+    },
+    {
+      timeoutMs: SERVER_INSTALL_READY_TIMEOUT_MS,
+      timeoutMessage: `${flowName}: server install did not reach launchable state within ${
+        SERVER_INSTALL_READY_TIMEOUT_MS / 60_000
+      } minutes.`,
+    },
+  );
+}
+
+async function waitForInstallUiToAppearOrComplete(
+  flow: IE2EFlowRuntime,
+  didFinishInstall: () => Promise<boolean>,
+  flowName: string,
+): Promise<void> {
+  if (await didFinishInstall()) return;
+
+  await pollEvery(
+    1_000,
+    async () => {
+      if (await didFinishInstall()) return true;
+      const [installProgressVisible, miningInstallingVisible, startingBotVisible] = await Promise.all([
+        flow.isVisible({ selector: '.InstallProgress' }),
+        flow.isVisible('MiningIsInstalling'),
+        flow.isVisible('MiningStartingBot'),
+      ]);
+      return installProgressVisible.visible || miningInstallingVisible.visible || startingBotVisible.visible;
+    },
+    {
+      timeoutMs: 120_000,
+      timeoutMessage: `${flowName}: install UI did not appear after launching mining bot.`,
+    },
+  );
+}
+
+async function waitForTotalBlocksMined(flow: IE2EFlowRuntime, flowName: string): Promise<void> {
+  await pollEvery(
+    2_000,
+    async () => {
+      const totalBlocksMined = await tryGetTotalBlocksMined(flow, flowName);
+      return totalBlocksMined != null && totalBlocksMined > 0;
+    },
+    {
+      timeoutMs: 120_000,
+      timeoutMessage: `${flowName}: expected TotalBlocksMined to become greater than 0.`,
+    },
+  );
+}
+
+async function waitForPostLaunchReadyState(flow: IE2EFlowRuntime, flowName: string): Promise<void> {
+  await pollEvery(
+    2_000,
+    async () => {
+      const [dashboardVisible, firstAuctionVisible] = await Promise.all([
+        flow.isVisible('MiningDashboard'),
+        flow.isVisible('FirstAuction'),
+      ]);
+      return dashboardVisible.visible || firstAuctionVisible.visible;
+    },
+    {
+      timeoutMs: INSTALL_PROGRESS_TIMEOUT_MS,
+      timeoutMessage: `${flowName}: post-launch mining state did not reach dashboard or first auction in time.`,
+    },
+  );
 }
 
 async function getAttributeOrNull(

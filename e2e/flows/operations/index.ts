@@ -90,11 +90,18 @@ async function runOperation<Context, State>(
   setActiveOperationLabel(context, operation.name);
   let state = undefined as State;
   let hasState = false;
+  console.info(`[E2E] operation:start ${operation.name}`);
   try {
     state = await operation.inspect(context, api);
     hasState = true;
     const lifecycle = readOperationLifecycleState(state);
+    console.info(
+      `[E2E] operation:inspect ${operation.name} isComplete=${String(lifecycle.isComplete)} isRunnable=${String(
+        lifecycle.isRunnable,
+      )} blockers=${lifecycle.blockers.join('|')}`,
+    );
     if (lifecycle.isComplete === true) {
+      console.info(`[E2E] operation:skip-complete ${operation.name}`);
       return;
     }
     if (lifecycle.isRunnable === false) {
@@ -102,7 +109,9 @@ async function runOperation<Context, State>(
         lifecycle.blockers.length > 0 ? lifecycle.blockers.join(', ') : 'inspect reported not runnable';
       throw new Error(`[E2E] operation '${operation.name}' is not runnable: ${blockerMessage}`);
     }
+    console.info(`[E2E] operation:run ${operation.name}`);
     await operation.run(context, state, api);
+    console.info(`[E2E] operation:done ${operation.name}`);
   } catch (error) {
     if (!hasState) {
       throw error;

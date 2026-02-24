@@ -21,9 +21,9 @@ interface IFundWalletState extends IE2EOperationInspectState<Record<string, neve
 
 export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, {
   async inspect({ flow }) {
-    const fundOverlayEntry = await flow.isVisible('FinalSetupChecklist.openFundMiningAccountOverlay()');
+    const fundOverlayEntry = await flow.isVisible('SetupChecklist.openFundMiningAccountOverlay()');
     const fundingText = await flow
-      .getText('FinalSetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 2_000 })
+      .getText('SetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 2_000 })
       .catch(() => null);
     const walletFullyFunded = (fundingText ?? '').toLowerCase().includes('fully funded');
     const runnable = fundOverlayEntry.visible && !walletFullyFunded;
@@ -47,7 +47,7 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     };
   },
   async run({ flow, flowName, input }) {
-    await flow.click('FinalSetupChecklist.openFundMiningAccountOverlay()');
+    await flow.click('SetupChecklist.openFundMiningAccountOverlay()');
     await flow.waitFor('WalletOverlay.micronotsNeeded');
     await flow.waitFor('WalletOverlay.microgonsNeeded');
 

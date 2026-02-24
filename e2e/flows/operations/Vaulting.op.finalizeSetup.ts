@@ -3,6 +3,8 @@ import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
+const VAULT_CREATE_TRANSITION_TIMEOUT_MS = 20_000;
+
 type IFinalizeSetupUiState = {
   lockOverlayVisible: boolean;
   dashboardVisible: boolean;
@@ -24,7 +26,7 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     const [lockOverlayEntry, dashboard, createVaultEntry, installingState] = await Promise.all([
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
-      flow.isVisible('FinalSetupChecklist.createVault()'),
+      flow.isVisible('SetupChecklist.createVault()'),
       flow.isVisible({ selector: '.VaultIsInstalling' }),
     ]);
     const hasFinalizeEntryPoint = createVaultEntry.visible || installingState.visible;
@@ -62,6 +64,11 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
       return;
     }
 
+    if (state.createVaultVisible) {
+      await flow.click('SetupChecklist.createVault()', { timeoutMs: 8_000 });
+      await waitForVaultCreateTransition(flow, flowName);
+    }
+
     await pollEvery(
       5_000,
       async () => {
@@ -76,17 +83,14 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
         const dashboard = await flow.isVisible('VaultingDashboard');
         if (dashboard.visible) return true;
 
-        const createVaultVisible = await flow.isVisible('FinalSetupChecklist.createVault()');
-        if (createVaultVisible.visible) {
-          try {
-            await flow.click('FinalSetupChecklist.createVault()', { timeoutMs: 1_000 });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (!message.includes('Timed out waiting for clickable')) {
-              throw error;
-            }
-          }
+        const [createVaultVisible, installingVisible] = await Promise.all([
+          flow.isVisible('SetupChecklist.createVault()'),
+          flow.isVisible({ selector: '.VaultIsInstalling' }),
+        ]);
+        if (createVaultVisible.visible && !installingVisible.visible) {
+          throw new Error(`${flowName}: vault create button remained visible and setup never entered installing.`);
         }
+
         return false;
       },
       {
@@ -104,4 +108,26 @@ async function getVaultInstallError(flow: IVaultingFlowContext['flow']): Promise
 
   const message = (await flow.getText(errorTarget, { timeoutMs: 1_000 })).trim();
   return message.length > 0 ? message : 'Unknown vault setup error';
+}
+
+async function waitForVaultCreateTransition(flow: IVaultingFlowContext['flow'], flowName: string): Promise<void> {
+  await pollEvery(
+    1_000,
+    async () => {
+      const [lockOverlayEntry, dashboard, installingVisible, createVaultVisible] = await Promise.all([
+        flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
+        flow.isVisible('VaultingDashboard'),
+        flow.isVisible({ selector: '.VaultIsInstalling' }),
+        flow.isVisible('SetupChecklist.createVault()'),
+      ]);
+      if (lockOverlayEntry.visible || dashboard.visible || installingVisible.visible) {
+        return true;
+      }
+      return !createVaultVisible.visible;
+    },
+    {
+      timeoutMs: VAULT_CREATE_TRANSITION_TIMEOUT_MS,
+      timeoutMessage: `${flowName}: vault setup did not transition after clicking launch.`,
+    },
+  );
 }
