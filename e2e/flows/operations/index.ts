@@ -1,6 +1,9 @@
 import { flowNameFromFile } from '../helpers/flowNameFromFile.ts';
 import { logDefaultAppFailureDiagnostics, withStateContext } from '../helpers/operationFailure.ts';
+import { captureE2EScreenshot } from '../helpers/screenshotMode.ts';
 import type { IE2EFlowRuntime } from '../types.ts';
+
+const SCREENSHOT_SKIPPED_OPERATIONS = new Set(['App.op.dismissBlockingOverlays']);
 
 export interface IOperationInputDefinition {
   key: string;
@@ -88,6 +91,7 @@ async function runOperation<Context, State>(
   api: IOperationApi<Context>,
 ): Promise<void> {
   setActiveOperationLabel(context, operation.name);
+  await captureOperationScreenshot(context, operation.name, 'start');
   let state = undefined as State;
   let hasState = false;
   console.info(`[E2E] operation:start ${operation.name}`);
@@ -111,8 +115,10 @@ async function runOperation<Context, State>(
     }
     console.info(`[E2E] operation:run ${operation.name}`);
     await operation.run(context, state, api);
+    await captureOperationScreenshot(context, operation.name, 'end');
     console.info(`[E2E] operation:done ${operation.name}`);
   } catch (error) {
+    await captureOperationScreenshot(context, operation.name, 'failure');
     if (!hasState) {
       throw error;
     }
@@ -160,11 +166,37 @@ function clearActiveOperationLabel(context: unknown): void {
 
 function readFlowRuntimeFromContext(
   context: unknown,
-): { setActiveOperation?: (operationName?: string) => void } | null {
+): ({ setActiveOperation?: (operationName?: string) => void } & IE2EFlowRuntime) | null {
   if (!context || typeof context !== 'object' || Array.isArray(context)) return null;
   const flow = (context as { flow?: unknown }).flow;
   if (!flow || typeof flow !== 'object' || Array.isArray(flow)) return null;
-  return flow as { setActiveOperation?: (operationName?: string) => void };
+  return flow as { setActiveOperation?: (operationName?: string) => void } & IE2EFlowRuntime;
+}
+
+async function captureOperationScreenshot(
+  context: unknown,
+  operationName: string,
+  phase: 'start' | 'end' | 'failure',
+): Promise<void> {
+  if (SCREENSHOT_SKIPPED_OPERATIONS.has(operationName)) return;
+  const flow = readFlowRuntimeFromContext(context);
+  if (!flow) return;
+  const flowName = readFlowNameFromContext(context);
+  await captureE2EScreenshot(flow, {
+    scope: 'operation',
+    phase,
+    flowName,
+    name: operationName,
+  });
+}
+
+function readFlowNameFromContext(context: unknown): string {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return 'unknown-flow';
+  const flowName = (context as { flowName?: unknown }).flowName;
+  if (typeof flowName === 'string' && flowName.trim()) {
+    return flowName;
+  }
+  return 'unknown-flow';
 }
 
 function readOperationLifecycleState(state: unknown): {
