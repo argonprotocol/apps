@@ -16,6 +16,8 @@ use utils::Utils;
 use window_vibrancy::*;
 use zip::DateTime;
 
+#[cfg(feature = "e2e-screenshots")]
+mod e2e_screenshots;
 mod migrations;
 mod security;
 mod ssh;
@@ -312,6 +314,24 @@ async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn e2e_capture_main_window_screenshot(
+    _app: AppHandle,
+    output_path: Option<String>,
+    name: Option<String>,
+) -> Result<String, String> {
+    #[cfg(feature = "e2e-screenshots")]
+    {
+        e2e_screenshots::capture_main_window_screenshot(output_path, name)
+    }
+
+    #[cfg(not(feature = "e2e-screenshots"))]
+    {
+        let _ = (&_app, &output_path, &name);
+        Err("E2E screenshot support is disabled in this build".to_string())
+    }
+}
+
 ////////////////////////////////////////////////////////////
 
 fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_log::Builder {
@@ -408,7 +428,7 @@ pub fn run() {
     let app_name_clone = app_name.clone();
     let network_config_override_json_clone = network_config_override_json.clone();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .on_page_load(move |window, _payload| {
             if window.label() != "main" {
@@ -527,7 +547,9 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_os::init());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             open_ssh_connection,
             close_ssh_connection,
@@ -556,9 +578,7 @@ pub fn run() {
             overwrite_mnemonic,
             measure_latency,
             load_instance,
-            ssh_access::ssh_access_activate,
-            ssh_access::ssh_access_status,
-            ssh_access::ssh_access_deactivate,
+            e2e_capture_main_window_screenshot,
         ])
         .run(context)
         .expect("error while running tauri application");

@@ -21,6 +21,11 @@ export interface IE2EClipboardOptions extends IE2ETimeoutOptions {
   clear?: boolean;
 }
 
+export interface IE2ECaptureScreenshotOptions extends IE2ETimeoutOptions {
+  outputPath?: string;
+  name?: string;
+}
+
 export interface IE2EFlowDefinition {
   name: string;
   description: string;
@@ -43,6 +48,7 @@ export interface IE2EFlowRuntime {
   getAttribute: (target: E2ETarget, attribute: string, options?: IE2ETimeoutOptions) => Promise<string | null>;
   copy: (target: E2ETarget, options?: IE2ETimeoutOptions) => Promise<void>;
   paste: (target: E2ETarget, options?: IE2EClipboardOptions) => Promise<void>;
+  captureScreenshot: (options?: IE2ECaptureScreenshotOptions) => Promise<string>;
   setData: (key: string, value: unknown) => void;
   getData: <T = unknown>(key: string) => T | undefined;
 }

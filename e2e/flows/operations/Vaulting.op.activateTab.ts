@@ -4,12 +4,14 @@ import appDismissBlockingOverlays from './App.op.dismissBlockingOverlays.ts';
 
 type IActivateTabUiState = {
   activeTabVisible: boolean;
-  openBitcoinLockingDialogs: number;
+  hasBlockingOverlays: boolean;
+  bitcoinLockingDialogVisible: boolean;
 };
 
 interface IActivateTabState extends IE2EOperationInspectState<Record<string, never>, IActivateTabUiState> {
   activeTabVisible: boolean;
-  openBitcoinLockingDialogs: number;
+  hasBlockingOverlays: boolean;
+  bitcoinLockingDialogVisible: boolean;
   runnable: boolean;
   blockers: string[];
 }
@@ -22,41 +24,35 @@ interface IActivateVaultingTabContext {
 const OPEN_LOCKING_DIALOG_SELECTOR = '[role="dialog"][data-state="open"].BitcoinLockingOverlay';
 
 export default new Operation<IActivateVaultingTabContext, IActivateTabState>(import.meta, {
-  async inspect({ flow }) {
-    const [activeTabContent, openBitcoinLockingDialogs] = await Promise.all([
+  async inspect({ flow }, api) {
+    const [activeTabContent, dismissBlockingOverlaysState] = await Promise.all([
       flow.isVisible('VaultingScreen'),
-      countOpenLockingDialogs(flow).catch(() => 0),
+      appDismissBlockingOverlays.inspect({ flow }, api as never),
     ]);
     const activeTabVisible = activeTabContent.visible;
-    const runnable = !activeTabVisible && openBitcoinLockingDialogs === 0;
-    const isComplete = activeTabVisible;
-    const isRunnable = !isComplete && runnable;
-
-    const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
-    if (!isComplete && openBitcoinLockingDialogs > 0) {
-      blockers.push('Bitcoin locking dialog is still open and can block tab switching.');
-    }
+    const hasBlockingOverlays = dismissBlockingOverlaysState.runnable;
+    const bitcoinLockingDialogVisible = dismissBlockingOverlaysState.bitcoinLockingDialogVisible;
+    const isComplete = activeTabVisible && !hasBlockingOverlays;
+    const isRunnable = !isComplete;
 
     return {
       chainState: {},
       uiState: {
         activeTabVisible,
-        openBitcoinLockingDialogs,
+        hasBlockingOverlays,
+        bitcoinLockingDialogVisible,
       },
       isRunnable,
       isComplete,
       activeTabVisible,
-      openBitcoinLockingDialogs,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      hasBlockingOverlays,
+      bitcoinLockingDialogVisible,
+      runnable: isRunnable,
+      blockers: isRunnable ? [] : ['ALREADY_COMPLETE'],
     };
   },
-  async run(context, state, api) {
+  async run(context, _state, api) {
     const { flow, flowName } = context;
-    if (state.activeTabVisible) {
-      return;
-    }
 
     await api.run(appDismissBlockingOverlays);
     const remainingDialogs = await countOpenLockingDialogs(flow).catch(() => 0);

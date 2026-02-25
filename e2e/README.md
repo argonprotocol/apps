@@ -23,6 +23,9 @@ yarn vitest --run --project e2e
 
 # 5) Keep UI visible while running flows
 ARGON_E2E_HEADLESS=0 yarn e2e:docker
+
+# 6) Capture screenshots during flow execution (saved under your OS temp directory by default)
+E2E_SCREENSHOT_MODE=operation ARGON_E2E_HEADLESS=0 yarn e2e:docker
 ```
 
 Cleanup:
@@ -57,6 +60,8 @@ Available flows:
 - `Mining.flow.onboarding`
 - `Vaulting.flow.onboarding`
 - `Bitcoin.flow.lockUnlock`
+- `Bitcoin.flow.mismatchAccept`
+- `Bitcoin.flow.mismatchReturn`
 - `App.flow.runManual`
 
 Run flow scripts:
@@ -85,6 +90,8 @@ Common flow inputs:
 E2E_FLOWS=Mining.flow.onboarding MINING_FUNDING_ARGONS=500 yarn e2e:docker
 E2E_FLOWS=Vaulting.flow.onboarding VAULTING_EXTRA_FUNDING_ARGONS=1200 yarn e2e:docker
 E2E_FLOWS=Bitcoin.flow.lockUnlock yarn e2e:docker
+E2E_FLOWS=Bitcoin.flow.mismatchAccept BITCOIN_MISMATCH_OFFSET_SATOSHIS=25000 yarn e2e:docker
+E2E_FLOWS=Bitcoin.flow.mismatchReturn BITCOIN_MISMATCH_DIRECTION=above yarn e2e:docker
 ```
 
 Run operations directly (state-aware debugging on top of current app state):
@@ -109,6 +116,12 @@ E2E_FLOWS=App.flow.runManual \
 E2E_OPERATION_CONTEXT=bitcoin \
 E2E_OPERATIONS=Bitcoin.op.waitUnlockReady \
 E2E_OPERATION_MODE=inspect \
+yarn workspace @argonprotocol/apps-e2e run flows
+
+# Mismatch actions step-by-step
+E2E_FLOWS=App.flow.runManual \
+E2E_OPERATION_CONTEXT=bitcoin \
+E2E_OPERATIONS=Bitcoin.op.ensureLockFundingDetails,Bitcoin.op.fundLockMismatch,Bitcoin.op.ensureMismatchActionPanel,Bitcoin.op.acceptMismatch \
 yarn workspace @argonprotocol/apps-e2e run flows
 ```
 
@@ -142,6 +155,13 @@ Notes:
 - `flows:console` defaults to `E2E_CONSOLE_SUPPRESS_POLKADOT_WARNINGS=1`; set `E2E_CONSOLE_SUPPRESS_POLKADOT_WARNINGS=0` if you need dependency dedupe warnings.
 - `E2E_FLOW_APP_LOGS=quiet` can also be used with non-console flow runs when you only want operation output.
 - `E2E_DRIVER_TRACE=0` suppresses per-command driver trace logs for any flow runner.
+- `E2E_SCREENSHOT_MODE` controls automatic capture:
+  - `off` (default)
+  - `operation` (operation start/end + failures)
+  - `interaction` (interactive command screenshots + failures)
+- `E2E_SCREENSHOT_DIR` overrides output directory (default: `<os-temp-dir>/e2e-screenshots`).
+- `E2E_SCREENSHOT_SESSION` sets the session subdirectory name under `E2E_SCREENSHOT_DIR`.
+  If omitted, a non-timestamp session folder like `session-pid12345-ab12cd34` is created.
 
 ## Operation Selector Rules
 
@@ -174,6 +194,7 @@ Headless behavior:
 ```bash
 VERSION=v1.3.27 yarn e2e:docker
 ARGON_E2E_HEADLESS=0 yarn e2e:docker
+E2E_SCREENSHOT_MODE=interaction ARGON_E2E_HEADLESS=0 yarn e2e:docker
 ```
 
 ## Driver Websocket Mode (Advanced)
@@ -212,6 +233,7 @@ Supported commands:
 - `clipboard.write` (`text`)
 - `clipboard.read`
 - `app.location`
+- `app.captureScreenshot` (`name`, `outputPath`, `timeoutMs`)
 
 ## Custom Runtime (Chainspec)
 

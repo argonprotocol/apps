@@ -31,6 +31,10 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libclang-dev \
+            libgbm-dev \
             webkit2gtk-driver \
             xvfb
 
@@ -68,10 +72,14 @@ jobs:
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
       - name: Tests (Linux)
         if: matrix.platform == 'ubuntu-latest'
-        run: xvfb-run yarn test
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" yarn test
         env:
           CI: true
-          ARGON_E2E_HEADLESS: true
+          ARGON_E2E_HEADLESS: '0'
+          E2E_DRIVER_RECEIVED_TIMEOUT_MS: 30000
+          E2E_SCREENSHOT_MODE: interaction
+          E2E_SCREENSHOT_DIR: /tmp/e2e-screenshots
+          E2E_SCREENSHOT_SESSION: run-${{ github.run_id }}-attempt-${{ github.run_attempt }}-${{ matrix.platform }}
 
       - name: Tests (Windows)
         if: matrix.platform == 'windows-latest'
@@ -87,3 +95,11 @@ jobs:
         with:
           name: e2e-artifacts
           path: /tmp/troubleshooting-*
+
+      - name: Upload e2e screenshots
+        if: always() && matrix.platform == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: /tmp/e2e-screenshots
+          if-no-files-found: ignore

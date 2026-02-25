@@ -53,7 +53,13 @@ async function main(): Promise<void> {
   }
 
   console.log(baseConfig);
-  const child = spawn('yarn', ['tauri', 'dev', '--config', configJson], {
+  const tauriArgs = ['tauri', 'dev', '--config', configJson];
+  if (readNonEmpty(tauriEnv.ARGON_DRIVER_WS)) {
+    tauriArgs.push('--features', 'e2e-screenshots');
+    console.log('[tauri-dev] Enabling e2e screenshot feature (ARGON_DRIVER_WS detected)');
+  }
+
+  const child = spawn('yarn', tauriArgs, {
     env: tauriEnv,
     stdio: 'inherit',
     shell: false,

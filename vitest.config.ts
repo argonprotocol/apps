@@ -60,6 +60,9 @@ export default defineConfig({
           env: {
             ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS ?? '1',
             CI: process.env.CI ?? '1',
+            E2E_SCREENSHOT_MODE: process.env.E2E_SCREENSHOT_MODE ?? '',
+            E2E_SCREENSHOT_DIR: process.env.E2E_SCREENSHOT_DIR ?? '',
+            E2E_SCREENSHOT_SESSION: process.env.E2E_SCREENSHOT_SESSION ?? '',
           },
           deps: {
             inline: ['@argonprotocol/apps-core'],

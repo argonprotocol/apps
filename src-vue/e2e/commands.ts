@@ -1,4 +1,5 @@
 import { JsonExt } from '@argonprotocol/apps-core';
+import { invoke } from '@tauri-apps/api/core';
 import { getConfig } from '../stores/config';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
@@ -14,6 +15,8 @@ export const LOGGABLE_ARG_KEYS = [
   'timeoutMs',
   'index',
   'attribute',
+  'outputPath',
+  'name',
 ] as const;
 
 type WaitState = 'visible' | 'hidden' | 'exists' | 'missing' | 'enabled' | 'clickable';
@@ -548,6 +551,15 @@ function describeCommand(command: string, argsInput: unknown): string {
     case 'clipboard.read':
       pieces.push('clipboard.read');
       break;
+    case 'app.captureScreenshot':
+      pieces.push('captureScreenshot');
+      if (typeof args.outputPath === 'string' && args.outputPath.trim()) {
+        pieces.push(args.outputPath.trim());
+      }
+      if (typeof args.name === 'string' && args.name.trim()) {
+        pieces.push(`name=${args.name.trim()}`);
+      }
+      break;
     default: {
       pieces.push(command);
       const summary = summarizeCommandArgs(args);
@@ -701,6 +713,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function nextAnimationFrame(): Promise<void> {
+  return new Promise(resolve => window.requestAnimationFrame(() => resolve()));
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return promise;
@@ -719,6 +735,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
         reject(error);
       });
   });
+}
+
+async function settleVisualOverlayForScreenshot(): Promise<void> {
+  if (!visualState) {
+    return;
+  }
+  // Let cursor/label transitions finish so screenshots do not capture overlays mid-move.
+  await nextAnimationFrame();
+  await sleep(VISUAL_MOVE_MS + 20);
+  await nextAnimationFrame();
 }
 
 async function waitForAppReady(timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<void> {
@@ -1416,6 +1442,33 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     return {
       href: window.location.href,
       path: window.location.pathname,
+    };
+  }
+
+  if (command === 'app.captureScreenshot') {
+    if (!__ARGON_DRIVER_WS__) {
+      throw new CommandError('disabled', `'app.captureScreenshot' is only available when e2e driver mode is enabled`);
+    }
+
+    const outputPathRaw = getString(args.outputPath, 'outputPath', false, true);
+    const outputPath = outputPathRaw?.trim() ? outputPathRaw.trim() : undefined;
+    const nameRaw = getString(args.name, 'name', false, true);
+    const name = nameRaw?.trim() ? nameRaw.trim() : undefined;
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const path = await withTimeout(
+      (async () => {
+        await settleVisualOverlayForScreenshot();
+        return await invoke<string>('e2e_capture_main_window_screenshot', {
+          outputPath: outputPath ?? null,
+          name: name ?? null,
+        });
+      })(),
+      timeoutMs,
+      'app.captureScreenshot',
+    );
+    return {
+      ok: true,
+      path,
     };
   }
 
