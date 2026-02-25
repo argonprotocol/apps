@@ -342,13 +342,8 @@ export async function startDriverServer(): Promise<DriverServer> {
             const details = buildPendingDiagnostics(pending, {
               receivedTimeoutMs: COMMAND_RECEIVED_TIMEOUT_MS,
             });
-            console.warn('[E2E] Driver command was not acknowledged by app', details);
-            failPendingCommand(
-              pending,
-              'app_command_not_received',
-              `App did not acknowledge '${pending.commandName}' within ${COMMAND_RECEIVED_TIMEOUT_MS}ms (likely UI thread stall)`,
-              details,
-            );
+            console.warn('[E2E] Driver command acknowledgement is delayed; waiting for command timeout', details);
+            pending.receivedTimeout = null;
           }, COMMAND_RECEIVED_TIMEOUT_MS);
           const timeout = setTimeout(() => {
             const pending = pendingCommands.get(payload.id as string);

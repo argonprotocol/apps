@@ -5,41 +5,43 @@ import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 import appDismissBlockingOverlays from './App.op.dismissBlockingOverlays.ts';
 import { Operation } from './index.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
-import { readUnlockBackendReleaseState, type IUnlockBackendReleaseState } from './Bitcoin.op.unlockBitcoin.ts';
+import bitcoinUnlockBitcoin, { type IUnlockBackendReleaseState } from './Bitcoin.op.unlockBitcoin.ts';
 
 type IWaitUnlockReadyUiState = {
   personalVisible: boolean;
   isLocked: boolean | null;
+  lockUtxoId: number | null;
 };
 
 interface IWaitUnlockReadyState extends IE2EOperationInspectState<IUnlockBackendReleaseState, IWaitUnlockReadyUiState> {
   personalVisible: boolean;
   isLocked: boolean | null;
+  lockUtxoId: number | null;
   runnable: boolean;
   blockers: string[];
 }
 
 export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.meta, {
-  async inspect({ flow, flowName }) {
-    const [ui, chainState] = await Promise.all([
-      readWaitUnlockUiState(flow),
-      readUnlockBackendReleaseState(flow, flowName),
-    ]);
-    const isComplete = ui.isLocked === true || isLockReadyForUnlock(chainState);
-    const isRunnable = !isComplete && (chainState.hasActiveLock || ui.personalVisible);
+  async inspect(_context, api) {
+    const unlockState = await api.inspect(bitcoinUnlockBitcoin);
+    const uiState = {
+      personalVisible: unlockState.personalVisible,
+      isLocked: unlockState.isLocked,
+      lockUtxoId: unlockState.lockUtxoId,
+    };
+    const chainState = unlockState.chainState;
+    const releaseAlreadyInFlight = chainState.hasReleaseSignal && !chainState.isReleaseComplete;
+    const isComplete = uiState.isLocked === true || isLockReadyForUnlock(chainState) || releaseAlreadyInFlight;
+    const isRunnable = !isComplete && (chainState.hasActiveLock || uiState.personalVisible);
     const blockers: string[] = [];
     if (isComplete) blockers.push('ALREADY_COMPLETE');
-    if (!isComplete && !chainState.hasActiveLock && !ui.personalVisible) blockers.push('NO_ACTIVE_LOCK');
+    if (!isComplete && !chainState.hasActiveLock && !uiState.personalVisible) blockers.push('NO_ACTIVE_LOCK');
     return {
       chainState,
-      uiState: {
-        personalVisible: ui.personalVisible,
-        isLocked: ui.isLocked,
-      },
+      uiState,
       isRunnable,
       isComplete,
-      personalVisible: ui.personalVisible,
-      isLocked: ui.isLocked,
+      ...uiState,
       runnable: isRunnable,
       blockers: isRunnable ? [] : blockers,
     };
@@ -63,17 +65,12 @@ export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.
           await api.run(vaultingActivateTab).catch(() => undefined);
         }
 
-        let [ui, chainState] = await Promise.all([
-          readWaitUnlockUiState(flow),
-          readUnlockBackendReleaseState(flow, flowName),
-        ]);
-
-        if (!ui.personalVisible) {
-          [ui, chainState] = await Promise.all([
-            readWaitUnlockUiState(flow),
-            readUnlockBackendReleaseState(flow, flowName),
-          ]);
-        }
+        const unlockState = await api.inspect(bitcoinUnlockBitcoin);
+        const ui = {
+          personalVisible: unlockState.personalVisible,
+          isLocked: unlockState.isLocked,
+        };
+        const chainState = unlockState.chainState;
 
         if (ui.isLocked === true || isLockReadyForUnlock(chainState)) {
           return true;
@@ -92,17 +89,6 @@ export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.
   },
 });
 
-async function readWaitUnlockUiState(flow: IE2EFlowRuntime): Promise<IWaitUnlockReadyUiState> {
-  const personal = await flow.isVisible('PersonalBitcoin');
-  const isLockedRaw = personal.exists
-    ? await flow.getAttribute('PersonalBitcoin', 'data-is-locked', { timeoutMs: 1_000 }).catch(() => null)
-    : null;
-  return {
-    personalVisible: personal.visible,
-    isLocked: parseBooleanAttribute(isLockedRaw),
-  };
-}
-
 async function dismissOpenLockingOverlay(flow: IE2EFlowRuntime): Promise<boolean> {
   const openDialogs = await flow.count({ selector: '[role="dialog"][data-state="open"].BitcoinLockingOverlay' });
   if (openDialogs === 0) return false;
@@ -118,13 +104,6 @@ async function dismissOpenLockingOverlay(flow: IE2EFlowRuntime): Promise<boolean
   return (await flow.count({ selector: '[role="dialog"][data-state="open"].BitcoinLockingOverlay' })) === 0;
 }
 
-function parseBooleanAttribute(raw: string | null): boolean | null {
-  if (!raw) return null;
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  return null;
-}
-
 function isLockReadyForUnlock(chainState: IUnlockBackendReleaseState): boolean {
   if (!chainState.hasActiveLock) return false;
   return ['LockedAndIsMinting', 'LockedAndMinted'].includes(chainState.lockStatus ?? '');
@@ -132,7 +111,6 @@ function isLockReadyForUnlock(chainState: IUnlockBackendReleaseState): boolean {
 
 function shouldMineForUnlockReadiness(chainState: IUnlockBackendReleaseState): boolean {
   if (!chainState.hasActiveLock) return false;
-  return ['LockIsProcessingOnArgon', 'LockReadyForBitcoin', 'LockIsProcessingOnBitcoin'].includes(
-    chainState.lockStatus ?? '',
-  );
+  if (chainState.hasReleaseSignal) return false;
+  return ['LockIsProcessingOnArgon', 'LockPendingFunding'].includes(chainState.lockStatus ?? '');
 }

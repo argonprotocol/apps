@@ -18,7 +18,7 @@ import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { MyVaultRecovery } from '../lib/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { Db } from '../lib/Db.ts';
-import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
+import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -109,7 +109,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const miningFrames = new MiningFrames(clients);
       const vaults = new Vaults('dev-docker', currency, miningFrames);
       const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
-      const bitcoinLocksStore = new BitcoinLocksStore(
+      const bitcoinLocksStore = new BitcoinLocks(
         Promise.resolve(db),
         walletKeys,
         miningFrames.blockWatch,
@@ -186,7 +186,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const newDb = await createTestDb();
       const blockWatch = new BlockWatch(clients);
       const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb), blockWatch);
-      const bitcoinLocksStoreRecovery = new BitcoinLocksStore(
+      const bitcoinLocksStoreRecovery = new BitcoinLocks(
         Promise.resolve(newDb),
         walletKeys,
         blockWatch,

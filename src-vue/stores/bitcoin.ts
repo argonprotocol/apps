@@ -1,6 +1,6 @@
 import BitcoinPrices from '../lib/BitcoinPrices';
 import BitcoinFees from '../lib/BitcoinFees';
-import BitcoinLocksStore from '../lib/BitcoinLocksStore.ts';
+import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { reactive } from 'vue';
 import handleFatalError from './helpers/handleFatalError.ts';
@@ -20,16 +20,17 @@ export function getBitcoinFees() {
   return bitcoinFees;
 }
 
-let locks: BitcoinLocksStore;
+let locks: BitcoinLocks;
 
-export function getBitcoinLocks(): BitcoinLocksStore {
+export function getBitcoinLocks(): BitcoinLocks {
   if (!locks) {
     const dbPromise = getDbPromise();
     const transactionTracker = getTransactionTracker();
     const keys = getWalletKeys();
     const blockWatch = getBlockWatch();
-    locks = new BitcoinLocksStore(dbPromise, keys, blockWatch, getCurrency() as Currency, transactionTracker);
+    locks = new BitcoinLocks(dbPromise, keys, blockWatch, getCurrency() as Currency, transactionTracker);
     locks.data = reactive(locks.data) as any;
+    locks.utxoTracking.data = reactive(locks.utxoTracking.data) as any;
     locks.load().catch(handleFatalError.bind('useBitcoinLocks'));
   }
 

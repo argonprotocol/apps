@@ -11,6 +11,7 @@ import ISecurity from './src-vue/interfaces/ISecurity';
 (globalThis as any).__SERVER_ENV_VARS__ = {} as any;
 (globalThis as any).__IS_TEST__ = true;
 (globalThis as any).__ARGON_DRIVER_WS__ = '';
+(globalThis as any).__ARGON_E2E_SCREENSHOT_MODE__ = '';
 (globalThis as any).__LOG_DEBUG__ = false;
 (globalThis as any).__ARGON_APP_SECURITY__ = {
   masterMnemonic: mnemonicGenerate(),

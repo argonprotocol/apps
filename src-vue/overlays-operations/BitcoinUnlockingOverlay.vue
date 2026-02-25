@@ -108,6 +108,7 @@ import utc from 'dayjs/plugin/utc';
 import { TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import UnlockStart from './bitcoin-locking/UnlockStart.vue';
 import UnlockIsProcessing from './bitcoin-locking/UnlockIsProcessing.vue';
 import UnlockComplete from './bitcoin-locking/UnlockComplete.vue';
@@ -133,15 +134,30 @@ const isLoaded = Vue.ref(false);
 const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return props.personalLock;
 });
+const fundingUtxoRecord = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return undefined;
+  return bitcoinLocks.getAcceptedFundingRecord(lock);
+});
 
-const wasOpenedWithoutBitcoin = personalLock.value?.status === BitcoinLockStatus.ReleaseComplete;
+const wasOpenedWithoutBitcoin = Vue.ref(
+  !props.personalLock || props.personalLock.status === BitcoinLockStatus.Released,
+);
 
 const unlockStep = Vue.computed<UnlockStep>(() => {
-  if (!personalLock.value || wasOpenedWithoutBitcoin) return UnlockStep.Start;
+  const lock = personalLock.value;
+  if (!lock || wasOpenedWithoutBitcoin.value) return UnlockStep.Start;
 
-  if (bitcoinLocks.isLockedStatus(personalLock.value)) {
+  const releaseStatus = fundingUtxoRecord.value?.status;
+  const hasReleaseError = !!fundingUtxoRecord.value?.statusError;
+  const hasReleaseInProgress =
+    releaseStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon ||
+    releaseStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin ||
+    hasReleaseError;
+
+  if (bitcoinLocks.isLockedStatus(lock) && !hasReleaseInProgress) {
     return UnlockStep.Start;
-  } else if (bitcoinLocks.isReleaseStatus(personalLock.value)) {
+  } else if (hasReleaseInProgress || bitcoinLocks.isReleaseStatus(lock)) {
     return UnlockStep.IsProcessing;
   } else {
     return UnlockStep.Complete;

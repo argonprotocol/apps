@@ -187,21 +187,49 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return props.personalLock;
 });
 
+const lockProcessingDetails = Vue.ref({
+  progressPct: 0,
+  confirmations: -1,
+  expectedConfirmations: 0,
+});
+
+let lockProcessingInterval: ReturnType<typeof setInterval> | undefined;
+
+function updateLockProcessingDetails() {
+  const lock = personalLock.value;
+  if (!lock || lock.status !== BitcoinLockStatus.LockPendingFunding) {
+    lockProcessingDetails.value = {
+      progressPct: 0,
+      confirmations: -1,
+      expectedConfirmations: 0,
+    };
+    return;
+  }
+
+  lockProcessingDetails.value = bitcoinLocks.getLockProcessingDetails(lock);
+}
+
 const isAtBeginning = !personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value);
 const shouldShowFullProcess = bitcoinLocks.recordCount > 1 || isAtBeginning;
 
 const lockStep = Vue.computed<LockStep>(() => {
-  if (!personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value)) {
+  const lock = personalLock.value;
+  if (!lock || bitcoinLocks.isFinishedStatus(lock)) {
     return LockStep.Start;
-  } else if (personalLock.value.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
-    return LockStep.IsProcessingOnArgon;
-  } else if (personalLock.value.status === BitcoinLockStatus.LockReadyForBitcoin) {
-    return LockStep.ReadyForBitcoin;
-  } else if (personalLock.value.status === BitcoinLockStatus.LockIsProcessingOnBitcoin) {
-    return LockStep.ProcessingOnBitcoin;
-  } else {
-    return LockStep.Minting;
   }
+
+  if (lock.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+    return LockStep.IsProcessingOnArgon;
+  }
+
+  if (lock.status === BitcoinLockStatus.LockPendingFunding) {
+    if (lockProcessingDetails.value.confirmations >= 0) {
+      return LockStep.ProcessingOnBitcoin;
+    }
+    return LockStep.ReadyForBitcoin;
+  }
+
+  return LockStep.Minting;
 });
 
 const hasError = Vue.ref(false);
@@ -214,6 +242,18 @@ Vue.onMounted(async () => {
   setTimeout(() => {
     isLoaded.value = true;
   }, 100);
+
+  updateLockProcessingDetails();
+  lockProcessingInterval = setInterval(updateLockProcessingDetails, 1_000);
+});
+
+Vue.watch(personalLock, updateLockProcessingDetails, { deep: true });
+
+Vue.onUnmounted(() => {
+  if (lockProcessingInterval) {
+    clearInterval(lockProcessingInterval);
+    lockProcessingInterval = undefined;
+  }
 });
 </script>
 

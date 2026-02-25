@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createBitcoinAddress, mineBitcoinSingleBlock, waitForBitcoinAddressSatoshis } from '../helpers/bitcoinNode.ts';
-import { clickIfVisible, pollEvery, sleep } from '../helpers/utils.ts';
+import { clickIfVisible, parseOptionalPositiveInteger, pollEvery, sleep } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { E2ETarget, IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 import appDismissBlockingOverlays from './App.op.dismissBlockingOverlays.ts';
@@ -11,6 +11,7 @@ type IUnlockBitcoinUiState = {
   personalVisible: boolean;
   lockState: string | null;
   isLocked: boolean | null;
+  lockUtxoId: number | null;
   lockingEntryVisible: boolean;
   releaseEntryVisible: boolean;
 };
@@ -19,6 +20,7 @@ interface IUnlockBitcoinState extends IE2EOperationInspectState<IUnlockBackendRe
   personalVisible: boolean;
   lockState: string | null;
   isLocked: boolean | null;
+  lockUtxoId: number | null;
   lockingEntryVisible: boolean;
   releaseEntryVisible: boolean;
   runnable: boolean;
@@ -50,8 +52,8 @@ export interface IUnlockBackendReleaseState {
 }
 
 interface IInspectCommandResult {
-  ok?: unknown;
-  value?: unknown;
+  ok?: boolean;
+  value?: IUnlockBackendReleaseState;
 }
 
 const UNLOCK_INSPECT_TIMEOUT_MS = 20_000;
@@ -75,19 +77,21 @@ const LOCKED_UNLOCK_BUTTON = {
 } as const;
 
 export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.meta, {
-  async inspect({ flow, flowName }) {
+  async inspect({ flow }) {
     const ui = await readUnlockUiState(flow);
-    const chainState = await readUnlockBackendReleaseState(flow, flowName);
+    const chainState = await inspectUnlockBackendReleaseState(flow, ui.lockUtxoId ?? undefined);
     const alreadyUnlocked =
       ui.lockState === 'None' || (ui.isLocked === false && ui.lockingEntryVisible && !ui.releaseEntryVisible);
     const backendUnlockReady =
       chainState.hasActiveLock && ['LockedAndIsMinting', 'LockedAndMinted'].includes(chainState.lockStatus ?? '');
-    const runnable = !alreadyUnlocked && (ui.releaseEntryVisible || ui.isLocked === true || backendUnlockReady);
+    const releaseInProgress = chainState.hasReleaseSignal && !chainState.isReleaseComplete;
+    const runnable =
+      !alreadyUnlocked && (releaseInProgress || ui.releaseEntryVisible || ui.isLocked === true || backendUnlockReady);
     const isComplete = alreadyUnlocked || chainState.isReleaseComplete;
     const isRunnable = !isComplete && runnable;
     const blockers: string[] = [];
     if (isComplete) blockers.push('ALREADY_COMPLETE');
-    if (!isComplete && !ui.releaseEntryVisible && ui.isLocked !== true) {
+    if (!isComplete && !releaseInProgress && !ui.releaseEntryVisible && ui.isLocked !== true) {
       blockers.push('Unlock entry point is not visible yet.');
     }
     return {
@@ -96,6 +100,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
         personalVisible: ui.personalVisible,
         lockState: ui.lockState,
         isLocked: ui.isLocked,
+        lockUtxoId: ui.lockUtxoId,
         lockingEntryVisible: ui.lockingEntryVisible,
         releaseEntryVisible: ui.releaseEntryVisible,
       },
@@ -104,6 +109,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
       personalVisible: ui.personalVisible,
       lockState: ui.lockState,
       isLocked: ui.isLocked,
+      lockUtxoId: ui.lockUtxoId,
       lockingEntryVisible: ui.lockingEntryVisible,
       releaseEntryVisible: ui.releaseEntryVisible,
       runnable,
@@ -115,6 +121,22 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
       state.lockState === 'None' ||
       (state.isLocked === false && state.lockingEntryVisible && !state.releaseEntryVisible)
     ) {
+      return;
+    }
+    const latestState = await api.inspect(this);
+    const releaseInProgress = latestState.chainState.hasReleaseSignal && !latestState.chainState.isReleaseComplete;
+    if (releaseInProgress) {
+      const releaseProgress = await advanceUnlockUntilComplete(flow, async () => await api.inspect(this));
+      assert.ok(
+        releaseProgress.overlayUnlockCompleteSeen || releaseProgress.personalReleaseCompleteSeen,
+        `${flowName}: Missing unlock completion state while resuming release`,
+      );
+      if (releaseProgress.overlayUnlockCompleteSeen) {
+        await flow.click('UnlockComplete.closeOverlay()', { timeoutMs: 180_000 });
+      }
+      if (releaseProgress.personalReleaseCompleteSeen || releaseProgress.overlayUnlockCompleteSeen) {
+        await flow.waitFor(personalLockStatus('None'), { timeoutMs: 120_000 });
+      }
       return;
     }
 
@@ -163,7 +185,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
     await flow.type('UnlockStart.destinationAddress', releaseAddress);
 
     await flow.click('UnlockStart.submitRelease()');
-    const releaseProgress = await advanceUnlockUntilComplete(flow, flowName);
+    const releaseProgress = await advanceUnlockUntilComplete(flow, async () => await api.inspect(this));
     assert.ok(
       releaseProgress.overlayUnlockCompleteSeen || releaseProgress.personalReleaseCompleteSeen,
       `${flowName}: Missing unlock completion state (overlay or lock-state None)`,
@@ -256,17 +278,19 @@ async function readUnlockUiState(flow: IE2EFlowRuntime): Promise<IUnlockBitcoinU
     flow.isVisible('PersonalBitcoin.showReleaseOverlay()'),
   ]);
 
-  const [lockState, isLockedRaw] = personal.exists
+  const [lockState, isLockedRaw, lockUtxoIdRaw] = personal.exists
     ? await Promise.all([
         flow.getAttribute('PersonalBitcoin', 'data-lock-state', { timeoutMs: 1_000 }).catch(() => null),
         flow.getAttribute('PersonalBitcoin', 'data-is-locked', { timeoutMs: 1_000 }).catch(() => null),
+        flow.getAttribute('PersonalBitcoin', 'data-lock-utxo-id', { timeoutMs: 1_000 }).catch(() => null),
       ])
-    : [null, null];
+    : [null, null, null];
 
   return {
     personalVisible: personal.visible,
     lockState: lockState?.trim() || null,
     isLocked: parseBooleanAttribute(isLockedRaw),
+    lockUtxoId: parseOptionalPositiveInteger(lockUtxoIdRaw),
     lockingEntryVisible: lockingEntry.visible,
     releaseEntryVisible: releaseEntry.visible,
   };
@@ -304,7 +328,7 @@ function parseBooleanAttribute(raw: string | null): boolean | null {
 
 async function advanceUnlockUntilComplete(
   flow: IBitcoinFlowContext['flow'],
-  flowName: string,
+  refreshState: () => Promise<IUnlockBitcoinState>,
 ): Promise<IUnlockProgress> {
   const personalReleaseCompleteTarget = personalLockStatus('None');
 
@@ -335,7 +359,7 @@ async function advanceUnlockUntilComplete(
       throw new Error(`Unlock release failed: ${message}`);
     }
 
-    const backendRelease = await readUnlockBackendReleaseState(flow, flowName);
+    const backendRelease = (await refreshState()).chainState;
     if (backendRelease.isArgonSubmitting) {
       progress.personalReleaseProcessingArgonSeen = true;
     }
@@ -378,25 +402,24 @@ function personalLockStatus(name: string): E2ETarget {
   };
 }
 
-export async function readUnlockBackendReleaseState(
+async function inspectUnlockBackendReleaseState(
   flow: IE2EFlowRuntime,
-  flowName: string,
+  expectedUtxoId?: number,
 ): Promise<IUnlockBackendReleaseState> {
   const result = await flow
     .run<IInspectCommandResult>('command.inspect', {
       fn: UNLOCK_BACKEND_RELEASE_FN,
       timeoutMs: UNLOCK_INSPECT_TIMEOUT_MS,
-      args: { flowName },
+      args: {
+        expectedUtxoId,
+      },
     })
     .catch(() => undefined);
 
-  if (!result || typeof result !== 'object' || result.ok !== true) {
+  if (!result || result.ok !== true || !result.value || typeof result.value !== 'object') {
     return { ...DEFAULT_UNLOCK_BACKEND_STATE };
   }
-  const value = toRecord(result.value);
-  if (!value) {
-    return { ...DEFAULT_UNLOCK_BACKEND_STATE };
-  }
+  const value = result.value as Partial<IUnlockBackendReleaseState>;
   return {
     hasActiveLock: value.hasActiveLock === true,
     lockStatus: typeof value.lockStatus === 'string' ? value.lockStatus : null,
@@ -413,7 +436,10 @@ export async function readUnlockBackendReleaseState(
   };
 }
 
-async function unlockBackendReleaseInspect(refs: IInspectRefs): Promise<IUnlockBackendReleaseState> {
+async function unlockBackendReleaseInspect(
+  refs: IInspectRefs,
+  args: IInspectArgs = {},
+): Promise<IUnlockBackendReleaseState> {
   const defaultState: IUnlockBackendReleaseState = {
     hasActiveLock: false,
     lockStatus: null,
@@ -435,57 +461,61 @@ async function unlockBackendReleaseInspect(refs: IInspectRefs): Promise<IUnlockB
   if (vaultId == null) return defaultState;
 
   const activeLocks = refs.bitcoinLocks.getActiveLocksForVault(vaultId);
+  const expectedUtxoId =
+    Number.isInteger(args.expectedUtxoId) && (args.expectedUtxoId ?? 0) > 0 ? args.expectedUtxoId : undefined;
   const lock =
-    activeLocks.find(candidate =>
-      [
-        'ReleaseIsProcessingOnArgon',
-        'ReleaseIsWaitingForVault',
-        'ReleaseSigned',
-        'ReleaseIsProcessingOnBitcoin',
-      ].includes(String(candidate.status ?? '')),
-    ) ??
-    activeLocks.find(candidate => ['LockedAndIsMinting', 'LockedAndMinted'].includes(String(candidate.status ?? ''))) ??
-    activeLocks[0] ??
-    null;
+    expectedUtxoId != null
+      ? (refs.bitcoinLocks.getLockByUtxoId(expectedUtxoId) ??
+        activeLocks.find(candidate => Number(candidate.utxoId) === expectedUtxoId) ??
+        null)
+      : (activeLocks.find(candidate => ['Releasing'].includes(String(candidate.status ?? ''))) ??
+        activeLocks.find(candidate =>
+          ['LockedAndIsMinting', 'LockedAndMinted'].includes(String(candidate.status ?? '')),
+        ) ??
+        activeLocks[0] ??
+        null);
   if (!lock) return defaultState;
 
-  const hasFundingRecord = typeof lock.lockedTxid === 'string' && lock.lockedTxid.length > 0;
-  const hasRequestDetails = !!lock.releaseToDestinationAddress && lock.releaseBitcoinNetworkFee != null;
-  const hasCosign = !!lock.releaseCosignVaultSignature;
-  const hasReleaseTxid = typeof lock.releasedTxid === 'string' && lock.releasedTxid.length > 0;
-  const phaseIsArgonSubmitting = lock.status === 'ReleaseIsProcessingOnArgon';
-  const phaseIsWaitingForVaultCosign = lock.status === 'ReleaseIsWaitingForVault';
-  const phaseIsBitcoinReleaseProcessing = lock.status === 'ReleaseIsProcessingOnBitcoin';
-  const phaseIsReleaseComplete = lock.status === 'ReleaseComplete';
+  const fundingRecord = refs.bitcoinLocks.getAcceptedFundingRecord(lock);
+  const fundingStatus = typeof fundingRecord?.status === 'string' ? fundingRecord.status : null;
+  const hasFundingRecord = !!fundingRecord;
+  const hasRequestDetails =
+    !!fundingRecord?.releaseToDestinationAddress && fundingRecord.releaseBitcoinNetworkFee != null;
+  const hasCosign = !!fundingRecord?.releaseCosignVaultSignature;
+  const hasReleaseTxid = typeof fundingRecord?.releaseTxid === 'string' && fundingRecord.releaseTxid.length > 0;
+
+  const phaseIsArgonSubmitting = fundingStatus === 'ReleaseIsProcessingOnArgon';
+  const phaseIsBitcoinReleaseProcessing = fundingStatus === 'ReleaseIsProcessingOnBitcoin';
+  const hasReleaseError = typeof fundingRecord?.statusError === 'string' && fundingRecord.statusError.length > 0;
+  const phaseIsReleaseComplete =
+    fundingStatus === 'ReleaseComplete' || fundingRecord?.releasedAtBitcoinHeight != null || lock.status === 'Released';
 
   const hasReleaseSignal =
+    lock.status === 'Releasing' ||
+    lock.status === 'Released' ||
     phaseIsArgonSubmitting ||
-    phaseIsWaitingForVaultCosign ||
     phaseIsBitcoinReleaseProcessing ||
     phaseIsReleaseComplete ||
+    hasReleaseError ||
     (hasFundingRecord &&
-      (lock.requestedReleaseAtTick != null ||
-        !!lock.releaseToDestinationAddress ||
-        lock.releaseBitcoinNetworkFee != null ||
-        !!lock.releaseCosignVaultSignature ||
-        !!lock.releasedTxid ||
-        ['ReleaseIsProcessingOnArgon', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete'].includes(
-          String(lock.status ?? ''),
-        )));
-  const isReleaseComplete = phaseIsReleaseComplete || (hasFundingRecord && lock.releasedAtBitcoinHeight != null);
-  const isBitcoinReleaseProcessing = phaseIsBitcoinReleaseProcessing || hasReleaseTxid;
+      (fundingRecord.requestedReleaseAtTick != null || hasRequestDetails || hasCosign || hasReleaseTxid));
+
+  const isReleaseComplete = phaseIsReleaseComplete;
+  const isBitcoinReleaseProcessing = phaseIsBitcoinReleaseProcessing || (hasReleaseTxid && !isReleaseComplete);
   const isWaitingForVaultCosign =
-    phaseIsWaitingForVaultCosign ||
-    (hasRequestDetails && !hasCosign && !isBitcoinReleaseProcessing && !isReleaseComplete);
+    hasReleaseSignal && hasRequestDetails && !hasCosign && !isBitcoinReleaseProcessing && !isReleaseComplete;
   const isArgonSubmitting =
-    phaseIsArgonSubmitting ||
-    (hasReleaseSignal && !isWaitingForVaultCosign && !isBitcoinReleaseProcessing && !isReleaseComplete);
+    hasReleaseSignal &&
+    !isWaitingForVaultCosign &&
+    !isBitcoinReleaseProcessing &&
+    !isReleaseComplete &&
+    !hasReleaseError;
 
   return {
     hasActiveLock: true,
     lockStatus: typeof lock.status === 'string' ? lock.status : null,
     hasFundingRecord,
-    fundingStatus: hasFundingRecord && typeof lock.status === 'string' ? lock.status : null,
+    fundingStatus,
     hasReleaseSignal,
     isArgonSubmitting,
     isWaitingForVaultCosign,
@@ -499,32 +529,35 @@ async function unlockBackendReleaseInspect(refs: IInspectRefs): Promise<IUnlockB
 
 const UNLOCK_BACKEND_RELEASE_FN = unlockBackendReleaseInspect.toString();
 
+interface IInspectArgs {
+  expectedUtxoId?: number;
+}
+
 interface IInspectLockRecord {
-  status?: unknown;
-  lockedTxid?: unknown;
-  lockedVout?: unknown;
-  requestedReleaseAtTick?: unknown;
-  releaseToDestinationAddress?: unknown;
-  releaseBitcoinNetworkFee?: unknown;
-  releaseCosignVaultSignature?: unknown;
-  releasedTxid?: unknown;
-  releasedAtBitcoinHeight?: unknown;
+  utxoId?: number;
+  status?: string;
+}
+
+interface IInspectFundingRecord {
+  status?: string;
+  statusError?: string;
+  requestedReleaseAtTick?: number;
+  releaseToDestinationAddress?: string;
+  releaseBitcoinNetworkFee?: bigint | number;
+  releaseCosignVaultSignature?: Uint8Array | string;
+  releaseTxid?: string;
+  releasedAtBitcoinHeight?: number;
 }
 
 interface IInspectRefs {
   myVault: {
-    vaultId?: number | null;
+    vaultId?: number;
     load: () => Promise<void>;
   };
   bitcoinLocks: {
     load: () => Promise<void>;
     getActiveLocksForVault: (vaultId: number) => IInspectLockRecord[];
+    getLockByUtxoId: (utxoId: number) => IInspectLockRecord | undefined;
+    getAcceptedFundingRecord: (lock: IInspectLockRecord) => IInspectFundingRecord | undefined;
   };
-}
-
-function toRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
 }

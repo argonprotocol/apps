@@ -1,7 +1,7 @@
 import { ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
-import BitcoinLocksStore from './BitcoinLocksStore.ts';
+import BitcoinLocks from './BitcoinLocks.ts';
 import { MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from './Env.ts';
 import { Config } from './Config.ts';
@@ -115,7 +115,7 @@ export class MyVaultRecovery {
 
   public static async recoverPersonalBitcoin(args: {
     mainchainClients: MainchainClients;
-    bitcoinLocksStore: BitcoinLocksStore;
+    bitcoinLocksStore: BitcoinLocks;
     vaultSetupBlockNumber: number;
     vault: Vault;
   }): Promise<(IBitcoinLockRecord & { initializedAtBlockNumber: number })[]> {
@@ -197,7 +197,7 @@ export class MyVaultRecovery {
           bitcoinTxFee = result?.fee ?? 0n;
         }
 
-        let record = await table.findUtxoWithHdPath(thisHdPath.hdPath);
+        let record = await table.findLockByHdPath(thisHdPath.hdPath);
         if (!record) {
           const uuid = BitcoinLocksTable.createUuid();
           record = await bitcoinLocksStore.insertPending({

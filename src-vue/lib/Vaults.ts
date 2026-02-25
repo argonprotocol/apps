@@ -1,13 +1,13 @@
 import {
+  Currency as CurrencyBase,
+  type IAllVaultStats,
   JsonExt,
   MiningFrames,
   Vaults as VaultsBase,
-  type IAllVaultStats,
-  Currency as CurrencyBase,
 } from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClients } from '../stores/mainchain.ts';
-import { NETWORK_NAME } from './Env.ts';
+import { INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
 
 export class Vaults extends VaultsBase {
   constructor(network = NETWORK_NAME, currency: CurrencyBase, miningFrames: MiningFrames) {
@@ -16,6 +16,9 @@ export class Vaults extends VaultsBase {
   }
 
   private statsFile() {
+    if (this.network === 'dev-docker') {
+      return `${this.network}/${INSTANCE_NAME}/vaultStats.json`;
+    }
     return `${this.network}/vaultStats.json`;
   }
 

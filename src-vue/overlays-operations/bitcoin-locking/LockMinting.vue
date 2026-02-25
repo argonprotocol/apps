@@ -3,7 +3,7 @@
     <p>
       The Argon Network has successfully processed and locked your
       {{
-        numeral(currency.convertSatToBtc(personalLock.lockedUtxoSatoshis ?? personalLock.satoshis ?? 0n)).format(
+        numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)).format(
           '0,0.[00000000]',
         )
       }}
@@ -30,11 +30,11 @@ import * as Vue from 'vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { getVaults } from '../../stores/vaults.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import BitcoinMintingSvg from '../../assets/wallets/bitcoin-minting.svg';
 
 const currency = getCurrency();
-const vaults = getVaults();
+const bitcoinLocks = getBitcoinLocks();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
@@ -47,6 +47,7 @@ const emit = defineEmits<{
 }>();
 
 const microgonValue = Vue.ref(0n);
+const fundingUtxoRecord = Vue.computed(() => bitcoinLocks.getAcceptedFundingRecord(props.personalLock));
 
 function closeOverlay() {
   emit('close');
