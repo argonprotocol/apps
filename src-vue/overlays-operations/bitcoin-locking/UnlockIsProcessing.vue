@@ -27,129 +27,43 @@
 import * as Vue from 'vue';
 import numeral from '../../lib/numeral';
 import { getCurrency } from '../../stores/currency.ts';
-import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { getMyVault } from '../../stores/vaults.ts';
-import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import { useBitcoinLockProgress } from '../../stores/bitcoinLockProgress.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
-import { generateProgressLabel } from '../../lib/Utils.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
 
 const currency = getCurrency();
-const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
+const bitcoinLockProgress = useBitcoinLockProgress();
 
-const personalLock = props.personalLock;
+const personalLock = Vue.computed(() => props.personalLock);
 
-const progressPct = Vue.ref(0);
-const progressLabel = Vue.ref('Analyzing Network State...');
-const errorLabel = Vue.ref('');
-
-let argonProcessingSubscription: (() => void) | undefined = undefined;
-function trackProcessingOnArgon() {
-  if (argonProcessingSubscription) return;
-  const txInfo = myVault.getTxInfoByType(ExtrinsicType.BitcoinRequestRelease);
-  console.log('ExtrinsicType.BitcoinRequestRelease', txInfo);
-
-  if (txInfo) {
-    argonProcessingSubscription = txInfo.subscribeToProgress(
-      (
-        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
-        error: Error | undefined,
-      ) => {
-        progressPct.value = args.progressPct * 0.33;
-        progressLabel.value = generateProgressLabel(args.confirmations, args.expectedConfirmations, {
-          blockType: 'Argon',
-        });
-        if (error) {
-          errorLabel.value = `Error submitting to argon: ${error.message}`;
-        }
-      },
-    );
-  }
-}
-
-function updateProgressOnBitcoin() {
-  const details = bitcoinLocks.getReleaseProcessingDetails(props.personalLock);
-  progressPct.value = 33 + details.progressPct * 0.33;
-  if (details.progressPct >= 100) {
-    if (processingLoopInterval) clearInterval(processingLoopInterval);
-    return;
-  }
-  if (details.releaseError) {
-    progressLabel.value = `Error: ${details.releaseError}`;
-    if (processingLoopInterval) clearInterval(processingLoopInterval);
-    return;
-  }
-  progressLabel.value = generateProgressLabel(details.confirmations, details.expectedConfirmations, {
-    blockType: 'Bitcoin',
-  });
-}
-
-let cosignReleaseSubscription: (() => void) | undefined = undefined;
-function trackVaultCosignProgress() {
-  if (cosignReleaseSubscription) return;
-  const txInfo = myVault.getTxInfoByType(ExtrinsicType.VaultCosignBitcoinRelease);
-  if (txInfo) {
-    cosignReleaseSubscription = txInfo.subscribeToProgress(
-      (
-        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
-        error: Error | undefined,
-      ) => {
-        progressPct.value = 66 + args.progressPct * 0.34;
-        progressLabel.value = 'Waiting for Vault to Cosign';
-        if (error) {
-          errorLabel.value = `Error co-signing this bitcoin utxo: ${error.message}`;
-        }
-      },
-    );
-  }
-}
-
-function loadStatus() {
-  const status = personalLock.status;
-  if (status === BitcoinLockStatus.ReleaseIsProcessingOnArgon) {
-    trackProcessingOnArgon();
-  } else if (status === BitcoinLockStatus.ReleaseIsWaitingForVault) {
-    trackVaultCosignProgress();
-  } else if (status === BitcoinLockStatus.ReleaseIsProcessingOnBitcoin) {
-    updateProgressOnBitcoin();
-  }
-
-  if (props.personalLock.releaseError) {
-    errorLabel.value = `An unexpected error has occurred unlocking your Bitcoin: ${props.personalLock.releaseError}`;
-  }
-}
+const progressPct = Vue.computed(() => bitcoinLockProgress.getUnlockProgressPct(personalLock.value.status));
+const progressLabel = Vue.computed(() => bitcoinLockProgress.getUnlockProgressLabel(personalLock.value.status));
+const errorLabel = Vue.computed(() => bitcoinLockProgress.getUnlockErrorLabel(personalLock.value));
 
 Vue.watch(
-  () => personalLock.status,
-  () => loadStatus(),
-  { immediate: true },
+  () => props.personalLock,
+  nextLock => {
+    bitcoinLockProgress.updateLock(nextLock);
+  },
+  { deep: true, immediate: true },
 );
 
-let processingLoopInterval: ReturnType<typeof setInterval> | undefined = undefined;
+let stopProgressTracking: (() => void) | undefined;
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
-  processingLoopInterval = setInterval(() => {
-    loadStatus();
-  }, 5e3);
-  loadStatus();
+  stopProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
 });
 
 Vue.onUnmounted(() => {
-  if (processingLoopInterval) {
-    clearInterval(processingLoopInterval);
-  }
-  if (argonProcessingSubscription) {
-    argonProcessingSubscription();
-  }
-  if (cosignReleaseSubscription) {
-    cosignReleaseSubscription();
-  }
+  stopProgressTracking?.();
+  stopProgressTracking = undefined;
 });
 </script>
 

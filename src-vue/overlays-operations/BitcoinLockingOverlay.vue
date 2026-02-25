@@ -110,14 +110,14 @@
           <TooltipTrigger asChild>
             <div
               :class="
-                lockStep === LockStep.Collecting
+                lockStep === LockStep.Minting
                   ? 'text-argon-600 border-argon-600 bg-slate-100'
                   : 'border-slate-600/20 bg-white text-black/20'
               "
               class="relative w-1/3 grow rounded-r border-y px-2 py-1 text-center text-base font-bold">
               Collect Argons
-              <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.Collecting" />
-              <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="lockStep === LockStep.Collecting" />
+              <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.Minting" />
+              <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="lockStep === LockStep.Minting" />
             </div>
           </TooltipTrigger>
           <TooltipContent
@@ -137,7 +137,7 @@
     <LockIsProcessingOnArgon v-else-if="lockStep === LockStep.IsProcessingOnArgon" :personalLock="personalLock!" />
     <LockReadyForBitcoin v-else-if="lockStep === LockStep.ReadyForBitcoin" :personalLock="personalLock!" />
     <LockIsProcessingOnBitcoin v-else-if="lockStep === LockStep.ProcessingOnBitcoin" :personalLock="personalLock!" />
-    <LockCollecting v-else-if="lockStep === LockStep.Collecting" :personalLock="personalLock!" @close="closeOverlay" />
+    <LockMinting v-else-if="lockStep === LockStep.Minting" :personalLock="personalLock!" @close="closeOverlay" />
   </OverlayBase>
 </template>
 
@@ -147,7 +147,7 @@ enum LockStep {
   IsProcessingOnArgon = 'IsProcessingOnArgon',
   ReadyForBitcoin = 'ReadyForBitcoin',
   ProcessingOnBitcoin = 'ProcessingOnBitcoin',
-  Collecting = 'Collecting',
+  Minting = 'Minting',
 }
 </script>
 
@@ -162,7 +162,7 @@ import LockStart from './bitcoin-locking/LockStart.vue';
 import LockIsProcessingOnArgon from './bitcoin-locking/LockIsProcessingOnArgon.vue';
 import LockReadyForBitcoin from './bitcoin-locking/LockReadyForBitcoin.vue';
 import LockIsProcessingOnBitcoin from './bitcoin-locking/LockIsProcessingOnBitcoin.vue';
-import LockCollecting from './bitcoin-locking/LockCollecting.vue';
+import LockMinting from './bitcoin-locking/LockMinting.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import Arrows from '../assets/arrows.svg?component';
 import RoundCap from './bitcoin-locking/components/RoundCap.vue';
@@ -200,7 +200,7 @@ const lockStep = Vue.computed<LockStep>(() => {
   } else if (personalLock.value.status === BitcoinLockStatus.LockIsProcessingOnBitcoin) {
     return LockStep.ProcessingOnBitcoin;
   } else {
-    return LockStep.Collecting;
+    return LockStep.Minting;
   }
 });
 
