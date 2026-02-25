@@ -25,7 +25,7 @@
             Your Liquid Locking Request Is Being Processed on Argon...
           </div>
           <div class="flex flex-row items-center justify-start w-full mt-2">
-            <ProgressBar :progress="bitcoinLockProcessingPercent" :showLabel="false" class="h-4" />
+            <ProgressBar :progress="lockProcessingStep.progressPct" :showLabel="false" class="h-4" />
           </div>
         </div>
         <div class="flex flex-row space-x-2 items-center justify-end grow">
@@ -68,7 +68,7 @@
             Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC
             Is Being Processed by Bitcoin's Network
           </div>
-          <ProgressBar :progress="bitcoinLockProcessingPercent" />
+          <ProgressBar :progress="lockProcessingStep.progressPct" />
         </div>
       </div>
     </div>
@@ -126,7 +126,7 @@
             Your Unlocking Request Is Being Processed on Argon...
           </div>
           <div class="flex flex-row items-center justify-start w-full mt-2">
-            <ProgressBar :progress="requestBitcoinReleaseByVaultProgress" :showLabel="false" class="h-4" />
+            <ProgressBar :progress="bitcoinLockProgress.requestReleaseByVaultProgress" :showLabel="false" class="h-4" />
           </div>
         </div>
         <div class="flex flex-row space-x-2 items-center justify-end grow">
@@ -191,14 +191,8 @@
   />
 
 </template>
-
-<script lang="ts">
-import * as Vue from 'vue';
-
-const bitcoinLockProcessingPercent = Vue.ref(0);
-</script>
-
 <script setup lang="ts">
+import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
@@ -213,16 +207,16 @@ import BitcoinIcon from '../../../assets/wallets/bitcoin-thin.svg?component';
 import { BitcoinLockStatus } from '../../../lib/db/BitcoinLocksTable.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import { getWalletKeys } from '../../../stores/wallets.ts';
-import { getMiningFrames } from '../../../stores/mainchain.ts';
+import { IStepProgress, useBitcoinLockProgress } from '../../../stores/bitcoinLockProgress.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
 const myVault = getMyVault();
-const miningFrames = getMiningFrames();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
+const bitcoinLockProgress = useBitcoinLockProgress();
 
 function showLockingOverlay() {
   doShowReleaseOverlay.value = false;
@@ -242,13 +236,6 @@ const personalLock = Vue.computed(() => {
 const lockExpirationTime = Vue.ref(dayjs.utc());
 const lockInitializeExpirationTime = Vue.ref(dayjs.utc().add(1, 'day'));
 
-function updateBitcoinLockProcessingPercent() {
-  if (!personalLock.value) return 0;
-  const details = bitcoinLocks.getLockProcessingDetails(personalLock.value);
-  bitcoinLockProcessingPercent.value = details.progressPct;
-  // blockConfirmations.value = details.blockConfirmations;
-}
-
 const lockStatus = Vue.computed(() => {
   if (!personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value)) {
     return null;
@@ -266,16 +253,12 @@ const lockState = Vue.computed(() => {
   return lockStatus.value;
 });
 
+const lockProcessingStep = Vue.computed<IStepProgress>(() => bitcoinLockProgress.lockProcessing);
+
 const releasingBitcoinDetails = Vue.computed<{ progressPct: number; confirmations: number }>(() => {
   const lock = personalLock.value;
   if (!lock) return { progressPct: 0, confirmations: 0 };
   return bitcoinLocks.getReleaseProcessingDetails(lock);
-});
-
-const requestBitcoinReleaseByVaultProgress = Vue.computed(() => {
-  const lock = personalLock.value;
-  if (!lock) return 0;
-  return bitcoinLocks.getRequestReleaseByVaultProgress(lock, miningFrames);
 });
 
 const btcMarketRate = Vue.ref(0n);
@@ -321,12 +304,13 @@ function closeReleaseOverlay() {
   doShowReleaseOverlay.value = false;
 }
 
-let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined;
+let stopLockProgressTracking: (() => void) | undefined;
 
 Vue.onMounted(async () => {
   await myVault.load();
   await myVault.subscribe();
   await bitcoinLocks.load();
+  stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
 
   Vue.watch(
     currency.priceIndex,
@@ -339,6 +323,7 @@ Vue.onMounted(async () => {
   Vue.watch(
     personalLock,
     () => {
+      bitcoinLockProgress.updateLock(personalLock.value);
       void loadPersonalUtxo();
       void updateBitcoinUnlockPrices();
     },
@@ -347,17 +332,13 @@ Vue.onMounted(async () => {
 
   await loadPersonalUtxo();
   await updateBitcoinUnlockPrices();
-
-  updateBitcoinLockProcessingInterval = setInterval(updateBitcoinLockProcessingPercent, 1e3);
-  updateBitcoinLockProcessingPercent();
 });
 
 Vue.onUnmounted(() => {
   myVault.unsubscribe();
   bitcoinLocks.unsubscribeFromArgonBlocks();
-  if (updateBitcoinLockProcessingInterval) {
-    clearInterval(updateBitcoinLockProcessingInterval);
-  }
+  stopLockProgressTracking?.();
+  stopLockProgressTracking = undefined;
 });
 
 defineExpose({
