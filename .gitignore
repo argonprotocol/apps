@@ -38,6 +38,7 @@ resources/SHASUM256
 server/.env
 /data
 /e2e/argon/docker-compose.yml
+/e2e/argon/.docker-compose.version
 ./target
 /indexer/lib
 /indexer/seeds/*-old.db

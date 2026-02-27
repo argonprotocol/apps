@@ -6,6 +6,9 @@ import PluginSql, { QueryResult } from '@tauri-apps/plugin-sql';
 import { readdir, readFile } from 'node:fs/promises';
 import Path from 'node:path';
 
+const shouldLogDbQueries = process.env.TEST_DB_DEBUG === '1';
+let migrationSqlStatementsPromise: Promise<string[]> | null = null;
+
 export async function createMockedDbPromise(allAsObject: { [key: string]: string } = {}): Promise<Db> {
   return {
     configTable: {
@@ -21,18 +24,16 @@ export async function createTestDb(): Promise<Db> {
     driver: Sqlite3Database,
   });
 
-  const baseDir = Path.resolve(__dirname, '../../../src-tauri/migrations');
-  const migrations = await readdir(baseDir);
-  for (const migration of migrations) {
-    const upFile = Path.join(baseDir, migration, 'up.sql');
-    console.log('Migrating', upFile);
-    const upContent = await readFile(upFile, 'utf8');
-    await database.exec(upContent);
+  const migrationSqlStatements = await getMigrationSqlStatements();
+  for (const migrationSql of migrationSqlStatements) {
+    await database.exec(migrationSql);
   }
 
   const plugin = {
     async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
-      console.log('execute value', query);
+      if (shouldLogDbQueries) {
+        console.log('execute value', query);
+      }
       const result = await database.run(query, ...(bindValues ?? []));
       return {
         lastInsertId: result.lastID,
@@ -40,7 +41,9 @@ export async function createTestDb(): Promise<Db> {
       };
     },
     async select<T>(query: string, bindValues?: unknown[]): Promise<T> {
-      console.log('Selecting value', query);
+      if (shouldLogDbQueries) {
+        console.log('Selecting value', query);
+      }
       return (await database.all(query, ...(bindValues ?? []))) as T;
     },
     async close(_db?: string): Promise<boolean> {
@@ -49,4 +52,25 @@ export async function createTestDb(): Promise<Db> {
     },
   } as PluginSql;
   return new Db(plugin, false);
+}
+
+async function getMigrationSqlStatements(): Promise<string[]> {
+  return (migrationSqlStatementsPromise ??= Promise.resolve()
+    .then(async () => {
+      const baseDir = Path.resolve(__dirname, '../../../src-tauri/migrations');
+      const migrations = (await readdir(baseDir)).sort((a, b) => a.localeCompare(b));
+      const statements: string[] = [];
+      for (const migration of migrations) {
+        const upFile = Path.join(baseDir, migration, 'up.sql');
+        if (shouldLogDbQueries) {
+          console.log('Migrating', upFile);
+        }
+        statements.push(await readFile(upFile, 'utf8'));
+      }
+      return statements;
+    })
+    .catch(error => {
+      migrationSqlStatementsPromise = null;
+      throw error;
+    }));
 }

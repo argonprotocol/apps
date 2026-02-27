@@ -113,6 +113,19 @@ export interface StartedArgonTestNetwork {
 
 const DEFAULT_CHAIN_START_TIMEOUT_MS = 120_000;
 const DEFAULT_CHAIN_START_POLL_MS = 500;
+const SERVER_OUTPUT_EXCLUSIONS = [Path.resolve(REPO_ROOT, 'server/bot/src')];
+const SERVER_BUNDLE_INPUTS = [
+  Path.resolve(REPO_ROOT, 'bot/src'),
+  Path.resolve(REPO_ROOT, 'core/src'),
+  Path.resolve(REPO_ROOT, 'server'),
+  Path.resolve(REPO_ROOT, 'bot/package.json'),
+  Path.resolve(REPO_ROOT, 'bot/tsconfig.json'),
+  Path.resolve(REPO_ROOT, 'bot/tsup.config.ts'),
+  Path.resolve(REPO_ROOT, 'core/package.json'),
+  Path.resolve(REPO_ROOT, 'scripts/buildServer.ts'),
+  Path.resolve(REPO_ROOT, 'package.json'),
+  Path.resolve(REPO_ROOT, 'yarn.lock'),
+];
 
 export async function startArgonTestNetwork(
   uniqueTestName: string,
@@ -297,11 +310,80 @@ async function ensureIndexerBundle(): Promise<void> {
 }
 
 async function ensureServerBundle(): Promise<void> {
-  console.info('[E2E] Building server bundle (ensuring latest for test network)');
+  const shouldBuild = await shouldRebuildServerBundle();
+  if (!shouldBuild) {
+    console.info('[E2E] Server bundle is up to date (skipping build)');
+    return;
+  }
+  console.info('[E2E] Building server bundle (detected local changes)');
   runYarn('build:server');
 }
 
 function ensureDockerComposeAssets(): void {
   console.info('[E2E] Ensuring argon docker compose assets are current');
   runYarn('docker:argon:download');
+}
+
+async function shouldRebuildServerBundle(): Promise<boolean> {
+  const packageVersion = await getRepoPackageVersion();
+  const serverTarPath = Path.resolve(REPO_ROOT, `resources/server-${packageVersion}.tar.gz`);
+  const expectedOutputs = [
+    Path.resolve(REPO_ROOT, 'resources/SHASUM256'),
+    serverTarPath,
+    Path.resolve(REPO_ROOT, 'server/bot/src/index.js'),
+  ];
+
+  for (const outputPath of expectedOutputs) {
+    if (!(await fileExists(outputPath))) return true;
+  }
+
+  const latestInputMtimeMs = await getLatestMtimeMs(SERVER_BUNDLE_INPUTS, SERVER_OUTPUT_EXCLUSIONS);
+  const oldestOutputMtimeMs = await getOldestMtimeMs(expectedOutputs);
+  return latestInputMtimeMs > oldestOutputMtimeMs;
+}
+
+async function getRepoPackageVersion(): Promise<string> {
+  const packageJsonPath = Path.resolve(REPO_ROOT, 'package.json');
+  const raw = await Fs.readFile(packageJsonPath, 'utf-8');
+  const parsed = JSON.parse(raw) as { version?: string };
+  const version = parsed.version?.trim();
+  if (!version) throw new Error('Missing version in package.json');
+  return version;
+}
+
+async function getLatestMtimeMs(paths: string[], excludedPrefixes: string[]): Promise<number> {
+  let latest = 0;
+  for (const path of paths) {
+    latest = Math.max(latest, await getPathLatestMtimeMs(path, excludedPrefixes));
+  }
+  return latest;
+}
+
+async function getPathLatestMtimeMs(path: string, excludedPrefixes: string[]): Promise<number> {
+  const resolvedPath = Path.resolve(path);
+  if (isExcludedPath(resolvedPath, excludedPrefixes)) return 0;
+  const stat = await Fs.stat(resolvedPath).catch(() => null);
+  if (!stat) return 0;
+  if (!stat.isDirectory()) return stat.mtimeMs;
+
+  let latest = stat.mtimeMs;
+  const entries = await Fs.readdir(resolvedPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = Path.join(resolvedPath, entry.name);
+    latest = Math.max(latest, await getPathLatestMtimeMs(entryPath, excludedPrefixes));
+  }
+  return latest;
+}
+
+function isExcludedPath(path: string, excludedPrefixes: string[]): boolean {
+  return excludedPrefixes.some(prefix => path === prefix || path.startsWith(`${prefix}${Path.sep}`));
+}
+
+async function getOldestMtimeMs(paths: string[]): Promise<number> {
+  let oldest = Number.POSITIVE_INFINITY;
+  for (const path of paths) {
+    const stat = await Fs.stat(path);
+    oldest = Math.min(oldest, stat.mtimeMs);
+  }
+  return oldest === Number.POSITIVE_INFINITY ? 0 : oldest;
 }
