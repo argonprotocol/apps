@@ -41,7 +41,6 @@ export async function executeFlow(
   const defaultTimeoutMs = flow.defaultTimeoutMs ?? DEFAULT_FLOW_TIMEOUT_MS;
   let activeOperationName = '';
   let interactionSequence = 0;
-  let lastInteractionCaptureFingerprint = '';
 
   const withCommandMeta = (args?: E2ECommandArgs): E2ECommandArgs => {
     const payload: E2ECommandArgs = { ...(args ?? {}) };
@@ -51,9 +50,8 @@ export async function executeFlow(
     return payload;
   };
 
-  const toInteractionScreenshotName = (command: string, args?: E2ECommandArgs): string => {
-    interactionSequence += 1;
-    const sequence = interactionSequence.toString().padStart(4, '0');
+  const toInteractionScreenshotName = (sequenceNumber: number, command: string, args?: E2ECommandArgs): string => {
+    const sequence = sequenceNumber.toString().padStart(4, '0');
     const operationName = activeOperationName ? `${activeOperationName}-` : '';
     const target =
       typeof args?.testId === 'string' ? args.testId : typeof args?.selector === 'string' ? args.selector : 'no-target';
@@ -61,43 +59,64 @@ export async function executeFlow(
     return `${sequence}-${operationName}${command}-${target}${state}`;
   };
 
-  const toInteractionCaptureFingerprint = (command: string, args?: E2ECommandArgs): string => {
-    const operationName = activeOperationName ? `${activeOperationName}|` : '';
-    const target =
-      typeof args?.testId === 'string' ? args.testId : typeof args?.selector === 'string' ? args.selector : 'no-target';
-    const state = typeof args?.state === 'string' ? args.state : '';
-    return `${operationName}${command}|${target}|${state}`;
-  };
+  const shouldCaptureInteractionScreenshot = (command: string, args?: E2ECommandArgs): boolean => {
+    if (command === 'ui.click' || command === 'ui.type' || command === 'ui.copy' || command === 'ui.paste') {
+      return true;
+    }
+    if (command !== 'ui.waitFor') {
+      return false;
+    }
 
-  const shouldCaptureInteractionEndScreenshot = (command: string): boolean =>
-    command === 'ui.click' || command === 'ui.type' || command === 'ui.copy' || command === 'ui.paste';
+    const state = typeof args?.state === 'string' ? args.state : 'visible';
+    if (state === 'missing' || state === 'hidden') {
+      return false;
+    }
+    if (typeof args?.selector === 'string' && args.selector === '#app') {
+      return false;
+    }
+    return true;
+  };
 
   const runDriverCommand = async <Result>(command: string, args?: E2ECommandArgs): Promise<Result> => {
     const payload = withCommandMeta(args);
     if (command === 'app.captureScreenshot') {
       return await driver.command<Result>(command, payload);
     }
-    const name = toInteractionScreenshotName(command, payload);
-    const fingerprint = toInteractionCaptureFingerprint(command, payload);
-    try {
-      const result = await driver.command<Result>(command, payload);
-      if (shouldCaptureInteractionEndScreenshot(command) && fingerprint !== lastInteractionCaptureFingerprint) {
-        lastInteractionCaptureFingerprint = fingerprint;
-        await captureE2EScreenshot(runtime, {
-          scope: 'interaction',
-          phase: 'end',
-          flowName: flow.name,
-          name,
-        });
+    const shouldCaptureInteraction = shouldCaptureInteractionScreenshot(command, payload);
+    let name: string | undefined;
+
+    const captureInteractionScreenshot = async (phase: 'end' | 'failure') => {
+      if (!name) {
+        interactionSequence += 1;
+        name = toInteractionScreenshotName(interactionSequence, command, payload);
       }
-      return result;
-    } catch (error) {
       await captureE2EScreenshot(runtime, {
         scope: 'interaction',
-        phase: 'failure',
+        phase,
         flowName: flow.name,
         name,
       });
+    };
+
+    try {
+      const result = await driver.command<Result>(command, payload);
+      if (shouldCaptureInteraction) {
+        if (command !== 'ui.waitFor') {
+          await new Promise(resolve => setTimeout(resolve, 180));
+        }
+        await captureInteractionScreenshot('end');
+      }
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (
+        !errorMessage.includes('[app_command_not_received]') &&
+        !errorMessage.includes('[driver_command_timeout]') &&
+        !errorMessage.includes('[app_disconnected]') &&
+        !errorMessage.includes('Driver socket closed')
+      ) {
+        await captureInteractionScreenshot('failure');
+      }
       throw error;
     }
   };

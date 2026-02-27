@@ -9,7 +9,7 @@
     <div class="mt-5 mb-12 flex flex-row items-center">
       <BitcoinUnlockedSvg />
       <div class="ml-5 grow rounded border border-slate-200 py-2 pr-10 pl-2 font-mono italic">
-        {{ personalLock.releaseToDestinationAddress }}
+        {{ releaseDestinationAddress }}
       </div>
     </div>
 
@@ -22,16 +22,23 @@
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
 import numeral from '../../lib/numeral';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import BitcoinUnlockedSvg from '../../assets/wallets/bitcoin-unlocked.svg';
 import { getCurrency } from '../../stores/currency.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 
 const currency = getCurrency();
+const bitcoinLocks = getBitcoinLocks();
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
+
+const releaseDestinationAddress = Vue.computed(() => {
+  return bitcoinLocks.getAcceptedFundingRecord(props.personalLock)?.releaseToDestinationAddress ?? '';
+});
 
 const emit = defineEmits<{
   (e: 'close'): void;

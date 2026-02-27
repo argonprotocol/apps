@@ -7,7 +7,7 @@
         <div class="mb-6">
           <p class="mb-4 text-gray-700">
             You are releasing
-            <strong>{{ numeral(currency.convertSatToBtc(personalLock.lockedUtxoSatoshis ?? personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
+            <strong>{{ numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
             which requires
             <strong>{{ microgonToArgonNm(releasePrice).format('0,0.[000000]') }} argons to unlock</strong>.
             These funds will be pulled directly from available capital in your vaulting wallet.
@@ -35,11 +35,7 @@
 
         <!-- Fee Selection -->
         <div class="mb-10">
-          <label class="mb-2 block font-medium text-gray-700">
-            Desired Bitcoin Network Speed
-            <span class="font-light">(how much you're willing to pay)</span>
-          </label>
-          <InputMenu v-model="selectedFeeRate" :options="feeRates" class="h-auto py-3 pl-3" />
+          <BitcoinFeeRateInput v-model="selectedFeeRatePerSatVb" dataTestid="UnlockStart.feeRate" />
         </div>
 
         <button
@@ -70,11 +66,10 @@ import * as Vue from 'vue';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
-import BitcoinLocksStore from '../../lib/BitcoinLocksStore.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import InputMenu from '../../components/InputMenu.vue';
+import BitcoinFeeRateInput from './components/BitcoinFeeRateInput.vue';
 
 const vaults = getVaults();
 const myVault = getMyVault();
@@ -91,15 +86,9 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const feeRatesByKey = Vue.ref<Record<string, { key: string; label: string; time: string; value: bigint }>>({
-  fast: { key: 'fast', label: 'Fast', time: '~10 min', value: 10n },
-  medium: { key: 'medium', label: 'Medium', time: '~30 min', value: 5n },
-  slow: { key: 'slow', label: 'Slow', time: '~60 min', value: 3n },
-});
-
 const isSubmitting = Vue.ref(false);
 
-const selectedFeeRate = Vue.ref('medium');
+const selectedFeeRatePerSatVb = Vue.ref(5n);
 const destinationAddress = Vue.ref('');
 const requestReleaseError = Vue.ref('');
 
@@ -118,20 +107,13 @@ const neededMicrogons = Vue.computed(() => {
   if (wallets.vaultingWallet.availableMicrogons >= amountNeeded) {
     return 0n;
   }
-  return wallets.vaultingWallet.availableMicrogons - amountNeeded;
+  return amountNeeded - wallets.vaultingWallet.availableMicrogons;
 });
 
 const canSendRequest = Vue.computed(() => {
   return destinationAddress.value.trim().length > 0 && !isSubmitting.value;
 });
-
-const feeRates = Vue.computed(() => {
-  return Object.values(feeRatesByKey.value).map(rate => ({
-    name: `${rate.label} = ${rate.time}`,
-    value: rate.key,
-    sats: rate.value,
-  }));
-});
+const fundingUtxoRecord = Vue.computed(() => bitcoinLocks.getAcceptedFundingRecord(props.personalLock));
 
 function closeOverlay() {
   emit('close');
@@ -144,10 +126,9 @@ async function submitRelease() {
     isSubmitting.value = true;
     requestReleaseError.value = '';
     const toScriptPubkey = destinationAddress.value.trim();
-    const feeRate = Object.values(feeRatesByKey.value).find(rate => rate.key === selectedFeeRate.value);
     const networkFee = await bitcoinLocks.calculateBitcoinNetworkFee(
       props.personalLock,
-      feeRate?.value ?? 5n,
+      selectedFeeRatePerSatVb.value,
       toScriptPubkey,
     );
 
@@ -168,19 +149,6 @@ async function updateFeeRates() {
   if (!isLocked) return;
 
   releasePrice.value = await vaults.getRedemptionRate(props.personalLock);
-  const latestFeeRates = await BitcoinLocksStore.getFeeRates();
-  feeRatesByKey.value = Object.entries(latestFeeRates).reduce(
-    (acc, [key, rate]) => {
-      acc[key] = {
-        key,
-        label: key.charAt(0).toUpperCase() + key.slice(1),
-        time: `~${rate.estimatedMinutes} min`,
-        value: rate.feeRate,
-      };
-      return acc;
-    },
-    {} as Record<string, { key: string; label: string; time: string; value: bigint }>,
-  );
 }
 
 Vue.onMounted(async () => {

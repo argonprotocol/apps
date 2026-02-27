@@ -38,7 +38,7 @@ import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import { Vaults } from './Vaults.ts';
-import BitcoinLocksStore from './BitcoinLocksStore.ts';
+import BitcoinLocks from './BitcoinLocks.ts';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
@@ -119,7 +119,7 @@ export class MyVault {
     public readonly vaults: Vaults,
     public readonly walletKeys: WalletKeys,
     transactionTracker: TransactionTracker,
-    public readonly bitcoinLocksStore: BitcoinLocksStore,
+    public readonly bitcoinLocksStore: BitcoinLocks,
     private readonly miningFrames: MiningFrames,
   ) {
     this.data = {
@@ -324,12 +324,13 @@ export class MyVault {
     }
     try {
       this.data.finalizeMyBitcoinError = undefined;
+      const fundingUtxo = lock.fundingUtxoRecord;
       const effectiveReleaseRequest =
         releaseRequest ??
-        (lock.releaseToDestinationAddress !== undefined && lock.releaseBitcoinNetworkFee !== undefined
+        (fundingUtxo?.releaseToDestinationAddress !== undefined && fundingUtxo.releaseBitcoinNetworkFee !== undefined
           ? {
-              toScriptPubkey: lock.releaseToDestinationAddress,
-              bitcoinNetworkFee: lock.releaseBitcoinNetworkFee,
+              toScriptPubkey: fundingUtxo.releaseToDestinationAddress,
+              bitcoinNetworkFee: fundingUtxo.releaseBitcoinNetworkFee,
             }
           : undefined);
       if (!effectiveReleaseRequest) {

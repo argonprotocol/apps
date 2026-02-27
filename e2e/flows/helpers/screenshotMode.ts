@@ -22,7 +22,7 @@ const DEFAULT_SCREENSHOT_DIR = Path.join(os.tmpdir(), 'e2e-screenshots');
 const DEFAULT_SCREENSHOT_TIMEOUT_MS = 15_000;
 
 let screenshotRunDir: string | null = null;
-let screenshotSequence = 0;
+const screenshotSequenceByFlow: Record<string, number> = {};
 let loggedScreenshotDirectory = false;
 
 export function resolveE2EScreenshotMode(value: string | undefined): E2EScreenshotMode {
@@ -104,9 +104,10 @@ export async function captureE2EScreenshot(
 }
 
 function getNextScreenshotPath(input: IE2EScreenshotCaptureInput): string {
-  screenshotSequence += 1;
-  const sequence = screenshotSequence.toString().padStart(4, '0');
   const flowLabel = sanitizePathToken(input.flowName);
+  const flowSequence = (screenshotSequenceByFlow[flowLabel] ?? 0) + 1;
+  screenshotSequenceByFlow[flowLabel] = flowSequence;
+  const sequence = flowSequence.toString().padStart(4, '0');
   const scopeLabel = sanitizePathToken(input.scope);
   const nameLabel = sanitizePathToken(input.name);
   const phaseLabel = sanitizePathToken(input.phase);

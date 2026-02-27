@@ -7,8 +7,8 @@
       </strong>
       (or
       {{ numeral(props.personalLock.lockDetails.satoshis).format('0,0') }}
-      sats) to the cosign address listed below. Make sure you send the exact amount. Failure to do so could result in a
-      rejected transaction and possibly the loss of your bitcoin.
+      sats) to the cosign address listed below so Argon can match this lock automatically. If the amount differs, we’ll
+      pause and let you choose whether to accept the adjusted amount or return the transfer.
     </p>
 
     <div class="mb-4 rounded-lg border border-gray-300 p-4 font-mono">
@@ -59,7 +59,7 @@ import { abbreviateAddress } from '../../lib/Utils';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../../components/BitcoinQrCode.vue';
 import CopyIcon from '../../assets/copy.svg?component';
-import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -75,20 +75,10 @@ const bitcoinLocks = getBitcoinLocks();
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');
 
-let shouldRunBitcoinCheck = true;
-
-function runBitcoinCheck() {
-  if (!shouldRunBitcoinCheck) return;
-  if (props.personalLock.status !== BitcoinLockStatus.LockReadyForBitcoin) return;
-  console.log('Running Bitcoin Check');
-  bitcoinLocks.updateLockIsProcessingOnBitcoin(props.personalLock);
-  setTimeout(runBitcoinCheck, 1e3);
-}
-
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
   try {
-    scriptPaytoAddress.value = bitcoinLocks.formatP2swhAddress(props.personalLock.lockDetails.p2wshScriptHashHex);
+    scriptPaytoAddress.value = bitcoinLocks.formatP2wshAddress(props.personalLock.lockDetails.p2wshScriptHashHex);
   } catch (error) {
     console.error('Error formatting P2WSH address:', error);
     throw new Error('Failed to format P2WSH address');
@@ -99,11 +89,5 @@ Vue.onMounted(async () => {
     `Personal BTC Funding for Vault #${props.personalLock.vaultId}, Utxo Id #${props.personalLock.utxoId}`,
   );
   fundingBip21.value = `bitcoin:${scriptPaytoAddress.value}?amount=${btcAmount}&label=${label}&message=${message}`;
-
-  runBitcoinCheck();
-});
-
-Vue.onUnmounted(() => {
-  shouldRunBitcoinCheck = false;
 });
 </script>

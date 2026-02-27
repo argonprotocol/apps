@@ -97,7 +97,7 @@ export function getMiningFrames(): MiningFrames {
     const clients = getMainchainClients();
     let storageFile = `${NETWORK_NAME}/miningFrames.json`;
     if (NETWORK_NAME === 'dev-docker') {
-      storageFile = `${NETWORK_NAME}/${INSTANCE_NAME}/dev-docker.json`;
+      storageFile = `${NETWORK_NAME}/${INSTANCE_NAME}/miningFrames.json`;
     }
     const dir = {
       baseDir: BaseDirectory.AppConfig,

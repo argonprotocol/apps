@@ -22,9 +22,13 @@ window.addEventListener('error', error => {
 
 const isE2E = __ARGON_DRIVER_WS__.trim().length > 0;
 const isE2EHeadless = isE2E && __ARGON_E2E_HEADLESS__;
-if (isE2EHeadless) {
-  // Global animation kill-switch for automated runs.
-  // Keep headed E2E visually faithful while making headless deterministic.
+const screenshotMode = __ARGON_E2E_SCREENSHOT_MODE__.trim().toLowerCase();
+const isE2EScreenshotCaptureEnabled =
+  isE2E && screenshotMode.length > 0 && !['0', 'false', 'off', 'none'].includes(screenshotMode);
+
+if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
+  // Global animation kill-switch for deterministic automated runs.
+  // Screenshot capture in headed mode still needs this to avoid interim visual states.
   MotionGlobalConfig.skipAnimations = true;
   MotionGlobalConfig.instantAnimations = true;
   document.documentElement.dataset.e2eNoMotion = '1';

@@ -14,6 +14,7 @@ import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
 import { BaseTable } from './db/BaseTable.ts';
 import { VaultRevenueEventsTable } from './db/VaultRevenueEventsTable.ts';
 import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
+import { BitcoinUtxosTable } from './db/BitcoinUtxosTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -30,6 +31,7 @@ export class Db {
   public bitcoinLocksTable: BitcoinLocksTable;
   public walletLedgerTable: WalletLedgerTable;
   public walletTransfersTable: WalletTransfersTable;
+  public bitcoinUtxosTable: BitcoinUtxosTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -48,10 +50,10 @@ export class Db {
     this.bitcoinLocksTable = new BitcoinLocksTable(this);
     this.walletLedgerTable = new WalletLedgerTable(this);
     this.walletTransfersTable = new WalletTransfersTable(this);
+    this.bitcoinUtxosTable = new BitcoinUtxosTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {
-    console.log('LOADING DB...');
     try {
       const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
       const db = new Db(sql, !!retries);
@@ -63,7 +65,6 @@ export class Db {
       return db;
     } catch (error) {
       if (typeof error == 'string' && error.startsWith('migration ') && retries < 1) {
-        console.log('DB MIGRATION ERROR: ', error);
         return this.load(retries + 1);
       }
       throw error;

@@ -226,8 +226,8 @@ function closeOverlay() {
   showInstallComplete.value = false;
 }
 
-function formatBlock(blockNumber?: number | null) {
-  if (blockNumber === undefined || blockNumber === null) return '--';
+function formatBlock(blockNumber?: number) {
+  if (blockNumber === undefined) return '--';
   return blockNumber.toLocaleString();
 }
 

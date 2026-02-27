@@ -106,6 +106,13 @@ export function parseRequiredNumber(value: string | null, label: string): number
   return parsed;
 }
 
+export function parseOptionalPositiveInteger(value: string | null): number | null {
+  if (value == null) return null;
+  const parsed = Number(value.trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 function getScaleDecimals(unitScale: bigint, label: string): number {
   const raw = unitScale.toString();
   if (raw === '0') {
@@ -139,6 +146,19 @@ export function parseDecimalToUnits(value: string | number, unitScale: bigint, l
   const fraction = decimals === 0 ? 0n : BigInt(paddedFraction || '0');
 
   return whole + fraction;
+}
+
+export function formatUnitsToDecimal(units: bigint, unitScale: bigint, label: string): string {
+  if (units < 0n) {
+    throw new Error(`${label}: expected a non-negative integer`);
+  }
+  const decimals = getScaleDecimals(unitScale, label);
+  if (decimals === 0) {
+    return units.toString();
+  }
+  const wholePart = units / unitScale;
+  const fractionalPart = (units % unitScale).toString().padStart(decimals, '0');
+  return `${wholePart}.${fractionalPart}`;
 }
 
 export interface IBip21Details {

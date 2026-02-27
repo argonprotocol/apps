@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateBlocks, runBtcCli } from './btcCli.ts';
-import { parseDecimalToUnits, pollEvery } from './utils.ts';
+import { formatUnitsToDecimal, parseDecimalToUnits, pollEvery } from './utils.ts';
 
 const SATOSHIS_PER_BTC = 100_000_000n;
 const DEFAULT_RECEIPT_TIMEOUT_MS = 120_000;
@@ -50,7 +50,11 @@ export function sendBitcoinToAddress(address: string, amountSatoshis: bigint): s
     throw new Error(`attempted to send invalid Bitcoin amount ${amountSatoshis.toString()}`);
   }
 
-  const txid = runBtcCli(['sendtoaddress', address, satoshisToBtc(amountSatoshis)]).trim();
+  const txid = runBtcCli([
+    'sendtoaddress',
+    address,
+    formatUnitsToDecimal(amountSatoshis, SATOSHIS_PER_BTC, 'bitcoin'),
+  ]).trim();
   if (!txid) {
     throw new Error(`failed to send Bitcoin to ${address}: missing txid`);
   }
@@ -224,13 +228,4 @@ function parseSignedBitcoinAmountToSatoshis(amount: unknown, label: string): big
   }
 
   return null;
-}
-
-function satoshisToBtc(amountSatoshis: bigint): string {
-  if (amountSatoshis <= 0n) {
-    throw new Error('Bitcoin amount must be positive');
-  }
-  const integerPart = amountSatoshis / SATOSHIS_PER_BTC;
-  const fractionalPart = (amountSatoshis % SATOSHIS_PER_BTC).toString().padStart(8, '0');
-  return `${integerPart}.${fractionalPart}`;
 }

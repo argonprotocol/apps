@@ -18,6 +18,7 @@ declare const __ARGON_NETWORK_NAME__: string;
 declare const __ARGON_NETWORK_CONFIG_OVERRIDE__: Record<string, unknown> | null;
 declare const __IS_TEST__: boolean;
 declare const __ARGON_DRIVER_WS__: string;
+declare const __ARGON_E2E_SCREENSHOT_MODE__: string;
 declare let __LOG_DEBUG__: boolean;
 declare const __SERVER_ENV_VARS__: {
   STATUS_PORT: string;
