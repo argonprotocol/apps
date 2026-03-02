@@ -4,17 +4,17 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
-        class="flex flex-row items-center justify-center text-sm/6 font-semibold font-mono text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 px-3.5 h-[30px] focus:outline-none hover:border-slate-400/50"
+        class="flex flex-row items-center justify-center text-[17px] font-semibold font-mono text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 px-3.5 h-[30px] focus:outline-none hover:border-slate-400/50"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
         <slot>
-          <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="h-[14px]" />
-          <DollarSign v-else-if="currency?.record?.key === 'USD'" class="h-[16px]" />
-          <EuroSign v-else-if="currency?.record?.key === 'EUR'" class="h-[16px]" />
-          <PoundSign v-else-if="currency?.record?.key === 'GBP'" class="h-[16px]" />
-          <RupeeSign v-else-if="currency?.record?.key === 'INR'" class="h-[16px]" />
-          <div v-else class="h-[18px] w-[14px]"></div>
-          <div class="text-lg font-bold ml-[3px] relative top-px -mr-0.5">
+          <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="h-[13px] relative top-[0.5px]" />
+          <DollarSign v-else-if="currency?.record?.key === 'USD'" class="h-[15px]" />
+          <EuroSign v-else-if="currency?.record?.key === 'EUR'" class="h-[15px]" />
+          <PoundSign v-else-if="currency?.record?.key === 'GBP'" class="h-[15px]" />
+          <RupeeSign v-else-if="currency?.record?.key === 'INR'" class="h-[15px]" />
+          <div v-else class="h-[18px] w-[13px]"></div>
+          <div class="ml-[3px] relative top-px -mr-0.5">
             {{ totalNetWorth[0] }}.<span class="opacity-50">{{ totalNetWorth[1] }}</span>
           </div>
         </slot>

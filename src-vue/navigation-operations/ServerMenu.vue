@@ -4,12 +4,12 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
-        class="flex flex-row items-center justify-center text-[16.5px] font-semibold overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
+        class="flex flex-row items-center justify-center font-mono text-[16.4px] font-semibold overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
-        <div v-if="!config.isServerAdded" class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
-          <PluginSmallIcon class="h-3.5 relative mr-1" aria-hidden="true" />
-          Add Server
+        <div v-if="!config.isServerAdded" class="relative flex flex-row items-center pl-2.5 pr-3 pt-px" style="word-spacing: -6px">
+          <PluginSmallIcon class="h-3.5 relative mr-1.5" />
+          Add Node
         </div>
         <div v-else-if="config.isServerInstalling" class="relative h-full">
           <span :class="isOpen ? 'invisible' : 'invisible'" class="pl-2.5 pr-3 pt-1">Installing Server</span>
@@ -27,7 +27,7 @@
             v-slot="{ hours, minutes, seconds, isNull }"
             :time="lastUpdatedAt"
             as="span"
-            class="relative -top-px font-mono"
+            class="relative -top-px"
             style="word-spacing: -5px"
           >
             <template v-if="hours">{{ hours }}h, </template>
@@ -63,11 +63,11 @@
                   <PluginIcon class="h-5 plugin-connecting mr-1" />
                   <DesktopIcon class="h-10 ml-1" />
                 </div>
-                You must connect a cloud server before you can start mining or vaulting.
+                <div class="text-center">You need your own Argon node before you can start mining or vaulting.</div>
               </div>
               <DropdownMenuItem v-if="IS_OPERATIONS_APP" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
                 <button @click="openServerConnectPanel" class="text-base py-2 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
-                  Connect a Cloud Server
+                  Connect a Cloud Machine
                 </button>
               </DropdownMenuItem>
             </div>
@@ -121,7 +121,7 @@
                   <PluginIcon class="h-5 plugin-connecting mr-1" />
                   <DesktopIcon class="h-10 ml-1 plugin-connecting" />
                 </div>
-                We are trying to connect to your cloud server.
+                We are trying to connect to your cloud machine.
               </div>
             </div>
           </div>
@@ -297,7 +297,7 @@ function openServerConnectPanel() {
     width: 0;
   }
   60% {
-    width: 1.2em;
+    width: 100%;
   }
   100% {
     width: 0;

@@ -4,4 +4,5 @@ export default interface ISecurity {
   miningBotAddress: string;
   vaultingAddress: string;
   investmentAddress: string;
+  operationalAddress: string;
 }

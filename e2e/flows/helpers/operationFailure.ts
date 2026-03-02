@@ -54,13 +54,11 @@ export async function logDefaultAppFailureDiagnostics(
     flow.isVisible('VaultingScreen').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('MiningDashboard').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('VaultingDashboard').catch(() => ({ visible: false, exists: false, enabled: false })),
+    flow.isVisible('SetupChecklist').catch(() => ({ visible: false, exists: false, enabled: false })),
+    flow.isVisible('SetupChecklist').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
-      .isVisible('SetupChecklist.openHowMiningWorksOverlay()')
+      .isVisible({ selector: '[data-testid="WelcomeOverlay"]' })
       .catch(() => ({ visible: false, exists: false, enabled: false })),
-    flow
-      .isVisible('SetupChecklist.openHowVaultingWorksOverlay()')
-      .catch(() => ({ visible: false, exists: false, enabled: false })),
-    flow.isVisible('WelcomeOverlay.closeOverlay()').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
       .isVisible('WalletFundingReceivedOverlay.closeOverlay()')
       .catch(() => ({ visible: false, exists: false, enabled: false })),

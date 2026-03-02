@@ -20,14 +20,13 @@ type IBasicEmitter = {
   };
   openImportingOverlay: { importer: Importer; dataRaw: string };
   openCheckForAppUpdatesOverlay: void;
-  openHowMiningWorksOverlay: void;
-  openHowVaultingWorksOverlay: void;
   openWelcomeOverlay: void;
 
   openPortfolioPanel: PortfolioTab;
   openImportAccountOverlay: void;
 
   openServerOverlay: void;
+  openCertificationOverlay: void;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

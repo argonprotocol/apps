@@ -50,12 +50,16 @@
           Server details and latest node activity.
         </p>
 
-        <div class="border-t border-dashed border-slate-300 py-4 grid grid-cols-[170px_1fr] gap-y-2 text-base">
+        <div class="grid grid-cols-[170px_1fr] gap-y-2 text-base">
+          <div class="h-px col-span-full bg-slate-400/30 my-2" />
+
           <div class="text-gray-500">IP Address</div>
           <div class="font-semibold font-mono">{{ serverDetails.ipAddress || '--' }}</div>
 
           <div class="text-gray-500">SSH Username</div>
           <div class="font-semibold font-mono">{{ serverDetails.sshUser || '--' }}</div>
+
+          <div class="h-px col-span-full bg-slate-400/30 my-2" />
 
           <div class="text-gray-500">Last Bitcoin Block</div>
           <div class="font-semibold font-mono">
@@ -101,17 +105,33 @@
             </CountupClock>
             <span class="whitespace-nowrap">
               (<ActiveBidsOverlayButton class="ml-1.5 inline-block">
-                <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">list</span>
+                <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">view list</span>
               </ActiveBidsOverlayButton>
-                /
+                <span class="opacity-50 px-1">/</span>
               <BotHistoryOverlayButton class="inline-block">
-                <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">activity</span>
+                <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">view activity</span>
               </BotHistoryOverlayButton>)
             </span>
           </div>
+
+          <div class="h-px col-span-full bg-slate-400/30 my-2" />
+
+          <div class="text-gray-500">Capital Members</div>
+          <div class="font-light font-mono">0 (
+            view members
+            <span class="opacity-50 px-2">/</span>
+            view pending invites
+          )</div>
+
+          <div class="text-gray-500">Operational Members</div>
+          <div class="font-light font-mono">0 (
+            view members
+            <span class="opacity-50 px-2">/</span>
+            view pending invites
+          )</div>
         </div>
 
-        <div class="border-t border-dashed border-slate-300 pt-3 flex items-center gap-2">
+        <div class="border-t border-dashed border-slate-300 pt-4 mt-4 flex items-center gap-2">
           <button @click="openTroubleshooting" class="text-argon-700 border rounded px-3 py-1 text-center cursor-pointer">
             Troubleshooting
           </button>

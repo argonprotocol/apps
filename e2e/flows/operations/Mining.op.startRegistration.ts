@@ -17,7 +17,7 @@ export default new Operation<IMiningFlowContext, IStartRegistrationState>(import
   async inspect({ flow }) {
     const [blankSlateVisible, postStartReadyVisible] = await Promise.all([
       flow.isVisible('BlankSlate.startSettingUpMiner()').then(state => state.visible),
-      flow.isVisible('SetupChecklist.openHowMiningWorksOverlay()').then(state => state.visible),
+      flow.isVisible('SetupChecklist').then(state => state.visible),
     ]);
 
     const hasEntrypoint = blankSlateVisible || postStartReadyVisible;
@@ -52,12 +52,12 @@ export default new Operation<IMiningFlowContext, IStartRegistrationState>(import
     }
 
     if (state.blankSlateVisible && (await clickIfVisible(flow, 'BlankSlate.startSettingUpMiner()'))) {
-      await flow.waitFor('SetupChecklist.openHowMiningWorksOverlay()', { timeoutMs: 30_000 });
+      await flow.waitFor('SetupChecklist', { timeoutMs: 30_000 });
       return;
     }
 
     const checklistVisible = await flow
-      .waitFor('SetupChecklist.openHowMiningWorksOverlay()', { timeoutMs: 20_000 })
+      .waitFor('SetupChecklist', { timeoutMs: 20_000 })
       .then(() => true)
       .catch(() => false);
     if (checklistVisible) {
@@ -66,7 +66,7 @@ export default new Operation<IMiningFlowContext, IStartRegistrationState>(import
 
     const blankSlate = await flow.isVisible('BlankSlate.startSettingUpMiner()');
     if (blankSlate.visible && (await clickIfVisible(flow, 'BlankSlate.startSettingUpMiner()'))) {
-      await flow.waitFor('SetupChecklist.openHowMiningWorksOverlay()', { timeoutMs: 30_000 });
+      await flow.waitFor('SetupChecklist', { timeoutMs: 30_000 });
       return;
     }
 

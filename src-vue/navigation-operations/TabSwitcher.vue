@@ -1,54 +1,99 @@
 <!-- prettier-ignore -->
 <template>
-  <section
-    ref="toggleRef"
-    class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
-  >
-    <div Item
-      class="border-r border-slate-400/30"
-      @click="goto(OperationsTab.Mining)"
-      :class="{ selected: controller.selectedTab === OperationsTab.Mining }">
-      <div Wrapper class="relative inline px-2 text-center">
-        <div :class="{ invisible: controller.selectedTab === OperationsTab.Mining }">Mining</div>
-        <div v-if="controller.selectedTab === OperationsTab.Mining" class="absolute top-0 left-0 h-full w-full font-bold">
-          Mining
-        </div>
-      </div>
-    </div>
-
-    <div Item
-      class="border-r border-slate-400/30 !px-[14px] !py-0"
-      @click="goto(OperationsTab.Home)"
-      :class="{ selected: controller.selectedTab === OperationsTab.Home }"
+  <TooltipProvider :disableHoverableContent="true" :disableClosingTrigger="true" :delayDuration="300">
+    <section
+      ref="toggleRef"
+      class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
     >
-      <div Wrapper class="relative px-5 text-center">
-        <div :class="{ invisible: controller.selectedTab === OperationsTab.Home }">
-          <ArgonLogo class="relative top-[0.5px] h-[24px] opacity-70" />
-        </div>
-        <div
-          v-if="controller.selectedTab === OperationsTab.Home"
-          class="absolute top-1/2 -translate-y-1/2 left-0 w-full text-center font-bold">
-          <ArgonLogo class="text-argon-600 relative mx-auto h-[24px]" />
-        </div>
-      </div>
-    </div>
+      <TooltipRoot>
+        <TooltipTrigger asChild>
+          <div Item
+            class="border-r border-slate-400/30"
+            @click="goto(OperationsTab.Mining)"
+            :class="{ selected: controller.selectedTab === OperationsTab.Mining }">
+            <div Wrapper class="relative inline px-2 text-center">
+              <div :class="{ invisible: controller.selectedTab === OperationsTab.Mining }">Mining</div>
+              <div v-if="controller.selectedTab === OperationsTab.Mining" class="absolute top-0 left-0 h-full w-full font-bold">
+                Mining
+              </div>
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipPortal>
+          <TooltipContent
+            side="bottom"
+            :sideOffset="-5"
+            class="w-88 data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none z-100 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
+          >
+            Miners are chosen through an open auction process. The winners are given a ten-day mining right, after which, they must reapply.
+            <TooltipArrow :width="24" :height="12" class="fill-white stroke-gray-400/30 shadow-xl/50" />
+          </TooltipContent>
+        </TooltipPortal>
+      </TooltipRoot>
 
-    <div Item
-      @click="goto(OperationsTab.Vaulting)"
-      :class="{ selected: controller.selectedTab === OperationsTab.Vaulting }"
-    >
-      <div Wrapper class="relative inline px-1 text-center">
-        <div :class="{ invisible: controller.selectedTab === OperationsTab.Vaulting }">Vaulting</div>
-        <div v-if="controller.selectedTab === OperationsTab.Vaulting" class="absolute top-0 left-0 h-full w-full font-bold">
-          Vaulting
-        </div>
-      </div>
-    </div>
-  </section>
+      <TooltipRoot>
+        <TooltipTrigger asChild>
+          <div Item
+            class="border-r border-slate-400/30 !px-[14px] !py-0"
+            @click="goto(OperationsTab.Home)"
+            :class="{ selected: controller.selectedTab === OperationsTab.Home }"
+          >
+            <div Wrapper class="relative px-5 text-center">
+              <div :class="{ invisible: controller.selectedTab === OperationsTab.Home }">
+                <ArgonLogo class="relative top-[0.5px] h-[24px] opacity-70" />
+              </div>
+              <div
+                v-if="controller.selectedTab === OperationsTab.Home"
+                class="absolute top-1/2 -translate-y-1/2 left-0 w-full text-center font-bold">
+                <ArgonLogo class="text-argon-600 relative mx-auto h-[24px]" />
+              </div>
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipPortal>
+          <TooltipContent
+            side="bottom"
+            :sideOffset="-5"
+            class="w-60 data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none z-100 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-center leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
+          >
+            This is your home screen, a summary of all of all your mining and vaulting activity.
+            <TooltipArrow :width="24" :height="12" class="fill-white stroke-gray-400/30 shadow-xl/50" />
+          </TooltipContent>
+        </TooltipPortal>
+      </TooltipRoot>
+
+      <TooltipRoot>
+        <TooltipTrigger asChild>
+          <div Item
+            @click="goto(OperationsTab.Vaulting)"
+            :class="{ selected: controller.selectedTab === OperationsTab.Vaulting }"
+          >
+            <div Wrapper class="relative inline px-1 text-center">
+              <div :class="{ invisible: controller.selectedTab === OperationsTab.Vaulting }">Vaulting</div>
+              <div v-if="controller.selectedTab === OperationsTab.Vaulting" class="absolute top-0 left-0 h-full w-full font-bold">
+                Vaulting
+              </div>
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipPortal>
+          <TooltipContent
+            side="bottom"
+            :sideOffset="-5"
+            class="w-84 data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none z-100 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-right leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
+          >
+            Vaulting is basically the other side of the mining coin. Vaulters provide services to stabilize the newly mined stablecoins.
+            <TooltipArrow :width="24" :height="12" class="fill-white stroke-gray-400/30 shadow-xl/50" />
+          </TooltipContent>
+        </TooltipPortal>
+      </TooltipRoot>
+    </section>
+  </TooltipProvider>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import ArgonLogo from '../assets/resources/argon.svg?component';

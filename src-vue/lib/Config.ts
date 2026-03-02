@@ -27,13 +27,19 @@ import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { ensureOnlyOneInstance } from './Utils';
 import { UnitOfMeasurement } from './Currency';
 import { getUserJurisdiction } from './Countries';
-import { IS_TEST, NETWORK_NAME } from './Env.ts';
+import { IS_TEST, NETWORK_NAME, NETWORK_URL } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { ZodAny } from 'zod';
 import { WalletKeys } from './WalletKeys.ts';
 import { WalletRecoveryFn } from './WalletRecovery.ts';
+
+const BOOTSTRAP_NETWORK_PLACEHOLDER = 'ARGON_NETWORK_NAME';
+
+function stripSocketProtocol(value: string): string {
+  return value.replace(/^wss?:\/\//i, '');
+}
 
 export class Config implements IConfig {
   public readonly version: string = packageJson.version;
@@ -70,7 +76,6 @@ export class Config implements IConfig {
     this._loadedData = {
       version: packageJson.version,
       requiresPassword: false,
-      showWelcomeOverlay: false,
       serverDetails: {
         ipAddress: '',
         sshUser: '',
@@ -88,12 +93,10 @@ export class Config implements IConfig {
         dbFields.miningBotAccountPreviousHistory,
       ) as IConfig['miningBotAccountPreviousHistory'],
 
-      hasReadMiningInstructions: Config.getDefault(dbFields.hasReadMiningInstructions) as boolean,
       isServerInstalled: Config.getDefault(dbFields.isServerInstalled) as boolean,
       isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
 
-      hasReadVaultingInstructions: Config.getDefault(dbFields.hasReadVaultingInstructions) as boolean,
-
+      hasOperatorAccount: Config.getDefault(dbFields.hasOperatorAccount) as boolean,
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
@@ -113,12 +116,11 @@ export class Config implements IConfig {
 
   public async restoreToConnection(sql: PluginSql): Promise<void> {
     const preserveFields: (keyof IConfig)[] = [
+      'bootstrapDetails',
       'serverAdd',
       'serverDetails',
       'biddingRules',
       'vaultingRules',
-      'hasReadVaultingInstructions',
-      'hasReadMiningInstructions',
       'oldestFrameIdToSync',
       'defaultCurrencyKey',
       'requiresPassword',
@@ -157,6 +159,20 @@ export class Config implements IConfig {
 
       for (const [key, value] of Object.entries(defaults)) {
         let rawValue = dbRawData[key as keyof typeof dbRawData];
+        if (key === dbFields.bootstrapDetails && rawValue !== undefined && rawValue !== '') {
+          const bootstrapDetails = JsonExt.parse(rawValue as string);
+          const resolvedIpAddress =
+            bootstrapDetails?.ipAddress === BOOTSTRAP_NETWORK_PLACEHOLDER
+              ? stripSocketProtocol(NETWORK_URL)
+              : stripSocketProtocol(bootstrapDetails?.ipAddress ?? '');
+          if (bootstrapDetails && bootstrapDetails.ipAddress !== resolvedIpAddress) {
+            bootstrapDetails.ipAddress = resolvedIpAddress;
+            rawValue = JsonExt.stringify(bootstrapDetails, 2);
+            dbRawData[key as keyof typeof dbRawData] = rawValue as any;
+            rawData[key as keyof typeof rawData] = rawValue;
+            fieldsToSave.add(key);
+          }
+        }
         const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
         if (schemaField && rawValue !== undefined && rawValue !== '') {
           const data = JsonExt.parse(rawValue as string);
@@ -285,10 +301,15 @@ export class Config implements IConfig {
   }
 
   public get showWelcomeOverlay(): boolean {
-    return this.getField('showWelcomeOverlay') && !this.isRestarting;
+    const bootstrapDetails = this.getField('bootstrapDetails');
+    return !bootstrapDetails && !this.isRestarting;
   }
-  public set showWelcomeOverlay(value: boolean) {
-    this.setField('showWelcomeOverlay', value);
+
+  public get bootstrapDetails(): IConfig['bootstrapDetails'] {
+    return this.getField('bootstrapDetails');
+  }
+  public set bootstrapDetails(value: IConfig['bootstrapDetails']) {
+    this.setField('bootstrapDetails', value);
   }
 
   public get serverAdd(): IConfig['serverAdd'] {
@@ -326,13 +347,6 @@ export class Config implements IConfig {
     this.setField('latestFrameIdProcessed', value);
   }
 
-  public get hasReadMiningInstructions(): boolean {
-    return this.getField('hasReadMiningInstructions');
-  }
-  public set hasReadMiningInstructions(value: boolean) {
-    this.setField('hasReadMiningInstructions', value);
-  }
-
   public get isServerInstalled(): boolean {
     return this.getField('isServerInstalled');
   }
@@ -355,12 +369,12 @@ export class Config implements IConfig {
     this.setField('isServerInstalling', value);
   }
 
-  public get hasReadVaultingInstructions(): boolean {
-    return this.getField('hasReadVaultingInstructions');
+  public get hasOperatorAccount(): boolean {
+    return this.getField('hasOperatorAccount');
   }
 
-  public set hasReadVaultingInstructions(value: boolean) {
-    this.setField('hasReadVaultingInstructions', value);
+  public set hasOperatorAccount(value: boolean) {
+    this.setField('hasOperatorAccount', value);
   }
 
   public get hasMiningSeats(): boolean {
@@ -490,9 +504,7 @@ export class Config implements IConfig {
     fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
 
     if (walletHadPreviousLife) {
-      loadedData.showWelcomeOverlay = false;
-      stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false, 2);
-      fieldsToSave.add(dbFields.showWelcomeOverlay);
+      // TODO: Need to set bootstrapDetails
     }
   }
 
@@ -527,7 +539,6 @@ export class Config implements IConfig {
       }
       this.miningBotAccountPreviousHistory = miningHistory;
       this.miningSetupStatus = MiningSetupStatus.Checklist;
-      this.hasReadMiningInstructions = miningHistory.length > 0;
       if (this.serverDetails.ipAddress) {
         this.miningSetupStatus = MiningSetupStatus.Finished;
         this.miningBotAccountPreviousHistory = null;
@@ -543,7 +554,6 @@ export class Config implements IConfig {
       console.log('Config: Previous vaulting rules found');
       this.vaultingRules = vaultingRules;
       this.vaultingSetupStatus = VaultingSetupStatus.Finished;
-      this.hasReadVaultingInstructions = true;
 
       this._tryFieldsToSave(dbFields.vaultingRules, vaultingRules);
     }
@@ -577,7 +587,7 @@ const dbFields = {
   vaultingSetupStatus: 'vaultingSetupStatus',
 
   requiresPassword: 'requiresPassword',
-  showWelcomeOverlay: 'showWelcomeOverlay',
+  bootstrapDetails: 'bootstrapDetails',
 
   serverAdd: 'serverAdd',
   serverDetails: 'serverDetails',
@@ -588,12 +598,10 @@ const dbFields = {
   walletAccountsHadPreviousLife: 'walletAccountsHadPreviousLife',
   walletPreviousLifeRecovered: 'walletPreviousLifeRecovered',
 
-  hasReadMiningInstructions: 'hasReadMiningInstructions',
   isServerInstalled: 'isServerInstalled',
   isServerInstalling: 'isServerInstalling',
 
-  hasReadVaultingInstructions: 'hasReadVaultingInstructions',
-
+  hasOperatorAccount: 'hasOperatorAccount',
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
   biddingRules: 'biddingRules',
@@ -607,7 +615,7 @@ const defaults: IConfigDefaults = {
   vaultingSetupStatus: () => VaultingSetupStatus.None,
 
   requiresPassword: () => false,
-  showWelcomeOverlay: () => true,
+  bootstrapDetails: () => undefined,
 
   serverAdd: () => undefined,
   serverDetails: () => {
@@ -643,12 +651,10 @@ const defaults: IConfigDefaults = {
   walletAccountsHadPreviousLife: () => false,
   walletPreviousLifeRecovered: () => false,
 
-  hasReadMiningInstructions: () => false,
   isServerInstalled: () => false,
   isServerInstalling: () => false,
 
-  hasReadVaultingInstructions: () => false,
-
+  hasOperatorAccount: () => false,
   hasMiningSeats: () => false,
   hasMiningBids: () => false,
   biddingRules: () => {
