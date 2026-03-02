@@ -260,7 +260,7 @@
             MainWrapper
             @click="openEditBoxOverlay('cloudMachine')"
             class="flex h-full w-full flex-col items-center justify-center px-8">
-            <div StatHeader>Cloud Server</div>
+            <div StatHeader>Cloud Machine</div>
             <div MainRule class="flex w-full flex-row items-center justify-center tracking-widest">
               <span>{{ config.serverDetails.ipAddress || '0.0.0.0' }}</span>
               <EditIcon EditIcon />

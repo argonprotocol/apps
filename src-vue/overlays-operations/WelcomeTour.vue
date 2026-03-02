@@ -63,8 +63,6 @@ function updateStepVars() {
 async function loadStep(step: number) {
   if (step === 6) {
     step = 0;
-    config.showWelcomeOverlay = false;
-    await config.save();
   } else if (step === 1) {
     controller.setScreenKey(OperationsTab.Mining);
   } else if (step === 2) {

@@ -9,7 +9,7 @@
         :align="props.align"
         class="border-0"
       >
-        Unused Holdings
+        Inflation-Free Zone
         <template #icon><ArgonIcon class="h-7 w-7" /></template>
         <template #value>
           {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.sidelinedTotalValue).format('0,0.00') }}

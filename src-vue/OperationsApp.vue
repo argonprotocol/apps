@@ -24,6 +24,7 @@
       <MoveCapitalOverlay />
       <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
+      <CertificationOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
       <BotEditOverlay />
@@ -37,8 +38,6 @@
     <TroubleshootingOverlay />
     <ImportingOverlay />
     <AppUpdatesOverlay />
-    <HowMiningWorksOverlay />
-    <HowVaultingWorksOverlay />
   </div>
 </template>
 
@@ -68,8 +67,6 @@ import ImportingOverlay from './overlays-operations/ImportingOverlay.vue';
 import BootingOverlay from './overlays-shared/BootingOverlay.vue';
 import AppUpdatesOverlay from './overlays-operations/AppUpdatesOverlay.vue';
 import AlertBars from './navigation-shared/AlertBars.vue';
-import HowMiningWorksOverlay from './overlays-operations/bot/HowMiningWorks.vue';
-import HowVaultingWorksOverlay from './overlays-operations/vault/HowVaultingWorks.vue';
 import WelcomeOverlay from './overlays-operations/WelcomeOverlay.vue';
 import WelcomeTour from './overlays-operations/WelcomeTour.vue';
 import BotEditOverlay from './overlays-operations/BotEditOverlay.vue';
@@ -77,6 +74,7 @@ import WalletFundingReceivedOverlay from './overlays-operations/WalletFundingRec
 import Portfolio from './panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays-operations/MoveCapitalOverlay.vue';
 import ServerOverlay from './overlays-operations/ServerOverlay.vue';
+import CertificationOverlay from './overlays-operations/CertificationOverlay.vue';
 
 const controller = useOperationsController();
 const config = getConfig();

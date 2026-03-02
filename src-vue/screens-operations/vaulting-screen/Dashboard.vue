@@ -168,10 +168,10 @@
           </header>
           <VaultingAssetBreakdown />
           <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
-            <div @click="openHowVaultingWorksOverlay" class="text-center text-argon-600/60 hover:text-argon-600 cursor-pointer">
-              <InstructionsIcon class="w-6 h-6 inline-block" />
+            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
               <div>Learn About Vaulting</div>
-            </div>
+              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
+            </a>
           </div>
           <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
             <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
@@ -376,14 +376,13 @@ import numeral from '../../lib/numeral';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
+import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultCollectOverlay from '../../overlays-operations/VaultCollectOverlay.vue';
 import VaultEditOverlay from '../../overlays-operations/VaultEditOverlay.vue';
 import AssetMenu from '../components/AssetMenu.vue';
 import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
-import InstructionsIcon from '../../assets/instructions.svg?component';
 import FrameSlider from '../../components/FrameSlider.vue';
 import SuccessIcon from '../../assets/success.svg?component';
 import ConfigIcon from '../../assets/config.svg?component';
@@ -395,7 +394,7 @@ import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
 import RoiIcon from '../../assets/roi.svg';
-import ProjectionsIcon from '../../assets/projections.svg';
+import ProjectionsIcon from '../../assets/rocket.svg';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
@@ -572,10 +571,6 @@ function openVaultEditOverlay() {
 
 function openPortfolioPanel(tab: PortfolioTab) {
   basicEmitter.emit('openPortfolioPanel', tab);
-}
-
-function openHowVaultingWorksOverlay() {
-  basicEmitter.emit('openHowVaultingWorksOverlay');
 }
 
 const miningFrames = getMiningFrames();

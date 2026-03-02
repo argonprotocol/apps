@@ -561,7 +561,7 @@ import BanklessBottom1 from '../assets/bankless-bottom1.svg';
 import BanklessBottom2 from '../assets/bankless-bottom2.svg';
 import RoiIcon from '../assets/roi.svg';
 import ArgonLogo from '../assets/resources/argon.svg?component';
-import ProjectionsIcon from '../assets/projections.svg';
+import ProjectionsIcon from '../assets/rocket.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import AssetMenu from './components/AssetMenu.vue';

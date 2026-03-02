@@ -26,6 +26,7 @@ export const useOperationsController = defineStore('operationsController', () =>
   const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(true);
   const stopSuggestingVaultTour = Vue.ref(true);
+  const hideBonusTip = Vue.ref(false);
 
   const backButtonTriggersHome = Vue.ref(false);
 
@@ -68,6 +69,7 @@ export const useOperationsController = defineStore('operationsController', () =>
     stopSuggestingVaultTour,
     walletOverlayIsOpen,
     backButtonTriggersHome,
+    hideBonusTip,
     importFromFile,
     importFromMnemonic,
     setScreenKey: setTab,

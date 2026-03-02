@@ -16,12 +16,14 @@
           </p>
         </div>
         <div class="flex flex-row items-center text-2xl mt-10 w-full justify-center gap-x-6">
-          <button
-            @click="openHowVaultingWorksOverlay"
-            class="cursor-pointer bg-white/10 hover:bg-argon-600/10 border border-argon-800/30 inner-button-shadow font-bold text-argon-600 [text-shadow:1px_1px_0_rgba(255,255,255,0.5)] px-12 py-2 rounded-md block"
+          <a
+            target="_blank"
+            href="https://argon.network/docs/vaulting-operations"
+            class="flex flex-row items-center cursor-pointer bg-white/10 hover:bg-argon-600/10 border border-argon-800/30 inner-button-shadow font-bold! !text-argon-600 visited:!text-argon-600 hover:!text-argon-600 no-underline hover:no-underline [text-shadow:1px_1px_0_rgba(255,255,255,0.5)] px-12 py-2 rounded-md"
           >
             Learn How Vaulting Works
-          </button>
+            <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
+          </a>
           <button
             @click="startSettingUpVault"
             class="flex flex-row cursor-pointer items-center gap-x-2 bg-argon-500 hover:bg-argon-600 border border-argon-700 inner-button-shadow font-bold text-white px-12 py-2 rounded-md"
@@ -142,11 +144,10 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter from '../../emitters/basicEmitter';
 import { getCurrency } from '../../stores/currency';
 import VaultImage from '../../assets/vault.svg?component';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
-import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
+import { ArrowTopRightOnSquareIcon, ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { getVaults } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config';
 import { abbreviateAddress, getPercent } from '../../lib/Utils.ts';
@@ -171,10 +172,6 @@ const cloneCount = Vue.computed(() => {
 const vaults = Vue.ref(
   [] as { id: number; operatorAccountId: string; btcFillPct: number; treasuryFillPct: number; isFiller?: boolean }[],
 );
-
-function openHowVaultingWorksOverlay() {
-  basicEmitter.emit('openHowVaultingWorksOverlay');
-}
 
 function startSettingUpVault() {
   config.vaultingSetupStatus = VaultingSetupStatus.Checklist;

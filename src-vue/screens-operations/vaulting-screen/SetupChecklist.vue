@@ -4,129 +4,131 @@
     <div @click="goBack" class="absolute flex flex-row gap-x-2 z-10 top-3 pb-3 pr-10 left-5 items-center text-slate-400/50 hover:text-slate-600 cursor-pointer">
       <ArrowLeftIcon class="size-4 " />
       <div>
-        {{controller.backButtonTriggersHome ? 'Back to Home' : 'Back to Start'}}
+        {{controller.backButtonTriggersHome ? 'Back to Home' : 'Back to Beginning'}}
       </div>
       <div class="absolute bottom-0 left-0 w-[200%] h-px bg-gradient-to-r from-slate-400/30 from-0% via-slate-400/30 via-50% to-transparent to-100%"></div>
     </div>
-    <div class="relative px-[15%] pt-2 pb-10">
-      <div>
+    <div class="relative px-[15%] pt-2 pb-12 grow max-h-220">
+      <div class="flex flex-col grow h-full">
 
-        <h1 class="text-4xl font-bold text-left mt-24 mb-4 whitespace-nowrap text-argon-text-primary">
-          Three Steps Are Required to Begin Vaulting
+        <h1 class="text-4xl font-bold text-left mt-24 whitespace-nowrap text-argon-text-primary">
+          Start Vaulting In Three Steps
         </h1>
 
-        <p class="mb-4 text-argon-text-primary leading-7">
-          Creating a new Stabilization Vault is quite easy. This page walks you through the entire process. The biggest task is figuring out how much capital you want to commit, which you'll do in Vault Settings (the second item on this checklist).
+        <p class="text-argon-text-primary leading-7 mt-6 mb-8">
+          Creating a new Stabilization Vault is easy. This page walks you through the entire process. The biggest
+          task is figuring out how much capital you want to commit, which you'll do in Vault Settings (the second item on
+          this checklist). <a target="_blank" href="https://argon.network/docs/vaulting-operations">Learn more about
+          vaulting</a>.
         </p>
 
-        <section
-          @click="openHowVaultingWorksOverlay"
-          class="flex flex-row cursor-pointer mt-8 border-t border-[#CCCEDA] py-6 hover:bg-argon-menu-hover"
-        >
-          <Checkbox :isChecked="config.hasReadVaultingInstructions" />
-          <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">Learn How Vaulting Works</h2>
-            <p v-if="!config.hasReadVaultingInstructions">
-              Read an overview of what vaulting is, how it works, and the core concepts you'll need to understand.
-            </p>
-            <p v-else>
-              You skimmed the basics of what vaulting is, how it works, and the core concepts you'll need to understand.
-            </p>
-          </div>
-        </section>
+        <div class="h-px w-full bg-[#CCCEDA]" />
 
         <section
           @click="openServerConnectPanel"
-          class="flex flex-row cursor-pointer border-t border-[#CCCEDA] py-6"
+          class="flex flex-row cursor-pointer py-5 grow items-center"
         >
-          <Checkbox :isChecked="wallets.isLoaded && hasMiningMachine" />
-          <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">
-              Connect a Cloud Server
+          <div class="flex flex-row">
+            <Checkbox :isChecked="wallets.isLoaded && hasMiningMachine" />
+            <div class="px-4">
+              <h2 class="text-2xl text-[#A600D4] font-bold">
+              Connect a Cloud Machine
               <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
             </h2>
-            <p v-if="hasMiningMachine">
-              <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
-              <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
-              <template v-else>Your custom server is connected and verified. We'll do the work of installing and configuring the software.</template>
-            </p>
-            <p v-else>
-              Argon's mining software is runnable on cheap virtual cloud machines. We'll show you how to add one.
-            </p>
+              <p v-if="hasMiningMachine">
+                <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
+                <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
+                <template v-else>Your custom server is connected and verified. We'll do the work of installing and configuring the software.</template>
+              </p>
+              <p v-else>
+                Argon's mining software is runnable on cheap virtual cloud machines. We'll show you how to add one.
+              </p>
+            </div>
           </div>
         </section>
+
+        <div class="h-px w-full bg-[#CCCEDA]" />
 
         <section
           @click="openVaultCreateOverlay"
           ref="VaultCreateOverlayReferenceElement"
-          class="flex flex-row cursor-pointer border-t border-[#CCCEDA] py-6 hover:bg-argon-menu-hover"
+          class="flex flex-row cursor-pointer py-5 grow items-center hover:bg-argon-menu-hover"
         >
-          <Checkbox :isChecked="config.hasSavedVaultingRules" />
-          <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">Configure Your Vault Settings</h2>
-            <p v-if="!config.hasSavedVaultingRules">
-              Decide how much capital to commit, your distribution between securitization and treasury pools, and other basic settings.
-            </p>
-            <p v-else>
-              You setup your vaulting rules and <VaultCapital align="start" :alignOffset="alignOffsetForCapital">
-                <span @mouseenter="alignOffsetForCapital = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
-                  committed
-                  {{ currency.symbol }}{{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00]') }} in capital
-                </span>
-            </VaultCapital>
-              with an
-              <VaultReturns align="end" :alignOffset="alignOffsetForReturns">
-                <span @mouseenter="alignOffsetForReturns = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'end')" class="inline-block underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
-                  average expected return of {{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999)
-                  }}%
-                </span>
-              </VaultReturns>
-              (APY).
-            </p>
+          <div class="flex flex-row">
+            <Checkbox :isChecked="config.hasSavedVaultingRules" />
+            <div class="px-4">
+              <h2 class="text-2xl text-[#A600D4] font-bold">Confirm Your Vault Settings</h2>
+              <p v-if="!config.hasSavedVaultingRules">
+                Decide how much capital to commit, your distribution between securitization and treasury pools, and other basic settings.
+              </p>
+              <p v-else>
+                You setup your vaulting rules and <VaultCapital align="start" :alignOffset="alignOffsetForCapital">
+                  <span @mouseenter="alignOffsetForCapital = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
+                    committed
+                    {{ currency.symbol }}{{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00]') }} in capital
+                  </span>
+              </VaultCapital>
+                with an
+                <VaultReturns align="end" :alignOffset="alignOffsetForReturns">
+                  <span @mouseenter="alignOffsetForReturns = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'end')" class="inline-block underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
+                    average expected return of {{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999)
+                    }}%
+                  </span>
+                </VaultReturns>
+                (APY).
+              </p>
+            </div>
           </div>
         </section>
 
+        <div class="h-px w-full bg-[#CCCEDA]" />
+
         <section
           @click="openFundVaultingAccountOverlay"
-          class="flex flex-row cursor-pointer border-y border-[#CCCEDA] py-6"
+          class="flex flex-row cursor-pointer py-5 grow items-center"
         >
-          <Checkbox :isChecked="walletIsFullyFunded" />
-          <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">
-              {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
-              Your Wallet
-            </h2>
-            <p>
-              Your account needs a minimum of
-              {{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00000000]') }} argon{{
-                microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0') === '1' ? '' : 's'
-              }}
-              <template v-if="config.vaultingRules?.baseMicronotCommitment">
-                and
-                {{
-                  micronotToArgonotNm(config.vaultingRules?.baseMicronotCommitment || 0n).format('0,0.[00000000]')
+          <div class="flex flex-row">
+            <Checkbox :isChecked="walletIsFullyFunded" />
+            <div class="px-4">
+              <h2 class="text-2xl text-[#A600D4] font-bold">
+                {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
+                Your Wallet
+              </h2>
+              <p>
+                Your account needs a minimum of
+                {{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00000000]') }} argon{{
+                  microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0') === '1' ? '' : 's'
                 }}
-                argonot{{
-                  micronotToArgonotNm(config.vaultingRules?.baseMicronotCommitment || 0n).format('0') === '1' ? '' : 's'
-                }}
-              </template>
-              to operate your vault. A secure wallet is already attached to your account. All you need to do is move
-              some tokens.
-            </p>
+                <template v-if="config.vaultingRules?.baseMicronotCommitment">
+                  and
+                  {{
+                    micronotToArgonotNm(config.vaultingRules?.baseMicronotCommitment || 0n).format('0,0.[00000000]')
+                  }}
+                  argonot{{
+                    micronotToArgonotNm(config.vaultingRules?.baseMicronotCommitment || 0n).format('0') === '1' ? '' : 's'
+                  }}
+                </template>
+                to operate your vault. A secure wallet is already attached to your account. All you need to do is move
+                some tokens.
+              </p>
+            </div>
           </div>
         </section>
-      </div>
-      <button
-        @click="createVault"
-        :class="[
+
+        <div class="h-px w-full bg-[#CCCEDA]" />
+
+        <button
+          @click="createVault"
+          :class="[
           walletIsFullyFunded && !controller.walletOverlayIsOpen
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30'
         ]"
-        class="bg-argon-button border border-argon-button-hover mt-10 text-2xl font-bold px-4 py-4 rounded-md w-full cursor-pointer hover:bg-argon-button-hover hover:inner-button-shadow"
-      >
-        Launch Stabilization Vault
-      </button>
+          class="bg-argon-button border border-argon-button-hover text-2xl font-bold px-4 py-4 mt-10 rounded-md w-full cursor-pointer hover:bg-argon-button-hover hover:inner-button-shadow"
+        >
+          Launch Stabilization Vault
+        </button>
+      </div>
     </div>
   </div>
   <VaultCreatePanel v-if="openCreateOverlay" @close="openCreateOverlay = false" />
@@ -237,10 +239,6 @@ function openFundVaultingAccountOverlay() {
 async function createVault() {
   config.vaultingSetupStatus = VaultingSetupStatus.Installing;
   await config.save();
-}
-
-function openHowVaultingWorksOverlay() {
-  basicEmitter.emit('openHowVaultingWorksOverlay');
 }
 
 function openServerConnectPanel() {

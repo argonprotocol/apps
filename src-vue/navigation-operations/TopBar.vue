@@ -13,11 +13,14 @@
       </div>
     </div>
 
-    <div class="flex w-1/3 justify-center pointer-events-none relative left-1.5">
+    <div
+      v-if="controller.isLoaded && !controller.isImporting"
+      class="flex w-1/3 justify-center pointer-events-none relative left-1.5"
+    >
       <TabSwitcher />
     </div>
 
-    <div v-if="controller.isLoaded"
+    <div v-if="controller.isLoaded && !controller.isImporting"
       class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/3 grow pointer-events-none relative top-[1px]"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
@@ -26,6 +29,9 @@
       </div>
       <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <ServerMenu ref="serverMenuRef" />
+      </div>
+      <div class="pointer-events-auto">
+        <OperationalMenu ref="operationalMenuRef" />
       </div>
       <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <AccountMenu ref="accountMenuRef" />
@@ -50,6 +56,7 @@ import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { IInstance } from '../navigation-shared/InstanceMenu.vue';
 import TabSwitcher from './TabSwitcher.vue';
 import ServerMenu from './ServerMenu.vue';
+import OperationalMenu from './OperationalMenu.vue';
 
 const controller = useOperationsController();
 const wallets = useWallets();

@@ -236,7 +236,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
       ariaHiddenPersonalCount,
       inertPersonalCount,
     ] = await Promise.all([
-      flow.isVisible('WelcomeOverlay.closeOverlay()').catch(() => ({ visible: false, exists: false })),
+      flow.isVisible({ selector: '[data-testid="WelcomeOverlay"]' }).catch(() => ({ visible: false, exists: false })),
       flow.isVisible('WalletFundingReceivedOverlay.closeOverlay()').catch(() => ({ visible: false, exists: false })),
       flow.isVisible('VaultingDashboard').catch(() => ({ visible: false, exists: false })),
       flow.isVisible('BitcoinUnlockingOverlay').catch(() => ({ visible: false, exists: false })),

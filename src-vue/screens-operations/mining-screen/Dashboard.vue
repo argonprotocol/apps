@@ -78,10 +78,10 @@
           </header>
           <MiningAssetBreakdown />
           <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
-            <div @click="openHowMiningWorksOverlay" class="text-center text-argon-600/60 hover:text-argon-600 cursor-pointer">
-              <InstructionsIcon class="w-6 h-6 inline-block" />
+            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
               <div>Learn About Mining</div>
-            </div>
+              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
+            </a>
           </div>
           <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
             <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
@@ -270,11 +270,10 @@ import { BigNumber } from 'bignumber.js';
 import { calculateProfitPct, Mining } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats';
 import { getCurrency } from '../../stores/currency';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
+import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import ConfigIcon from '../../assets/config.svg?component';
-import InstructionsIcon from '../../assets/instructions.svg?component';
 import FrameSlider from '../../components/FrameSlider.vue';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
@@ -284,7 +283,7 @@ import MiningSeats from './components/MiningSeats.vue';
 import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
-import ProjectionsIcon from '../../assets/projections.svg';
+import ProjectionsIcon from '../../assets/rocket.svg';
 import RoiIcon from '../../assets/roi.svg';
 import { WalletType } from '../../lib/Wallet.ts';
 import AssetMenu from '../components/AssetMenu.vue';
@@ -544,10 +543,6 @@ function openBotEditOverlay() {
 
 function openPortfolioPanel(tab: PortfolioTab) {
   basicEmitter.emit('openPortfolioPanel', tab);
-}
-
-function openHowMiningWorksOverlay() {
-  basicEmitter.emit('openHowMiningWorksOverlay');
 }
 
 function loadChartData() {

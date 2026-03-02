@@ -14,6 +14,10 @@ const CurrencyKeySchema = z
       val === UnitOfMeasurement.INR,
   );
 
+const HostOrIpSchema = z
+  .string()
+  .refine(value => value === '' || !/^[a-z]+:\/\//i.test(value), 'Must not include a protocol prefix');
+
 export enum InstallStepKey {
   ServerConnect = 'ServerConnect',
   FileUpload = 'FileUpload',
@@ -64,6 +68,11 @@ export enum ServerType {
   LocalComputer = 'LocalComputer',
 }
 
+export enum BootstrapType {
+  Private = 'Private',
+  Public = 'Public',
+}
+
 export const ConfigServerAddDigitalOceanSchema = z.object({
   apiKey: z.string(),
 });
@@ -108,6 +117,19 @@ export const ConfigServerInstallerSchema = z.object({
   isRunning: z.boolean(),
 });
 
+export const ConfigBootstrapDetailsSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal(BootstrapType.Private),
+    ipAddress: HostOrIpSchema,
+    accessCode: z.string(),
+  }),
+  z.object({
+    type: z.literal(BootstrapType.Public),
+    ipAddress: HostOrIpSchema,
+    accessCode: z.string().optional(),
+  }),
+]);
+
 export const ConfigSyncDetailsSchema = z.object({
   progress: z.number(),
   startDate: z.string().nullable(),
@@ -138,8 +160,9 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 
 export const ConfigSchema = z.object({
   version: z.string(),
+
   requiresPassword: z.boolean(),
-  showWelcomeOverlay: z.boolean(),
+  bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
@@ -154,14 +177,12 @@ export const ConfigSchema = z.object({
   walletPreviousLifeRecovered: z.boolean(),
   miningBotAccountPreviousHistory: z.array(MiningAccountPreviousHistoryRecordSchema).nullable(),
 
-  hasReadMiningInstructions: z.boolean(),
   isServerInstalled: z.boolean(), // is set once after first install
   isServerInstalling: z.boolean(), // is true whenever the Installer is running
 
-  hasReadVaultingInstructions: z.boolean(),
-
-  hasMiningSeats: z.boolean(), // hasMiningSeats
-  hasMiningBids: z.boolean(), // hasMiningBids
+  hasOperatorAccount: z.boolean(),
+  hasMiningSeats: z.boolean(),
+  hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
   vaultingRules: VaultingRulesSchema,
 
@@ -200,7 +221,7 @@ export type IConfigStringified = {
 
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
-  showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
+  bootstrapDetails: () => IConfig['bootstrapDetails'];
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
@@ -214,12 +235,10 @@ export interface IConfigDefaults {
   walletPreviousLifeRecovered: () => IConfig['walletPreviousLifeRecovered'];
   miningBotAccountPreviousHistory: () => IConfig['miningBotAccountPreviousHistory'];
 
-  hasReadMiningInstructions: () => IConfig['hasReadMiningInstructions'];
   isServerInstalled: () => IConfig['isServerInstalled'];
   isServerInstalling: () => IConfig['isServerInstalling'];
 
-  hasReadVaultingInstructions: () => IConfig['hasReadVaultingInstructions'];
-
+  hasOperatorAccount: () => IConfig['hasOperatorAccount'];
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];
   biddingRules: () => IConfig['biddingRules'];

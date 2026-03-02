@@ -26,6 +26,7 @@ pub struct Security {
     pub mining_bot_address: String,
     pub vaulting_address: String,
     pub investment_address: String,
+    pub operational_address: String,
     pub ssh_public_key: String,
 }
 
@@ -396,12 +397,14 @@ impl Security {
         let mining_bot_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?; // If we had a do-over, it would be called miningBot
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
         let investment_account = Self::sr_derive_from_mnemonic(mnemonic, "//investment")?;
+        let operational_account = Self::sr_derive_from_mnemonic(mnemonic, "//operational")?;
 
         Ok(Self {
             mining_hold_address: mining_hold_account.0.public().to_ss58check(),
             mining_bot_address: mining_bot_account.0.public().to_ss58check(),
             vaulting_address: vaulting_account.0.public().to_ss58check(),
             investment_address: investment_account.0.public().to_ss58check(),
+            operational_address: operational_account.0.public().to_ss58check(),
             ssh_public_key: public_key.to_string(),
         })
     }

@@ -90,8 +90,8 @@ a {
 }
 
 a {
+  @apply text-argon-600;
   font-weight: 500;
-  color: #646cff;
   text-decoration: inherit;
 }
 

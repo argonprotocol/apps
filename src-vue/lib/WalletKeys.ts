@@ -23,6 +23,10 @@ export class WalletKeys {
    * Investment account for liquid locking and external treasury management.
    */
   public investmentAddress: string;
+  /**
+   * Operational account for ongoing app operations.
+   */
+  public operationalAddress: string;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
 
@@ -35,6 +39,7 @@ export class WalletKeys {
     this.miningBotAddress = security.miningBotAddress;
     this.vaultingAddress = security.vaultingAddress;
     this.investmentAddress = security.investmentAddress;
+    this.operationalAddress = security.operationalAddress;
     console.log('WalletKeys initialized with mining address:', this.miningBotAddress, security);
   }
 
@@ -82,6 +87,12 @@ export class WalletKeys {
   // TODO: move signing to backend instead of passing around key
   public async getInvestmentKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//investment` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  // TODO: move signing to backend instead of passing around key
+  public async getOperationalKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//operational` }, 60e3);
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
