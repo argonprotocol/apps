@@ -6,6 +6,13 @@ import { parseEnv } from 'node:util';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ARGON_ENV_PATH = Path.resolve(__dirname, '.env');
 const ARGON_DOCKER_COMPOSE = Path.resolve(__dirname, 'docker-compose.yml');
+const ARGON_DOCKER_COMPOSE_VERSION_PATH = Path.resolve(__dirname, '.docker-compose.version');
+
+interface ComposeVersionState {
+  requestedRef: string;
+  downloadedFromRef: string;
+  updatedAt: string;
+}
 
 async function getArgonEnvVersion(): Promise<string | undefined> {
   const envRaw = await Fs.readFile(ARGON_ENV_PATH, 'utf-8').catch(() => '');
@@ -83,16 +90,41 @@ function toReleaseTagVariant(value: string): string | undefined {
   return undefined;
 }
 
+async function readComposeVersionState(): Promise<ComposeVersionState | undefined> {
+  const raw = await Fs.readFile(ARGON_DOCKER_COMPOSE_VERSION_PATH, 'utf-8').catch(() => '');
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ComposeVersionState>;
+    if (!parsed.requestedRef?.trim() || !parsed.downloadedFromRef?.trim()) return undefined;
+    return {
+      requestedRef: parsed.requestedRef.trim(),
+      downloadedFromRef: parsed.downloadedFromRef.trim(),
+      updatedAt: parsed.updatedAt?.trim() || '',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeComposeVersionState(state: ComposeVersionState): Promise<void> {
+  await Fs.writeFile(ARGON_DOCKER_COMPOSE_VERSION_PATH, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+}
+
 const argonEnvVersion = await getArgonEnvVersion();
 const requestedRef = toMainchainGitRef(process.env.VERSION?.trim() || argonEnvVersion);
 const candidateRefs = getCandidateMainchainRefs(requestedRef);
 const shouldRefreshMainRef = ['main', 'refs/heads/main'].includes(candidateRefs[0]);
-const shouldForceForPinnedRef = !shouldRefreshMainRef;
 const composeExists = await Fs.stat(ARGON_DOCKER_COMPOSE)
   .then(() => true)
   .catch(() => false);
+const composeVersionState = await readComposeVersionState();
+const shouldUsePinnedComposeCache =
+  !shouldRefreshMainRef &&
+  composeExists &&
+  composeVersionState?.requestedRef === candidateRefs[0] &&
+  Boolean(composeVersionState && candidateRefs.includes(composeVersionState.downloadedFromRef));
 
-if (process.argv[2] === 'force' || shouldRefreshMainRef || shouldForceForPinnedRef || !composeExists) {
+if (process.argv[2] === 'force' || shouldRefreshMainRef || !composeExists || !shouldUsePinnedComposeCache) {
   let downloadedFromRef: string | null = null;
   const failures: string[] = [];
 
@@ -111,6 +143,15 @@ if (process.argv[2] === 'force' || shouldRefreshMainRef || shouldForceForPinnedR
   if (!downloadedFromRef) {
     throw new Error(`Failed to fetch docker-compose.yml for refs: ${failures.join(', ')}`);
   }
+  await writeComposeVersionState({
+    requestedRef: candidateRefs[0],
+    downloadedFromRef,
+    updatedAt: new Date().toISOString(),
+  });
+} else {
+  console.log(
+    `Using cached docker-compose.yml for argon dev-docker network (${composeVersionState?.requestedRef ?? candidateRefs[0]})`,
+  );
 }
 if (
   !(await Fs.stat('/tmp/oracle/data/US_CPI_State.json')

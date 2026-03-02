@@ -1,10 +1,14 @@
 import { defineConfig } from 'vitest/config';
 
+const INTEGRATION_TEST_GLOB = '**/__test__/**/*.integration.test.ts';
+const E2E_TEST_GLOB = 'e2e/__test__/**/*.e2e.test.ts';
+const APP_SETUP_FILE = './vitest.setup.ts';
+
 export default defineConfig({
   test: {
     retry: 1,
     reporters: process.env.GITHUB_ACTIONS ? ['dot', 'github-actions'] : ['dot'],
-    maxWorkers: 1,
+    maxWorkers: process.env.VITEST_MAX_WORKERS ?? '50%',
     disableConsoleIntercept: true,
     projects: [
       {
@@ -13,7 +17,8 @@ export default defineConfig({
           testTimeout: 30_000,
           hookTimeout: 30_000,
           include: ['src-vue/__test__/**/*.test.ts'],
-          setupFiles: './vitest.setup.ts',
+          exclude: [INTEGRATION_TEST_GLOB],
+          setupFiles: APP_SETUP_FILE,
           // silent: false
         },
       },
@@ -23,6 +28,7 @@ export default defineConfig({
           testTimeout: 240_000,
           hookTimeout: 120_000,
           include: ['core/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
         },
       },
       {
@@ -31,6 +37,7 @@ export default defineConfig({
           testTimeout: 240_000,
           hookTimeout: 120_000,
           include: ['indexer/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
         },
       },
       {
@@ -39,6 +46,25 @@ export default defineConfig({
           testTimeout: 240_000,
           hookTimeout: 120_000,
           include: ['bot/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
+          env: {
+            STATUS_URL: 'na',
+          },
+        },
+      },
+      {
+        test: {
+          name: 'integration',
+          testTimeout: 240_000,
+          hookTimeout: 120_000,
+          include: [INTEGRATION_TEST_GLOB],
+          setupFiles: APP_SETUP_FILE,
+          fileParallelism: false,
+          maxWorkers: 1,
+          sequence: {
+            concurrent: false,
+            shuffle: false,
+          },
           env: {
             STATUS_URL: 'na',
           },
@@ -47,7 +73,7 @@ export default defineConfig({
       {
         test: {
           name: 'e2e',
-          include: ['e2e/__test__/**/*.test.ts'],
+          include: [E2E_TEST_GLOB],
           isolate: false,
           fileParallelism: false,
           maxWorkers: 1,
