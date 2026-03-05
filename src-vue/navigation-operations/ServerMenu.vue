@@ -18,7 +18,7 @@
             style="box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.15)"
           >
             <div :style="{ width: `${installerProgress}%` }" class="h-full bg-white border-r min-w-1 text-right" />
-            <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-sm font-normal text-slate-600/40 mt-px">{{ numeral(installerProgress).format('0.[0]')}}%</div>
+            <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-bold text-slate-600/60 font-mono">{{ numeral(installerProgress).format('0.[0]')}}%</div>
           </div>
         </div>
         <div v-else-if="lastUpdatedAt" class="pl-2.5 pr-3 pt-px flex flex-row items-center">
@@ -72,8 +72,13 @@
               </DropdownMenuItem>
             </div>
 
-            <DropdownMenuItem v-else-if="config.isServerInstalling" @click="openServerOverlay" class="px-3 py-1 w-120 cursor-pointer text-black/30 hover:text-argon-600">
+            <DropdownMenuItem v-else-if="config.isServerInstalling" class="px-3 py-1 w-120 text-black/30 cursor-default!">
               <InstallProgress />
+              <div class="border-t border-dashed border-slate-300 py-1">
+                <button @click="openServerOverlay" class="mt-2 text-base py-1.5 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
+                  Open Server Overlay
+                </button>
+              </div>
             </DropdownMenuItem>
 
             <div v-else-if="lastUpdatedAt">

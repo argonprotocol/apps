@@ -11,11 +11,17 @@
       <div v-else-if="overlayMode === 'installing'">
         <p v-if="config.isServerInstalled" class="pt-2 pb-5 font-light">
           We are updating the bot program on your {{ serverIdentity() }}. This will only
-          take a few minutes to complete.
+          take a few minutes to complete. Please do not close this app until it is finished.
         </p>
-        <p v-else class="pt-3 pb-5 font-light">
+        <p v-else class="pt-1 pb-6 font-light leading-6">
           We are verifying and setting up your {{ serverIdentity() }}. This may take several
           hours to complete.
+          <template v-if="canCloseOverlay">
+            You can close this overlay and app without affect the installation process.
+          </template>
+          <template>
+            Please do not close this app until the core server files have been uploaded.
+          </template>
         </p>
         <div class="border-t border-dashed border-slate-300 text-black/40">
           <InstallProgress />
