@@ -1,5 +1,5 @@
 {
-  "name": "@argonprotocol/apps-status",
+  "name": "@argonprotocol/apps-router",
   "version": "0.1.0",
   "devDependencies": {
     "@types/bun": "^1.2.22"

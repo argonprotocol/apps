@@ -8,17 +8,17 @@ x-common-config: &common-config
     - default
 
 services:
-  status:
+  router:
     <<: *common-config
     build:
-      context: status
+      context: ../router
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
       - $ROOT/server:/server
       - $ROOT/logs:/logs
     ports:
-      - '${STATUS_PORT}:8080'
+      - '${ROUTER_PORT}:8080'
     environment:
       - PORT=8080
       - ARGON_CHAIN=${ARGON_CHAIN}
@@ -78,7 +78,7 @@ services:
       - $BITCOIN_DATA_FOLDER:/data
       - $ROOT/server/bitcoin:/etc/bitcoin:ro
     depends_on:
-      - status
+      - router
     profiles:
       - all
       - miners
@@ -95,7 +95,7 @@ services:
     restart: unless-stopped
     depends_on:
       - bitcoin-node
-      - status
+      - router
     command: >
       --bitcoin-rpc-url=http://bitcoin:bitcoin@bitcoin-node:5000
       --base-path=/data
@@ -149,7 +149,7 @@ services:
     restart: unless-stopped
     depends_on:
       - argon-miner
-      - status
+      - router
     ports:
       - '${BOT_PORT}:8080'
     working_dir: /usr/src/app
@@ -162,7 +162,7 @@ services:
       - KEYPAIR_PATH=/tmp/walletMiningBot.json
       - LOCAL_RPC_URL=ws://argon-miner:9944
       - ARCHIVE_NODE_URL=${ARGON_ARCHIVE_NODE}
-      - STATUS_URL=http://status:8080
+      - CHECKIN_URL=http://router:8080
       - ARGON_CHAIN=${ARGON_CHAIN}
       - DATADIR=/data
     volumes:

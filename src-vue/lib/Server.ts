@@ -453,7 +453,7 @@ export class Server {
     const timeout = setTimeout(() => {
       aborController.abort();
     }, timeoutMs);
-    const response = await fetch(`http://${ip}:${SERVER_ENV_VARS.STATUS_PORT}/${service}/${path}`, {
+    const response = await fetch(`http://${ip}:${SERVER_ENV_VARS.ROUTER_PORT}/${service}/${path}`, {
       signal,
     });
     clearTimeout(timeout);
