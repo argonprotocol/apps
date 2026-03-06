@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   if (resolvedPin.mainRepoCommitHash) {
     console.info(`- main repo commit: ${resolvedPin.mainRepoCommitHash}`);
   }
-  console.info('- next step: run yarn install to sync yarn.lock and node_modules');
+  console.info('- next step: run `yarn install` followed by `yarn build:server`');
 }
 
 function normalizeRef(value: string | undefined): string {

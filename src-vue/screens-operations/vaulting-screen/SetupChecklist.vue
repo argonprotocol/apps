@@ -43,7 +43,7 @@
           <div class="px-4">
             <h2 class="text-2xl text-[#A600D4] font-bold">
               Connect a Cloud Server
-              <span v-if="config.isServerAdded" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
+              <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
             </h2>
             <p v-if="hasMiningMachine">
               <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
@@ -244,7 +244,11 @@ function openHowVaultingWorksOverlay() {
 }
 
 function openServerConnectPanel() {
-  basicEmitter.emit('openServerConnectPanel');
+  if (config.isServerAdded) {
+    basicEmitter.emit('openServerOverlay');
+  } else {
+    basicEmitter.emit('openServerConnectPanel');
+  }
 }
 
 function goBack() {

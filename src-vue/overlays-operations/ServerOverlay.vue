@@ -17,7 +17,7 @@
           We are verifying and setting up your {{ serverIdentity() }}. This may take several
           hours to complete.
           <template v-if="canCloseOverlay">
-            You can close this overlay and app without affect the installation process.
+            You can close this overlay and app without affecting the installation process.
           </template>
           <template>
             Please do not close this app until the core server files have been uploaded.
