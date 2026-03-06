@@ -48,7 +48,7 @@ export default defineConfig({
           include: ['bot/__test__/**/*.test.ts'],
           exclude: [INTEGRATION_TEST_GLOB],
           env: {
-            STATUS_URL: 'na',
+            ROUTER_URL: 'na',
           },
         },
       },

@@ -21,8 +21,8 @@ declare const __ARGON_DRIVER_WS__: string;
 declare const __ARGON_E2E_SCREENSHOT_MODE__: string;
 declare let __LOG_DEBUG__: boolean;
 declare const __SERVER_ENV_VARS__: {
-  STATUS_PORT: string;
   BOT_PORT: string;
+  ROUTER_PORT: string;
   ARGON_RPC_PORT: string;
   BITCOIN_VERSION: string;
   ARGON_VERSION: string;

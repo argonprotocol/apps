@@ -70,17 +70,17 @@ jobs:
 
       - name: Start bitcoin service
         run: |
-          STATUS_PORT=0 docker compose --env-file=${{ matrix.env_file }} --profile=all up --build --force-recreate -d bitcoin-node status
+          ROUTER_PORT=0 docker compose --env-file=${{ matrix.env_file }} --profile=all up --build --force-recreate -d bitcoin-node router
         working-directory: server
 
-      - name: Wait for sync via status service
+      - name: Wait for sync via router service
         run: |
           docker compose --env-file=${{ matrix.env_file }} --profile=all logs -f &
           LOGS_PID=$!
           port=""
           for i  in {1..30}; do
             port=""
-            if docker compose --env-file=${{ matrix.env_file }} port status 8080 >/tmp/port.out 2>/dev/null; then
+            if docker compose --env-file=${{ matrix.env_file }} port router 8080 >/tmp/port.out 2>/dev/null; then
               port=$(cut -d: -f2 </tmp/port.out)
             else
               echo "Status service not yet publishing port"
@@ -89,7 +89,7 @@ jobs:
               echo "Status service is running on port $port"
               break
             fi
-            echo "Waiting for status service to start..."
+            echo "Waiting for router service to start..."
             sleep 10
           done
           for i in {1..180}; do

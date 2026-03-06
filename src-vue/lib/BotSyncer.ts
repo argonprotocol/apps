@@ -533,6 +533,7 @@ export class BotSyncer {
 
     await this.db.syncStateTable.upsert(SyncStateKeys.Server, {
       latestFrameId: botState.currentFrameId,
+
       argonBlocksLastUpdatedAt,
       argonLocalNodeBlockNumber: latestArgonBlockNumbers.localNode,
       argonMainNodeBlockNumber: latestArgonBlockNumbers.mainNode,

@@ -294,7 +294,7 @@ if ! (already_ran "BitcoinInstall"); then
     while true; do
         sleep 1
         allow_run_command_fail=1
-        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${STATUS_PORT}/bitcoin/syncstatus" )
+        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${ROUTER_PORT}/bitcoin/syncstatus" )
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
@@ -361,7 +361,7 @@ if ! (already_ran "ArgonInstall"); then
     while true; do
         sleep 1
         allow_run_command_fail=1
-        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${STATUS_PORT}/argon/syncstatus")
+        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${ROUTER_PORT}/argon/syncstatus")
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then

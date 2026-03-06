@@ -17,7 +17,7 @@ const cache: {
 
 let requestId = 1;
 
-console.log('Starting status server on port', port, {
+console.log('Starting router server on port', port, {
   LOCAL_NODE_URL,
   MAIN_NODE_URL,
   BITCOIN_CHAIN: process.env.BITCOIN_CHAIN,
