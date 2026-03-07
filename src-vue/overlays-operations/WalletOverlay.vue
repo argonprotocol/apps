@@ -2,7 +2,16 @@
 <template>
   <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-9/12">
     <template #title>
-      <div class="text-2xl font-bold grow">Add Funds to Your {{ walletName }} Wallet</div>
+      <div class="text-2xl font-bold inline-block relative">
+        Add Funds to Your {{ walletName }} Wallet
+        <AlertCalloutButton
+          v-if="[OperationalStepId.ActivateVault, OperationalStepId.FirstMiningSeat].includes(controller.activeGuideId as any)"
+          :showArrow="false"
+          label="Critical Alert"
+          guidance="In order to count towards your bonus, these funds must be sent over Hyperbridge from a Uniswap or Coinbase transaction. This helps the system limit fraud."
+          class="absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+        />
+      </div>
     </template>
 
     <div class="flex flex-row items-start w-full pt-3 pb-5 px-5 gap-x-5">
@@ -127,10 +136,11 @@ import { createNumeralHelpers } from '../lib/numeral';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import basicEmitter from '../emitters/basicEmitter';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../stores/operationsController.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import InstructionsIcon from '../assets/instructions.svg?component';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
+import AlertCalloutButton from '../components/AlertCalloutButton.vue';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -299,7 +309,7 @@ async function loadQRCode() {
 
 function closeOverlay() {
   isOpen.value = false;
-  controller.walletOverlayIsOpen = false;
+  controller.overlayIsOpen = false;
 }
 
 basicEmitter.on('openWalletOverlay', async data => {
@@ -308,7 +318,7 @@ basicEmitter.on('openWalletOverlay', async data => {
   isOpen.value = true;
   isLoaded.value = true;
   showJurisdictionAlert.value = false;
-  controller.walletOverlayIsOpen = true;
+  controller.overlayIsOpen = true;
 });
 </script>
 

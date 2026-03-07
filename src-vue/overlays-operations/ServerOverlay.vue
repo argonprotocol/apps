@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" :showCloseIcon="canCloseOverlay" :disallowClose="!canCloseOverlay" :overflowScroll="false" @close="closeOverlay" @esc="closeOverlay" class="w-7/12">
+  <OverlayBase :isOpen="isOpen" :overflowScroll="false" @close="closeOverlay" @esc="closeOverlay" class="w-7/12">
     <template #title>
       <div class="text-2xl font-bold grow">{{ overlayTitle }}</div>
     </template>
@@ -15,18 +15,12 @@
         </p>
         <p v-else class="pt-1 pb-6 font-light leading-6">
           We are verifying and setting up your {{ serverIdentity() }}. This may take several
-          hours to complete.
-          <template v-if="canCloseOverlay">
-            You can close this overlay and app without affecting the installation process.
-          </template>
-          <template>
-            Please do not close this app until the core server files have been uploaded.
-          </template>
+          hours to complete. You can close this overlay and app without affecting the installation process.
         </p>
         <div class="border-t border-dashed border-slate-300 text-black/40">
           <InstallProgress />
         </div>
-        <div v-if="installerIsRunningInBackground" class="border-t border-dashed border-slate-300">
+        <div class="border-t border-dashed border-slate-300">
           <button @click="closeOverlay" class="text-argon-700 border border-argon-600/50 rounded w-full py-2 mt-5 text-center cursor-pointer">
             Close Overlay
           </button>
@@ -179,10 +173,6 @@ const hasError = Vue.computed(() => {
   return isLoaded.value ? !!config.serverInstaller.errorType : false;
 });
 
-const installerIsRunningInBackground = Vue.computed(() => {
-  return installer.isRunning && installer.isRunningInBackground;
-});
-
 const isInstalling = Vue.computed(() => {
   if (!isLoaded.value) return false;
   return installer.isRunning || config.isServerInstalling || !config.isServerInstalled;
@@ -224,10 +214,6 @@ const overlayTitle = Vue.computed(() => {
   return `${serverType()} Machine Details`;
 });
 
-const canCloseOverlay = Vue.computed(() => {
-  return !(overlayMode.value === 'installing' && installer.isRunning && !installer.isRunningInBackground);
-});
-
 function serverType() {
   if (serverDetails.value.type === ServerType.LocalComputer) {
     return 'Local';
@@ -247,7 +233,6 @@ function serverIdentity() {
 }
 
 function closeOverlay() {
-  if (!canCloseOverlay.value) return;
   isOpen.value = false;
   showInstallComplete.value = false;
 }

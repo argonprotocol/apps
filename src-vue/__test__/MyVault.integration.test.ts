@@ -166,7 +166,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       timeout: 60e3,
     },
     async () => {
-      const vaultSave = await myVault.activateSecuritizationAndTreasury({
+      const vaultSave = await myVault.activateSecuritization({
         rules: vaultRules,
       });
       const bitcoinLocksStore = myVault.bitcoinLocksStore;

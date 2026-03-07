@@ -26,6 +26,9 @@ import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
 import SecuritySettingsSSHAccess from './security-settings/SSHAccess.vue';
 import ExportRecoveryFile from './security-settings/ExportRecoveryFile.vue';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
+import { useOperationsController } from '../stores/operationsController.ts';
+
+const controller = useOperationsController();
 
 const isOpen = Vue.ref(false);
 const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'export'>('overview');
@@ -49,10 +52,12 @@ const title = Vue.computed(() => {
 basicEmitter.on('openSecuritySettingsOverlay', async data => {
   isOpen.value = true;
   currentScreen.value = data?.screen ?? 'overview';
+  controller.overlayIsOpen = true;
 });
 
 function closeOverlay() {
   isOpen.value = false;
+  controller.overlayIsOpen = false;
 }
 
 function goBack() {

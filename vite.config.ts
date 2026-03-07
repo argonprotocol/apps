@@ -71,7 +71,7 @@ export default defineConfig(async ({ mode }) => {
 
   const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
   const app = process.env.ARGON_APP || 'operations';
-  const defaultPort = app.startsWith('i') ? defaultCapitalPortString : defaultOperationsPortString;
+  const defaultPort = app.startsWith('capital') ? defaultCapitalPortString : defaultOperationsPortString;
 
   const instancePort = parseInt(instance[1] || defaultPort, 10);
 

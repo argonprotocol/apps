@@ -46,7 +46,14 @@ export class BotWsClient {
 
   constructor(url: string) {
     this.url = url;
+    this.preventUnhandledConnectRejection();
     this.beginConnect();
+  }
+
+  private preventUnhandledConnectRejection(): void {
+    void this.connectDeferred.promise.catch(() => {
+      // Connection failures are surfaced to explicit awaiters; this prevents noisy unhandled rejections meanwhile.
+    });
   }
 
   private startHeartbeatWatchdog(): void {
@@ -90,6 +97,7 @@ export class BotWsClient {
     // New connection attempt -> new deferred for callers waiting on readiness.
     if (this.connectDeferred.isSettled) {
       this.connectDeferred = createDeferred<void>();
+      this.preventUnhandledConnectRejection();
     }
 
     // Clear any scheduled reconnect because we're connecting now.
@@ -203,6 +211,7 @@ export class BotWsClient {
     // If callers are awaiting readiness, make sure they are awaiting a fresh deferred.
     if (this.connectDeferred.isSettled && this.webSocket.readyState !== WebSocket.OPEN) {
       this.connectDeferred = createDeferred<void>();
+      this.preventUnhandledConnectRejection();
     }
 
     this.reconnectTimer = setTimeout(() => {

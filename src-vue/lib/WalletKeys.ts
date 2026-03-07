@@ -96,6 +96,11 @@ export class WalletKeys {
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
+  public async getOperationalEncryptionKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_ed25519_seed', { suri: `//operational` }, 60e3);
+    return new Keyring({ type: 'ed25519' }).addFromSeed(account);
+  }
+
   // TODO: move signing to backend instead of passing around key
   public async getMiningBotKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);

@@ -16,7 +16,7 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
   async inspect({ flow }) {
     const [blankSlateVisible, postStartReadyVisible] = await Promise.all([
       flow.isVisible('BlankSlate.startSettingUpVault()').then(state => state.visible),
-      flow.isVisible('SetupChecklist.openHowVaultingWorksOverlay()').then(state => state.visible),
+      flow.isVisible('SetupChecklist').then(state => state.visible),
     ]);
 
     const hasEntrypoint = blankSlateVisible || postStartReadyVisible;
@@ -52,7 +52,7 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
 
     if (state.blankSlateVisible) {
       await flow.click('BlankSlate.startSettingUpVault()', { timeoutMs: 10_000 });
-      await flow.waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
+      await flow.waitFor('SetupChecklist', { timeoutMs: 30_000 });
       return;
     }
 

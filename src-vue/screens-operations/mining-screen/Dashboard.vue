@@ -131,7 +131,9 @@
                   isFrameDetailLoading
                     ? 'flex flex-col h-full grow opacity-80 transition-opacity duration-150'
                     : 'flex flex-col h-full grow opacity-100 transition-opacity duration-150'
-                ">
+                "
+                class="flex w-full grow pt-4 px-2"
+              >
                 <div class="flex w-full grow pt-4 px-2">
                   <MiningSeats
                     :isLiveFrame="currentFrame.id === stats.latestFrameId"
@@ -290,11 +292,13 @@ import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
 import { useWallets } from '../../stores/wallets.ts';
 
-const bot = getBot();
+const controller = useOperationsController();
 const stats = getStats();
 const currency = getCurrency();
+const bot = getBot();
 const blockWatch = getBlockWatch();
 const mining = getMining();
 const miningFrames = getMiningFrames();
@@ -485,23 +489,6 @@ const expectedFrameEarnings = Vue.computed(() => {
 const currentFrameCost = Vue.computed(() => {
   if (!currentFrame.value.seatCountActive) return 0n;
   return currentFrame.value.seatCostTotalFramed;
-});
-
-const currentFrameProfit = Vue.computed(() => {
-  const earningsBn = BigNumber(currentFrameEarnings.value);
-  const costBn = BigNumber(currentFrameCost.value);
-  const profitBn = earningsBn.minus(costBn).dividedBy(costBn).multipliedBy(100);
-  return profitBn.toNumber();
-});
-
-const expectedFrameProfit = Vue.computed(() => {
-  const earningsBn = BigNumber(expectedFrameEarnings.value);
-  const costBn = BigNumber(currentFrameCost.value);
-  if (costBn.isZero()) {
-    return 0;
-  }
-  const profitBn = earningsBn.minus(costBn).dividedBy(costBn).multipliedBy(100);
-  return profitBn.toNumber();
 });
 
 const currentFrameStartDate = Vue.computed(() => {
@@ -750,6 +737,10 @@ async function refreshLiveFrameDetail() {
       .catch(error => {
         console.error(`[Mining Dashboard] Failed to load live frame fallback for frame ${frameId}`, error);
       });
+  }
+
+  if (controller.activeGuideId === OperationalStepId.FirstMiningSeat) {
+    basicEmitter.emit('openOperationalFinishOverlay');
   }
 
   try {

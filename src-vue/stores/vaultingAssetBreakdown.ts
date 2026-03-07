@@ -119,6 +119,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
     treasuryMicrogons,
     treasuryMicrogonsUnused,
+    treasuryMicrogonsActivated,
     treasuryMicrogonsActivatedPct,
     treasuryTotalValue,
     treasuryMicrogonsMaxCapacity,

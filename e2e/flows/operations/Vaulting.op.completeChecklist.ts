@@ -11,7 +11,7 @@ type ICompleteChecklistUiState = {
   dashboardVisible: boolean;
 };
 
-type IVaultingChecklistState = Pick<Config, 'hasReadVaultingInstructions' | 'hasSavedVaultingRules'>;
+type IVaultingChecklistState = Pick<Config, 'hasSavedVaultingRules'>;
 
 type ICompleteChecklistState = IE2EOperationInspectState<IVaultingChecklistState, ICompleteChecklistUiState>;
 
@@ -19,15 +19,13 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
   async inspect({ flow }) {
     const [setupState, checklistEntry, fundStepEntry, lockOverlayEntry, dashboard] = await Promise.all([
       flow.queryApp<IVaultingChecklistState>(VAULTING_CHECKLIST_STATE_FN, { timeoutMs: 10_000 }),
-      flow.isVisible('SetupChecklist.openHowVaultingWorksOverlay()'),
+      flow.isVisible('SetupChecklist.openVaultCreateOverlay()'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
     ]);
-    const hasReadVaultingInstructions = setupState?.hasReadVaultingInstructions ?? false;
     const hasSavedVaultingRules = setupState?.hasSavedVaultingRules ?? false;
-    const isComplete =
-      (hasReadVaultingInstructions && hasSavedVaultingRules) || lockOverlayEntry.visible || dashboard.visible;
+    const isComplete = hasSavedVaultingRules || lockOverlayEntry.visible || dashboard.visible;
     const canRun = checklistEntry.visible && !isComplete;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
@@ -40,7 +38,6 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     if (!isComplete && !checklistEntry.visible) blockers.push('Vaulting checklist is not visible.');
     return {
       chainState: {
-        hasReadVaultingInstructions,
         hasSavedVaultingRules,
       },
       uiState: {
@@ -62,12 +59,6 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       return;
     }
 
-    if (!state.chainState.hasReadVaultingInstructions) {
-      await flow.click('SetupChecklist.openHowVaultingWorksOverlay()');
-      await flow.click('HowVaultingWorks.closeOverlay()', { timeoutMs: 30_000 });
-      await flow.waitFor('HowVaultingWorks.closeOverlay()', { state: 'missing', timeoutMs: 30_000 });
-    }
-
     if (!state.chainState.hasSavedVaultingRules) {
       await flow.click('SetupChecklist.openVaultCreateOverlay()');
       await clickIfVisible(flow, 'VaultCreatePanel.stopSuggestingTour()');
@@ -79,7 +70,6 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
 
 const VAULTING_CHECKLIST_STATE_FN = ((refs: { config: IVaultingChecklistState }) => {
   return {
-    hasReadVaultingInstructions: refs.config.hasReadVaultingInstructions,
     hasSavedVaultingRules: refs.config.hasSavedVaultingRules,
   };
 }).toString();

@@ -64,9 +64,11 @@ import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
 import { getStats } from '../stores/stats.ts';
 import { getBot } from '../stores/bot.ts';
+import { getConfig } from '../stores/config.ts';
 
 const stats = getStats();
 const bot = getBot();
+const config = getConfig();
 
 const blocks = Vue.ref<IBitcoinBlockMeta[]>([]);
 
@@ -108,6 +110,10 @@ let lastBlockNumber = 0;
 let watcher: WatchHandle | undefined;
 
 async function load() {
+  if (!config.isServerInstalled) {
+    blocks.value = [];
+    return;
+  }
   const client = await bot.getClient();
   blocks.value = await client.fetch('/bitcoin-recent-blocks');
   watcher = Vue.watch(

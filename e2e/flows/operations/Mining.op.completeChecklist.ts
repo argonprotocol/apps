@@ -22,7 +22,7 @@ interface ICompleteChecklistState extends IE2EOperationInspectState<Record<strin
 export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
     const [checklistEntry, botConfigState] = await Promise.all([
-      flow.isVisible('SetupChecklist.openHowMiningWorksOverlay()'),
+      flow.isVisible('SetupChecklist.openBotCreateOverlay()'),
       readBotConfigState(flow),
     ]);
     const botConfigured = botConfigState?.hasSavedBiddingRules ?? false;
@@ -53,9 +53,6 @@ export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import
     if (state.botConfigured) {
       return;
     }
-
-    await flow.click('SetupChecklist.openHowMiningWorksOverlay()');
-    await flow.click('HowMiningWorks.closeOverlay()');
 
     await flow.click('SetupChecklist.openBotCreateOverlay()');
     await clickIfVisible(flow, 'BotCreatePanel.stopSuggestingTour()');

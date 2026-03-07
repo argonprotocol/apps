@@ -81,6 +81,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { botEmitter } from '../lib/Bot.ts';
 import { getBot } from '../stores/bot.ts';
+import { getConfig } from '../stores/config.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -95,6 +96,7 @@ const props = withDefaults(
 );
 
 const bot = getBot();
+const config = getConfig();
 const isOpen = Vue.ref(false);
 
 function onOpen(open: boolean) {
@@ -116,6 +118,10 @@ Vue.onUnmounted(() => {
 });
 
 async function updateActivities() {
+  if (!config.isServerInstalled) {
+    activities.value = [];
+    return;
+  }
   const client = await bot.getClient();
   const biddingActivity = await client.fetch('/history');
   for (const activity of biddingActivity.activities) {

@@ -7,7 +7,7 @@ import type { IE2EOperationInspectState } from '../types.ts';
 
 type IVaultingFundingInspect = {
   walletIsFullyFunded: boolean;
-  walletOverlayIsOpen: boolean;
+  overlayIsOpen: boolean;
   availableMicrogons: string;
   availableMicronots: string;
   requiredMicrogons: string;
@@ -44,7 +44,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
               };
             };
             controller: {
-              walletOverlayIsOpen: boolean;
+              overlayIsOpen: boolean;
             };
           }) => {
             const requiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
@@ -54,7 +54,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
 
             return {
               walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
-              walletOverlayIsOpen: refs.controller.walletOverlayIsOpen,
+              overlayIsOpen: refs.controller.overlayIsOpen,
               availableMicrogons: availableMicrogons.toString(),
               availableMicronots: availableMicronots.toString(),
               requiredMicrogons: requiredMicrogons.toString(),
@@ -66,7 +66,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
         flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
         flow.isVisible('VaultingDashboard'),
         flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
-        flow.isVisible('SetupChecklist.createVault()'),
+        flow.isVisible('SetupChecklist.startCreateVault()'),
         flow.isVisible({ selector: '.VaultIsInstalling' }),
       ]);
     const createVaultVisible = createVaultEntry.visible;
@@ -92,7 +92,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     return {
       chainState: fundingState ?? {
         walletIsFullyFunded: false,
-        walletOverlayIsOpen: false,
+        overlayIsOpen: false,
         availableMicrogons: '0',
         availableMicronots: '0',
         requiredMicrogons: '0',
@@ -150,7 +150,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     }
 
     await flow.click('WalletOverlay.closeOverlay()', { timeoutMs: 8_000 });
-    await pollEvery(250, async () => !(await flow.inspect(this)).chainState.walletOverlayIsOpen, {
+    await pollEvery(250, async () => !(await flow.inspect(this)).chainState.overlayIsOpen, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,
     });

@@ -24,19 +24,21 @@
       <MoveCapitalOverlay />
       <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
-      <CertificationOverlay />
+      <OperationalOverlay />
+      <OperationalFinishOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
       <BotEditOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
       <JurisdictionOverlay />
+      <VaultCouponsOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
     </template>
     <ServerOverlay />
     <TroubleshootingOverlay />
-    <ImportingOverlay />
+    <ImportingAccountOverlay />
     <AppUpdatesOverlay />
   </div>
 </template>
@@ -63,7 +65,7 @@ import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from './overlays-shared/AboutOverlay.vue';
 import JurisdictionOverlay from './overlays-shared/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from './overlays-shared/Troubleshooting.vue';
-import ImportingOverlay from './overlays-operations/ImportingOverlay.vue';
+import ImportingAccountOverlay from './overlays-operations/ImportingAccountOverlay.vue';
 import BootingOverlay from './overlays-shared/BootingOverlay.vue';
 import AppUpdatesOverlay from './overlays-operations/AppUpdatesOverlay.vue';
 import AlertBars from './navigation-shared/AlertBars.vue';
@@ -74,7 +76,12 @@ import WalletFundingReceivedOverlay from './overlays-operations/WalletFundingRec
 import Portfolio from './panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays-operations/MoveCapitalOverlay.vue';
 import ServerOverlay from './overlays-operations/ServerOverlay.vue';
-import CertificationOverlay from './overlays-operations/CertificationOverlay.vue';
+import VaultCouponsOverlay from './overlays-operations/VaultCouponsOverlay.vue';
+import OperationalOverlay from './overlays-operations/OperationalOverlay.vue';
+import OperationalFinishOverlay from './overlays-operations/OperationalFinishOverlay.vue';
+import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
+import { confirm } from '@tauri-apps/plugin-dialog';
+import { checkInstallerIfCloseAllowed } from './stores/installer.ts';
 
 const controller = useOperationsController();
 const config = getConfig();
@@ -105,6 +112,14 @@ Vue.onBeforeMount(async () => {
 Vue.onMounted(async () => {
   // Add keyboard shortcuts for panel switching
   document.addEventListener('keydown', keydownHandler);
+
+  const appWindow = getCurrentWindow();
+  await appWindow.onCloseRequested(async (event: CloseRequestedEvent) => {
+    const isCloseAllowed = await checkInstallerIfCloseAllowed();
+    if (!isCloseAllowed) {
+      event.preventDefault();
+    }
+  });
 });
 
 Vue.onBeforeUnmount(() => {

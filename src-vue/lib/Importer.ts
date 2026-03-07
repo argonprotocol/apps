@@ -4,10 +4,12 @@ import Restarter from './Restarter';
 import { Db } from './Db';
 import { invokeWithTimeout } from './tauriApi';
 import { ITryServerData, SSH } from './SSH';
-import { IConfigServerDetails } from '../interfaces/IConfig';
+import { BootstrapType, IConfigServerDetails } from '../interfaces/IConfig';
 import { IRecoveryFile } from '../interfaces/IRecoveryFile.ts';
 import { SECURITY } from './Env.ts';
 import { WalletKeys } from './WalletKeys.ts';
+import { getWalletBalances } from '../stores/wallets.ts';
+import { getBlockWatch } from '../stores/mainchain.ts';
 
 export default class Importer {
   private readonly config: Config;
@@ -34,8 +36,11 @@ export default class Importer {
       return;
     }
 
+    await this.shutdownBackgroundSync();
     const restarter = new Restarter(this.dbPromise, this.config);
     await restarter.deleteAndCreateLocalDatabase();
+    const db = await this.dbPromise;
+    await db.reconnect();
     const security = await invokeWithTimeout(
       'overwrite_mnemonic',
       { mnemonic: this.data.security.masterMnemonic },
@@ -69,11 +74,28 @@ export default class Importer {
   }
 
   public async importFromMnemonic(mnemonic: string) {
+    await this.shutdownBackgroundSync();
     const restarter = new Restarter(this.dbPromise, this.config);
+    await restarter.deleteAndCreateLocalDatabase();
+    const db = await this.dbPromise;
+    await db.reconnect();
+
     const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
     Object.assign(SECURITY, security);
-    await restarter.deleteAndCreateLocalDatabase();
+
+    await this.config.load(true);
+    this.config.bootstrapDetails = {
+      type: BootstrapType.Public,
+      ipAddress: 'LOADING',
+    };
+    await this.config.save();
+
     restarter.restart();
+  }
+
+  private async shutdownBackgroundSync() {
+    await getWalletBalances().close();
+    getBlockWatch().stop();
   }
 
   public async importFromServer(ipAddress: string) {

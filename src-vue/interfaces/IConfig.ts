@@ -98,6 +98,16 @@ export const ConfigServerDetailsSchema = z.object({
   workDir: z.string(),
 });
 
+export const ConfigCertificationDetailsSchema = z.object({
+  hasSavedMnemonic: z.boolean(),
+  hasVault: z.boolean(),
+  hasUniswapTransfer: z.boolean(),
+  hasTreasuryBondParticipation: z.boolean(),
+  hasFirstMiningSeat: z.boolean(),
+  hasSecondMiningSeat: z.boolean(),
+  hasBitcoinLock: z.boolean(),
+});
+
 export const ConfigInstallerStep = z.object({
   progress: z.number(),
   status: z.nativeEnum(InstallStepStatus),
@@ -180,7 +190,6 @@ export const ConfigSchema = z.object({
   isServerInstalled: z.boolean(), // is set once after first install
   isServerInstalling: z.boolean(), // is true whenever the Installer is running
 
-  hasOperatorAccount: z.boolean(),
   hasMiningSeats: z.boolean(),
   hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
@@ -196,6 +205,7 @@ export const ConfigSchema = z.object({
     latitude: z.string(),
     longitude: z.string(),
   }),
+  certificationDetails: ConfigCertificationDetailsSchema.optional(),
 });
 
 // ---- Optional Type Inference ---- //
@@ -208,6 +218,8 @@ export type IConfigServerAddDigitalOcean = z.infer<typeof ConfigServerAddDigital
 export type IConfigServerAddLocalComputer = z.infer<typeof ConfigServerAddLocalComputerSchema>;
 export type IConfigServerAddCustomServer = z.infer<typeof ConfigServerAddCustomServerSchema>;
 export type IConfigServerAdd = z.infer<typeof ConfigServerAddSchema>;
+
+export type IConfigCertificationDetailsSchema = z.infer<typeof ConfigCertificationDetailsSchema>;
 
 export type IConfigServerDetails = z.infer<typeof ConfigServerDetailsSchema>;
 export type IConfigServerInstallDetails = z.infer<typeof ConfigServerInstallerSchema>;
@@ -238,11 +250,11 @@ export interface IConfigDefaults {
   isServerInstalled: () => IConfig['isServerInstalled'];
   isServerInstalling: () => IConfig['isServerInstalling'];
 
-  hasOperatorAccount: () => IConfig['hasOperatorAccount'];
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];
   biddingRules: () => IConfig['biddingRules'];
   vaultingRules: () => IConfig['vaultingRules'];
   defaultCurrencyKey: () => IConfig['defaultCurrencyKey'];
   userJurisdiction: () => Promise<IConfig['userJurisdiction']>;
+  certificationDetails: () => IConfig['certificationDetails'];
 }

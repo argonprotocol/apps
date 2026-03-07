@@ -38,7 +38,7 @@ export class AccountEventsFilter {
 
   constructor(
     public readonly address: string,
-    public type: 'miningHold' | 'miningBot' | 'vaulting' | 'investment',
+    public type: 'miningHold' | 'miningBot' | 'vaulting' | 'operational' | 'investment',
     public myOtherAddresses: string[],
     public vaultId?: number,
   ) {}

@@ -79,7 +79,7 @@ function getTauriPort(argonAppInstance: string, app: string): string {
     const port = parts[parts.length - 1];
     if (port) return port;
   }
-  return app.startsWith('i') ? '1430' : '1420';
+  return app.startsWith('capital') ? '1430' : '1420';
 }
 
 function loadBaseConfig(configFileName: string, configFilePath: string): any {

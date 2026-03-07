@@ -20,7 +20,7 @@
 </template>
 <script setup lang="ts">
 import CurrencyMenu from '../navigation-shared/CurrencyMenu.vue';
-import AccountMenu from '../navigation-shared/AccountMenu.vue';
+import AccountMenu from './AccountMenu.vue';
 import { useCapitalController } from '../stores/capitalController.ts';
 import { useWallets } from '../stores/wallets.ts';
 

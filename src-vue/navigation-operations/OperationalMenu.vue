@@ -15,13 +15,21 @@
         fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
       />
       <div class="bg-white border border-argon-400/50 rounded shadow-xl pt-0.5 pl-0.5">
-        <div class="bg-argon-600/5 w-108 rounded p-5" style="text-shadow: 1px 1px 0 white">
-          <div class="font-bold text-argon-600 text-xl">Collect Your Treasury Bonus</div>
+        <div class="relative bg-argon-600/5 w-108 rounded px-5 pb-5 pt-3" style="text-shadow: 1px 1px 0 white">
+          <div class="flex items-center justify-between border-b border-argon-300/20 pb-2 mb-2">
+            <div class="font-bold text-argon-600 text-xl">Collect Your Treasury Bonus</div>
+            <button
+              @click="controller.hideBonusTip = true"
+              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
+              aria-label="Close tooltip"
+            >
+              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
+            </button>
+          </div>
           <p class="text-argon-600 mt-1">
             A bonus of ₳500 has been set aside in Argon's Treasury for your benefit. It will be released once your account
             becomes fully operational. Open the menu above to learn more.
           </p>
-          <button @click="controller.hideBonusTip = true" class="mt-4 w-full border border-argon-600 py-1 px-5 text-argon-600 cursor-pointer rounded hover:bg-white/50 hover:text-argon-800">Close Tooltip</button>
         </div>
       </div>
     </div>
@@ -34,7 +42,7 @@
         >
           <div class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
             <RocketIcon class="h-[17px] relative top-[2px] mr-[5px] -rotate-45" aria-hidden="true" />
-            1/7
+            1/6
           </div>
         </DropdownMenuTrigger>
 
@@ -50,46 +58,28 @@
           >
             <div class="relative">
               <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                <div class="max-w-128 pt-4 pb-2">
+                <div class="max-w-160 pt-4 pb-2">
                   <p class="font-light px-5 ">
-                    Complete the following seven steps, and you'll earn
+                    Complete the following six steps, and you'll earn
                     (along with your sponsor) a ₳500 bonus from the Argon Treasury.
                   </p>
-                  <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15">
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="true" />
-                      <span class="grow">Bootstrap from Existing Node</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="false" />
-                      <span class="grow">Transfer Tokens from Uniswap</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="false" />
-                      <span class="grow">Activate Stabilization Vault</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="false" />
-                      <span class="grow">Liquid Lock ₳2,000 or More In Bitcoin</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="false" />
-                      <span class="grow">Acquire a Treasury Bond</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="false" />
-                      <span class="grow">Win a First Mining Seat</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                    <li @click="openOverlay" class="flex flex-row items-center gap-x-2 hover:bg-argon-600/5 py-3 pl-5 pr-2 cursor-pointer">
-                      <Checkbox :size="7" :isChecked="false" />
-                      <span class="grow">Win a Second Mining Seat</span>
-                      <a href="https://argon.network/docs/operator-certification/bootstrap-to-node" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700 rounded-full">Open Docs</a>
+                  <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
+                    <li
+                      v-for="[stepId, step] of Object.entries(operationalSteps)"
+                      @click="openOverlay(stepId as OperationalStepId, $event)"
+                      class="flex flex-row items-center gap-x-2 py-3 pl-5 pr-2 cursor-pointer"
+                      :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
+                    >
+                      <Spinner v-if="controller.activeGuideId === stepId" />
+                      <Checkbox v-else :size="7" :isChecked="controller.isCertificationStepComplete(stepId as OperationalStepId)" />
+                      <span class="grow">{{ step.title }}</span>
+                      <span
+                        v-if="controller.getCertificationBlocker(stepId as OperationalStepId)"
+                        class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
+                      >
+                        Requires: {{ controller.getCertificationBlocker(stepId as OperationalStepId)?.title }}
+                      </span>
+                      <a :href="step.documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
                     </li>
                   </ul>
                   <div class="pt-4 pb-2 px-5 border-t border-slate-500/30">
@@ -118,6 +108,7 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
+import { XMarkIcon } from '@heroicons/vue/24/outline';
 import RocketIcon from '../assets/rocket.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
 import dayjs from 'dayjs';
@@ -126,20 +117,16 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { getConfig } from '../stores/config.ts';
 import Checkbox from '../components/Checkbox.vue';
 import MenuArrow from '../components/MenuArrow.vue';
-import { getMainchainClient } from '../stores/mainchain.ts';
-import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import { decodeAddress, type KeyringPair, TxSubmitter } from '@argonprotocol/mainchain';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useOperationsController, operationalSteps, OperationalStepId } from '../stores/operationsController.ts';
+import Spinner from '../components/Spinner.vue';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
 const config = getConfig();
-const walletKeys = getWalletKeys();
 const controller = useOperationsController();
 
 const isOpen = Vue.ref(false);
-const isLoaded = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
 
 // Expose the root element to parent components
@@ -181,68 +168,20 @@ function clickOutside(e: PointerDownOutsideEvent) {
   return false;
 }
 
-function openCertificationOverlay() {
-  isOpen.value = false;
-  basicEmitter.emit('openCertificationOverlay');
-}
-
-function openOverlay(event: MouseEvent) {
+function openOverlay(stepId: OperationalStepId, event: MouseEvent) {
   const clickTarget = event.target;
   if (clickTarget instanceof HTMLElement && clickTarget.closest('a')) {
     return;
   }
 
-  openCertificationOverlay();
+  openOperationalOverlay(stepId);
 }
 
-function createOwnershipProof(account: KeyringPair, operationalAddr: string) {
-  const payload = decodeAddress(operationalAddr);
-  return {
-    signature: {
-      Sr25519: account.sign(payload),
-    },
-  };
+function openOperationalOverlay(stepId: OperationalStepId) {
+  isOpen.value = false;
+  controller.hideBonusTip = true;
+  basicEmitter.emit('openOperationalOverlay', stepId);
 }
-
-async function setupOperatorAccount() {
-  if (config.hasOperatorAccount) return;
-  if (!config.bootstrapDetails?.accessCode) return;
-
-  const client = await getMainchainClient(false);
-  const operationalAddr = walletKeys.operationalAddress;
-  const account = await client.query.operationalAccounts.operationalAccounts(operationalAddr);
-
-  if (account.isEmpty) {
-    const vaultingAddr = walletKeys.vaultingAddress;
-    const miningHoldAddr = walletKeys.miningHoldAddress;
-    const miningBotAddr = walletKeys.miningBotAddress;
-    const [operationalAccount, vaultingAccount, miningHoldAccount, miningBotAccount] = await Promise.all([
-      walletKeys.getOperationalKeypair(),
-      walletKeys.getVaultingKeypair(),
-      walletKeys.getMiningHoldKeypair(),
-      walletKeys.getMiningBotKeypair(),
-    ]);
-    const tx = client.tx.operationalAccounts.register(
-      vaultingAddr,
-      miningHoldAddr,
-      miningBotAddr,
-      createOwnershipProof(vaultingAccount, operationalAddr),
-      createOwnershipProof(miningHoldAccount, operationalAddr),
-      createOwnershipProof(miningBotAccount, operationalAddr),
-      config.bootstrapDetails?.accessCode,
-    );
-    const txResult = await new TxSubmitter(client, tx, operationalAccount).submit();
-    await txResult.waitForInFirstBlock;
-  }
-
-  config.hasOperatorAccount = true;
-  await config.save();
-}
-
-Vue.onMounted(async () => {
-  await setupOperatorAccount();
-  isLoaded.value = true;
-});
 </script>
 
 <style scoped>

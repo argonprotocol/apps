@@ -75,7 +75,6 @@
 import * as Vue from 'vue';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import CurrencyMenu from '../navigation-shared/CurrencyMenu.vue';
-import AccountMenu from '../navigation-shared/AccountMenu.vue';
 import InstanceMenu, { IInstance } from '../navigation-shared/InstanceMenu.vue';
 import { useTour } from '../stores/tour.ts';
 import { appConfigDir } from '@tauri-apps/api/path';
@@ -88,7 +87,6 @@ const controller = useCapitalController();
 const currency = getCurrency();
 const tour = useTour();
 
-const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
 
 const instances = Vue.ref<IInstance[]>([]);
@@ -110,16 +108,6 @@ tour.registerPositionCheck('currencyMenu', () => {
   rect.left -= 10;
   rect.right += 10;
   rect.top -= 10;
-  rect.bottom += 7;
-  return { ...rect, blur: 5 };
-});
-
-tour.registerPositionCheck('accountMenu', () => {
-  const accountMenuElem = accountMenuRef.value?.$el;
-  const rect = accountMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 7;
-  rect.right += 7;
-  rect.top -= 7;
   rect.bottom += 7;
   return { ...rect, blur: 5 };
 });
