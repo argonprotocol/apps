@@ -41,7 +41,10 @@
         >
           <Checkbox :isChecked="wallets.isLoaded && hasMiningMachine" />
           <div class="px-4">
-            <h2 class="text-2xl text-[#A600D4] font-bold">Connect a Cloud Server</h2>
+            <h2 class="text-2xl text-[#A600D4] font-bold">
+              Connect a Cloud Server
+              <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
+            </h2>
             <p v-if="hasMiningMachine">
               <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
               <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
@@ -241,7 +244,11 @@ function openHowVaultingWorksOverlay() {
 }
 
 function openServerConnectPanel() {
-  basicEmitter.emit('openServerConnectPanel');
+  if (config.isServerAdded) {
+    basicEmitter.emit('openServerOverlay');
+  } else {
+    basicEmitter.emit('openServerConnectPanel');
+  }
 }
 
 function goBack() {
@@ -261,5 +268,18 @@ section:hover {
 
 section p {
   @apply mt-1 ml-0.5 opacity-60;
+}
+
+.installing-badge {
+  animation: installing-fade 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes installing-fade {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
 }
 </style>
