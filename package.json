@@ -143,9 +143,9 @@
     "@argonprotocol/bitcoin": "portal:../mainchain/bitcoin/nodejs"
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.0-dev.397459f7",
-    "@argonprotocol/testing": "1.4.0-dev.397459f7",
-    "@argonprotocol/bitcoin": "1.4.0-dev.397459f7",
+    "@argonprotocol/mainchain": "1.4.1-dev.c95aa2a8",
+    "@argonprotocol/testing": "1.4.1-dev.c95aa2a8",
+    "@argonprotocol/bitcoin": "1.4.1-dev.c95aa2a8",
     "axios": "^1.12.1",
     "form-data": "^2.5.4",
     "request": "^2.88.2",

@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from './emitters/basicEmitter';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { useOperationsController, OperationsTab } from './stores/operationsController.ts';
-import { getInstaller } from './stores/installer';
+import { checkInstallerIfCloseAllowed, getInstaller } from './stores/installer';
 import { getBot } from './stores/bot';
 import { getConfig } from './stores/config';
 import { useTour } from './stores/tour';
@@ -52,7 +52,13 @@ export async function createMenu() {
         id: 'quit',
         text: `Quit ${APP_NAME}`,
         accelerator: 'CmdOrCtrl+Q',
-        action: () => void tauriExit(),
+        action: () => {
+          void checkInstallerIfCloseAllowed().then(isCloseAllowed => {
+            if (isCloseAllowed) {
+              void tauriExit();
+            }
+          });
+        },
       },
     ],
   });

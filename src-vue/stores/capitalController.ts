@@ -30,7 +30,7 @@ export const useCapitalController = defineStore('capitalController', () => {
   const stopSuggestingBotTour = Vue.ref(false);
   const stopSuggestingVaultTour = Vue.ref(false);
 
-  const walletOverlayIsOpen = Vue.ref(false);
+  const overlayIsOpen = Vue.ref(false);
 
   function setTab(value: CapitalTab) {
     if (selectedTab.value === value) return;
@@ -51,7 +51,7 @@ export const useCapitalController = defineStore('capitalController', () => {
   async function importFromFile(dataRaw: string) {
     isImporting.value = true;
     const importer = new Importer(config as Config, walletKeys, dbPromise);
-    basicEmitter.emit('openImportingOverlay', { importer, dataRaw });
+    basicEmitter.emit('openImportingAccountOverlay', { importer, dataRaw });
   }
 
   async function importFromMnemonic(mnemonic: string) {
@@ -70,7 +70,7 @@ export const useCapitalController = defineStore('capitalController', () => {
     isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
-    walletOverlayIsOpen,
+    overlayIsOpen,
     importFromFile,
     importFromMnemonic,
     setScreenKey: setTab,

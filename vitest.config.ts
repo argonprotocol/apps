@@ -66,7 +66,7 @@ export default defineConfig({
             shuffle: false,
           },
           env: {
-            STATUS_URL: 'na',
+            ROUTER_URL: 'na',
           },
         },
       },

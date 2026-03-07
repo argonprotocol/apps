@@ -46,10 +46,13 @@ const isLoaded = Vue.ref(false);
 
 const draggable = Vue.reactive(new Draggable());
 
-basicEmitter.on('openImportingOverlay', async ({ importer, dataRaw }: { importer: Importer; dataRaw: string }) => {
-  isOpen.value = true;
-  isLoaded.value = true;
-  await importer.importFromFile(dataRaw);
-  console.log('openImportingOverlay', importer);
-});
+basicEmitter.on(
+  'openImportingAccountOverlay',
+  async ({ importer, dataRaw }: { importer: Importer; dataRaw: string }) => {
+    isOpen.value = true;
+    isLoaded.value = true;
+    await importer.importFromFile(dataRaw);
+    console.log('openImportingAccountOverlay', importer);
+  },
+);
 </script>

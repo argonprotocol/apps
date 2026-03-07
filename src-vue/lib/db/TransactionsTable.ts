@@ -14,6 +14,7 @@ export enum ExtrinsicType {
   VaultInitialAllocate = 'VaultInitialAllocate',
   VaultIncreaseAllocation = 'VaultIncreaseAllocation',
   VaultCollect = 'VaultCollect',
+  VaultRegisterCoupon = 'VaultRegisterCoupon',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
   BitcoinRequestRelease = 'BitcoinRequestRelease', // funding UTXO enters release lifecycle on Argon

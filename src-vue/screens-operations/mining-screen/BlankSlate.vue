@@ -29,7 +29,15 @@
             @click="startSettingUpMiner"
             class="flex flex-row cursor-pointer items-center gap-x-2 bg-argon-500 hover:bg-argon-600 border border-argon-700 inner-button-shadow font-bold text-white px-12 py-2 rounded-md"
           >
-            Set Up Your Mining Operation
+            <span class="relative">
+              Set Up Your Mining Operation
+              <ArrowCalloutButton
+                v-if="[OperationalStepId.FirstMiningSeat, OperationalStepId.MoreMiningSeats].includes(controller.activeGuideId as any)"
+                class="absolute top-1/2 -left-2 -translate-y-1/2 -translate-x-full z-50"
+                guidance="Click to begin setting up your mining."
+                direction="right"
+              />
+            </span>
             <ChevronDoubleRightIcon class="size-5 relative top-px" />
           </button>
         </div>
@@ -100,7 +108,10 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral';
 import { ChevronDoubleRightIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
+const controller = useOperationsController();
 const miningStats = useMiningStats();
 const currency = getCurrency();
 const config = getConfig();

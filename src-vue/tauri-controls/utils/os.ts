@@ -1,7 +1,8 @@
+import { ref } from 'vue';
 import type { window } from '@tauri-apps/api';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { platform as getPlatform, version as getVersion } from '@tauri-apps/plugin-os';
-import { ref } from 'vue';
+import { checkInstallerIfCloseAllowed, getInstaller } from '../../stores/installer.ts';
 
 // Throttle utility function
 function throttle<T extends (...args: any[]) => any>(func: T, limit: number): (...args: Parameters<T>) => void {
@@ -40,24 +41,27 @@ void appWindow.value.onResized(
   }, 100),
 );
 
-export const minimizeWindow = async () => {
+export async function minimizeWindow() {
   await appWindow.value?.minimize();
-};
+}
 
-export const maximizeWindow = async () => {
+export async function maximizeWindow() {
   await appWindow.value?.toggleMaximize();
-};
+}
 
-export const fullscreenWindow = async () => {
+export async function fullscreenWindow() {
   if (appWindow) {
     const fullscreen = await appWindow.value?.isFullscreen();
     await appWindow.value?.setFullscreen(!fullscreen);
   }
-};
+}
 
-export const closeWindow = async () => {
-  await appWindow.value?.close();
-};
+export async function closeWindow() {
+  const isCloseAllowed = await checkInstallerIfCloseAllowed();
+  if (isCloseAllowed) {
+    await appWindow.value?.close();
+  }
+}
 
 function getPlatformType() {
   switch (getPlatform()) {

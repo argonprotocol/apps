@@ -29,7 +29,7 @@
                 cursor: draggable.isDragging ? 'grabbing' : 'default',
               }"
               :class="twMerge(
-                'absolute z-50 bg-white border border-black/40 rounded-lg pointer-events-auto shadow-2xl w-6/12 focus:outline-none',
+                'absolute z-50 bg-white border border-black/40 rounded-lg pointer-events-auto shadow-2xl min-h-40 w-6/12 focus:outline-none',
                 props.class,
                 props.overflowScroll ? 'overflow-scroll' : '',
               )"
@@ -39,8 +39,8 @@
                 class="flex flex-row justify-between items-center pt-5 pb-3 px-3 mx-2 text-2xl font-bold text-slate-800/70 border-b border-slate-300 select-none"
                 @mousedown="draggable.onMouseDown($event)"
               >
-                <span v-if="props.showGoBack" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
-                  <ChevronLeftIcon @click="goBack()" class="w-6 h-6 cursor-pointer relative -top-0.25" />
+                <span v-if="props.showGoBack" @click="goBack()" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
+                  <ChevronLeftIcon class="w-6 h-6 cursor-pointer relative -top-0.25" />
                 </span>
                 <slot name="title">
                   <DialogTitle class="grow pt-1">{{ title }}</DialogTitle>
@@ -96,6 +96,12 @@ const props = withDefaults(
   },
 );
 
+const emit = defineEmits<{
+  (e: 'close'): void;
+  (e: 'esc'): void;
+  (e: 'goBack'): void;
+}>();
+
 const zIndex = Vue.ref(0);
 const attrs = Vue.useAttrs();
 const disableOverlayMotion = MotionGlobalConfig.skipAnimations || MotionGlobalConfig.instantAnimations;
@@ -108,12 +114,6 @@ Vue.watch(props, () => {
     openZIndexes.value.delete(zIndex.value);
   }
 });
-
-const emit = defineEmits<{
-  (e: 'close'): void;
-  (e: 'esc'): void;
-  (e: 'goBack'): void;
-}>();
 
 const draggable = Vue.reactive(new Draggable());
 

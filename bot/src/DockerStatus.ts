@@ -1,7 +1,7 @@
 import type { IBitcoinBlockMeta, IBitcoinLatestBlocks, IBlockNumbers, ILatestBlocks } from '@argonprotocol/apps-core';
 import { requireEnv } from './utils.js';
 
-const routerApi = requireEnv('ROUTER_URL');
+const routerApi = process.env.ROUTER_URL ?? requireEnv('ROUTER_URL');
 
 export class DockerStatus {
   public static async getArgonBlockNumbers(): Promise<IBlockNumbers> {

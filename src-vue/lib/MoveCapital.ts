@@ -15,6 +15,7 @@ import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
+import { ensureOperatorAccountRegistered } from './OperationalAccount.ts';
 
 export interface IAssetsToMove {
   [MoveToken.ARGN]?: bigint;
@@ -89,6 +90,8 @@ export class MoveCapital {
   }
 
   public async moveAvailableMiningHoldToBot(wallet: IWallet): Promise<void> {
+    await ensureOperatorAccountRegistered('miningBot');
+
     const assetsToMove: IAssetsToMove = {};
     const spendableMicrogons = getSpendableMiningHoldMicrogons(wallet.availableMicrogons);
 

@@ -96,9 +96,9 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import ConfigIcon from '../assets/config.svg?component';
-import basicEmitter from '../emitters/basicEmitter';
+import basicEmitter from '../emitters/basicEmitter.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
-import { useTour } from '../stores/tour';
+import { useTour } from '../stores/tour.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const tour = useTour();

@@ -53,6 +53,7 @@ export const useWallets = defineStore('wallets', () => {
   const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningHoldAddress });
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
+  const operationalWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.operationalAddress });
   const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
 
   const miningHoldSpendableMicrogons = Vue.computed(() => {
@@ -186,6 +187,7 @@ export const useWallets = defineStore('wallets', () => {
     miningHold: miningHoldWallet,
     miningBot: miningBotWallet,
     vaulting: vaultingWallet,
+    operational: operationalWallet,
     investment: investmentWallet,
   };
 
@@ -247,6 +249,7 @@ export const useWallets = defineStore('wallets', () => {
     miningBotWallet,
     vaultingWallet,
     miningHoldSpendableMicrogons,
+    operationalWallet,
     miningHoldDisplayedMicrogons,
     totalWalletMicrogons,
     totalWalletMicronots,

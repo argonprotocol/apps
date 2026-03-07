@@ -248,7 +248,7 @@ if ! (already_ran "DockerInstall"); then
 
     network_name="${COMPOSE_PROJECT_NAME:-argon}-net"
     run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || sudo docker network create ${network_name}"
-    run_compose "sudo docker compose up status -d --build"
+    run_compose "sudo docker compose up router -d --build"
 
     finish "DockerInstall" "$command_output"
 fi

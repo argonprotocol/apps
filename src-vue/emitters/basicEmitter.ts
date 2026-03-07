@@ -2,6 +2,7 @@ import mitt, { type Emitter } from 'mitt';
 import Importer from '../lib/Importer.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
+import { OperationalStepId } from '../stores/operationsController.ts';
 
 type IBasicEmitter = {
   openWalletOverlay: { walletType: WalletType.miningHold | WalletType.vaulting; screen: string };
@@ -18,15 +19,21 @@ type IBasicEmitter = {
   openTroubleshootingOverlay: {
     screen: 'server-diagnostics' | 'data-and-log-files' | 'options-for-restart' | 'overview' | 'find-missing-data';
   };
-  openImportingOverlay: { importer: Importer; dataRaw: string };
   openCheckForAppUpdatesOverlay: void;
   openWelcomeOverlay: void;
 
   openPortfolioPanel: PortfolioTab;
+
   openImportAccountOverlay: void;
+  openImportingAccountOverlay: { importer: Importer; dataRaw: string };
+
+  openProfileOverlay: void;
+
+  openVaultCouponsOverlay: void;
 
   openServerOverlay: void;
-  openCertificationOverlay: void;
+  openOperationalOverlay: OperationalStepId;
+  openOperationalFinishOverlay: void;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

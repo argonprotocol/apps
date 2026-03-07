@@ -29,12 +29,17 @@
           class="flex flex-row cursor-pointer py-5 grow items-center"
         >
           <div class="flex flex-row">
-            <Checkbox :isChecked="wallets.isLoaded && hasMiningMachine" />
+            <Checkbox :isChecked="serverConnectIsChecked" />
             <div class="px-4">
-              <h2 class="text-2xl text-[#A600D4] font-bold">
-              Connect a Cloud Machine
-              <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
-            </h2>
+              <h2 class="text-2xl text-[#A600D4] font-bold relative inline-block">
+                Connect a Cloud Machine
+                <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
+                <ArrowCalloutButton
+                  v-else-if="currentStep === 'ServerConnect'"
+                  guidance="A cloud machine is required for your vault."
+                  class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+                />
+              </h2>
               <p v-if="hasMiningMachine">
                 <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
                 <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
@@ -57,7 +62,14 @@
           <div class="flex flex-row">
             <Checkbox :isChecked="config.hasSavedVaultingRules" />
             <div class="px-4">
-              <h2 class="text-2xl text-[#A600D4] font-bold">Confirm Your Vault Settings</h2>
+              <h2 class="text-2xl text-[#A600D4] font-bold relative inline-block">
+                Confirm Your Vault Settings
+                <ArrowCalloutButton
+                  v-if="currentStep === 'VaultingRules'"
+                  guidance="We've already setup recommended vault settings. All you need to do is confirm."
+                  class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+                />
+              </h2>
               <p v-if="!config.hasSavedVaultingRules">
                 Decide how much capital to commit, your distribution between securitization and treasury pools, and other basic settings.
               </p>
@@ -90,9 +102,14 @@
           <div class="flex flex-row">
             <Checkbox :isChecked="walletIsFullyFunded" />
             <div class="px-4">
-              <h2 class="text-2xl text-[#A600D4] font-bold">
+              <h2 class="text-2xl text-[#A600D4] font-bold relative inline-block">
                 {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
                 Your Wallet
+                <ArrowCalloutButton
+                  v-if="currentStep === 'FundWallet' && !controller.overlayIsOpen"
+                  guidance="You must fund your vault before proceeding."
+                  class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+                />
               </h2>
               <p>
                 Your account needs a minimum of
@@ -118,15 +135,23 @@
         <div class="h-px w-full bg-[#CCCEDA]" />
 
         <button
-          @click="createVault"
+          @click="startCreateVault"
           :class="[
-          walletIsFullyFunded && !controller.walletOverlayIsOpen
+          walletIsFullyFunded && serverConnectIsChecked && !controller.overlayIsOpen
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30'
         ]"
           class="bg-argon-button border border-argon-button-hover text-2xl font-bold px-4 py-4 mt-10 rounded-md w-full cursor-pointer hover:bg-argon-button-hover hover:inner-button-shadow"
         >
-          Launch Stabilization Vault
+          <span class="relative">
+            Launch Stabilization Vault
+            <ArrowCalloutButton
+              v-if="controller.activeGuideId === OperationalStepId.ActivateVault && currentStep === 'ClickButton'"
+              guidance="You're almost done! Click this button to launch your vault."
+              position="top"
+              class="absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50"
+            />
+          </span>
         </button>
       </div>
     </div>
@@ -149,9 +174,10 @@ import { getVaultCalculator } from '../../stores/mainchain.ts';
 import VaultCapital from '../../overlays-operations/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays-operations/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
-import { useOperationsController, OperationsTab } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationsTab, OperationalStepId } from '../../stores/operationsController.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);
 
@@ -167,6 +193,24 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const VaultCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
 const alignOffsetForReturns = Vue.ref(0);
 const alignOffsetForCapital = Vue.ref(0);
+
+const serverConnectIsChecked = Vue.computed(() => {
+  return wallets.isLoaded && hasMiningMachine.value;
+});
+
+const currentStep = Vue.computed(() => {
+  if (controller.activeGuideId !== OperationalStepId.ActivateVault) {
+    return null;
+  } else if (!serverConnectIsChecked.value) {
+    return 'ServerConnect';
+  } else if (!config.hasSavedVaultingRules) {
+    return 'VaultingRules';
+  } else if (!walletIsFullyFunded.value) {
+    return 'FundWallet';
+  } else {
+    return 'ClickButton';
+  }
+});
 
 const walletIsPartiallyFunded = Vue.computed(() => {
   return (wallets.vaultingWallet.availableMicrogons || wallets.vaultingWallet.availableMicronots) > 0;
@@ -220,23 +264,11 @@ function openVaultCreateOverlay() {
   openCreateOverlay.value = true;
 }
 
-Vue.watch(
-  config.vaultingRules,
-  () => {
-    updateApy();
-  },
-  { deep: true },
-);
-
-Vue.onMounted(async () => {
-  calculator.load(config.vaultingRules).then(() => updateApy());
-});
-
 function openFundVaultingAccountOverlay() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' });
 }
 
-async function createVault() {
+async function startCreateVault() {
   config.vaultingSetupStatus = VaultingSetupStatus.Installing;
   await config.save();
 }
@@ -255,6 +287,18 @@ function goBack() {
     controller.setScreenKey(OperationsTab.Home);
   }
 }
+
+Vue.watch(
+  config.vaultingRules,
+  () => {
+    updateApy();
+  },
+  { deep: true },
+);
+
+Vue.onMounted(async () => {
+  calculator.load(config.vaultingRules).then(() => updateApy());
+});
 </script>
 
 <style scoped>

@@ -107,7 +107,7 @@ async function activateVault() {
   unsubscribeCreation = null;
   try {
     console.log('Activating vault');
-    const txInfo = await myVault.activateSecuritizationAndTreasury({
+    const txInfo = await myVault.activateSecuritization({
       rules: vaultingRules,
     });
     if (!txInfo) {
@@ -141,6 +141,7 @@ function finalizeVault() {
   unsubscribeActivation?.();
   unsubscribeActivation = null;
   config.vaultingSetupStatus = VaultingSetupStatus.Finished;
+  config.setCertificationDetails({ hasVault: true });
   void config.save();
 }
 

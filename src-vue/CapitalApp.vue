@@ -20,10 +20,9 @@
       <AboutOverlay />
       <JurisdictionOverlay />
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
-      <VaultingNodeRequirement v-else />
     </template>
     <TroubleshootingOverlay />
-    <ImportingOverlay />
+    <ImportingAccountOverlay />
     <AppUpdatesOverlay />
   </div>
 </template>
@@ -39,7 +38,7 @@ import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from './overlays-shared/AboutOverlay.vue';
 import JurisdictionOverlay from './overlays-shared/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from './overlays-shared/Troubleshooting.vue';
-import ImportingOverlay from './overlays-operations/ImportingOverlay.vue';
+import ImportingAccountOverlay from './overlays-operations/ImportingAccountOverlay.vue';
 import AppUpdatesOverlay from './overlays-operations/AppUpdatesOverlay.vue';
 import WelcomeOverlay from './overlays-operations/WelcomeOverlay.vue';
 import BootingOverlay from './overlays-shared/BootingOverlay.vue';
@@ -48,7 +47,6 @@ import TopBar from './navigation-capital/TopBar.vue';
 import MainchainScreen from './screens-capital/MainchainScreen.vue';
 import LocalchainScreen from './screens-capital/LocalchainScreen.vue';
 import EthereumScreen from './screens-capital/EthereumScreen.vue';
-import VaultingNodeRequirement from './overlays-capital/VaultingNodeRequirement.vue';
 import { CapitalTab, useCapitalController } from './stores/capitalController.ts';
 
 const controller = useCapitalController();

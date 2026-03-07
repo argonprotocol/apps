@@ -3,7 +3,7 @@
   <TooltipProvider :disableHoverableContent="true" :disableClosingTrigger="true" :delayDuration="300">
     <section
       ref="toggleRef"
-      class="pointer-events-auto flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
+      class="pointer-events-auto relative flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
     >
       <TooltipRoot>
         <TooltipTrigger asChild>
@@ -87,6 +87,18 @@
           </TooltipContent>
         </TooltipPortal>
       </TooltipRoot>
+
+      <ArrowCalloutButton
+        v-if="controller.activeGuideId === OperationalStepId.ActivateVault &&  controller.selectedTab !== OperationsTab.Vaulting"
+        class="absolute top-1/2 right-2 -translate-y-1/2 translate-x-full z-50"
+        guidance="Click the vaulting tab to begin."
+      />
+      <ArrowCalloutButton
+        v-else-if="[OperationalStepId.FirstMiningSeat, OperationalStepId.MoreMiningSeats].includes(controller.activeGuideId as any) &&  controller.selectedTab !== OperationsTab.Mining"
+        class="absolute top-1/2 left-2 -translate-y-1/2 -translate-x-full z-50"
+        guidance="Click the mining tab to begin."
+        direction="right"
+      />
     </section>
   </TooltipProvider>
 </template>
@@ -94,11 +106,12 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
-import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
+import { useOperationsController, OperationsTab, OperationalStepId } from '../stores/operationsController.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import ArgonLogo from '../assets/resources/argon.svg?component';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 
 const tour = useTour();
 const controller = useOperationsController();

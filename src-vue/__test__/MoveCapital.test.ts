@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { miningHoldOperationalReserveMicrogons, type IWallet } from '../lib/Wallet.ts';
+import { ensureOperatorAccountRegistered } from '../lib/OperationalAccount.ts';
+
+vi.mock('../lib/OperationalAccount.ts', () => ({
+  ensureOperatorAccountRegistered: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe('MoveCapital', () => {
   it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
@@ -29,6 +34,7 @@ describe('MoveCapital', () => {
       wallet,
       'mining-bot-address',
     );
+    expect(ensureOperatorAccountRegistered).toHaveBeenCalledOnce();
   });
 
   it('retries the fee calculation without argons when only argonots should move', async () => {

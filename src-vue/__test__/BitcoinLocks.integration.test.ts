@@ -394,7 +394,7 @@ async function createHarness(): Promise<TestHarness> {
   console.log('[BitcoinLocks.integration] created vault', myVault.createdVault?.vaultId);
   await myVault.subscribe();
 
-  const allocation = await myVault.activateSecuritizationAndTreasury({
+  const allocation = await myVault.activateSecuritization({
     rules: defaultVaultRules,
   });
   expect(allocation).toBeTruthy();

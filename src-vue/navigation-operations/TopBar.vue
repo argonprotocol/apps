@@ -15,7 +15,7 @@
 
     <div
       v-if="controller.isLoaded && !controller.isImporting"
-      class="flex w-1/3 justify-center pointer-events-none relative left-1.5"
+      class="flex w-1/3 justify-center pointer-events-none left-1.5"
     >
       <TabSwitcher />
     </div>
@@ -33,7 +33,10 @@
       <div class="pointer-events-auto">
         <OperationalMenu ref="operationalMenuRef" />
       </div>
-      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+      <div
+        :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
+        class="relative"
+      >
         <AccountMenu ref="accountMenuRef" />
       </div>
     </div>
@@ -42,10 +45,10 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
+import { useOperationsController, OperationsTab, OperationalStepId } from '../stores/operationsController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import CurrencyMenu from '../navigation-shared/CurrencyMenu.vue';
-import AccountMenu from '../navigation-shared/AccountMenu.vue';
+import AccountMenu from './AccountMenu.vue';
 import InstanceMenu from '../navigation-shared/InstanceMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getBot } from '../stores/bot.ts';

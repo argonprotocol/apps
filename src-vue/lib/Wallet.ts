@@ -35,6 +35,7 @@ export enum WalletType {
   miningHold = 'miningHold',
   miningBot = 'miningBot',
   vaulting = 'vaulting',
+  operational = 'operational',
   investment = 'investment',
 }
 

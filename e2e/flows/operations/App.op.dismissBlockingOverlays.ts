@@ -18,7 +18,7 @@ type IDismissBlockingOverlaysState = IE2EOperationInspectState<Record<string, ne
 export default new Operation<IAppFlowContext, IDismissBlockingOverlaysState>(import.meta, {
   async inspect({ flow }) {
     const [welcomeOverlay, walletFundingOverlay, openDialog, openBitcoinLockingDialogs] = await Promise.all([
-      flow.isVisible('WelcomeOverlay.closeOverlay()'),
+      flow.isVisible({ selector: '[data-testid="WelcomeOverlay"]' }),
       flow.isVisible('WalletFundingReceivedOverlay.closeOverlay()'),
       flow.isVisible({ selector: '[role="dialog"][data-state="open"]' }),
       flow.count({ selector: '[role="dialog"][data-state="open"].BitcoinLockingOverlay' }).catch(() => 0),
@@ -33,11 +33,7 @@ export default new Operation<IAppFlowContext, IDismissBlockingOverlaysState>(imp
     }
     const bitcoinLockingDialogVisible = openBitcoinLockingDialogs > 0;
 
-    const runnable =
-      welcomeOverlay.visible ||
-      walletFundingOverlay.visible ||
-      walletFundingDialogVisible ||
-      bitcoinLockingDialogVisible;
+    const runnable = walletFundingOverlay.visible || walletFundingDialogVisible || bitcoinLockingDialogVisible;
     const isComplete = !runnable;
     let operationState: 'complete' | 'runnable' = 'runnable';
     if (isComplete) {
@@ -56,9 +52,6 @@ export default new Operation<IAppFlowContext, IDismissBlockingOverlaysState>(imp
     };
   },
   async run({ flow }, state) {
-    if (state.uiState.welcomeOverlayVisible) {
-      await flow.click('WelcomeOverlay.closeOverlay()', { waitForDisappearMs: 5_000 });
-    }
     if (state.uiState.walletFundingOverlayVisible) {
       await flow.click('WalletFundingReceivedOverlay.closeOverlay()', { waitForDisappearMs: 5_000 });
     }

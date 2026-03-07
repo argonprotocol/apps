@@ -6,7 +6,7 @@
       :class="twMerge('text-md relative flex w-full flex-col items-center whitespace-nowrap', props.class)"
     >
       <Header :tooltipSide="tooltipSide" :height="itemHeight" :spacerWidth="spacerWidth" class="border-0">
-        Inflation-Free Zone
+        Inflation-Free Savings
         <template #tooltip>
           <p class="break-words whitespace-normal">These argons are currently sitting unused.</p>
         </template>

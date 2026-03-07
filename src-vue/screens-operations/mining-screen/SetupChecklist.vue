@@ -33,6 +33,11 @@
               <h2 class="text-2xl text-argon-600 font-bold">
                 Connect a Cloud Machine
                 <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
+                <ArrowCalloutButton
+                  v-else-if="currentStep === 'ServerConnect'"
+                  guidance="A cloud machine is required for your mining bot."
+                  class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+                />
               </h2>
               <p v-if="hasMiningMachine">
                 <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
@@ -56,7 +61,14 @@
           <div class="flex flex-row">
             <Checkbox :isChecked="wallets.isLoaded && config.hasSavedBiddingRules" />
             <div class="px-4">
-              <h2 class="text-2xl text-argon-600 font-bold">Confirm Your Bidding Rules</h2>
+              <h2 class="text-2xl text-argon-600 font-bold relative inline-block">
+                Confirm Your Bidding Rules
+                <ArrowCalloutButton
+                  v-if="currentStep === 'BiddingRules'"
+                  guidance="We've already setup recommended bidding rules. All you need to do is confirm."
+                  class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+                />
+              </h2>
               <p v-if="!config.hasSavedBiddingRules">
                 Decide how much capital you want to commit, your starting bid, maximum bid, and other basic settings.
               </p>
@@ -89,9 +101,14 @@
           <div class="flex flex-row">
             <Checkbox :isChecked="walletIsFullyFunded" />
             <div class="px-4">
-              <h2 class="text-2xl text-argon-600 font-bold">
+              <h2 class="text-2xl text-argon-600 font-bold relative inline-block">
                 {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
                 Your Wallet
+                <ArrowCalloutButton
+                  v-if="currentStep === 'FundWallet' && !controller.overlayIsOpen"
+                  guidance="You must fund your bidding bot before proceeding."
+                  class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
+                />
               </h2>
               <p v-if="walletIsFullyFunded">
                 Your account has been fully funded with enough argons and argonots to begin bidding.
@@ -155,14 +172,25 @@
         <button
           @click="launchMiningBot"
           :class="[
-          walletIsFullyFunded && hasMiningMachine && !controller.walletOverlayIsOpen
+          walletIsFullyFunded && hasMiningMachine && !controller.overlayIsOpen
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30',
           isLaunchingMiningBot ? 'opacity-30 pointer-events-none' : '',
         ]"
           class="bg-argon-button border border-argon-button-hover text-2xl font-bold px-4 py-4 mt-10 rounded-md w-full cursor-pointer hover:bg-argon-button-hover hover:inner-button-shadow"
         >
-          {{ isLaunchingMiningBot ? 'Launching Mining Bot...' : 'Launch Mining Bot' }}
+          <template v-if="isLaunchingMiningBot">
+            Launching Mining Bot...
+          </template>
+          <span v-else class="relative">
+            Launch Mining Bot
+            <ArrowCalloutButton
+              v-if="currentStep === 'ClickButton'"
+              guidance="You're almost done! Click this button to launch your vault."
+              position="top"
+              class="absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50"
+            />
+          </span>
         </button>
       </div>
     </div>
@@ -187,7 +215,7 @@ import { getBiddingCalculator } from '../../stores/mainchain';
 import BotReturns from '../../overlays-operations/bot/BotReturns.vue';
 import BotCapital from '../../overlays-operations/bot/BotCapital.vue';
 import BotCreatePanel from '../../panels/BotCreatePanel.vue';
-import { useOperationsController, OperationsTab } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationsTab, OperationalStepId } from '../../stores/operationsController.ts';
 import BotCreatePriceChangeOverlay from '../../overlays-operations/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
@@ -195,6 +223,7 @@ import { MoveCapital } from '../../lib/MoveCapital.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);
 
@@ -217,6 +246,24 @@ const capitalCommitment = Vue.ref(0n);
 
 const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
+
+const serverConnectIsChecked = Vue.computed(() => {
+  return wallets.isLoaded && hasMiningMachine.value;
+});
+
+const currentStep = Vue.computed(() => {
+  if (controller.activeGuideId !== OperationalStepId.FirstMiningSeat) {
+    return null;
+  } else if (!serverConnectIsChecked.value) {
+    return 'ServerConnect';
+  } else if (!config.hasSavedBiddingRules) {
+    return 'BiddingRules';
+  } else if (!walletIsFullyFunded.value) {
+    return 'FundWallet';
+  } else {
+    return 'ClickButton';
+  }
+});
 
 const availableMicrogons = Vue.computed(() => {
   return wallets.miningHoldSpendableMicrogons + wallets.miningBotWallet.availableMicrogons;

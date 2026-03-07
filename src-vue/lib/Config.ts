@@ -3,6 +3,7 @@ import { Db } from './Db';
 import {
   ConfigSchema,
   IConfig,
+  IConfigCertificationDetailsSchema,
   IConfigDefaults,
   IConfigStringified,
   InstallStepKey,
@@ -96,7 +97,6 @@ export class Config implements IConfig {
       isServerInstalled: Config.getDefault(dbFields.isServerInstalled) as boolean,
       isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
 
-      hasOperatorAccount: Config.getDefault(dbFields.hasOperatorAccount) as boolean,
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
@@ -111,6 +111,7 @@ export class Config implements IConfig {
         latitude: '',
         longitude: '',
       },
+      certificationDetails: Config.getDefault(dbFields.certificationDetails) as IConfig['certificationDetails'],
     };
   }
 
@@ -369,12 +370,29 @@ export class Config implements IConfig {
     this.setField('isServerInstalling', value);
   }
 
-  public get hasOperatorAccount(): boolean {
-    return this.getField('hasOperatorAccount');
+  public get certificationDetails(): IConfig['certificationDetails'] {
+    return this.getField('certificationDetails');
   }
 
-  public set hasOperatorAccount(value: boolean) {
-    this.setField('hasOperatorAccount', value);
+  public set certificationDetails(value: IConfig['certificationDetails']) {
+    this.setField('certificationDetails', value);
+  }
+
+  public setCertificationDetails(
+    certificationDetails: Partial<IConfigCertificationDetailsSchema>,
+  ): IConfigCertificationDetailsSchema {
+    this.certificationDetails = {
+      hasSavedMnemonic: false,
+      hasVault: false,
+      hasUniswapTransfer: false,
+      hasTreasuryBondParticipation: false,
+      hasFirstMiningSeat: false,
+      hasSecondMiningSeat: false,
+      hasBitcoinLock: false,
+      ...(this.certificationDetails || {}),
+      ...certificationDetails,
+    };
+    return this.certificationDetails;
   }
 
   public get hasMiningSeats(): boolean {
@@ -601,13 +619,13 @@ const dbFields = {
   isServerInstalled: 'isServerInstalled',
   isServerInstalling: 'isServerInstalling',
 
-  hasOperatorAccount: 'hasOperatorAccount',
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
   biddingRules: 'biddingRules',
   vaultingRules: 'vaultingRules',
   defaultCurrencyKey: 'defaultCurrencyKey',
   userJurisdiction: 'userJurisdiction',
+  certificationDetails: 'certificationDetails',
 } as const;
 
 const defaults: IConfigDefaults = {
@@ -654,7 +672,6 @@ const defaults: IConfigDefaults = {
   isServerInstalled: () => false,
   isServerInstalling: () => false,
 
-  hasOperatorAccount: () => false,
   hasMiningSeats: () => false,
   hasMiningBids: () => false,
   biddingRules: () => {
@@ -732,4 +749,5 @@ const defaults: IConfigDefaults = {
       };
     }
   },
+  certificationDetails: () => undefined,
 };

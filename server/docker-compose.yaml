@@ -11,7 +11,7 @@ services:
   router:
     <<: *common-config
     build:
-      context: ../router
+      context: ./router
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
@@ -162,7 +162,7 @@ services:
       - KEYPAIR_PATH=/tmp/walletMiningBot.json
       - LOCAL_RPC_URL=ws://argon-miner:9944
       - ARCHIVE_NODE_URL=${ARGON_ARCHIVE_NODE}
-      - CHECKIN_URL=http://router:8080
+      - ROUTER_URL=http://router:8080
       - ARGON_CHAIN=${ARGON_CHAIN}
       - DATADIR=/data
     volumes:

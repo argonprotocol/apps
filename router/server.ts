@@ -47,6 +47,12 @@ Bun.serve({
       const blockCount = Number(new URL(req.url).searchParams.get('blockCount') || '10');
       return BitcoinApis.recentBlocks(blockCount);
     }),
+    // '/invite/register-operations-app': safeJsonRoute(async req => {
+    //   return { success: true }
+    // }),
+    // '/invite/register-capital-app': safeJsonRoute(async req => {
+    //   return { success: true }
+    // }),
   },
 
   fetch(_req) {

@@ -190,124 +190,79 @@
             </div>
           </div>
         </div>
-        <div class="flex flex-col grow gap-y-2">
-          <PersonalBitcoin ref="personalBitcoin" />
 
+        <div class="flex flex-col grow gap-y-2">
           <section box class="flex flex-col grow text-center px-2">
             <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                 <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
                 PREV
               </div>
-              <span class="flex flex-row items-center" :title="'Frame #' + currentFrame?.id">
-                <span :title="`Frame #${currentFrame?.id}`" >{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
+              <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
+                <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
                 <span v-if="currentFrameIsActive" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
               </span>
-              <div @click="goToNextFrame" :class="hasNextFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+              <div v-if="currentFrame.progress >= 100" @click="goToNextFrame" class="flex flex-row opacity-60 items-center font-light text-base cursor-pointer group hover:opacity-80">
                 NEXT
                 <ChevronRightIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
               </div>
-            </header>
-
-            <div class="grow flex flex-col items-center justify-center">
-              <div class="pt-5 border-b border-slate-400/20 pb-5 w-full text-slate-800/70">
-                This frame's payout {{ currentFrameIsActive ? 'is' : 'was'}}
-                <TooltipRoot>
-                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">
-                    {{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.totalTreasuryPayout).format('0,0.00') }}
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
-                    Total network revenue from mining bids.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-                <template v-if="currentFrameIsActive"> (and growing)</template>. You {{ currentFrameIsActive ? 'get' : 'received'}}
-                <TooltipRoot>
-                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">{{ numeral(currentFrame.myTreasuryPercentTake).format('0,[0.0]') }}%</TooltipTrigger>,
-                  <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-                    The more capital you invest in treasury bonds, the higher your take-home percentage.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-                which {{ currentFrameIsActive ? 'equals' : 'equaled'}}
-                <TooltipRoot>
-                  <TooltipTrigger as="span" class="font-bold text-argon-600 font-mono hover:bg-argon-300/10 rounded py-1 px-1 -mx-1">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.myTreasuryPayout).format('0,0.00') }}</TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="0" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-fit text-slate-900/60">
-                    This is what your vault has earned so far today.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-                <span class="hidden lg:inline"> in earnings</span>.
+              <div v-else class="flex flex-row opacity-60 items-center font-light text-base group px-2">
+                {{ numeral(currentFrame.progress).format('0.0') }}%
               </div>
-
-              <div class="flex flex-row w-full grow gap-x-2 mt-2">
-                <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full">
-                    <div class="relative size-28">
-                      <svg class="size-full -rotate-90" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-gray-200 dark:text-neutral-700" stroke-width="3"></circle>
-                        <circle cx="18" cy="18" r="16" fill="none" class="stroke-current text-argon-600 dark:text-argon-500" stroke-width="3" stroke-dasharray="100" :stroke-dashoffset="100-currentFrame.progress" stroke-linecap="butt"></circle>
-                      </svg>
-
-                      <div class="absolute top-1/2 start-1/2 transform -translate-y-1/2 -translate-x-1/2">
-                        <span class="text-center !text-[30px] font-bold text-argon-600 dark:text-argon-500">{{ Math.round(currentFrame.progress) }}%</span>
-                      </div>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-left text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
-                    This progress of the current frame, which is equivalent to approximately 24 hours.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-
-                <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full pb-3">
-                    <span data-testid="TotalBlocksMined">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.bitcoinChangeMicrogons).format('0,0.00') }}</span>
-                    <label class="relative block w-full">
-                      Bitcoin Lock Change
-                      <HealthIndicatorBar :percent="currentFrame.bitcoinPercentUsed" />
-                    </label>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
-                    The change (+/-) in bitcoin value held by your vault during this frame.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-
-                <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full pb-3">
-                    <span data-testid="TotalBlocksMined">{{ currency.symbol }}{{ microgonToMoneyNm(currentFrame.treasuryChangeMicrogons).format('0,0.00') }}</span>
-                    <label class="relative block w-full">
-                      Treasury Bond Change
-                      <HealthIndicatorBar :percent="currentFrame.treasuryPercentActivated" />
-                    </label>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
-                    The change (+/-) in treasury bonds held by your vault during this frame.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-
-                <div class="h-full w-[1px] bg-slate-400/30"></div>
-
-                <TooltipRoot>
-                  <TooltipTrigger as="div" stat-box no-padding class="flex flex-col w-1/3 h-full pb-3">
-                    <span data-testid="TotalBlocksMined">{{ numeral(currentFrame.frameProfitPercent).format('0,0') }}%</span>
-                    <label class="relative block w-full">
-                      Current Frame Profit
-                      <HealthIndicatorBar :percent="currentFrame.profitMaximizationPercent" />
-                    </label>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
-                    The profit percentage earned by your vault during this frame.
-                    <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-                  </TooltipContent>
-                </TooltipRoot>
-
+            </header>
+            <div class="flex flex-col h-full">
+              <div class="flex flex-row items-center w-full gap-x-3 text-base my-4 px-2.5">
+                <div class="text-slate-700/80">Grow revenue by expanding your network</div>
+                <div class="grow flex flex-row gap-x-3 text-argon-600">
+                  <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
+                    Manage Members
+                  </button>
+                  <button @click="openManageInvites" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
+                    Manage Member Invites
+                  </button>
+                  <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
+                    Optimize Revenue
+                  </button>
+                </div>
+              </div>
+              <div class="flex flex-row items-stretch gap-x-2 w-full grow px-2">
+                <div BitcoinMap class="w-1/2">
+                  <TreemapChart
+                    :total="bitcoinMapTotal"
+                    :items="bitcoinMapItems"
+                    theme="sand"
+                    remainderLabel="Unused BTC Space"
+                    :remainder-display-value="formatMoney(bitcoinMapRemainder)"
+                  />
+                </div>
+                <div BondMap class="w-1/2">
+                  <TreemapChart
+                    v-if="bondMapTotal"
+                    :total="bondMapTotal"
+                    :items="bondMapItems"
+                    theme="plum"
+                    remainder-label="Unused Bond Capacity"
+                    :remainder-display-value="formatMoney(bondMapRemainder)"
+                  />
+                  <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
+                    No Bonds Available
+                  </div>
+                </div>
+              </div>
+              <div class="pt-4 pb-3">
+                <div class="mb-2 flex items-center gap-x-3 text-center">
+                  <span class="h-px grow bg-slate-400/30"></span>
+                  <span class="text-base leading-none font-bold text-slate-700/60">Stabilization Vaulting Stats</span>
+                  <span class="h-px grow bg-slate-400/30"></span>
+                </div>
+                <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
+                  <div>{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.securityMicrogons).format('0,0.00') }} In Potential BTC Locks</div>
+                  <div>$3,241.61 In Potential Daily Revenue</div>
+                  <div>{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryMicrogonsActivated).format('0,0.00') }} In Potential Bond Buys</div>
+                  <div>{{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% of Allowed BTC Is Locked</div>
+                  <div>89% of Allowed Revenue Is Captured</div>
+                  <div>{{ numeral(vaultingBreakdown.treasuryMicrogonsActivatedPct).format('0,0.[00]')}}% of Allowed Bonds Are Secured</div>
+                </div>
               </div>
             </div>
           </section>
@@ -340,11 +295,11 @@
 <script lang="ts">
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IVaultFrameRecord } from '../../interfaces/IVaultFrameRecord';
-import { createNumeralHelpers } from '../../lib/numeral.ts';
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
+import type FrameSlider from '../../components/FrameSlider.vue';
 
 const currentFrame = Vue.ref({
   id: 0,
@@ -367,10 +322,10 @@ dayjs.extend(utc);
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const frameRecords = Vue.ref<IVaultFrameRecord[]>([]);
 const chartItems = Vue.ref<IChartItem[]>([]);
-const personalBitcoin = Vue.ref<InstanceType<typeof PersonalBitcoin> | null>(null);
 </script>
 
 <script setup lang="ts">
+import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency';
 import numeral from '../../lib/numeral';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
@@ -383,14 +338,11 @@ import VaultEditOverlay from '../../overlays-operations/VaultEditOverlay.vue';
 import AssetMenu from '../components/AssetMenu.vue';
 import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
-import FrameSlider from '../../components/FrameSlider.vue';
 import SuccessIcon from '../../assets/success.svg?component';
 import ConfigIcon from '../../assets/config.svg?component';
-import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
 import { NetworkConfig, bigIntMin, calculateAPY } from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMiningFrames } from '../../stores/mainchain.ts';
-import PersonalBitcoin from './components/PersonalBitcoin.vue';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
 import RoiIcon from '../../assets/roi.svg';
@@ -401,6 +353,10 @@ import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
+import TreemapChart from '../../components/TreemapChart.vue';
+
+dayjs.extend(relativeTime);
+dayjs.extend(utc);
 
 const myVault = getMyVault();
 const vaults = getVaults();
@@ -494,6 +450,96 @@ const currentApy = Vue.computed(() => {
 const revenueMicrogons = Vue.computed(() => {
   const { earnings } = myVault.revenue();
   return earnings;
+});
+
+function formatMoney(value: bigint) {
+  return `${currency.symbol}${microgonToMoneyNm(value).formatIfElse('< 1_000', '0,0.00', '0,0')}`;
+}
+
+const bitcoinMapTotal = Vue.computed(() => {
+  console.log('BITCOIN MAP TOTAL: ', vaultingBreakdown.securityMicrogons);
+  return vaultingBreakdown.securityMicrogons;
+});
+
+const bitcoinMapItems = Vue.computed(() => {
+  const items: Array<{
+    id: string;
+    label: string;
+    amount: bigint;
+    displayValue: string;
+    emphasis?: 'default' | 'strong';
+  }> = [];
+
+  if (vaultingBreakdown.securityMicrogonsActivated > 0n) {
+    items.push({
+      id: 'locked',
+      label: 'Bitcoin Locked',
+      amount: vaultingBreakdown.securityMicrogonsActivated,
+      displayValue: formatMoney(vaultingBreakdown.securityMicrogonsActivated),
+      emphasis: 'strong',
+    });
+  }
+
+  if (vaultingBreakdown.securityMicrogonsPending > 0n) {
+    items.push({
+      id: 'pending',
+      label: 'Pending Activation',
+      amount: vaultingBreakdown.securityMicrogonsPending,
+      displayValue: formatMoney(vaultingBreakdown.securityMicrogonsPending),
+    });
+  }
+
+  console.log('BITCOIN MAP ITEMS: ', items);
+  return items;
+});
+
+const bitcoinMapRemainder = Vue.computed(() => {
+  const used = bitcoinMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
+  return bitcoinMapTotal.value > used ? bitcoinMapTotal.value - used : 0n;
+});
+
+const bondMapTotal = Vue.computed(() => {
+  return vaultingBreakdown.treasuryMicrogonsMaxCapacity;
+});
+
+const treasuryBondsActivated = Vue.computed(() => {
+  return bigIntMin(vaultingBreakdown.treasuryMicrogons, vaultingBreakdown.treasuryMicrogonsMaxCapacity);
+});
+
+const bondMapItems = Vue.computed(() => {
+  const items: Array<{
+    id: string;
+    label: string;
+    amount: bigint;
+    displayValue: string;
+    emphasis?: 'default' | 'strong';
+  }> = [];
+
+  if (treasuryBondsActivated.value > 0n) {
+    items.push({
+      id: 'internal-bonds',
+      label: 'Treasury Bonds',
+      amount: treasuryBondsActivated.value,
+      displayValue: formatMoney(treasuryBondsActivated.value),
+      emphasis: 'strong',
+    });
+  }
+
+  if (externalTreasuryBonds.value > 0n) {
+    items.push({
+      id: 'external-bonds',
+      label: 'External Treasury Bonds',
+      amount: externalTreasuryBonds.value,
+      displayValue: formatMoney(externalTreasuryBonds.value),
+    });
+  }
+
+  return items;
+});
+
+const bondMapRemainder = Vue.computed(() => {
+  const used = bondMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
+  return bondMapTotal.value > used ? bondMapTotal.value - used : 0n;
 });
 
 const pendingCosignPenalty = Vue.computed(() => {
@@ -595,10 +641,13 @@ async function loadChartData(currentFrameId?: number) {
 
   chartItems.value = profitAnalysis.items;
   frameRecords.value = profitAnalysis.records;
-
   const targetFrameId = currentFrameId ?? currentFrame.value.id;
   currentFrame.value =
     frameRecords.value.find(frame => frame.id === targetFrameId) ?? frameRecords.value.at(-1) ?? currentFrame.value;
+}
+
+function openManageInvites() {
+  basicEmitter.emit('openVaultCouponsOverlay');
 }
 
 let onFrameSubscription: { unsubscribe: () => void };

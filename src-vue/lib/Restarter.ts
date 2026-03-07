@@ -10,10 +10,10 @@ import { invokeWithTimeout } from './tauriApi.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 
 export default class Restarter {
-  private dbPromise: Promise<Db>;
+  private readonly dbPromise: Promise<Db>;
 
   private _server?: Server;
-  private _config: Config;
+  private readonly _config: Config;
 
   constructor(dbPromise: Promise<Db>, config: Config) {
     this.dbPromise = dbPromise;

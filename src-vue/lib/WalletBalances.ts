@@ -43,6 +43,7 @@ export class WalletBalances {
   public miningHoldWallet: Wallet;
   public miningBotWallet: Wallet;
   public vaultingWallet: Wallet;
+  public operationalWallet: Wallet;
   public investmentWallet: Wallet;
 
   public bestBlock?: IBlockHeaderInfo;
@@ -67,7 +68,13 @@ export class WalletBalances {
   private unsubscribe?: () => void;
 
   public get wallets(): Wallet[] {
-    return [this.miningHoldWallet, this.miningBotWallet, this.vaultingWallet, this.investmentWallet];
+    return [
+      this.miningHoldWallet,
+      this.miningBotWallet,
+      this.vaultingWallet,
+      this.operationalWallet,
+      this.investmentWallet,
+    ];
   }
 
   public get addresses(): string[] {
@@ -88,6 +95,7 @@ export class WalletBalances {
     this.miningHoldWallet = new Wallet(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
     this.miningBotWallet = new Wallet(walletKeys.miningBotAddress, 'miningBot', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
+    this.operationalWallet = new Wallet(walletKeys.operationalAddress, 'operational', dbPromise);
     this.investmentWallet = new Wallet(walletKeys.investmentAddress, 'investment', dbPromise);
     this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
@@ -152,6 +160,9 @@ export class WalletBalances {
       return;
     }
     await this.blockQueue.add(async () => {
+      if (this.isClosed) {
+        return;
+      }
       ///// UPDATE FINALIZED
       const finalizedBlock = this.blockWatch.finalizedBlockHeader;
       const finalizedBlockNumber = finalizedBlock.blockNumber;
@@ -211,6 +222,9 @@ export class WalletBalances {
           await this.processBlock(block);
         }
         if (this.isClosed) break;
+      }
+      if (this.isClosed) {
+        return;
       }
       await db.walletLedgerTable.markFinalizedUpToBlock(finalizedBlockNumber);
       await db.syncStateTable.upsert(SyncStateKeys.Wallet, {

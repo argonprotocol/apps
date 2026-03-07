@@ -28,7 +28,15 @@
             @click="startSettingUpVault"
             class="flex flex-row cursor-pointer items-center gap-x-2 bg-argon-500 hover:bg-argon-600 border border-argon-700 inner-button-shadow font-bold text-white px-12 py-2 rounded-md"
           >
-            Set Up Your Stabilization Vault
+            <span class="relative">
+              Set Up Your Stabilization Vault
+              <ArrowCalloutButton
+                v-if="controller.activeGuideId === OperationalStepId.ActivateVault"
+                class="absolute top-1/2 -left-2 -translate-y-1/2 -translate-x-full z-50"
+                guidance="Click to start setting up your vault."
+                direction="right"
+              />
+            </span>
             <ChevronDoubleRightIcon class="size-5 relative top-px" />
           </button>
         </div>
@@ -153,12 +161,15 @@ import { getConfig } from '../../stores/config';
 import { abbreviateAddress, getPercent } from '../../lib/Utils.ts';
 import { useVaultingStats } from '../../stores/vaultingStats.ts';
 import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 const currency = getCurrency();
 const config = getConfig();
 const vaultsStore = getVaults();
 
 const vaultingStats = useVaultingStats();
+const controller = useOperationsController();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
