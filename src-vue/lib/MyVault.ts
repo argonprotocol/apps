@@ -56,6 +56,10 @@ type ICollectOrphanCosignMetadata = {
   vout: number;
   vaultSignatureHex: string;
 };
+type IPendingCosignUtxo = {
+  marketValue: bigint;
+  dueFrame?: number;
+};
 
 export class MyVault {
   public data: {
@@ -64,7 +68,7 @@ export class MyVault {
     metadata: IVaultRecord | null;
     stats: IVaultStats | null;
     pendingCollectRevenue: bigint;
-    pendingCosignUtxosById: Map<number, bigint>;
+    pendingCosignUtxosById: Map<number, IPendingCosignUtxo>;
     nextCollectDueDate: number;
     expiringCollectAmount: bigint;
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
@@ -113,6 +117,8 @@ export class MyVault {
   #singleActiveBitcoinQueue = new SingleFileQueue();
   // Serialize cosign submissions (collect + individual cosign) and track in-flight intent per UTXO.
   #cosignQueue = new SingleFileQueue();
+  #collectFrames: { frameId: number; uncollectedEarnings: bigint }[] = [];
+  #pendingCosignUpdateSeq = 0;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -167,6 +173,7 @@ export class MyVault {
     if (this.#waitForLoad && !reload) return this.#waitForLoad.promise;
 
     this.#waitForLoad = createDeferred();
+    this.#collectFrames = [];
     try {
       console.log('Loading MyVault...');
       await this.miningFrames.load();
@@ -261,24 +268,26 @@ export class MyVault {
     const client = await getMainchainClient(false);
 
     // update stats live
-    const sub = await client.query.vaults.vaultsById(vaultId, async vault => {
+    const sub = await client.query.vaults.vaultsById(vaultId, vault => {
       if (vault.isSome) this.createdVault?.load(vault.unwrap());
-      await this.updateRevenueStats();
     });
 
     const sub2 = await client.query.vaults.revenuePerFrameByVault(vaultId, async x => {
       await this.updateRevenueStats(x);
-      await this.updateCollectDueDate();
+      this.updateCollectDueDate();
     });
 
-    const sub3 = await client.query.vaults.pendingCosignByVaultId(vaultId, x => this.recordPendingCosignUtxos(x));
-    const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, x =>
-      this.updateCollectDueDate(x.isSome ? x.unwrap().toNumber() : undefined),
-    );
+    const sub3 = await client.query.vaults.pendingCosignByVaultId(vaultId, async x => {
+      const updateSeq = ++this.#pendingCosignUpdateSeq;
+      await this.recordPendingCosignUtxos(x, updateSeq);
+    });
+    const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
+      this.updateCollectDueDate();
+    });
 
     const sub5 = await client.query.miningSlot.nextFrameId(frameId => {
       this.data.currentFrameId = frameId.toNumber() - 1;
-      void this.updateCollectDueDate();
+      this.updateCollectDueDate();
     });
 
     const sub6 = await this.subscribeToTreasuryAllocated();
@@ -286,12 +295,12 @@ export class MyVault {
     this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6);
   }
 
-  private async updateCollectDueDate(_lastCollectFrameId?: number) {
+  private updateCollectDueDate() {
     const framesToCollect = this.#configs!.timeToCollectFrames;
     let nextCollectFrame = this.data.currentFrameId + framesToCollect;
     this.data.expiringCollectAmount = 0n;
     const oldestToCollectFrame = this.data.currentFrameId - framesToCollect;
-    for (const frameChange of this.data.stats?.changesByFrame ?? []) {
+    for (const frameChange of this.#collectFrames) {
       if (frameChange.uncollectedEarnings > 0n) {
         this.data.expiringCollectAmount = frameChange.uncollectedEarnings;
         // descending order
@@ -299,19 +308,46 @@ export class MyVault {
       }
       if (frameChange.frameId < oldestToCollectFrame) break;
     }
+    if (this.data.pendingCosignUtxosById.size > 0) {
+      let earliestCosignDueFrame = Number.MAX_SAFE_INTEGER;
+      for (const pendingCosign of this.data.pendingCosignUtxosById.values()) {
+        if (pendingCosign.dueFrame === undefined) {
+          continue;
+        }
+        earliestCosignDueFrame = Math.min(earliestCosignDueFrame, pendingCosign.dueFrame);
+      }
+      if (earliestCosignDueFrame < Number.MAX_SAFE_INTEGER) {
+        nextCollectFrame = Math.min(nextCollectFrame, earliestCosignDueFrame);
+      }
+    }
     nextCollectFrame = Math.max(this.data.currentFrameId + 1, nextCollectFrame);
 
     this.data.nextCollectDueDate = this.miningFrames.getFrameDate(nextCollectFrame).getTime();
   }
 
-  private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>) {
-    this.data.pendingCosignUtxosById.clear();
+  private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>, updateSeq: number) {
+    const previousPendingCosignsById = new Map(this.data.pendingCosignUtxosById);
+    const pendingCosignUtxosById = new Map<number, IPendingCosignUtxo>();
     const client = await getMainchainClient(false);
     for (const utxoId of rawUtxoIds) {
       const id = utxoId.toNumber();
       const lock = await BitcoinLock.get(client, id);
-      this.data.pendingCosignUtxosById.set(id, lock?.lockedMarketRate ?? 0n);
+      const previousPending = previousPendingCosignsById.get(id);
+      const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(id);
+      const dueFrame = pendingReleaseRaw.isSome
+        ? pendingReleaseRaw.unwrap().cosignDueFrame.toNumber()
+        : previousPending?.dueFrame;
+      const marketValue = lock?.lockedMarketRate ?? previousPending?.marketValue ?? 0n;
+      if (marketValue === 0n && !lock && previousPending?.marketValue === undefined) {
+        console.warn(`Pending cosign UTXO ${id} has no lock data; using 0 as fallback market value.`);
+      }
+      pendingCosignUtxosById.set(id, { marketValue, dueFrame });
     }
+    if (updateSeq !== this.#pendingCosignUpdateSeq) {
+      return;
+    }
+    this.data.pendingCosignUtxosById = pendingCosignUtxosById;
+    this.updateCollectDueDate();
   }
 
   public async cosignMyLock(
@@ -560,7 +596,7 @@ export class MyVault {
       if (!this.metadata) {
         throw new Error('No metadata available to collect revenue');
       }
-      const toCosign = [...this.data.pendingCosignUtxosById];
+      const toCosign = [...this.data.pendingCosignUtxosById.keys()];
       const cosignedUtxoIds: number[] = [];
       const cosignedOrphanUtxos: ICollectOrphanCosignMetadata[] = [];
       const expectedCollectRevenue = this.data.pendingCollectRevenue;
@@ -570,7 +606,7 @@ export class MyVault {
       const argonKeyring = await this.walletKeys.getVaultingKeypair();
       const txs: SubmittableExtrinsic[] = [];
       try {
-        for (const [utxoId, _amount] of toCosign) {
+        for (const utxoId of toCosign) {
           if (this.findPendingCosignTxInfo(utxoId)) {
             continue;
           }
@@ -931,13 +967,19 @@ export class MyVault {
     const client = await getMainchainClient(false);
     const vaultId = this.createdVault.vaultId;
     frameRevenues ??= await client.query.vaults.revenuePerFrameByVault(vaultId);
+    this.#collectFrames = frameRevenues
+      .map(frameRevenue => ({
+        frameId: frameRevenue.frameId.toNumber(),
+        uncollectedEarnings: frameRevenue.uncollectedRevenue.toBigInt(),
+      }))
+      .sort((a, b) => b.frameId - a.frameId);
     this.vaults.vaultsById[vaultId] = this.createdVault;
 
     await this.vaults.updateVaultRevenue(vaultId, frameRevenues);
-    this.data.pendingCollectRevenue = 0n;
-    for (const frameRevenue of frameRevenues) {
-      this.data.pendingCollectRevenue += frameRevenue.uncollectedRevenue.toBigInt();
-    }
+    this.data.pendingCollectRevenue = this.#collectFrames.reduce(
+      (total, frame) => total + frame.uncollectedEarnings,
+      0n,
+    );
     const data = this.vaults.stats?.vaultsById?.[vaultId];
     if (data) {
       this.data.stats = { ...data };

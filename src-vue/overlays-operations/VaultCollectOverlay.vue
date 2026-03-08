@@ -161,7 +161,10 @@ const collectRevenue = Vue.ref(myVault.data.pendingCollectRevenue);
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const pendingCosignSum = Vue.computed(() => {
-  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce((acc, utxo) => acc + utxo, 0n);
+  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce(
+    (acc, utxo) => acc + utxo.marketValue,
+    0n,
+  );
   return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
 });
 
