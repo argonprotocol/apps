@@ -458,7 +458,10 @@ const revenueMicrogons = Vue.computed(() => {
 });
 
 const pendingCosignPenalty = Vue.computed(() => {
-  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce((acc, amount) => acc + amount, 0n);
+  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce(
+    (acc, entry) => acc + entry.marketValue,
+    0n,
+  );
   return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
 });
 
