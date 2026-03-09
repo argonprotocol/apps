@@ -72,6 +72,7 @@ async function main(): Promise<void> {
   const { createFlowSession, resolveFlowSessionMode, resolveFlowSessionAppLogsMode } = await import(
     '../flows/session.js'
   );
+  const { listFlows } = await import('../flows/index.js');
   const sessionMode = resolveFlowSessionMode(process.env.E2E_SESSION_MODE);
   const useTestNetwork = (process.env.E2E_USE_TEST_NETWORK ?? (sessionMode === 'stateful' ? '0' : '1')).trim() === '1';
   const appLogsMode = resolveFlowSessionAppLogsMode(process.env.E2E_CONSOLE_APP_LOGS ?? 'quiet');
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
     timeoutMs: parseTimeout(process.env.E2E_OPERATION_TIMEOUT_MS),
     inputs: parseConsoleInputOverrides(process.env.E2E_OPERATION_INPUTS),
   };
+  const flows = listConsoleFlows(listFlows());
 
   const session = await createFlowSession({ sessionMode, useTestNetwork, appLogsMode });
   const rl = readline.createInterface({
@@ -114,6 +116,10 @@ async function main(): Promise<void> {
       }
       if (line === 'inputs') {
         printInputs(state.inputs);
+        continue;
+      }
+      if (line === 'flows') {
+        printFlows(flows);
         continue;
       }
       if (line.startsWith('set ')) {
@@ -196,6 +202,22 @@ async function main(): Promise<void> {
         printStatus(state);
         continue;
       }
+      if (line.startsWith('flow ')) {
+        const flowName = line.slice('flow '.length).trim();
+        if (!flowName) {
+          console.error('[E2E] usage: flow <FlowName>');
+          continue;
+        }
+        const flow = flows.find(entry => entry.name === flowName);
+        if (!flow) {
+          console.error(
+            `[E2E] Unknown console flow '${flowName}'. Use "flows" to list available flow names.`,
+          );
+          continue;
+        }
+        await runFlowStep(session, state, flow.name);
+        continue;
+      }
 
       const explicitMode = line.startsWith('run ') ? 'run' : line.startsWith('inspect ') ? 'inspect' : undefined;
       const operationInput = explicitMode ? line.slice(explicitMode.length).trim() : line;
@@ -239,6 +261,36 @@ async function main(): Promise<void> {
   } finally {
     rl.close();
     await session.close();
+  }
+}
+
+function listConsoleFlows(flows: Array<{ name: string; description: string }>): Array<{ name: string; description: string }> {
+  return flows
+    .filter(flow => flow.name !== 'App.flow.runManual')
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function runFlowStep(session: IFlowSessionRunner, state: IConsoleState, flowName: string): Promise<IRunStepResult> {
+  const startedAt = Date.now();
+  try {
+    const result = await session.run(flowName, state.inputs);
+    const elapsedMs = Date.now() - startedAt;
+    console.info(`[E2E] flow ok name=${flowName} elapsedMs=${elapsedMs}`);
+    syncConsoleStateFromFlowResult(state, result.data);
+    return {
+      ok: true,
+      data: result.data,
+    };
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[E2E] flow failed name=${flowName} elapsedMs=${elapsedMs}`);
+    console.error(`[E2E] ${message}`);
+    return {
+      ok: false,
+      data: {},
+      error: message,
+    };
   }
 }
 
@@ -438,6 +490,8 @@ function printStatus(state: IConsoleState): void {
 function printHelp(): void {
   console.info('[E2E] commands:');
   console.info('[E2E]   status');
+  console.info('[E2E]   flows     # list runnable full flows');
+  console.info('[E2E]   flow <FlowName>');
   console.info('[E2E]   runnable  # inspect all operations for this context and show runnable/blocked');
   console.info('[E2E]   inputs    # show current console input overrides');
   console.info('[E2E]   set <key> <value>');
@@ -451,6 +505,18 @@ function printHelp(): void {
   console.info('[E2E]   inspect *  # same as runnable');
   console.info('[E2E]   <Operation.one,Operation.two>  # uses current mode');
   console.info('[E2E]   exit');
+}
+
+function printFlows(flows: Array<{ name: string; description: string }>): void {
+  if (flows.length === 0) {
+    console.info('[E2E] flows: (none)');
+    return;
+  }
+
+  console.info('[E2E] flows:');
+  for (const flow of flows) {
+    console.info(`[E2E]   ${flow.name}  # ${flow.description}`);
+  }
 }
 
 function printInputs(inputs: Record<string, unknown>): void {
@@ -542,6 +608,46 @@ function toInputDefinitions(value: unknown): IInputDefinitionSummary[] {
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function syncConsoleStateFromFlowResult(state: IConsoleState, data: Record<string, unknown>): void {
+  const resolvedInputs = readResolvedFlowInputs(data.flowResolvedInputs);
+  if (resolvedInputs) {
+    for (const [key, value] of Object.entries(resolvedInputs)) {
+      if (value == null) {
+        delete state.inputs[key];
+        continue;
+      }
+      state.inputs[key] = value;
+    }
+
+    console.info(`[E2E] synced flow inputs: ${formatResolvedInputSummary(resolvedInputs)}`);
+  }
+
+  const context = parseContext(typeof data.flowContextName === 'string' ? data.flowContextName : undefined);
+  if (context && context !== state.context) {
+    state.context = context;
+    console.info(`[E2E] switched context to ${context}`);
+  }
+}
+
+function readResolvedFlowInputs(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function formatResolvedInputSummary(inputs: Record<string, unknown>): string {
+  const summaries: string[] = [];
+  for (const [key, value] of Object.entries(inputs).sort(([left], [right]) => left.localeCompare(right))) {
+    if (value == null) {
+      summaries.push(`${key}=<cleared>`);
+      continue;
+    }
+    summaries.push(`${key}=${safeSerialize(value)}`);
+  }
+  return summaries.join(', ');
 }
 
 function safeSerialize(value: unknown): string {

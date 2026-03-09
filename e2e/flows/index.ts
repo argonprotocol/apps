@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import Path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { DriverClient } from '../driver/client.ts';
+import { createBitcoinFlowContext, type IBitcoinFlowContext } from './contexts/bitcoinContext.ts';
+import { createMiningFlowContext, type IMiningFlowContext } from './contexts/miningContext.ts';
+import { createVaultingFlowContext, type IVaultingFlowContext } from './contexts/vaultingContext.ts';
+import { formatUnitsToDecimal } from './helpers/utils.ts';
 import type { AnyOperationalFlow } from './operations/index.ts';
 import { executeFlow } from './runtime.ts';
 import type { IE2EFlowDefinition, IE2EFlowExecutionOptions, IE2EFlowExecutionResult } from './types.ts';
@@ -11,6 +16,7 @@ const OPERATION_FILE_PATTERN = /^[A-Z][A-Za-z0-9]*\.(op|flow)\.[A-Za-z0-9_]+\.(t
 const OPERATIONS_DIR = resolveOperationsDir();
 const requireModule = createRequire(Path.join(OPERATIONS_DIR, 'index.ts'));
 const flowRegistry = new Map<string, IE2EFlowDefinition>();
+const flowConsoleMetadataByContextFactory = createFlowConsoleMetadataByContextFactory();
 
 for (const flowOperation of loadFlowOperations()) {
   const flow = toFlowDefinition(flowOperation);
@@ -41,6 +47,50 @@ export async function runFlow(
 }
 
 export type { IE2EFlowDefinition, E2ECommandArgs } from './types.ts';
+
+function createFlowConsoleMetadataByContextFactory(): Map<
+  AnyOperationalFlow['createContext'],
+  {
+    contextName: string;
+    resolveInputs: (context: unknown) => Record<string, unknown>;
+  }
+> {
+  const metadata = new Map<
+    AnyOperationalFlow['createContext'],
+    {
+      contextName: string;
+      resolveInputs: (context: unknown) => Record<string, unknown>;
+    }
+  >();
+
+  metadata.set(createBitcoinFlowContext, {
+    contextName: 'bitcoin',
+    resolveInputs: context => {
+      const { input, flowName } = context as IBitcoinFlowContext;
+      return {
+        minimumLockArgons:
+          input.minimumLockMicrogons == null
+            ? null
+            : formatUnitsToDecimal(
+                input.minimumLockMicrogons,
+                BigInt(MICROGONS_PER_ARGON),
+                `${flowName}.minimumLockArgons`,
+              ),
+        minimumLockSatoshis: input.minimumLockSatoshis ?? null,
+      };
+    },
+  });
+  metadata.set(createMiningFlowContext, {
+    contextName: 'mining',
+    resolveInputs: context => ({ ...(context as IMiningFlowContext).input }),
+  });
+  metadata.set(createVaultingFlowContext, {
+    contextName: 'vaulting',
+    resolveInputs: context => ({ ...(context as IVaultingFlowContext).input }),
+  });
+
+  return metadata;
+}
 
 function loadFlowOperations(): AnyOperationalFlow[] {
   const moduleFiles = fs
@@ -75,6 +125,11 @@ function toFlowDefinition(flowOperation: AnyOperationalFlow): IE2EFlowDefinition
     defaultTimeoutMs: flowOperation.defaultTimeoutMs,
     async run(flow) {
       const context = flowOperation.createContext(flow, flowName);
+      const flowConsoleMetadata = flowConsoleMetadataByContextFactory.get(flowOperation.createContext);
+      if (flowConsoleMetadata) {
+        flow.setData('flowContextName', flowConsoleMetadata.contextName);
+        flow.setData('flowResolvedInputs', flowConsoleMetadata.resolveInputs(context));
+      }
       await flow.runOperations(context, [flowOperation]);
     },
   };
