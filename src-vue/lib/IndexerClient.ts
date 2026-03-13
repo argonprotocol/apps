@@ -1,5 +1,6 @@
 import { IIndexerSpec, NetworkConfig } from '@argonprotocol/apps-core';
 import { fetch } from '@tauri-apps/plugin-http';
+import { LOG_DEBUG } from './Env.ts';
 
 export async function findAddressTransferBlocks(
   address: string,
@@ -16,7 +17,7 @@ export async function findAddressTransferBlocks(
   }
 
   const responseJson = await response.json();
-  console.info(`['${api}/transfers/${address}'] response: `, responseJson);
+  console.info(`['${api}/transfers/${address}'] response`, formatIndexerResponseForLog(responseJson));
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return responseJson;
 }
@@ -36,7 +37,27 @@ export async function findAddressVaultCollects(
   }
 
   const responseJson = await response.json();
-  console.info(`['${api}/vault-collects/${address}'] response: `, responseJson);
+  console.info(`['${api}/vault-collects/${address}'] response`, formatIndexerResponseForLog(responseJson));
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return responseJson;
+}
+
+function formatIndexerResponseForLog(responseJson: unknown): unknown {
+  if (!import.meta.env.PROD || LOG_DEBUG) {
+    return responseJson;
+  }
+
+  return summarizeIndexerResponse(responseJson);
+}
+
+function summarizeIndexerResponse(responseJson: unknown): string | Record<string, unknown> {
+  if (Array.isArray(responseJson)) {
+    return { count: responseJson.length };
+  }
+
+  if (responseJson && typeof responseJson === 'object') {
+    return { keys: Object.keys(responseJson).slice(0, 10) };
+  }
+
+  return String(responseJson);
 }

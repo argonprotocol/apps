@@ -210,9 +210,7 @@ async function main(): Promise<void> {
         }
         const flow = flows.find(entry => entry.name === flowName);
         if (!flow) {
-          console.error(
-            `[E2E] Unknown console flow '${flowName}'. Use "flows" to list available flow names.`,
-          );
+          console.error(`[E2E] Unknown console flow '${flowName}'. Use "flows" to list available flow names.`);
           continue;
         }
         await runFlowStep(session, state, flow.name);
@@ -264,13 +262,19 @@ async function main(): Promise<void> {
   }
 }
 
-function listConsoleFlows(flows: Array<{ name: string; description: string }>): Array<{ name: string; description: string }> {
+function listConsoleFlows(
+  flows: Array<{ name: string; description: string }>,
+): Array<{ name: string; description: string }> {
   return flows
     .filter(flow => flow.name !== 'App.flow.runManual')
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-async function runFlowStep(session: IFlowSessionRunner, state: IConsoleState, flowName: string): Promise<IRunStepResult> {
+async function runFlowStep(
+  session: IFlowSessionRunner,
+  state: IConsoleState,
+  flowName: string,
+): Promise<IRunStepResult> {
   const startedAt = Date.now();
   try {
     const result = await session.run(flowName, state.inputs);

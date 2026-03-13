@@ -345,7 +345,9 @@ fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_lo
         .target(tauri_plugin_log::Target::new(
             tauri_plugin_log::TargetKind::Stdout,
         ))
-        .max_file_size(10_000_000)
+        // Keep recent oversized sessions instead of deleting them on the next app launch.
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+        .max_file_size(50_000_000)
         .with_colors(ColoredLevelConfig::default());
 
     // load rust log from runtime env, then build, then default
