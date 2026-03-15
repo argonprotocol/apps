@@ -19,9 +19,11 @@ CREATE TABLE BitcoinUtxos (
     'SeenOnMempool',
     'FundingCandidate',
     'FundingUtxo',
+    'Orphaned',
     'ReleaseIsProcessingOnArgon',
     'ReleaseIsProcessingOnBitcoin',
-    'ReleaseComplete'
+    'ReleaseComplete',
+    'ReleaseCompleteAcknowledged'
   )) DEFAULT 'FundingCandidate',
   statusError TEXT,
   mempoolObservation JSON,
@@ -63,9 +65,11 @@ CREATE TABLE BitcoinUtxoStatusHistory (
     'SeenOnMempool',
     'FundingCandidate',
     'FundingUtxo',
+    'Orphaned',
     'ReleaseIsProcessingOnArgon',
     'ReleaseIsProcessingOnBitcoin',
-    'ReleaseComplete'
+    'ReleaseComplete',
+    'ReleaseCompleteAcknowledged'
   )),
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -244,6 +248,8 @@ CREATE TABLE BitcoinLocks (
     'LockIsProcessingOnArgon',
     'LockPendingFunding',
     'LockExpiredWaitingForFunding',
+    'LockExpiredWaitingForFundingAcknowledged',
+    'LockFundingReadyToResume',
     'LockedAndIsMinting',
     'LockedAndMinted',
     'Releasing',

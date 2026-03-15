@@ -10,8 +10,8 @@
       <div class="flex flex-col items-start justify-center grow pr-16 text-argon-800/70">
         <div class="text-xl font-bold opacity-60">No Bitcoin Attached to this Vault</div>
         <div class="font-light">
-          Vaults require bitcoin in order to function properly and generate revenue<br/>
-          opportunities for their owners. Click the button to add one.
+          Vaults need Bitcoin to operate and generate revenue.<br/>
+          Click the button to add one.
         </div>
       </div>
       <div class="flex flex-col items-center justify-center">
@@ -22,9 +22,7 @@
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 opacity-60 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center mr-5">
-          <div class="opacity-60 w-fit pr-10">
-            Your Liquid Locking Request Is Being Processed on Argon...
-          </div>
+          <div class="opacity-60 w-fit pr-10">Your lock request is being processed on Argon...</div>
           <div class="flex flex-row items-center justify-start w-full mt-2">
             <ProgressBar :progress="lockProcessingStep.progressPct" :showLabel="false" class="h-4" />
           </div>
@@ -41,8 +39,8 @@
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">Your
           {{ numeral(currency.convertSatToBtc(personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Is Ready to
-          Finish Locking</div>
-        <div class="relative text-argon-700/80 pt-0.5 font-bold text-md pointer-events-none fade-in-out">Actively Monitoring Network for Incoming Bitcoin</div>
+          Lock</div>
+        <div class="relative text-argon-700/80 pt-0.5 font-bold text-md pointer-events-none fade-in-out">Watching for your Bitcoin deposit</div>
       </div>
       <div class="flex flex-col items-center justify-center">
         <button @click="showLockingOverlay" class="whitespace-nowrap bg-argon-600 text-white text-lg font-bold px-5 lg:px-10 py-2 rounded-md cursor-pointer relative top-1">
@@ -61,13 +59,122 @@
         </div>
       </div>
     </div>
+    <div v-else-if="showMismatchAccept" @click="showLockingOverlay" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+      <div class="flex flex-row items-center justify-center w-full">
+        <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
+        <div class="flex flex-col items-start justify-center grow pr-5">
+          <div class="text-xl font-bold opacity-70 pb-1.5">
+            Updating Lock on Argon
+          </div>
+          <ProgressBar :progress="mismatchAcceptStep.progressPct" />
+          <div v-if="mismatchAcceptStep.error" class="mt-2 text-sm font-semibold text-red-600">
+            {{ mismatchAcceptStep.error }}
+          </div>
+        </div>
+        <div class="flex flex-row space-x-2 items-center justify-end">
+          <button @click="showLockingOverlay" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+            View Status
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="showFundingMismatch" @click="handleMismatchCardClick" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+      <div class="flex flex-row items-center justify-center w-full">
+        <BitcoinIcon
+          class="w-22 inline-block mr-7 -rotate-24 relative top-px"
+          :class="mismatchCanAct ? 'opacity-80 fade-in-out' : 'opacity-65'" />
+        <div class="flex flex-col items-start justify-center grow pr-5">
+          <div class="text-xs font-light tracking-wide text-argon-700 uppercase">{{ mismatchCardEyebrow }}</div>
+          <div class="text-xl font-bold pb-1" :class="mismatchCanAct ? 'text-argon-700' : 'text-slate-800/70'">
+            {{ mismatchCardTitle }}
+          </div>
+          <div v-if="mismatchDepositReturned" class="text-slate-700/90">
+            Returned <span class="font-mono font-semibold text-slate-900">{{ mismatchObservedBtcLabel }} BTC</span>.
+          </div>
+          <div v-else class="text-slate-700/90">
+            Expected <span class="font-mono font-semibold text-slate-900">{{ mismatchReservedBtcLabel }} BTC</span>.
+            Received <span class="font-mono font-semibold text-slate-900">{{ mismatchObservedBtcLabel }} BTC</span>.
+          </div>
+          <div v-if="mismatchDifferenceSummary && !mismatchDepositReturned" class="mt-1 text-sm text-slate-600">
+            <span class="font-mono font-semibold text-argon-700">{{ mismatchDifferenceSummary }}</span>.
+            {{ mismatchNextStepText }}
+          </div>
+          <div v-else-if="mismatchDepositReturned" class="mt-1 text-sm text-slate-600">
+            {{ mismatchNextStepText }}
+          </div>
+          <div v-if="mismatchError" class="mt-1 text-sm font-semibold text-red-700">
+            {{ mismatchError }}
+          </div>
+          <div v-if="!mismatchCanAct && !lockFundingReadyToResume && !mismatchDepositReturned" class="mt-2 w-full pr-5">
+            <ProgressBar
+              v-if="showMismatchConfirmationProgress"
+              :progress="lockProcessingStep.progressPct"
+              :showLabel="false"
+              class="h-3.5" />
+            <div v-if="showMismatchConfirmationProgress" class="mt-1 text-xs text-slate-500">{{ mismatchConfirmationLabel }}</div>
+            <div v-else class="mt-1 flex items-center gap-2 text-xs text-slate-500">
+              <Spinner class="h-4 w-4" />
+              <span>{{ mismatchConfirmationLabel }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-row space-x-2 items-center justify-end">
+          <button @click.stop="handleMismatchCardClick" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+            {{ mismatchCardCtaLabel }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="showFundingExpired" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+      <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px opacity-65" />
+      <div class="flex flex-col items-start justify-center grow pr-5">
+        <div class="text-xs font-light tracking-wide text-argon-700 uppercase">
+          {{ mismatchDepositReturned ? 'Return Complete' : 'Funding Expired' }}
+        </div>
+        <div class="text-xl font-bold pb-1 text-slate-800/70">
+          {{ mismatchDepositReturned ? 'Mismatch Bitcoin Deposit Returned' : 'Bitcoin Funding Window Expired' }}
+        </div>
+        <div class="text-slate-700/90">
+          {{
+            mismatchDepositReturned
+              ? `Returned ${mismatchObservedBtcLabel} BTC after this funding request expired.`
+              : 'No Bitcoin was confirmed before this lock expired.'
+          }}
+        </div>
+        <div class="mt-1 text-sm text-slate-600">
+          {{ mismatchDepositReturned ? 'This notice can be cleared now.' : 'Review the details, then clear this notice when you are ready.' }}
+        </div>
+      </div>
+      <div class="flex flex-row space-x-2 items-center justify-end">
+        <button
+          @click="acknowledgeExpiredNotice"
+          class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+          Clear Notice
+        </button>
+      </div>
+    </div>
+    <div v-else-if="showFundingReadyToResume" @click="showLockingOverlay" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+      <div class="flex flex-row items-center justify-center w-full">
+        <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px opacity-80" />
+        <div class="flex flex-col items-start justify-center grow pr-5">
+          <div class="text-xs font-light tracking-wide text-argon-700 uppercase">Return Complete</div>
+          <div class="text-xl font-bold pb-1 text-argon-700">Mismatch Bitcoin Deposit Returned</div>
+          <div class="text-slate-700/90">Your mismatch Bitcoin deposit was returned. Resume funding when you're ready.</div>
+        </div>
+        <div class="flex flex-row space-x-2 items-center justify-end">
+          <button @click="showLockingOverlay" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+            Resume Lock Funding
+          </button>
+        </div>
+      </div>
+    </div>
     <div v-else-if="showFundingBitcoinProcessing" @click="showLockingOverlay" class="grow cursor-pointer hover:bg-white/50 row flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <div class="flex flex-row items-center justify-center w-full">
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
           <div class="text-xl font-bold opacity-60 pb-1.5">
-            Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} in BTC
-            Is Being Processed by Bitcoin's Network
+            Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC
+            deposit is being confirmed on Bitcoin
           </div>
           <ProgressBar :progress="lockProcessingStep.progressPct" />
         </div>
@@ -117,7 +224,7 @@
             <div class="whitespace-nowrap uppercase opacity-80 font-bold text-argon-600">Requesting Release from Argon Network</div>
           </div>
           <div class="flex flex-row items-center justify-start w-full pr-5 mt-2">
-            <ProgressBar :progress="argonReleaseStep.progressPct" :showLabel="false" class="h-4" />
+            <ProgressBar :progress="bitcoinLockProgress.getUnlockProgressPct(lockStatus)" :showLabel="false" class="h-4" />
           </div>
           <div v-if="argonReleaseStep.error" class="mt-2 text-sm font-semibold text-red-600">
             {{ argonReleaseStep.error }}
@@ -133,7 +240,7 @@
             Your Unlocking Request Is Being Processed on Argon...
           </div>
           <div class="flex flex-row items-center justify-start w-full mt-2">
-            <ProgressBar :progress="bitcoinLockProgress.requestReleaseByVaultProgress" :showLabel="false" class="h-4" />
+            <ProgressBar :progress="bitcoinLockProgress.getUnlockProgressPct(lockStatus)" :showLabel="false" class="h-4" />
           </div>
           <div v-if="vaultCosignStep.error" class="mt-2 text-sm font-semibold text-red-600">
             {{ vaultCosignStep.error }}
@@ -162,7 +269,10 @@
       <div class="w-full flex flex-row items-center justify-center" v-else>
         <BitcoinIcon class="w-24 inline-block mr-7 -rotate-24 relative top-px" />
         <div class="flex flex-col items-start justify-center grow opacity-80 font-bold" v-if="fundingUtxoRecord?.statusError">
-          <div class="text-xl">Releasing has Failed.</div>
+          <div class="text-xl">Unlocking Needs Attention.</div>
+          <div class="text-md font-normal mt-1 text-red-700">
+            Open details to retry this unlock step.
+          </div>
           <div class="text-md font-normal mt-2 text-red-700">
             Technical details: {{ fundingUtxoRecord.statusError }}
           </div>
@@ -179,7 +289,7 @@
           </div>
           <div class="flex flex-row items-center justify-center w-full pr-5 mt-1 space-x-3">
             <div class="whitespace-nowrap uppercase opacity-60">Finalizing On Bitcoin</div>
-            <ProgressBar :progress="releasingBitcoinDetails.progressPct" class="!h-6 mt-0.5" />
+            <ProgressBar :progress="bitcoinLockProgress.getUnlockProgressPct(lockStatus)" class="!h-6 mt-0.5" />
           </div>
           <div v-if="bitcoinReleaseStep.error" class="mt-2 text-sm font-semibold text-red-600">
             {{ bitcoinReleaseStep.error }}
@@ -193,7 +303,7 @@
 
   <BitcoinLockingOverlay
     v-if="doShowLockingOverlay"
-    :personalLock="personalLock"
+    :personalLock="lockingOverlayLock"
     @close="closeLockingOverlay"
   />
 
@@ -226,6 +336,8 @@ import { BitcoinUtxoStatus } from '../../../lib/db/BitcoinUtxosTable.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import { getWalletKeys } from '../../../stores/wallets.ts';
 import { IStepProgress, useBitcoinLockProgress } from '../../../stores/bitcoinLockProgress.ts';
+import Spinner from '../../../components/Spinner.vue';
+import { generateProgressLabel } from '../../../lib/Utils.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -236,10 +348,39 @@ const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
 const bitcoinLockProgress = useBitcoinLockProgress();
 
+const shouldStartLockingOverlayAtBeginning = Vue.ref(false);
+
+const lockingOverlayLock = Vue.computed(() => {
+  if (shouldStartLockingOverlayAtBeginning.value) return undefined;
+  return personalLock.value;
+});
+
 function showLockingOverlay() {
+  shouldStartLockingOverlayAtBeginning.value = false;
   doShowReleaseOverlay.value = false;
   doShowLockingOverlay.value = true;
 }
+
+function startNewLocking() {
+  shouldStartLockingOverlayAtBeginning.value = true;
+  doShowReleaseOverlay.value = false;
+  doShowLockingOverlay.value = true;
+}
+
+async function acknowledgeExpiredNotice() {
+  const lock = personalLock.value;
+  if (!lock) return;
+  await bitcoinLocks.acknowledgeExpiredWaitingForFunding(lock).catch(() => undefined);
+}
+
+function handleMismatchCardClick() {
+  if (mismatchDepositReturned.value && fundingWindowExpired.value) {
+    void acknowledgeExpiredNotice();
+    return;
+  }
+  showLockingOverlay();
+}
+
 function showReleaseOverlay() {
   doShowLockingOverlay.value = false;
   doShowReleaseOverlay.value = true;
@@ -255,7 +396,7 @@ const lockExpirationTime = Vue.ref(dayjs.utc());
 const lockInitializeExpirationTime = Vue.ref(dayjs.utc().add(1, 'day'));
 
 const lockStatus = Vue.computed(() => {
-  if (!personalLock.value || bitcoinLocks.isFinishedStatus(personalLock.value)) {
+  if (!personalLock.value || bitcoinLocks.isInactiveForVaultDisplay(personalLock.value)) {
     return null;
   }
   return personalLock.value.status;
@@ -267,12 +408,43 @@ const fundingUtxoRecord = Vue.computed(() => {
 });
 
 const lockPendingFunding = Vue.computed(() => lockStatus.value === BitcoinLockStatus.LockPendingFunding);
+const lockExpiredWaitingForFunding = Vue.computed(() => {
+  return lockStatus.value === BitcoinLockStatus.LockExpiredWaitingForFunding;
+});
+const lockExpiredWaitingForFundingAcknowledged = Vue.computed(() => {
+  return lockStatus.value === BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged;
+});
+const lockFundingReadyToResume = Vue.computed(() => {
+  return lockStatus.value === BitcoinLockStatus.LockFundingReadyToResume;
+});
+const fundingWindowExpired = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return false;
+  return bitcoinLocks.isFundingWindowExpired(lock);
+});
+const showFundingMismatch = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock || lockFundingReadyToResume.value) return false;
+  return bitcoinLocks.shouldShowFundingMismatch(lock);
+});
+const showFundingExpired = Vue.computed(() => {
+  return (
+    (lockExpiredWaitingForFunding.value || lockExpiredWaitingForFundingAcknowledged.value) && !showFundingMismatch.value
+  );
+});
+const showFundingReadyToResume = Vue.computed(() => lockFundingReadyToResume.value);
+const showMismatchAccept = Vue.computed(() => {
+  if (!personalLock.value) return false;
+  return bitcoinLocks.hasAnyMismatchAcceptInProgress(personalLock.value);
+});
 const showReadyForBitcoin = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
+  if (showFundingMismatch.value || showMismatchAccept.value) return false;
   return lockProcessingStep.value.confirmations < 0;
 });
 const showFundingBitcoinProcessing = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
+  if (showFundingMismatch.value || showMismatchAccept.value) return false;
   return lockProcessingStep.value.confirmations >= 0;
 });
 const isLockedStatus = Vue.computed(() => {
@@ -291,8 +463,147 @@ const argonReleaseStep = Vue.computed<IStepProgress>(() => bitcoinLockProgress.a
 const vaultCosignStep = Vue.computed<IStepProgress>(() => bitcoinLockProgress.vaultCosign);
 
 const lockProcessingStep = Vue.computed<IStepProgress>(() => bitcoinLockProgress.lockProcessing);
-
+const mismatchFundingDetails = Vue.computed(() => {
+  if (!personalLock.value) return undefined;
+  return bitcoinLocks.getLockProcessingDetails(personalLock.value);
+});
+const mismatchDetectedInFunding = Vue.computed(() => mismatchFundingDetails.value?.isInvalidAmount === true);
+const mismatchCandidates = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return [];
+  return bitcoinLocks.getMismatchCandidates(lock);
+});
+const mismatchPreferredCandidate = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return undefined;
+  return bitcoinLocks.getPreferredMismatchCandidate(lock);
+});
+const mismatchReturnRecord = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock?.utxoId) return undefined;
+  return bitcoinLocks.getCurrentMismatchOrphanReturn(lock.utxoId, mismatchPreferredCandidate.value);
+});
+const mismatchCandidateForDisplay = Vue.computed(
+  () => mismatchPreferredCandidate.value ?? mismatchCandidates.value[0] ?? mismatchReturnRecord.value,
+);
+const mismatchDepositReturned = Vue.computed(
+  () => mismatchReturnRecord.value?.status === BitcoinUtxoStatus.ReleaseComplete,
+);
+const mismatchObservedSatoshis = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return undefined;
+  return (
+    mismatchCandidateForDisplay.value?.satoshis ??
+    mismatchFundingDetails.value?.receivedSatoshis ??
+    bitcoinLocks.getReceivedFundingSatoshis(lock)
+  );
+});
+const mismatchCanAct = Vue.computed(() => {
+  const lock = personalLock.value;
+  const candidate = mismatchPreferredCandidate.value;
+  if (!lock || !candidate) return false;
+  return bitcoinLocks.isMismatchCandidateActionable(lock, candidate);
+});
+const mismatchCardEyebrow = Vue.computed(() => {
+  if (lockFundingReadyToResume.value) return 'Return Complete';
+  if (mismatchDepositReturned.value) return 'Return Complete';
+  if (fundingWindowExpired.value) {
+    return 'Funding Expired';
+  }
+  return mismatchCanAct.value ? 'Decision Needed' : 'Mismatch Detected';
+});
+const mismatchCardTitle = Vue.computed(() => {
+  if (lockFundingReadyToResume.value || mismatchDepositReturned.value) {
+    return 'Mismatch Bitcoin Deposit Returned';
+  }
+  if (fundingWindowExpired.value) {
+    return mismatchCanAct.value ? 'Recovery Options Ready' : 'Preparing Recovery Options';
+  }
+  return 'Bitcoin Funding Mismatch';
+});
+const mismatchCardCtaLabel = Vue.computed(() => {
+  if (lockFundingReadyToResume.value) return 'Resume Funding';
+  if (mismatchDepositReturned.value && fundingWindowExpired.value) return 'Clear Notice';
+  if (mismatchDepositReturned.value) return 'Open Details';
+  return mismatchCanAct.value ? 'Review Options' : 'Open Details';
+});
+const mismatchNextStepText = Vue.computed(() => {
+  if (lockFundingReadyToResume.value) return 'Resume lock funding when you are ready.';
+  if (mismatchDepositReturned.value) {
+    return fundingWindowExpired.value
+      ? 'Clear this notice when you are ready.'
+      : 'Review the completed return details.';
+  }
+  if (fundingWindowExpired.value) {
+    return mismatchCanAct.value
+      ? 'Review how to recover this Bitcoin deposit.'
+      : 'We’re preparing the recovery options.';
+  }
+  return mismatchCanAct.value
+    ? 'Choose whether to keep this Bitcoin deposit or return it.'
+    : 'Once Bitcoin confirmations finish, choose whether to keep this Bitcoin deposit or return it.';
+});
+const mismatchConfirmationState = Vue.computed(() => {
+  const candidate = mismatchCandidateForDisplay.value;
+  if (!candidate) {
+    return {
+      showProgress: false,
+      label: 'Waiting for the Bitcoin deposit to appear...',
+    };
+  }
+  if (lockProcessingStep.value.confirmations < 0) {
+    if (candidate.firstSeenBitcoinHeight > 0 || candidate.mempoolObservation?.isConfirmed === true) {
+      return {
+        showProgress: false,
+        label: 'Waiting for this Bitcoin deposit to be recognized...',
+      };
+    }
+    return {
+      showProgress: false,
+      label: 'Waiting for the first Bitcoin block...',
+    };
+  }
+  return {
+    showProgress: true,
+    label: generateProgressLabel(
+      lockProcessingStep.value.confirmations,
+      lockProcessingStep.value.expectedConfirmations,
+      {
+        blockType: 'Bitcoin',
+      },
+    ),
+  };
+});
+const showMismatchConfirmationProgress = Vue.computed(() => mismatchConfirmationState.value.showProgress);
+const mismatchConfirmationLabel = Vue.computed(() => mismatchConfirmationState.value.label);
+const mismatchDifferenceSatoshis = Vue.computed(() => {
+  const lock = personalLock.value;
+  const observed = mismatchObservedSatoshis.value;
+  if (!lock || observed === undefined) return undefined;
+  return observed - lock.satoshis;
+});
+const mismatchReservedBtcLabel = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return '0';
+  return formatCompactBtc(lock.satoshis);
+});
+const mismatchObservedBtcLabel = Vue.computed(() => {
+  const observed = mismatchObservedSatoshis.value;
+  if (observed === undefined) return '0';
+  return formatCompactBtc(observed);
+});
+const mismatchDifferenceSummary = Vue.computed(() => {
+  const diff = mismatchDifferenceSatoshis.value;
+  if (diff === undefined) return '';
+  return formatSatsDifference(diff);
+});
+const mismatchError = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return '';
+  return bitcoinLocks.getMismatchError(lock) ?? '';
+});
 const bitcoinReleaseStep = Vue.computed<IStepProgress>(() => bitcoinLockProgress.bitcoinRelease);
+const mismatchAcceptStep = Vue.computed<IStepProgress>(() => bitcoinLockProgress.mismatchAcceptArgon);
 
 const isReleasingOnArgon = Vue.computed(() => {
   const releaseStatus = fundingUtxoRecord.value?.status;
@@ -309,13 +620,6 @@ const hasReleaseError = Vue.computed(() => {
 });
 const isWaitingForVaultCosign = Vue.computed(() => {
   return isReleasingOnArgon.value && bitcoinLockProgress.requestReleaseByVaultProgress > 0;
-});
-
-const releasingBitcoinDetails = Vue.computed<{ progressPct: number; confirmations: number }>(() => {
-  return {
-    progressPct: bitcoinReleaseStep.value.progressPct,
-    confirmations: bitcoinReleaseStep.value.confirmations,
-  };
 });
 
 const btcMarketRate = Vue.ref(0n);
@@ -354,12 +658,32 @@ async function updateBitcoinUnlockPrices() {
   unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
 }
 
-function closeLockingOverlay() {
+function closeLockingOverlay(shouldStartNewLocking = false) {
+  if (shouldStartNewLocking) {
+    shouldStartLockingOverlayAtBeginning.value = true;
+    return;
+  }
   doShowLockingOverlay.value = false;
+  shouldStartLockingOverlayAtBeginning.value = false;
 }
 
 function closeReleaseOverlay() {
   doShowReleaseOverlay.value = false;
+}
+
+function formatCompactBtc(satoshis: bigint): string {
+  const btc = currency.convertSatToBtc(satoshis);
+  const absBtc = Math.abs(btc);
+  const format = absBtc >= 0.1 ? '0,0.[000]' : absBtc >= 0.001 ? '0,0.[000000]' : '0,0.[00000000]';
+  return numeral(btc).format(format);
+}
+
+function formatSatsDifference(satoshis: bigint): string {
+  const absoluteSatoshis = satoshis < 0n ? -satoshis : satoshis;
+  const formatted = absoluteSatoshis.toLocaleString('en-US');
+  if (satoshis > 0n) return `Over by ${formatted} sats`;
+  if (satoshis < 0n) return `Short by ${formatted} sats`;
+  return 'Matches your requested amount';
 }
 
 let stopLockProgressTracking: (() => void) | undefined;

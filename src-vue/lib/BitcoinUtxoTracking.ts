@@ -1,13 +1,20 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { getPercent, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  getPercent,
+  MiningFrames,
+  NetworkConfig,
+  queryCandidateUtxoRefsByUtxoId,
+  supportsCandidateUtxoRefsByUtxoId,
+} from '@argonprotocol/apps-core';
 import { type ApiDecoration, type ArgonClient, type IBitcoinLockConfig } from '@argonprotocol/mainchain';
 import {
   BitcoinUtxosTable,
   BitcoinUtxoStatus,
   IBitcoinUtxoRecord,
   IMempoolFundingObservation,
+  type IConfirmedReleaseCosign,
 } from './db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { BlockProgress } from './BlockProgress.ts';
@@ -49,8 +56,7 @@ export default class BitcoinUtxoTracking {
   }
 
   public updateSupportsCandidateUtxos(apiClient: ApiDecoration<'promise'>): boolean {
-    const candidateQuery = apiClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId;
-    this.data.supportsCandidateUtxos = typeof candidateQuery === 'function';
+    this.data.supportsCandidateUtxos = supportsCandidateUtxoRefsByUtxoId(apiClient);
     return this.data.supportsCandidateUtxos;
   }
 
@@ -97,16 +103,22 @@ export default class BitcoinUtxoTracking {
   }
 
   public getAcceptedFundingRecordForLock(lock: IBitcoinLockRecord): IBitcoinUtxoRecord | undefined {
+    if (lock.fundingUtxoRecord?.lockUtxoId === lock.utxoId) {
+      return lock.fundingUtxoRecord;
+    }
+
     if (lock.fundingUtxoRecordId) {
       const record = this.getUtxoRecordById(lock.fundingUtxoRecordId);
-      if (record) {
+      if (record?.lockUtxoId === lock.utxoId) {
         lock.fundingUtxoRecord = record;
         return record;
       }
     }
     if (!lock.utxoId) return undefined;
     const records = this.data.utxosByLockUtxoId[lock.utxoId] ?? [];
-    const record = records.find(x => x.status === BitcoinUtxoStatus.FundingUtxo);
+    const record = [...records]
+      .filter(x => x.status === BitcoinUtxoStatus.FundingUtxo)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
     lock.fundingUtxoRecord = record;
     return record;
   }
@@ -115,44 +127,103 @@ export default class BitcoinUtxoTracking {
     if (!lock.utxoId || record.lockUtxoId !== lock.utxoId) {
       throw new Error('Funding record does not belong to this lock.');
     }
+    const table = await this.getTable();
     if (record.status !== BitcoinUtxoStatus.FundingUtxo) {
-      const table = await this.getTable();
       await table.setFundingUtxo(record);
     }
+
+    for (const siblingRecord of this.getUtxosForLock(lock)) {
+      if (siblingRecord.id === record.id) continue;
+      if (siblingRecord.status !== BitcoinUtxoStatus.FundingCandidate) continue;
+      await table.setOrphaned(siblingRecord);
+    }
+
+    lock.fundingUtxoRecordId = record.id;
     lock.fundingUtxoRecord = record;
   }
 
-  public async refreshFundingCandidates(lock: IBitcoinLockRecord): Promise<void> {
+  public async refreshFundingCandidates(
+    lock: IBitcoinLockRecord,
+    preferredClient?: ApiDecoration<'promise'>,
+  ): Promise<void> {
     if (!lock.utxoId) return;
+
+    if (preferredClient) {
+      const preferredSupportsCandidates = this.updateSupportsCandidateUtxos(preferredClient);
+      const preferredCandidates = preferredSupportsCandidates
+        ? await this.syncArgonFundingCandidates(lock, preferredClient)
+        : [];
+      const preferredOrphans = await this.syncArgonOrphanedCandidates(lock, preferredClient);
+      if (preferredCandidates.length || preferredOrphans.length) return;
+    }
 
     const client = await this.deps.getMainchainClient(true);
     const archiveSupportsCandidates = this.updateSupportsCandidateUtxos(client);
     const archiveCandidates = archiveSupportsCandidates ? await this.syncArgonFundingCandidates(lock, client) : [];
-    if (archiveCandidates.length) return;
+    const archiveOrphans = await this.syncArgonOrphanedCandidates(lock, client);
+    if (archiveCandidates.length || archiveOrphans.length) return;
 
     // Archive can lag candidate visibility briefly; fall back to latest head for UI responsiveness.
     const latestClient = await this.deps.getMainchainClient(false).catch(() => undefined);
     if (!latestClient) return;
-    if (!this.updateSupportsCandidateUtxos(latestClient)) return;
-    await this.syncArgonFundingCandidates(lock, latestClient);
+    if (this.updateSupportsCandidateUtxos(latestClient)) {
+      await this.syncArgonFundingCandidates(lock, latestClient);
+    }
+    await this.syncArgonOrphanedCandidates(lock, latestClient);
   }
 
   public async syncArgonFundingCandidates(
     lock: IBitcoinLockRecord,
     apiClient: ApiDecoration<'promise'>,
   ): Promise<IBitcoinUtxoRecord[]> {
-    if (!lock.utxoId || !this.supportsCandidateUtxosEnabled) return [];
+    if (!lock.utxoId) return [];
+
     const records: IBitcoinUtxoRecord[] = [];
-    const queryValue = await apiClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(lock.utxoId);
+    const queryValue = await queryCandidateUtxoRefsByUtxoId(apiClient, lock.utxoId);
+    if (!queryValue) return [];
+
     for (const [utxoRef, sats] of queryValue.entries()) {
+      const txid = utxoRef.txid.toHex();
+      const vout = utxoRef.outputIndex.toNumber();
+      const satoshis = sats.toBigInt();
+      const record = await this.upsertUtxoRecord(
+        lock,
+        {
+          txid,
+          vout,
+          satoshis,
+        },
+        { markArgonCandidate: true },
+      );
+      records.push(record);
+    }
+    return records;
+  }
+
+  public async syncArgonOrphanedCandidates(
+    lock: IBitcoinLockRecord,
+    apiClient: ApiDecoration<'promise'>,
+  ): Promise<IBitcoinUtxoRecord[]> {
+    if (!lock.utxoId) return [];
+
+    const entries = await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(lock.lockDetails.ownerAccount);
+    if (!entries.length) return [];
+
+    const records: IBitcoinUtxoRecord[] = [];
+    for (const [orphanKey, orphanMaybe] of entries) {
+      if (orphanMaybe.isNone) continue;
+      const orphan = orphanMaybe.unwrap();
+      if (orphan.utxoId.toNumber() !== lock.utxoId) continue;
+
+      const utxoRef = orphanKey.args[1];
       const record = await this.upsertUtxoRecord(
         lock,
         {
           txid: utxoRef.txid.toHex(),
           vout: utxoRef.outputIndex.toNumber(),
-          satoshis: sats.toBigInt(),
+          satoshis: orphan.satoshis.toBigInt(),
         },
-        { markArgonCandidate: true },
+        { markOrphaned: true },
       );
       records.push(record);
     }
@@ -192,7 +263,7 @@ export default class BitcoinUtxoTracking {
       mempoolRecords.push(record);
     }
 
-    const argonCandidates = this.getUtxosForLock(lock).filter(record => !!record.firstSeenOnArgonAt);
+    const argonCandidates = this.getFundingCandidateRecords(lock).filter(record => !!record.firstSeenOnArgonAt);
     let chosenRecord: IBitcoinUtxoRecord | undefined;
     if (argonCandidates.length) {
       const preferredArgon = this.getPreferredCandidateFromList(argonCandidates, lock.satoshis);
@@ -204,21 +275,29 @@ export default class BitcoinUtxoTracking {
     }
     if (!chosenRecord) {
       const mempoolCandidates = mempoolRecords.length
-        ? mempoolRecords
-        : this.getUtxosForLock(lock).filter(record => !!record.mempoolObservation);
+        ? mempoolRecords.filter(
+            record => record.status !== BitcoinUtxoStatus.FundingUtxo && !this.isReleaseStatus(record.status),
+          )
+        : this.getFundingCandidateRecords(lock).filter(record => !!record.mempoolObservation);
       chosenRecord = this.getPreferredCandidateFromList(mempoolCandidates, lock.satoshis) ?? mempoolCandidates[0];
     }
 
     return chosenRecord?.mempoolObservation;
   }
 
-  public async syncPendingFundingSignals(lock: IBitcoinLockRecord): Promise<boolean> {
-    if (!lock.utxoId || lock.status !== BitcoinLockStatus.LockPendingFunding) return false;
-    await this.refreshFundingCandidates(lock);
+  public async syncPendingFundingSignals(
+    lock: IBitcoinLockRecord,
+    preferredClient?: ApiDecoration<'promise'>,
+  ): Promise<boolean> {
+    if (!lock.utxoId || !this.isFundingSignalTrackingStatus(lock.status)) return false;
+    await this.refreshFundingCandidates(lock, preferredClient);
     const mempoolObservation = await this.observeMempoolFunding(lock);
     const hasFundingRecord = !!this.getAcceptedFundingRecordForLock(lock);
     const hasFundingCandidates = this.getFundingCandidateRecords(lock).length > 0;
-    return hasFundingRecord || hasFundingCandidates || !!mempoolObservation;
+    const hasOrphanedCandidates = this.getUtxosForLock(lock).some(
+      record => record.status === BitcoinUtxoStatus.Orphaned,
+    );
+    return hasFundingRecord || hasFundingCandidates || hasOrphanedCandidates || !!mempoolObservation;
   }
 
   public getLockProcessingDetails(lock: IBitcoinLockRecord): {
@@ -237,7 +316,7 @@ export default class BitcoinUtxoTracking {
         lock.satoshis > receivedSatoshis ? lock.satoshis - receivedSatoshis : receivedSatoshis - lock.satoshis;
       isInvalidAmount = diff > allowedVariance;
     }
-    if (lock.status !== BitcoinLockStatus.LockPendingFunding)
+    if (!this.isFundingSignalTrackingStatus(lock.status))
       return {
         progressPct: 100,
         confirmations: 6,
@@ -246,11 +325,17 @@ export default class BitcoinUtxoTracking {
         isInvalidAmount,
       };
 
+    const fallbackObservedRecord = [...this.getUtxosForLock(lock)]
+      .filter(r => !this.isReleaseStatus(r.status) && (r.firstSeenBitcoinHeight > 0 || !!r.mempoolObservation))
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
     const fundingRecord =
       this.getAcceptedFundingRecordForLock(lock) ??
       this.getPreferredFundingCandidateRecord(lock) ??
-      this.getUtxosForLock(lock).find(r => r.firstSeenBitcoinHeight > 0 || !!r.mempoolObservation);
-    if (!fundingRecord || fundingRecord.firstSeenBitcoinHeight <= 0) {
+      fallbackObservedRecord;
+    const hasConfirmedBitcoinSignal =
+      !!fundingRecord &&
+      (fundingRecord.firstSeenBitcoinHeight > 0 || fundingRecord.mempoolObservation?.isConfirmed === true);
+    if (!fundingRecord || !hasConfirmedBitcoinSignal) {
       return {
         progressPct: 0,
         confirmations: -1,
@@ -260,8 +345,12 @@ export default class BitcoinUtxoTracking {
       };
     }
 
-    const recordedOracleHeight = fundingRecord.firstSeenOracleHeight;
-    const recordedTransactionHeight = fundingRecord.firstSeenBitcoinHeight;
+    const recordedOracleHeight =
+      fundingRecord.firstSeenOracleHeight ?? fundingRecord.mempoolObservation?.argonBitcoinHeight;
+    const recordedTransactionHeight =
+      fundingRecord.firstSeenBitcoinHeight > 0
+        ? fundingRecord.firstSeenBitcoinHeight
+        : (fundingRecord.mempoolObservation?.transactionBlockHeight ?? this.deps.getOracleBitcoinBlockHeight());
     if (recordedOracleHeight && recordedTransactionHeight) {
       expectedConfirmations = Math.max(0, recordedTransactionHeight - recordedOracleHeight);
     }
@@ -335,6 +424,25 @@ export default class BitcoinUtxoTracking {
     return { ...details, releaseError: details.error };
   }
 
+  public getMismatchOrphanReleases(
+    lockUtxoId: number,
+    candidateRecord?: Pick<IBitcoinUtxoRecord, 'id' | 'txid' | 'vout'>,
+    fundingUtxoRecordId?: number,
+  ): IBitcoinUtxoRecord[] {
+    const records = (this.data.utxosByLockUtxoId[lockUtxoId] ?? []).filter(record => {
+      if (!this.isMismatchOrphanLifecycleRecord(record, fundingUtxoRecordId)) return false;
+      if (!candidateRecord) return true;
+      return this.isSameCandidate(record, candidateRecord);
+    });
+    return records.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  }
+
+  public getAllOrphanLifecycleUtxos(): IBitcoinUtxoRecord[] {
+    return Object.values(this.data.utxosByLockUtxoId)
+      .flat()
+      .filter(record => this.isMismatchOrphanLifecycleRecord(record));
+  }
+
   public getRequestReleaseByVaultProgress(
     lock: IBitcoinLockRecord,
     miningFrames: MiningFrames,
@@ -343,8 +451,8 @@ export default class BitcoinUtxoTracking {
     if (lock.status !== BitcoinLockStatus.Releasing) return 0;
     const fundingRecord = lock.fundingUtxoRecord ?? this.getAcceptedFundingRecordForLock(lock);
     if (!fundingRecord) return 0;
-    if (!this.hasFundingRecordReleaseSignal(fundingRecord)) return 0;
-    if (this.isFundingRecordReleaseComplete(fundingRecord)) return 100;
+    if (!this.isReleaseStatus(fundingRecord.status)) return 0;
+    if (this.isReleaseCompleteStatus(fundingRecord.status)) return 100;
 
     const startTick = fundingRecord.requestedReleaseAtTick;
     if (!startTick) return 0;
@@ -363,23 +471,26 @@ export default class BitcoinUtxoTracking {
     await table.setReleaseRequest(record, args);
   }
 
-  public async setReleaseCosign(
-    record: IBitcoinUtxoRecord,
-    args: { releaseCosignVaultSignature: Uint8Array; releaseCosignHeight?: number },
-  ): Promise<void> {
+  public async setReleaseCosign(record: IBitcoinUtxoRecord, args: IConfirmedReleaseCosign): Promise<void> {
     const table = await this.getTable();
     await table.setReleaseCosign(record, args);
   }
 
   public async setReleaseIsProcessingOnArgon(
     record: IBitcoinUtxoRecord,
-    args: {
-      requestedReleaseAtTick?: number;
-      releaseToDestinationAddress: string;
-      releaseBitcoinNetworkFee: bigint;
-      releaseCosignVaultSignature?: Uint8Array;
-      releaseCosignHeight?: number;
-    },
+    args:
+      | {
+          requestedReleaseAtTick?: number;
+          releaseToDestinationAddress: string;
+          releaseBitcoinNetworkFee: bigint;
+          releaseCosignVaultSignature?: undefined;
+          releaseCosignHeight?: undefined;
+        }
+      | ({
+          requestedReleaseAtTick?: number;
+          releaseToDestinationAddress: string;
+          releaseBitcoinNetworkFee: bigint;
+        } & IConfirmedReleaseCosign),
   ): Promise<void> {
     const table = await this.getTable();
     await table.setReleaseIsProcessingOnArgon(record, args);
@@ -419,6 +530,16 @@ export default class BitcoinUtxoTracking {
     await table.setReleaseComplete(record, releasedAtBitcoinHeight);
   }
 
+  public async setReleaseCompleteAcknowledged(record: IBitcoinUtxoRecord): Promise<void> {
+    const table = await this.getTable();
+    await table.setReleaseCompleteAcknowledged(record);
+  }
+
+  public async setReleaseError(record: IBitcoinUtxoRecord, error: string): Promise<void> {
+    const table = await this.getTable();
+    await table.setReleaseError(record, error);
+  }
+
   public async clearStatusError(record: IBitcoinUtxoRecord): Promise<void> {
     const table = await this.getTable();
     await table.clearStatusError(record);
@@ -437,7 +558,7 @@ export default class BitcoinUtxoTracking {
   }
 
   public async updateFundingLastConfirmationCheck(lock: IBitcoinLockRecord): Promise<void> {
-    if (!lock.utxoId || lock.status !== BitcoinLockStatus.LockPendingFunding) return;
+    if (!lock.utxoId || !this.isFundingSignalTrackingStatus(lock.status)) return;
     const fundingRecord = this.getAcceptedFundingRecordForLock(lock) ?? this.getPreferredFundingCandidateRecord(lock);
     if (!fundingRecord) return;
     fundingRecord.lastConfirmationCheckAt = dayjs.utc().toDate();
@@ -446,30 +567,16 @@ export default class BitcoinUtxoTracking {
     await table.updateLastConfirmationCheck(fundingRecord);
   }
 
-  public hasFundingRecordReleaseSignal(
-    record: Pick<
-      IBitcoinUtxoRecord,
-      | 'status'
-      | 'requestedReleaseAtTick'
-      | 'releaseToDestinationAddress'
-      | 'releaseBitcoinNetworkFee'
-      | 'releaseCosignVaultSignature'
-      | 'releaseTxid'
-    >,
-  ): boolean {
-    return this.hasReleaseSignal(record);
+  private isFundingSignalTrackingStatus(status: BitcoinLockStatus): boolean {
+    return [
+      BitcoinLockStatus.LockPendingFunding,
+      BitcoinLockStatus.LockExpiredWaitingForFunding,
+      BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged,
+    ].includes(status);
   }
 
-  public isFundingRecordReleaseComplete(
-    record: Pick<IBitcoinUtxoRecord, 'status' | 'releasedAtBitcoinHeight'>,
-  ): boolean {
-    return this.isReleaseComplete(record);
-  }
-
-  public isFundingRecordReleaseProcessingOnBitcoin(
-    record: Pick<IBitcoinUtxoRecord, 'status' | 'releaseTxid'>,
-  ): boolean {
-    return record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin || !!record.releaseTxid;
+  public isFundingRecordReleaseProcessingOnBitcoin(record: Pick<IBitcoinUtxoRecord, 'status'>): boolean {
+    return record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
   }
 
   public hasFundingRecordReleaseRequestDetails(
@@ -482,20 +589,19 @@ export default class BitcoinUtxoTracking {
     record: Pick<
       IBitcoinUtxoRecord,
       | 'status'
-      | 'requestedReleaseAtTick'
       | 'releaseToDestinationAddress'
       | 'releaseBitcoinNetworkFee'
       | 'releaseCosignVaultSignature'
-      | 'releaseTxid'
-      | 'releasedAtBitcoinHeight'
+      | 'releaseCosignHeight'
     >,
   ): boolean {
     return (
-      this.hasReleaseSignal(record) &&
-      !this.isReleaseComplete(record) &&
+      this.isReleaseStatus(record.status) &&
+      !this.isReleaseCompleteStatus(record.status) &&
       !this.isFundingRecordReleaseProcessingOnBitcoin(record) &&
       this.hasFundingRecordReleaseRequestDetails(record) &&
-      !!record.releaseCosignVaultSignature
+      !!record.releaseCosignVaultSignature &&
+      record.releaseCosignHeight != null
     );
   }
 
@@ -505,6 +611,7 @@ export default class BitcoinUtxoTracking {
     options?: {
       mempoolObservation?: IMempoolFundingObservation;
       markArgonCandidate?: boolean;
+      markOrphaned?: boolean;
       markFundingUtxo?: boolean;
     },
   ): Promise<IBitcoinUtxoRecord> {
@@ -514,7 +621,11 @@ export default class BitcoinUtxoTracking {
     const table = await this.getTable();
     const satoshis = candidate.satoshis;
     const observedStatus = this.getObservedStatusForUpsert(lock, candidate, options);
-    const shouldMarkArgonCandidateSeen = !!(options?.markArgonCandidate || options?.markFundingUtxo);
+    const shouldMarkArgonCandidateSeen = !!(
+      options?.markArgonCandidate ||
+      options?.markOrphaned ||
+      options?.markFundingUtxo
+    );
     const candidateSeenAt = shouldMarkArgonCandidateSeen ? dayjs.utc().toDate() : undefined;
     let record = this.getUtxoRecord(lock.utxoId, candidate.txid, candidate.vout);
     if (!record) {
@@ -539,6 +650,7 @@ export default class BitcoinUtxoTracking {
       }
       this.recordUtxo(record);
       if (options?.markFundingUtxo) {
+        lock.fundingUtxoRecordId = record.id;
         lock.fundingUtxoRecord = record;
       }
       return record;
@@ -548,8 +660,9 @@ export default class BitcoinUtxoTracking {
     if (
       observedStatus &&
       record.status !== BitcoinUtxoStatus.FundingUtxo &&
-      !this.isReleaseLifecycleStatus(record.status) &&
-      record.status !== observedStatus
+      !this.isReleaseStatus(record.status) &&
+      record.status !== observedStatus &&
+      !(record.status === BitcoinUtxoStatus.Orphaned && observedStatus === BitcoinUtxoStatus.FundingCandidate)
     ) {
       record.status = observedStatus;
       needsCandidateUpdate = true;
@@ -570,6 +683,7 @@ export default class BitcoinUtxoTracking {
     }
     this.recordUtxo(record);
     if (options?.markFundingUtxo) {
+      lock.fundingUtxoRecordId = record.id;
       lock.fundingUtxoRecord = record;
     }
     return record;
@@ -602,7 +716,7 @@ export default class BitcoinUtxoTracking {
     return record.satoshis;
   }
 
-  private getReleaseLifecycleProgress(record?: IBitcoinUtxoRecord): {
+  public getReleaseLifecycleProgress(record?: IBitcoinUtxoRecord): {
     progressPct: number;
     confirmations: number;
     expectedConfirmations: number;
@@ -612,7 +726,10 @@ export default class BitcoinUtxoTracking {
     if (!record) {
       return { progressPct: 0, confirmations: -1, expectedConfirmations };
     }
-    if (record.status === BitcoinUtxoStatus.ReleaseComplete) {
+    if (
+      record.status === BitcoinUtxoStatus.ReleaseComplete ||
+      record.status === BitcoinUtxoStatus.ReleaseCompleteAcknowledged
+    ) {
       return { progressPct: 100, confirmations: 6, expectedConfirmations, error: record.statusError };
     }
     if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) {
@@ -625,8 +742,9 @@ export default class BitcoinUtxoTracking {
   private selectFundingCandidates(candidates: IBitcoinUtxoRecord[]): IBitcoinUtxoRecord[] {
     if (!candidates.length) return [];
     const candidatePool = candidates.filter(record => {
-      if (this.isReleaseLifecycleStatus(record.status)) return false;
+      if (this.isReleaseStatus(record.status)) return false;
       if (record.status === BitcoinUtxoStatus.FundingUtxo) return false;
+      if (record.status === BitcoinUtxoStatus.Orphaned) return false;
       return true;
     });
     const argonCandidates = candidatePool.filter(record => !!record.firstSeenOnArgonAt);
@@ -661,11 +779,15 @@ export default class BitcoinUtxoTracking {
     options?: {
       mempoolObservation?: IMempoolFundingObservation;
       markArgonCandidate?: boolean;
+      markOrphaned?: boolean;
       markFundingUtxo?: boolean;
     },
   ): BitcoinUtxoStatus | undefined {
     if (options?.markFundingUtxo) {
       return BitcoinUtxoStatus.FundingUtxo;
+    }
+    if (options?.markOrphaned) {
+      return BitcoinUtxoStatus.Orphaned;
     }
     if (options?.markArgonCandidate) {
       return BitcoinUtxoStatus.FundingCandidate;
@@ -676,40 +798,34 @@ export default class BitcoinUtxoTracking {
     return undefined;
   }
 
-  private isReleaseLifecycleStatus(status: BitcoinUtxoStatus): boolean {
-    return [
-      BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-      BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
-      BitcoinUtxoStatus.ReleaseComplete,
-    ].includes(status);
+  public isReleaseStatus(status: BitcoinUtxoStatus | undefined): boolean {
+    return this.isReleaseProcessingStatus(status) || this.isReleaseCompleteStatus(status);
   }
 
-  private hasReleaseSignal(
-    record: Pick<
-      IBitcoinUtxoRecord,
-      | 'status'
-      | 'requestedReleaseAtTick'
-      | 'releaseToDestinationAddress'
-      | 'releaseBitcoinNetworkFee'
-      | 'releaseCosignVaultSignature'
-      | 'releaseTxid'
-    >,
-  ): boolean {
+  public isReleaseCompleteStatus(status: BitcoinUtxoStatus | undefined): boolean {
+    return status === BitcoinUtxoStatus.ReleaseComplete || status === BitcoinUtxoStatus.ReleaseCompleteAcknowledged;
+  }
+
+  public isReleaseProcessingStatus(status: BitcoinUtxoStatus | undefined): boolean {
     return (
-      record.requestedReleaseAtTick != null ||
-      !!record.releaseToDestinationAddress ||
-      record.releaseBitcoinNetworkFee != null ||
-      !!record.releaseCosignVaultSignature ||
-      !!record.releaseTxid ||
-      [
-        BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-        BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
-        BitcoinUtxoStatus.ReleaseComplete,
-      ].includes(record.status)
+      status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon ||
+      status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin
     );
   }
 
-  private isReleaseComplete(record: Pick<IBitcoinUtxoRecord, 'status' | 'releasedAtBitcoinHeight'>): boolean {
-    return record.status === BitcoinUtxoStatus.ReleaseComplete || record.releasedAtBitcoinHeight != null;
+  private isMismatchOrphanLifecycleRecord(record: IBitcoinUtxoRecord, fundingUtxoRecordId?: number): boolean {
+    if (!this.isReleaseStatus(record.status)) return false;
+    if (record.status === BitcoinUtxoStatus.FundingUtxo) return false;
+    if (record.status === BitcoinUtxoStatus.ReleaseCompleteAcknowledged) return false;
+    if (fundingUtxoRecordId != null && record.id === fundingUtxoRecordId) return false;
+    return true;
+  }
+
+  private isSameCandidate(
+    record: Pick<IBitcoinUtxoRecord, 'id' | 'txid' | 'vout'>,
+    candidateRecord: Pick<IBitcoinUtxoRecord, 'id' | 'txid' | 'vout'>,
+  ): boolean {
+    if (candidateRecord.id === record.id) return true;
+    return candidateRecord.txid === record.txid && candidateRecord.vout === record.vout;
   }
 }
