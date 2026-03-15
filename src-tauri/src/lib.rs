@@ -404,6 +404,7 @@ pub fn run() {
     let e2e_headless = std::env::var("ARGON_E2E_HEADLESS")
         .ok()
         .is_some_and(|v| v == "true" || v == "1");
+    #[cfg(target_os = "macos")]
     let e2e_driver_mode = std::env::var("ARGON_DRIVER_WS")
         .ok()
         .is_some_and(|v| !v.trim().is_empty());
