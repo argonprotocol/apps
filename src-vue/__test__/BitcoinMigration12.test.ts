@@ -15,7 +15,7 @@ describe('12-bitcoin-utxo-foundation migration', () => {
 
     try {
       const migrationDirs = await listMigrationDirs();
-      for (const migrationDir of migrationDirs.filter(x => x !== '12-bitcoin-utxo-foundation')) {
+      for (const migrationDir of migrationDirs.filter(x => x < '12-bitcoin-utxo-foundation')) {
         await runMigration(db, migrationDir);
       }
 

@@ -11,11 +11,10 @@
   <div v-else class="flex flex-col space-y-5 px-10 pt-10 pb-20">
     <p>
       Your request to lock {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
-      in BTC has been submitted to the Argon network and is now awaiting finalization. This process usually takes
-      between four to five minutes.
+      BTC has been submitted to Argon and is awaiting finalization. This usually takes four to five minutes.
     </p>
 
-    <p class="mb-2 italic">NOTE: You can close this overlay without disrupting the process.</p>
+    <p class="mb-2 italic">You can close this overlay without interrupting the process.</p>
 
     <div class="mt-10">
       <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
@@ -32,52 +31,50 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import numeral from '../../lib/numeral';
-import { getMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { getCurrency } from '../../stores/currency.ts';
-import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { useBitcoinLockProgress } from '../../stores/bitcoinLockProgress.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
 
 const currency = getCurrency();
-const myVault = getMyVault();
-
-const progressPct = Vue.ref(0);
-const blockConfirmations = Vue.ref(-1);
-const transactionError = Vue.ref('');
-
-let expectedConfirmations = 0;
+const bitcoinLocks = getBitcoinLocks();
+const bitcoinLockProgress = useBitcoinLockProgress();
+const personalLock = Vue.computed(() => props.personalLock);
+const progressPct = Vue.computed(() => bitcoinLockProgress.lockProcessing.progressPct);
+const transactionError = Vue.computed(() => bitcoinLockProgress.lockProcessing.error);
 
 const progressLabel = Vue.computed(() => {
-  return generateProgressLabel(blockConfirmations.value, expectedConfirmations, { blockType: 'Argon' });
+  return generateProgressLabel(
+    bitcoinLockProgress.lockProcessing.confirmations,
+    bitcoinLockProgress.lockProcessing.expectedConfirmations,
+    { blockType: 'Argon' },
+  );
 });
 
-let subscription: (() => void) | undefined = undefined;
+let stopLockProgressTracking: (() => void) | undefined;
+
 Vue.onMounted(async () => {
-  const txInfo = myVault.getTxInfoByType(ExtrinsicType.BitcoinRequestLock);
-  console.log('TX INFO', txInfo);
-  if (txInfo) {
-    subscription = txInfo.subscribeToProgress(
-      (
-        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
-        error: Error | undefined,
-      ) => {
-        progressPct.value = args.progressPct;
-        blockConfirmations.value = args.confirmations;
-        expectedConfirmations = args.expectedConfirmations;
-      },
-    );
-  }
+  await bitcoinLocks.load();
+  stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
 });
+
+Vue.watch(
+  () => props.personalLock,
+  nextLock => {
+    bitcoinLockProgress.updateLock(nextLock);
+  },
+  { deep: true, immediate: true },
+);
+
 Vue.onUnmounted(() => {
-  if (subscription) {
-    subscription();
-    subscription = undefined;
-  }
+  stopLockProgressTracking?.();
+  stopLockProgressTracking = undefined;
 });
 </script>
 
