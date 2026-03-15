@@ -23,27 +23,30 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
   async inspect({ flow }) {
     const dashboard = await flow.isVisible('MiningDashboard');
     const dashboardVisible = dashboard.visible;
+    let operationState: 'complete' | 'runnable' = 'runnable';
+    if (dashboardVisible) {
+      operationState = 'complete';
+    }
     return {
       chainState: {},
       uiState: {
         dashboardVisible,
       },
-      isRunnable: !dashboardVisible,
-      isComplete: dashboardVisible,
+      state: operationState,
       blockers: dashboardVisible ? ['ALREADY_COMPLETE'] : [],
       dashboardVisible,
     };
   },
-  async run(_context, state, api) {
+  async run({ flow }, state) {
     if (state.dashboardVisible) {
       return;
     }
 
-    await api.run(miningActivateTab);
-    await api.run(miningStartRegistration);
-    await api.run(miningCompleteChecklist);
-    await api.run(miningFundWallet);
-    await api.run(miningConnectServer);
-    await api.run(miningFinalizeSetup);
+    await flow.run(miningActivateTab);
+    await flow.run(miningStartRegistration);
+    await flow.run(miningCompleteChecklist);
+    await flow.run(miningFundWallet);
+    await flow.run(miningConnectServer);
+    await flow.run(miningFinalizeSetup);
   },
 });

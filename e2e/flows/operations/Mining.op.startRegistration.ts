@@ -11,8 +11,6 @@ type IStartRegistrationUiState = {
 interface IStartRegistrationState extends IE2EOperationInspectState<Record<string, never>, IStartRegistrationUiState> {
   blankSlateVisible: boolean;
   postStartReadyVisible: boolean;
-  runnable: boolean;
-  blockers: string[];
 }
 
 export default new Operation<IMiningFlowContext, IStartRegistrationState>(import.meta, {
@@ -24,10 +22,15 @@ export default new Operation<IMiningFlowContext, IStartRegistrationState>(import
 
     const hasEntrypoint = blankSlateVisible || postStartReadyVisible;
     const isComplete = postStartReadyVisible;
-    const runnable = !isComplete && hasEntrypoint;
-    const isRunnable = runnable;
+    const canRun = !isComplete && hasEntrypoint;
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
+
     const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
     if (!isComplete && !hasEntrypoint) {
       blockers.push('Mining setup entry is not visible (neither blank-slate nor checklist).');
     }
@@ -37,12 +40,10 @@ export default new Operation<IMiningFlowContext, IStartRegistrationState>(import
         blankSlateVisible,
         postStartReadyVisible,
       },
-      isRunnable,
-      isComplete,
+      state: operationState,
       blankSlateVisible,
       postStartReadyVisible,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow }, state) {

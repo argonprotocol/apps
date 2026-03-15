@@ -1,6 +1,6 @@
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { getWalletOverlayFundingNeeded, sudoFundWallet, type ISudoFundWalletInput } from '../helpers/sudoFundWallet.ts';
-import { parseDecimalToUnits } from '../helpers/utils.ts';
+import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -9,44 +9,66 @@ const DEFAULT_MINING_FUNDING_MULTIPLIER = 10n;
 
 type IFundWalletUiState = {
   fundOverlayVisible: boolean;
+  walletOverlayVisible: boolean;
   walletFullyFunded: boolean;
+  connectServerVisible: boolean;
+  dashboardVisible: boolean;
 };
 
 interface IFundWalletState extends IE2EOperationInspectState<Record<string, never>, IFundWalletUiState> {
   fundOverlayVisible: boolean;
+  walletOverlayVisible: boolean;
   walletFullyFunded: boolean;
-  runnable: boolean;
-  blockers: string[];
+  connectServerVisible: boolean;
+  dashboardVisible: boolean;
 }
 
 export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, {
   async inspect({ flow }) {
-    const fundOverlayEntry = await flow.isVisible('SetupChecklist.openFundMiningAccountOverlay()');
-    const fundingText = await flow
-      .getText('SetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 2_000 })
-      .catch(() => null);
+    const [fundOverlayEntry, walletOverlayEntry, connectServerEntry, dashboard, fundingText] = await Promise.all([
+      flow.isVisible('SetupChecklist.openFundMiningAccountOverlay()'),
+      flow.isVisible('WalletOverlay.closeOverlay()'),
+      flow.isVisible('SetupChecklist.openServerConnectPanel()'),
+      flow.isVisible('MiningDashboard'),
+      flow.getText('SetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 2_000 }).catch(() => null),
+    ]);
     const walletFullyFunded = (fundingText ?? '').toLowerCase().includes('fully funded');
-    const runnable = fundOverlayEntry.visible && !walletFullyFunded;
-    const isComplete = walletFullyFunded;
-    const isRunnable = !isComplete && runnable;
+    const connectServerVisible = connectServerEntry.visible;
+    const dashboardVisible = dashboard.visible;
+    const isComplete = connectServerVisible || dashboardVisible || walletFullyFunded;
+    const canRun = fundOverlayEntry.visible && !connectServerVisible && !dashboardVisible && !walletFullyFunded;
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
+
     const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
     if (!isComplete && !fundOverlayEntry.visible) blockers.push('Mining fund-wallet checklist step is not visible.');
     return {
       chainState: {},
       uiState: {
         fundOverlayVisible: fundOverlayEntry.visible,
+        walletOverlayVisible: walletOverlayEntry.visible,
         walletFullyFunded,
+        connectServerVisible,
+        dashboardVisible,
       },
-      isRunnable,
-      isComplete,
+      state: operationState,
       fundOverlayVisible: fundOverlayEntry.visible,
+      walletOverlayVisible: walletOverlayEntry.visible,
       walletFullyFunded,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      connectServerVisible,
+      dashboardVisible,
+      blockers: canRun ? [] : blockers,
     };
   },
-  async run({ flow, flowName, input }) {
+  async run({ flow, flowName, input }, state) {
+    if (state.connectServerVisible || state.dashboardVisible || !state.fundOverlayVisible) {
+      return;
+    }
+
     await flow.click('SetupChecklist.openFundMiningAccountOverlay()');
     await flow.waitFor('WalletOverlay.micronotsNeeded');
     await flow.waitFor('WalletOverlay.microgonsNeeded');
@@ -55,7 +77,10 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     const fundingNeeded = requiredFunding.microgons > 0n || requiredFunding.micronots > 0n;
     const funding = fundingNeeded ? deriveMiningFunding(flowName, requiredFunding, input.fundingArgons) : undefined;
     await flow.click('WalletOverlay.closeOverlay()', { timeoutMs: 8_000 });
-    await flow.waitFor('WalletOverlay.closeOverlay()', { state: 'missing', timeoutMs: 20_000 });
+    await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
+      timeoutMs: 20_000,
+      timeoutMessage: `${flowName}: mining wallet overlay did not close after funding.`,
+    });
     if (!funding) return;
 
     const fundingResult = await sudoFundWallet(funding);

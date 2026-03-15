@@ -9,7 +9,7 @@ describe('BitcoinMempool', () => {
       block_height: 123,
       block_time: 456,
     });
-    (mempool as unknown as { fetchJson: typeof fetchJson }).fetchJson = fetchJson;
+    Object.defineProperty(mempool, 'fetchJson', { value: fetchJson, configurable: true });
 
     const txid = createMempoolTxid();
     const result = await mempool.getTxStatus(txid, 100);
@@ -33,7 +33,7 @@ describe('BitcoinMempool', () => {
       block_height: 0,
       block_time: 0,
     });
-    (mempool as unknown as { fetchJson: typeof fetchJson }).fetchJson = fetchJson;
+    Object.defineProperty(mempool, 'fetchJson', { value: fetchJson, configurable: true });
 
     await mempool.getTxStatus(argonOrderNoPrefix, 100);
 
@@ -58,7 +58,7 @@ describe('BitcoinMempool', () => {
         },
       },
     ]);
-    (mempool as unknown as { fetchJson: typeof fetchJson }).fetchJson = fetchJson;
+    Object.defineProperty(mempool, 'fetchJson', { value: fetchJson, configurable: true });
 
     const utxos = await mempool.getAddressUtxos('bc1qexample');
 

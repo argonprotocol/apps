@@ -25,6 +25,7 @@ const APP_STARTUP_READY_RETRY_DELAY_MS = 1_000;
 const APP_STARTUP_READY_WAIT_TIMEOUT_MS = 15_000;
 const APP_PROCESS_OUTPUT_MAX_LINES = 600;
 const APP_PROCESS_OUTPUT_TAIL_LINES = 120;
+const DOCKER_COMPOSE_CONFIG_FILES = ['docker-compose.yml', 'indexer.docker-compose.yml'] as const;
 
 export type E2ESessionMode = 'isolated' | 'stateful';
 export type E2EFlowAppLogsMode = 'inherit' | 'quiet';
@@ -136,6 +137,26 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     await waitForInitialUiReady(driver, devDockerProcess, APP_STARTUP_READY_TIMEOUT_MS);
   } catch (error) {
     printAppProcessOutputTail(appProcessOutput, 'connect-error');
+    await printInstallFailureLogs(sessionIdentity.composeNetwork, appInstanceName, 'session-startup', error);
+    await printSessionStartupDiagnostics({
+      repoRoot,
+      sessionMode,
+      useTestNetwork,
+      sessionIdentity,
+      composeProjectName,
+      appInstanceName,
+      appPort,
+      driverUrl: driver.getUrl(),
+      appProcess: devDockerProcess,
+      testNetwork,
+    });
+    const startupFrontendErrors = driver.getFrontendErrors();
+    if (startupFrontendErrors.length > 0) {
+      console.error('[E2E] Frontend errors captured during startup:');
+      for (const [index, frontendError] of startupFrontendErrors.entries()) {
+        console.error(`[E2E] frontend.startup.error #${index + 1}: ${frontendError}`);
+      }
+    }
     closed = true;
     driver.close();
     await stopChild(devDockerProcess);
@@ -439,6 +460,88 @@ function printAppProcessOutputTail(tracker: IAppProcessOutputTracker, reason: st
   }
 }
 
+interface ISessionStartupDiagnosticsOptions {
+  repoRoot: string;
+  sessionMode: E2ESessionMode;
+  useTestNetwork: boolean;
+  sessionIdentity: ReturnType<typeof resolveTestSessionIdentity>;
+  composeProjectName: string;
+  appInstanceName: string;
+  appPort: number;
+  driverUrl: string;
+  appProcess: ChildProcess | null;
+  testNetwork: StartedArgonTestNetwork | null;
+}
+
+async function printSessionStartupDiagnostics(options: ISessionStartupDiagnosticsOptions): Promise<void> {
+  const trackedPorts = [...new Set([...REQUIRED_LOCAL_DOCKER_PORTS, options.appPort])];
+  const portDiagnostics = await Promise.all(
+    trackedPorts.map(async port => ({
+      port,
+      available: await isPortAvailable(port),
+    })),
+  );
+  const blockedRequiredPorts = portDiagnostics.filter(
+    x => REQUIRED_LOCAL_DOCKER_PORTS.includes(x.port) && !x.available,
+  );
+  const composePsOutput = readComposePsOutput(
+    options.repoRoot,
+    options.testNetwork?.composeEnv ?? { ...process.env, COMPOSE_PROJECT_NAME: options.composeProjectName },
+  );
+
+  console.error('[E2E] ==========================================');
+  console.error('[E2E] Session startup diagnostics');
+  console.error(
+    `[E2E] Session: mode=${options.sessionMode} useTestNetwork=${options.useTestNetwork} network=${options.sessionIdentity.composeNetwork} session=${options.sessionIdentity.sessionName} composeProject=${options.composeProjectName} appInstance=${options.appInstanceName} appPort=${options.appPort}`,
+  );
+  console.error(`[E2E] Driver: ${options.driverUrl}`);
+  console.error(
+    `[E2E] App process: pid=${String(options.appProcess?.pid ?? 'n/a')} exitCode=${String(options.appProcess?.exitCode ?? null)} signal=${String(options.appProcess?.signalCode ?? null)}`,
+  );
+  console.error(
+    `[E2E] Required fixed ports still in use: ${blockedRequiredPorts.length ? blockedRequiredPorts.map(x => x.port).join(', ') : 'none'}`,
+  );
+  for (const portDiagnostic of portDiagnostics) {
+    console.error(`[E2E] Port ${portDiagnostic.port}: ${portDiagnostic.available ? 'available' : 'in use'}`);
+  }
+
+  if (options.testNetwork) {
+    console.error(
+      `[E2E] Test network endpoints: archive=${options.testNetwork.archiveUrl} notary=${options.testNetwork.notaryUrl} esplora=${options.testNetwork.networkConfigOverride.esploraHost} indexer=${options.testNetwork.networkConfigOverride.indexerHost ?? 'n/a'}`,
+    );
+  } else {
+    console.error('[E2E] No test network handle available for this startup failure.');
+  }
+
+  console.error('[E2E] docker compose ps --all');
+  console.error(composePsOutput);
+  console.error('[E2E] ==========================================');
+}
+
+function readComposePsOutput(repoRoot: string, env: NodeJS.ProcessEnv): string {
+  const composeDir = Path.resolve(repoRoot, 'e2e', 'argon');
+  const args = DOCKER_COMPOSE_CONFIG_FILES.flatMap(file => ['-f', file]).concat(['ps', '--all']);
+  try {
+    const output = execFileSync('docker', ['compose', ...args], {
+      cwd: composeDir,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    });
+    return output.trim() || '[E2E] docker compose ps returned no output';
+  } catch (error) {
+    const composeError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+    const stdout =
+      typeof composeError.stdout === 'string' ? composeError.stdout : (composeError.stdout?.toString('utf8') ?? '');
+    const stderr =
+      typeof composeError.stderr === 'string' ? composeError.stderr : (composeError.stderr?.toString('utf8') ?? '');
+    const details = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n');
+    return details
+      ? `[E2E] docker compose ps failed\n${details}`
+      : `[E2E] docker compose ps failed: ${composeError.message}`;
+  }
+}
+
 async function waitForAppConnection(driver: DriverClient, appProcess: ChildProcess, timeoutMs: number): Promise<void> {
   console.info(`[E2E] Waiting for app connection (timeout ${timeoutMs}ms)`);
   await new Promise<void>((resolve, reject) => {
@@ -469,7 +572,11 @@ async function waitForAppConnection(driver: DriverClient, appProcess: ChildProce
     timeout = setTimeout(
       () =>
         finish(() =>
-          reject(new Error(`Timed out waiting for app connection after ${timeoutMs}ms (driver ${driver.getUrl()})`)),
+          reject(
+            new Error(
+              `Timed out waiting for app connection after ${timeoutMs}ms (driver ${driver.getUrl()}, pid=${String(appProcess.pid ?? 'n/a')}, exitCode=${String(appProcess.exitCode)}, signal=${String(appProcess.signalCode)})`,
+            ),
+          ),
         ),
       timeoutMs,
     );
@@ -517,7 +624,9 @@ async function waitForInitialUiReady(driver: DriverClient, appProcess: ChildProc
     }
   }
 
-  throw new Error(`[E2E] Timed out waiting for initial UI readiness after ${timeoutMs}ms`);
+  throw new Error(
+    `[E2E] Timed out waiting for initial UI readiness after ${timeoutMs}ms (attempts=${attempt}, pid=${String(appProcess.pid ?? 'n/a')}, exitCode=${String(appProcess.exitCode)}, signal=${String(appProcess.signalCode)})`,
+  );
 }
 
 function isRetryableStartupDriverError(error: unknown): boolean {

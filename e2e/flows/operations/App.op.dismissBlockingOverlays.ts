@@ -1,4 +1,4 @@
-import { clickIfVisible } from '../helpers/utils.ts';
+import { clickIfVisible, dismissOpenLockingOverlay } from '../helpers/utils.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 import { Operation } from './index.ts';
 
@@ -13,33 +13,22 @@ type IDismissBlockingOverlaysUiState = {
   bitcoinLockingDialogVisible: boolean;
 };
 
-interface IDismissBlockingOverlaysState
-  extends IE2EOperationInspectState<Record<string, never>, IDismissBlockingOverlaysUiState> {
-  welcomeOverlayVisible: boolean;
-  walletFundingOverlayVisible: boolean;
-  walletFundingDialogVisible: boolean;
-  bitcoinLockingDialogVisible: boolean;
-  runnable: boolean;
-  blockers: string[];
-}
-
-const OPEN_DIALOG_SELECTOR = '[role="dialog"][data-state="open"]';
-const OPEN_DIALOG_PRIMARY_BUTTON_SELECTOR = `${OPEN_DIALOG_SELECTOR} button`;
-const OPEN_LOCKING_DIALOG_SELECTOR = '[role="dialog"][data-state="open"].BitcoinLockingOverlay';
-const LOCKING_DIALOG_CLOSE_ICON_SELECTOR = `${OPEN_LOCKING_DIALOG_SELECTOR} button[class*="border-slate-400"]`;
+type IDismissBlockingOverlaysState = IE2EOperationInspectState<Record<string, never>, IDismissBlockingOverlaysUiState>;
 
 export default new Operation<IAppFlowContext, IDismissBlockingOverlaysState>(import.meta, {
   async inspect({ flow }) {
     const [welcomeOverlay, walletFundingOverlay, openDialog, openBitcoinLockingDialogs] = await Promise.all([
       flow.isVisible('WelcomeOverlay.closeOverlay()'),
       flow.isVisible('WalletFundingReceivedOverlay.closeOverlay()'),
-      flow.isVisible({ selector: OPEN_DIALOG_SELECTOR }),
-      countOpenLockingDialogs(flow).catch(() => 0),
+      flow.isVisible({ selector: '[role="dialog"][data-state="open"]' }),
+      flow.count({ selector: '[role="dialog"][data-state="open"].BitcoinLockingOverlay' }).catch(() => 0),
     ]);
 
     let walletFundingDialogVisible = false;
     if (openDialog.visible) {
-      const dialogText = await flow.getText({ selector: OPEN_DIALOG_SELECTOR }, { timeoutMs: 1_000 }).catch(() => '');
+      const dialogText = await flow
+        .getText({ selector: '[role="dialog"][data-state="open"]' }, { timeoutMs: 1_000 })
+        .catch(() => '');
       walletFundingDialogVisible = dialogText.includes('Wallet Funds Have Been Received');
     }
     const bitcoinLockingDialogVisible = openBitcoinLockingDialogs > 0;
@@ -50,6 +39,10 @@ export default new Operation<IAppFlowContext, IDismissBlockingOverlaysState>(imp
       walletFundingDialogVisible ||
       bitcoinLockingDialogVisible;
     const isComplete = !runnable;
+    let operationState: 'complete' | 'runnable' = 'runnable';
+    if (isComplete) {
+      operationState = 'complete';
+    }
     return {
       chainState: {},
       uiState: {
@@ -58,60 +51,35 @@ export default new Operation<IAppFlowContext, IDismissBlockingOverlaysState>(imp
         walletFundingDialogVisible,
         bitcoinLockingDialogVisible,
       },
-      isRunnable: runnable,
-      isComplete,
-      welcomeOverlayVisible: welcomeOverlay.visible,
-      walletFundingOverlayVisible: walletFundingOverlay.visible,
-      walletFundingDialogVisible,
-      bitcoinLockingDialogVisible,
-      runnable,
-      blockers: runnable ? [] : ['ALREADY_COMPLETE'],
+      state: operationState,
+      blockers: [],
     };
   },
   async run({ flow }, state) {
-    if (state.welcomeOverlayVisible) {
-      await clickIfVisible(flow, 'WelcomeOverlay.closeOverlay()');
+    if (state.uiState.welcomeOverlayVisible) {
+      await flow.click('WelcomeOverlay.closeOverlay()', { waitForDisappearMs: 5_000 });
     }
-    if (state.walletFundingOverlayVisible) {
-      await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()');
+    if (state.uiState.walletFundingOverlayVisible) {
+      await flow.click('WalletFundingReceivedOverlay.closeOverlay()', { waitForDisappearMs: 5_000 });
     }
-    if (!state.walletFundingDialogVisible && !state.bitcoinLockingDialogVisible) {
+    if (!state.uiState.walletFundingDialogVisible && !state.uiState.bitcoinLockingDialogVisible) {
       return;
     }
 
-    if (state.walletFundingDialogVisible) {
-      const primaryButton = { selector: OPEN_DIALOG_PRIMARY_BUTTON_SELECTOR };
-      if (!(await clickIfVisible(flow, primaryButton))) {
-        await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()');
+    if (state.uiState.walletFundingDialogVisible) {
+      if (!(await clickIfVisible(flow, { selector: '[role="dialog"][data-state="open"] button' }))) {
+        await flow.click('WalletFundingReceivedOverlay.closeOverlay()');
       }
+      await flow.waitFor({ selector: '[role="dialog"][data-state="open"]' }, { state: 'missing', timeoutMs: 5_000 });
     }
-    if (state.bitcoinLockingDialogVisible) {
-      await dismissOpenLockingDialog(flow);
+    if (state.uiState.bitcoinLockingDialogVisible) {
+      let dismissed = await dismissOpenLockingOverlay(flow, 'LockMinting.closeOverlay()');
+      if (!dismissed) {
+        dismissed = await dismissOpenLockingOverlay(flow, 'LockStart.closeOverlay()');
+      }
+      if (!dismissed) {
+        throw new Error('Bitcoin locking dialog is still open.');
+      }
     }
   },
 });
-
-async function countOpenLockingDialogs(flow: IE2EFlowRuntime): Promise<number> {
-  return flow.count({ selector: OPEN_LOCKING_DIALOG_SELECTOR });
-}
-
-async function dismissOpenLockingDialog(flow: IE2EFlowRuntime): Promise<boolean> {
-  const openDialogs = await countOpenLockingDialogs(flow);
-  if (openDialogs === 0) return false;
-
-  if (await clickIfVisible(flow, 'LockStart.closeOverlay()')) {
-    await flow.waitFor('BitcoinLockingOverlay', { state: 'missing', timeoutMs: 10_000 }).catch(() => null);
-    return true;
-  }
-
-  for (let index = 0; index < openDialogs; index += 1) {
-    if (await clickIfVisible(flow, { selector: LOCKING_DIALOG_CLOSE_ICON_SELECTOR, index })) {
-      await flow.waitFor('BitcoinLockingOverlay', { state: 'missing', timeoutMs: 10_000 }).catch(() => null);
-      if ((await countOpenLockingDialogs(flow)) < openDialogs) {
-        return true;
-      }
-    }
-  }
-
-  return (await countOpenLockingDialogs(flow)) === 0;
-}

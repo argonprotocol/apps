@@ -6,45 +6,51 @@ import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 type ICompleteChecklistUiState = {
   checklistVisible: boolean;
   botConfigured: boolean;
+  fundWalletVisible: boolean;
 };
 
 interface ICompleteChecklistState extends IE2EOperationInspectState<Record<string, never>, ICompleteChecklistUiState> {
   checklistVisible: boolean;
   botConfigured: boolean;
-  runnable: boolean;
-  blockers: string[];
+  fundWalletVisible: boolean;
 }
 
 export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
-    const checklistEntry = await flow.isVisible('SetupChecklist.openHowMiningWorksOverlay()');
-    const botConfigText = await flow
-      .getText('SetupChecklist.openBotCreateOverlay()', { timeoutMs: 2_000 })
-      .catch(() => null);
+    const [checklistEntry, fundWalletEntry, botConfigText] = await Promise.all([
+      flow.isVisible('SetupChecklist.openHowMiningWorksOverlay()'),
+      flow.isVisible('SetupChecklist.openFundMiningAccountOverlay()'),
+      flow.getText('SetupChecklist.openBotCreateOverlay()', { timeoutMs: 2_000 }).catch(() => null),
+    ]);
     const botConfigured = (botConfigText ?? '').toLowerCase().includes('capital commitment of');
+    const fundWalletVisible = fundWalletEntry.visible;
+    const isComplete = fundWalletVisible || botConfigured;
+    const canRun = checklistEntry.visible && !fundWalletVisible && !botConfigured;
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
 
-    const runnable = checklistEntry.visible && !botConfigured;
-    const isComplete = botConfigured;
-    const isRunnable = !isComplete && runnable;
     const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
     if (!isComplete && !checklistEntry.visible) blockers.push('Mining checklist is not visible.');
     return {
       chainState: {},
       uiState: {
         checklistVisible: checklistEntry.visible,
         botConfigured,
+        fundWalletVisible,
       },
-      isRunnable,
-      isComplete,
+      state: operationState,
       checklistVisible: checklistEntry.visible,
       botConfigured,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      fundWalletVisible,
+      blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow, input }, state) {
-    if (state.botConfigured) {
+    if (state.botConfigured || state.fundWalletVisible) {
       return;
     }
 

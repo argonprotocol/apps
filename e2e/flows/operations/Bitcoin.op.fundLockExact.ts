@@ -1,130 +1,128 @@
 import {
   createBitcoinAddress,
+  mineBitcoinSingleBlock,
   sendBitcoinToAddress,
   waitForBitcoinTransactionOutputSatoshis,
-} from '../helpers/bitcoinNode.ts';
+} from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
+import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
+import { sleep } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
-import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
-import { parseOptionalPositiveInteger } from '../helpers/utils.ts';
-import bitcoinEnsureLockFundingDetails from './Bitcoin.op.ensureLockFundingDetails.ts';
-import bitcoinUnlockBitcoin, { type IUnlockBackendReleaseState } from './Bitcoin.op.unlockBitcoin.ts';
+import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
+import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
+
+type IFundLockExactChainState = IBitcoinVaultMismatchState;
 
 type IFundLockExactUiState = {
-  lockState: string | null;
-  lockUtxoId: number | null;
+  lockState?: string;
+  lockingOverlayState: string | null;
   fundingEntryVisible: boolean;
 };
 
-type IFundLockExactChainState = Pick<
-  IUnlockBackendReleaseState,
-  'hasFundingRecord' | 'hasReleaseSignal' | 'isReleaseComplete'
->;
+type IFundLockExactState = IE2EOperationInspectState<IFundLockExactChainState, IFundLockExactUiState>;
 
-interface IFundLockExactState extends IE2EOperationInspectState<IFundLockExactChainState, IFundLockExactUiState> {
-  lockState: string | null;
-  lockUtxoId: number | null;
-  fundingEntryVisible: boolean;
-  hasFundingRecord: boolean;
-  hasReleaseSignal: boolean;
-  isReleaseComplete: boolean;
-  runnable: boolean;
-  blockers: string[];
-}
+export default createBitcoinFundLockExactOperation();
 
-export default new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
-  async inspect({ flow }, api) {
-    const [ui, unlockState] = await Promise.all([readFundLockUiState(flow), api.inspect(bitcoinUnlockBitcoin)]);
-    const chainState = unlockState.chainState;
-    const { hasFundingRecord, hasReleaseSignal, isReleaseComplete } = chainState;
-    const fundingEntryVisible = ui.fundingBip21Visible || ui.lockOverlayVisible || ui.lockingEntryVisible;
-    const isComplete =
-      hasFundingRecord ||
-      hasReleaseSignal ||
-      isReleaseComplete ||
-      ui.lockState === 'LockedAndIsMinting' ||
-      ui.lockState === 'LockedAndMinted' ||
-      ui.lockState === 'Releasing' ||
-      ui.lockState === 'Released';
-    const inFundingState = ui.lockState === 'LockPendingFunding' && !isComplete;
-    const runnable = inFundingState && fundingEntryVisible;
-    const isRunnable = !isComplete && runnable;
-    const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
-    if (!isComplete && !inFundingState) {
-      blockers.push('Lock is not ready for bitcoin funding.');
-    }
-    if (!isComplete && inFundingState && !fundingEntryVisible) {
-      blockers.push('Lock funding UI entry point is not visible.');
-    }
-    const chain = { hasFundingRecord, hasReleaseSignal, isReleaseComplete };
-    const uiState = {
-      lockState: ui.lockState,
-      lockUtxoId: ui.lockUtxoId ?? unlockState.lockUtxoId,
-      fundingEntryVisible,
-    };
-    return {
-      chainState: chain,
-      uiState,
-      isRunnable,
-      isComplete,
-      ...uiState,
-      ...chain,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
-    };
-  },
-  async run({ flowName, state: flowState }, state, api) {
-    if (state.hasFundingRecord || state.hasReleaseSignal || state.isReleaseComplete) {
-      return;
-    }
-    if (state.lockState !== 'LockPendingFunding' || !state.fundingEntryVisible) {
-      return;
-    }
+function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, IFundLockExactState> {
+  const operation = new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
+    async inspect({ flow }) {
+      const [panelState, personal, lockOverlay, lockingEntry, fundingBip21] = await Promise.all([
+        flow.inspect(bitcoinEnsureMismatchActionPanel),
+        flow.isVisible('PersonalBitcoin'),
+        flow.isVisible('BitcoinLockingOverlay'),
+        flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
+        flow.isVisible('fundingBip21.copyContent()'),
+      ]);
+      const lockState = personal.exists
+        ? await flow.getAttribute('PersonalBitcoin', 'data-lock-state', { timeoutMs: 1_000 }).catch(() => null)
+        : null;
+      const lockingOverlayState = lockOverlay.visible
+        ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
+        : null;
+      const lockStatus = panelState.chainState.lockStatus ?? lockState?.trim();
+      const inFundingState = panelState.chainState.isPendingFunding;
+      const fundingReadyToResume = panelState.chainState.isFundingReadyToResume;
+      const fundingEntryVisible =
+        fundingBip21.visible ||
+        lockingEntry.visible ||
+        (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin');
+      const processingOnBitcoinVisible = lockingOverlayState === 'ProcessingOnBitcoin';
+      const isComplete = panelState.chainState.isPostFundingLock || processingOnBitcoinVisible;
+      const canRun =
+        !isComplete &&
+        !panelState.chainState.mismatchRequired &&
+        ((inFundingState && fundingEntryVisible) || fundingReadyToResume);
+      let operationState: IE2EOperationState = 'processing';
+      if (isComplete) {
+        operationState = 'complete';
+      } else if (canRun) {
+        operationState = 'runnable';
+      }
 
-    if (!flowState.lockFundingDetails) {
-      await api.run(bitcoinEnsureLockFundingDetails);
-    }
-    if (!flowState.lockFundingDetails) {
-      throw new Error(`${flowName}: lock funding details are missing after ${bitcoinEnsureLockFundingDetails.name}`);
-    }
+      const blockers: string[] = [];
+      if (!isComplete && !panelState.chainState.hasActiveLock) {
+        blockers.push('No active lock found for current vault.');
+      }
+      if (!isComplete && !inFundingState && !fundingReadyToResume) {
+        blockers.push('Lock is not ready for bitcoin funding.');
+      }
+      if (!isComplete && panelState.chainState.mismatchRequired) {
+        blockers.push('Mismatch flow is active; exact funding should not be resent.');
+      }
+      if (!isComplete && inFundingState && !fundingEntryVisible && !processingOnBitcoinVisible) {
+        blockers.push('Lock funding UI entry point is not visible.');
+      }
+      return {
+        chainState: panelState.chainState,
+        uiState: {
+          lockState: lockStatus,
+          lockingOverlayState,
+          fundingEntryVisible,
+        },
+        state: operationState,
+        phase: lockOverlay.visible && lockingOverlayState ? `locking:${lockingOverlayState}` : undefined,
+        blockers: canRun ? [] : blockers,
+      };
+    },
+    async run({ flow, flowName, state: flowState }) {
+      const state = await flow.inspect<IFundLockExactState>();
+      if (state.state !== 'runnable') {
+        return;
+      }
 
-    await waitForBitcoinTransactionOutputSatoshis({
-      flowName,
-      txid: sendBitcoinToAddress(flowState.lockFundingDetails.address, flowState.lockFundingDetails.amountSatoshis),
-      address: flowState.lockFundingDetails.address,
-      minimumSatoshis: flowState.lockFundingDetails.amountSatoshis,
-      minerAddress: createBitcoinAddress(),
-    });
-  },
-});
+      if (!flowState.lockFundingDetails) {
+        throw new Error(`${flowName}: lock funding details are missing. Read them before funding the lock.`);
+      }
 
-async function readFundLockUiState(flow: IE2EFlowRuntime): Promise<{
-  lockState: string | null;
-  lockUtxoId: number | null;
-  fundingBip21Visible: boolean;
-  lockOverlayVisible: boolean;
-  lockingEntryVisible: boolean;
-}> {
-  const [personal, lockOverlay, lockingEntry, fundingBip21] = await Promise.all([
-    flow.isVisible('PersonalBitcoin'),
-    flow.isVisible('BitcoinLockingOverlay'),
-    flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
-    flow.isVisible('fundingBip21.copyContent()'),
-  ]);
-  return {
-    lockState: personal.exists
-      ? (
-          await flow.getAttribute('PersonalBitcoin', 'data-lock-state', { timeoutMs: 1_000 }).catch(() => null)
-        )?.trim() || null
-      : null,
-    lockUtxoId: personal.exists
-      ? parseOptionalPositiveInteger(
-          await flow.getAttribute('PersonalBitcoin', 'data-lock-utxo-id', { timeoutMs: 1_000 }).catch(() => null),
-        )
-      : null,
-    fundingBip21Visible: fundingBip21.visible,
-    lockOverlayVisible: lockOverlay.visible,
-    lockingEntryVisible: lockingEntry.visible,
-  };
+      const txid = sendBitcoinToAddress(
+        flowState.lockFundingDetails.address,
+        flowState.lockFundingDetails.amountSatoshis,
+      );
+      const minerAddress = createBitcoinAddress();
+      await waitForBitcoinTransactionOutputSatoshis({
+        flowName,
+        txid,
+        address: flowState.lockFundingDetails.address,
+        minimumSatoshis: flowState.lockFundingDetails.amountSatoshis,
+        minerAddress,
+      });
+      const deadline = Date.now() + 180_000;
+      while (Date.now() < deadline) {
+        const latest = await flow.inspect<IFundLockExactState>();
+        if (latest.state === 'uiStateMismatch') {
+          const blockerMessage = latest.blockers.join(', ') || 'backend/ui state mismatch';
+          throw new Error(`${flowName}: ${blockerMessage}`);
+        }
+        if (latest.state === 'complete') {
+          return;
+        }
+        mineBitcoinSingleBlock(minerAddress);
+        await sleep(1_000);
+      }
+
+      throw new Error(`${flowName}: exact funding did not advance beyond the funding entry state.`);
+    },
+  });
+
+  return operation;
 }

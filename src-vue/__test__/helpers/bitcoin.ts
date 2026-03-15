@@ -28,5 +28,5 @@ function buildDefaultBitcoinNetwork(): IBitcoinLockConfig['bitcoinNetwork'] {
     isSignet: false,
     isRegtest: false,
     type: 'Bitcoin',
-  } as unknown as IBitcoinLockConfig['bitcoinNetwork'];
+  } as IBitcoinLockConfig['bitcoinNetwork'];
 }

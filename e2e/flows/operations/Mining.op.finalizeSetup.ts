@@ -25,8 +25,6 @@ interface IFinalizeSetupState extends IE2EOperationInspectState<Record<string, n
   setupInstallingVisible: boolean;
   installingVisible: boolean;
   totalBlocksMined: number | null;
-  runnable: boolean;
-  blockers: string[];
 }
 
 const INSTALL_PROGRESS_POLL_MS = 1_000;
@@ -49,7 +47,14 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
     const installingVisible = installProgress.visible || setupInstalling.visible;
 
     if (!dashboard.visible) {
-      const runnable = (launchBot.visible && launchBot.enabled) || installingVisible || startingBot.visible;
+      const canRun = (launchBot.visible && launchBot.enabled) || installingVisible || startingBot.visible;
+      let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+      if (firstAuction.visible) {
+        operationState = 'complete';
+      } else if (canRun) {
+        operationState = 'runnable';
+      }
+
       const blockers: string[] = [];
       if (!launchBot.visible && !installingVisible && !startingBot.visible) {
         blockers.push('Launch Mining Bot button is not visible.');
@@ -68,8 +73,7 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
           setupInstallingVisible: setupInstalling.visible,
           totalBlocksMined: null,
         },
-        isRunnable: runnable,
-        isComplete: firstAuction.visible,
+        state: operationState,
         dashboardVisible: false,
         firstAuctionVisible: firstAuction.visible,
         startingBotVisible: startingBot.visible,
@@ -79,16 +83,21 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
         setupInstallingVisible: setupInstalling.visible,
         installingVisible,
         totalBlocksMined: null,
-        runnable,
-        blockers: runnable ? [] : blockers,
+        blockers: canRun ? [] : blockers,
       };
     }
 
     const totalBlocksMinedRaw = await flow.getAttribute('TotalBlocksMined', 'data-value', { timeoutMs: 5_000 });
     const totalBlocksMined = parseRequiredNumber(totalBlocksMinedRaw, `${flowName}.TotalBlocksMined`);
-    const runnable = totalBlocksMined <= 0;
     const isComplete = totalBlocksMined > 0;
-    const isRunnable = !isComplete && runnable;
+    const canRun = totalBlocksMined <= 0;
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
+
     return {
       chainState: {},
       uiState: {
@@ -101,8 +110,7 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
         setupInstallingVisible: setupInstalling.visible,
         totalBlocksMined,
       },
-      isRunnable,
-      isComplete,
+      state: operationState,
       dashboardVisible: true,
       firstAuctionVisible: firstAuction.visible,
       startingBotVisible: startingBot.visible,
@@ -112,8 +120,7 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       setupInstallingVisible: setupInstalling.visible,
       installingVisible,
       totalBlocksMined,
-      runnable,
-      blockers: isRunnable ? [] : ['ALREADY_COMPLETE'],
+      blockers: canRun ? [] : ['ALREADY_COMPLETE'],
     };
   },
   async run({ flow, flowName }, state) {

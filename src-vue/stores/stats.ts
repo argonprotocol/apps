@@ -8,7 +8,7 @@ import { getMiningFrames } from './mainchain.ts';
 
 let stats: Vue.Reactive<Stats>;
 
-export type { Stats };
+export { type Stats };
 
 export function getStats(): Vue.Reactive<Stats> {
   if (!stats) {

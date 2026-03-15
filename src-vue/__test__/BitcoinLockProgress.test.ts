@@ -6,10 +6,14 @@ import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { MyVault } from '../lib/MyVault.ts';
 import type { MiningFrames } from '@argonprotocol/apps-core';
 
-function createStoreWithFundingRecord(fundingRecord?: { status: BitcoinUtxoStatus }) {
+function createStoreWithFundingStatus(fundingStatus?: BitcoinUtxoStatus) {
+  const fundingRecord =
+    fundingStatus == null
+      ? undefined
+      : ({ status: fundingStatus } as ReturnType<BitcoinLocks['getAcceptedFundingRecord']>);
   const bitcoinLocks = {
     getAcceptedFundingRecord: () => fundingRecord,
-  } as unknown as BitcoinLocks;
+  } as Pick<BitcoinLocks, 'getAcceptedFundingRecord'> as BitcoinLocks;
   return createBitcoinLockProgressStore({
     myVault: {} as MyVault,
     bitcoinLocks,
@@ -17,11 +21,15 @@ function createStoreWithFundingRecord(fundingRecord?: { status: BitcoinUtxoStatu
   });
 }
 
+function createLock(status: BitcoinLockStatus): IBitcoinLockRecord {
+  return { status } as IBitcoinLockRecord;
+}
+
 describe('bitcoinLockProgress', () => {
   it('does not render unlock progress as 0% once argon confirmation tracking is active', () => {
-    const store = createStoreWithFundingRecord({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon });
+    const store = createStoreWithFundingStatus(BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
 
-    const lock = { status: BitcoinLockStatus.Releasing } as unknown as IBitcoinLockRecord;
+    const lock = createLock(BitcoinLockStatus.Releasing);
     store.lock.value = lock;
     store.argonRelease.value = {
       progressPct: 0,
@@ -34,9 +42,9 @@ describe('bitcoinLockProgress', () => {
   });
 
   it('uses bitcoin release progress when funding status shows bitcoin processing even if lock status is stale', () => {
-    const store = createStoreWithFundingRecord({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin });
+    const store = createStoreWithFundingStatus(BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin);
 
-    const lock = { status: BitcoinLockStatus.LockedAndMinted } as unknown as IBitcoinLockRecord;
+    const lock = createLock(BitcoinLockStatus.LockedAndMinted);
     store.lock.value = lock;
     store.bitcoinRelease.value = {
       progressPct: 80,
@@ -50,9 +58,9 @@ describe('bitcoinLockProgress', () => {
   });
 
   it('returns lock-processing step while pending funding', () => {
-    const store = createStoreWithFundingRecord();
+    const store = createStoreWithFundingStatus();
 
-    const lock = { status: BitcoinLockStatus.LockPendingFunding } as unknown as IBitcoinLockRecord;
+    const lock = createLock(BitcoinLockStatus.LockPendingFunding);
     store.lock.value = lock;
     store.lockProcessing.value = {
       progressPct: 25,

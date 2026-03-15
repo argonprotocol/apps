@@ -4,6 +4,8 @@ import { getConfig } from '../stores/config';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
 import { getMyVault } from '../stores/vaults';
+import { useWallets } from '../stores/wallets.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import { getDbPromise } from '../stores/helpers/dbPromise';
 
 type UnknownRecord = Record<string, unknown>;
@@ -33,8 +35,11 @@ interface CommandContext {
 }
 
 interface InspectRefs {
+  config: ReturnType<typeof getConfig>;
   bitcoinLocks: ReturnType<typeof getBitcoinLocks>;
   myVault: ReturnType<typeof getMyVault>;
+  wallets: ReturnType<typeof useWallets>;
+  controller: ReturnType<typeof useOperationsController>;
   db: Awaited<ReturnType<typeof getDbPromise>>;
   getMainchainClient: typeof getMainchainClient;
   JsonExt: typeof JsonExt;
@@ -191,6 +196,7 @@ function ensureVisualState(): VisualState | null {
     position: 'fixed',
     left: '0px',
     top: '0px',
+    pointerEvents: 'none',
     width: '18px',
     height: '24px',
     transform: 'translate(-2px, -2px)',
@@ -207,6 +213,7 @@ function ensureVisualState(): VisualState | null {
     position: 'fixed',
     left: '0px',
     top: '0px',
+    pointerEvents: 'none',
     width: '0px',
     height: '0px',
     borderRadius: '6px',
@@ -222,6 +229,7 @@ function ensureVisualState(): VisualState | null {
     position: 'fixed',
     left: '0px',
     top: '0px',
+    pointerEvents: 'none',
     transform: 'translate(12px, 14px)',
     borderRadius: '4px',
     padding: '2px 6px',
@@ -240,6 +248,7 @@ function ensureVisualState(): VisualState | null {
     position: 'fixed',
     left: '16px',
     bottom: '16px',
+    pointerEvents: 'none',
     maxWidth: 'min(78vw, 960px)',
     borderRadius: '8px',
     border: '1px solid rgba(56, 189, 248, 0.55)',
@@ -713,10 +722,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function nextAnimationFrame(): Promise<void> {
-  return new Promise(resolve => window.requestAnimationFrame(() => resolve()));
-}
-
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return promise;
@@ -735,16 +740,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
         reject(error);
       });
   });
-}
-
-async function settleVisualOverlayForScreenshot(): Promise<void> {
-  if (!visualState) {
-    return;
-  }
-  // Let cursor/label transitions finish so screenshots do not capture overlays mid-move.
-  await nextAnimationFrame();
-  await sleep(VISUAL_MOVE_MS + 20);
-  await nextAnimationFrame();
 }
 
 async function waitForAppReady(timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<void> {
@@ -994,7 +989,7 @@ function isStateSatisfied(state: WaitState, element: HTMLElement | null): boolea
     case 'enabled':
       return !!element && isVisible(element) && isEnabled(element);
     case 'clickable':
-      return !!element && isPointerInteractable(element);
+      return !!element && isVisible(element) && isEnabled(element) && isPointerInteractable(element);
     default:
       return false;
   }
@@ -1115,13 +1110,14 @@ function dispatchMouseEvent(
 
 function dispatchClick(element: HTMLElement): void {
   const coordinates = getElementEventCoordinates(element);
+  element.focus({ preventScroll: true });
   dispatchPointerEvent(element, 'pointermove', coordinates);
   dispatchMouseEvent(element, 'mousemove', coordinates);
   dispatchPointerEvent(element, 'pointerdown', coordinates);
   dispatchMouseEvent(element, 'mousedown', coordinates);
   dispatchPointerEvent(element, 'pointerup', coordinates);
   dispatchMouseEvent(element, 'mouseup', coordinates);
-  dispatchMouseEvent(element, 'click', coordinates);
+  element.click();
 }
 
 function setElementValue(element: HTMLElement, text: string, clear: boolean): void {
@@ -1200,15 +1196,20 @@ function serializeInspectResult(result: unknown): unknown {
 }
 
 async function getInspectRefs(): Promise<InspectRefs> {
+  const config = getConfig();
   const myVault = getMyVault();
   const bitcoinLocks = getBitcoinLocks();
+  await config.isLoadedPromise.catch(() => undefined);
   await myVault.load().catch(() => undefined);
   await bitcoinLocks.load().catch(() => undefined);
   const db = await getDbPromise();
 
   return {
+    config,
     bitcoinLocks,
     myVault,
+    wallets: useWallets(),
+    controller: useOperationsController(),
     db,
     getMainchainClient,
     JsonExt,
@@ -1235,6 +1236,32 @@ async function readClipboard(): Promise<{ text: string; backend: 'navigator' | '
     console.warn('[E2E] navigator.clipboard.readText failed; using in-memory fallback', error);
     return { text: getFallbackClipboard(), backend: 'memory' };
   }
+}
+
+async function ensureMacScreenRecordingPermission(): Promise<void> {
+  if (!navigator.userAgent.includes('Mac')) return;
+
+  const hasPermission = await invoke<boolean>('plugin:macos-permissions|check_screen_recording_permission').catch(
+    () => true,
+  );
+  if (hasPermission) return;
+
+  await invoke<boolean>('plugin:macos-permissions|request_screen_recording_permission').catch(error => {
+    throw new CommandError(
+      'permission_denied',
+      `Failed to request Screen Recording permission: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
+
+  const grantedAfterRequest = await invoke<boolean>('plugin:macos-permissions|check_screen_recording_permission').catch(
+    () => false,
+  );
+  if (grantedAfterRequest) return;
+
+  throw new CommandError(
+    'permission_denied',
+    'Screen Recording permission is required for screenshots. Grant access in System Settings > Privacy & Security > Screen Recording, then relaunch Argon.',
+  );
 }
 
 async function runCommandInternal(command: string, argsInput: unknown, context: CommandContext): Promise<unknown> {
@@ -1305,12 +1332,16 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
   if (command === 'ui.isVisible') {
     const target = getTarget(args);
     const element = resolveElement(target);
+    const pointer = element ? getPointerInteractableResult(element) : null;
     return {
       ok: true,
       target: getTargetLabel(target),
       exists: !!element,
       visible: isStateSatisfied('visible', element),
       enabled: !!element && isEnabled(element),
+      clickable: pointer?.clickable ?? false,
+      pointerBlocker: pointer && !pointer.clickable ? (pointer.hitLabel ?? pointer.reason ?? null) : null,
+      pointerReason: pointer && !pointer.clickable ? pointer.reason : null,
     };
   }
 
@@ -1455,14 +1486,12 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     const nameRaw = getString(args.name, 'name', false, true);
     const name = nameRaw?.trim() ? nameRaw.trim() : undefined;
     const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    await ensureMacScreenRecordingPermission();
     const path = await withTimeout(
-      (async () => {
-        await settleVisualOverlayForScreenshot();
-        return await invoke<string>('e2e_capture_main_window_screenshot', {
-          outputPath: outputPath ?? null,
-          name: name ?? null,
-        });
-      })(),
+      invoke<string>('e2e_capture_main_window_screenshot', {
+        outputPath: outputPath ?? null,
+        name: name ?? null,
+      }),
       timeoutMs,
       'app.captureScreenshot',
     );

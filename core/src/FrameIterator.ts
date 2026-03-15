@@ -2,7 +2,7 @@ import type { MainchainClients } from './MainchainClients.js';
 import { type ApiDecoration } from '@argonprotocol/mainchain';
 import { MiningFrames } from './MiningFrames.js';
 
-export type { ApiDecoration };
+export { type ApiDecoration };
 
 export type ICallbackFirstBlockMeta = {
   specVersion: number;

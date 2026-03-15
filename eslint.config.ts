@@ -73,6 +73,31 @@ export default tseslint.config(
     },
   },
   {
+    files: ['e2e/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-redundant-type-constituents': 'off',
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../src-vue/*', '../../src-vue/*', '../../../src-vue/*', '../../../../src-vue/*'],
+              message: 'Import src-vue from e2e through the project-root src-vue/* path.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['e2e/flows/types/srcVue.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
+  {
     files: ['**/*.d.ts'],
     rules: {
       '@typescript-eslint/no-unused-vars': 'off',

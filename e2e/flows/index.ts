@@ -46,7 +46,7 @@ export async function runFlow(
   return executeFlow(driver, flow, options);
 }
 
-export type { IE2EFlowDefinition, E2ECommandArgs } from './types.ts';
+export { type IE2EFlowDefinition, type E2ECommandArgs } from './types.ts';
 
 function createFlowConsoleMetadataByContextFactory(): Map<
   AnyOperationalFlow['createContext'],
@@ -130,7 +130,7 @@ function toFlowDefinition(flowOperation: AnyOperationalFlow): IE2EFlowDefinition
         flow.setData('flowContextName', flowConsoleMetadata.contextName);
         flow.setData('flowResolvedInputs', flowConsoleMetadata.resolveInputs(context));
       }
-      await flow.runOperations(context, [flowOperation]);
+      await flow.run(context, flowOperation);
     },
   };
 }

@@ -14,8 +14,6 @@ interface IConnectServerState extends IE2EOperationInspectState<Record<string, n
   connectOverlayVisible: boolean;
   serverConnected: boolean;
   dashboardVisible: boolean;
-  runnable: boolean;
-  blockers: string[];
 }
 
 const DEFAULT_CONNECT_READY_TIMEOUT_MS = 120_000;
@@ -33,11 +31,16 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
     const serverConnected = /used to run your mining software|api key is ready to go|connected and verified/i.test(
       connectText ?? '',
     );
-    const runnable = connectOverlay.visible || (connectEntry.visible && !serverConnected && !dashboard.visible);
     const isComplete = serverConnected || dashboard.visible;
-    const isRunnable = !isComplete && runnable;
+    const canRun = connectOverlay.visible || (connectEntry.visible && !serverConnected && !dashboard.visible);
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
+
     const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
     if (!isComplete && !connectOverlay.visible && !connectEntry.visible) {
       blockers.push('Mining server connect step is not visible.');
     }
@@ -49,14 +52,12 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
         serverConnected,
         dashboardVisible: dashboard.visible,
       },
-      isRunnable,
-      isComplete,
+      state: operationState,
       connectEntryVisible: connectEntry.visible,
       connectOverlayVisible: connectOverlay.visible,
       serverConnected,
       dashboardVisible: dashboard.visible,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow, flowName, input, state: flowState }, state) {

@@ -12,10 +12,7 @@ type IOnboardingUiState = {
   dashboardVisible: boolean;
 };
 
-interface IOnboardingState extends IE2EOperationInspectState<Record<string, never>, IOnboardingUiState> {
-  lockOverlayVisible: boolean;
-  dashboardVisible: boolean;
-}
+type IOnboardingState = IE2EOperationInspectState<Record<string, never>, IOnboardingUiState>;
 
 export default new OperationalFlow<IVaultingFlowContext, IOnboardingState>(import.meta, {
   description: 'Complete vaulting onboarding so bitcoin lock workflows can run.',
@@ -27,28 +24,29 @@ export default new OperationalFlow<IVaultingFlowContext, IOnboardingState>(impor
     const lockOverlayVisible = lockOverlay.visible;
     const dashboardVisible = dashboard.visible;
     const isComplete = lockOverlayVisible || dashboardVisible;
+    let operationState: 'complete' | 'runnable' = 'runnable';
+    if (isComplete) {
+      operationState = 'complete';
+    }
     return {
       chainState: {},
       uiState: {
         lockOverlayVisible,
         dashboardVisible,
       },
-      isRunnable: !isComplete,
-      isComplete,
-      blockers: isComplete ? ['ALREADY_COMPLETE'] : [],
-      lockOverlayVisible,
-      dashboardVisible,
+      state: operationState,
+      blockers: [],
     };
   },
-  async run(_context, state, api) {
-    if (state.lockOverlayVisible || state.dashboardVisible) {
+  async run({ flow }, state) {
+    if (state.uiState.lockOverlayVisible || state.uiState.dashboardVisible) {
       return;
     }
 
-    await api.run(vaultingActivateTab);
-    await api.run(vaultingStartRegistration);
-    await api.run(vaultingCompleteChecklist);
-    await api.run(vaultingFundWallet);
-    await api.run(vaultingFinalizeSetup);
+    await flow.run(vaultingActivateTab);
+    await flow.run(vaultingStartRegistration);
+    await flow.run(vaultingCompleteChecklist);
+    await flow.run(vaultingFundWallet);
+    await flow.run(vaultingFinalizeSetup);
   },
 });

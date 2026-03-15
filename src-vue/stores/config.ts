@@ -13,7 +13,7 @@ import { getMainchainClients, getMiningFrames } from './mainchain.ts';
 let config: Vue.Reactive<Config>;
 
 export { NETWORK_NAME };
-export type { Config };
+export { type Config };
 
 export function getConfig(): Vue.Reactive<Config> {
   if (!config) {

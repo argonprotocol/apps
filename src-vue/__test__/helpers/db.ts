@@ -10,12 +10,12 @@ const shouldLogDbQueries = process.env.TEST_DB_DEBUG === '1';
 let migrationSqlStatementsPromise: Promise<string[]> | null = null;
 
 export async function createMockedDbPromise(allAsObject: { [key: string]: string } = {}): Promise<Db> {
-  return {
+  return Object.assign(Object.create(Db.prototype), {
     configTable: {
       fetchAllAsObject: async () => allAsObject,
       insertOrReplace: async (obj: Partial<IConfigStringified>) => {},
     },
-  } as unknown as Db;
+  }) as Db;
 }
 
 export async function createTestDb(): Promise<Db> {

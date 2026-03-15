@@ -8,7 +8,7 @@ import {
 import { sudo, teardown } from '@argonprotocol/testing';
 import { Accountset, getRange } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startArgonTestNetwork } from './startArgonTestNetwork.js';
+import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import Path from 'path';
 
 afterAll(teardown);

@@ -9,6 +9,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
@@ -60,14 +61,12 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
-    const client = await clients.get(false);
-
-    const txSubmitter = new TxSubmitter(
-      client,
-      client.tx.balances.transferAllowDeath(walletKeys.vaultingAddress, 10_000_000n),
-      new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice'),
-    );
-    await txSubmitter.submit().then(res => res.waitForInFirstBlock);
+    await sudoFundWallet({
+      address: walletKeys.vaultingAddress,
+      microgons: 100_000_000n,
+      micronots: 0n,
+      archiveUrl: network.archiveUrl,
+    });
 
     setMainchainClients(clients);
     NetworkConfig.setNetwork('dev-docker');

@@ -1,25 +1,12 @@
+import fs from 'node:fs';
+import Path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { BITCOIN_FLOW_INPUT_DEFINITIONS, createBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import { MINING_FLOW_INPUT_DEFINITIONS, createMiningFlowContext } from '../contexts/miningContext.ts';
 import { VAULTING_FLOW_INPUT_DEFINITIONS, createVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { E2ECommandArgs, IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
-import appDismissBlockingOverlays from './App.op.dismissBlockingOverlays.ts';
-import bitcoinEnsureLockFundingDetails from './Bitcoin.op.ensureLockFundingDetails.ts';
-import bitcoinFundLockExact from './Bitcoin.op.fundLockExact.ts';
-import bitcoinUnlockBitcoin from './Bitcoin.op.unlockBitcoin.ts';
-import bitcoinWaitUnlockReady from './Bitcoin.op.waitUnlockReady.ts';
-import miningActivateTab from './Mining.op.activateTab.ts';
-import miningCompleteChecklist from './Mining.op.completeChecklist.ts';
-import miningConnectServer from './Mining.op.connectServer.ts';
-import miningFinalizeSetup from './Mining.op.finalizeSetup.ts';
-import miningFundWallet from './Mining.op.fundWallet.ts';
-import miningStartRegistration from './Mining.op.startRegistration.ts';
-import vaultingActivateTab from './Vaulting.op.activateTab.ts';
-import vaultingCompleteChecklist from './Vaulting.op.completeChecklist.ts';
-import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
-import vaultingFinalizeSetup from './Vaulting.op.finalizeSetup.ts';
-import vaultingFundWallet from './Vaulting.op.fundWallet.ts';
-import vaultingStartRegistration from './Vaulting.op.startRegistration.ts';
-import { OperationalFlow, type AnyOperation, type IOperationApi, type IOperationInputDefinition } from './index.ts';
+import { inspectOperation, OperationalFlow, type AnyOperation, type IOperationInputDefinition } from './index.ts';
 
 type OperationContextName = 'app' | 'bitcoin' | 'mining' | 'vaulting';
 type OperationRunMode = 'run' | 'inspect';
@@ -58,6 +45,12 @@ interface IOperationInputSummary {
   operations: string[];
 }
 
+interface IDiscoveredOperation {
+  fileName: string;
+  context: OperationContextName;
+  operation: AnyOperation<unknown>;
+}
+
 export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(import.meta, {
   description: 'Run selected operations sequentially against the current runtime state.',
   defaultTimeoutMs: 20_000,
@@ -73,8 +66,7 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
         operationTimeoutMs: parsedState.operationTimeoutMs,
         operationMode: parsedState.operationMode,
       },
-      isRunnable: true,
-      isComplete: false,
+      state: 'runnable',
       blockers: [],
       ...parsedState,
     };
@@ -85,7 +77,7 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
       console.info(`[E2E] Operation command timeout set to ${state.operationTimeoutMs}ms`);
     }
     const readinessTimeoutMs = state.operationTimeoutMs ?? Math.max(flow.defaultTimeoutMs, 45_000);
-    await flow.run('app.waitForReady', { timeoutMs: readinessTimeoutMs });
+    await flow.command('app.waitForReady', { timeoutMs: readinessTimeoutMs });
     const definition = OPERATION_CONTEXTS[state.operationContext];
     const unknownOperations = state.operationNames.filter(name => !definition.operationsByName.has(name));
     if (unknownOperations.length > 0) {
@@ -100,13 +92,16 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
     const operations = state.operationNames.map(name => definition.operationsByName.get(name) as AnyOperation<unknown>);
     const contextInputs = readContextInputs(operationContext);
     const inputSummary = summarizeOperationInputs(operations, definition.inputDefinitions);
-    const missingRequiredInputs = collectMissingRequiredInputs(definition.inputDefinitions, contextInputs);
-    const missingRequiredInputsByOperation = distributeMissingRequiredInputs(operations, missingRequiredInputs);
+    const missingRequiredInputs = collectMissingRequiredInputs(operations, definition.inputDefinitions, contextInputs);
+    const missingRequiredInputsByOperation = distributeMissingRequiredInputs(
+      operations,
+      definition.inputDefinitions,
+      contextInputs,
+    );
     if (state.operationMode === 'inspect') {
       console.info(
         `[E2E] Inspecting ${operations.length} ${state.operationContext} operation(s): ${state.operationNames.join(', ')}`,
       );
-      const inspectApi = createInspectOnlyApi(operationContext);
       const operationInspections: Record<string, unknown> = {};
       const runnableOperations: string[] = [];
       const blockedOperations: string[] = [];
@@ -115,7 +110,7 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
       for (const operation of operations) {
         flow.setActiveOperation(operation.name);
         try {
-          const inspection = await operation.inspect(operationContext, inspectApi);
+          const inspection = await inspectOperation(operationContext, operation);
           operationInspections[operation.name] = inspection;
           const inspectionBlockers = extractBlockersFromInspection(inspection);
           const requiredInputBlockers = formatMissingRequiredInputs(
@@ -163,49 +158,39 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
     console.info(
       `[E2E] Running ${operations.length} ${state.operationContext} operation(s): ${state.operationNames.join(', ')}`,
     );
-    await flow.runOperations(operationContext, operations);
+    for (const operation of operations) {
+      await flow.run(operationContext, operation, {
+        timeoutMs: state.operationTimeoutMs,
+      });
+    }
   },
 });
+
+const OPERATION_FILE_PATTERN = /^[A-Z][A-Za-z0-9]*\.(op|flow)\.[A-Za-z0-9_]+\.(ts|js)$/;
+const OPERATIONS_DIR = resolveOperationsDir();
+const requireOperationModule = createRequire(Path.join(OPERATIONS_DIR, 'index.ts'));
+const DISCOVERED_OPERATIONS = discoverOperations();
 
 const OPERATION_CONTEXTS: Record<OperationContextName, IOperationContextDefinition> = {
   app: {
     createContext: flow => ({ flow }),
     inputDefinitions: [],
-    operationsByName: toOperationMap([appDismissBlockingOverlays]),
+    operationsByName: createDiscoveredOperationMap('app'),
   },
   bitcoin: {
     createContext: createBitcoinFlowContext,
     inputDefinitions: BITCOIN_FLOW_INPUT_DEFINITIONS,
-    operationsByName: toOperationMap([
-      bitcoinEnsureLockFundingDetails,
-      bitcoinFundLockExact,
-      bitcoinUnlockBitcoin,
-      bitcoinWaitUnlockReady,
-    ]),
+    operationsByName: createDiscoveredOperationMap('bitcoin'),
   },
   mining: {
     createContext: createMiningFlowContext,
     inputDefinitions: MINING_FLOW_INPUT_DEFINITIONS,
-    operationsByName: toOperationMap([
-      miningActivateTab,
-      miningCompleteChecklist,
-      miningConnectServer,
-      miningFinalizeSetup,
-      miningFundWallet,
-      miningStartRegistration,
-    ]),
+    operationsByName: createDiscoveredOperationMap('mining'),
   },
   vaulting: {
     createContext: createVaultingFlowContext,
     inputDefinitions: VAULTING_FLOW_INPUT_DEFINITIONS,
-    operationsByName: toOperationMap([
-      vaultingActivateTab,
-      vaultingCompleteChecklist,
-      vaultingOnboarding,
-      vaultingFinalizeSetup,
-      vaultingFundWallet,
-      vaultingStartRegistration,
-    ]),
+    operationsByName: createDiscoveredOperationMap('vaulting'),
   },
 };
 
@@ -319,23 +304,19 @@ function toOperationMap(operations: ReadonlyArray<AnyOperation<any>>): ReadonlyM
   return new Map(entries);
 }
 
+function createDiscoveredOperationMap(context: OperationContextName): ReadonlyMap<string, AnyOperation<unknown>> {
+  const operations = DISCOVERED_OPERATIONS.filter(entry => entry.context === context)
+    .sort((left, right) => left.operation.name.localeCompare(right.operation.name))
+    .map(entry => entry.operation);
+  return toOperationMap(operations);
+}
+
 function parseRunMode(value: unknown, flowName: string): OperationRunMode {
   const normalized = parseOptionalString(value)?.toLowerCase();
   if (!normalized || normalized === 'run') return 'run';
   if (normalized === 'inspect') return 'inspect';
+  if (normalized === 'wait-run' || normalized === 'waitrun' || normalized === 'wait') return 'run';
   throw new Error(`[E2E] ${flowName}.operationMode must be "run" or "inspect".`);
-}
-
-function createInspectOnlyApi(context: unknown): IOperationApi<any> {
-  const api: IOperationApi<any> = {
-    inspect: async operation => {
-      return await operation.inspect(context, api);
-    },
-    run: async operation => {
-      await operation.inspect(context, api);
-    },
-  };
-  return api;
 }
 
 function safeSerialize(value: unknown): string {
@@ -353,8 +334,11 @@ function inferRunnableFromInspection(inspection: unknown): boolean | null {
   }
 
   const record = inspection as Record<string, unknown>;
-  if (typeof record.isRunnable === 'boolean') {
-    return record.isRunnable;
+  if (record.state === 'runnable') {
+    return true;
+  }
+  if (record.state === 'complete' || record.state === 'processing' || record.state === 'uiStateMismatch') {
+    return false;
   }
   return null;
 }
@@ -378,22 +362,31 @@ function summarizeOperationInputs(
   definitions: IOperationInputSummary[];
   requiredInputKeys: string[];
 } {
-  const mappedDefinitions = inputDefinitions.map(input => ({
-    key: input.key,
-    required: input.required ?? false,
-    description: input.description,
-  }));
   const byOperation: Record<string, IOperationInputDefinition[]> = {};
+  const definitionsByKey = new Map<string, IOperationInputSummary>();
   for (const operation of operations) {
-    byOperation[operation.name] = mappedDefinitions;
+    const operationDefinitions = getOperationInputDefinitions(operation, inputDefinitions);
+    byOperation[operation.name] = operationDefinitions;
+    for (const definition of operationDefinitions) {
+      const existing = definitionsByKey.get(definition.key);
+      if (existing) {
+        existing.required ||= definition.required ?? false;
+        existing.description ??= definition.description;
+        if (!existing.operations.includes(operation.name)) {
+          existing.operations.push(operation.name);
+        }
+        continue;
+      }
+      definitionsByKey.set(definition.key, {
+        key: definition.key,
+        required: definition.required ?? false,
+        description: definition.description,
+        operations: [operation.name],
+      });
+    }
   }
 
-  const definitions = mappedDefinitions
-    .map(definition => ({
-      ...definition,
-      operations: operations.map(operation => operation.name),
-    }))
-    .sort((left, right) => left.key.localeCompare(right.key));
+  const definitions = [...definitionsByKey.values()].sort((left, right) => left.key.localeCompare(right.key));
   const requiredInputKeys = definitions.filter(definition => definition.required).map(definition => definition.key);
   return {
     byOperation,
@@ -403,28 +396,51 @@ function summarizeOperationInputs(
 }
 
 function collectMissingRequiredInputs(
+  operations: ReadonlyArray<AnyOperation<unknown>>,
   inputDefinitions: ReadonlyArray<IOperationInputDefinition>,
   contextInputs: Record<string, unknown>,
 ): string[] {
   return uniqueSorted(
-    inputDefinitions
-      .filter(input => input.required === true && isInputValueMissing(contextInputs[input.key]))
-      .map(input => input.key),
+    operations.flatMap(operation =>
+      getOperationInputDefinitions(operation, inputDefinitions)
+        .filter(input => input.required === true && isInputValueMissing(contextInputs[input.key]))
+        .map(input => input.key),
+    ),
   );
 }
 
 function distributeMissingRequiredInputs(
   operations: ReadonlyArray<AnyOperation<unknown>>,
-  missingRequiredInputs: string[],
+  inputDefinitions: ReadonlyArray<IOperationInputDefinition>,
+  contextInputs: Record<string, unknown>,
 ): Record<string, string[]> {
-  if (missingRequiredInputs.length === 0) {
-    return {};
-  }
   const missingByOperation: Record<string, string[]> = {};
   for (const operation of operations) {
-    missingByOperation[operation.name] = [...missingRequiredInputs];
+    const missingInputs = getOperationInputDefinitions(operation, inputDefinitions)
+      .filter(input => input.required === true && isInputValueMissing(contextInputs[input.key]))
+      .map(input => input.key);
+    if (missingInputs.length > 0) {
+      missingByOperation[operation.name] = uniqueSorted(missingInputs);
+    }
   }
   return missingByOperation;
+}
+
+function getOperationInputDefinitions(
+  operation: AnyOperation<unknown>,
+  sharedInputDefinitions: ReadonlyArray<IOperationInputDefinition>,
+): IOperationInputDefinition[] {
+  const definitionsByKey = new Map<string, IOperationInputDefinition>();
+  for (const definition of [...sharedInputDefinitions, ...operation.inputs]) {
+    const existing = definitionsByKey.get(definition.key);
+    if (existing) {
+      existing.required ||= definition.required;
+      existing.description ??= definition.description;
+      continue;
+    }
+    definitionsByKey.set(definition.key, { ...definition });
+  }
+  return [...definitionsByKey.values()].sort((left, right) => left.key.localeCompare(right.key));
 }
 
 function readContextInputs(context: unknown): Record<string, unknown> {
@@ -453,4 +469,94 @@ function formatMissingRequiredInputs(missingInputs: string[]): string[] {
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function discoverOperations(): IDiscoveredOperation[] {
+  const currentFileName = resolveCurrentOperationFileName();
+  const moduleFiles = fs
+    .readdirSync(OPERATIONS_DIR, { withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => entry.name)
+    .filter(name => name !== 'index.ts' && name !== 'index.js')
+    .filter(name => name !== currentFileName)
+    .filter(name => OPERATION_FILE_PATTERN.test(name))
+    .sort((left, right) => left.localeCompare(right));
+
+  const operations: IDiscoveredOperation[] = [];
+  for (const fileName of moduleFiles) {
+    const modulePath = Path.join(OPERATIONS_DIR, fileName);
+    const moduleExports = requireOperationModule(modulePath) as Record<string, unknown>;
+    const operation = moduleExports.default;
+    if (!isOperationExport(operation)) {
+      throw new Error(`[E2E] ${fileName} must default-export an Operation or OperationalFlow`);
+    }
+    operations.push({
+      fileName,
+      context: parseContextFromFileName(fileName),
+      operation: operation,
+    });
+  }
+
+  return assertUniqueOperationNames(operations);
+}
+
+function assertUniqueOperationNames(operations: IDiscoveredOperation[]): IDiscoveredOperation[] {
+  const seenByContext = new Map<OperationContextName, Set<string>>();
+  for (const entry of operations) {
+    const contextNames = seenByContext.get(entry.context) ?? new Set<string>();
+    if (contextNames.has(entry.operation.name)) {
+      throw new Error(
+        `[E2E] Duplicate ${entry.context} operation name '${entry.operation.name}' discovered from ${entry.fileName}`,
+      );
+    }
+    contextNames.add(entry.operation.name);
+    seenByContext.set(entry.context, contextNames);
+  }
+  return operations;
+}
+
+function parseContextFromFileName(fileName: string): OperationContextName {
+  const normalized = fileName.split('.', 1)[0]?.toLowerCase();
+  if (normalized === 'app' || normalized === 'bitcoin' || normalized === 'mining' || normalized === 'vaulting') {
+    return normalized;
+  }
+  throw new Error(`[E2E] ${fileName} uses an unknown operation context prefix.`);
+}
+
+function isOperationExport(value: unknown): value is AnyOperation<unknown> {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as { name?: unknown; inspect?: unknown; run?: unknown };
+  return (
+    typeof candidate.name === 'string' && typeof candidate.inspect === 'function' && typeof candidate.run === 'function'
+  );
+}
+
+function resolveCurrentOperationFileName(): string {
+  const metaUrl = (import.meta as { url?: unknown }).url;
+  if (typeof metaUrl !== 'string' || metaUrl.length === 0) {
+    throw new Error('Unable to resolve current operation file.');
+  }
+  return Path.basename(fileURLToPath(metaUrl));
+}
+
+function resolveOperationsDir(): string {
+  const metaUrl = (import.meta as { url?: unknown }).url;
+  if (typeof metaUrl === 'string' && metaUrl.length > 0) {
+    return fileURLToPath(new URL('.', metaUrl));
+  }
+
+  const candidates = [
+    Path.resolve(process.cwd(), 'e2e/flows/operations'),
+    Path.resolve(process.cwd(), 'flows/operations'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Unable to resolve e2e operation directory.');
 }

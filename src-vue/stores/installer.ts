@@ -6,7 +6,7 @@ import { getWalletKeys } from './wallets.ts';
 
 let installer: Vue.Reactive<Installer>;
 
-export type { Installer };
+export { type Installer };
 
 export function getInstaller(): Vue.Reactive<Installer> {
   if (!installer) {

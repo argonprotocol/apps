@@ -30,7 +30,13 @@
             type="text"
             data-testid="UnlockStart.destinationAddress"
             placeholder="bc1q..."
-            class="focus:ring-argon-500 w-full rounded-md border border-slate-700/50 px-3 py-3 focus:border-transparent focus:ring-2" />
+            :class="destinationAddressError ? 'border-red-400 text-red-900 placeholder:text-red-300' : 'border-slate-700/50'"
+            class="focus:ring-argon-500 w-full rounded-md border px-3 py-3 focus:border-transparent focus:ring-2" />
+          <p
+            class="mt-2 text-xs"
+            :class="destinationAddressError ? 'font-semibold text-red-700' : 'text-slate-500'">
+            {{ destinationAddressError || destinationAddressHelper }}
+          </p>
         </div>
 
         <!-- Fee Selection -->
@@ -63,6 +69,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../../lib/BitcoinAddressValidation.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
@@ -110,8 +117,31 @@ const neededMicrogons = Vue.computed(() => {
   return amountNeeded - wallets.vaultingWallet.availableMicrogons;
 });
 
+const trimmedDestinationAddress = Vue.computed(() => destinationAddress.value.trim());
+const currentLockAddress = Vue.computed(() => {
+  try {
+    return bitcoinLocks.formatP2wshAddress(props.personalLock.lockDetails.p2wshScriptHashHex);
+  } catch {
+    return '';
+  }
+});
+const destinationAddressError = Vue.computed(() => {
+  return validateBitcoinAddressForNetwork(trimmedDestinationAddress.value, bitcoinLocks.bitcoinNetwork, {
+    disallowAddress: currentLockAddress.value,
+  });
+});
+const isDestinationAddressValid = Vue.computed(() => {
+  return trimmedDestinationAddress.value.length > 0 && !destinationAddressError.value;
+});
+const destinationAddressHelper = Vue.computed(() => {
+  const networkName = getBitcoinNetworkName(bitcoinLocks.bitcoinNetwork);
+  if (isDestinationAddressValid.value) {
+    return `Released funds will be sent exactly to this address on ${networkName}. Make sure you control it.`;
+  }
+  return `Use a ${networkName} address you control. Released funds will be sent exactly to this address.`;
+});
 const canSendRequest = Vue.computed(() => {
-  return destinationAddress.value.trim().length > 0 && !isSubmitting.value;
+  return isDestinationAddressValid.value && !isSubmitting.value;
 });
 const fundingUtxoRecord = Vue.computed(() => bitcoinLocks.getAcceptedFundingRecord(props.personalLock));
 
@@ -123,9 +153,17 @@ async function submitRelease() {
   if (!canSendRequest.value) return;
 
   try {
-    isSubmitting.value = true;
     requestReleaseError.value = '';
-    const toScriptPubkey = destinationAddress.value.trim();
+    const toScriptPubkey = trimmedDestinationAddress.value;
+    if (!toScriptPubkey) {
+      requestReleaseError.value = 'Enter a Bitcoin address for the released funds.';
+      return;
+    }
+    if (destinationAddressError.value) {
+      requestReleaseError.value = destinationAddressError.value;
+      return;
+    }
+    isSubmitting.value = true;
     const networkFee = await bitcoinLocks.calculateBitcoinNetworkFee(
       props.personalLock,
       selectedFeeRatePerSatVb.value,
