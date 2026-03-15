@@ -41,6 +41,9 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
   const vaultCosignProgress = Vue.ref<IStepProgress>({ ...DEFAULT_PROGRESS });
   const lockProcessingProgress = Vue.ref<IStepProgress>({ ...DEFAULT_PROGRESS });
   const bitcoinReleaseProgress = Vue.ref<IStepProgress>({ ...DEFAULT_PROGRESS });
+  const orphanedReturnArgonProgress = Vue.ref<IStepProgress>({ ...DEFAULT_PROGRESS });
+  const orphanedReturnBitcoinProgress = Vue.ref<IStepProgress>({ ...DEFAULT_PROGRESS });
+  const mismatchAcceptArgonProgress = Vue.ref<IStepProgress>({ ...DEFAULT_PROGRESS });
 
   const requestReleaseByVaultProgress = Vue.ref(0);
 
@@ -49,8 +52,13 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
   let miningFramesUnsub: (() => void) | undefined;
   let argonTxId: number | undefined;
   let vaultCosignTxId: number | undefined;
+  let orphanedReturnArgonTxId: number | undefined;
+  let orphanedReturnArgonUnsub: (() => void) | undefined;
+  let mismatchAcceptTxId: number | undefined;
+  let mismatchAcceptUnsub: (() => void) | undefined;
   let lockProcessingInterval: ReturnType<typeof setInterval> | undefined;
   let bitcoinReleaseInterval: ReturnType<typeof setInterval> | undefined;
+  let orphanedReturnBitcoinInterval: ReturnType<typeof setInterval> | undefined;
 
   function updateStepProgress(
     step: Vue.Ref<IStepProgress>,
@@ -101,28 +109,48 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
     resetStep(bitcoinReleaseProgress);
   }
 
+  function clearOrphanedReturnArgonProgress() {
+    orphanedReturnArgonUnsub?.();
+    orphanedReturnArgonUnsub = undefined;
+    orphanedReturnArgonTxId = undefined;
+    resetStep(orphanedReturnArgonProgress);
+  }
+
+  function clearOrphanedReturnBitcoinProgress() {
+    if (orphanedReturnBitcoinInterval) {
+      clearInterval(orphanedReturnBitcoinInterval);
+      orphanedReturnBitcoinInterval = undefined;
+    }
+    resetStep(orphanedReturnBitcoinProgress);
+  }
+
+  function clearMismatchAcceptProgress() {
+    mismatchAcceptUnsub?.();
+    mismatchAcceptUnsub = undefined;
+    mismatchAcceptTxId = undefined;
+    resetStep(mismatchAcceptArgonProgress);
+  }
+
   function updateLockProcessingProgress() {
     const currentLock = lock.value;
     if (!currentLock) {
       resetStep(lockProcessingProgress);
       return;
     }
-
     const details = bitcoinLocks.getLockProcessingDetails(currentLock);
     updateStepProgress(lockProcessingProgress, {
       progressPct: details.progressPct,
       confirmations: details.confirmations,
       expectedConfirmations: details.expectedConfirmations,
     });
-
     if (currentLock.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
       const txInfo = myVault.getTxInfoByType(ExtrinsicType.BitcoinRequestLock);
       const status = txInfo?.getStatus();
-      updateStepProgress(lockProcessingProgress, { error: status?.error });
-      return;
+      const error = status?.error;
+      updateStepProgress(lockProcessingProgress, { error });
+    } else {
+      updateStepProgress(lockProcessingProgress, { error: '' });
     }
-
-    updateStepProgress(lockProcessingProgress, { error: '' });
   }
 
   function ensureLockProcessingInterval() {
@@ -137,7 +165,6 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       resetStep(bitcoinReleaseProgress);
       return;
     }
-
     const details = bitcoinLocks.getReleaseProcessingDetails(currentLock);
     updateStepProgress(bitcoinReleaseProgress, {
       progressPct: details.progressPct,
@@ -147,10 +174,36 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
     });
   }
 
+  function updateOrphanedReturnBitcoinProgress() {
+    const currentLock = lock.value;
+    if (!currentLock?.utxoId) {
+      resetStep(orphanedReturnBitcoinProgress);
+      return;
+    }
+    const record = bitcoinLocks.getMismatchViewState(currentLock).nextCandidate?.returnRecord;
+    if (!record) {
+      resetStep(orphanedReturnBitcoinProgress);
+      return;
+    }
+    const details = bitcoinLocks.getReleaseLifecycleProgress(record);
+    updateStepProgress(orphanedReturnBitcoinProgress, {
+      progressPct: details.progressPct,
+      confirmations: details.confirmations,
+      expectedConfirmations: details.expectedConfirmations,
+      error: details.error ?? '',
+    });
+  }
+
   function ensureBitcoinReleaseInterval() {
     if (bitcoinReleaseInterval) return;
     updateBitcoinReleaseProgress();
     bitcoinReleaseInterval = setInterval(updateBitcoinReleaseProgress, 1e3);
+  }
+
+  function ensureOrphanedReturnBitcoinInterval() {
+    if (orphanedReturnBitcoinInterval) return;
+    updateOrphanedReturnBitcoinProgress();
+    orphanedReturnBitcoinInterval = setInterval(updateOrphanedReturnBitcoinProgress, 1e3);
   }
 
   function attachArgonProgress() {
@@ -159,7 +212,6 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       clearArgonProgress();
       return;
     }
-
     const txInfo = myVault.getTxInfo((extrinsicType, metadata) => {
       return extrinsicType === ExtrinsicType.BitcoinRequestRelease && metadata?.utxoId === personalLockUtxoId;
     });
@@ -167,9 +219,7 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       clearArgonProgress();
       return;
     }
-
     if (argonTxId === txInfo.tx.id && argonProgressUnsub) return;
-
     clearArgonProgress();
     argonTxId = txInfo.tx.id;
     argonProgressUnsub = txInfo.subscribeToProgress((args, error) => {
@@ -188,13 +238,69 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       clearVaultCosignProgress();
       return;
     }
-
     if (vaultCosignTxId === txInfo.tx.id && vaultCosignUnsub) return;
-
     clearVaultCosignProgress();
     vaultCosignTxId = txInfo.tx.id;
     vaultCosignUnsub = txInfo.subscribeToProgress((args, error) => {
       updateStepProgress(vaultCosignProgress, {
+        progressPct: args.progressPct,
+        confirmations: args.confirmations,
+        expectedConfirmations: args.expectedConfirmations,
+        error: error?.message ?? '',
+      });
+    });
+  }
+
+  function attachOrphanedReturnArgonProgress() {
+    const utxoId = lock.value?.utxoId;
+    if (!utxoId) {
+      clearOrphanedReturnArgonProgress();
+      return;
+    }
+    const currentLock = lock.value;
+    if (!currentLock) {
+      clearOrphanedReturnArgonProgress();
+      return;
+    }
+    const record = bitcoinLocks.getMismatchViewState(currentLock).nextCandidate?.returnRecord;
+    if (!record || record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) {
+      clearOrphanedReturnArgonProgress();
+      return;
+    }
+    const txInfo = bitcoinLocks.getOrphanedReturnTxInfoForRecord(utxoId, record);
+    if (!txInfo) {
+      clearOrphanedReturnArgonProgress();
+      return;
+    }
+    if (orphanedReturnArgonTxId === txInfo.tx.id && orphanedReturnArgonUnsub) return;
+    clearOrphanedReturnArgonProgress();
+    orphanedReturnArgonTxId = txInfo.tx.id;
+    orphanedReturnArgonUnsub = txInfo.subscribeToProgress((args, error) => {
+      updateStepProgress(orphanedReturnArgonProgress, {
+        progressPct: args.progressPct,
+        confirmations: args.confirmations,
+        expectedConfirmations: args.expectedConfirmations,
+        error: error?.message ?? '',
+      });
+    });
+  }
+
+  function attachMismatchAcceptProgress() {
+    const currentLock = lock.value;
+    if (!currentLock?.utxoId) {
+      clearMismatchAcceptProgress();
+      return;
+    }
+    const txInfo = bitcoinLocks.getLatestMismatchAcceptTxInfo(currentLock.utxoId);
+    if (!txInfo) {
+      clearMismatchAcceptProgress();
+      return;
+    }
+    if (mismatchAcceptTxId === txInfo.tx.id && mismatchAcceptUnsub) return;
+    clearMismatchAcceptProgress();
+    mismatchAcceptTxId = txInfo.tx.id;
+    mismatchAcceptUnsub = txInfo.subscribeToProgress((args, error) => {
+      updateStepProgress(mismatchAcceptArgonProgress, {
         progressPct: args.progressPct,
         confirmations: args.confirmations,
         expectedConfirmations: args.expectedConfirmations,
@@ -209,13 +315,11 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       requestReleaseByVaultProgress.value = 0;
       return;
     }
-
     requestReleaseByVaultProgress.value = bitcoinLocks.getRequestReleaseByVaultProgress(currentLock, miningFrames);
   }
 
   async function ensureMiningFramesSubscription() {
     if (miningFramesUnsub) return;
-
     await miningFrames.load();
     miningFramesUnsub = miningFrames.onTick(() => {
       if (isReleaseArgonPhase(lock.value)) {
@@ -232,6 +336,9 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       clearVaultWaitProgress();
       clearLockProcessingProgress();
       clearBitcoinReleaseProgress();
+      clearOrphanedReturnArgonProgress();
+      clearOrphanedReturnBitcoinProgress();
+      clearMismatchAcceptProgress();
       return;
     }
 
@@ -242,11 +349,15 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
 
     if (isReleasingOnArgon) {
       attachArgonProgress();
+    } else {
+      clearArgonProgress();
+    }
+
+    if (isReleasingOnArgon) {
       void ensureMiningFramesSubscription();
       updateVaultWaitProgress();
       attachVaultCosignProgress();
     } else {
-      clearArgonProgress();
       clearVaultCosignProgress();
       clearVaultWaitProgress();
     }
@@ -261,6 +372,26 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       ensureBitcoinReleaseInterval();
     } else {
       clearBitcoinReleaseProgress();
+    }
+
+    const mismatchView = bitcoinLocks.getMismatchViewState(currentLock);
+    const orphanedRecord = mismatchView.nextCandidate?.returnRecord;
+    if (orphanedRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) {
+      attachOrphanedReturnArgonProgress();
+    } else {
+      clearOrphanedReturnArgonProgress();
+    }
+
+    if (orphanedRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) {
+      ensureOrphanedReturnBitcoinInterval();
+    } else {
+      clearOrphanedReturnBitcoinProgress();
+    }
+
+    if (mismatchView.phase === 'accepting') {
+      attachMismatchAcceptProgress();
+    } else {
+      clearMismatchAcceptProgress();
     }
   }
 
@@ -279,12 +410,15 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       }
       return argonReleaseProgress.value;
     }
-
     if (!status) return DEFAULT_PROGRESS;
-    if (status === BitcoinLockStatus.LockIsProcessingOnArgon || status === BitcoinLockStatus.LockPendingFunding) {
+    if (
+      status === BitcoinLockStatus.LockIsProcessingOnArgon ||
+      status === BitcoinLockStatus.LockPendingFunding ||
+      status === BitcoinLockStatus.LockExpiredWaitingForFunding ||
+      status === BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged
+    ) {
       return lockProcessingProgress.value;
     }
-
     return DEFAULT_PROGRESS;
   }
 
@@ -294,23 +428,23 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       status === BitcoinLockStatus.Releasing ||
       fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon ||
       fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
-
     if (!inReleasePhase) return 0;
-
     if (fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) {
       return 66 + bitcoinReleaseProgress.value.progressPct * 0.34;
     }
     if (requestReleaseByVaultProgress.value > 0) {
       return 33 + requestReleaseByVaultProgress.value * 0.33;
     }
-    if (fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) {
+    if (
+      status === BitcoinLockStatus.Releasing ||
+      fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon
+    ) {
       const argonPct = argonReleaseProgress.value.progressPct * 0.33;
       if (argonReleaseProgress.value.confirmations >= 0 && argonReleaseProgress.value.expectedConfirmations > 0) {
         return Math.max(1, argonPct);
       }
       return argonPct;
     }
-
     return 0;
   }
 
@@ -320,24 +454,25 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       status === BitcoinLockStatus.Releasing ||
       fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon ||
       fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
-
     if (!inReleasePhase) return 'Analyzing Network State...';
-
     const step = getStatusProgress(status);
     if (fundingRecord?.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) {
-      return generateProgressLabel(step.confirmations, step.expectedConfirmations, { blockType: 'Bitcoin' });
+      return generateProgressLabel(step?.confirmations ?? -1, step?.expectedConfirmations ?? 0, {
+        blockType: 'Bitcoin',
+      });
     }
     if (requestReleaseByVaultProgress.value > 0) {
       return 'Waiting for Vault to Cosign';
     }
-    return generateProgressLabel(step.confirmations, step.expectedConfirmations, { blockType: 'Argon' });
+    return generateProgressLabel(step?.confirmations ?? -1, step?.expectedConfirmations ?? 0, {
+      blockType: 'Argon',
+    });
   }
 
   function getUnlockErrorLabel(lockRecord: IBitcoinLockRecord): string {
     const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(lockRecord);
-    if (fundingRecord?.statusError) {
+    if (fundingRecord?.statusError)
       return `An unexpected error has occurred unlocking your Bitcoin: ${fundingRecord.statusError}`;
-    }
     if (argonReleaseProgress.value.error) {
       return `Error submitting to argon: ${argonReleaseProgress.value.error}`;
     }
@@ -351,7 +486,6 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
     activeConsumers.value += 1;
     lock.value = initialLock;
     syncWithStatus();
-
     return () => {
       activeConsumers.value = Math.max(0, activeConsumers.value - 1);
       if (activeConsumers.value === 0) {
@@ -386,6 +520,9 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
     requestReleaseByVaultProgress,
     lockProcessing: lockProcessingProgress,
     bitcoinRelease: bitcoinReleaseProgress,
+    orphanedReturnArgon: orphanedReturnArgonProgress,
+    orphanedReturnBitcoin: orphanedReturnBitcoinProgress,
+    mismatchAcceptArgon: mismatchAcceptArgonProgress,
     getStatusProgress,
     getUnlockProgressPct,
     getUnlockProgressLabel,

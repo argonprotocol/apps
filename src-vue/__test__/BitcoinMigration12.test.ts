@@ -15,7 +15,7 @@ describe('12-bitcoin-utxo-foundation migration', () => {
 
     try {
       const migrationDirs = await listMigrationDirs();
-      for (const migrationDir of migrationDirs.filter(x => x !== '12-bitcoin-utxo-foundation')) {
+      for (const migrationDir of migrationDirs.filter(x => x < '12-bitcoin-utxo-foundation')) {
         await runMigration(db, migrationDir);
       }
 
@@ -151,6 +151,116 @@ describe('12-bitcoin-utxo-foundation migration', () => {
       expect(linkedFundingRecord?.txid).toBe('acceptedtx');
       expect(linkedFundingRecord?.vout).toBe(1);
       expect(linkedFundingRecord?.status).toBe('FundingUtxo');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('maps legacy completed releases and expired funding rows to acknowledged current states', async () => {
+    const db = await open({
+      filename: ':memory:',
+      driver: Sqlite3Database,
+    });
+
+    try {
+      const migrationDirs = await listMigrationDirs();
+      for (const migrationDir of migrationDirs.filter(x => x < '12-bitcoin-utxo-foundation')) {
+        await runMigration(db, migrationDir);
+      }
+
+      await db.run(
+        `INSERT INTO BitcoinLocks (
+          uuid,
+          status,
+          utxoId,
+          satoshis,
+          lockedUtxoSatoshis,
+          lockedTxid,
+          lockedVout,
+          releasedTxid,
+          releasedAtBitcoinHeight,
+          cosignVersion,
+          lockDetails,
+          network,
+          hdPath,
+          vaultId,
+          createdAt,
+          updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'released-lock',
+          'ReleaseComplete',
+          44,
+          20_000,
+          19_995,
+          'released-funding-tx',
+          0,
+          'released-return-tx',
+          806_000,
+          'V1',
+          JSON.stringify({ createdAtHeight: 801_000, p2wshScriptHashHex: '0014feed' }),
+          'bitcoin',
+          "m/1018'/0'/1'/0/4'",
+          1,
+          '2026-01-03T00:00:00Z',
+          '2026-01-03T00:10:00Z',
+        ],
+      );
+
+      await db.run(
+        `INSERT INTO BitcoinLocks (
+          uuid,
+          status,
+          utxoId,
+          satoshis,
+          cosignVersion,
+          lockDetails,
+          lockMempool,
+          network,
+          hdPath,
+          vaultId,
+          createdAt,
+          updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'expired-lock',
+          'LockFailedToHappen',
+          45,
+          12_000,
+          'V1',
+          JSON.stringify({ createdAtHeight: 802_000, p2wshScriptHashHex: '0014bead' }),
+          JSON.stringify({
+            txid: 'expired-funding-tx',
+            vout: 1,
+            satoshis: 11_990,
+            transactionBlockHeight: 806_500,
+            transactionBlockTime: 1_700_100_000,
+            argonBitcoinHeight: 806_510,
+          }),
+          'bitcoin',
+          "m/1018'/0'/1'/0/5'",
+          1,
+          '2026-01-04T00:00:00Z',
+          '2026-01-04T00:10:00Z',
+        ],
+      );
+
+      await runMigration(db, '12-bitcoin-utxo-foundation');
+
+      const releasedUtxo = await db.get<{ status: string }>('SELECT status FROM BitcoinUtxos WHERE lockUtxoId = ?', [
+        44,
+      ]);
+      expect(releasedUtxo?.status).toBe('ReleaseCompleteAcknowledged');
+
+      const releasedLock = await db.get<{ status: string }>('SELECT status FROM BitcoinLocks WHERE uuid = ?', [
+        'released-lock',
+      ]);
+      expect(releasedLock?.status).toBe('Released');
+
+      const expiredLock = await db.get<{ status: string }>('SELECT status FROM BitcoinLocks WHERE uuid = ?', [
+        'expired-lock',
+      ]);
+      expect(expiredLock?.status).toBe('LockExpiredWaitingForFundingAcknowledged');
     } finally {
       await db.close();
     }

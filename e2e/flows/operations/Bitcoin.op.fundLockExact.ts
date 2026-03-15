@@ -5,7 +5,6 @@ import {
   waitForBitcoinTransactionOutputSatoshis,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
-import { sleep } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
@@ -50,7 +49,7 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
       const isComplete = panelState.chainState.isPostFundingLock || processingOnBitcoinVisible;
       const canRun =
         !isComplete &&
-        !panelState.chainState.mismatchRequired &&
+        panelState.chainState.phase === 'none' &&
         ((inFundingState && fundingEntryVisible) || fundingReadyToResume);
       let operationState: IE2EOperationState = 'processing';
       if (isComplete) {
@@ -66,7 +65,7 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
       if (!isComplete && !inFundingState && !fundingReadyToResume) {
         blockers.push('Lock is not ready for bitcoin funding.');
       }
-      if (!isComplete && panelState.chainState.mismatchRequired) {
+      if (!isComplete && panelState.chainState.phase !== 'none') {
         blockers.push('Mismatch flow is active; exact funding should not be resent.');
       }
       if (!isComplete && inFundingState && !fundingEntryVisible && !processingOnBitcoinVisible) {
@@ -106,21 +105,24 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
         minimumSatoshis: flowState.lockFundingDetails.amountSatoshis,
         minerAddress,
       });
-      const deadline = Date.now() + 180_000;
-      while (Date.now() < deadline) {
-        const latest = await flow.inspect<IFundLockExactState>();
-        if (latest.state === 'uiStateMismatch') {
-          const blockerMessage = latest.blockers.join(', ') || 'backend/ui state mismatch';
-          throw new Error(`${flowName}: ${blockerMessage}`);
-        }
-        if (latest.state === 'complete') {
-          return;
-        }
-        mineBitcoinSingleBlock(minerAddress);
-        await sleep(1_000);
-      }
-
-      throw new Error(`${flowName}: exact funding did not advance beyond the funding entry state.`);
+      await flow.poll<IFundLockExactState>(
+        latest => {
+          if (latest.state === 'uiStateMismatch') {
+            const blockerMessage = latest.blockers.join(', ') || 'backend/ui state mismatch';
+            throw new Error(`${flowName}: ${blockerMessage}`);
+          }
+          if (latest.state === 'complete') {
+            return true;
+          }
+          mineBitcoinSingleBlock(minerAddress);
+          return false;
+        },
+        {
+          pollMs: 1_000,
+          timeoutMs: 180_000,
+          timeoutMessage: `${flowName}: exact funding did not advance beyond the funding entry state.`,
+        },
+      );
     },
   });
 

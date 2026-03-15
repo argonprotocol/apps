@@ -86,6 +86,7 @@ export default defineConfig(async ({ mode }) => {
   }
 
   const driverWs = getValidatedDriverWs(process.env.ARGON_DRIVER_WS);
+  const disableHmr = !!driverWs && ['1', 'true'].includes(process.env.CI?.trim().toLowerCase() ?? '');
 
   return {
     resolve: {
@@ -147,13 +148,15 @@ export default defineConfig(async ({ mode }) => {
       port: instancePort,
       strictPort: true,
       host: host || false,
-      hmr: host
-        ? {
-            protocol: 'ws',
-            host,
-            port: instancePort + 1,
-          }
-        : undefined,
+      hmr: disableHmr
+        ? false
+        : host
+          ? {
+              protocol: 'ws',
+              host,
+              port: instancePort + 1,
+            }
+          : undefined,
       watch: {
         // 3. tell vite to ignore watching `src-tauri`
         ignored: ['**/src-tauri/**', '**/e2e/**'],

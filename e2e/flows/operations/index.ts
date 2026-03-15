@@ -3,6 +3,7 @@ import { logDefaultAppFailureDiagnostics, withStateContext } from '../helpers/op
 import { captureE2EScreenshot } from '../helpers/screenshotMode.ts';
 import type {
   IE2EFlowRuntime,
+  IE2EPollOptions,
   IE2EOperationState,
   IE2ERunOperationOptions,
   IE2EWaitUntilRunnableOptions,
@@ -19,6 +20,7 @@ type IFlowWithOperationBindings = IE2EFlowRuntime & {
   inspect: IE2EFlowRuntime['inspect'];
   run: IE2EFlowRuntime['run'];
   waitUntilRunnable: IE2EFlowRuntime['waitUntilRunnable'];
+  poll: IE2EFlowRuntime['poll'];
 };
 
 export interface IWaitUntilRunnableOptions<Context, State> {
@@ -191,6 +193,7 @@ async function withBoundFlowRuntime<Context, State, Result>(
   const previousInspect = flow.inspect;
   const previousRun = flow.run;
   const previousWaitUntilRunnable = flow.waitUntilRunnable;
+  const previousPoll = flow.poll;
 
   flow.inspect = async <TargetState = State, TargetContext = Context>(
     operation?: AnyOperation<TargetContext, TargetState>,
@@ -232,6 +235,22 @@ async function withBoundFlowRuntime<Context, State, Result>(
         : undefined,
     });
   };
+  flow.poll = async <TargetState = State, TargetContext = Context>(
+    operationOrCheck: AnyOperation<TargetContext, TargetState> | ((state: TargetState) => Promise<boolean> | boolean),
+    checkOrOptions?: ((state: TargetState) => Promise<boolean> | boolean) | IE2EPollOptions,
+    maybeOptions?: IE2EPollOptions,
+  ) => {
+    const target = looksLikeOperation(operationOrCheck)
+      ? (operationOrCheck as unknown as Operation<Context, TargetState>)
+      : (currentOperation as unknown as Operation<Context, TargetState>);
+    const check = (looksLikeOperation(operationOrCheck) ? checkOrOptions : operationOrCheck) as (
+      state: TargetState,
+    ) => Promise<boolean> | boolean;
+    const options = (looksLikeOperation(operationOrCheck) ? maybeOptions : checkOrOptions) as
+      | IE2EPollOptions
+      | undefined;
+    return await pollOperationState(context, target, check, options);
+  };
 
   try {
     return await callback();
@@ -239,6 +258,7 @@ async function withBoundFlowRuntime<Context, State, Result>(
     flow.inspect = previousInspect;
     flow.run = previousRun;
     flow.waitUntilRunnable = previousWaitUntilRunnable;
+    flow.poll = previousPoll;
   }
 }
 
@@ -269,6 +289,35 @@ async function waitUntilRunnable<Context, State>(
       pollMs: options.pollMs ?? 100,
       retryErrors: false,
       timeoutMessage: options.timeoutMessage ?? `[E2E] operation '${operation.name}' did not become runnable in time.`,
+    },
+  );
+  return latestState;
+}
+
+async function pollOperationState<Context, State>(
+  context: Context,
+  operation: Operation<Context, State>,
+  check: (state: State) => Promise<boolean> | boolean,
+  options: IE2EPollOptions = {},
+): Promise<State> {
+  let latestState = undefined as State;
+  await waitFor<void>(
+    options.timeoutMs ?? 30_000,
+    `${operation.name} poll`,
+    async () => {
+      latestState = await inspectOperation(context, operation);
+      const lifecycle = readOperationLifecycleState(latestState);
+      if (lifecycle.state === 'uiStateMismatch') {
+        const blockerMessage =
+          lifecycle.blockers.length > 0 ? lifecycle.blockers.join(', ') : 'backend/ui state mismatch';
+        throw new Error(`[E2E] operation '${operation.name}' UI state mismatch: ${blockerMessage}`);
+      }
+      return (await check(latestState)) ? true : undefined;
+    },
+    {
+      pollMs: options.pollMs ?? 100,
+      retryErrors: false,
+      timeoutMessage: options.timeoutMessage ?? `[E2E] operation '${operation.name}' polling timed out.`,
     },
   );
   return latestState;

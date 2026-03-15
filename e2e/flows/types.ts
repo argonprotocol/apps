@@ -77,6 +77,17 @@ export interface IE2EFlowRuntime {
       options?: IE2EWaitUntilRunnableOptions<Context>,
     ): Promise<State>;
   };
+  poll: {
+    <State = unknown, Context = unknown>(
+      check: (state: State) => Promise<boolean> | boolean,
+      options?: IE2EPollOptions,
+    ): Promise<State>;
+    <State = unknown, Context = unknown>(
+      operation: AnyOperation<Context, State>,
+      check: (state: State) => Promise<boolean> | boolean,
+      options?: IE2EPollOptions,
+    ): Promise<State>;
+  };
   queryApp: <T = unknown>(fn: string, options?: IE2EQueryAppOptions) => Promise<T | undefined>;
   click: (target: E2ETarget, options?: IE2EClickOptions) => Promise<void>;
   type: (target: E2ETarget, text: string, options?: IE2ETypeOptions) => Promise<void>;
@@ -105,6 +116,12 @@ export interface IE2EWaitUntilRunnableOptions<Context> {
   pollMs?: number;
   timeoutMessage?: string;
   onNotReadyPoll?: (context: Context, state: unknown) => Promise<void> | void;
+}
+
+export interface IE2EPollOptions {
+  timeoutMs?: number;
+  pollMs?: number;
+  timeoutMessage?: string;
 }
 
 export type IE2EOperationState = 'complete' | 'runnable' | 'processing' | 'uiStateMismatch';

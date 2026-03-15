@@ -62,7 +62,12 @@ export class ProfitAnalysis {
 
     for (const frameId of frameIds) {
       const treasuryAtFrame = treasuryPoolCapitalByFrame[frameId];
-      const startTick = this.miningFrames.getTickStart(frameId);
+      let startTick: number;
+      try {
+        startTick = this.miningFrames.getTickStart(frameId);
+      } catch {
+        continue;
+      }
       const startingDate = MiningFrames.getTickDate(startTick);
 
       const myFrameRevenue = myVaultRevenueByFrame[frameId];

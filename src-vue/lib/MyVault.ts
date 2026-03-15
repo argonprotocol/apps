@@ -4,6 +4,7 @@ import {
   BitcoinLock,
   FIXED_U128_DECIMALS,
   FrameSupportTokensMiscIdAmountRuntimeHoldReason,
+  IBitcoinLock,
   ITxProgressCallback,
   Keyring,
   KeyringPair,
@@ -160,7 +161,7 @@ export class MyVault {
     return this.#bitcoinNetwork;
   }
 
-  public async getVaultXpriv(masterXpubPath?: string): Promise<HDKey> {
+  private async getVaultXpriv(masterXpubPath?: string): Promise<HDKey> {
     masterXpubPath ??= this.metadata!.hdPath;
     if (!masterXpubPath) {
       throw new Error('No master xpub path defined in metadata');
@@ -354,10 +355,7 @@ export class MyVault {
     this.updateCollectDueDate();
   }
 
-  public async cosignMyLock(
-    lock: IBitcoinLockRecord,
-    releaseRequest?: { toScriptPubkey: string; bitcoinNetworkFee: bigint },
-  ): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
+  public async cosignMyLock(lock: IBitcoinLockRecord): Promise<{ txInfo: TransactionInfo } | undefined> {
     if (lock.vaultId !== this.createdVault?.vaultId) {
       // this api is only to unlock our own vault's bitcoin locks
       return;
@@ -365,35 +363,58 @@ export class MyVault {
     try {
       this.data.finalizeMyBitcoinError = undefined;
       const fundingUtxo = lock.fundingUtxoRecord;
-      const effectiveReleaseRequest =
-        releaseRequest ??
-        (fundingUtxo?.releaseToDestinationAddress !== undefined && fundingUtxo.releaseBitcoinNetworkFee !== undefined
-          ? {
-              toScriptPubkey: fundingUtxo.releaseToDestinationAddress,
-              bitcoinNetworkFee: fundingUtxo.releaseBitcoinNetworkFee,
-            }
-          : undefined);
-      if (!effectiveReleaseRequest) {
+      if (!lock.utxoId || !fundingUtxo?.releaseToDestinationAddress || fundingUtxo.releaseBitcoinNetworkFee == null) {
         return;
       }
       const result = await this.cosignRelease({
-        utxoId: lock.utxoId!,
-        toScriptPubkey: effectiveReleaseRequest.toScriptPubkey,
-        bitcoinNetworkFee: effectiveReleaseRequest.bitcoinNetworkFee,
+        utxoId: lock.utxoId,
+        releaseRequest: {
+          toScriptPubkey: fundingUtxo.releaseToDestinationAddress,
+          bitcoinNetworkFee: fundingUtxo.releaseBitcoinNetworkFee,
+        },
       });
       if (!result) {
         // The release request can lag briefly on finalized views. Treat as retryable and
         // let the next lock-processing poll attempt cosign again.
         return;
       }
-      return result;
+      return { txInfo: result.txInfo };
     } catch (error) {
       console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
       this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId!, error: String(error) };
     }
   }
 
-  public async cosignMyOrphanedUtxoRelease(args: {
+  public async createVaultSignatureForMyOrphanedUtxoRelease(args: {
+    lock: IBitcoinLockRecord;
+    txid: string;
+    vout: number;
+    satoshis: bigint;
+    toScriptPubkey: string;
+    bitcoinNetworkFee: bigint;
+  }): Promise<Uint8Array | undefined> {
+    const { lock } = args;
+    if (!lock.utxoId || lock.vaultId !== this.createdVault?.vaultId) {
+      return;
+    }
+    try {
+      this.data.finalizeMyBitcoinError = undefined;
+      const result = await this.buildOrphanSignature({
+        lock: lock.lockDetails,
+        txid: args.txid,
+        vout: args.vout,
+        satoshis: args.satoshis,
+        bitcoinNetworkFee: args.bitcoinNetworkFee,
+        toScriptPubkey: args.toScriptPubkey,
+      });
+      return result.vaultSignature;
+    } catch (error) {
+      console.error(`Error creating orphan release signature for lock ${lock.utxoId}`, error);
+      this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId, error: String(error) };
+    }
+  }
+
+  private async cosignMyOrphanedUtxoRelease(args: {
     lock: IBitcoinLockRecord;
     ownerAccount: string;
     txid: string;
@@ -425,21 +446,13 @@ export class MyVault {
 
   private async buildCosignTx(args: {
     utxoId: number;
-    bitcoinNetworkFee: bigint;
-    toScriptPubkey: string;
+    releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
   }): Promise<{ tx: SubmittableExtrinsic; vaultSignature: Uint8Array } | undefined> {
-    const { utxoId, bitcoinNetworkFee, toScriptPubkey } = args;
-
+    const { utxoId, releaseRequest } = args;
     const finalizedClient = await getFinalizedClient();
     const lock = await BitcoinLock.get(finalizedClient, utxoId);
     if (!lock) {
       console.warn('No lock found for utxoId:', utxoId);
-      return;
-    }
-
-    const releaseRequest = await lock.getReleaseRequest(finalizedClient);
-    if (!releaseRequest) {
-      console.warn('No release request found for utxoId:', utxoId);
       return;
     }
     const utxoRef = await lock.getFundingUtxoRef(finalizedClient);
@@ -451,8 +464,8 @@ export class MyVault {
     const cosign = new CosignScript(lock, await this.getBitcoinNetwork());
     const psbt = cosign.getCosignPsbt({
       releaseRequest: {
-        bitcoinNetworkFee,
-        toScriptPubkey,
+        bitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
+        toScriptPubkey: releaseRequest.toScriptPubkey,
       },
       utxoRef,
     });
@@ -497,8 +510,7 @@ export class MyVault {
 
   private async cosignRelease(args: {
     utxoId: number;
-    bitcoinNetworkFee: bigint;
-    toScriptPubkey: string;
+    releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
     progressCallback?: ITxProgressCallback;
   }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
     return await this.#cosignQueue.add(async () => {
@@ -621,8 +633,10 @@ export class MyVault {
           const pendingRelease = pendingReleaseRaw.unwrap();
           const result = await this.buildCosignTx({
             utxoId,
-            bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee.toBigInt(),
-            toScriptPubkey: pendingRelease.toScriptPubkey.toHex(),
+            releaseRequest: {
+              bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee.toBigInt(),
+              toScriptPubkey: pendingRelease.toScriptPubkey.toHex(),
+            },
           });
           if (result) {
             txs.push(result.tx);
@@ -765,10 +779,8 @@ export class MyVault {
     return txs;
   }
 
-  private async buildOrphanCosignSubmission(args: {
-    submitClient: ArgonClient;
-    lock: BitcoinLock;
-    ownerAccount: string;
+  private async buildOrphanSignature(args: {
+    lock: IBitcoinLock;
     txid: string;
     vout: number;
     satoshis: bigint;
@@ -776,7 +788,7 @@ export class MyVault {
     toScriptPubkey: string;
     vaultXpriv?: HDKey;
     bitcoinNetwork?: BitcoinNetwork;
-  }): Promise<{ tx: SubmittableExtrinsic; vaultSignature: Uint8Array; vaultSignatureHex: string }> {
+  }): Promise<{ vaultSignature: Uint8Array; vaultSignatureHex: string }> {
     const bitcoinNetwork = args.bitcoinNetwork ?? (await this.getBitcoinNetwork());
     const vaultXpriv = args.vaultXpriv ?? (await this.getVaultXpriv());
     const cosign = new CosignScript({ ...args.lock, utxoSatoshis: args.satoshis }, bitcoinNetwork);
@@ -790,9 +802,33 @@ export class MyVault {
     const signedPsbt = cosign.vaultCosignPsbt(psbt, args.lock, vaultXpriv);
     const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
     if (!vaultSignature) {
-      throw new Error(`Failed to get orphan vault signature for ${args.ownerAccount}:${args.txid}:${args.vout}`);
+      throw new Error(`Failed to get orphan vault signature for ${args.txid}:${args.vout}`);
     }
-    const vaultSignatureHex = u8aToHex(vaultSignature);
+    return { vaultSignature, vaultSignatureHex: u8aToHex(vaultSignature) };
+  }
+
+  private async buildOrphanCosignSubmission(args: {
+    submitClient: ArgonClient;
+    lock: BitcoinLock;
+    ownerAccount: string;
+    txid: string;
+    vout: number;
+    satoshis: bigint;
+    bitcoinNetworkFee: bigint;
+    toScriptPubkey: string;
+    vaultXpriv?: HDKey;
+    bitcoinNetwork?: BitcoinNetwork;
+  }): Promise<{ tx: SubmittableExtrinsic; vaultSignature: Uint8Array; vaultSignatureHex: string }> {
+    const { vaultSignature, vaultSignatureHex } = await this.buildOrphanSignature({
+      lock: args.lock,
+      txid: args.txid,
+      vout: args.vout,
+      satoshis: args.satoshis,
+      bitcoinNetworkFee: args.bitcoinNetworkFee,
+      toScriptPubkey: args.toScriptPubkey,
+      vaultXpriv: args.vaultXpriv,
+      bitcoinNetwork: args.bitcoinNetwork,
+    });
     return {
       tx: args.submitClient.tx.bitcoinLocks.cosignOrphanedUtxoRelease(
         args.ownerAccount,

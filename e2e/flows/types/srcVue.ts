@@ -1,14 +1,15 @@
 export interface IBitcoinVaultMismatchState {
   hasActiveLock: boolean;
   lockStatus?: string;
+  phase: string;
   isPendingFunding: boolean;
   isFundingReadyToResume: boolean;
   isPostFundingLock: boolean;
-  mismatchRequired: boolean;
-  canActOnMismatch: boolean;
-  hasMismatchAcceptInProgress: boolean;
-  hasOrphanedReturnInProgress: boolean;
   candidateCount: number;
+  hasError: boolean;
+  hasNextCandidate: boolean;
+  nextCandidateCanAccept: boolean;
+  nextCandidateCanReturn: boolean;
 }
 
 export interface IBitcoinUnlockReleaseState {

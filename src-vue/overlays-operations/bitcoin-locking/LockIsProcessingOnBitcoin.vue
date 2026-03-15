@@ -1,45 +1,41 @@
 <template>
   <div class="space-y-5 px-10 pt-5 pb-10">
-    <div v-if="hasError" class="px-3">
-      <div class="mb-10 flex w-full flex-row">
-        <ExclamationTriangleIcon class="mr-5 h-16 w-16 text-red-600" />
-        <div class="flex flex-col">
-          <h1 class="text-2xl font-bold text-red-600">Your Bitcoin Locking Failed</h1>
-          <p>
-            The amount of bitcoin you sent ({{
-              numeral(currency.convertSatToBtc(satoshisObserved ?? 0n)).format('0,0.[00000000]')
-            }}
-            BTC) was too far outside the requested lock amount ({{
-              numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]')
-            }}
-            BTC). Your transaction could not be accepted. Please reach out on
-            <a class="!text-argon-600 hover:text-argon-800 cursor-pointer font-bold" @click="openDiscord">Discord</a>
-            so we can help you coordinate unlocking the orphaned UTXO.
-          </p>
+    <template v-if="hasMismatch">
+      <p class="pt-2 text-slate-700">
+        The incoming Bitcoin amount differs from what you reserved. We can still reconcile it once Argon finalizes this
+        funding candidate.
+      </p>
+      <div class="mt-2 rounded-md border border-slate-300/80 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span class="text-slate-600">Expected</span>
+          <span class="font-mono text-slate-900">{{ reservedBtcLabel }} BTC</span>
+          <span class="text-slate-400">-></span>
+          <span class="text-slate-600">Received</span>
+          <span class="font-mono text-slate-900">{{ observedBtcLabel }} BTC</span>
+        </div>
+        <div class="mt-1">
+          <span class="text-slate-600">Difference</span>
+          <span class="text-argon-700 ml-1 font-mono font-semibold">{{ differenceBtcLabel }}</span>
         </div>
       </div>
+    </template>
+    <p v-else class="pt-2">
+      Argon miners confirmed a transfer of
+      {{ numeral(currency.convertSatToBtc(satoshisObserved ?? 0n)).format('0,0.[00000000]') }} BTC. We’re waiting for
+      final confirmation on Bitcoin. This usually takes about an hour from start to finish.
+    </p>
+
+    <p class="mb-2 italic">You can close this overlay without interrupting the process.</p>
+
+    <div class="mt-16">
+      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
     </div>
 
-    <template v-else>
-      <p class="pt-2">
-        Argon miners have confirmed a transfer of
-        {{ numeral(currency.convertSatToBtc(satoshisObserved ?? 0n)).format('0,0.[00000000]') }} BTC is being received.
-        We are monitoring Bitcoin's network for final confirmation. This process usually takes an hour from start to
-        finish.
-      </p>
+    <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
 
-      <p class="mb-2 italic">NOTE: You can close this overlay without disrupting the process.</p>
-
-      <div class="mt-16">
-        <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
-      </div>
-
-      <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
-
-      <div class="text-center font-light text-gray-500">
-        {{ progressLabel }}
-      </div>
-    </template>
+    <div class="text-center font-light text-gray-500">
+      {{ progressLabel }}
+    </div>
   </div>
 </template>
 
@@ -49,58 +45,82 @@ import numeral from '../../lib/numeral';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { generateProgressLabel } from '../../lib/Utils.ts';
-import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { useBitcoinLockProgress } from '../../stores/bitcoinLockProgress.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
 }>();
 
 const bitcoinLocks = getBitcoinLocks();
+const bitcoinLockProgress = useBitcoinLockProgress();
 const currency = getCurrency();
 
 const satoshisObserved = Vue.ref<bigint | undefined>(undefined);
-const progressPct = Vue.ref(0);
-const blockConfirmations = Vue.ref(-1);
-
-let expectedConfirmations = 0;
+const personalLock = Vue.computed(() => props.personalLock);
+const progressPct = Vue.computed(() => bitcoinLockProgress.lockProcessing.progressPct);
 
 const progressLabel = Vue.computed(() => {
-  return generateProgressLabel(blockConfirmations.value, expectedConfirmations, { blockType: 'Bitcoin' });
+  return generateProgressLabel(
+    bitcoinLockProgress.lockProcessing.confirmations,
+    bitcoinLockProgress.lockProcessing.expectedConfirmations,
+    { blockType: 'Bitcoin' },
+  );
 });
 
-const personalLock = Vue.computed(() => {
-  return props.personalLock;
+const hasMismatch = Vue.computed(() => {
+  return isInvalidAmount.value && satoshisObserved.value !== undefined;
 });
-
-function openDiscord() {
-  void tauriOpenUrl('https://discord.gg/xDwwDgCYr9');
-}
-const hasError = Vue.ref<boolean>(false);
+const isInvalidAmount = Vue.ref<boolean>(false);
+const reservedBtcLabel = Vue.computed(() => {
+  return numeral(currency.convertSatToBtc(personalLock.value.satoshis ?? 0n)).format('0,0.[00000000]');
+});
+const observedBtcLabel = Vue.computed(() => {
+  return numeral(currency.convertSatToBtc(satoshisObserved.value ?? 0n)).format('0,0.[00000000]');
+});
+const differenceBtcLabel = Vue.computed(() => {
+  const observed = satoshisObserved.value;
+  if (observed === undefined) return '0 BTC';
+  const diff = observed - personalLock.value.satoshis;
+  const absDiff = diff < 0n ? -diff : diff;
+  const formatted = numeral(currency.convertSatToBtc(absDiff)).format('0,0.[00000000]');
+  if (diff > 0n) return `+${formatted} BTC`;
+  if (diff < 0n) return `-${formatted} BTC`;
+  return `${formatted} BTC`;
+});
 
 function updateProgress() {
-  const details = bitcoinLocks.getLockProcessingDetails(props.personalLock);
-  progressPct.value = details.progressPct;
-  blockConfirmations.value = details.confirmations;
-  expectedConfirmations = details.expectedConfirmations;
+  const details = bitcoinLocks.getLockProcessingDetails(personalLock.value);
   satoshisObserved.value = details.receivedSatoshis;
-  hasError.value = details.isInvalidAmount ?? false;
+  isInvalidAmount.value = details.isInvalidAmount ?? false;
 }
 
 let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined = undefined;
+let stopLockProgressTracking: (() => void) | undefined;
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
+  stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
   updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
   updateProgress();
 });
+
+Vue.watch(
+  () => props.personalLock,
+  nextLock => {
+    bitcoinLockProgress.updateLock(nextLock);
+    updateProgress();
+  },
+  { deep: true, immediate: true },
+);
 
 Vue.onUnmounted(() => {
   if (updateBitcoinLockProcessingInterval) {
     clearInterval(updateBitcoinLockProcessingInterval);
   }
+  stopLockProgressTracking?.();
+  stopLockProgressTracking = undefined;
 });
 </script>
 

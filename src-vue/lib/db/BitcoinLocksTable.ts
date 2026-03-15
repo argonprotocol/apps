@@ -20,6 +20,8 @@ export enum BitcoinLockStatus {
   LockIsProcessingOnArgon = 'LockIsProcessingOnArgon', // Submitted transaction to the Argon chain but not yet confirmed in block.
   LockPendingFunding = 'LockPendingFunding', // Argon lock exists and vault securitization is reserved; waiting for Bitcoin funding confirmation/candidate resolution.
   LockExpiredWaitingForFunding = 'LockExpiredWaitingForFunding', // Lock expired before funding could be verified on Argon.
+  LockExpiredWaitingForFundingAcknowledged = 'LockExpiredWaitingForFundingAcknowledged', // User has seen the fresh funding-expired state.
+  LockFundingReadyToResume = 'LockFundingReadyToResume', // A mismatch return finished and the user must explicitly resume funding.
   LockedAndIsMinting = 'LockedAndIsMinting', // Bitcoin is fully locked but minting is still settling.
   LockedAndMinted = 'LockedAndMinted', // Bitcoin is fully locked and minting is complete.
 
@@ -268,6 +270,16 @@ export class BitcoinLocksTable extends BaseTable {
 
   public async setLockExpiredWaitingForFunding(lock: IBitcoinLockRecord): Promise<void> {
     lock.status = BitcoinLockStatus.LockExpiredWaitingForFunding;
+    await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
+  }
+
+  public async setLockExpiredWaitingForFundingAcknowledged(lock: IBitcoinLockRecord): Promise<void> {
+    lock.status = BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged;
+    await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
+  }
+
+  public async setLockFundingReadyToResume(lock: IBitcoinLockRecord): Promise<void> {
+    lock.status = BitcoinLockStatus.LockFundingReadyToResume;
     await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
   }
 
