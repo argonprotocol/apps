@@ -269,7 +269,11 @@ export class MyVault {
 
     // update stats live
     const sub = await client.query.vaults.vaultsById(vaultId, vault => {
-      if (vault.isSome) this.createdVault?.load(vault.unwrap());
+      if (!vault.isSome) return;
+
+      const nextVault = new Vault(vaultId, vault.unwrap(), NetworkConfig.tickMillis);
+      this.vaults.vaultsById[vaultId] = nextVault;
+      this.data.createdVault = nextVault;
     });
 
     const sub2 = await client.query.vaults.revenuePerFrameByVault(vaultId, async x => {
@@ -1536,3 +1540,5 @@ export class MyVault {
     };
   }
 }
+
+export type IMyVaultInspect = Pick<MyVault, 'vaultId' | 'load'>;
