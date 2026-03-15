@@ -2,7 +2,7 @@ import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import { MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { startArgonTestNetwork } from './startArgonTestNetwork.js';
+import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import Path from 'path';
 import { BlockWatch } from '../src/BlockWatch.ts';
 

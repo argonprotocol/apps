@@ -5,9 +5,9 @@ import Path from 'node:path';
 import process from 'node:process';
 import type { IE2EFlowRuntime } from '../types.ts';
 
-export type E2EScreenshotMode = 'off' | 'operation' | 'interaction';
-export type E2EScreenshotScope = 'operation' | 'interaction';
-export type E2EScreenshotPhase = 'start' | 'end' | 'failure';
+export type E2EScreenshotMode = 'off' | 'on';
+export type E2EScreenshotScope = 'operation' | 'interaction' | 'phase';
+export type E2EScreenshotPhase = 'start' | 'end' | 'failure' | 'change';
 
 export interface IE2EScreenshotCaptureInput {
   scope: E2EScreenshotScope;
@@ -17,9 +17,8 @@ export interface IE2EScreenshotCaptureInput {
   timeoutMs?: number;
 }
 
-const DEFAULT_SCREENSHOT_MODE: E2EScreenshotMode = 'off';
 const DEFAULT_SCREENSHOT_DIR = Path.join(os.tmpdir(), 'e2e-screenshots');
-const DEFAULT_SCREENSHOT_TIMEOUT_MS = 15_000;
+const DEFAULT_SCREENSHOT_TIMEOUT_MS = 60_000;
 
 let screenshotRunDir: string | null = null;
 const screenshotSequenceByFlow: Record<string, number> = {};
@@ -30,24 +29,7 @@ export function resolveE2EScreenshotMode(value: string | undefined): E2EScreensh
   if (!normalized || ['0', 'false', 'off', 'none'].includes(normalized)) {
     return 'off';
   }
-  if (['1', 'true', 'on', 'all', 'interaction', 'interactions', 'step', 'steps'].includes(normalized)) {
-    return 'interaction';
-  }
-  if (normalized === 'operation' || normalized === 'operations' || normalized === 'op' || normalized === 'ops') {
-    return 'operation';
-  }
-  if (
-    normalized === 'flow' ||
-    normalized === 'flows' ||
-    normalized === 'failure' ||
-    normalized === 'failures' ||
-    normalized === 'error' ||
-    normalized === 'errors'
-  ) {
-    // Back-compat aliases map to nearest supported granularity.
-    return 'operation';
-  }
-  return DEFAULT_SCREENSHOT_MODE;
+  return 'on';
 }
 
 export function getE2EScreenshotMode(): E2EScreenshotMode {
@@ -59,20 +41,13 @@ export function shouldCaptureE2EScreenshot(
   phase: E2EScreenshotPhase,
   mode: E2EScreenshotMode = getE2EScreenshotMode(),
 ): boolean {
-  if (phase === 'failure') {
-    return mode !== 'off';
+  if (mode === 'off') {
+    return false;
   }
-
-  switch (mode) {
-    case 'off':
-      return false;
-    case 'operation':
-      return scope === 'operation';
-    case 'interaction':
-      return scope === 'interaction';
-    default:
-      return false;
+  if (scope === 'interaction') {
+    return phase === 'start' || phase === 'failure';
   }
+  return true;
 }
 
 export async function captureE2EScreenshot(

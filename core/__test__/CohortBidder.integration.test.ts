@@ -6,14 +6,14 @@ import {
   MainchainClients,
   Mining,
   MiningFrames,
-} from '../src/index.js';
-import { startArgonTestNetwork } from './startArgonTestNetwork.js';
+} from '../src/index.ts';
+import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
 import { getAuthorFromHeader, getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import Path from 'path';
-import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.js';
+import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.ts';
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;

@@ -1,6 +1,8 @@
 use crate::security::Security;
 use log::trace;
 use nosleep::{NoSleep, NoSleepType};
+#[cfg(target_os = "macos")]
+use objc2_app_kit::NSWindow;
 use sp_core::Pair;
 use sp_core::crypto::Ss58Codec;
 use std::fs;
@@ -402,6 +404,9 @@ pub fn run() {
     let e2e_headless = std::env::var("ARGON_E2E_HEADLESS")
         .ok()
         .is_some_and(|v| v == "true" || v == "1");
+    let e2e_driver_mode = std::env::var("ARGON_DRIVER_WS")
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty());
     let logger = init_logger(&network_name, &instance_name);
 
     let app_name = context.config().product_name.clone().unwrap_or_default();
@@ -434,6 +439,19 @@ pub fn run() {
             if window.label() != "main" {
               return;
             }
+
+            #[cfg(target_os = "macos")]
+            if e2e_driver_mode && !e2e_headless {
+                let webview = window.clone();
+                let webview_for_order = webview.clone();
+                let _ = webview.run_on_main_thread(move || {
+                    if let Ok(ns_window) = webview_for_order.window().ns_window() {
+                        let ns_window = unsafe { &*(ns_window as *mut NSWindow) };
+                        ns_window.orderBack(None);
+                    }
+                });
+            }
+
             let handle = window.app_handle();
             let instance_name = Utils::get_instance_name();
             let security = security::Security::load(handle);
@@ -492,15 +510,16 @@ pub fn run() {
             if e2e_headless {
                 log::info!("E2E headless mode enabled (ARGON_E2E_HEADLESS)");
 
-                #[cfg(target_os = "macos")]
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
-                if let Err(error) = window.set_skip_taskbar(true) {
-                    log::warn!("Unable to set skip taskbar on main window: {error}");
-                }
-
                 if let Err(error) = window.hide() {
                     log::warn!("Unable to hide main window in e2e mode: {error}");
+                }
+            }
+
+            #[cfg(target_os = "macos")]
+            if e2e_driver_mode && !e2e_headless {
+                if let Ok(ns_window) = window.ns_window() {
+                    let ns_window = unsafe { &*(ns_window as *mut NSWindow) };
+                    ns_window.orderBack(None);
                 }
             }
 
@@ -547,7 +566,8 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_os::init());
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_macos_permissions::init());
 
     builder
         .invoke_handler(tauri::generate_handler![

@@ -1,7 +1,9 @@
 import { createBitcoinFlowContext, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import { createVaultingFlowContext } from '../contexts/vaultingContext.ts';
-import bitcoinEnsureLockFundingDetails from './Bitcoin.op.ensureLockFundingDetails.ts';
 import bitcoinFundLockExact from './Bitcoin.op.fundLockExact.ts';
+import bitcoinOpenLockFundingOverlay from './Bitcoin.op.openLockFundingOverlay.ts';
+import bitcoinReadLockFundingDetails from './Bitcoin.op.readLockFundingDetails.ts';
+import bitcoinStartBitcoinLock from './Bitcoin.op.startBitcoinLock.ts';
 import bitcoinUnlockBitcoin from './Bitcoin.op.unlockBitcoin.ts';
 import bitcoinWaitUnlockReady from './Bitcoin.op.waitUnlockReady.ts';
 import { OperationalFlow } from './index.ts';
@@ -14,21 +16,23 @@ export default new OperationalFlow<IBitcoinFlowContext, ILockUnlockState>(import
   description: 'Perform one bitcoin lock and unlock cycle using an operational vault.',
   defaultTimeoutMs: 20_000,
   createContext: createBitcoinFlowContext,
-  async inspect() {
+  async inspect({ state }) {
     return {
       chainState: {},
       uiState: {},
-      isRunnable: true,
-      isComplete: false,
+      state: state.isCompleted ? 'complete' : 'runnable',
       blockers: [],
     };
   },
-  async run({ flow, flowName }, _state, api) {
+  async run({ flow, flowName, state }) {
     const vaultingContext = createVaultingFlowContext(flow, flowName);
-    await flow.runOperations(vaultingContext, [vaultingOnboarding]);
-    await api.run(bitcoinEnsureLockFundingDetails);
-    await api.run(bitcoinFundLockExact);
-    await api.run(bitcoinWaitUnlockReady);
-    await api.run(bitcoinUnlockBitcoin);
+    await flow.run(vaultingContext, vaultingOnboarding);
+    await flow.run(bitcoinStartBitcoinLock);
+    await flow.run(bitcoinOpenLockFundingOverlay);
+    await flow.run(bitcoinReadLockFundingDetails);
+    await flow.run(bitcoinFundLockExact);
+    await flow.run(bitcoinWaitUnlockReady);
+    await flow.run(bitcoinUnlockBitcoin);
+    state.isCompleted = true;
   },
 });

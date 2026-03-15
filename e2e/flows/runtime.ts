@@ -1,6 +1,6 @@
 import type { DriverClient } from '../driver/client.ts';
-import { captureE2EScreenshot } from './helpers/screenshotMode.ts';
-import { runOperations } from './operations/index.ts';
+import { captureE2EScreenshot, getE2EScreenshotMode } from './helpers/screenshotMode.ts';
+import { runOperation } from './operations/index.ts';
 import type {
   E2ECommandArgs,
   IE2EClipboardOptions,
@@ -8,7 +8,9 @@ import type {
   IE2EFlowExecutionOptions,
   IE2EFlowExecutionResult,
   IE2EFlowRuntime,
+  IE2ERunOperationOptions,
   E2ETarget,
+  IE2EClickOptions,
   IE2ETimeoutOptions,
   IE2ETypeOptions,
   IE2EWaitOptions,
@@ -31,6 +33,10 @@ function resolveTarget(target: E2ETarget): { testId?: string; selector?: string;
   return target;
 }
 
+function looksLikeOperation(value: unknown): boolean {
+  return !!value && typeof value === 'object' && typeof (value as { inspect?: unknown }).inspect === 'function';
+}
+
 export async function executeFlow(
   driver: DriverClient,
   flow: IE2EFlowDefinition,
@@ -40,7 +46,7 @@ export async function executeFlow(
   const input = normalizeInput(execution.input);
   const defaultTimeoutMs = flow.defaultTimeoutMs ?? DEFAULT_FLOW_TIMEOUT_MS;
   let activeOperationName = '';
-  let interactionSequence = 0;
+  let screenshotSequence = 0;
 
   const withCommandMeta = (args?: E2ECommandArgs): E2ECommandArgs => {
     const payload: E2ECommandArgs = { ...(args ?? {}) };
@@ -50,7 +56,7 @@ export async function executeFlow(
     return payload;
   };
 
-  const toInteractionScreenshotName = (sequenceNumber: number, command: string, args?: E2ECommandArgs): string => {
+  const toCommandScreenshotName = (sequenceNumber: number, command: string, args?: E2ECommandArgs): string => {
     const sequence = sequenceNumber.toString().padStart(4, '0');
     const operationName = activeOperationName ? `${activeOperationName}-` : '';
     const target =
@@ -59,22 +65,14 @@ export async function executeFlow(
     return `${sequence}-${operationName}${command}-${target}${state}`;
   };
 
-  const shouldCaptureInteractionScreenshot = (command: string, args?: E2ECommandArgs): boolean => {
-    if (command === 'ui.click' || command === 'ui.type' || command === 'ui.copy' || command === 'ui.paste') {
-      return true;
-    }
-    if (command !== 'ui.waitFor') {
-      return false;
-    }
+  const isMutatingUiCommand = (command: string): boolean => {
+    return command === 'ui.click' || command === 'ui.type' || command === 'ui.copy' || command === 'ui.paste';
+  };
 
-    const state = typeof args?.state === 'string' ? args.state : 'visible';
-    if (state === 'missing' || state === 'hidden') {
-      return false;
-    }
-    if (typeof args?.selector === 'string' && args.selector === '#app') {
-      return false;
-    }
-    return true;
+  const getPreInteractionWaitState = (command: string): 'clickable' | 'enabled' | null => {
+    if (command === 'ui.click') return 'clickable';
+    if (command === 'ui.type' || command === 'ui.copy' || command === 'ui.paste') return 'enabled';
+    return null;
   };
 
   const runDriverCommand = async <Result>(command: string, args?: E2ECommandArgs): Promise<Result> => {
@@ -82,16 +80,20 @@ export async function executeFlow(
     if (command === 'app.captureScreenshot') {
       return await driver.command<Result>(command, payload);
     }
-    const shouldCaptureInteraction = shouldCaptureInteractionScreenshot(command, payload);
+    const screenshotMode = getE2EScreenshotMode();
+    const shouldCaptureCommandScreenshot = isMutatingUiCommand(command) && screenshotMode === 'on';
     let name: string | undefined;
 
-    const captureInteractionScreenshot = async (phase: 'end' | 'failure') => {
+    const captureCommandScreenshot = async (
+      phase: 'start' | 'failure',
+      scope: 'operation' | 'interaction',
+    ): Promise<void> => {
       if (!name) {
-        interactionSequence += 1;
-        name = toInteractionScreenshotName(interactionSequence, command, payload);
+        screenshotSequence += 1;
+        name = toCommandScreenshotName(screenshotSequence, command, payload);
       }
       await captureE2EScreenshot(runtime, {
-        scope: 'interaction',
+        scope,
         phase,
         flowName: flow.name,
         name,
@@ -99,44 +101,74 @@ export async function executeFlow(
     };
 
     try {
-      const result = await driver.command<Result>(command, payload);
-      if (shouldCaptureInteraction) {
-        if (command !== 'ui.waitFor') {
-          await new Promise(resolve => setTimeout(resolve, 180));
+      if (shouldCaptureCommandScreenshot) {
+        const readinessState = getPreInteractionWaitState(command);
+        const waitArgs: E2ECommandArgs = {};
+        if (typeof payload.testId === 'string') waitArgs.testId = payload.testId;
+        if (typeof payload.selector === 'string') waitArgs.selector = payload.selector;
+        if (typeof payload.index === 'number') waitArgs.index = payload.index;
+        if (readinessState) {
+          waitArgs.state = readinessState;
         }
-        await captureInteractionScreenshot('end');
+        waitArgs.timeoutMs = typeof payload.timeoutMs === 'number' ? payload.timeoutMs : defaultTimeoutMs;
+        await driver.command('ui.waitFor', withCommandMeta(waitArgs));
+        await captureCommandScreenshot('start', 'interaction');
       }
+      const result = await driver.command<Result>(command, payload);
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (
+        shouldCaptureCommandScreenshot &&
         !errorMessage.includes('[app_command_not_received]') &&
         !errorMessage.includes('[driver_command_timeout]') &&
         !errorMessage.includes('[app_disconnected]') &&
         !errorMessage.includes('Driver socket closed')
       ) {
-        await captureInteractionScreenshot('failure');
+        await captureCommandScreenshot('failure', 'interaction');
       }
       throw error;
     }
   };
 
   const runtime: IE2EFlowRuntime = {
+    flowName: flow.name,
     input,
     defaultTimeoutMs,
     setActiveOperation: (operationName?: string) => {
       activeOperationName = operationName?.trim() ?? '';
     },
-    run: (command, args) => runDriverCommand(command, args),
-    runOperations: async (context, operations) => {
-      await runOperations(context, operations);
+    command: (command, args) => runDriverCommand(command, args),
+    run: async (...args: unknown[]) => {
+      if (looksLikeOperation(args[0])) {
+        throw new Error('flow.run(operation) requires an active operation context.');
+      }
+      const [context, operation, options] = args;
+      await runOperation(context, operation as never, options as IE2ERunOperationOptions<typeof context> | undefined);
     },
-    click: (target, options) =>
-      runDriverCommand('ui.click', {
+    inspect: async () => {
+      throw new Error('flow.inspect() requires an active operation context.');
+    },
+    waitUntilRunnable: async () => {
+      throw new Error('flow.waitUntilRunnable() requires an active operation context.');
+    },
+    click: async (target, options?: IE2EClickOptions) => {
+      const resolvedTarget = resolveTarget(target);
+      await runDriverCommand('ui.click', {
         ...withCommandMeta(),
-        ...resolveTarget(target),
+        ...resolvedTarget,
         timeoutMs: options?.timeoutMs ?? defaultTimeoutMs,
-      }),
+      });
+      if (!options?.waitForDisappearMs) {
+        return;
+      }
+      await runDriverCommand('ui.waitFor', {
+        ...withCommandMeta(),
+        ...resolvedTarget,
+        state: 'missing',
+        timeoutMs: options.waitForDisappearMs,
+      });
+    },
     type: (target, text, options: IE2ETypeOptions = {}) =>
       runDriverCommand('ui.type', {
         ...withCommandMeta(),
@@ -229,4 +261,4 @@ async function ensureRuntimeUiReady(runtime: IE2EFlowRuntime): Promise<void> {
   await runtime.waitFor({ selector: '#app' }, { state: 'exists', timeoutMs: 30_000 });
 }
 
-export type { IE2EFlowDefinition, E2ECommandArgs } from './types.ts';
+export { type IE2EFlowDefinition, type E2ECommandArgs } from './types.ts';

@@ -1,70 +1,124 @@
-import { pollEvery } from '../helpers/utils.ts';
+import { pollEvery, runInspect } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
 const VAULT_CREATE_TRANSITION_TIMEOUT_MS = 20_000;
 
+type IVaultingFundingInspect = {
+  walletIsFullyFunded: boolean;
+  walletOverlayIsOpen: boolean;
+  availableMicrogons: string;
+  availableMicronots: string;
+  requiredMicrogons: string;
+  requiredMicronots: string;
+};
+
 type IFinalizeSetupUiState = {
   lockOverlayVisible: boolean;
   dashboardVisible: boolean;
   createVaultVisible: boolean;
+  createVaultClickable: boolean;
   installingVisible: boolean;
 };
 
-interface IFinalizeSetupState extends IE2EOperationInspectState<Record<string, never>, IFinalizeSetupUiState> {
-  lockOverlayVisible: boolean;
-  dashboardVisible: boolean;
-  createVaultVisible: boolean;
-  installingVisible: boolean;
-  runnable: boolean;
-  blockers: string[];
-}
+type IFinalizeSetupState = IE2EOperationInspectState<IVaultingFundingInspect, IFinalizeSetupUiState>;
 
 export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.meta, {
   async inspect({ flow }) {
-    const [lockOverlayEntry, dashboard, createVaultEntry, installingState] = await Promise.all([
+    const [fundingState, lockOverlayEntry, dashboard, createVaultEntry, installingState] = await Promise.all([
+      runInspect<IVaultingFundingInspect>(
+        flow,
+        ((refs: {
+          config: {
+            vaultingRules?: {
+              baseMicrogonCommitment?: bigint;
+              baseMicronotCommitment?: bigint;
+            } | null;
+          };
+          wallets: {
+            vaultingWallet: {
+              availableMicrogons: bigint;
+              availableMicronots: bigint;
+            };
+          };
+          controller: {
+            walletOverlayIsOpen: boolean;
+          };
+        }) => {
+          const requiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
+          const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
+          const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
+          const availableMicronots = refs.wallets.vaultingWallet.availableMicronots ?? 0n;
+
+          return {
+            walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
+            walletOverlayIsOpen: refs.controller.walletOverlayIsOpen,
+            availableMicrogons: availableMicrogons.toString(),
+            availableMicronots: availableMicronots.toString(),
+            requiredMicrogons: requiredMicrogons.toString(),
+            requiredMicronots: requiredMicronots.toString(),
+          };
+        }).toString(),
+        10_000,
+      ),
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
       flow.isVisible('SetupChecklist.createVault()'),
       flow.isVisible({ selector: '.VaultIsInstalling' }),
     ]);
-    const hasFinalizeEntryPoint = createVaultEntry.visible || installingState.visible;
-    const runnable = !lockOverlayEntry.visible && !dashboard.visible && hasFinalizeEntryPoint;
+    const createVaultVisible = createVaultEntry.visible;
+    const createVaultClickable = createVaultEntry.clickable;
+    const walletIsFullyFunded = fundingState?.walletIsFullyFunded ?? false;
+    const hasFinalizeEntryPoint = createVaultVisible || installingState.visible;
     const isComplete = lockOverlayEntry.visible || dashboard.visible;
-    const isRunnable = !isComplete && runnable;
+    const canRun =
+      !lockOverlayEntry.visible &&
+      !dashboard.visible &&
+      walletIsFullyFunded &&
+      (installingState.visible || createVaultVisible);
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
+
     const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
-    if (!isComplete && !hasFinalizeEntryPoint) {
+    if (!isComplete && !walletIsFullyFunded) {
+      blockers.push('Vaulting wallet is not fully funded yet.');
+    } else if (!isComplete && !hasFinalizeEntryPoint) {
       blockers.push('Vaulting is not at the finalize step yet.');
     }
     return {
-      chainState: {},
+      chainState: fundingState ?? {
+        walletIsFullyFunded: false,
+        walletOverlayIsOpen: false,
+        availableMicrogons: '0',
+        availableMicronots: '0',
+        requiredMicrogons: '0',
+        requiredMicronots: '0',
+      },
       uiState: {
         lockOverlayVisible: lockOverlayEntry.visible,
         dashboardVisible: dashboard.visible,
-        createVaultVisible: createVaultEntry.visible,
+        createVaultVisible,
+        createVaultClickable,
         installingVisible: installingState.visible,
       },
-      isRunnable,
-      isComplete,
-      lockOverlayVisible: lockOverlayEntry.visible,
-      dashboardVisible: dashboard.visible,
-      createVaultVisible: createVaultEntry.visible,
-      installingVisible: installingState.visible,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      state: operationState,
+      blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow, flowName }, state) {
-    if (state.lockOverlayVisible || state.dashboardVisible) {
+    if (state.uiState.lockOverlayVisible || state.uiState.dashboardVisible) {
       return;
     }
-    if (!state.createVaultVisible && !state.installingVisible) {
+    if (!state.uiState.createVaultVisible && !state.uiState.installingVisible) {
       return;
     }
 
-    if (state.createVaultVisible) {
+    if (state.uiState.createVaultVisible) {
       await flow.click('SetupChecklist.createVault()', { timeoutMs: 30_000 });
       await waitForVaultCreateTransition(flow, flowName);
     }

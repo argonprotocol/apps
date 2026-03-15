@@ -1,4 +1,3 @@
-import { clickIfVisible } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -11,8 +10,6 @@ type IStartRegistrationUiState = {
 interface IStartRegistrationState extends IE2EOperationInspectState<Record<string, never>, IStartRegistrationUiState> {
   blankSlateVisible: boolean;
   postStartReadyVisible: boolean;
-  runnable: boolean;
-  blockers: string[];
 }
 
 export default new Operation<IVaultingFlowContext, IStartRegistrationState>(import.meta, {
@@ -24,10 +21,15 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
 
     const hasEntrypoint = blankSlateVisible || postStartReadyVisible;
     const isComplete = postStartReadyVisible;
-    const runnable = !isComplete && hasEntrypoint;
-    const isRunnable = runnable;
+    const canRun = !isComplete && hasEntrypoint;
+    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
+    if (isComplete) {
+      operationState = 'complete';
+    } else if (canRun) {
+      operationState = 'runnable';
+    }
+
     const blockers: string[] = [];
-    if (isComplete) blockers.push('ALREADY_COMPLETE');
     if (!isComplete && !hasEntrypoint) {
       blockers.push('Vaulting setup entry is not visible (neither blank-slate nor checklist).');
     }
@@ -37,12 +39,10 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
         blankSlateVisible,
         postStartReadyVisible,
       },
-      isRunnable,
-      isComplete,
+      state: operationState,
       blankSlateVisible,
       postStartReadyVisible,
-      runnable,
-      blockers: isRunnable ? [] : blockers,
+      blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow }, state) {
@@ -50,21 +50,8 @@ export default new Operation<IVaultingFlowContext, IStartRegistrationState>(impo
       return;
     }
 
-    if (state.blankSlateVisible && (await clickIfVisible(flow, 'BlankSlate.startSettingUpVault()'))) {
-      await flow.waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
-      return;
-    }
-
-    const checklistVisible = await flow
-      .waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 20_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (checklistVisible) {
-      return;
-    }
-
-    const blankSlate = await flow.isVisible('BlankSlate.startSettingUpVault()');
-    if (blankSlate.visible && (await clickIfVisible(flow, 'BlankSlate.startSettingUpVault()'))) {
+    if (state.blankSlateVisible) {
+      await flow.click('BlankSlate.startSettingUpVault()', { timeoutMs: 10_000 });
       await flow.waitFor('SetupChecklist.openHowVaultingWorksOverlay()', { timeoutMs: 30_000 });
       return;
     }

@@ -1,4 +1,5 @@
 use std::path::{Component, Path, PathBuf};
+use std::thread;
 use time::OffsetDateTime;
 use xcap::Monitor as XcapMonitor;
 use xcap::Window as XcapWindow;
@@ -24,7 +25,16 @@ pub fn capture_main_window_screenshot(
             )
         })
     })?;
-    image.save(&path).map_err(|e| e.to_string())?;
+    let output_path = path.clone();
+    thread::spawn(move || {
+        if let Err(error) = save_image(image, &output_path) {
+            log::error!(
+                "Failed to save e2e screenshot to {}: {}",
+                output_path.to_string_lossy(),
+                error
+            );
+        }
+    });
 
     Ok(path.to_string_lossy().to_string())
 }
@@ -32,7 +42,8 @@ pub fn capture_main_window_screenshot(
 fn capture_window_image() -> Result<RgbaImage, String> {
     let mut windows = XcapWindow::all().map_err(|e| e.to_string())?;
     let window = select_capture_window(&mut windows)?;
-    window.capture_image().map_err(|e| e.to_string())
+    let image = window.capture_image().map_err(|e| e.to_string())?;
+    Ok(image)
 }
 
 fn capture_monitor_image() -> Result<RgbaImage, String> {
@@ -41,7 +52,8 @@ fn capture_monitor_image() -> Result<RgbaImage, String> {
         .into_iter()
         .next()
         .ok_or_else(|| "No monitors available for screenshot capture".to_string())?;
-    monitor.capture_image().map_err(|e| e.to_string())
+    let image = monitor.capture_image().map_err(|e| e.to_string())?;
+    Ok(image)
 }
 
 fn select_capture_window(windows: &mut Vec<XcapWindow>) -> Result<XcapWindow, String> {
@@ -162,4 +174,8 @@ fn to_absolute_path(path: PathBuf) -> Result<PathBuf, String> {
     std::env::current_dir()
         .map(|current_dir| current_dir.join(path))
         .map_err(|e| e.to_string())
+}
+
+fn save_image(image: RgbaImage, path: &Path) -> Result<(), String> {
+    image.save(path).map_err(|e| e.to_string())
 }

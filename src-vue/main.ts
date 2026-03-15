@@ -28,9 +28,11 @@ const isE2EScreenshotCaptureEnabled =
 
 if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   // Global animation kill-switch for deterministic automated runs.
-  // Screenshot capture in headed mode still needs this to avoid interim visual states.
   MotionGlobalConfig.skipAnimations = true;
   MotionGlobalConfig.instantAnimations = true;
+}
+
+if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 

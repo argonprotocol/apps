@@ -6,7 +6,7 @@ import { getMainchainClients } from './mainchain.ts';
 
 let currency: Vue.Reactive<Currency>;
 
-export type { Currency };
+export { type Currency };
 
 export function getCurrency(): Vue.Reactive<Currency> {
   if (!currency) {

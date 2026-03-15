@@ -8,7 +8,7 @@ import { getMiningFrames } from './mainchain.ts';
 
 let bot: Vue.Reactive<Bot>;
 
-export type { Bot };
+export { type Bot };
 
 export function getBot(): Vue.Reactive<Bot> {
   if (!bot) {

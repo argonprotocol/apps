@@ -7,9 +7,9 @@ export default class BitcoinPrices {
   public indexByDate: { [date: string]: number } = {};
 
   constructor() {
-    this.prices = bitcoinPrices.map((x: any, index: number) => {
-      this.indexByDate[x.date] = index;
-      return { date: x.date, price: Number(x.price) } as IBitcoinPriceRecord;
+    this.prices = bitcoinPrices.map((priceRow, index): IBitcoinPriceRecord => {
+      this.indexByDate[priceRow.date] = index;
+      return { date: priceRow.date, price: Number(priceRow.price) };
     });
   }
 

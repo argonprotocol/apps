@@ -25,7 +25,7 @@ yarn vitest --run --project e2e
 ARGON_E2E_HEADLESS=0 yarn e2e:docker
 
 # 6) Capture screenshots during flow execution (saved under your OS temp directory by default)
-E2E_SCREENSHOT_MODE=operation ARGON_E2E_HEADLESS=0 yarn e2e:docker
+E2E_SCREENSHOT_MODE=1 ARGON_E2E_HEADLESS=0 yarn e2e:docker
 ```
 
 Cleanup:
@@ -84,6 +84,22 @@ E2E_USE_TEST_NETWORK=1 yarn e2e:docker
 E2E_USE_TEST_NETWORK=1 ARGON_APP_INSTANCE=Vaulting.flow.onboarding yarn e2e:docker
 ```
 
+## Flow Runtime Surface
+
+Flow and operation code should use one runtime surface:
+
+- `flow.run(...)` runs an operation or flow
+- `flow.inspect(...)` inspects the current operation by default, or another operation when passed
+- `flow.waitUntilRunnable(...)` waits on operation state
+- `flow.command(...)` sends a raw driver/app command when you really need it
+
+That means:
+
+- operation composition should go through `flow.run(...)`
+- self-inspect should be `flow.inspect()`
+- cross-op inspect is the optional case: `flow.inspect(otherOperation)`
+- raw commands like `app.waitForReady` or `command.inspect` should go through `flow.command(...)`, not `flow.run(...)`
+
 Common flow inputs:
 
 ```bash
@@ -100,7 +116,7 @@ Run operations directly (state-aware debugging on top of current app state):
 # Example: drive bitcoin lock/unlock path step-by-step
 E2E_FLOWS=Vaulting.flow.onboarding,App.flow.runManual \
 E2E_OPERATION_CONTEXT=bitcoin \
-E2E_OPERATIONS=Bitcoin.op.ensureLockFundingDetails,Bitcoin.op.fundLockExact,Bitcoin.op.waitUnlockReady,Bitcoin.op.unlockBitcoin \
+E2E_OPERATIONS=Bitcoin.op.startBitcoinLock,Bitcoin.op.openLockFundingOverlay,Bitcoin.op.readLockFundingDetails,Bitcoin.op.fundLockExact,Bitcoin.op.waitUnlockReady,Bitcoin.op.unlockBitcoin \
 yarn e2e:docker
 
 # Continue from existing runtime/chain state (no auto reset)
@@ -121,7 +137,7 @@ yarn workspace @argonprotocol/apps-e2e run flows
 # Mismatch actions step-by-step
 E2E_FLOWS=App.flow.runManual \
 E2E_OPERATION_CONTEXT=bitcoin \
-E2E_OPERATIONS=Bitcoin.op.ensureLockFundingDetails,Bitcoin.op.fundLockMismatch,Bitcoin.op.ensureMismatchActionPanel,Bitcoin.op.acceptMismatch \
+E2E_OPERATIONS=Bitcoin.op.startBitcoinLock,Bitcoin.op.openLockFundingOverlay,Bitcoin.op.readLockFundingDetails,Bitcoin.op.fundLockMismatch,Bitcoin.op.ensureMismatchActionPanel,Bitcoin.op.acceptMismatch \
 yarn workspace @argonprotocol/apps-e2e run flows
 ```
 
@@ -150,6 +166,7 @@ Notes:
 - `E2E_OPERATIONS` is a comma-separated list and must match operation names under `e2e/flows/operations`.
 - `E2E_OPERATION_TIMEOUT_MS` overrides per-command driver timeout for that operation run.
 - `E2E_OPERATION_MODE=inspect` runs operation `inspect` only; it does not execute side effects.
+- `E2E_OPERATION_MODE=run` is the normal execution mode. Legacy `wait-run`, `waitrun`, and `wait` values alias to `run`.
 - `flows:console` defaults to `E2E_CONSOLE_APP_LOGS=quiet` to keep the prompt readable; set `E2E_CONSOLE_APP_LOGS=inherit` for full app/runtime logs.
 - `flows:console` also defaults to `E2E_CONSOLE_DRIVER_TRACE=0`; set `E2E_CONSOLE_DRIVER_TRACE=1` to see per-command driver trace logs.
 - `flows:console` defaults to `E2E_CONSOLE_SUPPRESS_POLKADOT_WARNINGS=1`; set `E2E_CONSOLE_SUPPRESS_POLKADOT_WARNINGS=0` if you need dependency dedupe warnings.
@@ -157,8 +174,10 @@ Notes:
 - `E2E_DRIVER_TRACE=0` suppresses per-command driver trace logs for any flow runner.
 - `E2E_SCREENSHOT_MODE` controls automatic capture:
   - `off` (default)
-  - `operation` (operation start/end + failures)
-  - `interaction` (interactive command screenshots + failures)
+  - any truthy value enables screenshots
+  - captures operation start/end/failure
+  - captures phase-change screenshots when an operation `inspect` state emits a new `phase`
+  - captures pre-interaction and failure screenshots for clicks/types/copy/paste
 - `E2E_SCREENSHOT_DIR` overrides output directory (default: `<os-temp-dir>/e2e-screenshots`).
 - `E2E_SCREENSHOT_SESSION` sets the session subdirectory name under `E2E_SCREENSHOT_DIR`.
   If omitted, a non-timestamp session folder like `session-pid12345-ab12cd34` is created.
@@ -194,7 +213,7 @@ Headless behavior:
 ```bash
 VERSION=v1.3.27 yarn e2e:docker
 ARGON_E2E_HEADLESS=0 yarn e2e:docker
-E2E_SCREENSHOT_MODE=interaction ARGON_E2E_HEADLESS=0 yarn e2e:docker
+E2E_SCREENSHOT_MODE=1 ARGON_E2E_HEADLESS=0 yarn e2e:docker
 ```
 
 ## Driver Websocket Mode (Advanced)

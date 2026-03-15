@@ -9,7 +9,7 @@ import { getTransactionTracker } from './transactions.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getWalletKeys } from './wallets.ts';
 
-export type { Vaults };
+export { type Vaults };
 
 let vaults: Vaults;
 let myVault: MyVault;

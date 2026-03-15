@@ -4,8 +4,8 @@ import Path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import docker from 'docker-compose';
 import { runOnTeardown } from '@argonprotocol/testing';
-import { NetworkConfig, NetworkConfigSettings } from '../src/NetworkConfig.js';
-import { stripNetworkPrefix, toComposeProjectName } from '../src/utils.js';
+import { NetworkConfig, NetworkConfigSettings } from '../src/NetworkConfig.ts';
+import { stripNetworkPrefix, toComposeProjectName } from '../src/utils.ts';
 import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
 
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';

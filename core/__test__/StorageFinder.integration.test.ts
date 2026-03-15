@@ -2,7 +2,7 @@ import { type ArgonClient, getClient, Keyring, mnemonicGenerate, Vault } from '@
 import { teardown } from '@argonprotocol/testing';
 import { MainchainClients, NetworkConfig, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startArgonTestNetwork } from './startArgonTestNetwork.js';
+import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';
 import Path from 'path';
 

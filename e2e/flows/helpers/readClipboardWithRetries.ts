@@ -23,7 +23,7 @@ export async function readClipboardWithRetries(
     intervalMs,
     async () => {
       await triggerCopy();
-      const clipboard = await flow.run<{ text?: string }>('clipboard.read');
+      const clipboard = await flow.command<{ text?: string }>('clipboard.read');
       value = clipboard?.text?.trim() ?? '';
       return isValid(value);
     },

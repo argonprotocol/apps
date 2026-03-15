@@ -4,15 +4,24 @@
     <DialogPortal>
       <AnimatePresence>
         <DialogOverlay asChild>
-          <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
+          <Motion
+            asChild
+            :initial="disableOverlayMotion ? false : { opacity: 0 }"
+            :animate="{ opacity: 1 }"
+            :exit="{ opacity: 0 }">
             <BgOverlay @close="closeOverlay" />
           </Motion>
         </DialogOverlay>
 
         <DialogContent asChild @escapeKeyDown="handleEscapeKeyDown" :aria-describedby="undefined" :style="{ zIndex: zIndex + 1000 }">
-          <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
+          <Motion
+            asChild
+            :initial="disableOverlayMotion ? false : { opacity: 0 }"
+            :animate="{ opacity: 1 }"
+            :exit="{ opacity: 0 }">
             <div
               :ref="draggable.setModalRef"
+              v-bind="attrs"
               :style="{
                 top: `calc(50% + ${draggable.modalPosition.y}px)`,
                 left: `calc(50% + ${draggable.modalPosition.x}px)`,
@@ -61,10 +70,14 @@ const openZIndexes = Vue.ref(new Set<number>());
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DialogClose } from 'reka-ui';
-import { AnimatePresence, Motion } from 'motion-v';
+import { AnimatePresence, Motion, MotionGlobalConfig } from 'motion-v';
 import { ChevronLeftIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import BgOverlay from '../components/BgOverlay.vue';
 import Draggable from '../overlays-operations/helpers/Draggable.ts';
+
+defineOptions({
+  inheritAttrs: false,
+});
 
 const props = withDefaults(
   defineProps<{
@@ -84,6 +97,8 @@ const props = withDefaults(
 );
 
 const zIndex = Vue.ref(0);
+const attrs = Vue.useAttrs();
+const disableOverlayMotion = MotionGlobalConfig.skipAnimations || MotionGlobalConfig.instantAnimations;
 
 Vue.watch(props, () => {
   if (props.isOpen) {
