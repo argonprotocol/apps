@@ -9,7 +9,7 @@ import type {
   IBitcoinUnlockReleaseState,
   IMyVaultInspect,
 } from '../types/srcVue.ts';
-import { clickIfVisible, pollEvery, runInspect, sleep } from '../helpers/utils.ts';
+import { clickIfVisible, pollEvery, sleep } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import appDismissBlockingOverlays from './App.op.dismissBlockingOverlays.ts';
@@ -361,8 +361,9 @@ export async function readUnlockBackendReleaseState(
   flowName: string,
 ): Promise<IUnlockBackendReleaseState> {
   const value: Partial<IUnlockBackendReleaseState> =
-    (await runInspect<IUnlockBackendReleaseState>(flow, UNLOCK_BACKEND_RELEASE_FN, UNLOCK_INSPECT_TIMEOUT_MS, {
-      flowName,
+    (await flow.queryApp<IUnlockBackendReleaseState>(UNLOCK_BACKEND_RELEASE_FN, {
+      timeoutMs: UNLOCK_INSPECT_TIMEOUT_MS,
+      args: { flowName },
     })) ?? {};
   return {
     ...DEFAULT_UNLOCK_BACKEND_STATE,

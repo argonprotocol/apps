@@ -1,4 +1,4 @@
-import { pollEvery, runInspect } from '../helpers/utils.ts';
+import { pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -27,8 +27,7 @@ type IFinalizeSetupState = IE2EOperationInspectState<IVaultingFundingInspect, IF
 export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.meta, {
   async inspect({ flow }) {
     const [fundingState, lockOverlayEntry, dashboard, createVaultEntry, installingState] = await Promise.all([
-      runInspect<IVaultingFundingInspect>(
-        flow,
+      flow.queryApp<IVaultingFundingInspect>(
         ((refs: {
           config: {
             vaultingRules?: {
@@ -60,7 +59,7 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
             requiredMicronots: requiredMicronots.toString(),
           };
         }).toString(),
-        10_000,
+        { timeoutMs: 10_000 },
       ),
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
