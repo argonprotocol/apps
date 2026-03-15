@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, it } from 'vitest';
 import { createFlowSession, type IFlowSession } from '../flows/session.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
-type BitcoinFlowName = 'Bitcoin.flow.lockUnlock';
+type BitcoinFlowName = 'Bitcoin.flow.lockUnlock' | 'Bitcoin.flow.mismatchAccept' | 'Bitcoin.flow.mismatchReturn';
 
-async function runIsolatedFlow(flowName: BitcoinFlowName): Promise<number> {
+async function runIsolatedFlow(flowName: BitcoinFlowName): Promise<void> {
   const sessionName = `bitcoin-spec-${flowName}`;
   const session: IFlowSession = await createFlowSession({
     useTestNetwork: true,
@@ -13,8 +13,7 @@ async function runIsolatedFlow(flowName: BitcoinFlowName): Promise<number> {
   });
 
   try {
-    const result = await session.run(flowName);
-    return result.elapsedMs;
+    await session.run(flowName);
   } finally {
     await session.close();
   }
@@ -24,8 +23,23 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
   it(
     'bitcoin lock/unlock',
     async () => {
-      const elapsedMs = await runIsolatedFlow('Bitcoin.flow.lockUnlock');
-      expect(elapsedMs).toBeGreaterThan(0);
+      await runIsolatedFlow('Bitcoin.flow.lockUnlock');
+    },
+    45 * 60_000,
+  );
+
+  it(
+    'bitcoin mismatch accept',
+    async () => {
+      await runIsolatedFlow('Bitcoin.flow.mismatchAccept');
+    },
+    45 * 60_000,
+  );
+
+  it(
+    'bitcoin mismatch return',
+    async () => {
+      await runIsolatedFlow('Bitcoin.flow.mismatchReturn');
     },
     45 * 60_000,
   );

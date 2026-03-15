@@ -85,6 +85,24 @@ describe('BitcoinUtxosTable', () => {
     expect(updated.releaseToDestinationAddress).toBe('0014abcd');
   });
 
+  it('setReleaseIsProcessingOnArgon clears legacy unconfirmed cosign data', async () => {
+    const { table, record } = await createRecord({
+      status: BitcoinUtxoStatus.FundingUtxo,
+      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
+      releaseCosignHeight: undefined,
+    });
+
+    await table.setReleaseIsProcessingOnArgon(record, {
+      requestedReleaseAtTick: 77,
+      releaseToDestinationAddress: '0014abcd',
+      releaseBitcoinNetworkFee: 333n,
+    });
+
+    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
+    expect(updated.releaseCosignVaultSignature).toBeNull();
+    expect(updated.releaseCosignHeight).toBeNull();
+  });
+
   it('setReleaseSeenOnBitcoin records release tx metadata', async () => {
     const { table, record } = await createRecord({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon });
 
@@ -104,6 +122,16 @@ describe('BitcoinUtxosTable', () => {
 
     const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
     expect(updated.status).toBe(BitcoinUtxoStatus.FundingUtxo);
+    expect(updated.firstSeenOnArgonAt).toBeInstanceOf(Date);
+  });
+
+  it('setOrphaned records the orphaned status transition', async () => {
+    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.FundingCandidate });
+
+    await table.setOrphaned(record);
+
+    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
+    expect(updated.status).toBe(BitcoinUtxoStatus.Orphaned);
     expect(updated.firstSeenOnArgonAt).toBeInstanceOf(Date);
   });
 
@@ -144,5 +172,29 @@ describe('BitcoinUtxosTable', () => {
       BitcoinUtxoStatus.ReleaseComplete,
     ]);
     expect(history.every(entry => entry.createdAt instanceof Date)).toBe(true);
+  });
+
+  it('restores the last non-release status when release fails', async () => {
+    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.FundingCandidate });
+
+    await table.setOrphaned(record);
+    await table.setReleaseRequest(record, {
+      requestedReleaseAtTick: 77,
+      releaseToDestinationAddress: '0014abcd',
+      releaseBitcoinNetworkFee: 333n,
+    });
+    await table.setReleaseError(record, 'temporary failure');
+
+    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
+    const history = await table.fetchStatusHistory(record.id);
+
+    expect(updated.status).toBe(BitcoinUtxoStatus.Orphaned);
+    expect(updated.statusError).toBe('temporary failure');
+    expect(history.map(entry => entry.newStatus)).toEqual([
+      BitcoinUtxoStatus.FundingCandidate,
+      BitcoinUtxoStatus.Orphaned,
+      BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
+      BitcoinUtxoStatus.Orphaned,
+    ]);
   });
 });

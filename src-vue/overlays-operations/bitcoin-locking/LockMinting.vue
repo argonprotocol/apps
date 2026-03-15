@@ -1,18 +1,32 @@
 <template>
   <div class="space-y-5 px-10 pt-5 pb-5">
-    <p>
-      The Argon Network has successfully processed and locked your
+    <p v-if="isMismatchAccepted">
+      Funding difference accepted. Argon has locked your adjusted
       {{
         numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)).format(
           '0,0.[00000000]',
         )
       }}
-      in BTC.
+      BTC amount.
     </p>
-    <p>
-      You're being awarded the full market value of your Bitcoin, which is currently
+    <p v-else>
+      Argon has processed and locked your
+      {{
+        numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)).format(
+          '0,0.[00000000]',
+        )
+      }}
+      BTC.
+    </p>
+    <p v-if="isMismatchAccepted">
+      You’ll receive the market value of the accepted Bitcoin amount, currently
       {{ currency.symbol }}{{ microgonToArgonNm(microgonValue).format('0,0.[00]') }}. These argons will be minted and
-      sent to your wallet as the network's capacity allows.
+      sent to your wallet as network capacity allows.
+    </p>
+    <p v-else>
+      You’ll receive the full market value of your Bitcoin, currently
+      {{ currency.symbol }}{{ microgonToArgonNm(microgonValue).format('0,0.[00]') }}. These argons will be minted and
+      sent to your wallet as network capacity allows.
     </p>
 
     <BitcoinMintingSvg class="mx-auto my-10" />
@@ -32,6 +46,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import BitcoinMintingSvg from '../../assets/wallets/bitcoin-minting.svg';
+import { TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
@@ -48,6 +63,12 @@ const emit = defineEmits<{
 
 const microgonValue = Vue.ref(0n);
 const fundingUtxoRecord = Vue.computed(() => bitcoinLocks.getAcceptedFundingRecord(props.personalLock));
+const isMismatchAccepted = Vue.computed(() => {
+  const utxoId = props.personalLock.utxoId;
+  if (!utxoId) return false;
+  const txInfo = bitcoinLocks.getLatestMismatchAcceptTxInfo(utxoId);
+  return txInfo?.tx.status === TransactionStatus.Finalized;
+});
 
 function closeOverlay() {
   emit('close');
