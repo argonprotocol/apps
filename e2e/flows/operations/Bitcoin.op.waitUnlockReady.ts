@@ -130,10 +130,12 @@ async function readWaitUnlockDebugState(
   flow: IE2EFlowRuntime,
   flowName: string,
 ): Promise<IBitcoinVaultUnlockStateDetails | null> {
-  return (await flow.queryApp<IBitcoinVaultUnlockStateDetails>(WAIT_UNLOCK_DEBUG_FN, {
-    timeoutMs: 20_000,
-    args: { flowName },
-  })) ?? null;
+  return (
+    (await flow.queryApp<IBitcoinVaultUnlockStateDetails>(WAIT_UNLOCK_DEBUG_FN, {
+      timeoutMs: 20_000,
+      args: { flowName },
+    })) ?? null
+  );
 }
 
 async function waitUnlockDebugInspect(refs: {

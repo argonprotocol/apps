@@ -117,7 +117,11 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
       1_000,
       async () => {
         const nextState = await flow.inspect(this);
-        return nextState.chainState.walletFullyFunded || nextState.uiState.walletFullyFunded || nextState.state === 'complete';
+        return (
+          nextState.chainState.walletFullyFunded ||
+          nextState.uiState.walletFullyFunded ||
+          nextState.state === 'complete'
+        );
       },
       {
         timeoutMs: 120_000,
@@ -169,8 +173,7 @@ async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFund
 
       const availableMicronots =
         wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
-      const reservedMicronots =
-        wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
+      const reservedMicronots = wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
       const availableMicrogons = wallets.totalMiningMicrogons ?? 0n;
       const requiredMicrogons = config.biddingRules.initialMicrogonRequirement ?? 0n;
       const requiredMicronots = config.biddingRules.initialMicronotRequirement ?? 0n;

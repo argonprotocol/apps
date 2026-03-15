@@ -51,7 +51,9 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
       },
       state: operationState,
       blockers:
-        dashboardVisible || firstAuctionVisible || startingBotVisible || setupInstallingVisible ? ['ALREADY_COMPLETE'] : [],
+        dashboardVisible || firstAuctionVisible || startingBotVisible || setupInstallingVisible
+          ? ['ALREADY_COMPLETE']
+          : [],
       dashboardVisible,
       firstAuctionVisible,
       startingBotVisible,
@@ -59,7 +61,12 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
     };
   },
   async run({ flow }, state) {
-    if (state.dashboardVisible || state.firstAuctionVisible || state.startingBotVisible || state.setupInstallingVisible) {
+    if (
+      state.dashboardVisible ||
+      state.firstAuctionVisible ||
+      state.startingBotVisible ||
+      state.setupInstallingVisible
+    ) {
       return;
     }
 
