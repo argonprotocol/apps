@@ -1,4 +1,4 @@
-import type { E2ECommandArgs, E2ETarget, IE2EFlowRuntime } from '../types.ts';
+import type { E2ETarget, IE2EFlowRuntime } from '../types.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
 const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
@@ -12,11 +12,6 @@ export interface IPollEveryOptions {
 
 export interface IClickIfVisibleOptions {
   timeoutMs?: number;
-}
-
-export interface IInspectCommandResult<T = unknown> {
-  ok?: boolean;
-  value?: T;
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -178,22 +173,6 @@ export function parseBip21(uri: string): IBip21Details {
     address,
     amount,
   };
-}
-
-export async function runInspect<T>(
-  flow: IE2EFlowRuntime,
-  fn: string,
-  timeoutMs: number,
-  args: E2ECommandArgs = {},
-): Promise<T | undefined> {
-  const result = await flow
-    .command<IInspectCommandResult<T>>('command.inspect', {
-      fn,
-      timeoutMs,
-      args,
-    })
-    .catch(() => undefined);
-  return result?.ok ? result.value : undefined;
 }
 
 export async function clickIfVisible(

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseRequiredNumber, pollEvery } from '../helpers/utils.ts';
+import { clickIfVisible, parseRequiredNumber, pollEvery } from '../helpers/utils.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
@@ -10,6 +10,7 @@ type IFinalizeSetupUiState = {
   startingBotVisible: boolean;
   launchBotVisible: boolean;
   launchBotEnabled: boolean;
+  launchBotClickable: boolean;
   installProgressVisible: boolean;
   setupInstallingVisible: boolean;
   totalBlocksMined: number | null;
@@ -21,6 +22,7 @@ interface IFinalizeSetupState extends IE2EOperationInspectState<Record<string, n
   startingBotVisible: boolean;
   launchBotVisible: boolean;
   launchBotEnabled: boolean;
+  launchBotClickable: boolean;
   installProgressVisible: boolean;
   setupInstallingVisible: boolean;
   installingVisible: boolean;
@@ -32,7 +34,6 @@ const INSTALL_PROGRESS_TIMEOUT_MS = 10 * 60_000;
 const INSTALL_PROGRESS_STALL_TIMEOUT_MS = 90_000;
 const SERVER_INSTALL_READY_TIMEOUT_MS = 15 * 60_000;
 const MINING_INSTALL_STABLE_SUCCESS_MS = 90_000;
-const OPEN_OVERLAY_CLOSE_BUTTON_SELECTOR = `[role="dialog"][data-state="open"] h2 button[class*="border-slate-400"]`;
 
 export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.meta, {
   async inspect({ flow, flowName }) {
@@ -47,11 +48,11 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
     const installingVisible = installProgress.visible || setupInstalling.visible;
 
     if (!dashboard.visible) {
-      const canRun = (launchBot.visible && launchBot.enabled) || installingVisible || startingBot.visible;
+      const hasPostLaunchState = setupInstalling.visible || startingBot.visible;
       let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
-      if (firstAuction.visible) {
+      if (firstAuction.visible || hasPostLaunchState) {
         operationState = 'complete';
-      } else if (canRun) {
+      } else if (launchBot.clickable) {
         operationState = 'runnable';
       }
 
@@ -69,6 +70,7 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
           startingBotVisible: startingBot.visible,
           launchBotVisible: launchBot.visible,
           launchBotEnabled: launchBot.enabled,
+          launchBotClickable: launchBot.clickable,
           installProgressVisible: installProgress.visible,
           setupInstallingVisible: setupInstalling.visible,
           totalBlocksMined: null,
@@ -79,24 +81,16 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
         startingBotVisible: startingBot.visible,
         launchBotVisible: launchBot.visible,
         launchBotEnabled: launchBot.enabled,
+        launchBotClickable: launchBot.clickable,
         installProgressVisible: installProgress.visible,
         setupInstallingVisible: setupInstalling.visible,
         installingVisible,
         totalBlocksMined: null,
-        blockers: canRun ? [] : blockers,
+        blockers: operationState === 'runnable' ? [] : blockers,
       };
     }
 
-    const totalBlocksMinedRaw = await flow.getAttribute('TotalBlocksMined', 'data-value', { timeoutMs: 5_000 });
-    const totalBlocksMined = parseRequiredNumber(totalBlocksMinedRaw, `${flowName}.TotalBlocksMined`);
-    const isComplete = totalBlocksMined > 0;
-    const canRun = totalBlocksMined <= 0;
-    let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
-    if (isComplete) {
-      operationState = 'complete';
-    } else if (canRun) {
-      operationState = 'runnable';
-    }
+    const totalBlocksMined = await tryGetTotalBlocksMined(flow, flowName);
 
     return {
       chainState: {},
@@ -106,21 +100,23 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
         startingBotVisible: startingBot.visible,
         launchBotVisible: launchBot.visible,
         launchBotEnabled: launchBot.enabled,
+        launchBotClickable: launchBot.clickable,
         installProgressVisible: installProgress.visible,
         setupInstallingVisible: setupInstalling.visible,
         totalBlocksMined,
       },
-      state: operationState,
+      state: 'complete',
       dashboardVisible: true,
       firstAuctionVisible: firstAuction.visible,
       startingBotVisible: startingBot.visible,
       launchBotVisible: launchBot.visible,
       launchBotEnabled: launchBot.enabled,
+      launchBotClickable: launchBot.clickable,
       installProgressVisible: installProgress.visible,
       setupInstallingVisible: setupInstalling.visible,
       installingVisible,
       totalBlocksMined,
-      blockers: canRun ? [] : ['ALREADY_COMPLETE'],
+      blockers: ['ALREADY_COMPLETE'],
     };
   },
   async run({ flow, flowName }, state) {
@@ -144,10 +140,10 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       return;
     }
 
-    if (!state.launchBotVisible || !state.launchBotEnabled) {
+    if (!state.launchBotClickable) {
       if (!state.installingVisible) {
         throw new Error(
-          `${flowName}: launch mining bot is not ready (visible=${state.launchBotVisible}, enabled=${state.launchBotEnabled}).`,
+          `${flowName}: launch mining bot is not ready (visible=${state.launchBotVisible}, enabled=${state.launchBotEnabled}, clickable=${state.launchBotClickable}).`,
         );
       }
       console.info(`[E2E] ${flowName}: finalizeSetup waiting for launch button to become ready`);
@@ -170,14 +166,11 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       return;
     }
 
-    if (!launchBotBeforeLaunch.visible || !launchBotBeforeLaunch.enabled) {
+    if (!launchBotBeforeLaunch.clickable) {
       throw new Error(
-        `${flowName}: launch mining bot is not ready after server install wait (visible=${launchBotBeforeLaunch.visible}, enabled=${launchBotBeforeLaunch.enabled}).`,
+        `${flowName}: launch mining bot is not ready after server install wait (visible=${launchBotBeforeLaunch.visible}, enabled=${launchBotBeforeLaunch.enabled}, clickable=${launchBotBeforeLaunch.clickable}).`,
       );
     }
-
-    console.info(`[E2E] ${flowName}: finalizeSetup clicking launch mining bot`);
-    await flow.click('SetupChecklist.launchMiningBot()', { timeoutMs: 120_000 });
 
     const didFinishInstall = async (): Promise<boolean> => {
       const [dashboardState, firstAuctionState] = await Promise.all([
@@ -187,6 +180,31 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       return dashboardState.visible || firstAuctionState.visible;
     };
 
+    await pollEvery(
+      1_000,
+      async () => {
+        if (await didFinishInstall()) return true;
+
+        const [startingBotVisible, miningInstallingVisible, launchBot] = await Promise.all([
+          flow.isVisible('MiningStartingBot'),
+          flow.isVisible('MiningIsInstalling'),
+          flow.isVisible('SetupChecklist.launchMiningBot()'),
+        ]);
+        if (startingBotVisible.visible || miningInstallingVisible.visible) {
+          return true;
+        }
+        if (!launchBot.clickable) {
+          return false;
+        }
+
+        console.info(`[E2E] ${flowName}: finalizeSetup clicking launch mining bot`);
+        return await clickIfVisible(flow, 'SetupChecklist.launchMiningBot()', { timeoutMs: 1_500 });
+      },
+      {
+        timeoutMs: 120_000,
+        timeoutMessage: `${flowName}: launch mining bot did not become clickable.`,
+      },
+    );
     await waitForInstallUiToAppearOrComplete(flow, didFinishInstall, flowName);
     console.info(`[E2E] ${flowName}: finalizeSetup observed install UI; monitoring completion`);
 
@@ -337,9 +355,10 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       return;
     }
     if (startingBotAfterLaunch.visible || miningInstallingAfterLaunch.visible) {
+      await waitForPostLaunchReadyState(flow, flowName);
       return;
     }
-    await waitForTotalBlocksMined(flow, flowName);
+    await waitForPostLaunchReadyState(flow, flowName);
   },
 });
 
@@ -417,12 +436,12 @@ async function waitForServerInstallToReachLaunchableState(flow: IE2EFlowRuntime,
       ]);
       if (dashboard.visible || firstAuction.visible) return true;
       if (startingBot.visible) return true;
-      if (launchBot.visible && launchBot.enabled) return true;
+      if (launchBot.clickable) return true;
 
-      const overlayCloseButton = await flow.isVisible({ selector: OPEN_OVERLAY_CLOSE_BUTTON_SELECTOR });
+      const overlayCloseButton = await flow.isVisible('OverlayBase.closeOverlay()');
       if (overlayCloseButton.visible && overlayCloseButton.enabled) {
         console.info(`[E2E] ${flowName}: finalizeSetup closing blocking overlay while waiting for launch readiness`);
-        await flow.click({ selector: OPEN_OVERLAY_CLOSE_BUTTON_SELECTOR }).catch(() => undefined);
+        await flow.click('OverlayBase.closeOverlay()').catch(() => undefined);
       }
 
       const failedStepCount = installProgress.visible

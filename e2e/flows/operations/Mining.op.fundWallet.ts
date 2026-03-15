@@ -7,36 +7,57 @@ import type { IE2EOperationInspectState } from '../types.ts';
 
 const DEFAULT_MINING_FUNDING_MULTIPLIER = 10n;
 
+type IFundingState = {
+  walletFullyFunded: boolean;
+};
+
+type IMiningFundingQueryRefs = {
+  config: {
+    hasSavedBiddingRules: boolean;
+    biddingRules: {
+      initialMicrogonRequirement?: bigint;
+      initialMicronotRequirement?: bigint;
+    };
+  };
+  wallets: {
+    miningHoldWallet: {
+      availableMicronots: bigint;
+      reservedMicronots: bigint;
+    };
+    miningBotWallet: {
+      availableMicronots: bigint;
+      reservedMicronots: bigint;
+    };
+    totalMiningMicrogons?: bigint;
+  };
+};
+
 type IFundWalletUiState = {
   fundOverlayVisible: boolean;
   walletOverlayVisible: boolean;
   walletFullyFunded: boolean;
-  connectServerVisible: boolean;
   dashboardVisible: boolean;
 };
 
-interface IFundWalletState extends IE2EOperationInspectState<Record<string, never>, IFundWalletUiState> {
+interface IFundWalletState extends IE2EOperationInspectState<IFundingState, IFundWalletUiState> {
   fundOverlayVisible: boolean;
   walletOverlayVisible: boolean;
   walletFullyFunded: boolean;
-  connectServerVisible: boolean;
   dashboardVisible: boolean;
 }
 
 export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, {
   async inspect({ flow }) {
-    const [fundOverlayEntry, walletOverlayEntry, connectServerEntry, dashboard, fundingText] = await Promise.all([
+    const [fundingState, fundOverlayEntry, walletOverlayEntry, dashboard] = await Promise.all([
+      readFundingState(flow),
       flow.isVisible('SetupChecklist.openFundMiningAccountOverlay()'),
       flow.isVisible('WalletOverlay.closeOverlay()'),
-      flow.isVisible('SetupChecklist.openServerConnectPanel()'),
       flow.isVisible('MiningDashboard'),
-      flow.getText('SetupChecklist.openFundMiningAccountOverlay()', { timeoutMs: 2_000 }).catch(() => null),
     ]);
-    const walletFullyFunded = (fundingText ?? '').toLowerCase().includes('fully funded');
-    const connectServerVisible = connectServerEntry.visible;
+    const walletFullyFunded = fundingState?.walletFullyFunded ?? false;
     const dashboardVisible = dashboard.visible;
-    const isComplete = connectServerVisible || dashboardVisible || walletFullyFunded;
-    const canRun = fundOverlayEntry.visible && !connectServerVisible && !dashboardVisible && !walletFullyFunded;
+    const isComplete = dashboardVisible || walletFullyFunded;
+    const canRun = fundOverlayEntry.visible && !dashboardVisible && !walletFullyFunded;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -47,25 +68,25 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     const blockers: string[] = [];
     if (!isComplete && !fundOverlayEntry.visible) blockers.push('Mining fund-wallet checklist step is not visible.');
     return {
-      chainState: {},
+      chainState: fundingState ?? {
+        walletFullyFunded: false,
+      },
       uiState: {
         fundOverlayVisible: fundOverlayEntry.visible,
         walletOverlayVisible: walletOverlayEntry.visible,
         walletFullyFunded,
-        connectServerVisible,
         dashboardVisible,
       },
       state: operationState,
       fundOverlayVisible: fundOverlayEntry.visible,
       walletOverlayVisible: walletOverlayEntry.visible,
       walletFullyFunded,
-      connectServerVisible,
       dashboardVisible,
       blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow, flowName, input }, state) {
-    if (state.connectServerVisible || state.dashboardVisible || !state.fundOverlayVisible) {
+    if (state.walletFullyFunded || state.dashboardVisible || !state.fundOverlayVisible) {
       return;
     }
 
@@ -91,6 +112,22 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
       fundedMicrogons: fundingResult.fundedMicrogons.toString(),
       fundedMicronots: fundingResult.fundedMicronots.toString(),
     });
+
+    await pollEvery(
+      1_000,
+      async () => {
+        const nextState = await flow.inspect(this);
+        return (
+          nextState.chainState.walletFullyFunded ||
+          nextState.uiState.walletFullyFunded ||
+          nextState.state === 'complete'
+        );
+      },
+      {
+        timeoutMs: 120_000,
+        timeoutMessage: `${flowName}: mining wallet funding did not propagate to the UI in time.`,
+      },
+    );
   },
 });
 
@@ -125,4 +162,27 @@ function deriveMiningFunding(
     microgons: targetMicrogons,
     micronots: scaledMicronots > baseFunding.micronots ? scaledMicronots : baseFunding.micronots,
   };
+}
+
+async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFundingState | undefined> {
+  return await flow.queryApp<IFundingState>(
+    (({ config, wallets }: IMiningFundingQueryRefs): IFundingState => {
+      if (!config.hasSavedBiddingRules) {
+        return { walletFullyFunded: false };
+      }
+
+      const availableMicronots =
+        wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
+      const reservedMicronots = wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
+      const availableMicrogons = wallets.totalMiningMicrogons ?? 0n;
+      const requiredMicrogons = config.biddingRules.initialMicrogonRequirement ?? 0n;
+      const requiredMicronots = config.biddingRules.initialMicronotRequirement ?? 0n;
+
+      return {
+        walletFullyFunded:
+          availableMicrogons >= requiredMicrogons && availableMicronots + reservedMicronots >= requiredMicronots,
+      };
+    }).toString(),
+    { timeoutMs: 10_000 },
+  );
 }

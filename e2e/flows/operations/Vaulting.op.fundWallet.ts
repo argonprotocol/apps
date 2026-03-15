@@ -1,6 +1,6 @@
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { getWalletOverlayFundingNeeded, sudoFundWallet } from '../helpers/sudoFundWallet.ts';
-import { parseDecimalToUnits, pollEvery, runInspect } from '../helpers/utils.ts';
+import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -29,8 +29,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
   async inspect({ flow }) {
     const [fundingState, lockOverlayEntry, dashboard, fundOverlayEntry, createVaultEntry, installingState] =
       await Promise.all([
-        runInspect<IVaultingFundingInspect>(
-          flow,
+        flow.queryApp<IVaultingFundingInspect>(
           ((refs: {
             config: {
               vaultingRules?: {
@@ -62,7 +61,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
               requiredMicronots: requiredMicronots.toString(),
             };
           }).toString(),
-          10_000,
+          { timeoutMs: 10_000 },
         ),
         flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
         flow.isVisible('VaultingDashboard'),

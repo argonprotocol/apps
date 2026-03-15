@@ -8,6 +8,7 @@ import type {
   IE2EFlowExecutionOptions,
   IE2EFlowExecutionResult,
   IE2EFlowRuntime,
+  IE2EQueryAppOptions,
   IE2ERunOperationOptions,
   E2ETarget,
   IE2EClickOptions,
@@ -17,6 +18,10 @@ import type {
 } from './types.ts';
 
 const DEFAULT_FLOW_TIMEOUT_MS = 15_000;
+
+interface IQueryAppCommandResult<T = unknown> {
+  value?: T;
+}
 
 function normalizeInput(input: IE2EFlowExecutionOptions['input']): E2ECommandArgs {
   if (!input) return {};
@@ -138,7 +143,12 @@ export async function executeFlow(
     setActiveOperation: (operationName?: string) => {
       activeOperationName = operationName?.trim() ?? '';
     },
-    command: (command, args) => runDriverCommand(command, args),
+    command: (command, args) => {
+      if (command.startsWith('command.')) {
+        throw new Error(`[E2E] '${command}' is reserved for runtime internals. Use a dedicated flow method instead.`);
+      }
+      return runDriverCommand(command, args);
+    },
     run: async (...args: unknown[]) => {
       if (looksLikeOperation(args[0])) {
         throw new Error('flow.run(operation) requires an active operation context.');
@@ -151,6 +161,15 @@ export async function executeFlow(
     },
     waitUntilRunnable: async () => {
       throw new Error('flow.waitUntilRunnable() requires an active operation context.');
+    },
+    queryApp: async <T = unknown>(fn: string, options: IE2EQueryAppOptions = {}) => {
+      const result = await runDriverCommand<IQueryAppCommandResult<T>>('command.queryApp', {
+        ...withCommandMeta(),
+        fn,
+        timeoutMs: options.timeoutMs ?? defaultTimeoutMs,
+        args: options.args ?? {},
+      }).catch(() => undefined);
+      return result?.value;
     },
     click: async (target, options?: IE2EClickOptions) => {
       const resolvedTarget = resolveTarget(target);

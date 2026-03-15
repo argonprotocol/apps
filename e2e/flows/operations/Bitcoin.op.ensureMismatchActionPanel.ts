@@ -1,5 +1,4 @@
 import type { IBitcoinLocksMismatchInspect, IBitcoinVaultMismatchState, IMyVaultInspect } from '../types/srcVue.ts';
-import { runInspect } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import { Operation } from './index.ts';
@@ -21,8 +20,9 @@ export interface IEnsureMismatchActionPanelState
 export default new Operation<IBitcoinFlowContext, IEnsureMismatchActionPanelState>(import.meta, {
   async inspect({ flow, flowName }) {
     const [chainStateValue, personal, lockingEntry] = await Promise.all([
-      runInspect<IBitcoinVaultMismatchState>(flow, MISMATCH_BACKEND_STATE_FN, MISMATCH_INSPECT_TIMEOUT_MS, {
-        flowName,
+      flow.queryApp<IBitcoinVaultMismatchState>(MISMATCH_BACKEND_STATE_FN, {
+        timeoutMs: MISMATCH_INSPECT_TIMEOUT_MS,
+        args: { flowName },
       }),
       flow.isVisible('PersonalBitcoin'),
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),

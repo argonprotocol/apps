@@ -91,14 +91,16 @@ Flow and operation code should use one runtime surface:
 - `flow.run(...)` runs an operation or flow
 - `flow.inspect(...)` inspects the current operation by default, or another operation when passed
 - `flow.waitUntilRunnable(...)` waits on operation state
-- `flow.command(...)` sends a raw driver/app command when you really need it
+- `flow.queryApp(...)` runs a read-only callback against app refs
+- `flow.command(...)` sends a raw driver/app command when you really need it, except for reserved `command.*` internals
 
 That means:
 
 - operation composition should go through `flow.run(...)`
 - self-inspect should be `flow.inspect()`
 - cross-op inspect is the optional case: `flow.inspect(otherOperation)`
-- raw commands like `app.waitForReady` or `command.inspect` should go through `flow.command(...)`, not `flow.run(...)`
+- app-state reads should go through `flow.queryApp(...)`
+- raw commands like `app.waitForReady` should go through `flow.command(...)`, not `flow.run(...)`
 
 Common flow inputs:
 

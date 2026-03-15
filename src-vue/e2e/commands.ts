@@ -34,7 +34,7 @@ interface CommandContext {
   emit?: (payload: UnknownRecord) => void;
 }
 
-interface InspectRefs {
+interface AppQueryRefs {
   config: ReturnType<typeof getConfig>;
   bitcoinLocks: ReturnType<typeof getBitcoinLocks>;
   myVault: ReturnType<typeof getMyVault>;
@@ -1151,9 +1151,9 @@ function getSessionFromArgs(args: UnknownRecord): string | undefined {
   return getString(args.session, 'session', false);
 }
 
-type InspectFunction = (refs: InspectRefs, args: UnknownRecord) => unknown;
+type AppQueryFn = (refs: AppQueryRefs, args: UnknownRecord) => unknown;
 
-function hydrateInspectFunction(fnSource: string): InspectFunction {
+function hydrateAppQuery(fnSource: string): AppQueryFn {
   const source = fnSource.trim();
   if (!source) {
     throw new CommandError('invalid_args', `'fn' must be a non-empty function source`);
@@ -1178,10 +1178,10 @@ function hydrateInspectFunction(fnSource: string): InspectFunction {
     throw new CommandError('invalid_args', `'fn' must evaluate to a function`);
   }
 
-  return compiled as InspectFunction;
+  return compiled as AppQueryFn;
 }
 
-function serializeInspectResult(result: unknown): unknown {
+function serializeAppQueryResult(result: unknown): unknown {
   if (result === undefined) return null;
   try {
     const serialized = JsonExt.stringify(result);
@@ -1191,11 +1191,11 @@ function serializeInspectResult(result: unknown): unknown {
     return JsonExt.parse(serialized);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new CommandError('invalid_result', `Failed to serialize inspect result: ${message}`);
+    throw new CommandError('invalid_result', `Failed to serialize app query result: ${message}`);
   }
 }
 
-async function getInspectRefs(): Promise<InspectRefs> {
+async function getAppQueryRefs(): Promise<AppQueryRefs> {
   const config = getConfig();
   const myVault = getMyVault();
   const bitcoinLocks = getBitcoinLocks();
@@ -1501,24 +1501,24 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     };
   }
 
-  if (command === 'command.inspect') {
+  if (command === 'command.queryApp') {
     if (import.meta.env.PROD) {
-      throw new CommandError('disabled', `'command.inspect' is unavailable in production builds`);
+      throw new CommandError('disabled', `'${command}' is unavailable in production builds`);
     }
     if (!__ARGON_DRIVER_WS__) {
-      throw new CommandError('disabled', `'command.inspect' is only available when e2e driver mode is enabled`);
+      throw new CommandError('disabled', `'${command}' is only available when e2e driver mode is enabled`);
     }
 
     const fnSource = getString(args.fn, 'fn') as string;
-    const inspectArgs = args.args == null ? {} : asObject(args.args, 'command.inspect.args');
+    const appQueryArgs = args.args == null ? {} : asObject(args.args, `${command}.args`);
     const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_READY_TIMEOUT_MS);
-    const inspectFn = hydrateInspectFunction(fnSource);
-    const refs = await getInspectRefs();
-    const rawResult = await withTimeout(Promise.resolve(inspectFn(refs, inspectArgs)), timeoutMs, 'command.inspect');
+    const queryApp = hydrateAppQuery(fnSource);
+    const refs = await getAppQueryRefs();
+    const rawResult = await withTimeout(Promise.resolve(queryApp(refs, appQueryArgs)), timeoutMs, command);
 
     return {
       ok: true,
-      value: serializeInspectResult(rawResult),
+      value: serializeAppQueryResult(rawResult),
     };
   }
 

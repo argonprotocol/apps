@@ -5,7 +5,7 @@ import type {
   IBitcoinVaultUnlockStateDetails,
   IMyVaultInspect,
 } from '../types/srcVue.ts';
-import { pollEvery, runInspect } from '../helpers/utils.ts';
+import { pollEvery } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import { Operation } from './index.ts';
@@ -130,7 +130,12 @@ async function readWaitUnlockDebugState(
   flow: IE2EFlowRuntime,
   flowName: string,
 ): Promise<IBitcoinVaultUnlockStateDetails | null> {
-  return (await runInspect<IBitcoinVaultUnlockStateDetails>(flow, WAIT_UNLOCK_DEBUG_FN, 20_000, { flowName })) ?? null;
+  return (
+    (await flow.queryApp<IBitcoinVaultUnlockStateDetails>(WAIT_UNLOCK_DEBUG_FN, {
+      timeoutMs: 20_000,
+      args: { flowName },
+    })) ?? null
+  );
 }
 
 async function waitUnlockDebugInspect(refs: {

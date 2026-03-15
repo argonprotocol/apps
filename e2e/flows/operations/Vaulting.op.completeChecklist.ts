@@ -1,4 +1,4 @@
-import { clickIfVisible, runInspect } from '../helpers/utils.ts';
+import { clickIfVisible } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -18,7 +18,7 @@ type ICompleteChecklistState = IE2EOperationInspectState<IVaultingChecklistState
 export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
     const [setupState, checklistEntry, fundStepEntry, lockOverlayEntry, dashboard] = await Promise.all([
-      runInspect<IVaultingChecklistState>(flow, VAULTING_CHECKLIST_STATE_FN, 10_000),
+      flow.queryApp<IVaultingChecklistState>(VAULTING_CHECKLIST_STATE_FN, { timeoutMs: 10_000 }),
       flow.isVisible('SetupChecklist.openHowVaultingWorksOverlay()'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
       flow.isVisible('PersonalBitcoin.showLockingOverlay()'),

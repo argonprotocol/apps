@@ -30,6 +30,10 @@ export interface IE2ECaptureScreenshotOptions extends IE2ETimeoutOptions {
   name?: string;
 }
 
+export interface IE2EQueryAppOptions extends IE2ETimeoutOptions {
+  args?: E2ECommandArgs;
+}
+
 export interface IE2EFlowDefinition {
   name: string;
   description: string;
@@ -73,6 +77,7 @@ export interface IE2EFlowRuntime {
       options?: IE2EWaitUntilRunnableOptions<Context>,
     ): Promise<State>;
   };
+  queryApp: <T = unknown>(fn: string, options?: IE2EQueryAppOptions) => Promise<T | undefined>;
   click: (target: E2ETarget, options?: IE2EClickOptions) => Promise<void>;
   type: (target: E2ETarget, text: string, options?: IE2ETypeOptions) => Promise<void>;
   waitFor: (target: E2ETarget, options?: IE2EWaitOptions) => Promise<void>;

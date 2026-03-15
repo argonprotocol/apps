@@ -6,26 +6,28 @@ import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 type ICompleteChecklistUiState = {
   checklistVisible: boolean;
   botConfigured: boolean;
-  fundWalletVisible: boolean;
+};
+
+type IMiningChecklistQueryRefs = {
+  config: {
+    hasSavedBiddingRules: boolean;
+  };
 };
 
 interface ICompleteChecklistState extends IE2EOperationInspectState<Record<string, never>, ICompleteChecklistUiState> {
   checklistVisible: boolean;
   botConfigured: boolean;
-  fundWalletVisible: boolean;
 }
 
 export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
-    const [checklistEntry, fundWalletEntry, botConfigText] = await Promise.all([
+    const [checklistEntry, botConfigState] = await Promise.all([
       flow.isVisible('SetupChecklist.openHowMiningWorksOverlay()'),
-      flow.isVisible('SetupChecklist.openFundMiningAccountOverlay()'),
-      flow.getText('SetupChecklist.openBotCreateOverlay()', { timeoutMs: 2_000 }).catch(() => null),
+      readBotConfigState(flow),
     ]);
-    const botConfigured = (botConfigText ?? '').toLowerCase().includes('capital commitment of');
-    const fundWalletVisible = fundWalletEntry.visible;
-    const isComplete = fundWalletVisible || botConfigured;
-    const canRun = checklistEntry.visible && !fundWalletVisible && !botConfigured;
+    const botConfigured = botConfigState?.hasSavedBiddingRules ?? false;
+    const isComplete = botConfigured;
+    const canRun = checklistEntry.visible && !botConfigured;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -40,17 +42,15 @@ export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import
       uiState: {
         checklistVisible: checklistEntry.visible,
         botConfigured,
-        fundWalletVisible,
       },
       state: operationState,
       checklistVisible: checklistEntry.visible,
       botConfigured,
-      fundWalletVisible,
       blockers: canRun ? [] : blockers,
     };
   },
   async run({ flow, input }, state) {
-    if (state.botConfigured || state.fundWalletVisible) {
+    if (state.botConfigured) {
       return;
     }
 
@@ -87,4 +87,13 @@ async function applyCustomBid(
     clear: true,
   });
   await flow.click('EditBoxOverlay.saveOverlay()');
+}
+
+async function readBotConfigState(flow: IE2EFlowRuntime): Promise<{ hasSavedBiddingRules: boolean } | undefined> {
+  return await flow.queryApp<{ hasSavedBiddingRules: boolean }>(
+    (({ config }: IMiningChecklistQueryRefs): { hasSavedBiddingRules: boolean } => ({
+      hasSavedBiddingRules: config.hasSavedBiddingRules,
+    })).toString(),
+    { timeoutMs: 10_000 },
+  );
 }
