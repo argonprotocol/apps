@@ -8,7 +8,9 @@ INSTALL_LOG_DIR="$ROOT_DIR/logs"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 HOST="$(hostname -s || echo host)"
-OUTROOT="/tmp/troubleshooting-${HOST}-${STAMP}"
+TMP_ROOT="${TROUBLESHOOTING_TMP_DIR:-${CI_TEMP_DIR:-${TMPDIR:-/tmp}}}"
+TMP_ROOT="${TMP_ROOT%/}"
+OUTROOT="${TMP_ROOT}/troubleshooting-${HOST}-${STAMP}"
 OUT="${OUTROOT}"
 mkdir -p "${OUT}"/{docker,install,logs}
 
