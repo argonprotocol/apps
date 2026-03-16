@@ -34,7 +34,6 @@ jobs:
         shell: bash
         run: |
           echo "CI_TEMP_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-          echo "CI_TROUBLESHOOTING_GLOB=$RUNNER_TEMP/troubleshooting-*" >> "$GITHUB_ENV"
           echo "E2E_SCREENSHOT_DIR=$RUNNER_TEMP/e2e-screenshots" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
@@ -101,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
-          path: ${{ env.CI_TROUBLESHOOTING_GLOB }}
+          path: /tmp/troubleshooting-*
           if-no-files-found: ignore
 
       - name: Upload e2e screenshots
