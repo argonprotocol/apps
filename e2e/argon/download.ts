@@ -153,11 +153,23 @@ if (process.argv[2] === 'force' || shouldRefreshMainRef || !composeExists || !sh
     `Using cached docker-compose.yml for argon dev-docker network (${composeVersionState?.requestedRef ?? candidateRefs[0]})`,
   );
 }
-if (
-  !(await Fs.stat('/tmp/oracle/data/US_CPI_State.json')
-    .then(() => true)
-    .catch(() => false))
-) {
-  await Fs.mkdir(`/tmp/oracle/data`, { recursive: true });
-  await Fs.copyFile(`${__dirname}/oracle/oracle_state.json`, '/tmp/oracle/data/US_CPI_State.json');
+for (const oracleStatePath of getOracleStatePaths()) {
+  if (
+    !(await Fs.stat(oracleStatePath)
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    await Fs.mkdir(Path.dirname(oracleStatePath), { recursive: true });
+    await Fs.copyFile(`${__dirname}/oracle/oracle_state.json`, oracleStatePath);
+  }
+}
+
+function getOracleStatePaths(): string[] {
+  const paths = [Path.resolve('/tmp/oracle/data/US_CPI_State.json')];
+  if (process.platform === 'win32') {
+    const systemDrive = process.env.SystemDrive?.trim() || 'C:';
+    paths.push(Path.join(systemDrive, 'tmp', 'oracle', 'data', 'US_CPI_State.json'));
+  }
+
+  return [...new Set(paths)];
 }

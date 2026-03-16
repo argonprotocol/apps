@@ -7,11 +7,17 @@ permissions:
 
 jobs:
   tests:
+    env:
+      CI: true
+      E2E_DRIVER_RECEIVED_TIMEOUT_MS: 30000
+      E2E_SCREENSHOT_MODE: '0'
+      E2E_SCREENSHOT_SESSION: run-${{ github.run_id }}-attempt-${{ github.run_attempt }}-${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: 'ubuntu-latest'
+          - platform: 'macos-latest'
           - platform: 'windows-latest'
     runs-on: ${{ matrix.platform }}
     steps:
@@ -23,6 +29,13 @@ jobs:
         with:
           node-version: '24'
           cache: 'yarn'
+
+      - name: Configure CI temp paths
+        shell: bash
+        run: |
+          echo "CI_TEMP_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "CI_TROUBLESHOOTING_GLOB=$RUNNER_TEMP/troubleshooting-*" >> "$GITHUB_ENV"
+          echo "E2E_SCREENSHOT_DIR=$RUNNER_TEMP/e2e-screenshots" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -74,32 +87,27 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" yarn test
         env:
-          CI: true
           ARGON_E2E_HEADLESS: '0'
-          E2E_DRIVER_RECEIVED_TIMEOUT_MS: 30000
-          E2E_SCREENSHOT_MODE: interaction
-          E2E_SCREENSHOT_DIR: /tmp/e2e-screenshots
-          E2E_SCREENSHOT_SESSION: run-${{ github.run_id }}-attempt-${{ github.run_attempt }}-${{ matrix.platform }}
+          E2E_SCREENSHOT_MODE: '1'
 
-      - name: Tests (Windows)
-        if: matrix.platform == 'windows-latest'
+      - name: Tests (macOS/Windows)
+        if: matrix.platform != 'ubuntu-latest'
         run: yarn test
         env:
-          CI: true
-          ARGON_E2E_HEADLESS: true
           SKIP_E2E: '1'
 
       - name: Upload test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-artifacts
-          path: /tmp/troubleshooting-*
+          name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
+          path: ${{ env.CI_TROUBLESHOOTING_GLOB }}
+          if-no-files-found: ignore
 
       - name: Upload e2e screenshots
         if: always() && matrix.platform == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: e2e-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
-          path: /tmp/e2e-screenshots
+          path: ${{ env.E2E_SCREENSHOT_DIR }}
           if-no-files-found: ignore
