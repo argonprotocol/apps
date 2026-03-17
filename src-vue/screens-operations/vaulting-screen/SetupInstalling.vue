@@ -21,6 +21,8 @@
         <div class="text-gray-500 text-center font-light mt-3">
           {{progressLabel}}
         </div>
+
+        <MnemonicBackupBanner v-if="!config.hasSavedMnemonic" class="mt-8" />
       </div>
     </div>
   </div>
@@ -31,6 +33,7 @@ import * as Vue from 'vue';
 import { getConfig } from '../../stores/config';
 import { getMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
+import MnemonicBackupBanner from '../../components/MnemonicBackupBanner.vue';
 import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
 import VaultIcon from '../../assets/vault.svg?component';
 import { abbreviateAddress, generateProgressLabel } from '../../lib/Utils.ts';

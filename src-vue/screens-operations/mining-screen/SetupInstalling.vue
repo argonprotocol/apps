@@ -17,6 +17,8 @@
         <div class="text-gray-500 text-center font-light mt-3">
           {{progressLabel}}
         </div>
+
+        <MnemonicBackupBanner v-if="!config.hasSavedMnemonic" class="mt-8" />
       </div>
     </div>
   </div>
@@ -28,6 +30,7 @@ import { getConfig } from '../../stores/config';
 import { stepLabels, type IStepLabel } from '../../lib/InstallerStep.ts';
 import { InstallStepStatus, MiningSetupStatus } from '../../interfaces/IConfig';
 import ProgressBar from '../../components/ProgressBar.vue';
+import MnemonicBackupBanner from '../../components/MnemonicBackupBanner.vue';
 import MiningIcon from '../../assets/mining.svg?component';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';

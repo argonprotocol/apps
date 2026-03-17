@@ -93,6 +93,7 @@ export class Config implements IConfig {
       isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
 
       hasReadVaultingInstructions: Config.getDefault(dbFields.hasReadVaultingInstructions) as boolean,
+      hasSavedMnemonic: Config.getDefault(dbFields.hasSavedMnemonic) as boolean,
 
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
@@ -363,6 +364,13 @@ export class Config implements IConfig {
     this.setField('hasReadVaultingInstructions', value);
   }
 
+  public get hasSavedMnemonic(): boolean {
+    return this.getField('hasSavedMnemonic');
+  }
+  public set hasSavedMnemonic(value: boolean) {
+    this.setField('hasSavedMnemonic', value);
+  }
+
   public get hasMiningSeats(): boolean {
     return this.getField('hasMiningSeats');
   }
@@ -493,6 +501,10 @@ export class Config implements IConfig {
       loadedData.showWelcomeOverlay = false;
       stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false, 2);
       fieldsToSave.add(dbFields.showWelcomeOverlay);
+
+      loadedData.hasSavedMnemonic = true;
+      stringifiedData[dbFields.hasSavedMnemonic] = JsonExt.stringify(true, 2);
+      fieldsToSave.add(dbFields.hasSavedMnemonic);
     }
   }
 
@@ -549,6 +561,8 @@ export class Config implements IConfig {
     }
 
     this.walletPreviousLifeRecovered = true;
+    this.hasSavedMnemonic = true;
+    this._tryFieldsToSave(dbFields.hasSavedMnemonic, true);
     await this.save();
   }
 
@@ -593,6 +607,7 @@ const dbFields = {
   isServerInstalling: 'isServerInstalling',
 
   hasReadVaultingInstructions: 'hasReadVaultingInstructions',
+  hasSavedMnemonic: 'hasSavedMnemonic',
 
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
@@ -648,6 +663,7 @@ const defaults: IConfigDefaults = {
   isServerInstalling: () => false,
 
   hasReadVaultingInstructions: () => false,
+  hasSavedMnemonic: () => false,
 
   hasMiningSeats: () => false,
   hasMiningBids: () => false,

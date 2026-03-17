@@ -6,41 +6,23 @@
     access your wallet and funds.
   </p>
 
-  <ol class="grid grid-cols-3 gap-2 px-3 mt-5 mb-6 ml-6 cursor-text">
-    <li v-for="(word, index) in words" :key="word" class="flex items-center gap-2 py-1">
-      <span class="text-slate-500">{{ index + 1 }}.</span>
-      <span class="select-text">{{ word }}</span>
-    </li>
-  </ol>
-
-  <button @click="copyToClipboard" class="w-full bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 inner-button-shadow text-slate-900 px-4 py-1 rounded-lg focus:outline-none cursor-pointer">
-    {{ isCopied ? 'Copied!' : 'Copy to Clipboard' }}
-  </button>
+  <MnemonicDisplay gridClass="px-3 mt-5 mb-6" v-slot="{ mnemonic }">
+    <CopyToClipboard :content="mnemonic" class="cursor-pointer">
+      <button class="w-full mt-4 bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 inner-button-shadow text-slate-900 px-4 py-1 rounded-lg focus:outline-none cursor-pointer">
+        Copy to Clipboard
+      </button>
+      <template #copied>
+        <button class="w-full mt-4 bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 inner-button-shadow text-slate-900 px-4 py-1 rounded-lg focus:outline-none cursor-pointer">
+          Copied!
+        </button>
+      </template>
+    </CopyToClipboard>
+  </MnemonicDisplay>
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
-import { getWalletKeys } from '../../stores/wallets.ts';
+import MnemonicDisplay from '../../components/MnemonicDisplay.vue';
+import CopyToClipboard from '../../components/CopyToClipboard.vue';
 
-const walletKeys = getWalletKeys();
-
-const isCopied = Vue.ref(false);
-const masterMnemonic = Vue.ref('');
-const words = Vue.computed(() => masterMnemonic.value.split(' '));
-
-const emit = defineEmits(['close', 'goTo']);
-
-function copyToClipboard() {
-  navigator.clipboard.writeText(masterMnemonic.value);
-  isCopied.value = true;
-  setTimeout(() => {
-    isCopied.value = false;
-  }, 2000);
-}
-
-Vue.onMounted(() => {
-  walletKeys.exposeMasterMnemonic().then(x => {
-    masterMnemonic.value = x;
-  });
-});
+defineEmits(['close', 'goTo']);
 </script>

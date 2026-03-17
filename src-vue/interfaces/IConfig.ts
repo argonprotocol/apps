@@ -165,6 +165,7 @@ export const ConfigSchema = z.object({
   biddingRules: BiddingRulesSchema,
   vaultingRules: VaultingRulesSchema,
 
+  hasSavedMnemonic: z.boolean(),
   defaultCurrencyKey: CurrencyKeySchema,
   userJurisdiction: z.object({
     ipAddress: z.string(),
@@ -219,6 +220,7 @@ export interface IConfigDefaults {
   isServerInstalling: () => IConfig['isServerInstalling'];
 
   hasReadVaultingInstructions: () => IConfig['hasReadVaultingInstructions'];
+  hasSavedMnemonic: () => IConfig['hasSavedMnemonic'];
 
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];

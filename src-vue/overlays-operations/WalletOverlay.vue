@@ -80,6 +80,8 @@
             </tbody>
           </table>
 
+          <MnemonicBackupBanner class="mt-6" />
+
           <button
             @click="closeOverlay"
             :class="walletIsFullyFunded ? 'bg-argon-600 hover:bg-argon-700 border-argon-700 text-white' : 'bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 text-slate-900'"
@@ -130,6 +132,7 @@ import basicEmitter from '../emitters/basicEmitter';
 import { useOperationsController } from '../stores/operationsController.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import InstructionsIcon from '../assets/instructions.svg?component';
+import MnemonicBackupBanner from '../components/MnemonicBackupBanner.vue';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 
 const isOpen = Vue.ref(false);
