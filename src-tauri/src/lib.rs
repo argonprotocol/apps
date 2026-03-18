@@ -8,6 +8,7 @@ use sp_core::crypto::Ss58Codec;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
+use tauri::WebviewWindow;
 use tauri::{AppHandle, Manager};
 use tauri::{Emitter, State};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
@@ -317,6 +318,14 @@ async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn report_empty_app_root_after_activation() {
+    log::warn!(
+        "[WakeRecovery] Empty #app detected after activation for instance '{}'; reloading webview",
+        Utils::get_instance_name()
+    );
+}
+
+#[tauri::command]
 async fn e2e_capture_main_window_screenshot(
     _app: AppHandle,
     output_path: Option<String>,
@@ -389,6 +398,42 @@ fn init_config_instance_dir(
     Ok(())
 }
 
+fn reload_if_app_root_empty(window: WebviewWindow) {
+    let reload_if_empty = r#"
+      (() => {
+        window.clearTimeout(window.__argonEmptyRootReloadTimer__);
+        window.__argonEmptyRootReloadTimer__ = window.setTimeout(() => {
+          if (document.readyState !== 'complete') return;
+
+          const appRoot = document.querySelector('#app');
+          if (appRoot?.firstElementChild) return;
+
+          const cleanup = () => {
+            delete window.__argonEmptyRootReloadTimer__;
+            window.location.reload();
+          };
+
+          const invoke = window.__TAURI_INTERNALS__?.invoke;
+          if (typeof invoke !== 'function') {
+            cleanup();
+            return;
+          }
+
+          invoke('report_empty_app_root_after_activation')
+            .catch(() => null)
+            .finally(cleanup);
+        }, 2000);
+      })();
+    "#;
+
+    if let Err(error) = window.eval(reload_if_empty) {
+        log::warn!("Failed to inspect main webview after activation: {error}. Reloading window.");
+        if let Err(reload_error) = window.reload() {
+            log::error!("Failed to reload main webview after activation: {reload_error}");
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     color_backtrace::install();
@@ -418,7 +463,6 @@ pub fn run() {
     let db_relative_path = relative_config_dir.join("database.sqlite");
     let db_url = format!("sqlite:{}", db_relative_path.display()).replace("\\", "/");
     let migrations = migrations::get_migrations();
-
     let network_name_clone = network_name.clone();
     let env_vars = Utils::get_server_env_vars(&app_id).unwrap_or_default();
     let env_vars_json = serde_json::to_string(&env_vars).unwrap_or_default();
@@ -440,7 +484,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .on_page_load(move |window, _payload| {
             if window.label() != "main" {
-              return;
+                return;
             }
 
             #[cfg(target_os = "macos")]
@@ -491,7 +535,7 @@ pub fn run() {
         "#
                 ))
                 .expect("Failed to initialize window globals");
-          })
+        })
         .setup(move |app| {
             let handle = app.handle();
             let config_path = Utils::get_absolute_config_instance_dir(handle);
@@ -509,6 +553,12 @@ pub fn run() {
             init_config_instance_dir(handle, &relative_config_dir)?;
 
             let window = app.get_webview_window("main").unwrap();
+            let reload_window = window.clone();
+            window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Focused(true)) {
+                    reload_if_app_root_empty(reload_window.clone());
+                }
+            });
 
             if e2e_headless {
                 log::info!("E2E headless mode enabled (ARGON_E2E_HEADLESS)");
@@ -601,6 +651,7 @@ pub fn run() {
             overwrite_mnemonic,
             measure_latency,
             load_instance,
+            report_empty_app_root_after_activation,
             e2e_capture_main_window_screenshot,
         ])
         .run(context)

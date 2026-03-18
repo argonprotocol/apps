@@ -160,8 +160,9 @@ export class BlockWatch {
     if (finalizedHash) {
       return finalizedHash;
     }
-    const client = await this.getRpcClient(blockNumber);
-    return await client.rpc.chain.getBlockHash(blockNumber).then(x => x.toHex());
+    return await this.readWithArchiveRetry(blockNumber, `getFinalizedHash(${blockNumber})`, client =>
+      client.rpc.chain.getBlockHash(blockNumber).then(x => x.toHex()),
+    );
   }
 
   public async getHeader(blockNumber: number): Promise<IBlockHeaderInfo> {
@@ -172,16 +173,20 @@ export class BlockWatch {
     if (best) {
       return best;
     }
-    const client = await this.getRpcClient(blockNumber);
-    const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
-    const header = await client.rpc.chain.getHeader(blockHash);
+    const header = await this.readWithArchiveRetry(blockNumber, `getHeader(${blockNumber})`, async client => {
+      const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
+      return await client.rpc.chain.getHeader(blockHash);
+    });
     return BlockWatch.readHeader(header, blockNumber <= this.finalizedBlockHeader.blockNumber);
   }
 
   public async getParentHeader(header: IBlockHeaderInfo): Promise<IBlockHeaderInfo> {
     const parentNumber = header.blockNumber - 1;
-    const client = await this.getRpcClient(parentNumber);
-    const parentHeader = await client.rpc.chain.getHeader(header.parentHash);
+    const parentHeader = await this.readWithArchiveRetry(
+      parentNumber,
+      `getParentHeader(${header.blockNumber})`,
+      client => client.rpc.chain.getHeader(header.parentHash),
+    );
     return BlockWatch.readHeader(parentHeader);
   }
 
@@ -258,6 +263,39 @@ export class BlockWatch {
       walkBack = await this.getParentHeader(walkBack);
     }
     return headers.reverse();
+  }
+
+  private async readWithArchiveRetry<T>(
+    blockNumber: number,
+    label: string,
+    query: (client: ArgonClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.getRpcClient(blockNumber);
+    try {
+      return await query(client);
+    } catch (error) {
+      if (!this.shouldRetryOnArchive(error)) {
+        throw error;
+      }
+
+      const archiveClient = await this.clients.archiveClientPromise;
+      if (archiveClient === client) {
+        throw error;
+      }
+
+      console.warn(`[BlockWatch]: ${label} failed on selected client, retrying on archive`, {
+        blockNumber,
+        error: String(error),
+      });
+      return await query(archiveClient);
+    }
+  }
+
+  private shouldRetryOnArchive(error: unknown): boolean {
+    const message = String(error).toLowerCase();
+    return (
+      message.includes('4003') && (message.includes('state already discarded') || message.includes('unknown block'))
+    );
   }
 
   public static readHeader(header: Header, isFinalized = false): IBlockHeaderInfo {
