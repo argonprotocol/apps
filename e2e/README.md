@@ -209,6 +209,7 @@ Headless behavior:
 
 - `yarn e2e:docker` inherits `ARGON_E2E_HEADLESS` (use `0` for visible UI).
 - `yarn workspace @argonprotocol/apps-e2e run test` defaults to headless (`ARGON_E2E_HEADLESS=1`) and runs the root Vitest `e2e` project.
+- Automatic screenshots require `ARGON_E2E_HEADLESS=0`. In headless mode the Tauri app hides the main window, so screenshot capture is not reliable.
 
 ## Runtime Controls
 
