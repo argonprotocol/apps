@@ -19,9 +19,11 @@ CREATE TABLE BitcoinUtxos (
     'SeenOnMempool',
     'FundingCandidate',
     'FundingUtxo',
+    'Orphaned',
     'ReleaseIsProcessingOnArgon',
     'ReleaseIsProcessingOnBitcoin',
-    'ReleaseComplete'
+    'ReleaseComplete',
+    'ReleaseCompleteAcknowledged'
   )) DEFAULT 'FundingCandidate',
   statusError TEXT,
   mempoolObservation JSON,
@@ -63,9 +65,11 @@ CREATE TABLE BitcoinUtxoStatusHistory (
     'SeenOnMempool',
     'FundingCandidate',
     'FundingUtxo',
+    'Orphaned',
     'ReleaseIsProcessingOnArgon',
     'ReleaseIsProcessingOnBitcoin',
-    'ReleaseComplete'
+    'ReleaseComplete',
+    'ReleaseCompleteAcknowledged'
   )),
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -127,7 +131,7 @@ SELECT
   ),
   old.network,
   CASE
-    WHEN old.releasedAtBitcoinHeight IS NOT NULL OR old.status = 'ReleaseComplete' THEN 'ReleaseComplete'
+    WHEN old.releasedAtBitcoinHeight IS NOT NULL OR old.status = 'ReleaseComplete' THEN 'ReleaseCompleteAcknowledged'
     WHEN old.status = 'ReleaseIsProcessingOnBitcoin' OR old.releasedTxid IS NOT NULL THEN 'ReleaseIsProcessingOnBitcoin'
     WHEN old.status IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsWaitingForVault', 'ReleaseSigned') THEN 'ReleaseIsProcessingOnArgon'
     WHEN old.status = 'LockIsProcessingOnBitcoin' THEN 'SeenOnMempool'
@@ -244,6 +248,8 @@ CREATE TABLE BitcoinLocks (
     'LockIsProcessingOnArgon',
     'LockPendingFunding',
     'LockExpiredWaitingForFunding',
+    'LockExpiredWaitingForFundingAcknowledged',
+    'LockFundingReadyToResume',
     'LockedAndIsMinting',
     'LockedAndMinted',
     'Releasing',
@@ -289,7 +295,7 @@ SELECT
     WHEN old.status = 'LockIsPendingFundingMismatchResolution' THEN 'LockPendingFunding'
     WHEN old.status = 'LockFundingMismatchResolving' THEN 'LockPendingFunding'
     WHEN old.status = 'LockReceivedWrongAmount' THEN 'LockPendingFunding'
-    WHEN old.status = 'LockFailedToHappen' THEN 'LockExpiredWaitingForFunding'
+    WHEN old.status = 'LockFailedToHappen' THEN 'LockExpiredWaitingForFundingAcknowledged'
     WHEN old.status IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsWaitingForVault', 'ReleaseSigned', 'ReleaseIsProcessingOnBitcoin') THEN 'Releasing'
     WHEN old.status = 'ReleaseComplete' THEN 'Released'
     ELSE old.status

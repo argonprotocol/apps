@@ -56,7 +56,7 @@ describe('BitcoinLocksTable', () => {
     expect(updated.status).toBe(BitcoinLockStatus.LockedAndMinted);
   });
 
-  it('can mark locks as released or expired waiting for funding', async () => {
+  it('can mark locks as released, expired, acknowledged, and resume-ready', async () => {
     const { table, lock } = await createPendingLock({
       uuid: 'release-expire',
       status: BitcoinLockStatus.LockPendingFunding,
@@ -64,6 +64,12 @@ describe('BitcoinLocksTable', () => {
 
     await table.setLockExpiredWaitingForFunding(lock);
     expect(lock.status).toBe(BitcoinLockStatus.LockExpiredWaitingForFunding);
+
+    await table.setLockExpiredWaitingForFundingAcknowledged(lock);
+    expect(lock.status).toBe(BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged);
+
+    await table.setLockFundingReadyToResume(lock);
+    expect(lock.status).toBe(BitcoinLockStatus.LockFundingReadyToResume);
 
     await table.setReleased(lock);
     const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;

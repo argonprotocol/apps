@@ -11,9 +11,12 @@ export enum ExtrinsicType {
   VaultCollect = 'VaultCollect',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
-  BitcoinRequestRelease = 'BitcoinRequestRelease',
-  VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease',
+  BitcoinRequestRelease = 'BitcoinRequestRelease', // funding UTXO enters release lifecycle on Argon
+  VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease', // vault cosigns release request before bitcoin broadcast
   VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',
+  BitcoinIncreaseSecuritization = 'BitcoinIncreaseSecuritization',
+  BitcoinOrphanedUtxoUseAsFunding = 'BitcoinOrphanedUtxoUseAsFunding',
+  BitcoinOrphanedUtxoRelease = 'BitcoinOrphanedUtxoRelease',
 
   Transfer = 'Transfer',
 }

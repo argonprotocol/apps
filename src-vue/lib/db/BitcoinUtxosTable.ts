@@ -19,9 +19,11 @@ export enum BitcoinUtxoStatus {
   SeenOnMempool = 'SeenOnMempool', // Found on Bitcoin mempool, but not yet an Argon funding candidate.
   FundingCandidate = 'FundingCandidate', // Candidate funding UTXO seen by Argon for this lock (pre-acceptance).
   FundingUtxo = 'FundingUtxo', // Accepted funding UTXO backing this lock.
+  Orphaned = 'Orphaned', // Non-accepted deposit that has moved into the return path.
   ReleaseIsProcessingOnArgon = 'ReleaseIsProcessingOnArgon', // Release request submitted to Argon and still in pre-Bitcoin finalization phases.
   ReleaseIsProcessingOnBitcoin = 'ReleaseIsProcessingOnBitcoin', // Release transaction was observed on Bitcoin and is being confirmed.
   ReleaseComplete = 'ReleaseComplete', // Release is fully complete.
+  ReleaseCompleteAcknowledged = 'ReleaseCompleteAcknowledged', // Release completed and the lock has already handled the result.
 }
 
 export interface IBitcoinUtxoRecord {
@@ -55,6 +57,17 @@ export interface IBitcoinUtxoRecord {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type IConfirmedReleaseCosign = {
+  releaseCosignVaultSignature: Uint8Array;
+  releaseCosignHeight: number;
+};
+
+type IReleaseProcessingOnArgonUpdate = {
+  requestedReleaseAtTick?: number;
+  releaseToDestinationAddress: string;
+  releaseBitcoinNetworkFee: bigint;
+} & ({ releaseCosignVaultSignature?: undefined; releaseCosignHeight?: undefined } | IConfirmedReleaseCosign);
 
 export interface IBitcoinUtxoStatusHistoryRecord {
   id: number;
@@ -243,6 +256,15 @@ export class BitcoinUtxosTable extends BaseTable {
     );
   }
 
+  public async setOrphaned(record: IBitcoinUtxoRecord): Promise<void> {
+    record.status = BitcoinUtxoStatus.Orphaned;
+    record.firstSeenOnArgonAt ??= dayjs.utc().toDate();
+    await this.db.execute(
+      `UPDATE BitcoinUtxos SET status = ?, firstSeenOnArgonAt = COALESCE(firstSeenOnArgonAt, ?) WHERE id = ?`,
+      toSqlParams([record.status, record.firstSeenOnArgonAt, record.id]),
+    );
+  }
+
   public async updateLastConfirmationCheck(record: IBitcoinUtxoRecord): Promise<void> {
     await this.db.execute(
       `UPDATE BitcoinUtxos SET
@@ -288,7 +310,7 @@ export class BitcoinUtxosTable extends BaseTable {
     mempoolBitcoinBlockHeight: number,
     oracleBitcoinBlockHeight: number,
   ): Promise<void> {
-    if (record.status !== BitcoinUtxoStatus.ReleaseComplete) {
+    if (![BitcoinUtxoStatus.ReleaseComplete, BitcoinUtxoStatus.ReleaseCompleteAcknowledged].includes(record.status)) {
       record.status = BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
     }
     record.releaseTxid = releaseTxid;
@@ -356,24 +378,20 @@ export class BitcoinUtxosTable extends BaseTable {
 
   public async setReleaseIsProcessingOnArgon(
     record: IBitcoinUtxoRecord,
-    args: {
-      requestedReleaseAtTick?: number;
-      releaseToDestinationAddress: string;
-      releaseBitcoinNetworkFee: bigint;
-      releaseCosignVaultSignature?: Uint8Array;
-      releaseCosignHeight?: number;
-    },
+    args: IReleaseProcessingOnArgonUpdate,
   ): Promise<void> {
+    if ((args.releaseCosignVaultSignature == null) !== (args.releaseCosignHeight == null)) {
+      throw new Error('Release cosign updates must include both the vault signature and Argon block height.');
+    }
     record.status = BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
     if (args.requestedReleaseAtTick !== undefined) record.requestedReleaseAtTick = args.requestedReleaseAtTick;
     record.releaseToDestinationAddress = args.releaseToDestinationAddress;
     record.releaseBitcoinNetworkFee = args.releaseBitcoinNetworkFee;
-    if (args.releaseCosignVaultSignature) {
-      record.releaseCosignVaultSignature = args.releaseCosignVaultSignature;
-    }
-    if (args.releaseCosignHeight !== undefined) {
-      record.releaseCosignHeight = args.releaseCosignHeight;
-    }
+    const hasConfirmedCosign = !!record.releaseCosignVaultSignature && record.releaseCosignHeight != null;
+    record.releaseCosignVaultSignature =
+      args.releaseCosignVaultSignature ?? (hasConfirmedCosign ? record.releaseCosignVaultSignature : undefined);
+    record.releaseCosignHeight =
+      args.releaseCosignHeight ?? (hasConfirmedCosign ? record.releaseCosignHeight : undefined);
     record.statusError = undefined;
     await this.db.execute(
       `UPDATE BitcoinUtxos
@@ -397,14 +415,12 @@ export class BitcoinUtxosTable extends BaseTable {
     );
   }
 
-  public async setReleaseCosign(
-    record: IBitcoinUtxoRecord,
-    args: { releaseCosignVaultSignature: Uint8Array; releaseCosignHeight?: number },
-  ): Promise<void> {
-    record.releaseCosignVaultSignature = args.releaseCosignVaultSignature;
-    if (args.releaseCosignHeight !== undefined) {
-      record.releaseCosignHeight = args.releaseCosignHeight;
+  public async setReleaseCosign(record: IBitcoinUtxoRecord, args: IConfirmedReleaseCosign): Promise<void> {
+    if (args.releaseCosignHeight == null) {
+      throw new Error('Release cosign height is required when storing a vault signature.');
     }
+    record.releaseCosignVaultSignature = args.releaseCosignVaultSignature;
+    record.releaseCosignHeight = args.releaseCosignHeight;
     await this.db.execute(
       `UPDATE BitcoinUtxos
        SET releaseCosignVaultSignature = ?,
@@ -431,6 +447,24 @@ export class BitcoinUtxosTable extends BaseTable {
     );
   }
 
+  public async setReleaseCompleteAcknowledged(record: IBitcoinUtxoRecord): Promise<void> {
+    record.status = BitcoinUtxoStatus.ReleaseCompleteAcknowledged;
+    record.statusError = undefined;
+    await this.db.execute(
+      `UPDATE BitcoinUtxos SET status = ?, statusError = NULL WHERE id = ?`,
+      toSqlParams([record.status, record.id]),
+    );
+  }
+
+  public async setReleaseError(record: IBitcoinUtxoRecord, error: string): Promise<void> {
+    record.status = await this.getLatestNonReleaseStatus(record.id);
+    record.statusError = error;
+    await this.db.execute(
+      `UPDATE BitcoinUtxos SET status = ?, statusError = ? WHERE id = ?`,
+      toSqlParams([record.status, record.statusError, record.id]),
+    );
+  }
+
   public async setFundingUtxo(record: IBitcoinUtxoRecord): Promise<void> {
     record.status = BitcoinUtxoStatus.FundingUtxo;
     record.firstSeenOnArgonAt ??= dayjs.utc().toDate();
@@ -441,5 +475,26 @@ export class BitcoinUtxosTable extends BaseTable {
        WHERE id = ?`,
       toSqlParams([record.status, record.firstSeenOnArgonAt, record.id]),
     );
+  }
+
+  private async getLatestNonReleaseStatus(utxoRecordId: number): Promise<BitcoinUtxoStatus> {
+    const history = await this.fetchStatusHistory(utxoRecordId);
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const status = history.at(i)?.newStatus;
+      if (!status) continue;
+      if (!this.isReleaseStatus(status)) {
+        return status;
+      }
+    }
+    return BitcoinUtxoStatus.FundingCandidate;
+  }
+
+  private isReleaseStatus(status: BitcoinUtxoStatus): boolean {
+    return [
+      BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
+      BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+      BitcoinUtxoStatus.ReleaseComplete,
+      BitcoinUtxoStatus.ReleaseCompleteAcknowledged,
+    ].includes(status);
   }
 }

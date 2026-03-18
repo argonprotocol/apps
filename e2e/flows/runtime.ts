@@ -162,6 +162,9 @@ export async function executeFlow(
     waitUntilRunnable: async () => {
       throw new Error('flow.waitUntilRunnable() requires an active operation context.');
     },
+    poll: async () => {
+      throw new Error('flow.poll() requires an active operation context.');
+    },
     queryApp: async <T = unknown>(fn: string, options: IE2EQueryAppOptions = {}) => {
       const result = await runDriverCommand<IQueryAppCommandResult<T>>('command.queryApp', {
         ...withCommandMeta(),

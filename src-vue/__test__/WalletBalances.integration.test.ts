@@ -19,7 +19,7 @@ const REORG_DELETION_WAIT_MS = 10_000;
 
 describe
   .skipIf(skipE2E)
-  .sequential('Wallet balances monitoring tests', { timeout: 60e3, shuffle: false, retry: 0 }, () => {
+  .sequential('Wallet balances monitoring tests', { timeout: 120e3, shuffle: false, retry: 0 }, () => {
     let clients: MainchainClients;
     let mainchainUrl: string;
     let transferBlocks: number[] = [];
@@ -27,14 +27,18 @@ describe
     const { walletKeys, miningBotAccount } = createTestWallet('//Alice');
 
     beforeAll(async () => {
-      const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['miners'] });
+      const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
+        profiles: ['miners'],
+        chainStartTimeoutMs: 120_000,
+        chainStartPollMs: 250,
+      });
 
       mainchainUrl = network.archiveUrl;
       clients = new MainchainClients(mainchainUrl);
       disconnectOnTeardown(clients);
       setMainchainClients(clients);
       NetworkConfig.setNetwork('dev-docker');
-    }, 60e3);
+    }, 120e3);
 
     it.sequential('should track balances', async () => {
       const client = await clients.get(false);
