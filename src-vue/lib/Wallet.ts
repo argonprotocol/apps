@@ -1,9 +1,9 @@
+import { bigIntMax, IBalanceTransfer, IExtrinsicEvent, IVaultRevenueEvent } from '@argonprotocol/apps-core';
 import { Db } from './Db.ts';
 import { IBlockToProcess } from './WalletBalances.ts';
-import { IBalanceTransfer, IExtrinsicEvent, IVaultRevenueEvent } from '@argonprotocol/apps-core';
 
 export type IBalanceChange = {
-  block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'isFinalized'>;
+  block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'blockTime' | 'isFinalized'>;
   vaultRevenueEvents: IVaultRevenueEvent[];
   microgonsAdded: bigint;
   micronotsAdded: bigint;
@@ -24,6 +24,12 @@ export type IWallet = {
   totalMicrogons: bigint;
   totalMicronots: bigint;
 };
+
+export const miningHoldOperationalReserveMicrogons = 250_000n;
+
+export function getSpendableMiningHoldMicrogons(availableMicrogons: bigint): bigint {
+  return bigIntMax(availableMicrogons - miningHoldOperationalReserveMicrogons, 0n);
+}
 
 export enum WalletType {
   miningHold = 'miningHold',

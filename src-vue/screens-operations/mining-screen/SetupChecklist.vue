@@ -193,7 +193,6 @@ import BotCreatePriceChangeOverlay from '../../overlays-operations/BotCreatePric
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { MoveCapital } from '../../lib/MoveCapital.ts';
-import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
@@ -221,7 +220,7 @@ const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
 
 const availableMicrogons = Vue.computed(() => {
-  return wallets.miningHoldWallet.availableMicrogons + wallets.miningBotWallet.availableMicrogons;
+  return wallets.miningHoldSpendableMicrogons + wallets.miningBotWallet.availableMicrogons;
 });
 
 const reservedMicronots = Vue.computed(() => {
@@ -336,12 +335,7 @@ async function launchMiningBot() {
   const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 
   const miningHoldWallet = wallets.miningHoldWallet;
-  const miningBotAddress = wallets.miningBotWallet.address;
-  const assetsToMove = {
-    [MoveToken.ARGN]: miningHoldWallet.availableMicrogons,
-    [MoveToken.ARGNOT]: miningHoldWallet.availableMicronots,
-  };
-  await moveCapital.move(MoveFrom.MiningHold, MoveTo.MiningBot, assetsToMove, miningHoldWallet, miningBotAddress, true);
+  await moveCapital.moveAvailableMiningHoldToBot(miningHoldWallet);
 
   config.biddingRules = biddingRules;
   config.miningSetupStatus = MiningSetupStatus.Installing;

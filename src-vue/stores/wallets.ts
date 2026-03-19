@@ -8,7 +8,7 @@ import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { SECURITY } from '../lib/Env.ts';
-import { IWallet } from '../lib/Wallet.ts';
+import { getSpendableMiningHoldMicrogons, IWallet } from '../lib/Wallet.ts';
 import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
@@ -54,6 +54,14 @@ export const useWallets = defineStore('wallets', () => {
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
   const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
+
+  const miningHoldSpendableMicrogons = Vue.computed(() => {
+    return getSpendableMiningHoldMicrogons(miningHoldWallet.availableMicrogons);
+  });
+
+  const miningHoldDisplayedMicrogons = Vue.computed(() => {
+    return miningHoldSpendableMicrogons.value + miningHoldWallet.reservedMicrogons;
+  });
 
   const previousHistoryValue = Vue.computed(() => {
     if (!config.miningBotAccountPreviousHistory) return;
@@ -121,7 +129,7 @@ export const useWallets = defineStore('wallets', () => {
 
   const totalMiningMicrogons = Vue.computed(() => {
     return (
-      miningHoldWallet.availableMicrogons +
+      miningHoldSpendableMicrogons.value +
       miningBotWallet.availableMicrogons +
       miningSeatMicrogons.value +
       miningBidMicrogons.value -
@@ -146,7 +154,7 @@ export const useWallets = defineStore('wallets', () => {
 
   const totalMiningResources = Vue.computed(() => {
     const holdings =
-      miningHoldWallet.totalMicrogons +
+      miningHoldDisplayedMicrogons.value +
       currency.convertMicronotTo(miningHoldWallet.totalMicronots, UnitOfMeasurement.Microgon);
 
     return (
@@ -238,6 +246,8 @@ export const useWallets = defineStore('wallets', () => {
     miningHoldWallet,
     miningBotWallet,
     vaultingWallet,
+    miningHoldSpendableMicrogons,
+    miningHoldDisplayedMicrogons,
     totalWalletMicrogons,
     totalWalletMicronots,
     miningSeatValue,

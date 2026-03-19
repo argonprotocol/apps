@@ -224,7 +224,7 @@ const wallet = Vue.computed(() => {
 
 const availableMicrogons = Vue.computed(() => {
   if (walletId.value === 'miningHold') {
-    return wallets.miningHoldWallet.availableMicrogons + wallets.miningBotWallet.availableMicrogons;
+    return wallets.miningHoldSpendableMicrogons + wallets.miningBotWallet.availableMicrogons;
   } else {
     return wallets.vaultingWallet.availableMicrogons;
   }

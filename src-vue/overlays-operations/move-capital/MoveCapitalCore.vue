@@ -252,7 +252,7 @@ const maxAmountToMove = Vue.computed(() => {
 
   if (moveFrom.value === MoveFrom.MiningHold) {
     if (moveToken.value === MoveToken.ARGN) {
-      max = wallets.miningHoldWallet.availableMicrogons;
+      max = wallets.miningHoldSpendableMicrogons;
     } else if (moveToken.value === MoveToken.ARGNOT) {
       max = wallets.miningHoldWallet.availableMicronots;
     }

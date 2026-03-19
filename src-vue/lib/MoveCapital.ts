@@ -1,6 +1,7 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import {
+  bigIntMax,
   ethAddressToH256,
   isValidArgonAccountAddress,
   isValidEthereumAddress,
@@ -9,7 +10,7 @@ import {
   MoveToken,
 } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
-import { IWallet, WalletType } from './Wallet.ts';
+import { getSpendableMiningHoldMicrogons, IWallet, WalletType } from './Wallet.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -85,6 +86,83 @@ export class MoveCapital {
         extrinsicType: ExtrinsicType.Transfer,
       });
     }
+  }
+
+  public async moveAvailableMiningHoldToBot(wallet: IWallet): Promise<void> {
+    const assetsToMove: IAssetsToMove = {};
+    const spendableMicrogons = getSpendableMiningHoldMicrogons(wallet.availableMicrogons);
+
+    if (spendableMicrogons > 0n) {
+      assetsToMove[MoveToken.ARGN] = spendableMicrogons;
+    }
+    if (wallet.availableMicronots > 0n) {
+      assetsToMove[MoveToken.ARGNOT] = wallet.availableMicronots;
+    }
+    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) return;
+
+    let fee = await this.calculateFee(
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      assetsToMove,
+      wallet,
+      this.walletKeys.miningBotAddress,
+    );
+    if (this.transactionError) {
+      console.info('[MoveCapital] Skipping mining hold auto-transfer due to fee calculation error', {
+        error: this.transactionError,
+        availableMicrogons: wallet.availableMicrogons,
+        assetsToMove,
+      });
+      return;
+    }
+    if (fee > wallet.availableMicrogons) {
+      console.info('[MoveCapital] Skipping mining hold auto-transfer, not enough argons to cover fee', {
+        availableMicrogons: wallet.availableMicrogons,
+        fee,
+      });
+      return;
+    }
+
+    let finalAssetsToMove: IAssetsToMove = {};
+    const remainingMicrogons = bigIntMax((assetsToMove[MoveToken.ARGN] ?? 0n) - fee, 0n);
+
+    if (remainingMicrogons > 0n) {
+      finalAssetsToMove[MoveToken.ARGN] = remainingMicrogons;
+    }
+
+    if (assetsToMove[MoveToken.ARGNOT]) {
+      if (!remainingMicrogons && assetsToMove[MoveToken.ARGN]) {
+        finalAssetsToMove = { [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] };
+        fee = await this.calculateFee(
+          MoveFrom.MiningHold,
+          MoveTo.MiningBot,
+          finalAssetsToMove,
+          wallet,
+          this.walletKeys.miningBotAddress,
+        );
+        if (this.transactionError) {
+          console.info('[MoveCapital] Skipping mining hold auto-transfer due to fee calculation error', {
+            error: this.transactionError,
+            availableMicrogons: wallet.availableMicrogons,
+            assetsToMove: finalAssetsToMove,
+          });
+          return;
+        }
+        if (fee > wallet.availableMicrogons) {
+          console.info('[MoveCapital] Skipping mining hold auto-transfer, not enough argons to cover fee', {
+            availableMicrogons: wallet.availableMicrogons,
+            fee,
+          });
+          return;
+        }
+      } else {
+        finalAssetsToMove[MoveToken.ARGNOT] = assetsToMove[MoveToken.ARGNOT];
+      }
+    }
+
+    if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) return;
+
+    await this.move(MoveFrom.MiningHold, MoveTo.MiningBot, finalAssetsToMove, wallet, this.walletKeys.miningBotAddress);
   }
 
   private async getSigner(moveFrom: MoveFrom) {
@@ -198,12 +276,11 @@ export class MoveCapital {
     fromWallet: IWallet,
     toAddress: string,
   ): Promise<bigint> {
+    this.transactionError = '';
     try {
       const { tx } = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress);
       const feeObj = await tx.paymentInfo(fromWallet.address);
       let fee = feeObj.partialFee.toBigInt();
-
-      this.transactionError = '';
 
       if (fee > fromWallet.availableMicrogons) {
         this.transactionError = `Your wallet has insufficient funds for this transaction.`;
@@ -212,6 +289,7 @@ export class MoveCapital {
 
       return fee;
     } catch (err) {
+      this.transactionError = 'Unable to calculate transaction fee.';
       console.error('Error calculating transaction fee: %o', err);
       return 0n;
     }
