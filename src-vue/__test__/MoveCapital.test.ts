@@ -1,14 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
-import type { IWallet } from '../lib/Wallet.ts';
+import { miningHoldOperationalReserveMicrogons, type IWallet } from '../lib/Wallet.ts';
 
 describe('MoveCapital', () => {
-  it('moves all available mining hold funds to the bot', async () => {
+  it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
     const moveCapital = createMoveCapital();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
-    const wallet = createWallet({ availableMicrogons: 50n, availableMicronots: 7n });
+    const wallet = createWallet({
+      availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
+      availableMicronots: 7n,
+    });
 
     await moveCapital.moveAvailableMiningHoldToBot(wallet);
 
@@ -22,20 +25,71 @@ describe('MoveCapital', () => {
     expect(moveSpy).toHaveBeenCalledWith(
       MoveFrom.MiningHold,
       MoveTo.MiningBot,
-      { ARGN: 50n, ARGNOT: 7n },
+      { ARGN: 45n, ARGNOT: 7n },
       wallet,
       'mining-bot-address',
-      true,
     );
   });
 
-  it('skips the sweep when there are not enough argons to pay the fee', async () => {
+  it('retries the fee calculation without argons when only argonots should move', async () => {
     const moveCapital = createMoveCapital();
-    vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(11n);
+    const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValueOnce(5n).mockResolvedValueOnce(2n);
+    const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
+    const wallet = createWallet({
+      availableMicrogons: miningHoldOperationalReserveMicrogons + 3n,
+      availableMicronots: 4n,
+    });
+
+    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+
+    expect(calculateFeeSpy).toHaveBeenNthCalledWith(
+      1,
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      { ARGN: 3n, ARGNOT: 4n },
+      wallet,
+      'mining-bot-address',
+    );
+    expect(calculateFeeSpy).toHaveBeenNthCalledWith(
+      2,
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      { ARGNOT: 4n },
+      wallet,
+      'mining-bot-address',
+    );
+    expect(moveSpy).toHaveBeenCalledWith(
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      { ARGNOT: 4n },
+      wallet,
+      'mining-bot-address',
+    );
+  });
+
+  it('skips the sweep when fee calculation reports insufficient funds', async () => {
+    const moveCapital = createMoveCapital();
+    vi.spyOn(moveCapital, 'calculateFee').mockImplementation(async () => {
+      moveCapital.transactionError = 'Your wallet has insufficient funds for this transaction.';
+      return 0n;
+    });
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
     const wallet = createWallet({ availableMicrogons: 10n, availableMicronots: 4n });
 
     await moveCapital.moveAvailableMiningHoldToBot(wallet);
+
+    expect(moveSpy).not.toHaveBeenCalled();
+  });
+
+  it('skips the sweep when fee calculation fails', async () => {
+    const moveCapital = createMoveCapital();
+    vi.spyOn(moveCapital, 'calculateFee').mockImplementation(async () => {
+      moveCapital.transactionError = 'Unable to calculate transaction fee.';
+      return 0n;
+    });
+    const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
+
+    await moveCapital.moveAvailableMiningHoldToBot(createWallet({ availableMicronots: 4n }));
 
     expect(moveSpy).not.toHaveBeenCalled();
   });
@@ -45,7 +99,9 @@ describe('MoveCapital', () => {
     const feeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(0n);
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
 
-    await moveCapital.moveAvailableMiningHoldToBot(createWallet({}));
+    await moveCapital.moveAvailableMiningHoldToBot(
+      createWallet({ availableMicrogons: miningHoldOperationalReserveMicrogons }),
+    );
 
     expect(feeSpy).not.toHaveBeenCalled();
     expect(moveSpy).not.toHaveBeenCalled();
