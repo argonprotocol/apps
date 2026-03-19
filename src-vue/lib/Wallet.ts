@@ -3,7 +3,7 @@ import { IBlockToProcess } from './WalletBalances.ts';
 import { IBalanceTransfer, IExtrinsicEvent, IVaultRevenueEvent } from '@argonprotocol/apps-core';
 
 export type IBalanceChange = {
-  block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'isFinalized'>;
+  block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'blockTime' | 'isFinalized'>;
   vaultRevenueEvents: IVaultRevenueEvent[];
   microgonsAdded: bigint;
   micronotsAdded: bigint;

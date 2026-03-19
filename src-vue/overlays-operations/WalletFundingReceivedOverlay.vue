@@ -30,10 +30,14 @@
 import * as Vue from 'vue';
 import { getConfig } from '../stores/config';
 import { getCurrency } from '../stores/currency';
+import { getMyVault } from '../stores/vaults.ts';
+import { getWalletKeys, useWallets } from '../stores/wallets.ts';
+import { getTransactionTracker } from '../stores/transactions.ts';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
+import { MoveCapital } from '../lib/MoveCapital.ts';
 import { createNumeralHelpers } from '../lib/numeral';
+import type { IWallet } from '../lib/Wallet.ts';
 import { IWalletType, WalletType } from '../lib/Wallet.ts';
-import { useWallets } from '../stores/wallets.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
 const isOpen = Vue.computed(() => changes.value.length > 0);
@@ -41,6 +45,10 @@ const isOpen = Vue.computed(() => changes.value.length > 0);
 const currency = getCurrency();
 const config = getConfig();
 const wallets = useWallets();
+const walletKeys = getWalletKeys();
+const myVault = getMyVault();
+const transactionTracker = getTransactionTracker();
+const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -79,6 +87,9 @@ const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 const transactionError = Vue.ref('');
 const flash = Vue.ref(false);
+let isAutoTransferringMiningHold = false;
+let shouldRetryAutoTransfer = false;
+const RECENT_TRANSFER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function closeOverlay() {
   changes.value.shift();
@@ -101,9 +112,50 @@ Vue.watch(
   },
 );
 
+async function queueMiningHoldAutoTransfer(wallet: IWallet) {
+  if (isAutoTransferringMiningHold) {
+    shouldRetryAutoTransfer = true;
+    return;
+  }
+
+  isAutoTransferringMiningHold = true;
+  try {
+    // If new funds arrive while the sweep tx is still pending, rerun once against the latest balance
+    // after the in-flight transfer settles instead of submitting a second transfer in parallel.
+    do {
+      shouldRetryAutoTransfer = false;
+      await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    } while (shouldRetryAutoTransfer);
+  } finally {
+    isAutoTransferringMiningHold = false;
+  }
+}
+
+function isRecentTransfer(blockTime: number): boolean {
+  return Date.now() - blockTime <= RECENT_TRANSFER_WINDOW_MS;
+}
+
 let unsubscribe: (() => void) | null = null;
 Vue.onMounted(() => {
   const unsub1 = wallets.on('transfer-in', (wallet, balanceChange) => {
+    if (!isRecentTransfer(balanceChange.block.blockTime)) {
+      console.log('Skipping wallet change - transfer is older than popup window', balanceChange.block);
+      return;
+    }
+
+    if (
+      wallet.type === WalletType.miningHold &&
+      config.isServerInstalled &&
+      !config.hasMiningSeats &&
+      (balanceChange.microgonsAdded > 0n || balanceChange.micronotsAdded > 0n) &&
+      balanceChange.transfers.some(x => x.isInbound && !x.isInternal)
+    ) {
+      void queueMiningHoldAutoTransfer(wallet).catch(error => {
+        console.error('[WalletFundingReceivedOverlay] Failed to auto-transfer mining hold funds', error);
+      });
+      return;
+    }
+
     if (wallet.type === 'vaulting' && config.vaultingSetupStatus !== VaultingSetupStatus.Finished) {
       console.log('Skipping vaulting wallet change - no created vault');
       return;
@@ -138,8 +190,7 @@ Vue.onMounted(() => {
   };
 });
 
-Vue.onMounted(async () => {
-  await config.load();
+Vue.onUnmounted(() => {
   unsubscribe?.();
   unsubscribe = null;
 });

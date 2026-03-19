@@ -85,6 +85,7 @@ describe
       expect(onBalanceChange).toHaveBeenCalledWith('miningBot');
       expect(onTransferIn).toHaveBeenCalledTimes(1);
       expect(onTransferIn.mock.calls[0][1].microgonsAdded).toBe(5_000_000n);
+      expect(onTransferIn.mock.calls[0][1].block.blockTime).toBeGreaterThan(0);
       expect(onTransferIn.mock.calls[0][1].transfers).toHaveLength(1);
       expect(onTransferIn.mock.calls[0][1].transfers[0]).toMatchObject(
         expect.objectContaining({

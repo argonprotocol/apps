@@ -87,6 +87,44 @@ export class MoveCapital {
     }
   }
 
+  public async moveAvailableMiningHoldToBot(wallet: IWallet): Promise<void> {
+    const assetsToMove: IAssetsToMove = {};
+    if (wallet.availableMicrogons > 0n) {
+      assetsToMove[MoveToken.ARGN] = wallet.availableMicrogons;
+    }
+    if (wallet.availableMicronots > 0n) {
+      assetsToMove[MoveToken.ARGNOT] = wallet.availableMicronots;
+    }
+    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) return;
+
+    const fee = await this.calculateFee(
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      assetsToMove,
+      wallet,
+      this.walletKeys.miningBotAddress,
+    );
+    if (fee > wallet.availableMicrogons) {
+      console.info('[MoveCapital] Skipping mining hold auto-transfer, not enough argons to cover fee', {
+        availableMicrogons: wallet.availableMicrogons,
+        fee,
+      });
+      return;
+    }
+
+    const remainingMicrogons = (assetsToMove[MoveToken.ARGN] ?? 0n) - fee;
+    if (remainingMicrogons <= 0n && !assetsToMove[MoveToken.ARGNOT]) return;
+
+    await this.move(
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      assetsToMove,
+      wallet,
+      this.walletKeys.miningBotAddress,
+      true,
+    );
+  }
+
   private async getSigner(moveFrom: MoveFrom) {
     const walletType = this.getWalletTypeFromMove(moveFrom);
     switch (walletType) {

@@ -19,6 +19,7 @@ import { SyncStateKeys } from './db/SyncStateTable.ts';
 export interface IBlockToProcess {
   blockNumber: number;
   blockHash: string;
+  blockTime: number;
   parentHash: string;
   isFinalized: boolean;
   isProcessed: boolean;
@@ -163,6 +164,7 @@ export class WalletBalances {
         const entry = {
           blockNumber,
           blockHash: historyHeader.blockHash,
+          blockTime: historyHeader.blockTime,
           isFinalized: blockNumber <= finalizedBlockNumber,
           isProcessed: false,
           parentHash: historyHeader.parentHash,
@@ -209,6 +211,7 @@ export class WalletBalances {
       await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
         blockNumber: finalizedBlock.blockNumber,
         blockHash: finalizedBlock.blockHash,
+        blockTime: finalizedBlock.blockTime,
         parentHash: finalizedBlock.parentHash,
         isFinalized: true,
         isProcessed: true,
@@ -334,6 +337,7 @@ export class WalletBalances {
           {
             blockNumber: blockHeader.blockNumber,
             blockHash: blockHeader.blockHash,
+            blockTime: blockHeader.blockTime,
             parentHash: blockHeader.parentHash,
             isFinalized: latestFinalizedNumber >= blockHeader.blockNumber,
             isProcessed: false,
@@ -358,6 +362,7 @@ export class WalletBalances {
       {
         blockNumber: syncedToBlock.blockNumber,
         blockHash: syncedToBlock.blockHash,
+        blockTime: syncedToBlock.blockTime,
         parentHash: syncedToBlock.parentHash,
         isFinalized: latestFinalizedNumber >= syncedToBlock.blockNumber,
         isProcessed: true,
@@ -388,7 +393,7 @@ export class WalletBalances {
 
   private async readBalances(
     addresses: string[],
-    block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'isFinalized'>,
+    block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'blockTime' | 'isFinalized'>,
   ): Promise<{
     balances: IBalanceChange[];
     api: ApiDecoration<'promise'>;
