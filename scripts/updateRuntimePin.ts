@@ -7,10 +7,14 @@ import Semver from 'semver';
 const RUNTIME_PACKAGES = ['@argonprotocol/mainchain', '@argonprotocol/testing', '@argonprotocol/bitcoin'] as const;
 const AUTHORITATIVE_RUNTIME_PACKAGE = '@argonprotocol/mainchain' as const;
 const REPO_ROOT = Path.resolve(import.meta.dirname, '..');
-const PACKAGE_JSON_PATH = Path.join(REPO_ROOT, 'package.json');
+const ROOT_PACKAGE_JSON_PATH = Path.join(REPO_ROOT, 'package.json');
 const ARGON_ENV_PATH = Path.join(REPO_ROOT, 'e2e/argon/.env');
 const SERVER_DEV_DOCKER_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.dev-docker');
+const SERVER_MAINNET_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.mainnet');
+const SERVER_TESTNET_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.testnet');
 const MAINCHAIN_GIT_REPO = 'https://github.com/argonprotocol/mainchain.git';
+const WORKSPACE_MAINCHAIN_PATH = Path.resolve(REPO_ROOT, '../mainchain');
+const RUNTIME_MANIFEST_SECTIONS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
 type RuntimePackage = (typeof RUNTIME_PACKAGES)[number];
 
 void main().catch(error => {
@@ -30,10 +34,14 @@ async function main(): Promise<void> {
   }
 
   const ref = normalizeRef(args[0]);
+  const isTagPin = isSemverLike(ref);
   const resolvedPin = resolveRuntimePin(ref);
   const envRaw = Fs.readFileSync(ARGON_ENV_PATH, 'utf8');
   const serverEnvRaw = Fs.readFileSync(SERVER_DEV_DOCKER_ENV_PATH, 'utf8');
-  const packageJsonRaw = Fs.readFileSync(PACKAGE_JSON_PATH, 'utf8');
+  const rootPackageJsonRaw = Fs.readFileSync(ROOT_PACKAGE_JSON_PATH, 'utf8');
+  const rootPackageJson = JSON.parse(rootPackageJsonRaw) as {
+    workspaces?: string[];
+  };
 
   const envResult = updateEnvContents(envRaw, {
     VERSION: resolvedPin.dockerVersion,
@@ -41,8 +49,34 @@ async function main(): Promise<void> {
   const serverEnvResult = updateEnvContents(serverEnvRaw, {
     ARGON_VERSION: resolvedPin.dockerVersion,
   });
-
-  const packageJsonResult = updatePackageJson(packageJsonRaw, resolvedPin.runtimePackageVersions);
+  const releaseServerEnvResults = isTagPin
+    ? [
+        {
+          envPath: SERVER_MAINNET_ENV_PATH,
+          ...updateEnvContents(Fs.readFileSync(SERVER_MAINNET_ENV_PATH, 'utf8'), {
+            ARGON_VERSION: resolvedPin.dockerVersion,
+          }),
+        },
+        {
+          envPath: SERVER_TESTNET_ENV_PATH,
+          ...updateEnvContents(Fs.readFileSync(SERVER_TESTNET_ENV_PATH, 'utf8'), {
+            ARGON_VERSION: resolvedPin.dockerVersion,
+          }),
+        },
+      ]
+    : [];
+  const packageManifestResults = [ROOT_PACKAGE_JSON_PATH, ...(rootPackageJson.workspaces ?? []).map(workspace => Path.join(REPO_ROOT, workspace, 'package.json'))].map(
+    manifestPath => {
+      const packageJsonRaw =
+        manifestPath === ROOT_PACKAGE_JSON_PATH ? rootPackageJsonRaw : Fs.readFileSync(manifestPath, 'utf8');
+    return {
+      manifestPath,
+      ...updatePackageJson(packageJsonRaw, resolvedPin.runtimePackageVersions, {
+        updateResolutions: manifestPath === ROOT_PACKAGE_JSON_PATH,
+      }),
+    };
+    },
+  );
 
   if (envResult.changedKeys.length) {
     Fs.writeFileSync(ARGON_ENV_PATH, envResult.next, 'utf8');
@@ -50,20 +84,42 @@ async function main(): Promise<void> {
   if (serverEnvResult.changedKeys.length) {
     Fs.writeFileSync(SERVER_DEV_DOCKER_ENV_PATH, serverEnvResult.next, 'utf8');
   }
-  if (packageJsonResult.changedPackages.length) {
-    Fs.writeFileSync(PACKAGE_JSON_PATH, packageJsonResult.next, 'utf8');
+  for (const releaseServerEnvResult of releaseServerEnvResults) {
+    if (!releaseServerEnvResult.changedKeys.length) continue;
+    Fs.writeFileSync(releaseServerEnvResult.envPath, releaseServerEnvResult.next, 'utf8');
+  }
+  for (const packageManifestResult of packageManifestResults) {
+    if (!packageManifestResult.changedSections.length) continue;
+    Fs.writeFileSync(packageManifestResult.manifestPath, packageManifestResult.next, 'utf8');
   }
 
   console.info('Updated runtime pin configuration.');
   console.info(`- e2e/argon/.env: ${envResult.changedKeys.join(', ') || 'no changes'}`);
   console.info(`- server/.env.dev-docker: ${serverEnvResult.changedKeys.join(', ') || 'no changes'}`);
-  console.info(`- package.json resolutions: ${packageJsonResult.changedPackages.join(', ') || 'no changes'}`);
+  if (isTagPin) {
+    for (const releaseServerEnvResult of releaseServerEnvResults) {
+      console.info(`- ${Path.relative(REPO_ROOT, releaseServerEnvResult.envPath)}: ${releaseServerEnvResult.changedKeys.join(', ') || 'no changes'}`);
+    }
+  } else {
+    console.info('- server/.env.mainnet: skipped (only updated for semver tag pins)');
+    console.info('- server/.env.testnet: skipped (only updated for semver tag pins)');
+  }
+  for (const packageManifestResult of packageManifestResults) {
+    console.info(
+      `- ${Path.relative(REPO_ROOT, packageManifestResult.manifestPath)}: ${packageManifestResult.changedSections.join('; ') || 'no changes'}`,
+    );
+  }
   console.info(`- docker/runtime ref: ${resolvedPin.dockerVersion}`);
   console.info(
     `- npm runtime versions: ${RUNTIME_PACKAGES.map(pkg => `${pkg}=${resolvedPin.runtimePackageVersions[pkg]}`).join(', ')}`,
   );
   if (resolvedPin.mainRepoCommitHash) {
     console.info(`- main repo commit: ${resolvedPin.mainRepoCommitHash}`);
+  }
+  if (Fs.existsSync(WORKSPACE_MAINCHAIN_PATH)) {
+    console.info(
+      '- note: workspace docker mode (`yarn docker:up:workspace`) uses ../mainchain directly and does not read these pinned npm versions.',
+    );
   }
   console.info('- next step: run `yarn install` followed by `yarn build:server`');
 }
@@ -233,25 +289,54 @@ function resolveSharedRuntimeVersionByCommit(commitHash: string): string {
 function updatePackageJson(
   packageJsonRaw: string,
   runtimePackageVersions: Record<RuntimePackage, string>,
+  options: {
+    updateResolutions?: boolean;
+  } = {},
 ): {
   next: string;
-  changedPackages: string[];
+  changedSections: string[];
 } {
   const packageJson = JSON.parse(packageJsonRaw) as {
+    workspaces?: string[];
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
     resolutions?: Record<string, string>;
   };
 
-  packageJson.resolutions ??= {};
-  const changedPackages: string[] = [];
-  for (const runtimePackage of RUNTIME_PACKAGES) {
-    const nextValue = runtimePackageVersions[runtimePackage];
-    if (packageJson.resolutions[runtimePackage] !== nextValue) {
+  const changedSections: string[] = [];
+  for (const section of RUNTIME_MANIFEST_SECTIONS) {
+    const changedPackages: string[] = [];
+    const dependencies = packageJson[section];
+    if (dependencies) {
+      for (const runtimePackage of RUNTIME_PACKAGES) {
+        if (!(runtimePackage in dependencies)) continue;
+        const nextValue = runtimePackageVersions[runtimePackage];
+        if (dependencies[runtimePackage] === nextValue) continue;
+        dependencies[runtimePackage] = nextValue;
+        changedPackages.push(runtimePackage);
+      }
+    }
+    if (changedPackages.length) {
+      changedSections.push(`${section}: ${changedPackages.join(', ')}`);
+    }
+  }
+  if (options.updateResolutions) {
+    packageJson.resolutions ??= {};
+    const changedPackages: string[] = [];
+    for (const runtimePackage of RUNTIME_PACKAGES) {
+      const nextValue = runtimePackageVersions[runtimePackage];
+      if (packageJson.resolutions[runtimePackage] === nextValue) continue;
       packageJson.resolutions[runtimePackage] = nextValue;
       changedPackages.push(runtimePackage);
+    }
+    if (changedPackages.length) {
+      changedSections.push(`resolutions: ${changedPackages.join(', ')}`);
     }
   }
 
   let next = JSON.stringify(packageJson, null, 2);
   if (!next.endsWith('\n')) next += '\n';
-  return { next, changedPackages };
+  return { next, changedSections };
 }

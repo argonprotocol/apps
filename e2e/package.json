@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "^1.3.27",
+    "@argonprotocol/mainchain": "1.4.2",
     "@types/ws": "^8.5.13",
     "docker-compose": "^1.2.0",
     "tsx": "^4.20.5",
