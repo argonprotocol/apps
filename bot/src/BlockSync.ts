@@ -357,6 +357,7 @@ export class BlockSync {
     const earningsFrameId = Math.max(0, isFrameChange ? currentFrameId - 1 : currentFrameId);
 
     const { hasMiningBids, hasMiningSeats, transactionFeesTotal } = await this.syncBidding(
+      currentFrameId,
       earningsFrameId,
       blockMeta,
       events,
@@ -438,6 +439,11 @@ export class BlockSync {
     });
 
     const syncProgress = this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
+    const finalizedHeader = this.blockWatch.finalizedBlockHeader;
+    const finalizedHeaderFrameId = finalizedHeader?.tick
+      ? (finalizedHeader.frameId ?? this.miningFrames.getForTick(finalizedHeader.tick))
+      : 0;
+    const finalizedFrameId = Math.max(0, finalizedHeaderFrameId - 1);
     await this.botStateFile.mutate(x => {
       x.hasMiningBids ||= hasMiningBids || hasMiningSeats;
       if (hasMiningBids) {
@@ -449,6 +455,7 @@ export class BlockSync {
       x.earningsLastModifiedAt = new Date();
       x.currentTick = tick;
       x.currentFrameId = currentFrameId;
+      x.finalizedFrameId = finalizedFrameId;
       x.syncProgress = syncProgress;
     });
 
@@ -464,6 +471,7 @@ export class BlockSync {
   }
 
   private async syncBidding(
+    currentFrameId: number,
     biddingFrameId: number,
     block: IBlock,
     events: Vec<FrameSystemEventRecord>,
@@ -486,6 +494,17 @@ export class BlockSync {
         biddingTransactionFees += await this.extractOwnPaidTransactionFee(client, event, extrinsicEvents);
       }
 
+      if (phase.isFinalization && client.events.miningSlot.MiningBidsClosed.is(event)) {
+        const closedFrameId = event.data.frameId.toNumber();
+        const historicalBidsPerSlot = await api.query.miningSlot.historicalBidsPerSlot();
+        const latestHistoricalBidStats = historicalBidsPerSlot[0];
+
+        await this.storage.miningFrameFile(closedFrameId).mutate(x => {
+          x.auctionCloseTick = block.tick;
+          x.totalBidCount = latestHistoricalBidStats?.bidsCount.toNumber() ?? x.totalBidCount;
+        });
+      }
+
       if (phase.isFinalization && client.events.miningSlot.NewMiners.is(event)) {
         console.log(
           `[BlockSync] New miners event for frame #${event.data.frameId.toNumber()} (${event.data.newMiners.length} miners added).`,
@@ -493,9 +512,12 @@ export class BlockSync {
         const { frameId, newMiners } = event.data;
         const activationFrameIdOfNewCohort = frameId.toNumber();
         const biddingFrameIdOfNewCohort = activationFrameIdOfNewCohort - 1;
+        const historicalBidsPerSlot = await api.query.miningSlot.historicalBidsPerSlot();
+        const latestClosedBidStats = historicalBidsPerSlot[1];
         const activeMiners = await api.query.miningSlot.activeMinersCount().then(x => x.toNumber());
         const lastBidsFile = this.storage.bidsFile(biddingFrameIdOfNewCohort, activationFrameIdOfNewCohort);
         const firstFrameTick = this.miningFrames.getTickStart(biddingFrameIdOfNewCohort);
+        const winningBids: (IWinningBid & { micronotsStakedPerSeat: bigint })[] = [];
         await lastBidsFile.mutate(async x => {
           x.seatCountWon = 0;
           x.microgonsBidTotal = 0n;
@@ -532,26 +554,43 @@ export class BlockSync {
               bidPosition,
               microgonsPerSeat,
             });
+            winningBids.push({
+              address,
+              subAccountIndex: ourSubAccount?.index,
+              lastBidAtTick: miner.bidAtTick?.toNumber(),
+              bidPosition,
+              microgonsPerSeat,
+              micronotsStakedPerSeat: x.micronotsStakedPerSeat,
+            });
             bidPosition++;
           }
+        });
+        await this.storage.miningFrameFile(biddingFrameIdOfNewCohort).mutate(x => {
+          x.auctionCloseTick ??= block.tick;
+          x.totalBidCount ||= latestClosedBidStats?.bidsCount.toNumber() ?? 0;
+          x.winningBids = winningBids;
         });
       }
     }
 
-    const cohortActivationFrameId = biddingFrameId + 1;
-    const bidsFile = this.storage.bidsFile(biddingFrameId, cohortActivationFrameId);
+    const currentCohortActivationFrameId = currentFrameId + 1;
+    const currentBidsFile = this.storage.bidsFile(currentFrameId, currentCohortActivationFrameId);
+    const feeBidsFile = this.storage.bidsFile(biddingFrameId, biddingFrameId + 1);
     const nextCohort = await api.query.miningSlot.bidsForNextSlotCohort();
     let transactionFeesTotal = 0n;
 
-    await bidsFile.mutate(async x => {
+    await currentBidsFile.mutate(async x => {
       if (x.micronotsStakedPerSeat === 0n) {
         x.micronotsStakedPerSeat = await api.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
       }
       if (x.microgonsToBeMinedPerBlock === 0n) {
-        x.microgonsToBeMinedPerBlock = await this.mining.fetchMicrogonsPerBlockForMiner(api, cohortActivationFrameId);
+        x.microgonsToBeMinedPerBlock = await this.mining.fetchMicrogonsPerBlockForMiner(
+          api,
+          currentCohortActivationFrameId,
+        );
       }
-      x.biddingFrameFirstTick = this.miningFrames.getTickStart(biddingFrameId);
-      x.biddingFrameRewardTicksRemaining = this.miningFrames.getFrameRewardTicksRemaining(biddingFrameId);
+      x.biddingFrameFirstTick = this.miningFrames.getTickStart(currentFrameId);
+      x.biddingFrameRewardTicksRemaining = this.miningFrames.getFrameRewardTicksRemaining(currentFrameId);
       x.lastBlockNumber = blockNumber;
       x.winningBids = nextCohort.map((c, i): IWinningBid => {
         const address = c.accountId.toHuman();
@@ -568,6 +607,9 @@ export class BlockSync {
           microgonsPerSeat,
         };
       });
+    });
+
+    await feeBidsFile.mutate(x => {
       if (biddingTransactionFees > 0n) {
         x.transactionFeesByBlock[blockNumber] = biddingTransactionFees;
       } else {

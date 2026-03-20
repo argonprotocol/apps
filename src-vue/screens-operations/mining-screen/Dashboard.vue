@@ -111,6 +111,11 @@
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
                 <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
                 <span v-if="stats.selectedFrameId > stats.latestFrameId - 10" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
+                <span
+                  v-if="isFrameDetailLoading"
+                  class="ml-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500/55 animate-pulse">
+                  Updating
+                </span>
               </span>
               <div v-if="currentFrame.progress >= 100" @click="goToNextFrame" class="flex flex-row opacity-60 items-center font-light text-base cursor-pointer group hover:opacity-80">
                 NEXT
@@ -120,33 +125,71 @@
                 {{ numeral(currentFrame.progress).format('0.0') }}%
               </div>
             </header>
-            <div v-if="currentFrame.seatCountActive" class="flex flex-col h-full">
-              <div class="flex w-full grow pt-4 px-2">
-                <MiningSeats />
-              </div>
-              <div class="pt-4 pb-3">
-                <div class="mb-2 flex items-center gap-x-3 text-center">
-                  <span class="h-px grow bg-slate-400/30"></span>
-                  <span class="text-base leading-none font-bold text-slate-700/60">Mining Auction Stats</span>
-                  <span class="h-px grow bg-slate-400/30"></span>
+            <div class="relative flex flex-col h-full grow" :aria-busy="isFrameDetailLoading">
+              <div
+                :class="
+                  isFrameDetailLoading
+                    ? 'flex flex-col h-full grow opacity-80 transition-opacity duration-150'
+                    : 'flex flex-col h-full grow opacity-100 transition-opacity duration-150'
+                ">
+                <div class="flex w-full grow pt-4 px-2">
+                  <MiningSeats
+                    :isLiveFrame="currentFrame.id === stats.latestFrameId"
+                    :frameId="currentFrame.id"
+                    :historicalSlots="historicalSlots" />
                 </div>
-                <div class="grid grid-cols-4 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
-                  <div>{{ numeral(auctionBidCount).format('0,0') }} Bids Placed this Frame</div>
-                  <div>{{ formatBidAmount(highestWinningBid) }} Is the Highest Bid</div>
-                  <div>{{ formatBidAmount(myNextBidMicrogons) }} Is Your Next Bid</div>
-                  <div>Your Next Bid In {{ nextBidInText }}</div>
-                  <div>{{ auctionStatsLabel }}</div>
-                  <div>{{ formatBidAmount(lowestWinningBid) }} Is the Lowest Bid</div>
-                  <div>{{ formatBidAmount(myLastBidMicrogons) }} Was Your Last Bid</div>
-                  <div class="titleize">Auction Closes In {{ auctionClosesInText }}</div>
+                <div class="pt-4 pb-3">
+                  <div class="mb-2 flex items-center gap-x-3 text-center">
+                    <span class="h-px grow bg-slate-400/30"></span>
+                    <span class="text-base leading-none font-bold text-slate-700/60">Mining Auction Stats</span>
+                    <span class="h-px grow bg-slate-400/30"></span>
+                  </div>
+                  <div class="grid grid-cols-4 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
+                    <div>{{ numeral(auctionBidCount).format('0,0') }} Bids Placed this Frame</div>
+                    <div>{{ formatBidAmount(highestWinningBid) }} Is the Highest Bid</div>
+                    <div>{{ nextBidPrimaryLabel }}</div>
+                    <CountdownClock
+                      v-if="countdownNextBidAt"
+                      :time="countdownNextBidAt"
+                      v-slot="{ hours, minutes, seconds }">
+                      <div class="titleize">
+                        <template v-if="hours || minutes || seconds">
+                          Your Next Bid In
+                          {{
+                            hours
+                              ? `${hours} Hour${hours === 1 ? '' : 's'}`
+                              : minutes
+                                ? `${minutes} Minute${minutes === 1 ? '' : 's'}`
+                                : `${seconds} Second${seconds === 1 ? '' : 's'}`
+                          }}
+                        </template>
+                        <template v-else>
+                          Your Next Bid Pending
+                        </template>
+                      </div>
+                    </CountdownClock>
+                    <div v-else>{{ nextBidTimingLabel }}</div>
+                    <div>{{ auctionStatsLabel }}</div>
+                    <div>{{ formatBidAmount(lowestWinningBid) }} Is the Lowest Bid</div>
+                    <div>{{ formatBidAmount(myLastBidMicrogons) }} Was Your Last Bid</div>
+                    <CountdownClock
+                      v-if="countdownAuctionCloseAt"
+                      :time="countdownAuctionCloseAt"
+                      v-slot="{ minutes, seconds }">
+                      <div class="titleize">
+                        <template v-if="minutes || seconds">
+                          Auction Closing In
+                          {{ minutes ? `${minutes} Minute${minutes === 1 ? '' : 's'}` : `${seconds} Second${seconds === 1 ? '' : 's'}` }}
+                        </template>
+                        <template v-else>
+                          Auction May Close Any Moment
+                        </template>
+                      </div>
+                    </CountdownClock>
+                    <div v-else class="titleize">{{ auctionTimingLabel }}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div v-else-if="currentFrame.id === stats.latestFrameId" class="flex flex-col items-center justify-center h-full text-slate-900/20 text-2xl font-bold">
-              You Have No Mining Seats
-            </div>
-            <div v-else class="flex flex-col items-center justify-center h-full text-slate-900/20 text-2xl font-bold">
-              You Had No Mining Seats During This Frame
             </div>
           </section>
 
@@ -206,6 +249,7 @@ dayjs.extend(utc);
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
 import { calculateProfitPct } from '@argonprotocol/apps-core';
+import type { IMiningFrameDetail } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats';
 import { getCurrency } from '../../stores/currency';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
@@ -217,10 +261,10 @@ import FrameSlider from '../../components/FrameSlider.vue';
 import { IChartItem } from '../../interfaces/IChartItem.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
+import CountdownClock from '../../components/CountdownClock.vue';
 import MiningAssetBreakdown from '../components/MiningAssetBreakdown.vue';
 import MiningSeats from './components/MiningSeats.vue';
-import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
-import { getConfig } from '../../stores/config.ts';
+import { getMiningFrames } from '../../stores/mainchain.ts';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import ProjectionsIcon from '../../assets/projections.svg';
@@ -228,24 +272,47 @@ import RoiIcon from '../../assets/roi.svg';
 import { WalletType } from '../../lib/Wallet.ts';
 import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
+import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
 
 const bot = getBot();
 const stats = getStats();
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
-const config = getConfig();
 
-const { microgonToMoneyNm, micronotToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const chartItems = Vue.ref<IChartItem[]>([]);
-
-const auctionBids = Vue.computed(() => {
-  return stats.allWinningBids ?? [];
+const frameDetail = Vue.ref<IMiningFrameDetail | null>(null);
+const historicalFrameDetailByFrameId = new Map<number, IMiningFrameDetail>();
+const pendingFrameDetailByFrameId = new Map<number, Promise<IMiningFrameDetail>>();
+let frameDetailRequestId = 0;
+const loadingFrameId = Vue.ref<number | null>(null);
+const isSelectedLiveFrame = Vue.computed(() => {
+  return currentFrame.value.id === stats.latestFrameId;
+});
+const isTargetingLiveFrame = Vue.computed(() => {
+  return stats.selectedFrameId === stats.latestFrameId;
+});
+const isFrameDetailLoading = Vue.computed(() => {
+  return !isSelectedLiveFrame.value && loadingFrameId.value === currentFrame.value.id;
+});
+const finalizedFrameId = Vue.computed(() => {
+  return bot.state?.finalizedFrameId ?? 0;
 });
 
-const auctionBidCount = Vue.ref(0);
+const auctionBids = Vue.computed(() => {
+  if (isSelectedLiveFrame.value) {
+    return stats.allWinningBids ?? [];
+  }
+
+  return frameDetail.value?.winningBids ?? [];
+});
+
+const auctionBidCount = Vue.computed(() => {
+  return frameDetail.value?.totalBidCount ?? 0;
+});
 
 const highestWinningBid = Vue.computed<bigint | null>(() => {
   const bidAmounts = auctionBids.value
@@ -263,20 +330,29 @@ const lowestWinningBid = Vue.computed<bigint | null>(() => {
   return bidAmounts.reduce((min, amount) => (amount < min ? amount : min), bidAmounts[0]);
 });
 
-const myWinningBids = Vue.computed(() => {
-  return auctionBids.value.filter(bid => typeof bid.subAccountIndex === 'number');
-});
-
 const myLastBidMicrogons = Vue.computed<bigint | null>(() => {
-  if (!myWinningBids.value.length) return null;
-  const sorted = [...myWinningBids.value].sort((a, b) => (a.lastBidAtTick ?? 0) - (b.lastBidAtTick ?? 0));
-  return sorted.at(-1)?.microgonsPerSeat ?? null;
+  if (isTargetingLiveFrame.value) {
+    return bot.state?.lastBid?.microgonsPerSeat ?? frameDetail.value?.myLastBidMicrogons ?? null;
+  }
+
+  return frameDetail.value?.myLastBidMicrogons ?? null;
 });
 
-const myNextBidMicrogons = Vue.computed<bigint | null>(() => {
-  if (myLastBidMicrogons.value === null) return null;
-  const bidIncrement = config.biddingRules?.rebiddingIncrementBy ?? 0n;
-  return myLastBidMicrogons.value + bidIncrement;
+const liveNextBid = Vue.computed(() => {
+  if (!isTargetingLiveFrame.value) return null;
+  return bot.state?.nextBid ?? null;
+});
+
+const myNextBidMicrogons = Vue.computed(() => {
+  return liveNextBid.value?.microgonsPerSeat;
+});
+
+const nextBidPrimaryLabel = Vue.computed(() => {
+  return `${myNextBidMicrogons.value === undefined ? '---' : formatBidAmount(myNextBidMicrogons.value)} Is Your Next Bid`;
+});
+
+const nextBidTimingLabel = Vue.computed(() => {
+  return 'No Rebid Planned';
 });
 
 const avgMicronotsPerWinningBid = Vue.computed<bigint | null>(() => {
@@ -285,22 +361,39 @@ const avgMicronotsPerWinningBid = Vue.computed<bigint | null>(() => {
   return total / BigInt(auctionBids.value.length);
 });
 
-const nextBidInText = Vue.computed(() => {
-  const delayMinutes = config.biddingRules?.rebiddingDelay;
-  if (!delayMinutes) return '---';
-  return `${delayMinutes} Minute${delayMinutes === 1 ? '' : 's'}`;
+const auctionTimingLabel = Vue.computed(() => {
+  const auctionCloseTick = frameDetail.value?.auctionCloseTick ?? null;
+  if (isSelectedLiveFrame.value) {
+    if (auctionCloseTick) {
+      const auctionClosedAt = dayjs.utc(auctionCloseTick * TICK_MILLIS).local();
+      return `Auction Closed ${auctionClosedAt.format('h:mm A')}`;
+    }
+
+    return 'Auction Closing Pending';
+  }
+
+  if (!auctionCloseTick) return 'Auction Closed -----';
+
+  const auctionClosedAt = dayjs.utc(auctionCloseTick * TICK_MILLIS).local();
+
+  return `Auction Closed ${auctionClosedAt.format('h:mm A')}`;
 });
 
-const auctionClosesInText = Vue.computed(() => {
-  if (currentFrame.value.id !== stats.latestFrameId) return '---';
-  const frameEndTick = miningFrames.getTickEnd(currentFrame.value.id);
-  if (!frameEndTick) return '---';
-  const relativeTime = dayjs
-    .utc(frameEndTick * TICK_MILLIS)
-    .local()
-    .add(1, 'minute')
-    .fromNow(true);
-  return relativeTime.replace(/\b\w/g, char => char.toUpperCase());
+const countdownNextBidAt = Vue.computed(() => {
+  const nextBidTick = liveNextBid.value?.atTick ?? null;
+  if (!nextBidTick) return null;
+  return dayjs.utc((nextBidTick + 1) * TICK_MILLIS);
+});
+
+const countdownAuctionCloseAt = Vue.computed(() => {
+  if (!isSelectedLiveFrame.value) return null;
+  const auctionCloseTick = frameDetail.value?.auctionCloseTick ?? null;
+  if (auctionCloseTick) return null;
+
+  const expectedAuctionCloseTick = frameDetail.value?.expectedAuctionCloseTick ?? null;
+  if (!expectedAuctionCloseTick) return null;
+
+  return dayjs.utc(expectedAuctionCloseTick * TICK_MILLIS);
 });
 
 const auctionStatsLabel = Vue.computed(() => {
@@ -311,12 +404,7 @@ const auctionStatsLabel = Vue.computed(() => {
 
 function formatBidAmount(microgons: bigint | null): string {
   if (microgons === null) return '---';
-  return `${currency.symbol}${microgonToMoneyNm(microgons).format('0,0')}`;
-}
-
-function getPercent(value: bigint | number, total: bigint | number): number {
-  if (total === 0n || total === 0) return 0;
-  return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
+  return `${currency.symbol}${microgonToMoneyNm(microgons).formatIfElse('<100', '0,0.00', '0,0')}`;
 }
 
 const globalMicrogonsEarned = Vue.computed(() => {
@@ -450,33 +538,150 @@ function loadChartData() {
   chartItems.value = items;
 }
 
-function updateSliderFrame(newFrameIndex: number) {
+const historicalSlots = Vue.computed(() => {
+  if (isSelectedLiveFrame.value) {
+    return null;
+  }
+
+  return frameDetail.value?.slots ?? [];
+});
+
+async function loadFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
+  const canCacheFrame = frameId < stats.latestFrameId && frameId <= finalizedFrameId.value;
+  const cached = canCacheFrame ? historicalFrameDetailByFrameId.get(frameId) : null;
+  if (cached) return cached;
+
+  const pending = pendingFrameDetailByFrameId.get(frameId);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const client = await bot.getClient();
+    const detail = await client.fetch('/mining-frame', frameId);
+    if (canCacheFrame) {
+      historicalFrameDetailByFrameId.set(frameId, detail);
+    }
+    return detail;
+  })().finally(() => {
+    pendingFrameDetailByFrameId.delete(frameId);
+  });
+
+  pendingFrameDetailByFrameId.set(frameId, request);
+  return request;
+}
+
+function prefetchHistoricalFrameDetail(frameId: number) {
+  if (frameId < 1 || frameId >= stats.latestFrameId) {
+    return;
+  }
+
+  if (historicalFrameDetailByFrameId.has(frameId) || pendingFrameDetailByFrameId.has(frameId)) {
+    return;
+  }
+
+  void loadFrameDetail(frameId).catch(error => {
+    console.error(`[Mining Dashboard] Failed to prefetch historical frame detail for frame ${frameId}`, error);
+  });
+}
+
+async function updateSliderFrame(newFrameIndex: number) {
   sliderFrameIndex.value = newFrameIndex;
   currentFrame.value = stats.frames[newFrameIndex];
+  const frameId = currentFrame.value?.id;
+  if (frameId === undefined) return;
+  stats.selectFrameId(frameId, true);
+
+  if (frameId === stats.latestFrameId) {
+    loadingFrameId.value = null;
+    void refreshLiveFrameDetail();
+    return;
+  }
+
+  if (!historicalFrameDetailByFrameId.has(frameId)) {
+    loadingFrameId.value = frameId;
+  }
+
+  const requestId = ++frameDetailRequestId;
+  try {
+    const detail = await loadFrameDetail(frameId);
+    if (requestId !== frameDetailRequestId || currentFrame.value?.id !== frameId) {
+      return;
+    }
+    frameDetail.value = detail;
+    prefetchHistoricalFrameDetail(frameId - 1);
+  } catch (error) {
+    console.error(`[Mining Dashboard] Failed to load historical frame detail for frame ${frameId}`, error);
+  } finally {
+    if (requestId === frameDetailRequestId && loadingFrameId.value === frameId) {
+      loadingFrameId.value = null;
+    }
+  }
 }
 
 Vue.watch(
   () => stats.frames,
   () => {
     loadChartData();
-    updateSliderFrame(sliderFrameIndex.value);
+    const selectedIndex = stats.frames.findIndex(frame => frame.id === stats.selectedFrameId);
+    void updateSliderFrame(selectedIndex >= 0 ? selectedIndex : sliderFrameIndex.value);
   },
   { deep: true },
 );
+
+async function refreshLiveFrameDetail() {
+  if (!isSelectedLiveFrame.value) return;
+  const frameId = stats.latestFrameId;
+  const requestId = ++frameDetailRequestId;
+  try {
+    const detail = await loadFrameDetail(frameId);
+    if (requestId !== frameDetailRequestId || !isSelectedLiveFrame.value || currentFrame.value?.id !== frameId) {
+      return;
+    }
+    frameDetail.value = detail;
+  } catch (error) {
+    console.error(`[Mining Dashboard] Failed to refresh live frame detail for frame ${frameId}`, error);
+  }
+}
+
+async function refreshPendingHistoricalFrameDetail() {
+  const frameId = currentFrame.value.id;
+  if (frameId >= stats.latestFrameId) return;
+  if (historicalFrameDetailByFrameId.has(frameId)) return;
+
+  const requestId = ++frameDetailRequestId;
+  loadingFrameId.value = frameId;
+  try {
+    const detail = await loadFrameDetail(frameId);
+    if (requestId !== frameDetailRequestId || currentFrame.value?.id !== frameId) {
+      return;
+    }
+    frameDetail.value = detail;
+    prefetchHistoricalFrameDetail(frameId - 1);
+  } catch (error) {
+    console.error(`[Mining Dashboard] Failed to refresh historical frame detail for frame ${frameId}`, error);
+  } finally {
+    if (requestId === frameDetailRequestId && loadingFrameId.value === frameId) {
+      loadingFrameId.value = null;
+    }
+  }
+}
 
 Vue.onMounted(async () => {
   stats.subscribeToDashboard();
   stats.subscribeToActivity();
   loadChartData();
   await miningFrames.load();
-  const client = await getMainchainClient(false);
-  const historical = await client.query.miningSlot.historicalBidsPerSlot();
-  auctionBidCount.value = historical[0].bidsCount.toNumber();
+  await updateSliderFrame(sliderFrameIndex.value);
+  botEmitter.on('updated-bids-data', refreshLiveFrameDetail);
+  botEmitter.on('updated-cohort-data', refreshLiveFrameDetail);
+  botEmitter.on('updated-server-state', refreshPendingHistoricalFrameDetail);
 });
 
 Vue.onUnmounted(() => {
   stats.unsubscribeFromDashboard();
   stats.unsubscribeFromActivity();
+  botEmitter.off('updated-bids-data', refreshLiveFrameDetail);
+  botEmitter.off('updated-cohort-data', refreshLiveFrameDetail);
+  botEmitter.off('updated-server-state', refreshPendingHistoricalFrameDetail);
 });
 </script>
 

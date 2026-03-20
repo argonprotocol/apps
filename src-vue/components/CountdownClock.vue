@@ -31,16 +31,10 @@ function updateTime() {
     return;
   }
 
-  let remaining = now;
   const totalDays = props.time.diff(now, 'days');
-  if (totalDays > 0) {
-    days.value = totalDays;
-    remaining = props.time.subtract(totalDays, 'days');
-  } else {
-    days.value = 0;
-  }
+  days.value = totalDays > 0 ? totalDays : 0;
 
-  const totalSeconds = props.time.diff(remaining, 'seconds');
+  const totalSeconds = props.time.diff(now, 'seconds') - totalDays * 86400;
   hours.value = Math.floor(totalSeconds / 3600);
   minutes.value = Math.floor((totalSeconds % 3600) / 60);
   seconds.value = totalSeconds % 60;

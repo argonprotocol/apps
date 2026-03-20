@@ -437,6 +437,17 @@ function updateAPYs() {
   emit('update:data', calculator);
 }
 
+function clampIncrementToBidRange() {
+  const effectiveMax = calculator.maximumBidAmountOverride ?? calculator.maximumBidAmount;
+  const effectiveMin = calculator.startingBidAmountOverride ?? calculator.startingBidAmount;
+  const bidRange = effectiveMax > effectiveMin ? effectiveMax - effectiveMin : effectiveMax;
+  if (bidRange > 0n && rules.value.rebiddingIncrementBy > bidRange) {
+    let increment = rules.value.rebiddingIncrementBy;
+    while (increment > bidRange) increment /= 10n;
+    rules.value.rebiddingIncrementBy = increment < 10_000n ? 10_000n : increment;
+  }
+}
+
 Vue.watch(
   rules,
   () => {
@@ -445,8 +456,22 @@ Vue.watch(
   { deep: true },
 );
 
-Vue.onMounted(() => {
-  updateAPYs();
+let onLoadSub: { unsubscribe: () => void } | null = null;
+let hasClampedIncrement = false;
+
+Vue.onMounted(async () => {
+  onLoadSub = calculator.onLoad(() => {
+    updateAPYs();
+    if (!hasClampedIncrement) {
+      hasClampedIncrement = true;
+      clampIncrementToBidRange();
+    }
+  });
+  await calculator.load();
+});
+
+Vue.onUnmounted(() => {
+  onLoadSub?.unsubscribe();
 });
 
 defineExpose({

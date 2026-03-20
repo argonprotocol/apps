@@ -86,8 +86,8 @@ export class AutoBidder {
     this.biddingCalculator.calculateBidAmounts();
     const calculator = this.biddingCalculator;
 
-    const minBid = calculator.startingBidAmount;
-    const maxBid = calculator.maximumBidAmount;
+    const minBid = calculator.startingBidAmountOverride ?? calculator.startingBidAmount;
+    const maxBid = calculator.maximumBidAmountOverride ?? calculator.maximumBidAmount;
 
     const maxSeats = calculator.data.getMaxFrameSeats(this.biddingRules);
 

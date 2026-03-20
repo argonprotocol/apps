@@ -170,14 +170,23 @@ export class Mining {
 
   public async fetchCurrentMiningSeats(managedByAccount: string): Promise<IMiningSlot[]> {
     const client = await this.clients.prunedClientOrArchivePromise;
-    const [cohorts, bidsForNextSlotCohort] = await Promise.all([
-      client.query.miningSlot.minersByCohort.entries(),
-      client.query.miningSlot.bidsForNextSlotCohort(),
+    return await Mining.fetchMiningSeats(managedByAccount, client);
+  }
+
+  public static async fetchMiningSeats(
+    managedByAccount: string,
+    api: ApiDecoration<'promise'>,
+  ): Promise<IMiningSlot[]> {
+    const [cohorts, bidsForNextSlotCohort, nextCohortSize] = await Promise.all([
+      api.query.miningSlot.minersByCohort.entries(),
+      api.query.miningSlot.bidsForNextSlotCohort(),
+      api.query.miningSlot.nextCohortSize().then(x => x.toNumber()),
     ]);
+    const totalSlotCount = 10;
     const bidsBySlotId = new Map<number, IMiningSlotBid[]>();
     for (const bid of bidsForNextSlotCohort) {
       const startingFrameId = bid.startingFrameId.toNumber();
-      const slotId = startingFrameId % 10;
+      const slotId = startingFrameId % totalSlotCount;
       const bids = bidsBySlotId.get(slotId) ?? [];
       bids.push({
         startingFrameId,
@@ -190,17 +199,9 @@ export class Mining {
 
     const slots: IMiningSlot[] = [];
     const processedSlotIds = new Set<number>();
-    const sortByBidDescending = (
-      a: { bidAmount: bigint; address: string },
-      b: { bidAmount: bigint; address: string },
-    ) => {
-      if (a.bidAmount === b.bidAmount) return a.address.localeCompare(b.address);
-      return a.bidAmount > b.bidAmount ? -1 : 1;
-    };
-
     for (const [key, cohort] of cohorts) {
       const startingFrameId = key.args[0].toNumber();
-      const slotId = startingFrameId % 10;
+      const slotId = startingFrameId % totalSlotCount;
       processedSlotIds.add(slotId);
       const seats: IMiningSeat[] = [];
       for (const [index, member] of cohort.entries()) {
@@ -217,10 +218,9 @@ export class Mining {
         });
       }
 
-      const bids = (bidsBySlotId.get(slotId) ?? []).sort(sortByBidDescending);
-
+      const bids = bidsBySlotId.get(slotId) ?? [];
       const alignedSeats: IMiningSeat[] = [];
-      const totalSeats = Math.max(seats.length, bids.length);
+      const totalSeats = Math.max(nextCohortSize, seats.length, bids.length);
       for (let i = 0; i < totalSeats; i += 1) {
         const existingSeat = seats[i];
         alignedSeats.push({
@@ -231,22 +231,23 @@ export class Mining {
           bid: bids[i] ?? null,
         });
       }
+
       alignedSeats.sort((a, b) => a.index - b.index);
 
       slots.push({ slotId, seats: alignedSeats });
     }
 
-    for (const [slotId, unsortedBids] of bidsBySlotId) {
+    for (let slotId = 0; slotId < totalSlotCount; slotId += 1) {
       if (processedSlotIds.has(slotId)) continue;
-      const bids = [...unsortedBids].sort(sortByBidDescending);
+      const bids = bidsBySlotId.get(slotId) ?? [];
       slots.push({
         slotId,
-        seats: bids.map((bid, index) => ({
+        seats: Array.from({ length: Math.max(nextCohortSize, bids.length) }, (_, index) => ({
           id: `${numericToAlpha(slotId)}${index + 1}`,
           index,
           slotId,
           miner: null,
-          bid,
+          bid: bids[index] ?? null,
         })),
       });
     }

@@ -17,7 +17,6 @@ import { IBidEntry } from './db/FrameBidsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { SERVER_ENV_VARS } from './Env.ts';
 import { SSH } from './SSH.ts';
-import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 export enum BotStatus {
   Starting = 'Starting',
