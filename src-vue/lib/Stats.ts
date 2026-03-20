@@ -181,6 +181,7 @@ export class Stats {
       const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
       this.latestFrameId = frameId;
       if (isOnLatestFrame) this.selectFrameId(frameId, true);
+      await this.updateMiningBids();
       await this.updateAccruedProfits();
 
       if (this.isSubscribedToDashboard) {

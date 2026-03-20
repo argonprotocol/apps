@@ -48,4 +48,5 @@ export interface IBotStateFile {
   hasMiningSeats: boolean;
   currentTick: number;
   currentFrameId: number;
+  finalizedFrameId: number;
 }

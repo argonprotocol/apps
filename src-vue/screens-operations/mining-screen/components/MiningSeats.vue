@@ -8,8 +8,8 @@
               'seat-dot flex flex-row items-center justify-center border text-sm transition-colors duration-500',
               item.seat.slotId === currentAuctionSlot
                 ? isWinningBid(item.seat.bid)
-                  ? 'border-argon-600 current-slot-seat border-2 border-dashed'
-                  : 'current-slot-seat border-[1.5px] border-dashed border-slate-500/70'
+                  ? `border-argon-600 border-2 border-dashed ${props.isLiveFrame ? 'current-slot-seat' : ''}`
+                  : `border-[1.5px] border-dashed border-slate-500/70 ${props.isLiveFrame ? 'current-slot-seat' : ''}`
                 : item.seat.miner?.isOurs
                   ? 'border-argon-500/30'
                   : 'border-slate-400/30',
@@ -32,7 +32,7 @@
             {{ item.seat.id }}
           </span>
         </TooltipTrigger>
-        <TooltipContent side="bottom" align="center" :sideOffset="-5" :collisionPadding="9" class="relative z-10">
+        <TooltipContent side="bottom" align="center" :sideOffset="-5" :collisionPadding="9" class="relative z-[1000]">
           <SeatTooltip
             :seat="item.seat"
             :ourBidAddresses="ourBidAddresses"
@@ -47,21 +47,25 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
-import { getMining } from '../../../stores/mainchain.ts';
+import { getBlockWatch, getMining } from '../../../stores/mainchain.ts';
 import { IMiningSeat, IMiningSlot, IMiningSlotBid } from '@argonprotocol/apps-core';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
-import { getStats } from '../../../stores/stats.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import SeatTooltip from './SeatTooltip.vue';
+import { botEmitter } from '../../../lib/Bot.ts';
+
+const props = defineProps<{
+  isLiveFrame: boolean;
+  frameId: number;
+  historicalSlots?: IMiningSlot[] | null;
+}>();
 
 const mining = getMining();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
-const stats = getStats();
 
 const currentAuctionSlot = Vue.computed(() => {
-  const currentSlotId = stats.latestFrameId % 10;
-  const miningSlotId = currentSlotId + 1;
+  const miningSlotId = (props.frameId % 10) + 1;
   return miningSlotId < 10 ? miningSlotId : 0;
 });
 
@@ -74,6 +78,9 @@ const slots = Vue.ref<IMiningSlot[]>([]);
 const ourBidAddresses = Vue.ref<Set<string>>(new Set());
 const hoveredSlotId = Vue.ref<number | null>(null);
 let clearHoveredSlotIdTimeout: ReturnType<typeof setTimeout> | null = null;
+let stopBlockWatchSubscription: (() => void) | null = null;
+let isRefreshingSeats = false;
+let shouldRefreshSeatsAgain = false;
 const gridSeats = Vue.computed<{ seat: IMiningSeat }[]>(() => {
   return slots.value.flatMap(slot => slot.seats.map(seat => ({ seat })));
 });
@@ -157,21 +164,93 @@ function clearHoveredSlotId(slotId: number): void {
 async function updateSeats() {
   const subaccounts = await walletKeys.getMiningBotSubaccounts();
   ourBidAddresses.value = new Set(Object.keys(subaccounts));
-  slots.value = await mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address);
+
+  try {
+    if (props.isLiveFrame) {
+      slots.value = await mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address);
+      return;
+    }
+  } catch (error) {
+    console.error(`[Mining Seats] Failed to load live seats for frame ${props.frameId}`, error);
+    slots.value = [];
+    return;
+  }
+
+  slots.value = props.historicalSlots ?? [];
+}
+
+async function refreshSeats() {
+  if (isRefreshingSeats) {
+    shouldRefreshSeatsAgain = true;
+    return;
+  }
+
+  isRefreshingSeats = true;
+  try {
+    do {
+      shouldRefreshSeatsAgain = false;
+      await updateSeats();
+    } while (shouldRefreshSeatsAgain);
+  } finally {
+    isRefreshingSeats = false;
+  }
+}
+
+async function subscribeToLiveSeatUpdates() {
+  stopBlockWatchSubscription?.();
+  stopBlockWatchSubscription = null;
+
+  if (!props.isLiveFrame) {
+    return;
+  }
+
+  const blockWatch = getBlockWatch();
+  await blockWatch.start();
+  stopBlockWatchSubscription = blockWatch.events.on('best-blocks', () => {
+    void refreshSeats();
+  });
+}
+
+function onLiveSeatsUpdated() {
+  if (!props.isLiveFrame) {
+    return;
+  }
+
+  void refreshSeats();
 }
 
 Vue.watch(seatGridElem, observeSeatGrid, { flush: 'post' });
 
+Vue.watch(
+  () => [props.frameId, props.isLiveFrame, props.historicalSlots],
+  () => {
+    void refreshSeats();
+  },
+);
+
+Vue.watch(
+  () => props.isLiveFrame,
+  () => {
+    void subscribeToLiveSeatUpdates();
+  },
+  { immediate: true },
+);
+
 Vue.onMounted(() => {
-  updateSeats();
+  void refreshSeats();
   observeSeatGrid();
+  botEmitter.on('updated-bids-data', onLiveSeatsUpdated);
+  botEmitter.on('updated-cohort-data', onLiveSeatsUpdated);
 });
 
 Vue.onUnmounted(() => {
   seatGridObserver?.disconnect();
+  stopBlockWatchSubscription?.();
   if (clearHoveredSlotIdTimeout) {
     clearTimeout(clearHoveredSlotIdTimeout);
   }
+  botEmitter.off('updated-bids-data', onLiveSeatsUpdated);
+  botEmitter.off('updated-cohort-data', onLiveSeatsUpdated);
 });
 </script>
 

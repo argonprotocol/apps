@@ -48,7 +48,7 @@ yarn update-data
 # Run bot server
 cd bot && yarn start
 
-# Run bot tests (requires ARGON_PROJECT_ROOT=../../mainchain)
+# Run bot tests
 cd bot && yarn test
 ```
 
@@ -63,7 +63,7 @@ yarn tauri [command]
 
 ## Testing
 
-- **Bot**: Vitest with 2-minute timeout, requires `ARGON_PROJECT_ROOT=../../mainchain` environment variable
+- **Bot**: Vitest with 2-minute timeout
 - **Main app**: No dedicated test framework; relies on TypeScript checking via `yarn typecheck`
 
 ## Build Configuration

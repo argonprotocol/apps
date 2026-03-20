@@ -9,15 +9,15 @@
         <div class="text-7xl text-center text-gray-600 font-bold whitespace-nowrap">FAILED TO WIN A BID</div>
       </div>
       <p class="text-center text-lg mt-10 border-t border-b border-gray-300 pt-8 pb-7 font-light leading-7.5 inline-block">
-        <template v-if="wallets.totalMiningMicrogons < microgonRequirement || wallets.totalMiningMicronots < micronotRequirement">
+        <template v-if="isFundingIssue">
           Your wallet needs an additional
-          <template v-if="wallets.totalMiningMicrogons < microgonRequirement">
+          <template v-if="isArgonShortage">
             {{ microgonToArgonNm(bigIntMax(0n, microgonRequirement-wallets.totalMiningMicrogons)).formatIfElse('=0', '0', '0,0.[00000000]') }} argons
           </template>
-          <template v-if="wallets.totalMiningMicrogons < microgonRequirement && wallets.totalMiningMicronots < micronotRequirement">
+          <template v-if="isArgonShortage && isArgonotShortage">
             and
           </template>
-          <template v-if="wallets.totalMiningMicronots < micronotRequirement">
+          <template v-if="isArgonotShortage">
             {{ micronotToArgonotNm(bigIntMax(0n, micronotRequirement-wallets.totalMiningMicronots)).formatIfElse('=0', '0', '0,0.00') }} argonots
           </template>
           to win mining bids.
@@ -59,6 +59,7 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats.ts';
 import { WalletType } from '../../lib/Wallet.ts';
+import { getBot } from '../../stores/bot.ts';
 
 dayjs.extend(utc);
 
@@ -67,11 +68,27 @@ const calculator = getBiddingCalculator();
 const currency = getCurrency();
 const wallets = useWallets();
 const stats = getStats();
+const bot = getBot();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const microgonRequirement = Vue.ref(0n);
 const micronotRequirement = Vue.ref(0n);
 const myMaximumBid = Vue.ref(0n);
+const isFundingIssue = Vue.computed(() => {
+  return isArgonotShortage.value || isArgonShortage.value;
+});
+
+const isArgonShortage = Vue.computed(() => {
+  const reason = bot.state?.maxSeatsReductionReason;
+
+  return reason === 'insufficient-argon-balance' || wallets.totalMiningMicrogons < microgonRequirement.value;
+});
+
+const isArgonotShortage = Vue.computed(() => {
+  const reason = bot.state?.maxSeatsReductionReason;
+
+  return reason === 'insufficient-argonot-balance' || wallets.totalMiningMicronots < micronotRequirement.value;
+});
 
 const networkMinimumBid = Vue.computed(() => {
   return bigIntMin(...stats.allWinningBids.map(x => x.microgonsPerSeat ?? 0n));

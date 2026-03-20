@@ -59,9 +59,9 @@
             You Bid
             {{ seat.bid ? `${currency.symbol}${microgonToMoneyNm(seat.bid.bidAmount).format('0,0.00')}` : '--.--' }}
           </div>
-          <div v-else-if="seat.bid?.bidAmount" class="font-medium">
+          <div v-else-if="seat.bid" class="font-medium">
             Someone Else Bid
-            {{ seat.bid ? `${currency.symbol}${microgonToMoneyNm(seat.bid.bidAmount).format('0,0.00')}` : '--.--' }}
+            {{ `${currency.symbol}${microgonToMoneyNm(seat.bid.bidAmount ?? 0n).format('0,0.00')}` }}
           </div>
           <div v-else class="font-medium">No Bid Yet</div>
         </div>
@@ -206,12 +206,29 @@ Vue.onBeforeMount(async () => {
     const microgonsEarnedBn = BigNumber(microgonsTotal).dividedBy(activeMinersCount).multipliedBy(factorBn);
     microgonsEarned.value = bigNumberToBigInt(microgonsEarnedBn);
   }
-
-  if (props.seat.bid?.startingFrameId) {
-    newTickStart.value = miningFrames.estimateTickStart(props.seat.bid.startingFrameId);
-    newTickEnd.value = miningFrames.estimateTickEnd(props.seat.bid.startingFrameId + 9);
-  }
 });
+
+Vue.watch(
+  () => stats.selectedFrameId,
+  () => {
+    if (!props.hasAuction) {
+      newTickStart.value = 0;
+      newTickEnd.value = 0;
+      return;
+    }
+    const auctionStartingFrameId = stats.selectedFrameId + 1;
+    const auctionEndingFrameId = auctionStartingFrameId + 9;
+    newTickStart.value =
+      auctionStartingFrameId <= miningFrames.currentFrameId
+        ? miningFrames.getTickStart(auctionStartingFrameId)
+        : miningFrames.estimateTickStart(auctionStartingFrameId);
+    newTickEnd.value =
+      auctionEndingFrameId <= miningFrames.currentFrameId
+        ? miningFrames.getTickEnd(auctionEndingFrameId)
+        : miningFrames.estimateTickEnd(auctionEndingFrameId);
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>

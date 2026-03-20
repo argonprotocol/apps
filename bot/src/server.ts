@@ -37,7 +37,8 @@ export class BotServer {
     this.rpcHandlers = {
       '/state': async () => await bot.state(this.startupError),
       '/bitcoin-recent-blocks': async () => await DockerStatus.getBitcoinLatestBlocks(),
-      '/history': async () => (await bot.history?.recent) || { activities: [] },
+      '/history': async frameId => await bot.getHistoryForFrame(frameId),
+      '/mining-frame': async frameId => await bot.getMiningFrameDetail(frameId),
       '/bids': async cohortBiddingFrameId => {
         const startingFrameId = cohortBiddingFrameId ?? (await bot.currentFrameId);
         return await bot.storage.bidsFile(startingFrameId, startingFrameId + 1).get();

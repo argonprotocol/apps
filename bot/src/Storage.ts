@@ -8,6 +8,7 @@ import {
   type IBotStateFile,
   type IEarningsFile,
   type IHistoryFile,
+  type IMiningFrameDetail,
 } from '@argonprotocol/apps-core';
 import { JsonStore } from './JsonStore.ts';
 import type { IMigration } from './migrations/IMigration.ts';
@@ -21,7 +22,8 @@ export class Storage {
         | { data: 'block-sync' }
         | { data: 'bids'; cohortBiddingFrameId: number; cohortActivationFrameId: number }
         | { data: 'earnings'; frameId: number }
-        | { data: 'history'; frameId: number },
+        | { data: 'history'; frameId: number }
+        | { data: 'mining-frame'; frameId: number },
       id?: string,
     ) => void;
   }>();
@@ -35,6 +37,10 @@ export class Storage {
 
   public get botHistoryDir(): string {
     return Path.join(this.basedir, 'bot-history');
+  }
+
+  public get botMiningFramesDir(): string {
+    return Path.join(this.basedir, 'bot-mining-frames');
   }
 
   public get version(): Promise<number> {
@@ -52,6 +58,7 @@ export class Storage {
     fs.mkdirSync(this.botBidsDir, { recursive: true });
     fs.mkdirSync(this.botEarningsDir, { recursive: true });
     fs.mkdirSync(this.botHistoryDir, { recursive: true });
+    fs.mkdirSync(this.botMiningFramesDir, { recursive: true });
     this.botState = new JsonStore(this.basedir, 'bot-state.json', () => {
       return {
         hasMiningBids: false,
@@ -60,6 +67,7 @@ export class Storage {
         earningsLastModifiedAt: new Date(),
         oldestFrameIdToSync: 0,
         currentFrameId: 0,
+        finalizedFrameId: 0,
         currentTick: 0,
         syncProgress: 0,
       };
@@ -191,6 +199,26 @@ export class Storage {
       });
       entry.onMutate.push(() => {
         this.events.emit('data:updated', { data: 'history', frameId });
+      });
+      this.lruCache.set(key, entry);
+    }
+    return entry;
+  }
+
+  public miningFrameFile(frameId: number): JsonStore<IMiningFrameDetail> {
+    const key = `bot-mining-frames/frame-${frameId}.json`;
+    let entry = this.lruCache.get(key) as JsonStore<IMiningFrameDetail> | undefined;
+    if (!entry) {
+      entry = new JsonStore<IMiningFrameDetail>(this.basedir, key, () => {
+        return {
+          frameId,
+          totalBidCount: 0,
+          winningBids: [],
+          slots: [],
+        };
+      });
+      entry.onMutate.push(() => {
+        this.events.emit('data:updated', { data: 'mining-frame', frameId });
       });
       this.lruCache.set(key, entry);
     }

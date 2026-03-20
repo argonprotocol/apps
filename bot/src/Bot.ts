@@ -13,10 +13,13 @@ import {
   type IBiddingRules,
   type IBidReductionReason,
   type IBotState,
+  type IHistoryFile,
+  type IMiningFrameDetail,
   JsonExt,
   MainchainClients,
   MiningFrames,
 } from '@argonprotocol/apps-core';
+import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
@@ -38,6 +41,7 @@ export default class Bot {
   public storage!: Storage;
   public miningFrames!: MiningFrames;
   public blockWatch!: BlockWatch;
+  public miningFrameHistory!: MiningFrameHistory;
 
   public isStarting: boolean = false;
   public isWaitingForBiddingRules: boolean = false;
@@ -80,6 +84,7 @@ export default class Bot {
         hasMiningSeats: false,
         currentTick: 0,
         currentFrameId: 0,
+        finalizedFrameId: 0,
         botLastActiveDate: new Date(),
         botLastActiveBlockNumber: 0,
         isReady: this.isReady,
@@ -103,9 +108,19 @@ export default class Bot {
     ]);
     const currentBidder = this.autobidder.currentBidder;
     const previousBidder = this.autobidder.previousBidder;
+    const finalizedFrameId = this.getFinalizedFrameId();
+    const nextBid = currentBidder?.nextBid
+      ? {
+          atTick: currentBidder.nextBid.bidAtTick,
+          microgonsPerSeat: currentBidder.nextBid.microgonsPerSeat,
+          alreadyWinningSeats: currentBidder.nextBid.alreadyWinningSeats,
+          seats: currentBidder.nextBid.subaccounts.length,
+        }
+      : undefined;
 
     return {
       ...botStateData,
+      finalizedFrameId,
       botLastActiveDate: currentBidder?.latestUpdateDate ?? MiningFrames.getTickDate(this.history.lastActivityTick),
       botLastActiveBlockNumber: currentBidder?.latestBlockNumber ?? this.history.lastProcessedBlockNumber,
       syncProgress: this.blockSync.calculateSyncProgress(),
@@ -119,7 +134,7 @@ export default class Bot {
       bidsInCurrentFrame: currentBidder?.bidsAttempted ?? 0,
       bidsInPreviousFrame: previousBidder?.bidsAttempted ?? 0,
       isBiddingOpen: currentBidder?.isBiddingOpen ?? false,
-      nextBid: currentBidder?.nextBid,
+      nextBid,
       lastBid: currentBidder?.lastBid,
       serverError: this.errorMessage ?? startupError,
     } as IBotState;
@@ -134,6 +149,18 @@ export default class Bot {
         reject(error);
       }
     });
+  }
+
+  public async getHistoryForFrame(frameId?: number): Promise<IHistoryFile> {
+    if (frameId === undefined) {
+      return (await this.history?.recent) || { activities: [] };
+    }
+
+    return await this.storage.historyFile(frameId).get();
+  }
+
+  public async getMiningFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
+    return this.miningFrameHistory.getDetail(frameId);
   }
 
   public async start(): Promise<void> {
@@ -205,6 +232,14 @@ export default class Bot {
         this.miningFrames,
         this.blockWatch,
         this.options.oldestFrameIdToSync,
+      );
+      this.miningFrameHistory = new MiningFrameHistory(
+        this.storage,
+        this.accountset,
+        this.mainchainClients,
+        this.miningFrames,
+        this.blockWatch,
+        () => this.currentFrameId,
       );
 
       this.isSyncing = true;
@@ -282,6 +317,10 @@ export default class Bot {
   private loadBiddingRules(): IBiddingRules {
     const rawJsonString = Fs.readFileSync(this.options.biddingRulesPath, 'utf8');
     return JsonExt.parse(rawJsonString);
+  }
+
+  private getFinalizedFrameId(): number {
+    return this.miningFrameHistory?.getFinalizedFrameId() ?? 0;
   }
 
   private async waitForDockerConfirmation() {
