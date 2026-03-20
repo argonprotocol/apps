@@ -212,6 +212,7 @@ async fn derive_bitcoin_extended_key(
 #[tauri::command]
 async fn run_db_migrations(app: AppHandle) -> Result<(), String> {
     log::info!("run_db_migrations");
+    migrations::backup_current_instance_database(&app).map_err(|e| e.to_string())?;
     let absolute_db_path = Utils::get_absolute_config_instance_dir(&app).join("database.sqlite");
     log::info!("Running DB migrations for {}", absolute_db_path.display());
     migrations::run_db_migrations(absolute_db_path)
@@ -551,6 +552,7 @@ pub fn run() {
             });
 
             init_config_instance_dir(handle, &relative_config_dir)?;
+            migrations::backup_current_instance_database(handle).map_err(|e| e.to_string())?;
 
             let window = app.get_webview_window("main").unwrap();
             let reload_window = window.clone();
