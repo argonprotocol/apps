@@ -497,9 +497,9 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
           await bob.getAvailableMinerAccounts(10),
           {
             minBid: 10_000n,
-            maxBid: 5_000_000n,
+            maxBid: 3_000_000n,
             sidelinedWalletMicrogons: 25_000_000n,
-            bidIncrement: 1_000_000n,
+            bidIncrement: 500_000n,
             bidDelay: 0,
           },
           undefined,
@@ -512,9 +512,9 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
           await alice.getAvailableMinerAccounts(10),
           {
             minBid: 10_000n,
-            maxBid: 4_000_000n,
+            maxBid: 2_500_000n,
             sidelinedWalletMicrogons: 40_000_000n,
-            bidIncrement: 1_000_000n,
+            bidIncrement: 500_000n,
             bidDelay: 0,
           },
           undefined,

@@ -3,6 +3,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-03-20
+- Improved mining server reliability with live websocket updates, a more stable mining dashboard, and better bidding state handling.
+- Added support for reviewing Bitcoin funding mismatches so mismatched deposits can be accepted or returned, and added validation for Bitcoin unlock destination addresses.
+- Added support for decreasing vault securitization and treasury allocations on upgraded networks.
+- Fixed several vaulting edge cases around live updates, collect timing, and lock release cosigning.
+- Improved recovery from occasional gray-screen-on-resume issues and preserved more production logs for troubleshooting.
+- Added automatic local database backups before app upgrades.
+
 ## [1.3.2] - 2026-01-30
 - Fixed some dark mode issues that made the app unusable (dark mode isn't supported yet but at least it doesn't break).
 - Mining and Vaulting configs now pull from server or mainchain to allow multiple app instances to share the same config.
