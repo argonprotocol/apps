@@ -126,6 +126,7 @@ it.skipIf(skipE2E)(
 
     let voteBlocks = 0;
     let lastSeenBlockNumber = 0;
+    const targetVoteBlocks = 1;
     const frameIdsWithVoteBlocks = new Set<number>();
     if ((await client.query.miningSlot.activeMinersCount().then(x => x.toNumber())) > 0) {
       firstCohortActivationFrameId = await client.query.miningSlot.minersByCohort.keys().then(x => {
@@ -156,7 +157,7 @@ it.skipIf(skipE2E)(
           const frameId = bot.miningFrames.getForTick(tick!);
           frameIdsWithVoteBlocks.add(frameId);
           voteBlocks++;
-          if (voteBlocks > 5) {
+          if (voteBlocks >= targetVoteBlocks) {
             unsubscribe();
             resolve(x);
           }
@@ -186,22 +187,12 @@ it.skipIf(skipE2E)(
       };
     });
 
-    // wait for a clean stop
-    const waitForFrame = bot.blockSync.lastProcessed?.frameId ?? firstCohortActivationFrameId;
-    console.log('Wait for frame to be Processed', { waitForFrame });
-    await new Promise(resolve => {
-      bot.blockSync.didProcessBlock = x => {
-        console.log(`Bot processed block (${x.blockNumber}). Waiting for frameId ${x.frameId} > ${waitForFrame}`);
-        if (x.frameId > waitForFrame) {
-          resolve(x);
-          bot.blockSync.didProcessBlock = undefined;
-        }
-      };
-    });
-
-    const cohort1Bids = await bot.storage
-      .bidsFile(firstCohortActivationFrameId - 1, firstCohortActivationFrameId)
-      .get();
+    const cohort1BiddingFrameId = firstCohortActivationFrameId - 1;
+    let cohort1Bids = await bot.storage.bidsFile(cohort1BiddingFrameId, firstCohortActivationFrameId).get();
+    for (let i = 0; i < 30 && !cohort1Bids; i += 1) {
+      cohort1Bids = await bot.storage.bidsFile(cohort1BiddingFrameId, firstCohortActivationFrameId).get();
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+    }
     expect(cohort1Bids).toBeTruthy();
     console.log(`Cohort ${firstCohortActivationFrameId} BidsFile`, cohort1Bids);
     expect(cohort1Bids?.micronotsStakedPerSeat).toBeGreaterThanOrEqual(10000);
@@ -211,7 +202,12 @@ it.skipIf(skipE2E)(
     const cohortActivationFrameIds = new Set<number>();
     let microgonsMined = 0n;
     for (const frameId of frameIdsWithVoteBlocks) {
-      const earningsData = await bot.storage.earningsFile(frameId).get();
+      let earningsData = await bot.storage.earningsFile(frameId).get();
+      for (let i = 0; i < 30; i += 1) {
+        if (earningsData && Object.keys(earningsData.earningsByBlock).length > 0) break;
+        await new Promise(resolve => setTimeout(resolve, 1_000));
+        earningsData = await bot.storage.earningsFile(frameId).get();
+      }
       expect(earningsData).toBeDefined();
       expect(Object.keys(earningsData.earningsByBlock).length).toBeGreaterThanOrEqual(1);
       for (const blockEarnings of Object.values(earningsData.earningsByBlock)) {

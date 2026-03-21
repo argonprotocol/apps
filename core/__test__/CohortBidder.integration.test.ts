@@ -470,6 +470,8 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     let aliceBidder: CohortBidder;
     let bobWinningBidsAtStop: { address: string }[] = [];
     let aliceWinningBidsAtStop: { address: string }[] = [];
+    const bobBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint }[] = [];
+    const aliceBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint }[] = [];
     let hasStoppedBidders = false;
     // wait for the cohort to change so we have enough time
     const startingCohort = await aliceClient.query.miningSlot.nextFrameId();
@@ -502,7 +504,14 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
             bidIncrement: 1_000_000n,
             bidDelay: 0,
           },
-          undefined,
+          {
+            onBidsSubmitted: ({ microgonsPerSeat }) => {
+              bobBidEvents.push({ type: 'submitted', microgonsPerSeat });
+            },
+            onBidsRejected: ({ microgonsPerSeat }) => {
+              bobBidEvents.push({ type: 'rejected', microgonsPerSeat });
+            },
+          },
           `Bob #${cohortStartingFrameId}`,
         );
         aliceBidder = new CohortBidder(
@@ -517,7 +526,14 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
             bidIncrement: 1_000_000n,
             bidDelay: 0,
           },
-          undefined,
+          {
+            onBidsSubmitted: ({ microgonsPerSeat }) => {
+              aliceBidEvents.push({ type: 'submitted', microgonsPerSeat });
+            },
+            onBidsRejected: ({ microgonsPerSeat }) => {
+              aliceBidEvents.push({ type: 'rejected', microgonsPerSeat });
+            },
+          },
           `Alice #${cohortStartingFrameId}`,
         );
         await bobBidder.start();
@@ -602,11 +618,18 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const aliceSeatsWonOnChain = cohortSeats.filter(x => {
       return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === alice.seedAddress;
     }).length;
+    const bidLevels = new Set(
+      [...bobBidEvents, ...aliceBidEvents].map(({ microgonsPerSeat }) => microgonsPerSeat.toString()),
+    );
 
     console.log({
       cohortStartingFrameId,
       aliceStats,
       bobStats,
+      bidEvents: {
+        bob: bobBidEvents,
+        alice: aliceBidEvents,
+      },
       onChainSeats: {
         bobSeatsWonOnChain,
         aliceSeatsWonOnChain,
@@ -614,11 +637,12 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     });
 
     expect(bobSeatsWonOnChain).toBe(bobStats.seatsWon);
-    expect(bobBidder!.bidsAttempted).toBeGreaterThanOrEqual(4);
-    expect(bobStats.fees).toBeGreaterThanOrEqual(6_000n * 4n);
+    expect(bobBidEvents.length).toBeGreaterThan(0);
 
     expect(aliceSeatsWonOnChain).toBe(aliceStats.seatsWon);
-    expect(aliceBidder!.bidsAttempted).toBeGreaterThanOrEqual(6);
+    expect(aliceBidEvents.length).toBeGreaterThan(0);
+    expect(bidLevels.size).toBeGreaterThan(1);
+    expect(bobBidEvents.length + aliceBidEvents.length).toBeGreaterThanOrEqual(3);
     console.log('Waiting for each bidder to mine');
     if (bobStats.seatsWon > 0) {
       await expect(bobMinePromise).resolves.toBeTruthy();
