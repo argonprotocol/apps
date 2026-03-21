@@ -46,13 +46,13 @@ export class MiningFrameHistory {
     const persisted = (await miningFrameFile.exists()) ? await miningFrameFile.get() : null;
 
     const mining = new Mining(this.mainchainClients);
-    const api = await this.mainchainClients.prunedClientOrArchivePromise;
+    const api = await this.mainchainClients.archiveClientPromise;
 
     const [rawWinningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
       Mining.fetchWinningBids(api),
-      mining.fetchCurrentMiningSeats(this.accountset.seedAddress),
+      Mining.fetchMiningSeats(this.accountset.seedAddress, api),
       api.query.miningSlot.historicalBidsPerSlot().then(h => h[0]?.bidsCount.toNumber() ?? 0),
-      mining.fetchTickAtStartOfAuctionClosing(),
+      mining.fetchTickAtStartOfAuctionClosing(api),
     ]);
     const winningBids = rawWinningBids.map(({ managedByAddress: _, ...bid }) => bid);
 

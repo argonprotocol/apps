@@ -57,7 +57,7 @@ import { botEmitter } from '../../../lib/Bot.ts';
 const props = defineProps<{
   isLiveFrame: boolean;
   frameId: number;
-  historicalSlots?: IMiningSlot[] | null;
+  frameSlots?: IMiningSlot[] | null;
 }>();
 
 const mining = getMining();
@@ -165,6 +165,11 @@ async function updateSeats() {
   const subaccounts = await walletKeys.getMiningBotSubaccounts();
   ourBidAddresses.value = new Set(Object.keys(subaccounts));
 
+  if (props.frameSlots?.length) {
+    slots.value = props.frameSlots;
+    return;
+  }
+
   try {
     if (props.isLiveFrame) {
       slots.value = await mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address);
@@ -176,7 +181,7 @@ async function updateSeats() {
     return;
   }
 
-  slots.value = props.historicalSlots ?? [];
+  slots.value = props.frameSlots ?? [];
 }
 
 async function refreshSeats() {
@@ -222,7 +227,7 @@ function onLiveSeatsUpdated() {
 Vue.watch(seatGridElem, observeSeatGrid, { flush: 'post' });
 
 Vue.watch(
-  () => [props.frameId, props.isLiveFrame, props.historicalSlots],
+  () => [props.frameId, props.isLiveFrame, props.frameSlots],
   () => {
     void refreshSeats();
   },

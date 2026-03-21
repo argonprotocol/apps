@@ -76,6 +76,11 @@ export class Bot {
     return this.loadDeferred.promise;
   }
 
+  public async refreshState(): Promise<void> {
+    await this.loadDeferred.promise;
+    await this.botSyncer.refresh();
+  }
+
   public async restart(): Promise<void> {
     const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
     this.botSyncer.isPaused = true;
