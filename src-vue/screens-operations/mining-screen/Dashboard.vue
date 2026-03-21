@@ -194,7 +194,11 @@
           </section>
 
           <section box class="relative flex flex-col h-[35%] !pb-0.5 px-2">
-            <FrameSlider ref="frameSliderRef" :chartItems="chartItems" @changedFrame="updateSliderFrame" />
+            <FrameSlider
+              ref="frameSliderRef"
+              :chartItems="chartItems"
+              :selectedIndex="sliderFrameIndex"
+              @changedFrame="updateSliderFrame" />
           </section>
         </div>
       </section>
@@ -204,12 +208,14 @@
 
 <script lang="ts">
 import * as Vue from 'vue';
+import type { IMiningFrameDetail } from '@argonprotocol/apps-core';
 import { IDashboardFrameStats } from '../../interfaces/IStats.ts';
+import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 
-// storing refs outside of setup to avoid re-creation on each setup call and speed ui load
+// Keep dashboard state warm across unmounts so switching tabs doesn't cold-start the view.
 const currentFrame = Vue.ref<IDashboardFrameStats>({
   id: 0,
   date: '',
@@ -241,6 +247,12 @@ const currentFrame = Vue.ref<IDashboardFrameStats>({
   },
 });
 const sliderFrameIndex = Vue.ref(0);
+const chartItems = Vue.ref<IChartItem[]>([]);
+const frameDetail = Vue.ref<IMiningFrameDetail | null>(null);
+const loadingFrameId = Vue.ref<number | null>(null);
+const historicalFrameDetailByFrameId = new Map<number, IMiningFrameDetail>();
+const pendingFrameDetailByFrameId = new Map<number, Promise<IMiningFrameDetail>>();
+let frameDetailRequestId = 0;
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -249,7 +261,6 @@ dayjs.extend(utc);
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
 import { calculateProfitPct } from '@argonprotocol/apps-core';
-import type { IMiningFrameDetail } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats';
 import { getCurrency } from '../../stores/currency';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
@@ -258,7 +269,6 @@ import { TICK_MILLIS } from '../../lib/Env.ts';
 import ConfigIcon from '../../assets/config.svg?component';
 import InstructionsIcon from '../../assets/instructions.svg?component';
 import FrameSlider from '../../components/FrameSlider.vue';
-import { IChartItem } from '../../interfaces/IChartItem.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
@@ -283,12 +293,6 @@ const miningFrames = getMiningFrames();
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
-const chartItems = Vue.ref<IChartItem[]>([]);
-const frameDetail = Vue.ref<IMiningFrameDetail | null>(null);
-const historicalFrameDetailByFrameId = new Map<number, IMiningFrameDetail>();
-const pendingFrameDetailByFrameId = new Map<number, Promise<IMiningFrameDetail>>();
-let frameDetailRequestId = 0;
-const loadingFrameId = Vue.ref<number | null>(null);
 const isSelectedLiveFrame = Vue.computed(() => {
   return currentFrame.value.id === stats.latestFrameId;
 });
@@ -682,6 +686,7 @@ Vue.onUnmounted(() => {
   botEmitter.off('updated-bids-data', refreshLiveFrameDetail);
   botEmitter.off('updated-cohort-data', refreshLiveFrameDetail);
   botEmitter.off('updated-server-state', refreshPendingHistoricalFrameDetail);
+  frameSliderRef.value = null;
 });
 </script>
 
