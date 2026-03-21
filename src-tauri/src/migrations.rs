@@ -286,8 +286,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let temp_dir = std::env::temp_dir()
-            .join(format!("argon-db-backup-{test_name}-{}-{unique_id}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "argon-db-backup-{test_name}-{}-{unique_id}",
+            std::process::id()
+        ));
         fs::create_dir_all(&temp_dir).unwrap();
         temp_dir
     }
