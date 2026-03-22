@@ -136,10 +136,14 @@ export class BotSyncer {
       }
 
       const botState = state as IBotState;
+      if (this.isReconnectStale(reconnectRevision)) return;
       this.botState = botState;
-      await this.updateBotState();
-      await this.syncServerState();
-      await this.syncCurrentBids();
+      await this.updateBotState(botState, reconnectRevision);
+      if (this.isReconnectStale(reconnectRevision)) return;
+      await this.syncServerState(botState, reconnectRevision);
+      if (this.isReconnectStale(reconnectRevision)) return;
+      await this.syncCurrentBids(reconnectRevision);
+      if (this.isReconnectStale(reconnectRevision)) return;
 
       if (!this.isSyncingThePast) {
         this.botFns.setStatus(BotStatus.Ready);
@@ -162,9 +166,10 @@ export class BotSyncer {
     }
   }
 
-  private async syncCurrentBids() {
+  private async syncCurrentBids(reconnectRevision = this.reconnectRevision) {
     const client = await this.getClient();
     const activeBidsFile = await client.fetch(`/bids`);
+    if (this.isReconnectStale(reconnectRevision)) return;
     console.log('BotSyncer: Syncing bids for bidding frame...', activeBidsFile.cohortBiddingFrameId);
     await this.db.frameBidsTable.insertOrUpdate(
       activeBidsFile.cohortBiddingFrameId,
@@ -181,55 +186,65 @@ export class BotSyncer {
       }),
     );
 
+    if (this.isReconnectStale(reconnectRevision)) return;
     this.botFns.onEvent('updated-bids-data', activeBidsFile.winningBids);
   }
 
-  private async updateBotState(): Promise<void> {
-    this.botFns.setBotState(this.botState);
+  private async updateBotState(botState = this.botState, reconnectRevision = this.reconnectRevision): Promise<void> {
+    if (this.isReconnectStale(reconnectRevision)) return;
+    this.botFns.setBotState(botState);
 
-    if (this.botState.oldestFrameIdToSync > 0) {
-      this.config.oldestFrameIdToSync = this.botState.oldestFrameIdToSync;
+    if (botState.oldestFrameIdToSync > 0) {
+      this.config.oldestFrameIdToSync = botState.oldestFrameIdToSync;
     }
 
     if (this.config.oldestFrameIdToSync > this.config.latestFrameIdProcessed) {
       this.config.latestFrameIdProcessed = this.config.oldestFrameIdToSync;
     }
 
-    this.config.hasMiningSeats = this.botState.hasMiningSeats;
-    this.config.hasMiningBids = this.botState.hasMiningBids;
+    this.config.hasMiningSeats = botState.hasMiningSeats;
+    this.config.hasMiningBids = botState.hasMiningBids;
 
     await this.config.save();
+    if (this.isReconnectStale(reconnectRevision)) return;
 
-    const dbSyncProgress = await this.calculateDbSyncProgress(this.botState);
+    const dbSyncProgress = await this.calculateDbSyncProgress(botState);
+    if (this.isReconnectStale(reconnectRevision)) return;
 
     if (dbSyncProgress < 100.0) {
       this.botFns.setStatus(BotStatus.DbSyncing);
       this.botFns.setDbSyncProgress(dbSyncProgress);
-      await this.syncThePast(dbSyncProgress);
+      await this.syncThePast(dbSyncProgress, botState, reconnectRevision);
     } else {
       this.botFns.setStatus(BotStatus.Ready);
-      await this.syncCurrentFrame();
+      await this.syncCurrentFrame(botState, reconnectRevision);
     }
   }
 
-  private async syncCurrentFrame(): Promise<void> {
-    const currentFrameId = this.botState.currentFrameId;
+  private async syncCurrentFrame(botState = this.botState, reconnectRevision = this.reconnectRevision): Promise<void> {
+    const currentFrameId = botState.currentFrameId;
     const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10);
+    if (this.isReconnectStale(reconnectRevision)) return;
     for (let frameId = currentFrameId - 10; frameId <= currentFrameId; frameId++) {
+      if (this.isReconnectStale(reconnectRevision)) return;
       if (!completedFrames.includes(frameId)) {
-        await this.syncDbFrame(frameId);
+        await this.syncDbFrame(frameId, botState, reconnectRevision);
       }
     }
   }
 
-  private async syncThePast(progress: number): Promise<void> {
+  private async syncThePast(
+    progress: number,
+    botState = this.botState,
+    reconnectRevision = this.reconnectRevision,
+  ): Promise<void> {
     if (this.isSyncingThePast) return;
     this.isSyncingThePast = true;
 
-    const oldestFrameIdToSync = this.botState.oldestFrameIdToSync;
+    const oldestFrameIdToSync = botState.oldestFrameIdToSync;
     const latestFrameIdProcessed = this.config.latestFrameIdProcessed;
-    const currentFrameId = this.botState.currentFrameId;
-    const currentTick = this.botState.currentTick;
+    const currentFrameId = botState.currentFrameId;
+    const currentTick = botState.currentTick;
     const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
 
     const latestDbProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
@@ -244,27 +259,34 @@ export class BotSyncer {
       currentTick,
     });
 
-    const promise = new Promise<void>(async resolve => {
-      for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
-        await this.syncDbFrame(frameId);
-        progress = await this.calculateDbSyncProgress(this.botState);
-        this.botFns.setDbSyncProgress(progress);
-      }
-
-      if (progress > -100) {
+    const syncPromise = (async () => {
+      try {
+        for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
+          if (this.isReconnectStale(reconnectRevision)) return;
+          await this.syncDbFrame(frameId, botState, reconnectRevision);
+          if (this.isReconnectStale(reconnectRevision)) return;
+          progress = await this.calculateDbSyncProgress(botState);
+          if (this.isReconnectStale(reconnectRevision)) return;
+          this.botFns.setDbSyncProgress(progress);
+        }
+      } finally {
         this.isSyncingThePast = false;
       }
-      resolve();
-    });
+    })();
 
     if (framesToSync < 2) {
-      await promise;
+      await syncPromise;
     }
   }
 
-  public async syncDbFrame(frameId: number): Promise<void> {
+  public async syncDbFrame(
+    frameId: number,
+    botState = this.botState,
+    reconnectRevision = this.reconnectRevision,
+  ): Promise<void> {
     const client = await this.getClient();
     const earningsFile = await client.fetch(`/earnings`, frameId);
+    if (this.isReconnectStale(reconnectRevision)) return;
     const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
 
     await this.db.framesTable.insertOrUpdate({
@@ -274,16 +296,19 @@ export class BotSyncer {
       rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
       progress: frameProgress,
     });
+    if (this.isReconnectStale(reconnectRevision)) return;
     console.info('PROCESSING FRAME', frameId, earningsFile);
     const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
+    if (this.isReconnectStale(reconnectRevision)) return;
     // Every frame should have a corresponding cohort, even if it has no seats
 
     const earningsByCohortActivationFrameId: { [frameId: number]: IFrameEarningsRollup } = {};
     for (let i = frameId - 10; i <= frameId; i++) {
+      if (this.isReconnectStale(reconnectRevision)) return;
       if (i < this.config.oldestFrameIdToSync) continue;
       if (i > frameId) continue;
       if (!cohortIdsInDb.includes(i)) {
-        await this.syncDbCohort(i, earningsFile);
+        await this.syncDbCohort(i, earningsFile, reconnectRevision);
       }
       earningsByCohortActivationFrameId[i] = {
         lastBlockMinedAt: '',
@@ -343,15 +368,18 @@ export class BotSyncer {
       // NOTE: must update frame progress before cohortFrames are updated
       this.db.cohortsTable.updateProgress(),
     ]);
+    if (this.isReconnectStale(reconnectRevision)) return;
 
     const { seatCountActive, seatCostTotalFramed } = await this.db.cohortsTable.fetchActiveSeatData(
       frameId,
       frameProgress,
     );
-    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId });
+    if (this.isReconnectStale(reconnectRevision)) return;
+    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId }, botState.currentFrameId);
+    if (this.isReconnectStale(reconnectRevision)) return;
     const allMinersCount = bidsFile.allMinersCount;
 
-    const botLastFrame = this.botState.currentFrameId - 1;
+    const botLastFrame = botState.currentFrameId - 1;
     const isProcessed = frameProgress === 100.0 || frameId < botLastFrame;
 
     await this.db.framesTable.update({
@@ -368,14 +396,20 @@ export class BotSyncer {
 
       isProcessed,
     });
+    if (this.isReconnectStale(reconnectRevision)) return;
     if (frameId > this.config.latestFrameIdProcessed) {
       this.config.latestFrameIdProcessed = frameId;
       await this.config.save();
     }
   }
 
-  private async syncDbCohort(cohortActivationFrameId: number, earningsFile: IEarningsFile): Promise<void> {
+  private async syncDbCohort(
+    cohortActivationFrameId: number,
+    earningsFile: IEarningsFile,
+    reconnectRevision = this.reconnectRevision,
+  ): Promise<void> {
     const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId });
+    if (this.isReconnectStale(reconnectRevision)) return;
     const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameRewardTicksRemaining);
     if (biddingFrameProgress < 100.0) {
       return;
@@ -385,6 +419,7 @@ export class BotSyncer {
 
     try {
       await this.miningFrames.waitForFrameId(cohortActivationFrameId);
+      if (this.isReconnectStale(reconnectRevision)) return;
       const cohortStartingTick = this.miningFrames.getTickStart(cohortActivationFrameId);
       const miningSeatCount = BigInt(bidsFile.allMinersCount) || 1n;
 
@@ -393,6 +428,7 @@ export class BotSyncer {
         cohortStartingTick,
         cohortStartingTick + Number(ticksPerCohort),
       );
+      if (this.isReconnectStale(reconnectRevision)) return;
 
       const microgonsToBeMinedPerSeat = microgonsToBeMinedDuringCohort / miningSeatCount;
       const micronotsToBeMinedPerSeat = micronotsToBeMinedDuringCohort / miningSeatCount;
@@ -416,7 +452,10 @@ export class BotSyncer {
   }
 
   // I'm using a hash to call out which frame ID is being used to fetch the bids file
-  private async fetchBidsFileFromCache(id: { cohortActivationFrameId: number }): Promise<IBidsFile> {
+  private async fetchBidsFileFromCache(
+    id: { cohortActivationFrameId: number },
+    currentFrameId = this.botState.currentFrameId,
+  ): Promise<IBidsFile> {
     const { cohortActivationFrameId } = id;
     let [timeoutId, bidsFile] = this.bidsFileCacheByActivationFrameId[cohortActivationFrameId] || [];
 
@@ -429,7 +468,7 @@ export class BotSyncer {
       bidsFile = await client.fetch('/bids', cohortActivationFrameId - 1);
     }
 
-    const isCurrentFrame = cohortActivationFrameId === this.botState.currentFrameId;
+    const isCurrentFrame = cohortActivationFrameId === currentFrameId;
     const millisecondsToCache = isCurrentFrame ? 1e3 : 10 * NetworkConfig.rewardTicksPerFrame;
 
     timeoutId = setTimeout(() => {
@@ -441,10 +480,11 @@ export class BotSyncer {
     return bidsFile;
   }
 
-  private async syncServerState(): Promise<void> {
-    const latestBitcoinBlockNumbers = this.botState.bitcoinBlockNumbers;
-    const latestArgonBlockNumbers = this.botState.argonBlockNumbers;
+  private async syncServerState(botState = this.botState, reconnectRevision = this.reconnectRevision): Promise<void> {
+    const latestBitcoinBlockNumbers = botState.bitcoinBlockNumbers;
+    const latestArgonBlockNumbers = botState.argonBlockNumbers;
     const savedState = await this.db.syncStateTable.get(SyncStateKeys.Server);
+    if (this.isReconnectStale(reconnectRevision)) return;
 
     const hasBitcoinChanges =
       savedState?.bitcoinLocalNodeBlockNumber !== latestBitcoinBlockNumbers.localNode ||
@@ -452,7 +492,7 @@ export class BotSyncer {
     const hasArgonChanges =
       savedState?.argonLocalNodeBlockNumber !== latestArgonBlockNumbers.localNode ||
       savedState?.argonMainNodeBlockNumber !== latestArgonBlockNumbers.mainNode;
-    const botLastActivityDate = this.botState.botLastActiveDate;
+    const botLastActivityDate = botState.botLastActiveDate;
     const hasBotActivityChanges = botLastActivityDate?.getTime() !== savedState?.botActivityLastUpdatedAt?.getTime();
 
     if (!hasBotActivityChanges && !hasBitcoinChanges && !hasArgonChanges) {
@@ -474,9 +514,10 @@ export class BotSyncer {
         argonBlocksLastUpdatedAt = new Date();
       }
     }
+    if (this.isReconnectStale(reconnectRevision)) return;
 
     await this.db.syncStateTable.upsert(SyncStateKeys.Server, {
-      latestFrameId: this.botState.currentFrameId,
+      latestFrameId: botState.currentFrameId,
       argonBlocksLastUpdatedAt,
       argonLocalNodeBlockNumber: latestArgonBlockNumbers.localNode,
       argonMainNodeBlockNumber: latestArgonBlockNumbers.mainNode,
@@ -484,9 +525,10 @@ export class BotSyncer {
       bitcoinMainNodeBlockNumber: latestBitcoinBlockNumbers.mainNode,
       bitcoinBlocksLastUpdatedAt: bitcoinLastUpdatedAt,
       botActivityLastUpdatedAt: botLastActivityDate || savedState?.botActivityLastUpdatedAt || new Date(),
-      botActivityLastBlockNumber: this.botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
+      botActivityLastBlockNumber: botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
     });
 
+    if (this.isReconnectStale(reconnectRevision)) return;
     this.botFns.onEvent('updated-server-state');
   }
 
@@ -516,5 +558,9 @@ export class BotSyncer {
     }
     const totalRewardTicks = NetworkConfig.rewardTicksPerFrame;
     return Math.min(((totalRewardTicks - rewardTicksRemaining) / totalRewardTicks) * 100, 100);
+  }
+
+  private isReconnectStale(reconnectRevision: number): boolean {
+    return reconnectRevision !== this.reconnectRevision;
   }
 }

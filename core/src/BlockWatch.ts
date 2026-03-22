@@ -53,6 +53,7 @@ export class BlockWatch {
   private unsubscribe: (() => void) | undefined;
   private activeSource: ISubscriptionSource = 'archive';
   private subscriptionGeneration: number = 0;
+  private clientEventUnsubscribes: (() => void)[] = [];
   private finalizedAheadRecoveryFailures: number = 0;
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingRestart: { reason: string; source: ISubscriptionSource } | undefined;
@@ -62,33 +63,35 @@ export class BlockWatch {
     public clients: MainchainClients,
     private forcePrunedClientSubscriptions = false,
   ) {
-    this.clients.events.on('degraded', (_error, clientType) => {
-      if (!this.isLoaded.isSettled || this.isRestarting) {
-        return;
-      }
-      if (clientType !== this.activeSource) {
-        return;
-      }
+    this.clientEventUnsubscribes = [
+      this.clients.events.on('degraded', (_error, clientType) => {
+        if (!this.isLoaded.isSettled || this.isRestarting) {
+          return;
+        }
+        if (clientType !== this.activeSource) {
+          return;
+        }
 
-      this.scheduleRestart(this.getRecoverySource(), `Detected ${clientType} client degradation`);
-    });
+        this.scheduleRestart(this.getRecoverySource(), `Detected ${clientType} client degradation`);
+      }),
 
-    this.clients.events.on('working', (_path, clientType) => {
-      if (clientType !== 'pruned' || this.forcePrunedClientSubscriptions || this.activeSource !== 'archive') {
-        return;
-      }
-      if (this.getPreferredSubscriptionSource() !== 'pruned') {
-        return;
-      }
-      this.scheduleRestart('pruned', 'Pruned client recovered');
-    });
+      this.clients.events.on('working', (_path, clientType) => {
+        if (clientType !== 'pruned' || this.forcePrunedClientSubscriptions || this.activeSource !== 'archive') {
+          return;
+        }
+        if (this.getPreferredSubscriptionSource() !== 'pruned') {
+          return;
+        }
+        this.scheduleRestart('pruned', 'Pruned client recovered');
+      }),
 
-    this.clients.events.on('on-pruned-client', () => {
-      if (this.forcePrunedClientSubscriptions || this.activeSource === 'pruned') {
-        return;
-      }
-      this.scheduleRestart('pruned', 'Switched to pruned client');
-    });
+      this.clients.events.on('on-pruned-client', () => {
+        if (this.forcePrunedClientSubscriptions || this.activeSource === 'pruned') {
+          return;
+        }
+        this.scheduleRestart('pruned', 'Switched to pruned client');
+      }),
+    ];
   }
 
   public async start(source = this.getPreferredSubscriptionSource()): Promise<void> {
@@ -168,6 +171,14 @@ export class BlockWatch {
     }
     this.subscriptionGeneration += 1;
     this.isLoaded = createDeferred(false);
+  }
+
+  public destroy(): void {
+    this.stop();
+    for (const unsubscribe of this.clientEventUnsubscribes) {
+      unsubscribe();
+    }
+    this.clientEventUnsubscribes.length = 0;
   }
 
   public isSafeForPrunedClient(blockNumber: number): boolean {
@@ -402,7 +413,7 @@ export class BlockWatch {
   }
 
   private scheduleRestart(source: ISubscriptionSource, reason: string): void {
-    if (!this.unsubscribe) {
+    if (!this.unsubscribe && !this.isRestarting && !this.isLoaded.isSettled) {
       return;
     }
     this.pendingRestart = { reason, source };
@@ -442,6 +453,12 @@ export class BlockWatch {
       console.error('[BlockWatch]: Failed to restart subscriptions', { reason, error });
     } finally {
       this.isRestarting = false;
+      const pendingRestart = this.pendingRestart;
+      if (!pendingRestart) {
+        return;
+      }
+      this.pendingRestart = undefined;
+      this.scheduleRestart(pendingRestart.source, pendingRestart.reason);
     }
   }
 

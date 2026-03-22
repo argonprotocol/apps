@@ -105,6 +105,46 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.bestBlockHeader.blockNumber).toBe(101);
     expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(101);
   });
+
+  it('queues a follow-up restart requested during an active restart', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const blockWatch = new BlockWatch(createClients({}, {}) as any);
+      const blockWatchInternal = getInternalBlockWatch(blockWatch);
+      const firstRestart = createDeferredPromise<void>();
+
+      blockWatchInternal.unsubscribe = vi.fn();
+      const startMock = vi.spyOn(blockWatch, 'start').mockImplementation(async source => {
+        blockWatchInternal.unsubscribe = vi.fn();
+        if (source === 'archive') {
+          await firstRestart.promise;
+        }
+      });
+
+      const restartPromise = blockWatchInternal.restart('archive', 'Initial restart');
+      blockWatchInternal.scheduleRestart('pruned', 'Promote recovered pruned client');
+      firstRestart.resolve();
+
+      await restartPromise;
+      await vi.runAllTimersAsync();
+
+      expect(startMock.mock.calls.map(([source]) => source)).toEqual(['archive', 'pruned']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('unsubscribes client event listeners on destroy', () => {
+    const clientEventUnsubscribes = [vi.fn(), vi.fn(), vi.fn()];
+    const blockWatch = new BlockWatch(createClients({}, {}, clientEventUnsubscribes) as any);
+
+    blockWatch.destroy();
+
+    for (const unsubscribe of clientEventUnsubscribes) {
+      expect(unsubscribe).toHaveBeenCalledOnce();
+    }
+  });
 });
 
 function createHeaderInfo(blockNumber: number, blockHash: string, parentHash: string): IBlockHeaderInfo {
@@ -119,12 +159,13 @@ function createHeaderInfo(blockNumber: number, blockHash: string, parentHash: st
   };
 }
 
-function createClients(prunedClient: unknown, archiveClient: unknown) {
+function createClients(prunedClient: unknown, archiveClient: unknown, clientEventUnsubscribes?: Array<() => void>) {
+  let unsubscribeIndex = 0;
   return {
     prunedClientPromise: Promise.resolve(prunedClient),
     archiveClientPromise: Promise.resolve(archiveClient),
     events: {
-      on: vi.fn().mockReturnValue(() => undefined),
+      on: vi.fn().mockImplementation(() => clientEventUnsubscribes?.[unsubscribeIndex++] ?? (() => undefined)),
     },
   };
 }
@@ -139,10 +180,21 @@ function createHeader({ blockHash, blockNumber }: IBlockHeaderInfo) {
 function getInternalBlockWatch(blockWatch: BlockWatch) {
   return blockWatch as unknown as {
     activeSource: 'archive' | 'pruned';
+    restart(source: 'archive' | 'pruned', reason: string): Promise<void>;
+    scheduleRestart(source: 'archive' | 'pruned', reason: string): void;
     setFinalizedHeader(header: ReturnType<typeof createHeader>): Promise<void>;
+    unsubscribe?: () => void;
   };
 }
 
 function readMockHeader(header: unknown): IBlockHeaderInfo {
   return (header as { __info: IBlockHeaderInfo }).__info;
+}
+
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>(resolvePromise => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
