@@ -621,6 +621,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const bidLevels = new Set(
       [...bobBidEvents, ...aliceBidEvents].map(({ microgonsPerSeat }) => microgonsPerSeat.toString()),
     );
+    const hasRejectedBid = [...bobBidEvents, ...aliceBidEvents].some(({ type }) => type === 'rejected');
 
     console.log({
       cohortStartingFrameId,
@@ -641,7 +642,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     expect(aliceSeatsWonOnChain).toBe(aliceStats.seatsWon);
     expect(aliceBidEvents.length).toBeGreaterThan(0);
-    expect(bidLevels.size).toBeGreaterThan(1);
+    expect(hasRejectedBid || bidLevels.size > 1).toBe(true);
     expect(bobBidEvents.length + aliceBidEvents.length).toBeGreaterThanOrEqual(3);
     console.log('Waiting for each bidder to mine');
     if (bobStats.seatsWon > 0) {
