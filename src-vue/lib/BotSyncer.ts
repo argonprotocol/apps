@@ -49,6 +49,8 @@ export class BotSyncer {
   private miningFrames: MiningFrames;
   private botWsClient: BotWsClient | undefined;
   private lastIpWhitelistedTime: number = 0;
+  private needsFullSync: boolean = true;
+  private reconnectRevision: number = 0;
 
   private bidsFileCacheByActivationFrameId: Record<number, [number, IBidsFile]> = {};
 
@@ -85,7 +87,8 @@ export class BotSyncer {
       });
       client.events.on('ws:disconnected', () => {
         // trigger a reconnect and full sync
-        this.botState = undefined!;
+        this.reconnectRevision += 1;
+        this.needsFullSync = true;
       });
     }
     return this.botWsClient;
@@ -96,7 +99,7 @@ export class BotSyncer {
       if (this.isRunnable) {
         try {
           const client = await this.getClient();
-          if (!this.botState) {
+          if (this.needsFullSync || !this.botState) {
             const state = await client.fetch('/state');
             await this.runSync(state);
           }
@@ -117,6 +120,7 @@ export class BotSyncer {
 
   private async runSync(state: IBotState | IBotStateStarting): Promise<void> {
     console.log('BotState: Updating bot state...', state);
+    const reconnectRevision = this.reconnectRevision;
     try {
       if (state.serverError) {
         this.botFns.setStatus(BotStatus.Broken);
@@ -131,14 +135,18 @@ export class BotSyncer {
         return;
       }
 
-      this.botState = state as IBotState;
+      const botState = state as IBotState;
+      this.botState = botState;
       await this.updateBotState();
       await this.syncServerState();
       await this.syncCurrentBids();
 
       if (!this.isSyncingThePast) {
         this.botFns.setStatus(BotStatus.Ready);
-        this.botFns.onEvent('updated-cohort-data', this.botState.currentFrameId);
+        this.botFns.onEvent('updated-cohort-data', botState.currentFrameId);
+      }
+      if (reconnectRevision === this.reconnectRevision) {
+        this.needsFullSync = false;
       }
     } catch (e) {
       this.botFns.setStatus(BotStatus.Broken);
