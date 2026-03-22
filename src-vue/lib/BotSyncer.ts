@@ -136,14 +136,12 @@ export class BotSyncer {
       }
 
       const botState = state as IBotState;
-      if (this.isReconnectStale(reconnectRevision)) return;
+      this.assertReconnectCurrent(reconnectRevision);
       this.botState = botState;
       await this.updateBotState(botState, reconnectRevision);
-      if (this.isReconnectStale(reconnectRevision)) return;
       await this.syncServerState(botState, reconnectRevision);
-      if (this.isReconnectStale(reconnectRevision)) return;
       await this.syncCurrentBids(reconnectRevision);
-      if (this.isReconnectStale(reconnectRevision)) return;
+      this.assertReconnectCurrent(reconnectRevision);
 
       if (!this.isSyncingThePast) {
         this.botFns.setStatus(BotStatus.Ready);
@@ -153,6 +151,9 @@ export class BotSyncer {
         this.needsFullSync = false;
       }
     } catch (e) {
+      if (e instanceof StaleReconnectError) {
+        return;
+      }
       this.botFns.setStatus(BotStatus.Broken);
       console.error('BotSyncer error:', e);
     }
@@ -168,30 +169,32 @@ export class BotSyncer {
 
   private async syncCurrentBids(reconnectRevision = this.reconnectRevision) {
     const client = await this.getClient();
-    const activeBidsFile = await client.fetch(`/bids`);
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const activeBidsFile = await this.awaitCurrent(reconnectRevision, client.fetch(`/bids`));
     console.log('BotSyncer: Syncing bids for bidding frame...', activeBidsFile.cohortBiddingFrameId);
-    await this.db.frameBidsTable.insertOrUpdate(
-      activeBidsFile.cohortBiddingFrameId,
-      activeBidsFile.lastBlockNumber,
-      [...activeBidsFile.winningBids.entries()].map(([bidPosition, bid]) => {
-        return {
-          subAccountIndex: bid.subAccountIndex,
-          address: bid.address,
-          lastBidAtTick: bid.lastBidAtTick,
-          microgonsPerSeat: bid.microgonsPerSeat ?? 0n,
-          micronotsStakedPerSeat: activeBidsFile.micronotsStakedPerSeat,
-          bidPosition,
-        } as IBidEntry;
-      }),
+    await this.awaitCurrent(
+      reconnectRevision,
+      this.db.frameBidsTable.insertOrUpdate(
+        activeBidsFile.cohortBiddingFrameId,
+        activeBidsFile.lastBlockNumber,
+        [...activeBidsFile.winningBids.entries()].map(([bidPosition, bid]) => {
+          return {
+            subAccountIndex: bid.subAccountIndex,
+            address: bid.address,
+            lastBidAtTick: bid.lastBidAtTick,
+            microgonsPerSeat: bid.microgonsPerSeat ?? 0n,
+            micronotsStakedPerSeat: activeBidsFile.micronotsStakedPerSeat,
+            bidPosition,
+          } as IBidEntry;
+        }),
+      ),
     );
 
-    if (this.isReconnectStale(reconnectRevision)) return;
+    this.assertReconnectCurrent(reconnectRevision);
     this.botFns.onEvent('updated-bids-data', activeBidsFile.winningBids);
   }
 
   private async updateBotState(botState = this.botState, reconnectRevision = this.reconnectRevision): Promise<void> {
-    if (this.isReconnectStale(reconnectRevision)) return;
+    this.assertReconnectCurrent(reconnectRevision);
     this.botFns.setBotState(botState);
 
     if (botState.oldestFrameIdToSync > 0) {
@@ -205,11 +208,9 @@ export class BotSyncer {
     this.config.hasMiningSeats = botState.hasMiningSeats;
     this.config.hasMiningBids = botState.hasMiningBids;
 
-    await this.config.save();
-    if (this.isReconnectStale(reconnectRevision)) return;
+    await this.awaitCurrent(reconnectRevision, this.config.save());
 
-    const dbSyncProgress = await this.calculateDbSyncProgress(botState);
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const dbSyncProgress = await this.awaitCurrent(reconnectRevision, this.calculateDbSyncProgress(botState));
 
     if (dbSyncProgress < 100.0) {
       this.botFns.setStatus(BotStatus.DbSyncing);
@@ -223,10 +224,13 @@ export class BotSyncer {
 
   private async syncCurrentFrame(botState = this.botState, reconnectRevision = this.reconnectRevision): Promise<void> {
     const currentFrameId = botState.currentFrameId;
-    const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10);
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const completedFrames = await this.awaitCurrent(
+      reconnectRevision,
+      this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10),
+    );
+
     for (let frameId = currentFrameId - 10; frameId <= currentFrameId; frameId++) {
-      if (this.isReconnectStale(reconnectRevision)) return;
+      this.assertReconnectCurrent(reconnectRevision);
       if (!completedFrames.includes(frameId)) {
         await this.syncDbFrame(frameId, botState, reconnectRevision);
       }
@@ -247,7 +251,10 @@ export class BotSyncer {
     const currentTick = botState.currentTick;
     const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
 
-    const latestDbProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
+    const latestDbProcessedFrame = await this.awaitCurrent(
+      reconnectRevision,
+      this.db.framesTable.fetchLastProcessedFrame(),
+    );
     const startFrameToSync = Math.min(latestDbProcessedFrame, latestFrameIdProcessed);
 
     console.log('Syncing the past frames...', {
@@ -262,11 +269,9 @@ export class BotSyncer {
     const syncPromise = (async () => {
       try {
         for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
-          if (this.isReconnectStale(reconnectRevision)) return;
+          this.assertReconnectCurrent(reconnectRevision);
           await this.syncDbFrame(frameId, botState, reconnectRevision);
-          if (this.isReconnectStale(reconnectRevision)) return;
-          progress = await this.calculateDbSyncProgress(botState);
-          if (this.isReconnectStale(reconnectRevision)) return;
+          progress = await this.awaitCurrent(reconnectRevision, this.calculateDbSyncProgress(botState));
           this.botFns.setDbSyncProgress(progress);
         }
       } finally {
@@ -285,26 +290,31 @@ export class BotSyncer {
     reconnectRevision = this.reconnectRevision,
   ): Promise<void> {
     const client = await this.getClient();
-    const earningsFile = await client.fetch(`/earnings`, frameId);
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const earningsFile = await this.awaitCurrent(reconnectRevision, client.fetch(`/earnings`, frameId));
     const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
 
-    await this.db.framesTable.insertOrUpdate({
-      ...earningsFile,
-      id: frameId,
-      firstTick: earningsFile.frameFirstTick,
-      rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
-      progress: frameProgress,
-    });
-    if (this.isReconnectStale(reconnectRevision)) return;
+    await this.awaitCurrent(
+      reconnectRevision,
+      this.db.framesTable.insertOrUpdate({
+        ...earningsFile,
+        id: frameId,
+        firstTick: earningsFile.frameFirstTick,
+        rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
+        progress: frameProgress,
+      }),
+    );
+
     console.info('PROCESSING FRAME', frameId, earningsFile);
-    const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const cohortIdsInDb = await this.awaitCurrent(
+      reconnectRevision,
+      this.db.cohortsTable.fetchCohortIdsSince(frameId - 10),
+    );
+
     // Every frame should have a corresponding cohort, even if it has no seats
 
     const earningsByCohortActivationFrameId: { [frameId: number]: IFrameEarningsRollup } = {};
     for (let i = frameId - 10; i <= frameId; i++) {
-      if (this.isReconnectStale(reconnectRevision)) return;
+      this.assertReconnectCurrent(reconnectRevision);
       if (i < this.config.oldestFrameIdToSync) continue;
       if (i > frameId) continue;
       if (!cohortIdsInDb.includes(i)) {
@@ -350,56 +360,63 @@ export class BotSyncer {
       earningsDuringFrame.micronotsMinedTotal += earningsOfBlock.micronotsMined;
     }
 
-    await Promise.all([
-      ...Object.entries(earningsByCohortActivationFrameId).map(
-        async ([cohortActivationFrameIdStr, cohortEarningsDuringFrame]) => {
-          await this.db.cohortFramesTable.insertOrUpdate({
-            frameId,
-            cohortActivationFrameId: Number(cohortActivationFrameIdStr),
-            ...cohortEarningsDuringFrame,
-          });
-          blocksMinedTotal += cohortEarningsDuringFrame.blocksMinedTotal;
-          micronotsMinedTotal += cohortEarningsDuringFrame.micronotsMinedTotal;
-          microgonsMinedTotal += cohortEarningsDuringFrame.microgonsMinedTotal;
-          microgonsMintedTotal += cohortEarningsDuringFrame.microgonsMintedTotal;
-          microgonFeesCollectedTotal += cohortEarningsDuringFrame.microgonFeesCollectedTotal;
-        },
-      ),
-      // NOTE: must update frame progress before cohortFrames are updated
-      this.db.cohortsTable.updateProgress(),
-    ]);
-    if (this.isReconnectStale(reconnectRevision)) return;
-
-    const { seatCountActive, seatCostTotalFramed } = await this.db.cohortsTable.fetchActiveSeatData(
-      frameId,
-      frameProgress,
+    await this.awaitCurrent(
+      reconnectRevision,
+      Promise.all([
+        ...Object.entries(earningsByCohortActivationFrameId).map(
+          async ([cohortActivationFrameIdStr, cohortEarningsDuringFrame]) => {
+            await this.db.cohortFramesTable.insertOrUpdate({
+              frameId,
+              cohortActivationFrameId: Number(cohortActivationFrameIdStr),
+              ...cohortEarningsDuringFrame,
+            });
+            blocksMinedTotal += cohortEarningsDuringFrame.blocksMinedTotal;
+            micronotsMinedTotal += cohortEarningsDuringFrame.micronotsMinedTotal;
+            microgonsMinedTotal += cohortEarningsDuringFrame.microgonsMinedTotal;
+            microgonsMintedTotal += cohortEarningsDuringFrame.microgonsMintedTotal;
+            microgonFeesCollectedTotal += cohortEarningsDuringFrame.microgonFeesCollectedTotal;
+          },
+        ),
+        // NOTE: must update frame progress before cohortFrames are updated
+        this.db.cohortsTable.updateProgress(),
+      ]),
     );
-    if (this.isReconnectStale(reconnectRevision)) return;
-    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId }, botState.currentFrameId);
-    if (this.isReconnectStale(reconnectRevision)) return;
+
+    const { seatCountActive, seatCostTotalFramed } = await this.awaitCurrent(
+      reconnectRevision,
+      this.db.cohortsTable.fetchActiveSeatData(frameId, frameProgress),
+    );
+
+    const bidsFile = await this.awaitCurrent(
+      reconnectRevision,
+      this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId }, botState.currentFrameId),
+    );
     const allMinersCount = bidsFile.allMinersCount;
 
     const botLastFrame = botState.currentFrameId - 1;
     const isProcessed = frameProgress === 100.0 || frameId < botLastFrame;
 
-    await this.db.framesTable.update({
-      id: frameId,
+    await this.awaitCurrent(
+      reconnectRevision,
+      this.db.framesTable.update({
+        id: frameId,
 
-      allMinersCount,
-      seatCountActive,
-      seatCostTotalFramed,
-      blocksMinedTotal,
-      micronotsMinedTotal,
-      microgonsMinedTotal,
-      microgonsMintedTotal,
-      microgonFeesCollectedTotal,
+        allMinersCount,
+        seatCountActive,
+        seatCostTotalFramed,
+        blocksMinedTotal,
+        micronotsMinedTotal,
+        microgonsMinedTotal,
+        microgonsMintedTotal,
+        microgonFeesCollectedTotal,
 
-      isProcessed,
-    });
-    if (this.isReconnectStale(reconnectRevision)) return;
+        isProcessed,
+      }),
+    );
+
     if (frameId > this.config.latestFrameIdProcessed) {
       this.config.latestFrameIdProcessed = frameId;
-      await this.config.save();
+      await this.awaitCurrent(reconnectRevision, this.config.save());
     }
   }
 
@@ -408,8 +425,10 @@ export class BotSyncer {
     earningsFile: IEarningsFile,
     reconnectRevision = this.reconnectRevision,
   ): Promise<void> {
-    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId });
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const bidsFile = await this.awaitCurrent(
+      reconnectRevision,
+      this.fetchBidsFileFromCache({ cohortActivationFrameId }),
+    );
     const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameRewardTicksRemaining);
     if (biddingFrameProgress < 100.0) {
       return;
@@ -418,17 +437,18 @@ export class BotSyncer {
     const ticksPerCohort = BigInt(NetworkConfig.ticksPerCohort);
 
     try {
-      await this.miningFrames.waitForFrameId(cohortActivationFrameId);
-      if (this.isReconnectStale(reconnectRevision)) return;
+      await this.awaitCurrent(reconnectRevision, this.miningFrames.waitForFrameId(cohortActivationFrameId));
       const cohortStartingTick = this.miningFrames.getTickStart(cohortActivationFrameId);
       const miningSeatCount = BigInt(bidsFile.allMinersCount) || 1n;
 
       const microgonsToBeMinedDuringCohort = bidsFile.microgonsToBeMinedPerBlock * ticksPerCohort;
-      const micronotsToBeMinedDuringCohort = await this.mainchain.minimumMicronotsMinedDuringTickRange(
-        cohortStartingTick,
-        cohortStartingTick + Number(ticksPerCohort),
+      const micronotsToBeMinedDuringCohort = await this.awaitCurrent(
+        reconnectRevision,
+        this.mainchain.minimumMicronotsMinedDuringTickRange(
+          cohortStartingTick,
+          cohortStartingTick + Number(ticksPerCohort),
+        ),
       );
-      if (this.isReconnectStale(reconnectRevision)) return;
 
       const microgonsToBeMinedPerSeat = microgonsToBeMinedDuringCohort / miningSeatCount;
       const micronotsToBeMinedPerSeat = micronotsToBeMinedDuringCohort / miningSeatCount;
@@ -436,16 +456,22 @@ export class BotSyncer {
       const microgonsBidPerSeat =
         bidsFile.seatCountWon > 0 ? bidsFile.microgonsBidTotal / BigInt(bidsFile.seatCountWon) : 0n;
 
-      await this.db.cohortsTable.insertOrUpdate({
-        id: cohortActivationFrameId,
-        transactionFeesTotal,
-        micronotsStakedPerSeat: bidsFile.micronotsStakedPerSeat,
-        microgonsBidPerSeat,
-        seatCountWon: bidsFile.seatCountWon,
-        microgonsToBeMinedPerSeat,
-        micronotsToBeMinedPerSeat,
-      });
+      await this.awaitCurrent(
+        reconnectRevision,
+        this.db.cohortsTable.insertOrUpdate({
+          id: cohortActivationFrameId,
+          transactionFeesTotal,
+          micronotsStakedPerSeat: bidsFile.micronotsStakedPerSeat,
+          microgonsBidPerSeat,
+          seatCountWon: bidsFile.seatCountWon,
+          microgonsToBeMinedPerSeat,
+          micronotsToBeMinedPerSeat,
+        }),
+      );
     } catch (e) {
+      if (e instanceof StaleReconnectError) {
+        throw e;
+      }
       console.error('Error syncing cohort:', e);
       throw e;
     }
@@ -483,8 +509,7 @@ export class BotSyncer {
   private async syncServerState(botState = this.botState, reconnectRevision = this.reconnectRevision): Promise<void> {
     const latestBitcoinBlockNumbers = botState.bitcoinBlockNumbers;
     const latestArgonBlockNumbers = botState.argonBlockNumbers;
-    const savedState = await this.db.syncStateTable.get(SyncStateKeys.Server);
-    if (this.isReconnectStale(reconnectRevision)) return;
+    const savedState = await this.awaitCurrent(reconnectRevision, this.db.syncStateTable.get(SyncStateKeys.Server));
 
     const hasBitcoinChanges =
       savedState?.bitcoinLocalNodeBlockNumber !== latestBitcoinBlockNumbers.localNode ||
@@ -508,27 +533,35 @@ export class BotSyncer {
     let argonBlocksLastUpdatedAt = savedState?.argonBlocksLastUpdatedAt;
     if (hasArgonChanges) {
       try {
-        argonBlocksLastUpdatedAt = await this.getArgonTimestamp(latestArgonBlockNumbers.localNode);
+        argonBlocksLastUpdatedAt = await this.awaitCurrent(
+          reconnectRevision,
+          this.getArgonTimestamp(latestArgonBlockNumbers.localNode),
+        );
       } catch (e) {
+        if (e instanceof StaleReconnectError) {
+          throw e;
+        }
         console.error('Error fetching argon block timestamp:', e);
         argonBlocksLastUpdatedAt = new Date();
       }
     }
-    if (this.isReconnectStale(reconnectRevision)) return;
 
-    await this.db.syncStateTable.upsert(SyncStateKeys.Server, {
-      latestFrameId: botState.currentFrameId,
-      argonBlocksLastUpdatedAt,
-      argonLocalNodeBlockNumber: latestArgonBlockNumbers.localNode,
-      argonMainNodeBlockNumber: latestArgonBlockNumbers.mainNode,
-      bitcoinLocalNodeBlockNumber: latestBitcoinBlockNumbers.localNode,
-      bitcoinMainNodeBlockNumber: latestBitcoinBlockNumbers.mainNode,
-      bitcoinBlocksLastUpdatedAt: bitcoinLastUpdatedAt,
-      botActivityLastUpdatedAt: botLastActivityDate || savedState?.botActivityLastUpdatedAt || new Date(),
-      botActivityLastBlockNumber: botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
-    });
+    await this.awaitCurrent(
+      reconnectRevision,
+      this.db.syncStateTable.upsert(SyncStateKeys.Server, {
+        latestFrameId: botState.currentFrameId,
+        argonBlocksLastUpdatedAt,
+        argonLocalNodeBlockNumber: latestArgonBlockNumbers.localNode,
+        argonMainNodeBlockNumber: latestArgonBlockNumbers.mainNode,
+        bitcoinLocalNodeBlockNumber: latestBitcoinBlockNumbers.localNode,
+        bitcoinMainNodeBlockNumber: latestBitcoinBlockNumbers.mainNode,
+        bitcoinBlocksLastUpdatedAt: bitcoinLastUpdatedAt,
+        botActivityLastUpdatedAt: botLastActivityDate || savedState?.botActivityLastUpdatedAt || new Date(),
+        botActivityLastBlockNumber: botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
+      }),
+    );
 
-    if (this.isReconnectStale(reconnectRevision)) return;
+    this.assertReconnectCurrent(reconnectRevision);
     this.botFns.onEvent('updated-server-state');
   }
 
@@ -560,7 +593,17 @@ export class BotSyncer {
     return Math.min(((totalRewardTicks - rewardTicksRemaining) / totalRewardTicks) * 100, 100);
   }
 
-  private isReconnectStale(reconnectRevision: number): boolean {
-    return reconnectRevision !== this.reconnectRevision;
+  private assertReconnectCurrent(reconnectRevision: number): void {
+    if (reconnectRevision !== this.reconnectRevision) {
+      throw new StaleReconnectError();
+    }
+  }
+
+  private async awaitCurrent<T>(reconnectRevision: number, promise: Promise<T>): Promise<T> {
+    const result = await promise;
+    this.assertReconnectCurrent(reconnectRevision);
+    return result;
   }
 }
+
+class StaleReconnectError extends Error {}
