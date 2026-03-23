@@ -24,6 +24,8 @@ export interface IBlockHeaderInfo {
   isNewFrame?: boolean;
 }
 
+type ISubscriptionSource = 'archive' | 'pruned';
+
 export class BlockWatch {
   public get finalizedBlockHeader(): IBlockHeaderInfo {
     return this.latestHeaders.at(0)!;
@@ -49,14 +51,50 @@ export class BlockWatch {
   public subscriptionClient!: ArgonClient;
 
   private unsubscribe: (() => void) | undefined;
-  private isPrunedClientSubscription: boolean = false;
+  private activeSource: ISubscriptionSource = 'archive';
+  private subscriptionGeneration: number = 0;
+  private clientEventUnsubscribes: (() => void)[] = [];
+  private finalizedAheadRecoveryFailures: number = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | undefined;
+  private pendingRestart: { reason: string; source: ISubscriptionSource } | undefined;
+  private isRestarting: boolean = false;
 
   constructor(
     public clients: MainchainClients,
     private forcePrunedClientSubscriptions = false,
-  ) {}
+  ) {
+    this.clientEventUnsubscribes = [
+      this.clients.events.on('degraded', (_error, clientType) => {
+        if (!this.isLoaded.isSettled || this.isRestarting) {
+          return;
+        }
+        if (clientType !== this.activeSource) {
+          return;
+        }
 
-  public async start(): Promise<void> {
+        this.scheduleRestart(this.getRecoverySource(), `Detected ${clientType} client degradation`);
+      }),
+
+      this.clients.events.on('working', (_path, clientType) => {
+        if (clientType !== 'pruned' || this.forcePrunedClientSubscriptions || this.activeSource !== 'archive') {
+          return;
+        }
+        if (this.getPreferredSubscriptionSource() !== 'pruned') {
+          return;
+        }
+        this.scheduleRestart('pruned', 'Pruned client recovered');
+      }),
+
+      this.clients.events.on('on-pruned-client', () => {
+        if (this.forcePrunedClientSubscriptions || this.activeSource === 'pruned') {
+          return;
+        }
+        this.scheduleRestart('pruned', 'Switched to pruned client');
+      }),
+    ];
+  }
+
+  public async start(source = this.getPreferredSubscriptionSource()): Promise<void> {
     if (this.isLoaded.isRunning || this.isLoaded.isSettled) {
       return this.isLoaded.promise;
     }
@@ -65,26 +103,27 @@ export class BlockWatch {
     try {
       this.processingQueue.clear();
       this.latestHeaders.length = 1;
+      this.finalizedAheadRecoveryFailures = 0;
       console.time('[BlockWatch] start');
-      let client = await this.clients.prunedClientPromise;
-      if (this.forcePrunedClientSubscriptions) {
-        if (!client) {
-          throw new Error('No pruned client available for BlockWatch subscriptions');
-        }
-      }
-      if (client) {
-        this.isPrunedClientSubscription = true;
-      }
-      client ??= await this.clients.archiveClientPromise;
+      const generation = ++this.subscriptionGeneration;
+      const { client, source: activeSource } = await this.getSubscriptionClient(source);
+      this.activeSource = activeSource;
       this.subscriptionClient = client;
       const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
       this.latestHeaders = [BlockWatch.readHeader(finalizedHeader)];
       const hasBlockData = createDeferred();
       const unsub1 = await client.rpc.chain.subscribeNewHeads(async header => {
+        if (generation !== this.subscriptionGeneration) {
+          return;
+        }
         this.processingQueue.add(async () => {
+          if (generation !== this.subscriptionGeneration) {
+            return;
+          }
           const gap = await this.fillNewHeadGap(this.finalizedBlockHeader, header);
           const newBlocks = gap.filter(x => !this.latestHeaders.some(y => y.blockHash === x.blockHash));
           this.latestHeaders = [this.finalizedBlockHeader, ...gap];
+          this.finalizedAheadRecoveryFailures = 0;
           hasBlockData.resolve();
           if (newBlocks.length) {
             this.events.emit('best-blocks', newBlocks as [...any, IBlockHeaderInfo]);
@@ -96,7 +135,13 @@ export class BlockWatch {
       const unsub2 = await client.rpc.chain.subscribeFinalizedHeads(async header => {
         // slight delay to allow newHeads to process first
         await new Promise(resolve => setTimeout(resolve, 100));
+        if (generation !== this.subscriptionGeneration) {
+          return;
+        }
         this.processingQueue.add(async () => {
+          if (generation !== this.subscriptionGeneration) {
+            return;
+          }
           await this.setFinalizedHeader(header);
         });
       });
@@ -105,15 +150,6 @@ export class BlockWatch {
         unsub1();
         unsub2();
       };
-
-      if (!this.isPrunedClientSubscription) {
-        const unsub = this.clients.events.on('on-pruned-client', async () => {
-          console.log('[BlockWatch]: Switched to pruned client for subscriptions');
-          this.stop();
-          unsub();
-          await this.start();
-        });
-      }
     } catch (err) {
       this.isLoaded.reject(err);
       throw err;
@@ -124,15 +160,29 @@ export class BlockWatch {
   }
 
   public stop(): void {
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = undefined;
+    }
+    this.pendingRestart = undefined;
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;
     }
+    this.subscriptionGeneration += 1;
     this.isLoaded = createDeferred(false);
   }
 
+  public destroy(): void {
+    this.stop();
+    for (const unsubscribe of this.clientEventUnsubscribes) {
+      unsubscribe();
+    }
+    this.clientEventUnsubscribes.length = 0;
+  }
+
   public isSafeForPrunedClient(blockNumber: number): boolean {
-    if (!this.isPrunedClientSubscription) {
+    if (this.activeSource !== 'pruned') {
       return false;
     }
     const finalizedNumber = this.finalizedBlockHeader.blockNumber;
@@ -147,7 +197,7 @@ export class BlockWatch {
   public getRpcClient(headerOrNumber: Header | number): Promise<ArgonClient> {
     const headerNumber = typeof headerOrNumber === 'number' ? headerOrNumber : headerOrNumber.number.toNumber();
 
-    if (this.isPrunedClientSubscription) {
+    if (this.activeSource === 'pruned') {
       if (this.isSafeForPrunedClient(headerNumber)) {
         return this.clients.prunedClientPromise!;
       }
@@ -198,15 +248,13 @@ export class BlockWatch {
   private async setFinalizedHeader(header: Header): Promise<void> {
     const finalizedHash = header.hash.toHex();
     const finalizedNumber = header.number.toNumber();
+    const bestKnown = this.bestBlockHeader.blockNumber;
     // If finalized is ahead of what we know, or not in our history at all
-    if (
-      finalizedNumber > this.bestBlockHeader.blockNumber ||
-      !this.latestHeaders.some(x => x.blockHash === finalizedHash)
-    ) {
-      if (finalizedNumber > this.bestBlockHeader.blockNumber) {
+    if (finalizedNumber > bestKnown || !this.latestHeaders.some(x => x.blockHash === finalizedHash)) {
+      if (finalizedNumber > bestKnown) {
         console.warn('[BlockWatch]: Finalized header is ahead of known best, filling gap', {
           finalizedNumber,
-          bestKnown: this.bestBlockHeader.blockNumber,
+          bestKnown,
         });
       } else {
         console.warn('[BlockWatch]: Finalized header not found in known best blocks, filling gap', {
@@ -214,16 +262,41 @@ export class BlockWatch {
           latestHeaders: this.latestHeaders,
         });
       }
-      const client = await this.getRpcClient(finalizedNumber);
-      const bestHeader = await client.rpc.chain.getHeader();
-      // presume our old finalized is still valid, fill in the gap to the new best
-      const bestTail = await this.fillNewHeadGap(this.finalizedBlockHeader, bestHeader);
-      // New canonical window: [latest finalized ... best]
-      this.latestHeaders = [this.finalizedBlockHeader, ...bestTail];
+      try {
+        const client = await this.getRpcClient(finalizedNumber);
+        const bestHeader = await this.queryWithArchiveRetry(
+          client,
+          `getBestHeader(${finalizedNumber})`,
+          selectedClient => selectedClient.rpc.chain.getHeader(),
+          { finalizedNumber },
+        );
+        // presume our old finalized is still valid, fill in the gap to the new best
+        const bestTail = await this.fillNewHeadGap(this.finalizedBlockHeader, bestHeader);
+        // New canonical window: [latest finalized ... best]
+        this.latestHeaders = [this.finalizedBlockHeader, ...bestTail];
 
-      // Emit best-blocks for the new chain past finalized
-      if (bestTail.length > 0) {
-        this.events.emit('best-blocks', bestTail as [...any, IBlockHeaderInfo]);
+        if (this.bestBlockHeader.blockNumber <= bestKnown) {
+          this.finalizedAheadRecoveryFailures += 1;
+          if (this.finalizedAheadRecoveryFailures >= 3) {
+            this.scheduleRestart(
+              this.getRecoverySource(),
+              `Finalized head stayed ahead of best (${finalizedNumber} > ${bestKnown})`,
+            );
+          }
+        } else {
+          this.finalizedAheadRecoveryFailures = 0;
+        }
+
+        // Emit best-blocks for the new chain past finalized
+        if (bestTail.length > 0) {
+          this.events.emit('best-blocks', bestTail as [...any, IBlockHeaderInfo]);
+        }
+      } catch (error) {
+        this.finalizedAheadRecoveryFailures += 1;
+        if (this.finalizedAheadRecoveryFailures >= 3) {
+          this.scheduleRestart(this.getRecoverySource(), `Failed to recover finalized gap at block ${finalizedNumber}`);
+        }
+        throw error;
       }
     }
 
@@ -271,6 +344,15 @@ export class BlockWatch {
     query: (client: ArgonClient) => Promise<T>,
   ): Promise<T> {
     const client = await this.getRpcClient(blockNumber);
+    return await this.queryWithArchiveRetry(client, label, query, { blockNumber });
+  }
+
+  private async queryWithArchiveRetry<T>(
+    client: ArgonClient,
+    label: string,
+    query: (client: ArgonClient) => Promise<T>,
+    details: Record<string, unknown>,
+  ): Promise<T> {
     try {
       return await query(client);
     } catch (error) {
@@ -284,7 +366,7 @@ export class BlockWatch {
       }
 
       console.warn(`[BlockWatch]: ${label} failed on selected client, retrying on archive`, {
-        blockNumber,
+        ...details,
         error: String(error),
       });
       return await query(archiveClient);
@@ -294,8 +376,90 @@ export class BlockWatch {
   private shouldRetryOnArchive(error: unknown): boolean {
     const message = String(error).toLowerCase();
     return (
-      message.includes('4003') && (message.includes('state already discarded') || message.includes('unknown block'))
+      (message.includes('4003') &&
+        (message.includes('state already discarded') || message.includes('unknown block'))) ||
+      message.includes('no response received from rpc endpoint') ||
+      message.includes('abnormal closure') ||
+      message.includes('disconnected from ws://') ||
+      message.includes('disconnected from wss://')
     );
+  }
+
+  private getPreferredSubscriptionSource(): ISubscriptionSource {
+    if (this.forcePrunedClientSubscriptions) {
+      return 'pruned';
+    }
+    return this.clients.prunedClientPromise ? 'pruned' : 'archive';
+  }
+
+  private getRecoverySource(): ISubscriptionSource {
+    if (this.activeSource === 'pruned' && !this.forcePrunedClientSubscriptions) {
+      return 'archive';
+    }
+    return this.getPreferredSubscriptionSource();
+  }
+
+  private async getSubscriptionClient(
+    source: ISubscriptionSource,
+  ): Promise<{ client: ArgonClient; source: ISubscriptionSource }> {
+    if (source === 'pruned') {
+      const client = await this.clients.prunedClientPromise;
+      if (!client) {
+        throw new Error('No pruned client available for BlockWatch subscriptions');
+      }
+      return { client, source };
+    }
+    return { client: await this.clients.archiveClientPromise, source };
+  }
+
+  private scheduleRestart(source: ISubscriptionSource, reason: string): void {
+    if (!this.unsubscribe && !this.isRestarting && !this.isLoaded.isSettled) {
+      return;
+    }
+    this.pendingRestart = { reason, source };
+    if (this.isRestarting || this.restartTimer) {
+      return;
+    }
+
+    console.warn('[BlockWatch]: Restarting subscriptions soon', {
+      reason,
+      source,
+    });
+    this.restartTimer = setTimeout(() => {
+      const pendingRestart = this.pendingRestart;
+      this.restartTimer = undefined;
+      this.pendingRestart = undefined;
+      if (!pendingRestart) {
+        return;
+      }
+      void this.restart(pendingRestart.source, pendingRestart.reason);
+    }, 250);
+  }
+
+  private async restart(source: ISubscriptionSource, reason: string): Promise<void> {
+    if (this.isRestarting) {
+      return;
+    }
+    this.isRestarting = true;
+
+    try {
+      console.warn('[BlockWatch]: Restarting subscriptions', {
+        reason,
+        source,
+      });
+      this.stop();
+      await this.start(source);
+    } catch (error) {
+      console.error('[BlockWatch]: Failed to restart subscriptions', { reason, error });
+    } finally {
+      this.isRestarting = false;
+      const pendingRestart = this.pendingRestart;
+      if (!pendingRestart) {
+        return;
+      }
+      this.pendingRestart = undefined;
+      this.scheduleRestart(pendingRestart.source, pendingRestart.reason);
+    }
   }
 
   public static readHeader(header: Header, isFinalized = false): IBlockHeaderInfo {

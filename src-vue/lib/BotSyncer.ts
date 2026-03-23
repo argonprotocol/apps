@@ -49,6 +49,9 @@ export class BotSyncer {
   private miningFrames: MiningFrames;
   private botWsClient: BotWsClient | undefined;
   private lastIpWhitelistedTime: number = 0;
+  private lastStateRefreshAt: number = 0;
+  private pendingState: IBotState | IBotStateStarting | undefined;
+  private syncInFlight: Promise<void> | undefined;
 
   private bidsFileCacheByActivationFrameId: Record<number, [number, IBidsFile]> = {};
 
@@ -80,12 +83,13 @@ export class BotSyncer {
       await client.connectDeferred.promise;
       this.botWsClient = client;
 
-      client.events.on('/state', async (state: IBotState) => {
-        await this.runSync(state);
+      client.events.on('/state', (state: IBotState) => {
+        this.pendingState = state;
+        this.lastStateRefreshAt = Date.now();
+        void this.drainSyncQueue();
       });
       client.events.on('ws:disconnected', () => {
-        // trigger a reconnect and full sync
-        this.botState = undefined!;
+        this.lastStateRefreshAt = 0;
       });
     }
     return this.botWsClient;
@@ -101,11 +105,16 @@ export class BotSyncer {
     try {
       if (this.isRunnable) {
         try {
-          const client = await this.getClient();
-          if (!this.botState) {
-            const state = await client.fetch('/state');
-            await this.runSync(state);
+          const now = Date.now();
+          const maxStateAge = Math.ceil(NetworkConfig.tickMillis * 1.2);
+
+          if (!this.pendingState && (!this.lastStateRefreshAt || now - this.lastStateRefreshAt > maxStateAge)) {
+            const client = await this.getClient();
+            this.pendingState = await client.fetch('/state');
+            this.lastStateRefreshAt = Date.now();
           }
+
+          await this.drainSyncQueue();
         } catch (error) {
           // try to whitelist IP again if connection fails, but only ever once every 10 minutes
           if (!this.lastIpWhitelistedTime || Date.now() - this.lastIpWhitelistedTime >= 10 * 60e3) {
@@ -117,7 +126,32 @@ export class BotSyncer {
     } catch (e) {
       console.error('BotSyncer loop error:', e);
     } finally {
-      setTimeout(this.loopToStayConnected.bind(this), 1000);
+      setTimeout(this.loopToStayConnected.bind(this), Math.max(100, Math.ceil(NetworkConfig.tickMillis / 5)));
+    }
+  }
+
+  private async drainSyncQueue(): Promise<void> {
+    if (this.syncInFlight) {
+      await this.syncInFlight;
+      return;
+    }
+
+    const syncPromise = this.processPendingSyncs();
+    this.syncInFlight = syncPromise;
+    try {
+      await syncPromise;
+    } finally {
+      if (this.syncInFlight === syncPromise) {
+        this.syncInFlight = undefined;
+      }
+    }
+  }
+
+  private async processPendingSyncs(): Promise<void> {
+    while (this.pendingState) {
+      const state = this.pendingState;
+      this.pendingState = undefined;
+      await this.runSync(state);
     }
   }
 
@@ -137,14 +171,15 @@ export class BotSyncer {
         return;
       }
 
-      this.botState = state as IBotState;
-      await this.updateBotState();
-      await this.syncServerState();
+      const botState = state as IBotState;
+      this.botState = botState;
+      await this.updateBotState(botState);
+      await this.syncServerState(botState);
       await this.syncCurrentBids();
 
       if (!this.isSyncingThePast) {
         this.botFns.setStatus(BotStatus.Ready);
-        this.botFns.onEvent('updated-cohort-data', this.botState.currentFrameId);
+        this.botFns.onEvent('updated-cohort-data', botState.currentFrameId);
       }
     } catch (e) {
       this.botFns.setStatus(BotStatus.Broken);
@@ -182,52 +217,52 @@ export class BotSyncer {
     this.botFns.onEvent('updated-bids-data', activeBidsFile.winningBids);
   }
 
-  private async updateBotState(): Promise<void> {
-    this.botFns.setBotState(this.botState);
+  private async updateBotState(botState = this.botState): Promise<void> {
+    this.botFns.setBotState(botState);
 
-    if (this.botState.oldestFrameIdToSync > 0) {
-      this.config.oldestFrameIdToSync = this.botState.oldestFrameIdToSync;
+    if (botState.oldestFrameIdToSync > 0) {
+      this.config.oldestFrameIdToSync = botState.oldestFrameIdToSync;
     }
 
     if (this.config.oldestFrameIdToSync > this.config.latestFrameIdProcessed) {
       this.config.latestFrameIdProcessed = this.config.oldestFrameIdToSync;
     }
 
-    this.config.hasMiningSeats = this.botState.hasMiningSeats;
-    this.config.hasMiningBids = this.botState.hasMiningBids;
+    this.config.hasMiningSeats = botState.hasMiningSeats;
+    this.config.hasMiningBids = botState.hasMiningBids;
 
     await this.config.save();
-
-    const dbSyncProgress = await this.calculateDbSyncProgress(this.botState);
+    const dbSyncProgress = await this.calculateDbSyncProgress(botState);
 
     if (dbSyncProgress < 100.0) {
       this.botFns.setStatus(BotStatus.DbSyncing);
       this.botFns.setDbSyncProgress(dbSyncProgress);
-      await this.syncThePast(dbSyncProgress);
+      await this.syncThePast(dbSyncProgress, botState);
     } else {
       this.botFns.setStatus(BotStatus.Ready);
-      await this.syncCurrentFrame();
+      await this.syncCurrentFrame(botState);
     }
   }
 
-  private async syncCurrentFrame(): Promise<void> {
-    const currentFrameId = this.botState.currentFrameId;
+  private async syncCurrentFrame(botState = this.botState): Promise<void> {
+    const currentFrameId = botState.currentFrameId;
     const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10);
+
     for (let frameId = currentFrameId - 10; frameId <= currentFrameId; frameId++) {
       if (!completedFrames.includes(frameId)) {
-        await this.syncDbFrame(frameId);
+        await this.syncDbFrame(frameId, botState);
       }
     }
   }
 
-  private async syncThePast(progress: number): Promise<void> {
+  private async syncThePast(progress: number, botState = this.botState): Promise<void> {
     if (this.isSyncingThePast) return;
     this.isSyncingThePast = true;
 
-    const oldestFrameIdToSync = this.botState.oldestFrameIdToSync;
+    const oldestFrameIdToSync = botState.oldestFrameIdToSync;
     const latestFrameIdProcessed = this.config.latestFrameIdProcessed;
-    const currentFrameId = this.botState.currentFrameId;
-    const currentTick = this.botState.currentTick;
+    const currentFrameId = botState.currentFrameId;
+    const currentTick = botState.currentTick;
     const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
 
     const latestDbProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
@@ -242,25 +277,24 @@ export class BotSyncer {
       currentTick,
     });
 
-    const promise = new Promise<void>(async resolve => {
-      for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
-        await this.syncDbFrame(frameId);
-        progress = await this.calculateDbSyncProgress(this.botState);
-        this.botFns.setDbSyncProgress(progress);
-      }
-
-      if (progress > -100) {
+    const syncPromise = (async () => {
+      try {
+        for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
+          await this.syncDbFrame(frameId, botState);
+          progress = await this.calculateDbSyncProgress(botState);
+          this.botFns.setDbSyncProgress(progress);
+        }
+      } finally {
         this.isSyncingThePast = false;
       }
-      resolve();
-    });
+    })();
 
     if (framesToSync < 2) {
-      await promise;
+      await syncPromise;
     }
   }
 
-  public async syncDbFrame(frameId: number): Promise<void> {
+  public async syncDbFrame(frameId: number, botState = this.botState): Promise<void> {
     const client = await this.getClient();
     const earningsFile = await client.fetch(`/earnings`, frameId);
     const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
@@ -272,8 +306,10 @@ export class BotSyncer {
       rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
       progress: frameProgress,
     });
+
     console.info('PROCESSING FRAME', frameId, earningsFile);
     const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
+
     // Every frame should have a corresponding cohort, even if it has no seats
 
     const earningsByCohortActivationFrameId: { [frameId: number]: IFrameEarningsRollup } = {};
@@ -346,10 +382,11 @@ export class BotSyncer {
       frameId,
       frameProgress,
     );
-    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId });
+
+    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId }, botState.currentFrameId);
     const allMinersCount = bidsFile.allMinersCount;
 
-    const botLastFrame = this.botState.currentFrameId - 1;
+    const botLastFrame = botState.currentFrameId - 1;
     const isProcessed = frameProgress === 100.0 || frameId < botLastFrame;
 
     await this.db.framesTable.update({
@@ -366,6 +403,7 @@ export class BotSyncer {
 
       isProcessed,
     });
+
     if (frameId > this.config.latestFrameIdProcessed) {
       this.config.latestFrameIdProcessed = frameId;
       await this.config.save();
@@ -414,7 +452,10 @@ export class BotSyncer {
   }
 
   // I'm using a hash to call out which frame ID is being used to fetch the bids file
-  private async fetchBidsFileFromCache(id: { cohortActivationFrameId: number }): Promise<IBidsFile> {
+  private async fetchBidsFileFromCache(
+    id: { cohortActivationFrameId: number },
+    currentFrameId = this.botState.currentFrameId,
+  ): Promise<IBidsFile> {
     const { cohortActivationFrameId } = id;
     let [timeoutId, bidsFile] = this.bidsFileCacheByActivationFrameId[cohortActivationFrameId] || [];
 
@@ -427,7 +468,7 @@ export class BotSyncer {
       bidsFile = await client.fetch('/bids', cohortActivationFrameId - 1);
     }
 
-    const isCurrentFrame = cohortActivationFrameId === this.botState.currentFrameId;
+    const isCurrentFrame = cohortActivationFrameId === currentFrameId;
     const millisecondsToCache = isCurrentFrame ? 1e3 : 10 * NetworkConfig.rewardTicksPerFrame;
 
     timeoutId = setTimeout(() => {
@@ -439,9 +480,9 @@ export class BotSyncer {
     return bidsFile;
   }
 
-  private async syncServerState(): Promise<void> {
-    const latestBitcoinBlockNumbers = this.botState.bitcoinBlockNumbers;
-    const latestArgonBlockNumbers = this.botState.argonBlockNumbers;
+  private async syncServerState(botState = this.botState): Promise<void> {
+    const latestBitcoinBlockNumbers = botState.bitcoinBlockNumbers;
+    const latestArgonBlockNumbers = botState.argonBlockNumbers;
     const savedState = await this.db.syncStateTable.get(SyncStateKeys.Server);
 
     const hasBitcoinChanges =
@@ -450,7 +491,7 @@ export class BotSyncer {
     const hasArgonChanges =
       savedState?.argonLocalNodeBlockNumber !== latestArgonBlockNumbers.localNode ||
       savedState?.argonMainNodeBlockNumber !== latestArgonBlockNumbers.mainNode;
-    const botLastActivityDate = this.botState.botLastActiveDate;
+    const botLastActivityDate = botState.botLastActiveDate;
     const hasBotActivityChanges = botLastActivityDate?.getTime() !== savedState?.botActivityLastUpdatedAt?.getTime();
 
     if (!hasBotActivityChanges && !hasBitcoinChanges && !hasArgonChanges) {
@@ -474,7 +515,7 @@ export class BotSyncer {
     }
 
     await this.db.syncStateTable.upsert(SyncStateKeys.Server, {
-      latestFrameId: this.botState.currentFrameId,
+      latestFrameId: botState.currentFrameId,
       argonBlocksLastUpdatedAt,
       argonLocalNodeBlockNumber: latestArgonBlockNumbers.localNode,
       argonMainNodeBlockNumber: latestArgonBlockNumbers.mainNode,
@@ -482,7 +523,7 @@ export class BotSyncer {
       bitcoinMainNodeBlockNumber: latestBitcoinBlockNumbers.mainNode,
       bitcoinBlocksLastUpdatedAt: bitcoinLastUpdatedAt,
       botActivityLastUpdatedAt: botLastActivityDate || savedState?.botActivityLastUpdatedAt || new Date(),
-      botActivityLastBlockNumber: this.botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
+      botActivityLastBlockNumber: botState.botLastActiveBlockNumber ?? savedState?.botActivityLastBlockNumber ?? 0,
     });
 
     this.botFns.onEvent('updated-server-state');

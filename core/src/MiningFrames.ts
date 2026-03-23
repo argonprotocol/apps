@@ -46,6 +46,7 @@ export class MiningFrames {
   }
 
   private readonly loadDeferred = createDeferred(false);
+  private readonly ownsBlockWatch: boolean;
   private readonly unsubscribes: (() => void)[] = [];
   private readonly updateQueue = new SingleFileQueue();
 
@@ -58,6 +59,7 @@ export class MiningFrames {
       throw new Error('NetworkConfig.networkName is not set');
     }
     this.framesById = {};
+    this.ownsBlockWatch = !blockWatch;
     this.blockWatch = blockWatch ?? new BlockWatch(this.clients);
     this.currentTick = 0;
     this.currentFrameRewardTicksRemaining = NetworkConfig.rewardTicksPerFrame;
@@ -172,6 +174,9 @@ export class MiningFrames {
     }
     this.unsubscribes.length = 0;
     await this.updateQueue.stop();
+    if (this.ownsBlockWatch) {
+      this.blockWatch.destroy();
+    }
   }
 
   public earliestWithSpec(specVersion: number): number {
