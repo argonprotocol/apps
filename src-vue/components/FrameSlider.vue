@@ -19,6 +19,7 @@ import type { IChartItem } from '../interfaces/IChartItem';
 
 const props = defineProps<{
   chartItems: IChartItem[];
+  selectedIndex?: number;
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +36,23 @@ const isDragging = Vue.ref(false);
 const sliderFrameIndex = Vue.ref(0);
 
 const sliderLeftPosX = Vue.ref(0);
+
+function getFrameIndex(index: number | null | undefined, itemCount = props.chartItems.length): number {
+  if (!itemCount) return 0;
+  return Math.min(Math.max(index ?? itemCount - 1, 0), itemCount - 1);
+}
+
+function syncFrameSliderPos(index: number | null | undefined = sliderFrameIndex.value) {
+  const nextFrameIndex = getFrameIndex(index);
+  const item = props.chartItems[nextFrameIndex];
+  if (!item) return;
+
+  sliderFrameIndex.value = nextFrameIndex;
+  isUserNavigatingHistory = nextFrameIndex < props.chartItems.length - 1;
+
+  const pointPosition = chartRef.value?.getPointPosition(nextFrameIndex);
+  sliderLeftPosX.value = pointPosition?.x || 0;
+}
 
 async function goToPrevFrame() {
   const newFrameIndex = Math.max(sliderFrameIndex.value - 1, 0);
@@ -98,18 +116,12 @@ let isUserNavigatingHistory = false;
 
 function updateFrameSliderPos(index: number, isUserAction = true) {
   if (isUserNavigatingHistory && !isUserAction) return;
-  index = Math.max(index || 0, 0);
-  sliderFrameIndex.value = index;
-  // if back to latest frame, reset user chosen pos
-  isUserNavigatingHistory = index < props.chartItems.length - 1;
-
-  const item = props.chartItems[index];
+  const nextFrameIndex = getFrameIndex(index);
+  const item = props.chartItems[nextFrameIndex];
   if (!item) return;
 
-  const pointPosition = chartRef.value?.getPointPosition(index);
-  sliderLeftPosX.value = pointPosition?.x || 0;
-
-  emit('changedFrame', index);
+  syncFrameSliderPos(nextFrameIndex);
+  emit('changedFrame', nextFrameIndex);
 }
 
 function handleKeyDown(e: KeyboardEvent) {
@@ -121,7 +133,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
 function doResize() {
   chartRef.value?.doResize();
-  updateFrameSliderPos(sliderFrameIndex.value, false);
+  syncFrameSliderPos();
 }
 
 const handleResize = useDebounceFn(doResize, 100, { maxWait: 250 });
@@ -130,16 +142,26 @@ Vue.watch(
   () => props.chartItems,
   (newItems, oldItems) => {
     chartRef.value?.reloadData(newItems);
+    syncFrameSliderPos(props.selectedIndex);
     if (newItems.at(-1)?.id !== oldItems.at(-1)?.id) {
-      updateFrameSliderPos(newItems.length - 1, false);
+      updateFrameSliderPos(props.selectedIndex ?? newItems.length - 1, false);
     }
   },
   { deep: true },
 );
 
+Vue.watch(
+  () => props.selectedIndex,
+  selectedIndex => {
+    syncFrameSliderPos(selectedIndex);
+  },
+);
+
 Vue.onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', handleResize);
+  chartRef.value?.reloadData(props.chartItems);
+  syncFrameSliderPos(props.selectedIndex);
 });
 
 Vue.onUnmounted(() => {

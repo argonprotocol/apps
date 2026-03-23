@@ -91,6 +91,12 @@ export class BotSyncer {
     return this.botWsClient;
   }
 
+  public async refresh(): Promise<void> {
+    const client = await this.getClient();
+    const state = await client.fetch('/state');
+    await this.runSync(state);
+  }
+
   private async loopToStayConnected(): Promise<void> {
     try {
       if (this.isRunnable) {

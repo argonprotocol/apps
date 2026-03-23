@@ -255,6 +255,21 @@ export class Stats {
     if (this.activitySubscribers < 0) this.activitySubscribers = 0;
   }
 
+  public async refresh(): Promise<void> {
+    await this.isLoadedDeferred.promise;
+
+    await Promise.all([
+      this.updateDashboard(),
+      this.updateMiningSeats(),
+      this.updateMiningBids(),
+      this.updateAccruedProfits(),
+      this.updateServerState(),
+    ]);
+
+    this.dashboardHasUpdates = false;
+    this.activityHasUpdates = false;
+  }
+
   private get isSubscribedToDashboard(): boolean {
     return this.dashboardSubscribers > 0;
   }
