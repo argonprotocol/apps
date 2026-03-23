@@ -38,6 +38,7 @@ export interface IBotState extends IBotSyncStatus, IBotStateFile {
   bidsInCurrentFrame: number;
   bidsInPreviousFrame: number;
   isBiddingOpen: boolean;
+  isBiddingPaused: boolean;
   nextBid?: {
     bidAtTick: number;
     microgonsPerSeat: bigint;

@@ -51,6 +51,8 @@ export class BotServer {
       },
       '/earnings': async frameId => await bot.storage.earningsFile(frameId).get(),
       '/manual-bid': async request => await bot.manualBid(request),
+      '/pause-bidding': async () => bot.pauseBidding(),
+      '/resume-bidding': async () => bot.resumeBidding(),
       '/heartbeat': async () => null,
     };
   }
@@ -251,7 +253,10 @@ export class BotServer {
     console.time(msgLogKey);
     if (msg.jsonrpc !== '2.0') return;
 
-    if (msg.method === '/manual-bid' && (!this.bot.isReady || this.startupError || this.bot.errorMessage)) {
+    if (
+      (msg.method === '/manual-bid' || msg.method === '/pause-bidding' || msg.method === '/resume-bidding') &&
+      (!this.bot.isReady || this.startupError || this.bot.errorMessage)
+    ) {
       this.wsReply(ws, msg.id, new Error('The mining bot is not ready yet.'));
       console.timeEnd(msgLogKey);
       return;

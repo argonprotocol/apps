@@ -18,6 +18,8 @@ export interface IBotApiSpec {
   '/bids': (cohortBiddingFrameId?: number) => Promise<IBidsFile>;
   '/earnings': (frameId: number) => Promise<IEarningsFile>;
   '/manual-bid': (request: IManualBidRequest) => Promise<null>;
+  '/pause-bidding': () => Promise<null>;
+  '/resume-bidding': () => Promise<null>;
   '/heartbeat': () => Promise<null>;
 }
 

@@ -21,6 +21,7 @@ import BiddingCalculator from '@argonprotocol/apps-core/src/BiddingCalculator.ts
  */
 export class AutoBidder {
   public readonly mining: Mining;
+  public isBiddingPaused = false;
   public get currentBidder(): CohortBidder | undefined {
     return this.cohortBiddersByActivationFrameId.get(this.nextCohortActivationFrameId ?? 0);
   }
@@ -140,6 +141,18 @@ export class AutoBidder {
       throw new Error('There is no active bidding cohort right now.');
     }
     await bidder.submitManualBid(request);
+  }
+
+  public pauseBidding(): void {
+    this.isBiddingPaused = true;
+    this.currentBidder?.pauseBidding();
+    this.onUpdatedFn?.();
+  }
+
+  public resumeBidding(): void {
+    this.isBiddingPaused = false;
+    this.currentBidder?.resumeBidding();
+    this.onUpdatedFn?.();
   }
 
   private async createBidderParams(cohortActivationFrameId: number): Promise<IBidderParams> {
@@ -310,6 +323,7 @@ export class AutoBidder {
       );
       if (this.isStopped) return;
       cohortBidder.onUpdatedFn = this.onUpdatedFn;
+      cohortBidder.isPaused = this.isBiddingPaused;
       this.nextCohortActivationFrameId = cohortActivationFrameId;
       this.cohortBiddersByActivationFrameId.set(cohortActivationFrameId, cohortBidder);
       for (const activationFrameId of this.cohortBiddersByActivationFrameId.keys()) {

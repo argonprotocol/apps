@@ -133,6 +133,7 @@ export default class Bot {
         bidsInCurrentFrame: 0,
         bidsInPreviousFrame: 0,
         isBiddingOpen: false,
+        isBiddingPaused: false,
         serverError: this.errorMessage ?? startupError,
         ethereumSync: this.getEthereumSyncState(),
       } as IBotState;
@@ -171,6 +172,7 @@ export default class Bot {
       bidsInCurrentFrame: currentBidder?.bidsAttempted ?? 0,
       bidsInPreviousFrame: previousBidder?.bidsAttempted ?? 0,
       isBiddingOpen: currentBidder?.isBiddingOpen ?? false,
+      isBiddingPaused: this.autobidder.isBiddingPaused,
       nextBid,
       lastBid: currentBidder?.lastBid,
       serverError: this.errorMessage ?? startupError,
@@ -346,6 +348,22 @@ export default class Bot {
     } finally {
       this.isStarting = false;
     }
+  }
+
+  public pauseBidding(): null {
+    if (!this.isReady) {
+      throw new Error('The mining bot is not ready yet.');
+    }
+    this.autobidder.pauseBidding();
+    return null;
+  }
+
+  public resumeBidding(): null {
+    if (!this.isReady) {
+      throw new Error('The mining bot is not ready yet.');
+    }
+    this.autobidder.resumeBidding();
+    return null;
   }
 
   public async manualBid(request: IManualBidRequest): Promise<null> {

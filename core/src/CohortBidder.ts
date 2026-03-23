@@ -59,6 +59,7 @@ export class CohortBidder {
   };
   public pendingBidTxResult: TxResult | undefined;
   public isBiddingOpen = true;
+  public isPaused = false;
   public get isStopping(): boolean {
     return this.stopDeferred.isRunning || this.stopDeferred.isSettled;
   }
@@ -294,6 +295,23 @@ export class CohortBidder {
     return this.myWinningBids;
   }
 
+  public pauseBidding(): void {
+    if (this.isPaused) return;
+
+    this.isPaused = true;
+    this.bidPlanGeneration += 1;
+    this.setNextBid(undefined);
+  }
+
+  public resumeBidding(): void {
+    if (!this.isPaused) return;
+
+    this.isPaused = false;
+    void this.planNextBid(this.blockWatch.bestBlockHeader.frameRewardTicksRemaining!).catch(error => {
+      this.error('Error resuming bid planning:', error);
+    });
+  }
+
   private broadcastUpdates() {
     this.onUpdatedFn?.();
   }
@@ -333,7 +351,7 @@ export class CohortBidder {
       }
     }
 
-    if (this.nextBid && this.nextBid.bidAtTick <= header.tick) {
+    if (!this.isPaused && this.nextBid && this.nextBid.bidAtTick <= header.tick) {
       this.pendingRequest ??= this.submitNextBid();
     }
   }
@@ -341,6 +359,10 @@ export class CohortBidder {
   private async planNextBid(frameRewardTicksRemaining: number) {
     const planGeneration = ++this.bidPlanGeneration;
     if (this.isStopping) return;
+    if (this.isPaused) {
+      this.setNextBid(undefined);
+      return;
+    }
 
     // don't process two bids at the same time
     if (this.pendingRequest) {
