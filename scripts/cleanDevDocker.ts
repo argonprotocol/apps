@@ -15,8 +15,7 @@ const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
 const rawInstance = readNonEmptyEnv('ARGON_APP_INSTANCE') ?? 'e2e';
 const instanceName = rawInstance.split(':')[0] || 'e2e';
 const composeProjectName =
-  readNonEmptyEnv('COMPOSE_PROJECT_NAME') ??
-  `${networkName}-${instanceName}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
+  readNonEmptyEnv('COMPOSE_PROJECT_NAME') ?? `${networkName}-${instanceName}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
 console.info(
   `[clean:dev:docker] Resetting project="${composeProjectName}" network="${networkName}" instance="${instanceName}"`,
@@ -43,7 +42,11 @@ function getAppConfigBaseDir(): string {
   return process.env.XDG_CONFIG_HOME || Path.join(os.homedir(), '.config');
 }
 
-function runDockerComposeDown(cwd: string, extraArgs: string[] = [], options: { clearComposeProjectName?: boolean } = {}): void {
+function runDockerComposeDown(
+  cwd: string,
+  extraArgs: string[] = [],
+  options: { clearComposeProjectName?: boolean } = {},
+): void {
   if (!existsSync(cwd)) return;
 
   const composeYaml = Path.join(cwd, 'docker-compose.yml');
@@ -58,16 +61,15 @@ function runDockerComposeDown(cwd: string, extraArgs: string[] = [], options: { 
   }
 
   try {
-    execFileSync(
-      'docker',
-      ['compose', 'down', '--volumes', '--remove-orphans', '--timeout=0', ...extraArgs],
-      {
-        cwd,
-        env: commandEnv,
-        stdio: 'inherit',
-      },
-    );
+    execFileSync('docker', ['compose', 'down', '--volumes', '--remove-orphans', '--timeout=0', ...extraArgs], {
+      cwd,
+      env: commandEnv,
+      encoding: 'utf8',
+    });
   } catch (error) {
+    if (isMissingDockerNetworkError(error)) {
+      return;
+    }
     console.warn(`[clean:dev:docker] docker compose down failed in ${cwd}: ${(error as Error).message}`);
   }
 }
@@ -96,12 +98,13 @@ function bringDownArgonComposeProject(): void {
     execFileSync('docker', composeArgs, {
       cwd: Path.join(repoRoot, 'e2e', 'argon'),
       env: process.env,
-      stdio: 'inherit',
+      encoding: 'utf8',
     });
   } catch (error) {
-    console.warn(
-      `[clean:dev:docker] argon compose down failed for ${composeProjectName}: ${(error as Error).message}`,
-    );
+    if (isMissingDockerNetworkError(error)) {
+      return;
+    }
+    console.warn(`[clean:dev:docker] argon compose down failed for ${composeProjectName}: ${(error as Error).message}`);
   }
 }
 
@@ -163,9 +166,33 @@ function bringDownLocalMachineComposeProjects(): void {
         console.info(`[clean:dev:docker] Removed directory ${instanceDir}`);
       }
     } catch (error) {
-      console.warn(
-        `[clean:dev:docker] Failed to remove directory ${instanceDir}: ${(error as Error).message}`,
-      );
+      console.warn(`[clean:dev:docker] Failed to remove directory ${instanceDir}: ${(error as Error).message}`);
     }
   }
+}
+
+function isMissingDockerNetworkError(error: unknown): boolean {
+  const message = readExecErrorOutput(error).toLowerCase();
+  return message.includes('network ') && message.includes(' not found');
+}
+
+function readExecErrorOutput(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const stderr =
+    'stderr' in error && typeof error.stderr === 'string'
+      ? error.stderr
+      : 'stderr' in error && Buffer.isBuffer(error.stderr)
+        ? error.stderr.toString('utf8')
+        : '';
+  const stdout =
+    'stdout' in error && typeof error.stdout === 'string'
+      ? error.stdout
+      : 'stdout' in error && Buffer.isBuffer(error.stdout)
+        ? error.stdout.toString('utf8')
+        : '';
+
+  return [error.message, stderr, stdout].filter(Boolean).join('\n');
 }

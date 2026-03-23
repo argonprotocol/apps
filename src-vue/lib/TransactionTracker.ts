@@ -228,6 +228,7 @@ export class TransactionTracker {
     tx: ITransactionRecord,
     maxBlocksToCheck: number,
     bestBlockHeight: number,
+    searchStartBlockHeight: number = tx.submittedAtBlockHeight,
   ): Promise<
     | {
         blockNumber: number;
@@ -241,10 +242,13 @@ export class TransactionTracker {
       }
     | undefined
   > {
-    const { extrinsicHash, submittedAtBlockHeight } = tx;
+    const { extrinsicHash } = tx;
+    if (searchStartBlockHeight > bestBlockHeight) {
+      return undefined;
+    }
 
     for (let i = 0; i <= maxBlocksToCheck; i++) {
-      const blockHeight = submittedAtBlockHeight + i;
+      const blockHeight = searchStartBlockHeight + i;
       if (blockHeight > bestBlockHeight) {
         return undefined;
       }
@@ -256,7 +260,7 @@ export class TransactionTracker {
       console.log(`[TransactionTracker] Searching block with ${block.block.extrinsics.length} extrinsics`, {
         blockHeight,
         blockHash,
-        submittedAtBlockHeight,
+        searchStartBlockHeight,
       });
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) === extrinsicHash) {
@@ -299,22 +303,34 @@ export class TransactionTracker {
         continue;
       }
       try {
-        if (tx.blockHeight && tx.blockHeight <= finalizedHeight) {
-          // ensure this block hash is still valid
-          const finalizedHash = await this.blockWatch.getFinalizedHash(tx.blockHeight);
-          if (finalizedHash === tx.blockHash) {
-            await table.markFinalized(tx);
-            txResult.setFinalized();
+        if (tx.blockHeight) {
+          if (tx.blockHeight <= finalizedHeight) {
+            // ensure this block hash is still valid
+            const finalizedHash = await this.blockWatch.getFinalizedHash(tx.blockHeight);
+            if (finalizedHash === tx.blockHash) {
+              await table.markFinalized(tx);
+              txResult.setFinalized();
+              continue;
+            }
+          } else {
+            // The tx is already in a best block. Wait for finalization before attempting
+            // expensive relocation scans across the recent chain window.
             continue;
           }
         }
 
         // first check if we can find the transaction (this is particularly relevant if we re-open the app after 60 blocks)
         const MAX_BLOCKS_TO_CHECK = 60;
+        const searchStartBlockHeight = this.getSearchStartBlockHeight(tx);
+        const maxBlocksToCheck = Math.min(
+          MAX_BLOCKS_TO_CHECK,
+          Math.max(0, bestBlockInfo.blockNumber - searchStartBlockHeight),
+        );
         const findTransactionResult = await this.findTransactionInBlocks(
           tx,
-          MAX_BLOCKS_TO_CHECK,
+          maxBlocksToCheck,
           bestBlockInfo.blockNumber,
+          searchStartBlockHeight,
         );
         if (findTransactionResult) {
           const originalBlockHash = tx.blockHash;
@@ -391,6 +407,15 @@ export class TransactionTracker {
   private async getTable(): Promise<TransactionsTable> {
     this.#table ??= await this.dbPromise.then(x => x.transactionsTable);
     return this.#table;
+  }
+
+  private getSearchStartBlockHeight(tx: ITransactionRecord): number {
+    if (tx.lastFinalizedBlockHeight === undefined) {
+      return tx.submittedAtBlockHeight;
+    }
+    // Keep a one-block overlap with the last finalized checkpoint so we don't
+    // miss a tx that moved onto the canonical chain right at that boundary.
+    return Math.max(tx.submittedAtBlockHeight, tx.lastFinalizedBlockHeight);
   }
 
   private async getBlock(client: ArgonClient, blockHash: string): Promise<SignedBlock> {

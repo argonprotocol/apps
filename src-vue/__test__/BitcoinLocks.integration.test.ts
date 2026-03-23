@@ -329,6 +329,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
 type TestHarness = {
   db: Db;
+  clients: MainchainClients;
   walletKeys: WalletKeys;
   vaults: Vaults;
   myVault: MyVault;
@@ -337,6 +338,9 @@ type TestHarness = {
 };
 
 async function createHarness(): Promise<TestHarness> {
+  clients = new MainchainClients(network.archiveUrl);
+  setMainchainClients(clients);
+
   const db = await createTestDb();
   const walletKeys = createMockWalletKeys();
   await sudoFundWallet({
@@ -346,6 +350,16 @@ async function createHarness(): Promise<TestHarness> {
     archiveUrl: network.archiveUrl,
   });
   console.log('[BitcoinLocks.integration] funded vault wallet', walletKeys.vaultingAddress);
+  const archiveClient = await clients.archiveClientPromise;
+  await waitFor(30e3, 'vault wallet finalized funding visibility', async () => {
+    const finalizedHead = await archiveClient.rpc.chain.getFinalizedHead();
+    const finalizedClient = await archiveClient.at(finalizedHead);
+    const balance = await finalizedClient.query.system
+      .account(walletKeys.vaultingAddress)
+      .then(x => x.data.free.toBigInt());
+    if (balance < walletFundingMicrogons) return;
+    return balance;
+  });
 
   const currency = new CurrencyBase(clients);
   await currency.fetchMainchainRates();
@@ -396,6 +410,7 @@ async function createHarness(): Promise<TestHarness> {
 
   return {
     db,
+    clients,
     walletKeys,
     vaults,
     myVault,
@@ -409,6 +424,7 @@ async function cleanupHarness(harness: TestHarness): Promise<void> {
   await harness.bitcoinLocks.shutdown();
   harness.miningFrames.blockWatch.stop();
   await harness.db.close();
+  await harness.clients.disconnect();
 }
 
 async function createLock(harness: TestHarness, microgonLiquidity?: bigint): Promise<IBitcoinLockRecord> {

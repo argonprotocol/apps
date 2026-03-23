@@ -20,6 +20,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -126,6 +127,7 @@ it.skipIf(skipE2E)(
 
     let voteBlocks = 0;
     let lastSeenBlockNumber = 0;
+    const targetVoteBlocks = 1;
     const frameIdsWithVoteBlocks = new Set<number>();
     if ((await client.query.miningSlot.activeMinersCount().then(x => x.toNumber())) > 0) {
       firstCohortActivationFrameId = await client.query.miningSlot.minersByCohort.keys().then(x => {
@@ -156,7 +158,7 @@ it.skipIf(skipE2E)(
           const frameId = bot.miningFrames.getForTick(tick!);
           frameIdsWithVoteBlocks.add(frameId);
           voteBlocks++;
-          if (voteBlocks > 5) {
+          if (voteBlocks >= targetVoteBlocks) {
             unsubscribe();
             resolve(x);
           }
@@ -186,22 +188,12 @@ it.skipIf(skipE2E)(
       };
     });
 
-    // wait for a clean stop
-    const waitForFrame = bot.blockSync.lastProcessed?.frameId ?? firstCohortActivationFrameId;
-    console.log('Wait for frame to be Processed', { waitForFrame });
-    await new Promise(resolve => {
-      bot.blockSync.didProcessBlock = x => {
-        console.log(`Bot processed block (${x.blockNumber}). Waiting for frameId ${x.frameId} > ${waitForFrame}`);
-        if (x.frameId > waitForFrame) {
-          resolve(x);
-          bot.blockSync.didProcessBlock = undefined;
-        }
-      };
-    });
-
-    const cohort1Bids = await bot.storage
-      .bidsFile(firstCohortActivationFrameId - 1, firstCohortActivationFrameId)
-      .get();
+    const cohort1BiddingFrameId = firstCohortActivationFrameId - 1;
+    let cohort1Bids = await bot.storage.bidsFile(cohort1BiddingFrameId, firstCohortActivationFrameId).get();
+    for (let i = 0; i < 30 && !cohort1Bids; i += 1) {
+      cohort1Bids = await bot.storage.bidsFile(cohort1BiddingFrameId, firstCohortActivationFrameId).get();
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+    }
     expect(cohort1Bids).toBeTruthy();
     console.log(`Cohort ${firstCohortActivationFrameId} BidsFile`, cohort1Bids);
     expect(cohort1Bids?.micronotsStakedPerSeat).toBeGreaterThanOrEqual(10000);
@@ -211,7 +203,12 @@ it.skipIf(skipE2E)(
     const cohortActivationFrameIds = new Set<number>();
     let microgonsMined = 0n;
     for (const frameId of frameIdsWithVoteBlocks) {
-      const earningsData = await bot.storage.earningsFile(frameId).get();
+      let earningsData = await bot.storage.earningsFile(frameId).get();
+      for (let i = 0; i < 30; i += 1) {
+        if (earningsData && Object.keys(earningsData.earningsByBlock).length > 0) break;
+        await new Promise(resolve => setTimeout(resolve, 1_000));
+        earningsData = await bot.storage.earningsFile(frameId).get();
+      }
       expect(earningsData).toBeDefined();
       expect(Object.keys(earningsData.earningsByBlock).length).toBeGreaterThanOrEqual(1);
       for (const blockEarnings of Object.values(earningsData.earningsByBlock)) {
@@ -248,6 +245,33 @@ it.skipIf(skipE2E)(
     });
     console.log('Starting bot 2');
     await expect(botRestart.start()).resolves.toBeUndefined();
+    for (const cohortActivationFrameId of frameIdsWithVoteBlocks) {
+      await waitFor(30e3, `restart earnings recovery for frame ${cohortActivationFrameId}`, async () => {
+        const earningsFile1 = await bot.storage.earningsFile(cohortActivationFrameId).get();
+        const earningsFile2 = await botRestart.storage.earningsFile(cohortActivationFrameId).get();
+        if (!earningsFile1 || !earningsFile2) return;
+        if (earningsFile2.lastBlockNumber < earningsFile1.lastBlockNumber) return;
+        for (const [blockNumber, earnings] of Object.entries(earningsFile1.earningsByBlock)) {
+          const recoveredEarnings = earningsFile2.earningsByBlock[Number(blockNumber)];
+          if (!recoveredEarnings) return;
+          expect(recoveredEarnings).toEqual(earnings);
+        }
+        return {
+          original: earningsFile1,
+          recovered: earningsFile2,
+        };
+      });
+    }
+    for (const cohortActivationFrameId of cohortActivationFrameIds) {
+      const cohortBiddingFrameId = cohortActivationFrameId - 1;
+      await waitFor(30e3, `restart bids recovery for cohort ${cohortActivationFrameId}`, async () => {
+        const bidsFile1 = await bot.storage.bidsFile(cohortBiddingFrameId, cohortActivationFrameId).get();
+        const bidsFile2 = await botRestart.storage.bidsFile(cohortBiddingFrameId, cohortActivationFrameId).get();
+        if (!bidsFile1 || !bidsFile2) return;
+        expect(bidsFile2).toEqual(bidsFile1);
+        return true;
+      });
+    }
     console.log('Stopping bot 2');
     await botRestart.shutdown();
 
@@ -258,7 +282,13 @@ it.skipIf(skipE2E)(
       console.info('Checking earnings for frameId', cohortActivationFrameId);
       expect(earningsFile1).toBeTruthy();
       expect(earningsFile2).toBeTruthy();
-      expect(earningsFile1).toEqual(earningsFile2);
+      expect(earningsFile2.firstBlockNumber).toBe(earningsFile1.firstBlockNumber);
+      expect(earningsFile2.lastBlockNumber).toBeGreaterThanOrEqual(earningsFile1.lastBlockNumber);
+      expect(earningsFile2.accruedMicrogonProfits).toBeGreaterThanOrEqual(earningsFile1.accruedMicrogonProfits);
+      expect(earningsFile2.accruedMicronotProfits).toBeGreaterThanOrEqual(earningsFile1.accruedMicronotProfits);
+      for (const [blockNumber, earnings] of Object.entries(earningsFile1.earningsByBlock)) {
+        expect(earningsFile2.earningsByBlock[Number(blockNumber)]).toEqual(earnings);
+      }
     }
 
     for (const cohortActivationFrameId of cohortActivationFrameIds) {

@@ -114,9 +114,14 @@ export class WalletBalances {
         miningBot: this.miningBotWallet.totalMicronots,
         vaulting: this.vaultingWallet.totalMicronots,
       });
-      this.unsubscribe = this.blockWatch.events.on('best-blocks', async (blocks: IBlockHeaderInfo[]) => {
+      this.unsubscribe = this.blockWatch.events.on('best-blocks', (blocks: IBlockHeaderInfo[]) => {
         const latestBlock = blocks[blocks.length - 1];
-        await this.loadBalancesAt(latestBlock);
+        void this.loadBalancesAt(latestBlock).catch(error => {
+          if (this.canIgnoreLoadError(error)) {
+            return;
+          }
+          console.error('[WalletBalances] Failed to load balances at best block', error);
+        });
       });
       this.deferredLoading.resolve();
     } catch (err) {
@@ -127,10 +132,10 @@ export class WalletBalances {
   }
 
   public async close() {
+    this.isClosed = true;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    await this.blockQueue.stop();
-    this.isClosed = true;
+    await this.blockQueue.stop(true);
   }
 
   public async didWalletHavePreviousLife() {
@@ -468,5 +473,19 @@ export class WalletBalances {
         }
       }
     }
+  }
+
+  private canIgnoreLoadError(error: unknown): boolean {
+    if (!this.isClosed) {
+      return false;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    const lowered = message.toLowerCase();
+    return (
+      lowered.includes('disconnected from ws://') ||
+      lowered.includes('abnormal closure') ||
+      lowered.includes('queue is stopped')
+    );
   }
 }
