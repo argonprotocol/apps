@@ -182,6 +182,21 @@ export class BotSyncer {
         this.botFns.onEvent('updated-cohort-data', botState.currentFrameId);
       }
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      const isTransientConnectionError =
+        message.includes('No response received from RPC endpoint') ||
+        message.includes('BotWsClient') ||
+        message.includes('request timed out') ||
+        message.includes('heartbeat-timeout');
+
+      if (isTransientConnectionError) {
+        if (!this.botState) {
+          this.botFns.setStatus(BotStatus.Starting);
+        }
+        console.warn('BotSyncer transient error:', e);
+        return;
+      }
+
       this.botFns.setStatus(BotStatus.Broken);
       console.error('BotSyncer error:', e);
     }

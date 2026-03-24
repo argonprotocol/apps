@@ -3,7 +3,8 @@
     <div class="mx-2 flex flex-row gap-x-1 border-b border-slate-300 px-1 py-2 text-left font-light">
       <strong class="font-bold">Seat {{ seat.id }}</strong>
       <span v-if="seat.miner?.isOurs" class="text-slate-400">(OURS)</span>
-      <span v-else class="text-slate-400">(OTHER)</span>
+      <span v-else-if="seat.miner" class="text-slate-400">(OTHER)</span>
+      <span v-else class="text-slate-400">(EMPTY)</span>
       <span class="grow text-right italic">{{ percentComplete }}% complete</span>
     </div>
     <div class="mx-2 border-b border-slate-300 px-1 py-2 text-left font-light italic">
@@ -79,51 +80,73 @@ import {
   calculateAPY,
   calculateProfitPct,
   IMiningSeat,
-  NetworkConfig,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import { getStats } from '../../../stores/stats.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
-import { getMining, getMiningFrames } from '../../../stores/mainchain.ts';
+import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { TICK_MILLIS } from '../../../lib/Env.ts';
 import { BigNumber } from 'bignumber.js';
+import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
 
 dayjs.extend(utc);
 
 const stats = getStats();
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
-const mining = getMining();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
+type IMiningDisplaySeat = IMiningSeat & {
+  startingFrameId?: number | null;
+};
+
 const props = defineProps<{
-  seat: IMiningSeat;
+  seat: IMiningDisplaySeat;
+  frameId: number;
+  isLiveFrame: boolean;
+  startingFrameId?: number | null;
   ourBidAddresses: Set<string>;
   hasAuction: boolean;
+  tooltipStats?: {
+    microgonsToBeMinedPerSeat: bigint;
+    micronotsToBeMinedPerSeat: bigint;
+  } | null;
 }>();
 
-const minerStartingFrameId = Vue.computed<number | null>(() => {
-  return props.seat.miner?.startingFrameId || null;
+const seatStartingFrameId = Vue.computed<number | null>(() => {
+  return props.startingFrameId ?? props.seat.startingFrameId ?? props.seat.miner?.startingFrameId ?? null;
+});
+const seatProgressPct = Vue.computed(() => {
+  if (seatStartingFrameId.value === null) return 0;
+
+  return Math.round(
+    getMiningSeatProgressAtFrame(
+      seatStartingFrameId.value,
+      props.frameId,
+      props.isLiveFrame ? miningFrames.getCurrentFrameProgress() : 100,
+    ),
+  );
 });
 
 const percentComplete = Vue.computed(() => {
-  if (minerStartingFrameId.value === null) return 0;
-  return Math.round(miningFrames.getMiningSeatProgress(minerStartingFrameId.value));
+  return seatProgressPct.value;
 });
 const isWinningBid = Vue.computed(() => {
   if (!props.seat.bid) return false;
   return props.ourBidAddresses.has(props.seat.bid.address);
 });
-const currentSlot = Vue.computed(() => {
-  return stats.latestFrameId % 10;
+
+const tickStart = Vue.computed(() => {
+  if (seatStartingFrameId.value === null) return 0;
+  return miningFrames.getTickStart(seatStartingFrameId.value);
 });
 
-const tickStart = Vue.ref(0);
-const tickEnd = Vue.ref(0);
-const micronotsEarned = Vue.ref<bigint | null>(null);
-const microgonsEarned = Vue.ref<bigint | null>(null);
+const tickEnd = Vue.computed(() => {
+  if (seatStartingFrameId.value === null) return 0;
+  return miningFrames.estimateTickEnd(seatStartingFrameId.value + 9);
+});
 
 const newTickStart = Vue.ref(0);
 const newTickEnd = Vue.ref(0);
@@ -158,26 +181,54 @@ const newEndDate = Vue.computed(() => {
     .add(1, 'minute');
 });
 
-const revenueGenerated = Vue.computed<bigint | null>(() => {
-  if (micronotsEarned.value === null || microgonsEarned.value === null) {
+const rewardsToDate = Vue.computed<{
+  microgonsEarned: bigint;
+  micronotsEarned: bigint;
+  revenueGenerated: bigint;
+} | null>(() => {
+  if (!props.tooltipStats) {
     return null;
   }
-  const valueOfMicronots = currency.convertMicronotTo(micronotsEarned.value!, UnitOfMeasurement.Microgon);
-  return microgonsEarned.value + valueOfMicronots;
+
+  const factorBn = BigNumber(seatProgressPct.value).dividedBy(100);
+  const micronotsEarnedBn = BigNumber(props.tooltipStats.micronotsToBeMinedPerSeat).multipliedBy(factorBn);
+  const microgonsEarnedBn = BigNumber(props.tooltipStats.microgonsToBeMinedPerSeat).multipliedBy(factorBn);
+  const micronotsEarned = bigNumberToBigInt(micronotsEarnedBn);
+  const microgonsEarned = bigNumberToBigInt(microgonsEarnedBn);
+
+  const valueOfMicronots = currency.convertMicronotTo(micronotsEarned, UnitOfMeasurement.Microgon);
+  return {
+    microgonsEarned,
+    micronotsEarned,
+    revenueGenerated: microgonsEarned + valueOfMicronots,
+  };
+});
+
+const revenueGenerated = Vue.computed<bigint | null>(() => {
+  return rewardsToDate.value?.revenueGenerated ?? null;
+});
+
+const microgonsEarned = Vue.computed<bigint | null>(() => {
+  return rewardsToDate.value?.microgonsEarned ?? null;
+});
+
+const micronotsEarned = Vue.computed<bigint | null>(() => {
+  return rewardsToDate.value?.micronotsEarned ?? null;
 });
 
 const roiRelative = Vue.computed(() => {
-  if (!revenueGenerated.value || !props.seat.miner || minerStartingFrameId.value === null) return 0;
-  const progress = miningFrames.getMiningSeatProgress(minerStartingFrameId.value);
-  const factorBn = BigNumber(progress).dividedBy(100);
+  if (micronotsEarned.value === null || microgonsEarned.value === null) {
+    return 0;
+  }
+  if (!revenueGenerated.value || !props.seat.miner || seatStartingFrameId.value === null) return 0;
+  const factorBn = BigNumber(seatProgressPct.value).dividedBy(100);
   const costBn = BigNumber(props.seat.miner.bidAmount).multipliedBy(factorBn);
   return calculateProfitPct(bigNumberToBigInt(costBn), revenueGenerated.value!) * 100;
 });
 
 const apyRelative = Vue.computed(() => {
-  if (!revenueGenerated.value || !props.seat.miner || minerStartingFrameId.value === null) return 0;
-  const progress = miningFrames.getMiningSeatProgress(minerStartingFrameId.value);
-  const factorBn = BigNumber(progress).dividedBy(100);
+  if (!revenueGenerated.value || !props.seat.miner || seatStartingFrameId.value === null) return 0;
+  const factorBn = BigNumber(seatProgressPct.value).dividedBy(100);
   const costBn = BigNumber(props.seat.miner.bidAmount).multipliedBy(factorBn);
   return calculateAPY(bigNumberToBigInt(costBn), revenueGenerated.value!, 10);
 });
@@ -185,27 +236,6 @@ const apyRelative = Vue.computed(() => {
 const roiAbsolute = Vue.computed(() => {
   if (!revenueGenerated.value || !props.seat.miner) return 0;
   return calculateProfitPct(props.seat.miner.bidAmount, revenueGenerated.value!) * 100;
-});
-
-Vue.onBeforeMount(async () => {
-  await miningFrames.load();
-
-  if (minerStartingFrameId.value) {
-    tickStart.value = miningFrames.getTickStart(minerStartingFrameId.value);
-    tickEnd.value = miningFrames.estimateTickEnd(minerStartingFrameId.value + 9);
-
-    const activeMinersCount = await mining.fetchActiveMinersCount();
-    const progress = miningFrames.getMiningSeatProgress(minerStartingFrameId.value);
-    const factorBn = BigNumber(progress).dividedBy(100);
-    const micronotsTotal = await mining.minimumMicronotsMinedDuringTickRange(tickStart.value, tickEnd.value);
-    const micronotsEarnedBn = BigNumber(micronotsTotal).dividedBy(activeMinersCount).multipliedBy(factorBn);
-    micronotsEarned.value = bigNumberToBigInt(micronotsEarnedBn);
-
-    const microgonsMinedPerBlock = await mining.fetchMicrogonsMinedPerBlockDuringNextCohort();
-    const microgonsTotal = microgonsMinedPerBlock * BigInt(NetworkConfig.ticksPerCohort);
-    const microgonsEarnedBn = BigNumber(microgonsTotal).dividedBy(activeMinersCount).multipliedBy(factorBn);
-    microgonsEarned.value = bigNumberToBigInt(microgonsEarnedBn);
-  }
 });
 
 Vue.watch(

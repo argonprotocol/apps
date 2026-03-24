@@ -75,27 +75,23 @@ for (const data of existingAssets.data) {
   const { name, browser_download_url } = data;
   if (!name) continue;
   if (!name.endsWith('.sig')) continue;
-  const sigdata = await github.request(
-    'GET /repos/{owner}/{repo}/releases/assets/{asset_id}',
-    {
-      owner,
-      repo,
-      asset_id: data.id,
-      headers: {
-        Accept: 'application/octet-stream',
-      },
-    }
-  );
+  const sigdata = await github.request('GET /repos/{owner}/{repo}/releases/assets/{asset_id}', {
+    owner,
+    repo,
+    asset_id: data.id,
+    headers: {
+      Accept: 'application/octet-stream',
+    },
+  });
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
   const isExperimental = name.includes('Experimental');
   const isDebug = name.includes('-debug');
   const appType = (name.match(/Argon\.(Operations|Capital)/)?.[1] || '').toLowerCase();
   const fileKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
   const file = files[fileKey];
-  const downloadUrl = browser_download_url.replace(
-    /\/download\/(untagged-[^/]+)\//,
-    `/download/${encodeURIComponent(tagName)}/`,
-  ).replace('.sig', '');
+  const downloadUrl = browser_download_url
+    .replace(/\/download\/(untagged-[^/]+)\//, `/download/${encodeURIComponent(tagName)}/`)
+    .replace('.sig', '');
 
   if (isExperimental) {
     console.warn(`Experimental builds are temporarily disabled: ${fileKey}`);
@@ -158,7 +154,6 @@ for (const data of existingAssets.data) {
   }
 }
 
-
 for (const [fileKey, file] of Object.entries(files)) {
   const fileName = `${fileKey.replace('_', '-')}.json`;
   const rawRecord = JSON.stringify(file, null, 2);
@@ -173,7 +168,7 @@ for (const [fileKey, file] of Object.entries(files)) {
     console.log(`READONLY mode: Skipping upload of ${fileName}`, {
       existingAsset: existingAsset ? 'exists' : 'not found',
       headers,
-      rawRecord
+      rawRecord,
     });
     continue;
   }

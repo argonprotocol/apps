@@ -5,8 +5,8 @@ import { readReleaseNotes } from './utils.ts';
 
 (async () => {
   for (const app of ['operations', 'capital']) {
-    updateFile('src-tauri/tauri.conf.json')
-    updateFile(`src-tauri/tauri.${app}.experimental.conf.json`)
+    updateFile('src-tauri/tauri.conf.json');
+    updateFile(`src-tauri/tauri.${app}.experimental.conf.json`);
   }
   const releaseNotes = readReleaseNotes(packageVersion, false);
   if (!releaseNotes) {

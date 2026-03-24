@@ -7,6 +7,7 @@ import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
+import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
 import Path from 'path';
 
 afterAll(teardown);
@@ -44,6 +45,12 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     });
     await expect(txResult.waitForInFirstBlock).rejects.toBeTruthy();
     expect(tx.status).toBe(TransactionStatus.Error);
+    expect(tx.txNonce).toBeTypeOf('number');
+    const history = await db.transactionStatusHistoryTable.fetchByTransactionId(tx.id);
+    expect(history.map(({ status, source }) => [status, source])).toEqual([
+      [TransactionHistoryStatus.Submitted, TransactionHistorySource.Local],
+      [TransactionHistoryStatus.Error, TransactionHistorySource.Local],
+    ]);
     expect(transactionTracker.data.txInfos).toHaveLength(1);
     console.log('Transaction result', JsonExt.stringify(tx, 2));
     // doesn't reload status at load
@@ -74,6 +81,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       console.timeLog('test', 'after submitAndWatch');
       expect(watchSpy).toHaveBeenCalledTimes(1);
       expect(tx.status).toBe(TransactionStatus.Submitted);
+      expect(tx.txNonce).toBeTypeOf('number');
       expect(tx.submittedAtTime).toBeTruthy();
       expect(tx.submissionErrorJson).not.toBeTruthy();
       expect(transactionTracker.data.txInfos).toHaveLength(1);
@@ -105,6 +113,14 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     await expect(txResult.waitForFinalizedBlock).resolves.toBeTruthy();
     console.timeLog('test', 'got finalized');
     expect(tx.status).toBe(TransactionStatus.Finalized);
+    const history = await db.transactionStatusHistoryTable.fetchByTransactionId(tx.id);
+    expect(history.some(x => x.source === TransactionHistorySource.Watch)).toBe(true);
+    expect(
+      history.some(x => x.source === TransactionHistorySource.Block && x.status === TransactionHistoryStatus.InBlock),
+    ).toBe(true);
+    expect(
+      history.some(x => x.source === TransactionHistorySource.Block && x.status === TransactionHistoryStatus.Finalized),
+    ).toBe(true);
     expect(transactionTracker.data.txInfos).toHaveLength(1);
     expect(unWatchSpy).toHaveBeenCalledTimes(1);
     // doesn't change the starting load status
@@ -157,5 +173,59 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     expect(tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
     await expect(txResult.waitForInFirstBlock).rejects.toBeTruthy();
     await expect(txResult.waitForFinalizedBlock).rejects.toBeTruthy();
+  });
+
+  it('should restore follow-on transaction links after reload', async () => {
+    const db = await createTestDb();
+    const firstSubmittedAt = new Date('2026-03-20T20:05:00Z');
+    const secondSubmittedAt = new Date('2026-03-20T20:06:00Z');
+    const firstTx = await db.transactionsTable.insert({
+      extrinsicHash: `0x${'11'.repeat(32)}`,
+      extrinsicMethodJson: { section: 'bitcoinLocks', method: 'cosignRelease' },
+      metadataJson: { utxoId: 51 },
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+      accountAddress: alice.address,
+      submittedAtBlockHeight: 100,
+      submittedAtTime: firstSubmittedAt,
+      txNonce: 7,
+    });
+    await db.transactionsTable.recordSubmissionError(
+      firstTx,
+      new Error('Transaction was dropped from the node transaction pool'),
+    );
+
+    const secondTx = await db.transactionsTable.insert({
+      extrinsicHash: `0x${'22'.repeat(32)}`,
+      extrinsicMethodJson: { section: 'bitcoinLocks', method: 'cosignRelease' },
+      metadataJson: { utxoId: 51 },
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+      accountAddress: alice.address,
+      submittedAtBlockHeight: 101,
+      submittedAtTime: secondSubmittedAt,
+      txNonce: 8,
+    });
+    await db.transactionsTable.recordInBlock(secondTx, {
+      blockNumber: 101,
+      blockHash: `0x${'aa'.repeat(32)}`,
+      blockTime: secondSubmittedAt,
+      tip: 2n,
+      feePlusTip: 5n,
+      extrinsicIndex: 1,
+      transactionEvents: [],
+    });
+    await db.transactionsTable.markFinalized(secondTx, {
+      blockNumber: 105,
+      blockTime: new Date('2026-03-20T20:10:00Z'),
+    });
+    await db.transactionsTable.recordFollowOnTxId(firstTx, secondTx.id);
+
+    const blockwatch = new BlockWatch(clients);
+    const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
+    await transactionTracker.load();
+
+    const loadedFirst = transactionTracker.data.txInfos.find(x => x.tx.id === firstTx.id)!;
+    const loadedSecond = transactionTracker.data.txInfos.find(x => x.tx.id === secondTx.id)!;
+
+    await expect(loadedFirst.followOnTxInfo).resolves.toBe(loadedSecond);
   });
 });

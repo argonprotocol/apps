@@ -136,6 +136,7 @@
                   <MiningSeats
                     :isLiveFrame="currentFrame.id === stats.latestFrameId"
                     :frameId="currentFrame.id"
+                    :lastBlockMinerAddress="lastBlockMinerAddress"
                     :frameSlots="frameSlots" />
                 </div>
                 <div class="pt-4 pb-3">
@@ -246,9 +247,9 @@ const currentFrame = Vue.ref<IDashboardFrameStats>({
     microgonsMintedTotal: 0n,
   },
 });
-const sliderFrameIndex = Vue.ref(0);
 const chartItems = Vue.ref<IChartItem[]>([]);
 const frameDetail = Vue.ref<IMiningFrameDetail | null>(null);
+const latestLiveFrameDetail = Vue.ref<IMiningFrameDetail | null>(null);
 const loadingFrameId = Vue.ref<number | null>(null);
 const historicalFrameDetailByFrameId = new Map<number, IMiningFrameDetail>();
 const pendingFrameDetailByFrameId = new Map<number, Promise<IMiningFrameDetail>>();
@@ -260,7 +261,7 @@ dayjs.extend(utc);
 
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
-import { calculateProfitPct } from '@argonprotocol/apps-core';
+import { calculateProfitPct, Mining } from '@argonprotocol/apps-core';
 import { getStats } from '../../stores/stats';
 import { getCurrency } from '../../stores/currency';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
@@ -274,7 +275,7 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import MiningAssetBreakdown from '../components/MiningAssetBreakdown.vue';
 import MiningSeats from './components/MiningSeats.vue';
-import { getMiningFrames } from '../../stores/mainchain.ts';
+import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import ProjectionsIcon from '../../assets/projections.svg';
@@ -284,16 +285,29 @@ import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
+import { useWallets } from '../../stores/wallets.ts';
 
 const bot = getBot();
 const stats = getStats();
 const currency = getCurrency();
+const blockWatch = getBlockWatch();
+const mining = getMining();
 const miningFrames = getMiningFrames();
+const wallets = useWallets();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
+const lastBlockMinerAddress = Vue.ref<string>();
+
 let foregroundRefreshPromise: Promise<void> | null = null;
+let stopBestBlockSubscription: (() => void) | null = null;
+
+const sliderFrameIndex = Vue.computed(() => {
+  const lastIndex = Math.max(stats.frames.length - 1, 0);
+  const selectedIndex = stats.frames.findIndex(frame => frame.id === stats.selectedFrameId);
+  return Math.min(Math.max(selectedIndex >= 0 ? selectedIndex : lastIndex, 0), lastIndex);
+});
 const isSelectedLiveFrame = Vue.computed(() => {
   return currentFrame.value.id === stats.latestFrameId;
 });
@@ -307,11 +321,14 @@ const finalizedFrameId = Vue.computed(() => {
   return bot.state?.finalizedFrameId ?? 0;
 });
 const currentFrameDetail = Vue.computed(() => {
-  if (frameDetail.value?.frameId !== currentFrame.value.id) {
-    return null;
+  if (frameDetail.value?.frameId === currentFrame.value.id) {
+    return frameDetail.value;
+  }
+  if (currentFrame.value.id === stats.latestFrameId && latestLiveFrameDetail.value?.frameId === currentFrame.value.id) {
+    return latestLiveFrameDetail.value;
   }
 
-  return frameDetail.value;
+  return historicalFrameDetailByFrameId.get(currentFrame.value.id) ?? null;
 });
 
 const auctionBids = Vue.computed(() => {
@@ -568,8 +585,7 @@ async function refreshDashboardFromForeground() {
 
       await stats.refresh();
 
-      const selectedIndex = stats.frames.findIndex(frame => frame.id === stats.selectedFrameId);
-      await updateSliderFrame(selectedIndex >= 0 ? selectedIndex : sliderFrameIndex.value);
+      await updateSliderFrame(sliderFrameIndex.value);
 
       if (currentFrame.value.id === stats.latestFrameId) {
         await refreshLiveFrameDetail();
@@ -621,6 +637,25 @@ async function loadFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
   return request;
 }
 
+async function loadLiveFrameDetailFromChain(frameId: number): Promise<IMiningFrameDetail> {
+  const client = await getMainchainClient(true);
+  const [winningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
+    Mining.fetchWinningBids(client),
+    mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address),
+    client.query.miningSlot.historicalBidsPerSlot().then(x => x[0]?.bidsCount.toNumber() ?? 0),
+    mining.fetchTickAtStartOfAuctionClosing(client),
+  ]);
+
+  return {
+    frameId,
+    totalBidCount,
+    myLastBidMicrogons: bot.state?.lastBid?.microgonsPerSeat,
+    winningBids,
+    slots,
+    expectedAuctionCloseTick,
+  };
+}
+
 function prefetchHistoricalFrameDetail(frameId: number) {
   if (frameId < 1 || frameId >= stats.latestFrameId) {
     return;
@@ -636,45 +671,32 @@ function prefetchHistoricalFrameDetail(frameId: number) {
 }
 
 async function updateSliderFrame(newFrameIndex: number) {
-  sliderFrameIndex.value = newFrameIndex;
-  currentFrame.value = stats.frames[newFrameIndex];
+  const lastIndex = Math.max(stats.frames.length - 1, 0);
+  const nextFrameIndex = Math.min(Math.max(newFrameIndex, 0), lastIndex);
+
+  currentFrame.value = stats.frames[nextFrameIndex];
   const frameId = currentFrame.value?.id;
   if (frameId === undefined) return;
+
   stats.selectFrameId(frameId, true);
 
   if (frameId === stats.latestFrameId) {
     loadingFrameId.value = null;
+    if (latestLiveFrameDetail.value?.frameId === frameId) {
+      frameDetail.value = latestLiveFrameDetail.value;
+    }
     void refreshLiveFrameDetail();
     return;
   }
 
-  if (!historicalFrameDetailByFrameId.has(frameId)) {
-    loadingFrameId.value = frameId;
-  }
-
-  const requestId = ++frameDetailRequestId;
-  try {
-    const detail = await loadFrameDetail(frameId);
-    if (requestId !== frameDetailRequestId || currentFrame.value?.id !== frameId) {
-      return;
-    }
-    frameDetail.value = detail;
-    prefetchHistoricalFrameDetail(frameId - 1);
-  } catch (error) {
-    console.error(`[Mining Dashboard] Failed to load historical frame detail for frame ${frameId}`, error);
-  } finally {
-    if (requestId === frameDetailRequestId && loadingFrameId.value === frameId) {
-      loadingFrameId.value = null;
-    }
-  }
+  await loadHistoricalFrameDetail(frameId);
 }
 
 Vue.watch(
   () => stats.frames,
   () => {
     loadChartData();
-    const selectedIndex = stats.frames.findIndex(frame => frame.id === stats.selectedFrameId);
-    void updateSliderFrame(selectedIndex >= 0 ? selectedIndex : sliderFrameIndex.value);
+    void updateSliderFrame(sliderFrameIndex.value);
   },
   { deep: true },
 );
@@ -683,13 +705,36 @@ async function refreshLiveFrameDetail() {
   if (!isSelectedLiveFrame.value) return;
   const frameId = stats.latestFrameId;
   const requestId = ++frameDetailRequestId;
+  let hasFallbackDetail = false;
+
+  if (!bot.isReady && frameDetail.value?.frameId !== frameId) {
+    void loadLiveFrameDetailFromChain(frameId)
+      .then(detail => {
+        if (requestId !== frameDetailRequestId || !isSelectedLiveFrame.value || currentFrame.value?.id !== frameId) {
+          return;
+        }
+
+        hasFallbackDetail = true;
+        latestLiveFrameDetail.value = detail;
+        frameDetail.value = detail;
+      })
+      .catch(error => {
+        console.error(`[Mining Dashboard] Failed to load live frame fallback for frame ${frameId}`, error);
+      });
+  }
+
   try {
     const detail = await loadFrameDetail(frameId);
     if (requestId !== frameDetailRequestId || !isSelectedLiveFrame.value || currentFrame.value?.id !== frameId) {
       return;
     }
+    latestLiveFrameDetail.value = detail;
     frameDetail.value = detail;
   } catch (error) {
+    if (hasFallbackDetail) {
+      return;
+    }
+
     console.error(`[Mining Dashboard] Failed to refresh live frame detail for frame ${frameId}`, error);
   }
 }
@@ -697,19 +742,38 @@ async function refreshLiveFrameDetail() {
 async function refreshPendingHistoricalFrameDetail() {
   const frameId = currentFrame.value.id;
   if (frameId >= stats.latestFrameId) return;
-  if (historicalFrameDetailByFrameId.has(frameId)) return;
+
+  await loadHistoricalFrameDetail(frameId);
+}
+
+async function loadHistoricalFrameDetail(frameId: number) {
+  const cachedDetail = historicalFrameDetailByFrameId.get(frameId);
+  if (cachedDetail) {
+    if (currentFrame.value?.id !== frameId) return;
+
+    loadingFrameId.value = null;
+    frameDetail.value = cachedDetail;
+    prefetchHistoricalFrameDetail(frameId - 1);
+    return;
+  }
+
+  loadingFrameId.value = frameId;
 
   const requestId = ++frameDetailRequestId;
-  loadingFrameId.value = frameId;
   try {
     const detail = await loadFrameDetail(frameId);
     if (requestId !== frameDetailRequestId || currentFrame.value?.id !== frameId) {
       return;
     }
+
     frameDetail.value = detail;
     prefetchHistoricalFrameDetail(frameId - 1);
   } catch (error) {
-    console.error(`[Mining Dashboard] Failed to refresh historical frame detail for frame ${frameId}`, error);
+    if (requestId !== frameDetailRequestId || currentFrame.value?.id !== frameId) {
+      return;
+    }
+
+    console.error(`[Mining Dashboard] Failed to load historical frame detail for frame ${frameId}`, error);
   } finally {
     if (requestId === frameDetailRequestId && loadingFrameId.value === frameId) {
       loadingFrameId.value = null;
@@ -717,12 +781,32 @@ async function refreshPendingHistoricalFrameDetail() {
   }
 }
 
-Vue.onMounted(async () => {
-  stats.subscribeToDashboard();
-  stats.subscribeToActivity();
+Vue.watch(isSelectedLiveFrame, isLiveFrame => {
+  lastBlockMinerAddress.value = isLiveFrame ? blockWatch.latestHeaders.at(-1)?.author : undefined;
+});
+
+Vue.onMounted(() => {
+  void stats.subscribeToDashboard();
+  void stats.subscribeToActivity();
   loadChartData();
-  await miningFrames.load();
-  await updateSliderFrame(sliderFrameIndex.value);
+  void updateSliderFrame(sliderFrameIndex.value);
+
+  void blockWatch
+    .start()
+    .then(() => {
+      lastBlockMinerAddress.value = isSelectedLiveFrame.value ? blockWatch.bestBlockHeader.author : undefined;
+      stopBestBlockSubscription = blockWatch.events.on('best-blocks', blocks => {
+        if (!isSelectedLiveFrame.value) {
+          return;
+        }
+
+        lastBlockMinerAddress.value = blocks.at(-1)?.author;
+      });
+    })
+    .catch(error => {
+      console.error('[Mining Dashboard] Failed to subscribe to best blocks', error);
+    });
+
   botEmitter.on('updated-bids-data', refreshLiveFrameDetail);
   botEmitter.on('updated-cohort-data', refreshLiveFrameDetail);
   botEmitter.on('updated-server-state', refreshPendingHistoricalFrameDetail);
@@ -733,6 +817,7 @@ Vue.onMounted(async () => {
 Vue.onUnmounted(() => {
   stats.unsubscribeFromDashboard();
   stats.unsubscribeFromActivity();
+  stopBestBlockSubscription?.();
   botEmitter.off('updated-bids-data', refreshLiveFrameDetail);
   botEmitter.off('updated-cohort-data', refreshLiveFrameDetail);
   botEmitter.off('updated-server-state', refreshPendingHistoricalFrameDetail);

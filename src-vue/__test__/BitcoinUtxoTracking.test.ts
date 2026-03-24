@@ -195,6 +195,43 @@ describe('BitcoinUtxoTracking', () => {
     expect(candidates[0].status).toBe(BitcoinUtxoStatus.FundingCandidate);
   });
 
+  it('still records mempool funding when Argon candidate refresh fails', async () => {
+    const db = await createTestDb();
+    const tracking = createTracking(db, {
+      mempool: {
+        getAddressUtxos: vi.fn().mockResolvedValue([
+          {
+            txid: 'd'.repeat(64),
+            vout: 0,
+            value: 10_100,
+            status: {
+              confirmed: true,
+              block_height: 125,
+              block_time: 1710000000,
+            },
+          },
+        ]),
+      },
+    });
+    const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, satoshis: 10_000n });
+    const preferredClient = Object.assign(Object.create(null), {
+      query: Object.assign(Object.create(null), {
+        bitcoinUtxos: Object.assign(Object.create(null), {
+          candidateUtxoRefsByUtxoId: vi.fn().mockRejectedValue(new Error('rpc timeout')),
+        }),
+      }),
+    }) as ArgonClient;
+
+    const hasSignals = await tracking.syncPendingFundingSignals(lock, preferredClient);
+
+    expect(hasSignals).toBe(true);
+    const candidates = tracking.getFundingCandidateRecords(lock);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].txid).toBe('d'.repeat(64));
+    expect(candidates[0].status).toBe(BitcoinUtxoStatus.SeenOnMempool);
+    expect(candidates[0].mempoolObservation?.isConfirmed).toBe(true);
+  });
+
   it('does not downgrade an Argon funding candidate when mempool observation arrives later', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);

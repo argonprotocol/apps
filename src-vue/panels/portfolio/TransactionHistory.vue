@@ -35,8 +35,6 @@ import { IWalletTransferRecord } from '../../lib/db/WalletTransfersTable.ts';
 import { capitalize } from 'vue';
 import { getWalletKeys } from '../../stores/wallets.ts';
 
-const keys = getWalletKeys();
-
 export function getTransferInfo(tx: IWalletTransferRecord): string {
   const wallet = capitalize(tx.walletName);
   let destination = '...';
@@ -61,6 +59,7 @@ export function getTransferInfo(tx: IWalletTransferRecord): string {
 }
 
 function formatAddress(address: string): string {
+  const keys = getWalletKeys();
   if (keys.miningHoldAddress === address) {
     return 'MiningHold';
   } else if (keys.miningBotAddress === address) {

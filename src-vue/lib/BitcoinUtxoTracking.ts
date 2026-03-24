@@ -268,8 +268,18 @@ export default class BitcoinUtxoTracking {
     preferredClient?: ApiDecoration<'promise'>,
   ): Promise<boolean> {
     if (!lock.utxoId || !this.isFundingSignalTrackingStatus(lock.status)) return false;
-    await this.refreshFundingCandidates(lock, preferredClient);
-    const mempoolObservation = await this.observeMempoolFunding(lock);
+
+    let mempoolObservation: IMempoolFundingObservation | undefined;
+
+    const [argonCandidatesResult, mempoolObservationResult] = await Promise.allSettled([
+      this.refreshFundingCandidates(lock, preferredClient),
+      this.observeMempoolFunding(lock),
+    ]);
+
+    if (mempoolObservationResult.status === 'fulfilled') {
+      mempoolObservation = mempoolObservationResult.value;
+    }
+
     const hasFundingRecord = !!this.getAcceptedFundingRecordForLock(lock);
     const hasFundingCandidates = this.getFundingCandidateRecords(lock).length > 0;
     const hasOrphanedCandidates = this.getUtxosForLock(lock).some(

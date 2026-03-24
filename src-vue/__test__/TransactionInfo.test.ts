@@ -11,7 +11,7 @@ it('should update progress before the transaction has been added to a block', as
     } as ITransactionRecord,
     txResult: {} as TxResult,
   });
-  txInfo.finalizedBlockHeight = 95;
+  txInfo.finalizedHeadHeight = 95;
   const unsubscribe = txInfo.subscribeToProgress(
     (args: { progressPct: number; confirmations: number; isMaxed: boolean }, error: Error | undefined) => {
       progressUpdates.push(args);
@@ -54,7 +54,7 @@ it('should update progress throughout the entire finalization process', async ()
         txInfo.tx.blockHeight = 100;
         finalizedBlockHeight = finalizedBlockHeight ? finalizedBlockHeight + 1 : 95;
       }
-      txInfo.finalizedBlockHeight = finalizedBlockHeight!;
+      txInfo.finalizedHeadHeight = finalizedBlockHeight!;
       progressUpdates.push(args);
     },
   );

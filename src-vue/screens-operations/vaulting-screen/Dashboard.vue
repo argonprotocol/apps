@@ -25,7 +25,7 @@
               View Progress
             </button>
           </div>
-          <div v-else-if="myVault.data.pendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
+          <div v-else-if="showPendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
               <strong>{{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
@@ -53,10 +53,10 @@
               Collect Revenue
             </button>
           </div>
-          <div v-else-if="myVault.data.pendingCosignUtxosById.size" class="px-6 flex flex-row items-center w-full h-full">
+          <div v-else-if="pendingManualCosignCount" class="px-6 flex flex-row items-center w-full h-full">
             <div class="flex flex-row items-center text-lg relative text-slate-800/90">
               <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
-              <strong>{{myVault.data.pendingCosignUtxosById.size || 2}} bitcoin transaction{{myVault.data.pendingCosignUtxosById.size === 1 ? '' : 's'}} require{{myVault.data.pendingCosignUtxosById.size === 1 ? 's' : ''}} signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(pendingCosignPenalty).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
+              <strong>{{ pendingManualCosignCount }} bitcoin transaction{{ pendingManualCosignCount === 1 ? '' : 's' }} require{{ pendingManualCosignCount === 1 ? 's' : '' }} signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(pendingCosignPenalty).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
               <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
                 <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
                 <template v-else>
@@ -313,7 +313,11 @@
           </section>
 
           <section box class="relative flex flex-col h-[35%] !pb-0.5 px-2">
-            <FrameSlider ref="frameSliderRef" :chartItems="chartItems" @changedFrame="updateSliderFrame" />
+            <FrameSlider
+              ref="frameSliderRef"
+              :chartItems="chartItems"
+              :selectedIndex="sliderFrameIndex"
+              @changedFrame="updateSliderFrame" />
           </section>
         </div>
       </section>
@@ -334,7 +338,13 @@
 </template>
 
 <script lang="ts">
+import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IVaultFrameRecord } from '../../interfaces/IVaultFrameRecord';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
+import * as Vue from 'vue';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import utc from 'dayjs/plugin/utc';
 
 const currentFrame = Vue.ref({
   id: 0,
@@ -352,16 +362,17 @@ const currentFrame = Vue.ref({
   profitMaximizationPercent: 0,
 } as IVaultFrameRecord);
 
-const sliderFrameIndex = Vue.ref(0);
+dayjs.extend(relativeTime);
+dayjs.extend(utc);
+const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
+const frameRecords = Vue.ref<IVaultFrameRecord[]>([]);
+const chartItems = Vue.ref<IChartItem[]>([]);
+const personalBitcoin = Vue.ref<InstanceType<typeof PersonalBitcoin> | null>(null);
 </script>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-import utc from 'dayjs/plugin/utc';
 import { getCurrency } from '../../stores/currency';
-import numeral, { createNumeralHelpers } from '../../lib/numeral';
+import numeral from '../../lib/numeral';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
@@ -374,7 +385,6 @@ import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
 import InstructionsIcon from '../../assets/instructions.svg?component';
 import FrameSlider from '../../components/FrameSlider.vue';
-import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import SuccessIcon from '../../assets/success.svg?component';
 import ConfigIcon from '../../assets/config.svg?component';
 import HealthIndicatorBar from '../../components/HealthIndicatorBar.vue';
@@ -393,9 +403,6 @@ import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 
-dayjs.extend(relativeTime);
-dayjs.extend(utc);
-
 const myVault = getMyVault();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
@@ -409,10 +416,6 @@ const rules = config.vaultingRules;
 const latestFrameId = Vue.computed(() => {
   return frameRecords.value.at(-1)?.id ?? 0;
 });
-const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
-const frameRecords = Vue.ref<IVaultFrameRecord[]>([]);
-const chartItems = Vue.ref<IChartItem[]>([]);
-const personalBitcoin = Vue.ref<InstanceType<typeof PersonalBitcoin> | null>(null);
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -423,6 +426,43 @@ const nextCollectDueDate = Vue.computed(() => {
 
 const pendingCollectTxMetadata = Vue.computed(() => {
   return myVault.data.pendingCollectTxInfo?.tx.metadataJson;
+});
+
+const myOwnPendingBitcoinCosignUtxoIds = Vue.computed(() => {
+  const utxoIds = new Set<number>();
+
+  for (const utxoId of myVault.data.pendingCosignUtxosById.keys()) {
+    if (!bitcoinLocks.getLockByUtxoId(utxoId)) continue;
+    utxoIds.add(utxoId);
+  }
+
+  return utxoIds;
+});
+
+const myPendingBitcoinCosignTxCount = Vue.computed(() => {
+  let count = 0;
+  for (const utxoId of myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.keys()) {
+    if (!myOwnPendingBitcoinCosignUtxoIds.value.has(utxoId)) continue;
+    count += 1;
+  }
+  return count;
+});
+
+const pendingManualCosignEntries = Vue.computed(() => {
+  return Array.from(myVault.data.pendingCosignUtxosById.entries()).filter(([utxoId]) => {
+    if (myOwnPendingBitcoinCosignUtxoIds.value.has(utxoId)) {
+      return false;
+    }
+    return !myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.has(utxoId);
+  });
+});
+
+const pendingManualCosignCount = Vue.computed(() => {
+  return pendingManualCosignEntries.value.length;
+});
+
+const showPendingCollectRevenue = Vue.computed(() => {
+  return Boolean(myVault.data.pendingCollectRevenue && !myOwnPendingBitcoinCosignUtxoIds.value.size);
 });
 
 const totalTreasuryPoolBonds = Vue.computed(() => {
@@ -458,10 +498,7 @@ const revenueMicrogons = Vue.computed(() => {
 });
 
 const pendingCosignPenalty = Vue.computed(() => {
-  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce(
-    (acc, entry) => acc + entry.marketValue,
-    0n,
-  );
+  const sum = pendingManualCosignEntries.value.reduce((acc, [, entry]) => acc + entry.marketValue, 0n);
   return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
 });
 
@@ -471,10 +508,16 @@ const showEditOverlay = Vue.ref(false);
 const showCollectBar = Vue.computed(() => {
   return (
     myVault.data.pendingCollectTxInfo ||
-    myVault.data.pendingCollectRevenue ||
-    myVault.data.pendingCosignUtxosById.size ||
+    showPendingCollectRevenue.value ||
+    pendingManualCosignCount.value ||
     !bitcoinLockedValue
   );
+});
+
+const sliderFrameIndex = Vue.computed(() => {
+  const lastIndex = Math.max(frameRecords.value.length - 1, 0);
+  const selectedIndex = frameRecords.value.findIndex(frame => frame.id === currentFrame.value.id);
+  return Math.min(Math.max(selectedIndex >= 0 ? selectedIndex : lastIndex, 0), lastIndex);
 });
 
 const hasNextFrame = Vue.computed(() => {
@@ -515,8 +558,12 @@ function goToNextFrame() {
 }
 
 function updateSliderFrame(newFrameIndex: number) {
-  sliderFrameIndex.value = newFrameIndex;
-  currentFrame.value = frameRecords.value[newFrameIndex];
+  const lastIndex = Math.max(frameRecords.value.length - 1, 0);
+  const nextFrameIndex = Math.min(Math.max(newFrameIndex, 0), lastIndex);
+  const nextFrame = frameRecords.value[nextFrameIndex];
+  if (!nextFrame) return;
+
+  currentFrame.value = nextFrame;
 }
 
 function openVaultEditOverlay() {
@@ -550,8 +597,13 @@ function updateLatestFrameProgress() {
 async function loadChartData(currentFrameId?: number) {
   const profitAnalysis = new ProfitAnalysis(vaults, myVault, miningFrames, currentFrameId);
   await profitAnalysis.update();
+
   chartItems.value = profitAnalysis.items;
   frameRecords.value = profitAnalysis.records;
+
+  const targetFrameId = currentFrameId ?? currentFrame.value.id;
+  currentFrame.value =
+    frameRecords.value.find(frame => frame.id === targetFrameId) ?? frameRecords.value.at(-1) ?? currentFrame.value;
 }
 
 let onFrameSubscription: { unsubscribe: () => void };

@@ -344,7 +344,10 @@ const acceptTxInfo = Vue.computed(() => {
 
 const acceptInProgress = Vue.computed(() => {
   const status = acceptTxInfo.value?.tx.status;
-  return status === TransactionStatus.Submitted || status === TransactionStatus.InBlock;
+  return (
+    (status === TransactionStatus.Submitted || status === TransactionStatus.InBlock) &&
+    !acceptTxInfo.value?.txResult.submissionError
+  );
 });
 const acceptCompleted = Vue.computed(() => {
   const status = acceptTxInfo.value?.tx.status;

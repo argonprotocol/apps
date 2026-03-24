@@ -1,7 +1,7 @@
 import { AccountEventsFilter } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 
-const client = await getClient(process.env.MAINCHAIN_URL ??'wss://rpc.argon.network');
+const client = await getClient(process.env.MAINCHAIN_URL ?? 'wss://rpc.argon.network');
 
 const blockHash = process.argv[2];
 console.log('Analyzing block', blockHash);
