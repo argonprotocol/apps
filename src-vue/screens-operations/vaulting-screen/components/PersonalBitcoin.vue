@@ -130,7 +130,16 @@
           <div v-if="mismatchError" class="mt-1 text-sm font-semibold text-red-700">
             {{ mismatchError }}
           </div>
-          <div v-if="!mismatchCanAct && !showFundingReadyToResume && !mismatchDepositReturned" class="mt-2 w-full pr-5">
+          <div v-if="showMismatchReturnProgress" class="mt-2 w-full pr-5">
+            <ProgressBar :progress="mismatchReturnProgress.progressPct" :showLabel="false" class="h-3.5" />
+            <div v-if="mismatchReturnProgress.error" class="mt-1 text-xs font-semibold text-red-700">
+              {{ mismatchReturnProgress.error }}
+            </div>
+            <div v-else class="mt-1 text-xs text-slate-500">{{ mismatchReturnProgress.label }}</div>
+          </div>
+          <div
+            v-else-if="!mismatchCanAct && !showFundingReadyToResume && !mismatchDepositReturned"
+            class="mt-2 w-full pr-5">
             <ProgressBar
               v-if="showMismatchConfirmationProgress"
               :progress="lockProcessingStep.progressPct"
@@ -524,9 +533,50 @@ const mismatchCanAct = Vue.computed(() => {
     !!nextMismatchCandidate.value && (nextMismatchCandidate.value.canAccept || nextMismatchCandidate.value.canReturn)
   );
 });
+const isMismatchReturningOnArgon = Vue.computed(() => mismatchView.value?.phase === 'returningOnArgon');
+const isMismatchReturningOnBitcoin = Vue.computed(() => mismatchView.value?.phase === 'returningOnBitcoin');
+const showMismatchReturnProgress = Vue.computed(() => {
+  return isMismatchReturningOnArgon.value || isMismatchReturningOnBitcoin.value;
+});
+const mismatchReturnProgress = Vue.computed(() => {
+  if (isMismatchReturningOnArgon.value) {
+    return {
+      progressPct: bitcoinLockProgress.orphanedReturnArgon.progressPct,
+      label: generateProgressLabel(
+        bitcoinLockProgress.orphanedReturnArgon.confirmations,
+        bitcoinLockProgress.orphanedReturnArgon.expectedConfirmations,
+        {
+          blockType: 'Argon',
+        },
+      ),
+      error: bitcoinLockProgress.orphanedReturnArgon.error,
+    };
+  }
+
+  if (isMismatchReturningOnBitcoin.value) {
+    return {
+      progressPct: bitcoinLockProgress.orphanedReturnBitcoin.progressPct,
+      label: generateProgressLabel(
+        bitcoinLockProgress.orphanedReturnBitcoin.confirmations,
+        bitcoinLockProgress.orphanedReturnBitcoin.expectedConfirmations,
+        {
+          blockType: 'Bitcoin',
+        },
+      ),
+      error: bitcoinLockProgress.orphanedReturnBitcoin.error,
+    };
+  }
+
+  return {
+    progressPct: 0,
+    label: '',
+    error: '',
+  };
+});
 const mismatchCardEyebrow = Vue.computed(() => {
   if (showFundingReadyToResume.value) return 'Return Complete';
   if (mismatchDepositReturned.value) return 'Return Complete';
+  if (showMismatchReturnProgress.value) return 'Return In Progress';
   if (fundingWindowExpired.value) {
     return 'Funding Expired';
   }
@@ -535,6 +585,9 @@ const mismatchCardEyebrow = Vue.computed(() => {
 const mismatchCardTitle = Vue.computed(() => {
   if (showFundingReadyToResume.value || mismatchDepositReturned.value) {
     return 'Mismatch Bitcoin Deposit Returned';
+  }
+  if (showMismatchReturnProgress.value) {
+    return 'Returning Mismatch Bitcoin Deposit';
   }
   if (fundingWindowExpired.value) {
     return mismatchCanAct.value ? 'Recovery Options Ready' : 'Preparing Recovery Options';
@@ -545,6 +598,7 @@ const mismatchCardCtaLabel = Vue.computed(() => {
   if (showFundingReadyToResume.value) return 'Resume Funding';
   if (mismatchDepositReturned.value && fundingWindowExpired.value) return 'Clear Notice';
   if (mismatchDepositReturned.value) return 'Open Details';
+  if (showMismatchReturnProgress.value) return 'View Status';
   return mismatchCanAct.value ? 'Review Options' : 'Open Details';
 });
 const mismatchNextStepText = Vue.computed(() => {
@@ -553,6 +607,12 @@ const mismatchNextStepText = Vue.computed(() => {
     return fundingWindowExpired.value
       ? 'Clear this notice when you are ready.'
       : 'Review the completed return details.';
+  }
+  if (isMismatchReturningOnArgon.value) {
+    return 'Argon is finalizing your return request before the Bitcoin transfer is sent.';
+  }
+  if (isMismatchReturningOnBitcoin.value) {
+    return 'The return transaction is waiting for Bitcoin confirmations.';
   }
   if (fundingWindowExpired.value) {
     return mismatchCanAct.value

@@ -467,6 +467,7 @@ describe('BitcoinLocks mismatch view state', () => {
       firstSeenOnArgonAt: new Date('2026-01-01T00:00:10Z'),
       releaseToDestinationAddress: '0014deadbeef',
       releaseBitcoinNetworkFee: 100n,
+      releaseTxid: 'b'.repeat(64),
       updatedAt: new Date('2026-01-02T00:00:00Z'),
     });
     store.data.locksByUtxoId = { 2: argonReturnLock };
@@ -529,5 +530,68 @@ describe('BitcoinLocks mismatch view state', () => {
     store.data.mismatchErrorsByLockUtxoId[5] = 'mismatch failed';
     expect(store.getMismatchViewState(returnedLock).phase).toBe('error');
     expect(store.getMismatchViewState(returnedLock).error).toBe('mismatch failed');
+  });
+
+  it('keeps an argon mismatch return active after reload even without a live tx tracker entry', () => {
+    const store = createStore();
+    vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(100);
+
+    const lock = createLock({
+      uuid: 'returning-argon-reload',
+      utxoId: 6,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-03T00:00:00Z',
+    });
+    const returnRecord = createCandidate({
+      id: 6,
+      lockUtxoId: 6,
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
+      satoshis: 11_500n,
+      firstSeenOnArgonAt: new Date('2026-01-01T00:00:10Z'),
+      releaseToDestinationAddress: '0014deadbeef',
+      releaseBitcoinNetworkFee: 100n,
+      updatedAt: new Date('2026-01-02T00:00:00Z'),
+    });
+
+    store.data.locksByUtxoId = { 6: lock };
+    store.utxoTracking.data.utxosByLockUtxoId = { 6: [returnRecord] };
+
+    const view = store.getMismatchViewState(lock);
+
+    expect(view.phase).toBe('returningOnArgon');
+    expect(view.nextCandidate?.returnRecord?.id).toBe(returnRecord.id);
+    expect(view.nextCandidate?.canReturn).toBe(false);
+  });
+});
+
+describe('BitcoinLocks release inspection', () => {
+  it('keeps release inspection on argon while the funding status is still argon processing', () => {
+    const store = createStore();
+    const fundingRecord = createCandidate({
+      id: 41,
+      lockUtxoId: 41,
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
+      releaseTxid: 'd'.repeat(64),
+      releaseToDestinationAddress: '0014deadbeef',
+      releaseBitcoinNetworkFee: 100n,
+      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
+      releaseCosignHeight: 456,
+    });
+    const lock = createLock({
+      uuid: 'release-argon-inspect',
+      utxoId: 41,
+      status: BitcoinLockStatus.Releasing,
+      createdAt: '2026-01-03T00:00:00Z',
+    });
+
+    lock.fundingUtxoRecordId = fundingRecord.id;
+    lock.fundingUtxoRecord = fundingRecord;
+    store.data.locksByUtxoId = { 41: lock };
+
+    const state = store.getVaultUnlockReleaseState(lock.vaultId);
+
+    expect(state.hasReleaseTxid).toBe(true);
+    expect(state.isArgonSubmitting).toBe(true);
+    expect(state.isBitcoinReleaseProcessing).toBe(false);
   });
 });

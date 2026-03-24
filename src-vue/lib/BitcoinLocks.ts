@@ -955,8 +955,7 @@ export default class BitcoinLocks {
     const isArgonSubmitting = fundingStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
     const isReleaseComplete =
       fundingStatus === BitcoinUtxoStatus.ReleaseComplete || lock.status === BitcoinLockStatus.Released;
-    const isBitcoinReleaseProcessing =
-      fundingStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin || hasReleaseTxid;
+    const isBitcoinReleaseProcessing = fundingStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
     const isWaitingForVaultCosign =
       hasRequestDetails && !hasCosign && !isBitcoinReleaseProcessing && !isReleaseComplete;
     const isReleaseStatus =
@@ -2625,7 +2624,7 @@ export default class BitcoinLocks {
     }
     if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) return false;
     const txInfo = this.getOrphanedReturnTxInfoForRecord(utxoId, record);
-    if (!txInfo) return false;
+    if (!txInfo) return true;
     if (this.getTxFailureMessage(txInfo)) return false;
     return this.isTxInProgress(txInfo) || this.isTxFinalized(txInfo);
   }
