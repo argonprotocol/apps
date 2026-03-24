@@ -6,12 +6,15 @@ import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import Path from 'path';
 import { BlockWatch } from '../src/BlockWatch.ts';
 
-afterAll(teardown);
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 describe.skipIf(skipE2E)('Mining Frames tests', () => {
   let client: ArgonClient;
   let mainchainUrl: string;
+  let mainchainClients: MainchainClients | undefined;
+  let blockWatch: BlockWatch | undefined;
+  let miningFrames: MiningFrames | undefined;
+
   beforeAll(async () => {
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
@@ -20,14 +23,21 @@ describe.skipIf(skipE2E)('Mining Frames tests', () => {
     NetworkConfig.setNetwork('dev-docker');
   });
 
+  afterAll(async () => {
+    await miningFrames?.stop();
+    blockWatch?.destroy();
+    await mainchainClients?.disconnect();
+    await teardown();
+  });
+
   it('syncs frames', async () => {
-    const mainchainClients = new MainchainClients(mainchainUrl, undefined, client);
+    mainchainClients = new MainchainClients(mainchainUrl, undefined, client);
     const updatesWriter = {
       read: vi.fn().mockImplementation(async () => {}),
       write: vi.fn().mockImplementation(async () => {}),
     };
-    const blockWatch = new BlockWatch(mainchainClients);
-    const miningFrames = new MiningFrames(mainchainClients, blockWatch, updatesWriter);
+    blockWatch = new BlockWatch(mainchainClients);
+    miningFrames = new MiningFrames(mainchainClients, blockWatch, updatesWriter);
     const rewardTicks = await client.query.miningSlot.miningConfig().then(x => x.ticksBetweenSlots.toNumber());
 
     await miningFrames.load();

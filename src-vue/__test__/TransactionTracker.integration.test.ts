@@ -1,7 +1,7 @@
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import { BlockWatch, JsonExt, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
@@ -17,21 +17,34 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3 }, () => {
   let clients: MainchainClients;
   let mainchainUrl: string;
+  const blockWatches: BlockWatch[] = [];
   const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
 
   beforeAll(async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename));
+    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
+      chainStartTimeoutMs: 120_000,
+      chainStartPollMs: 250,
+    });
 
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
     setMainchainClients(clients);
     NetworkConfig.setNetwork('dev-docker');
-  }, 60e3);
+  }, 120e3);
+
+  afterEach(() => {
+    destroyTrackedBlockWatches();
+  });
+
+  afterAll(async () => {
+    destroyTrackedBlockWatches();
+    await clients?.disconnect();
+  });
 
   it('should get and store errors on submission', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
-    const blockwatch = new BlockWatch(clients);
+    const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     expect(transactionTracker.data.txInfos).toHaveLength(0);
@@ -65,7 +78,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     console.time('test');
     const client = await clients.get(false);
     const db = await createTestDb();
-    const blockwatch = new BlockWatch(clients);
+    const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
@@ -101,7 +114,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     expect(tx.status).toBe(TransactionStatus.InBlock);
     expect(transactionTracker.data.txInfos).toHaveLength(1);
     {
-      const blockwatch = new BlockWatch(clients);
+      const blockwatch = createTrackedBlockWatch();
       const transactionTracker2 = new TransactionTracker(Promise.resolve(db), blockwatch);
       vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
       await transactionTracker2.load();
@@ -126,7 +139,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     // doesn't change the starting load status
     expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(1);
     {
-      const blockwatch = new BlockWatch(clients);
+      const blockwatch = createTrackedBlockWatch();
       const transactionTracker2 = new TransactionTracker(Promise.resolve(db), blockwatch);
       vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
       await transactionTracker2.load();
@@ -139,7 +152,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   it('should record expired watching transactions', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
-    const blockwatch = new BlockWatch(clients);
+    const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockImplementation(() => null);
@@ -219,7 +232,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     });
     await db.transactionsTable.recordFollowOnTxId(firstTx, secondTx.id);
 
-    const blockwatch = new BlockWatch(clients);
+    const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
 
@@ -228,4 +241,16 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
 
     await expect(loadedFirst.followOnTxInfo).resolves.toBe(loadedSecond);
   });
+
+  function createTrackedBlockWatch(): BlockWatch {
+    const blockWatch = new BlockWatch(clients);
+    blockWatches.push(blockWatch);
+    return blockWatch;
+  }
+
+  function destroyTrackedBlockWatches(): void {
+    for (const blockWatch of blockWatches.splice(0)) {
+      blockWatch.destroy();
+    }
+  }
 });
