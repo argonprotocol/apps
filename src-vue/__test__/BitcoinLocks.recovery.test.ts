@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
+import type { ApiDecoration } from '@polkadot/api/types';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -430,6 +431,44 @@ describe('BitcoinLocks mismatch view state', () => {
     expect(view.nextCandidate?.canReturn).toBe(true);
   });
 
+  it('hides orphaned mismatch deposits once funding is already accepted', () => {
+    const store = createStore();
+    const lock = createLock({
+      uuid: 'locked-with-orphan',
+      utxoId: 1,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-03T00:00:00Z',
+    });
+    lock.satoshis = 1_603_114n;
+
+    const fundingRecord = createCandidate({
+      id: 6,
+      lockUtxoId: 1,
+      status: BitcoinUtxoStatus.FundingUtxo,
+      satoshis: 1_603_114n,
+      firstSeenOnArgonAt: new Date('2026-01-01T00:00:10Z'),
+    });
+    const orphanedRecord = createCandidate({
+      id: 5,
+      lockUtxoId: 1,
+      status: BitcoinUtxoStatus.Orphaned,
+      satoshis: 101_000_000n,
+      firstSeenOnArgonAt: new Date('2026-01-01T00:01:10Z'),
+    });
+
+    lock.fundingUtxoRecordId = fundingRecord.id;
+    lock.fundingUtxoRecord = fundingRecord;
+    store.data.locksByUtxoId = { 1: lock };
+    store.utxoTracking.data.utxosByLockUtxoId = { 1: [orphanedRecord, fundingRecord] };
+    vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(100);
+
+    const view = store.getMismatchViewState(lock);
+
+    expect(view.phase).toBe('none');
+    expect(view.candidateCount).toBe(0);
+    expect(view.nextCandidate).toBeUndefined();
+  });
+
   it('surfaces accept, return, and error phases from the derived mismatch view', () => {
     const store = createStore();
     vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(100);
@@ -561,6 +600,64 @@ describe('BitcoinLocks mismatch view state', () => {
     expect(view.phase).toBe('returningOnArgon');
     expect(view.nextCandidate?.returnRecord?.id).toBe(returnRecord.id);
     expect(view.nextCandidate?.canReturn).toBe(false);
+  });
+});
+
+describe('BitcoinLocks funding utxo updates', () => {
+  it('routes chain-selected funding records through accepted-funding handling', async () => {
+    const store = createStore();
+    const lock = createLock({
+      uuid: 'chain-funding-selection',
+      utxoId: 55,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-03T00:00:00Z',
+    });
+    lock.ratchets = [
+      {
+        mintAmount: 0n,
+        mintPending: 0n,
+        lockedMarketRate: 0n,
+        securityFee: 0n,
+        txFee: 0n,
+        burned: 0n,
+        blockHeight: 0,
+        oracleBitcoinBlockHeight: 0,
+      },
+    ];
+
+    const fundingRecord = createCandidate({
+      id: 55,
+      lockUtxoId: 55,
+      status: BitcoinUtxoStatus.FundingUtxo,
+    });
+    const latestBitcoinLock = {
+      utxoSatoshis: 10_000n,
+      satoshis: 10_000n,
+      lockedMarketRate: 200n,
+      liquidityPromised: 300n,
+      getFundingUtxoRef: vi.fn().mockResolvedValue({ txid: 'f'.repeat(64), vout: 1 }),
+    };
+
+    vi.spyOn(store.utxoTracking, 'upsertUtxoRecord').mockResolvedValue(fundingRecord);
+    const setAcceptedFundingRecordForLock = vi
+      .spyOn(store.utxoTracking, 'setAcceptedFundingRecordForLock')
+      .mockImplementation(async (targetLock, acceptedRecord) => {
+        targetLock.fundingUtxoRecordId = acceptedRecord.id;
+        targetLock.fundingUtxoRecord = acceptedRecord;
+      });
+
+    const setLockedAndIsMinting = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(store as any, 'getTable').mockResolvedValue({
+      setLockedAndIsMinting,
+    });
+
+    // @ts-expect-error: test reaches the private recovery helper directly
+    await store.tryUpdateFundingUtxo(lock, Object.create(null) as ApiDecoration<'promise'>, latestBitcoinLock);
+
+    expect(setAcceptedFundingRecordForLock).toHaveBeenCalledWith(lock, fundingRecord);
+    expect(lock.fundingUtxoRecordId).toBe(fundingRecord.id);
+    expect(lock.fundingUtxoRecord).toBe(fundingRecord);
+    expect(setLockedAndIsMinting).toHaveBeenCalledWith(lock);
   });
 });
 
