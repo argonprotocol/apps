@@ -51,7 +51,9 @@ function syncFrameSliderPos(index: number | null | undefined = sliderFrameIndex.
   isUserNavigatingHistory = nextFrameIndex < props.chartItems.length - 1;
 
   const pointPosition = chartRef.value?.getPointPosition(nextFrameIndex);
-  sliderLeftPosX.value = pointPosition?.x || 0;
+  if (pointPosition?.x != null) {
+    sliderLeftPosX.value = pointPosition.x;
+  }
 }
 
 async function goToPrevFrame() {
@@ -113,6 +115,7 @@ function stopDrag(event: PointerEvent) {
 }
 
 let isUserNavigatingHistory = false;
+let frameSyncRequestId = 0;
 
 function updateFrameSliderPos(index: number, isUserAction = true) {
   if (isUserNavigatingHistory && !isUserAction) return;
@@ -133,35 +136,59 @@ function handleKeyDown(e: KeyboardEvent) {
 
 function doResize() {
   chartRef.value?.doResize();
-  syncFrameSliderPos();
+  void syncFrameSliderPosAfterRender();
 }
 
 const handleResize = useDebounceFn(doResize, 100, { maxWait: 250 });
+
+async function syncFrameSliderPosAfterRender(
+  index: number | null | undefined = props.selectedIndex,
+  options: { emitChange?: boolean; isUserAction?: boolean } = {},
+) {
+  const requestId = ++frameSyncRequestId;
+
+  await Vue.nextTick();
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+  }
+
+  if (requestId !== frameSyncRequestId) return;
+
+  if (options.emitChange) {
+    updateFrameSliderPos(index ?? props.chartItems.length - 1, options.isUserAction ?? false);
+    return;
+  }
+
+  syncFrameSliderPos(index);
+}
 
 Vue.watch(
   () => props.chartItems,
   (newItems, oldItems) => {
     chartRef.value?.reloadData(newItems);
-    syncFrameSliderPos(props.selectedIndex);
-    if (newItems.at(-1)?.id !== oldItems.at(-1)?.id) {
-      updateFrameSliderPos(props.selectedIndex ?? newItems.length - 1, false);
-    }
+
+    const hasNewLatestFrame = newItems.at(-1)?.id !== oldItems.at(-1)?.id;
+    void syncFrameSliderPosAfterRender(
+      props.selectedIndex ?? newItems.length - 1,
+      hasNewLatestFrame ? { emitChange: true, isUserAction: false } : {},
+    );
   },
-  { deep: true },
+  { deep: true, flush: 'post' },
 );
 
 Vue.watch(
   () => props.selectedIndex,
   selectedIndex => {
-    syncFrameSliderPos(selectedIndex);
+    void syncFrameSliderPosAfterRender(selectedIndex);
   },
+  { flush: 'post' },
 );
 
 Vue.onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', handleResize);
   chartRef.value?.reloadData(props.chartItems);
-  syncFrameSliderPos(props.selectedIndex);
+  void syncFrameSliderPosAfterRender(props.selectedIndex);
 });
 
 Vue.onUnmounted(() => {

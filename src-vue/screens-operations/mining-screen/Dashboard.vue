@@ -176,11 +176,17 @@
                     <CountdownClock
                       v-if="countdownAuctionCloseAt"
                       :time="countdownAuctionCloseAt"
-                      v-slot="{ minutes, seconds }">
+                      v-slot="{ hours, minutes, seconds }">
                       <div class="titleize">
-                        <template v-if="minutes || seconds">
+                        <template v-if="hours || minutes || seconds">
                           Auction Closing In
-                          {{ minutes ? `${minutes} Minute${minutes === 1 ? '' : 's'}` : `${seconds} Second${seconds === 1 ? '' : 's'}` }}
+                          {{
+                            hours
+                              ? `${hours} Hour${hours === 1 ? '' : 's'}`
+                              : minutes
+                                ? `${minutes} Minute${minutes === 1 ? '' : 's'}`
+                                : `${seconds} Second${seconds === 1 ? '' : 's'}`
+                          }}
                         </template>
                         <template v-else>
                           Auction May Close Any Moment
@@ -299,6 +305,7 @@ const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const lastBlockMinerAddress = Vue.ref<string>();
+const liveAuctionCloseTick = Vue.ref<{ frameId: number; tick: number } | null>(null);
 
 let foregroundRefreshPromise: Promise<void> | null = null;
 let stopBestBlockSubscription: (() => void) | null = null;
@@ -419,7 +426,10 @@ const countdownAuctionCloseAt = Vue.computed(() => {
   const auctionCloseTick = currentFrameDetail.value?.auctionCloseTick ?? null;
   if (auctionCloseTick) return null;
 
-  const expectedAuctionCloseTick = currentFrameDetail.value?.expectedAuctionCloseTick ?? null;
+  const expectedAuctionCloseTick =
+    liveAuctionCloseTick.value?.frameId === currentFrame.value.id
+      ? liveAuctionCloseTick.value.tick
+      : (currentFrameDetail.value?.expectedAuctionCloseTick ?? null);
   if (!expectedAuctionCloseTick) return null;
 
   return dayjs.utc(expectedAuctionCloseTick * TICK_MILLIS);
@@ -580,7 +590,11 @@ async function refreshDashboardFromForeground() {
   foregroundRefreshPromise = (async () => {
     try {
       if (bot.isReady) {
-        await bot.refreshState();
+        try {
+          await bot.refreshState();
+        } catch (error) {
+          console.warn('[Mining Dashboard] Bot refresh failed during app resume', error);
+        }
       }
 
       await stats.refresh();
@@ -588,6 +602,7 @@ async function refreshDashboardFromForeground() {
       await updateSliderFrame(sliderFrameIndex.value);
 
       if (currentFrame.value.id === stats.latestFrameId) {
+        await refreshLiveAuctionCloseTick(currentFrame.value.id);
         await refreshLiveFrameDetail();
       } else {
         await refreshPendingHistoricalFrameDetail();
@@ -600,6 +615,21 @@ async function refreshDashboardFromForeground() {
   })();
 
   await foregroundRefreshPromise;
+}
+
+async function refreshLiveAuctionCloseTick(frameId: number): Promise<void> {
+  try {
+    const client = await getMainchainClient(true);
+    const tick = await mining.fetchTickAtStartOfAuctionClosing(client);
+
+    if (frameId !== stats.latestFrameId || currentFrame.value?.id !== frameId) {
+      return;
+    }
+
+    liveAuctionCloseTick.value = { frameId, tick };
+  } catch (error) {
+    console.error(`[Mining Dashboard] Failed to refresh live auction close tick for frame ${frameId}`, error);
+  }
 }
 
 function onWindowFocus() {
@@ -706,6 +736,10 @@ async function refreshLiveFrameDetail() {
   const frameId = stats.latestFrameId;
   const requestId = ++frameDetailRequestId;
   let hasFallbackDetail = false;
+
+  if (liveAuctionCloseTick.value?.frameId !== frameId) {
+    void refreshLiveAuctionCloseTick(frameId);
+  }
 
   if (!bot.isReady && frameDetail.value?.frameId !== frameId) {
     void loadLiveFrameDetailFromChain(frameId)

@@ -3,6 +3,7 @@
    ```bash
    yarn version <new-version>
    ```
+- 1a. Optionally update the mainchain version using yarn mainchain:pin v1.x.x 
 2. Update the release notes in `RELEASE_NOTES.md` following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
 3. Create a version branch
    ```bash

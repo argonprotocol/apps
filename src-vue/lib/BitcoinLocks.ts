@@ -955,8 +955,7 @@ export default class BitcoinLocks {
     const isArgonSubmitting = fundingStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
     const isReleaseComplete =
       fundingStatus === BitcoinUtxoStatus.ReleaseComplete || lock.status === BitcoinLockStatus.Released;
-    const isBitcoinReleaseProcessing =
-      fundingStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin || hasReleaseTxid;
+    const isBitcoinReleaseProcessing = fundingStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
     const isWaitingForVaultCosign =
       hasRequestDetails && !hasCosign && !isBitcoinReleaseProcessing && !isReleaseComplete;
     const isReleaseStatus =
@@ -1165,11 +1164,14 @@ export default class BitcoinLocks {
   }
 
   private getMismatchViewRecords(lock: IBitcoinLockRecord): IBitcoinUtxoRecord[] {
-    const candidates = this.utxoTracking.getFundingCandidateRecords(lock);
-    const orphanedCandidates = this.utxoTracking.getUtxosForLock(lock).filter(candidate => {
-      if (candidate.status !== BitcoinUtxoStatus.Orphaned) return false;
-      return !candidates.some(existing => existing.id === candidate.id);
-    });
+    const hasAcceptedFunding = !!this.getAcceptedFundingState(lock).record;
+    const candidates = hasAcceptedFunding ? [] : this.utxoTracking.getFundingCandidateRecords(lock);
+    const orphanedCandidates = hasAcceptedFunding
+      ? []
+      : this.utxoTracking.getUtxosForLock(lock).filter(candidate => {
+          if (candidate.status !== BitcoinUtxoStatus.Orphaned) return false;
+          return !candidates.some(existing => existing.id === candidate.id);
+        });
     const lifecycleCandidates = this.getMismatchReturnState(lock).records.filter(candidate => {
       return (
         !candidates.some(existing => existing.id === candidate.id) &&
@@ -2155,8 +2157,7 @@ export default class BitcoinLocks {
       },
       { markFundingUtxo: true },
     );
-    lock.fundingUtxoRecordId = fundingRecord.id;
-    lock.fundingUtxoRecord = fundingRecord;
+    await this.utxoTracking.setAcceptedFundingRecordForLock(lock, fundingRecord);
     const table = await this.getTable();
     await table.setLockedAndIsMinting(lock);
   }
@@ -2625,7 +2626,7 @@ export default class BitcoinLocks {
     }
     if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) return false;
     const txInfo = this.getOrphanedReturnTxInfoForRecord(utxoId, record);
-    if (!txInfo) return false;
+    if (!txInfo) return true;
     if (this.getTxFailureMessage(txInfo)) return false;
     return this.isTxInProgress(txInfo) || this.isTxFinalized(txInfo);
   }

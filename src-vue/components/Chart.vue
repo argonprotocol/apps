@@ -79,9 +79,7 @@ function toggleDatasetVisibility(index: number, visible: boolean) {
 }
 
 function clearPoints() {
-  fillerPoints.splice(0, fillerPoints.length);
-  chartPoints.splice(0, chartPoints.length);
-  pointItems.splice(0, pointItems.length);
+  resetPoints();
   chart?.update();
 }
 
@@ -138,18 +136,24 @@ const tooltipOpened = Vue.ref(false);
 function reloadData(items: any[]) {
   if (!chart) return;
 
-  fillerPoints.splice(0, fillerPoints.length);
-  chartPoints.splice(0, chartPoints.length);
-  pointItems.splice(0, pointItems.length);
-
+  resetPoints();
   addPoints(items);
 }
 
 function getPointPosition(index: number) {
-  const meta = chart?.getDatasetMeta(1);
-  const currentDataPoint = meta?.data[index];
+  if (!chart || !chartPoints.length) {
+    return { x: undefined, y: undefined };
+  }
 
-  return { x: currentDataPoint?.x, y: currentDataPoint?.y };
+  const nextIndex = Math.min(Math.max(index, 0), chartPoints.length - 1);
+  const point = chartPoints[nextIndex];
+  const xScale = chart.scales.x;
+  const yScale = chart.scales.y;
+
+  return {
+    x: xScale?.getPixelForValue(point.x),
+    y: yScale?.getPixelForValue(point.y),
+  };
 }
 
 function getItem(index: number) {
@@ -257,6 +261,16 @@ function stopPulsing() {
 
 function doResize() {
   chart?.update('resize');
+}
+
+function resetPoints() {
+  fillerPoints.splice(0, fillerPoints.length);
+  chartPoints.splice(0, chartPoints.length);
+  pointItems.splice(0, pointItems.length);
+
+  for (const key of Object.keys(pointItemsByDate)) {
+    delete pointItemsByDate[key];
+  }
 }
 
 Vue.onMounted(() => {
