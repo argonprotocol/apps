@@ -2,6 +2,11 @@ import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
 import { ExtrinsicError, GenericEvent } from '@argonprotocol/mainchain';
 import { filterUndefined } from '@argonprotocol/apps-core';
+import {
+  TransactionHistorySource,
+  TransactionHistoryStatus,
+  type ITransactionStatusHistoryRecord,
+} from './TransactionStatusHistoryTable.ts';
 
 export enum ExtrinsicType {
   VaultCreate = 'VaultCreate',
@@ -41,6 +46,7 @@ export interface ITransactionRecord<MetadataType = any> {
   submittedAtTime: Date;
   submittedAtBlockHeight: number;
   submissionErrorJson: any;
+  txNonce?: number;
   txTip: bigint | undefined;
   txFeePlusTip: bigint | undefined;
   blockHeight: number | undefined;
@@ -51,8 +57,8 @@ export interface ITransactionRecord<MetadataType = any> {
   blockExtrinsicErrorJson:
     | { batchInterruptedIndex?: number; errorCode?: string; details?: string; message: string }
     | undefined;
-  lastFinalizedBlockHeight: number | undefined;
-  lastFinalizedBlockTime: Date | undefined;
+  finalizedHeadHeight: number | undefined;
+  finalizedHeadTime: Date | undefined;
   isFinalized: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -61,7 +67,13 @@ export interface ITransactionRecord<MetadataType = any> {
 type ITransactionRecordKey = keyof ITransactionRecord & string;
 export class TransactionsTable extends BaseTable {
   private bigIntFields: ITransactionRecordKey[] = ['txFeePlusTip', 'txTip'];
-  private dateFields: ITransactionRecordKey[] = ['submittedAtTime', 'blockTime', 'createdAt', 'updatedAt'];
+  private dateFields: ITransactionRecordKey[] = [
+    'submittedAtTime',
+    'blockTime',
+    'finalizedHeadTime',
+    'createdAt',
+    'updatedAt',
+  ];
   private jsonFields: ITransactionRecordKey[] = [
     'submissionErrorJson',
     'extrinsicMethodJson',
@@ -90,8 +102,41 @@ export class TransactionsTable extends BaseTable {
   }
 
   public async fetchAll(): Promise<ITransactionRecord[]> {
-    const records = await this.db.select<any[]>('SELECT * FROM Transactions ORDER BY submittedAtBlockHeight DESC');
+    const records = await this.db.select<any[]>(
+      `SELECT
+         id,
+         status,
+         followOnTxId,
+         extrinsicHash,
+         extrinsicMethodJson,
+         extrinsicType,
+         metadataJson,
+         accountAddress,
+         submittedAtTime,
+         submittedAtBlockHeight,
+         submissionErrorJson,
+         txNonce,
+         txTip,
+         txFeePlusTip,
+         blockHeight,
+         blockHash,
+         blockTime,
+         blockExtrinsicIndex,
+         blockExtrinsicEventsJson,
+         blockExtrinsicErrorJson,
+         lastFinalizedBlockHeight AS finalizedHeadHeight,
+         lastFinalizedBlockTime AS finalizedHeadTime,
+         isFinalized,
+         createdAt,
+         updatedAt
+       FROM Transactions
+       ORDER BY submittedAtBlockHeight DESC, id DESC`,
+    );
     return convertFromSqliteFields(records, this.fields);
+  }
+
+  public async fetchStatusHistory(transactionId: number): Promise<ITransactionStatusHistoryRecord[]> {
+    return await this.db.transactionStatusHistoryTable.fetchByTransactionId(transactionId);
   }
 
   public async recordInBlock(
@@ -152,33 +197,63 @@ export class TransactionsTable extends BaseTable {
         record.id,
       ]),
     );
+    await this.db.transactionStatusHistoryTable.record({
+      transactionId: record.id,
+      status: TransactionHistoryStatus.InBlock,
+      source: TransactionHistorySource.Block,
+      blockHeight: blockNumber,
+      blockHash,
+    });
     return record;
   }
 
-  public async updateLastFinalizedBlock(
+  public async updateFinalizedHead(
     record: ITransactionRecord,
     finalizedDetails: { blockNumber: number; blockTime: Date },
   ): Promise<ITransactionRecord> {
-    record.lastFinalizedBlockHeight = finalizedDetails.blockNumber;
-    record.lastFinalizedBlockTime = finalizedDetails.blockTime;
+    record.finalizedHeadHeight = finalizedDetails.blockNumber;
+    record.finalizedHeadTime = finalizedDetails.blockTime;
     await this.db.execute(
       `UPDATE Transactions SET lastFinalizedBlockHeight = ?, lastFinalizedBlockTime = ?
         WHERE id = ?
       `,
-      toSqlParams([record.lastFinalizedBlockHeight, record.lastFinalizedBlockTime, record.id]),
+      toSqlParams([record.finalizedHeadHeight, record.finalizedHeadTime, record.id]),
     );
     return record;
   }
 
-  public async markFinalized(record: ITransactionRecord): Promise<ITransactionRecord> {
+  public async markFinalized(
+    record: ITransactionRecord,
+    finalizedDetails?: { blockNumber: number; blockTime: Date },
+  ): Promise<ITransactionRecord> {
     record.isFinalized = true;
     record.status = TransactionStatus.Finalized;
+    if (finalizedDetails) {
+      record.finalizedHeadHeight = finalizedDetails.blockNumber;
+      record.finalizedHeadTime = finalizedDetails.blockTime;
+    }
     await this.db.execute(
-      `UPDATE Transactions SET isFinalized = ?, status = ?
+      `UPDATE Transactions SET
+        isFinalized = ?,
+        status = ?,
+        lastFinalizedBlockHeight = COALESCE(?, lastFinalizedBlockHeight),
+        lastFinalizedBlockTime = COALESCE(?, lastFinalizedBlockTime)
         WHERE id = ?
       `,
-      toSqlParams([record.isFinalized, record.status, record.id]),
+      toSqlParams([
+        record.isFinalized,
+        record.status,
+        finalizedDetails?.blockNumber,
+        finalizedDetails?.blockTime,
+        record.id,
+      ]),
     );
+    await this.db.transactionStatusHistoryTable.record({
+      transactionId: record.id,
+      status: TransactionHistoryStatus.Finalized,
+      source: TransactionHistorySource.Block,
+      blockHeight: finalizedDetails?.blockNumber,
+    });
     return record;
   }
 
@@ -190,6 +265,11 @@ export class TransactionsTable extends BaseTable {
       `,
       toSqlParams([record.status, record.id]),
     );
+    await this.db.transactionStatusHistoryTable.record({
+      transactionId: record.id,
+      status: TransactionHistoryStatus.TimedOutWaitingForBlock,
+      source: TransactionHistorySource.Local,
+    });
     return record;
   }
 
@@ -203,6 +283,7 @@ export class TransactionsTable extends BaseTable {
       | 'accountAddress'
       | 'submittedAtBlockHeight'
       | 'submittedAtTime'
+      | 'txNonce'
     >,
   ): Promise<ITransactionRecord> {
     const {
@@ -213,13 +294,39 @@ export class TransactionsTable extends BaseTable {
       accountAddress,
       submittedAtBlockHeight,
       submittedAtTime,
+      txNonce,
     } = args;
     const records = await this.db.select<ITransactionRecord[]>(
       `INSERT INTO Transactions (
-          extrinsicHash, extrinsicMethodJson, metadataJson, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, status
+          extrinsicHash, extrinsicMethodJson, metadataJson, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, txNonce, status
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?
-        ) RETURNING *`,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ) RETURNING
+          id,
+          status,
+          followOnTxId,
+          extrinsicHash,
+          extrinsicMethodJson,
+          extrinsicType,
+          metadataJson,
+          accountAddress,
+          submittedAtTime,
+          submittedAtBlockHeight,
+          submissionErrorJson,
+          txNonce,
+          txTip,
+          txFeePlusTip,
+          blockHeight,
+          blockHash,
+          blockTime,
+          blockExtrinsicIndex,
+          blockExtrinsicEventsJson,
+          blockExtrinsicErrorJson,
+          lastFinalizedBlockHeight AS finalizedHeadHeight,
+          lastFinalizedBlockTime AS finalizedHeadTime,
+          isFinalized,
+          createdAt,
+          updatedAt`,
       toSqlParams([
         extrinsicHash,
         extrinsicMethodJson,
@@ -228,10 +335,17 @@ export class TransactionsTable extends BaseTable {
         accountAddress,
         submittedAtBlockHeight,
         submittedAtTime,
+        txNonce,
         TransactionStatus.Submitted,
       ]),
     );
-    return convertFromSqliteFields<ITransactionRecord[]>(records, this.fields)[0];
+    const record = convertFromSqliteFields<ITransactionRecord[]>(records, this.fields)[0];
+    await this.db.transactionStatusHistoryTable.record({
+      transactionId: record.id,
+      status: TransactionHistoryStatus.Submitted,
+      source: TransactionHistorySource.Local,
+    });
+    return record;
   }
 
   public async recordSubmissionError(record: ITransactionRecord, submissionError: Error): Promise<ITransactionRecord> {
@@ -248,6 +362,11 @@ export class TransactionsTable extends BaseTable {
       `UPDATE Transactions SET submissionErrorJson = ?, status = ? WHERE id = ?`,
       toSqlParams([record.submissionErrorJson, record.status, record.id]),
     );
+    await this.db.transactionStatusHistoryTable.record({
+      transactionId: record.id,
+      status: TransactionHistoryStatus.Error,
+      source: TransactionHistorySource.Local,
+    });
     return record;
   }
 }

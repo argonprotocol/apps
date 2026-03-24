@@ -231,32 +231,6 @@
           <div class="grow">
             {{ microgonToArgonNm(breakdown.treasuryMicrogons).format('0,0.[00]') }} ARGN
           </div>
-          <div class="opacity-60">{{ numeral(breakdown.treasuryMicrogonsActivatedPct).format('0,0.[00]')}}%</div>
-        </div>
-        <template #tooltip>
-          <div class="break-words whitespace-normal">
-            <p v-if="breakdown.treasuryMicrogons">
-              These are the argons that have been allocated to Treasury Bonds. The amount
-              cannot exceed the bitcoin value in your vault.
-            </p>
-            <p v-else>
-              You have no argons allocated to Treasury Bonds.
-            </p>
-          </div>
-        </template>
-      </SubItem>
-      <SubItem
-        :tooltipSide="tooltipSide"
-        :height="itemHeight"
-        :spacerWidth="spacerWidth"
-        :align="props.align"
-        :moveFrom="MoveFrom.VaultingTreasury"
-        :moveToken="MoveToken.ARGN"
-      >
-        <div class="flex flex-row items-center w-full">
-          <div class="grow">
-            {{ microgonToArgonNm(breakdown.treasuryMicrogons).format('0,0.[00]') }} ARGN
-          </div>
           <div v-if="breakdown.treasuryMicrogonsMaxCapacity > breakdown.treasuryMicrogons" class="flex flex-row items-center gap-x-1">
             <ExclamationTriangleIcon class="size-5 text-yellow-600" aria-hidden="true" />
             LOW

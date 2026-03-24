@@ -9,21 +9,7 @@
     <div box class="flex flex-col px-5 py-3">
       <div class="flex flex-col gap-y-2" v-if="!isProcessing">
         <p>
-          <span v-if="isProcessing">
-            <template v-if="collectRevenue">
-              You are collecting
-              <strong>
-                {{ currency.symbol }}{{ microgonToMoneyNm(collectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-              </strong>
-              in vault revenue.
-            </template>
-            <template v-else>
-              You are co-signing
-              <strong>{{ signatures }} transaction{{ signatures !== 1 ? 's' : '' }}</strong>
-              .
-            </template>
-          </span>
-          <span v-else-if="collectRevenue">
+          <span v-if="collectRevenue">
             Your vault has
             <strong>
               {{ currency.symbol }}{{ microgonToMoneyNm(collectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
@@ -58,11 +44,11 @@
               ]"
               class="mt-5 flex max-w-2/3" />
           </span>
-          <span v-else-if="myVault.data.pendingCosignUtxosById.size">
+          <span v-else-if="manualPendingCosignCount">
             {{ collectRevenue ? 'Also, you' : 'You' }} have
             <strong>
-              {{ myVault.data.pendingCosignUtxosById.size }} transaction{{
-                myVault.data.pendingCosignUtxosById.size === 1 ? '' : 's'
+              {{ manualPendingCosignCount }} transaction{{
+                manualPendingCosignCount === 1 ? '' : 's'
               }}
             </strong>
             that must be signed. Failure to do so within
@@ -75,7 +61,7 @@
             </CountdownClock>
             will result in your vault forfeiting
             <strong>
-              {{ currency.symbol }}{{ microgonToMoneyNm(pendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(manualPendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}
             </strong>
             in securitization.
           </span>
@@ -133,12 +119,13 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import CountdownClock from '../components/CountdownClock.vue';
 import { getMyVault } from '../stores/vaults.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import InputMenu from '../components/InputMenu.vue';
-import { bigIntMax, bigIntMin, MoveTo } from '@argonprotocol/apps-core';
+import { bigIntMin, MoveTo } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 
@@ -153,18 +140,54 @@ const isOpen = Vue.ref(true);
 
 const isProcessing = Vue.ref(false);
 const myVault = getMyVault();
+const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
 
-const signatures = Vue.ref(myVault.data.pendingCosignUtxosById.size);
+const signatures = Vue.ref(0);
 const collectRevenue = Vue.ref(myVault.data.pendingCollectRevenue);
+
+const myOwnPendingBitcoinCosignUtxoIds = Vue.computed(() => {
+  const utxoIds = new Set<number>();
+
+  for (const utxoId of myVault.data.pendingCosignUtxosById.keys()) {
+    if (!bitcoinLocks.getLockByUtxoId(utxoId)) continue;
+    utxoIds.add(utxoId);
+  }
+
+  return utxoIds;
+});
+
+const myPendingBitcoinCosignTxInfos = Vue.computed(() => {
+  return Array.from(myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.entries())
+    .filter(([utxoId]) => myOwnPendingBitcoinCosignUtxoIds.value.has(utxoId))
+    .map(([, txInfo]) => txInfo);
+});
+
+const latestMyPendingBitcoinCosignTxInfo = Vue.computed(() => {
+  return myPendingBitcoinCosignTxInfos.value.at(-1);
+});
+
+const myPendingBitcoinCosignTxCount = Vue.computed(() => {
+  return myPendingBitcoinCosignTxInfos.value.length;
+});
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const pendingCosignSum = Vue.computed(() => {
-  const sum = Array.from(myVault.data.pendingCosignUtxosById.values()).reduce(
-    (acc, utxo) => acc + utxo.marketValue,
-    0n,
-  );
+const manualPendingCosignEntries = Vue.computed(() => {
+  return Array.from(myVault.data.pendingCosignUtxosById.entries()).filter(([utxoId]) => {
+    if (myOwnPendingBitcoinCosignUtxoIds.value.has(utxoId)) {
+      return false;
+    }
+    return !myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.has(utxoId);
+  });
+});
+
+const manualPendingCosignCount = Vue.computed(() => {
+  return manualPendingCosignEntries.value.length;
+});
+
+const manualPendingCosignSum = Vue.computed(() => {
+  const sum = manualPendingCosignEntries.value.reduce((acc, [, utxo]) => acc + utxo.marketValue, 0n);
   return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
 });
 
@@ -185,38 +208,77 @@ Vue.watch(
   },
 );
 
+Vue.watch(
+  manualPendingCosignCount,
+  x => {
+    if (!isProcessing.value) {
+      signatures.value = x;
+    }
+  },
+  { immediate: true },
+);
+
 async function submitCollect() {
   isProcessing.value = true;
   try {
     progressLabel.value = 'Preparing Transaction...';
     const moveToDest = moveTo.value;
-    const txInfo = await myVault.collect({ moveTo: moveToDest });
-    if (txInfo) {
-      txInfo.subscribeToProgress((args, error) => {
+    await myVault.collect({ moveTo: moveToDest });
+  } catch (error) {
+    console.error('Error collecting pending revenue:', error);
+    transactionError.value = error instanceof Error ? error.message : `${error}`;
+    isProcessing.value = false;
+    progressPct.value = 0;
+    progressLabel.value = '';
+  }
+}
+
+Vue.watch(
+  [() => myVault.data.pendingCollectTxInfo, latestMyPendingBitcoinCosignTxInfo],
+  ([pendingCollectTxInfo, myPendingBitcoinCosignTxInfo], _, onCleanup) => {
+    if (pendingCollectTxInfo) {
+      signatures.value = pendingCollectTxInfo.tx.metadataJson.cosignedUtxoIds.length;
+      collectRevenue.value = pendingCollectTxInfo.tx.metadataJson.expectedCollectRevenue;
+      isProcessing.value = true;
+      const unsubscribe = pendingCollectTxInfo.subscribeToProgress((args, error) => {
         progressPct.value = args.progressPct;
         progressLabel.value = args.progressMessage;
         if (error) {
           transactionError.value = error.message;
         }
       });
+      onCleanup(unsubscribe);
+      return;
     }
-  } catch (error) {
-    console.error('Error collecting pending revenue:', error);
-    transactionError.value = error instanceof Error ? error.message : `${error}`;
-  }
-}
 
-if (myVault.data.pendingCollectTxInfo) {
-  const txInfo = myVault.data.pendingCollectTxInfo;
-  signatures.value = txInfo.tx.metadataJson.cosignedUtxoIds.length;
-  collectRevenue.value = txInfo.tx.metadataJson.expectedCollectRevenue;
-  isProcessing.value = true;
-  txInfo.subscribeToProgress((args, error) => {
-    progressPct.value = args.progressPct;
-    progressLabel.value = args.progressMessage;
-    if (error) {
-      transactionError.value = error.message;
+    if (myPendingBitcoinCosignTxInfo) {
+      signatures.value = myPendingBitcoinCosignTxCount.value;
+      collectRevenue.value = 0n;
+      isProcessing.value = true;
+      const unsubscribe = myPendingBitcoinCosignTxInfo.subscribeToProgress((args, error) => {
+        progressPct.value = args.progressPct;
+        progressLabel.value = args.progressMessage;
+        if (error) {
+          transactionError.value = error.message;
+        }
+      });
+      onCleanup(unsubscribe);
+      return;
     }
-  });
-}
+
+    collectRevenue.value = myVault.data.pendingCollectRevenue;
+    signatures.value = manualPendingCosignCount.value;
+
+    if (!isProcessing.value) return;
+
+    isProcessing.value = false;
+    progressPct.value = 0;
+    progressLabel.value = '';
+
+    if (!collectRevenue.value && !manualPendingCosignCount.value && !transactionError.value) {
+      closeOverlay();
+    }
+  },
+  { immediate: true },
+);
 </script>

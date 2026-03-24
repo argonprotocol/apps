@@ -737,7 +737,7 @@ export default class BitcoinLocks {
       throw new Error(`Lock with ID ${lock.utxoId} has not been cosigned yet.`);
     }
     if (fundingRecord.releaseCosignHeight == null) {
-      throw new Error(`Lock with ID ${lock.utxoId} does not have a confirmed Argon cosign yet.`);
+      throw new Error(`Lock with ID ${lock.utxoId} does not have an Argon cosign block height yet.`);
     }
     if (!fundingRecord.releaseToDestinationAddress || fundingRecord.releaseBitcoinNetworkFee == null) {
       throw new Error(`Lock with ID ${lock.utxoId} has no release request details yet.`);
@@ -1559,7 +1559,7 @@ export default class BitcoinLocks {
         },
       });
 
-      void this.continueOrphanReleaseAfterArgonInBlock(
+      void this.continueOrphanReleaseAfterArgonInclusion(
         lock,
         record,
         {
@@ -1768,20 +1768,51 @@ export default class BitcoinLocks {
 
     const result = await vault.cosignMyLock(lock);
     if (!result?.txInfo) return;
+    const txFailure = this.getTxFailureMessage(result.txInfo);
+    if (txFailure) {
+      throw new Error(txFailure);
+    }
 
-    await result.txInfo.txResult.waitForInFirstBlock.catch(error => {
-      const txFailure = this.getTxFailureMessage(result.txInfo);
-      throw txFailure ? new Error(txFailure) : error;
-    });
-
-    const submittedSignatureOnChain = await this.getReleaseCosignOnChain(lock, archiveClient);
-    if (!submittedSignatureOnChain) return;
+    if (result.txInfo.txResult.blockNumber == null) {
+      void this.continueLockReleaseAfterArgonInclusion(lock, result.vaultSignature, result.txInfo);
+      return;
+    }
 
     await this.utxoTracking.setReleaseCosign(latestFundingRecord, {
-      releaseCosignVaultSignature: submittedSignatureOnChain.signature,
-      releaseCosignHeight: submittedSignatureOnChain.blockHeight,
+      releaseCosignVaultSignature: result.vaultSignature,
+      releaseCosignHeight: result.txInfo.txResult.blockNumber,
     });
     await this.ensureLockReleaseProcessing(lock);
+  }
+
+  private async continueLockReleaseAfterArgonInclusion(
+    lock: IBitcoinLockRecord,
+    vaultSignature: Uint8Array,
+    txInfo: TransactionInfo,
+  ): Promise<void> {
+    try {
+      await txInfo.txResult.waitForInFirstBlock;
+      const txFailure = this.getTxFailureMessage(txInfo);
+      if (txFailure) {
+        return;
+      }
+      if (txInfo.txResult.blockNumber == null) {
+        return;
+      }
+
+      const fundingRecord = this.getAcceptedFundingRecord(lock);
+      if (!fundingRecord) {
+        return;
+      }
+
+      await this.utxoTracking.setReleaseCosign(fundingRecord, {
+        releaseCosignVaultSignature: vaultSignature,
+        releaseCosignHeight: txInfo.txResult.blockNumber,
+      });
+      await this.ensureLockReleaseProcessing(lock);
+    } catch (error) {
+      console.warn(`[BitcoinLocks] Error continuing release after Argon inclusion for ${lock.uuid}`, error);
+    }
   }
 
   private async syncLockReleaseBitcoinProcessing(locksByUtxoId: {
@@ -1882,11 +1913,7 @@ export default class BitcoinLocks {
       releaseState.isReleaseStatus &&
       !releaseState.isComplete &&
       !!fundingRecord &&
-      this.utxoTracking.canSubmitFundingRecordReleaseToBitcoin(fundingRecord) &&
-      !!(await this.getReleaseCosignOnChain(lock).catch(err => {
-        console.warn(`[BitcoinLocks] Error verifying release cosign for ${lock.uuid}`, err);
-        return undefined;
-      }))
+      this.utxoTracking.canSubmitFundingRecordReleaseToBitcoin(fundingRecord)
     ) {
       await this.ownerCosignAndSendToBitcoin(lock).catch(err => {
         console.warn(`[BitcoinLocks] Error submitting release to bitcoin for ${lock.uuid}`, err);
@@ -2365,8 +2392,8 @@ export default class BitcoinLocks {
     if (record.requestedReleaseAtTick != null) return;
     if (!record.releaseToDestinationAddress || record.releaseBitcoinNetworkFee == null) return;
 
-    const blockHash = await txInfo.txResult.waitForFinalizedBlock;
-    const client = await getMainchainClient(true);
+    const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
+    const client = await getMainchainClient(false);
     const api = await client.at(blockHash);
     const requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
 
@@ -2463,14 +2490,14 @@ export default class BitcoinLocks {
     }
   }
 
-  private async continueOrphanReleaseAfterArgonInBlock(
+  private async continueOrphanReleaseAfterArgonInclusion(
     lock: IBitcoinLockRecord,
     record: IBitcoinUtxoRecord,
     args: { toScriptPubkey: string; bitcoinNetworkFee: bigint; vaultSignature: Uint8Array },
     txInfo: TransactionInfo,
   ): Promise<void> {
     try {
-      await txInfo.txResult.waitForFinalizedBlock;
+      await txInfo.txResult.waitForInFirstBlock;
       const txFailure = this.getTxFailureMessage(txInfo);
       if (txFailure) {
         await this.utxoTracking.setReleaseError(record, txFailure);
@@ -2509,7 +2536,7 @@ export default class BitcoinLocks {
   ): Promise<{ blockHeight: number; signature: Uint8Array } | undefined> {
     archiveClient ??= await getMainchainClient(true);
     const bitcoinLock = new BitcoinLock(lock.lockDetails);
-    return await bitcoinLock.findVaultCosignSignature(archiveClient);
+    return await bitcoinLock.findVaultCosignSignature(archiveClient, true);
   }
 
   private getSatoshisForLiquidityAtLockRate(lock: IBitcoinLockRecord, microgons: bigint): bigint {

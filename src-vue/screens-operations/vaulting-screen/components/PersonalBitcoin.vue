@@ -34,6 +34,31 @@
         </div>
       </div>
     </div>
+    <div v-else-if="showCheckingFundingStatus" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
+      <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px opacity-70" />
+      <div class="flex flex-col items-start justify-center grow">
+        <div class="text-xl font-bold opacity-60 border-b border-argon-600/20 pb-1.5 mb-1.5">
+          Checking Your Bitcoin Deposit Status
+        </div>
+        <div class="flex flex-row items-center gap-2 text-argon-700/80 pt-0.5 font-bold text-md">
+          <Spinner class="h-4 w-4" />
+          <span>Confirming the latest Bitcoin funding state</span>
+        </div>
+      </div>
+      <div class="flex flex-col items-center justify-center">
+        <div class="opacity-40 italic mt-2.5">
+          Expires in
+          <CountdownClock :time="lockInitializeExpirationTime" v-slot="{ days, hours, minutes }">
+            <template v-if="days > 0">
+              {{ days }} day{{days === 1 ? '' : 's'}}
+            </template>
+            <template v-else>
+              {{ hours }}h {{ minutes }}m
+            </template>
+          </CountdownClock>
+        </div>
+      </div>
+    </div>
     <div v-else-if="showReadyForBitcoin" class="grow flex flex-row items-center justify-start pl-[3%] pr-[3%] !py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 relative top-px fade-in-out" />
       <div class="flex flex-col items-start justify-center grow">
@@ -349,6 +374,7 @@ const currency = getCurrency();
 const bitcoinLockProgress = useBitcoinLockProgress();
 
 const shouldStartLockingOverlayAtBeginning = Vue.ref(false);
+const hasInitializedLockProgress = Vue.ref(false);
 
 const lockingOverlayLock = Vue.computed(() => {
   if (shouldStartLockingOverlayAtBeginning.value) return undefined;
@@ -435,14 +461,28 @@ const showFundingMismatch = Vue.computed(() => {
     mismatchView.value?.phase ?? 'none',
   );
 });
+const hasCachedLockProgress = Vue.computed(() => {
+  const utxoId = personalLock.value?.utxoId;
+  return utxoId != null && bitcoinLockProgress.lock?.utxoId === utxoId;
+});
+const hasLockProgressReady = Vue.computed(() => {
+  return hasInitializedLockProgress.value || hasCachedLockProgress.value;
+});
+const showCheckingFundingStatus = Vue.computed(() => {
+  if (!lockPendingFunding.value || !personalLock.value) return false;
+  if (showFundingMismatch.value || showMismatchAccept.value) return false;
+  return !hasLockProgressReady.value;
+});
 const showReadyForBitcoin = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
   if (showFundingMismatch.value || showMismatchAccept.value) return false;
+  if (!hasLockProgressReady.value) return false;
   return lockProcessingStep.value.confirmations < 0;
 });
 const showFundingBitcoinProcessing = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
   if (showFundingMismatch.value || showMismatchAccept.value) return false;
+  if (!hasLockProgressReady.value) return false;
   return lockProcessingStep.value.confirmations >= 0;
 });
 const isLockedStatus = Vue.computed(() => {
@@ -666,6 +706,7 @@ Vue.onMounted(async () => {
   await myVault.subscribe();
   await bitcoinLocks.load();
   stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
+  hasInitializedLockProgress.value = true;
 
   Vue.watch(
     currency.priceIndex,
@@ -678,7 +719,9 @@ Vue.onMounted(async () => {
   Vue.watch(
     personalLock,
     () => {
+      hasInitializedLockProgress.value = false;
       bitcoinLockProgress.updateLock(personalLock.value);
+      hasInitializedLockProgress.value = true;
       void loadPersonalUtxo();
       void updateBitcoinUnlockPrices();
     },
@@ -691,7 +734,6 @@ Vue.onMounted(async () => {
 
 Vue.onUnmounted(() => {
   myVault.unsubscribe();
-  bitcoinLocks.unsubscribeFromArgonBlocks();
   stopLockProgressTracking?.();
   stopLockProgressTracking = undefined;
 });

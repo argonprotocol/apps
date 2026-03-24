@@ -8,9 +8,9 @@ import {
   SignedBlock,
   SubmittableExtrinsic,
   TxResult,
-  TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
+import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -18,8 +18,20 @@ import { BlockWatch, createDeferred, IBlockHeaderInfo, IDeferred, TransactionEve
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';
+import {
+  TransactionHistorySource,
+  TransactionHistoryStatus,
+  type ITransactionStatusHistoryRecord,
+  type TransactionStatusHistoryTable,
+} from './db/TransactionStatusHistoryTable.ts';
 
-const PENDING_STATUSES = [TransactionStatus.Submitted, TransactionStatus.InBlock];
+type IWatchedTxResult = ISubmittableResult & { blockNumber?: number };
+
+export enum TxAttemptState {
+  Follow = 'Follow',
+  Finalized = 'Finalized',
+  Replace = 'Replace',
+}
 
 export class TransactionTracker {
   public data: {
@@ -29,6 +41,8 @@ export class TransactionTracker {
 
   #waitForLoad?: IDeferred;
   #table?: TransactionsTable;
+  #historyTable?: TransactionStatusHistoryTable;
+  #latestHistoryByTxId = new Map<number, ITransactionStatusHistoryRecord>();
   #blockCache = new LRU<SignedBlock>(25);
   #bestBlockNumber?: number;
   #watchUnsubscribe?: () => void;
@@ -44,9 +58,7 @@ export class TransactionTracker {
   }
 
   public get pendingBlockTxInfosAtLoad(): TransactionInfo<any>[] {
-    return this.data.txInfos.filter(
-      x => x.statusAtLoad === TransactionStatus.Submitted || x.statusAtLoad === TransactionStatus.InBlock,
-    );
+    return this.data.txInfos.filter(x => this.isPendingTxInfoAtLoad(x));
   }
 
   public async load(reload = false): Promise<void> {
@@ -56,6 +68,9 @@ export class TransactionTracker {
     try {
       const table = await this.getTable();
       const txs = await table.fetchAll();
+      this.#latestHistoryByTxId = await this.getHistoryTable().then(x =>
+        x.fetchLatestByTransactionIds(txs.map(y => y.id)),
+      );
       const client = await getMainchainClient(false);
       await this.blockWatch.start();
 
@@ -64,6 +79,7 @@ export class TransactionTracker {
         const txResult = new TxResult(client, {
           accountAddress: tx.accountAddress,
           method: tx.extrinsicMethodJson,
+          nonce: tx.txNonce ?? 0,
           signedHash: tx.extrinsicHash,
           submittedTime: tx.submittedAtTime,
           submittedAtBlockNumber: tx.submittedAtBlockHeight,
@@ -122,7 +138,7 @@ export class TransactionTracker {
           }
         }
       }
-      if (this.data.txInfos.some(x => PENDING_STATUSES.includes(x.tx.status))) {
+      if (this.data.txInfos.some(x => this.isTrackedAsPending(x))) {
         await this.watchForUpdates();
       }
       this.#waitForLoad.resolve();
@@ -141,20 +157,38 @@ export class TransactionTracker {
       metadata?: T;
     } & ISubmittableOptions,
   ): Promise<TransactionInfo<T>> {
-    const { tx, signer, extrinsicType, metadata } = args;
+    const { tx, signer, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
     const client = await getMainchainClient(false);
-    const txSubmitter = new TxSubmitter(client, tx, signer);
-
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
-    const txResult = await txSubmitter.submit({
-      ...args,
-      disableAutomaticTxTracking: true,
-    });
-    return this.trackTxResult({
+    const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
+    if (useLatestNonce && apiOptions.nonce === undefined) {
+      apiOptions.nonce = await client.rpc.system.accountNextIndex(signer.address);
+    }
+    const signedTx = await tx.signAsync(signer, apiOptions);
+    const txResultExtrinsic = {
+      signedHash: signedTx.hash.toHex(),
+      method: signedTx.method.toHuman(),
+      nonce: signedTx.nonce.toNumber(),
+      accountAddress: signer.address,
+      submittedTime: new Date(),
+      submittedAtBlockNumber: submittedAtBlockHeight,
+    };
+    const txResult = new TxResult(client, txResultExtrinsic);
+    const txInfo = await this.trackTxResult({
       txResult,
       extrinsicType,
       metadata,
     });
+    try {
+      await signedTx.send(result => {
+        txResult.onSubscriptionResult(result);
+        void this.handleWatchedResult(txInfo.tx, txResult, result);
+      });
+    } catch (error) {
+      txResult.submissionError = error as Error;
+      await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
+    }
+    return txInfo;
   }
 
   public createIntentForFollowOnTx<T>(txInfo: TransactionInfo): IDeferred<TransactionInfo<T>> {
@@ -167,6 +201,94 @@ export class TransactionTracker {
     return deferred;
   }
 
+  public findLatestTxInfo(matcher: (txInfo: TransactionInfo) => boolean): TransactionInfo | undefined {
+    return this.data.txInfos.find(matcher);
+  }
+
+  public async getTxAttemptState(
+    txInfo: TransactionInfo,
+    followWindowFinalizedBlocks: number,
+  ): Promise<TxAttemptState> {
+    if (
+      txInfo.tx.submissionErrorJson ||
+      txInfo.tx.blockExtrinsicErrorJson ||
+      txInfo.tx.status === TransactionStatus.Error ||
+      txInfo.tx.status === TransactionStatus.TimedOutWaitingForBlock
+    ) {
+      return TxAttemptState.Replace;
+    }
+
+    const latestHistoryStatus = this.getLatestHistoryStatus(txInfo.tx.id);
+    if (
+      latestHistoryStatus === TransactionHistoryStatus.Dropped ||
+      latestHistoryStatus === TransactionHistoryStatus.Usurped ||
+      latestHistoryStatus === TransactionHistoryStatus.Invalid
+    ) {
+      return TxAttemptState.Replace;
+    }
+
+    if (latestHistoryStatus === TransactionHistoryStatus.Retracted && txInfo.tx.txNonce != null) {
+      for (const otherTxInfo of this.data.txInfos) {
+        if (otherTxInfo.tx.id === txInfo.tx.id) continue;
+        if (otherTxInfo.tx.accountAddress !== txInfo.tx.accountAddress) continue;
+        if (otherTxInfo.tx.txNonce == null || otherTxInfo.tx.txNonce < txInfo.tx.txNonce) continue;
+
+        if (otherTxInfo.tx.status === TransactionStatus.Finalized) {
+          return TxAttemptState.Replace;
+        }
+
+        if (otherTxInfo.tx.status !== TransactionStatus.InBlock) {
+          continue;
+        }
+
+        const { blockHash, blockHeight } = otherTxInfo.tx;
+        if (!blockHash || blockHeight == null) {
+          continue;
+        }
+
+        const header = await this.blockWatch.getHeader(blockHeight).catch(() => undefined);
+        if (header?.blockHash === blockHash) {
+          return TxAttemptState.Replace;
+        }
+      }
+    }
+
+    const finalizedHeight = this.blockWatch.finalizedBlockHeader.blockNumber;
+
+    if (txInfo.tx.status === TransactionStatus.Submitted) {
+      if (finalizedHeight - txInfo.tx.submittedAtBlockHeight <= followWindowFinalizedBlocks) {
+        return TxAttemptState.Follow;
+      }
+      return TxAttemptState.Replace;
+    }
+
+    if (txInfo.tx.status === TransactionStatus.InBlock) {
+      const { blockHash, blockHeight } = txInfo.tx;
+      if (!blockHash || blockHeight == null) {
+        return TxAttemptState.Replace;
+      }
+
+      const header = await this.blockWatch.getHeader(blockHeight).catch(() => undefined);
+      if (!header) {
+        return TxAttemptState.Follow;
+      }
+      if (header.blockHash === blockHash) {
+        return TxAttemptState.Follow;
+      }
+      if (finalizedHeight - blockHeight <= followWindowFinalizedBlocks) {
+        return TxAttemptState.Follow;
+      }
+
+      return TxAttemptState.Replace;
+    }
+
+    if (txInfo.tx.status === TransactionStatus.Finalized) {
+      return TxAttemptState.Finalized;
+    }
+
+    return TxAttemptState.Replace;
+  }
+
   public async trackTxResult<T>(
     args: {
       txResult: TxResult;
@@ -177,6 +299,7 @@ export class TransactionTracker {
     await this.load();
     const { txResult, extrinsicType, metadata } = args;
     const table = await this.getTable();
+    const txNonce = txResult.extrinsic.nonce;
 
     const extrinsicHash = txResult.extrinsic.signedHash;
     const record = await table.insert({
@@ -187,6 +310,7 @@ export class TransactionTracker {
       accountAddress: txResult.extrinsic.accountAddress,
       submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
       submittedAtTime: txResult.extrinsic.submittedTime,
+      txNonce,
     });
 
     // Mark txResult as non-reactive to avoid issues with private fields
@@ -195,7 +319,7 @@ export class TransactionTracker {
     this.data.txInfos.unshift(txInfo);
     this.data.txInfosByType[extrinsicType] = txInfo;
     if (txResult.submissionError) {
-      await table.recordSubmissionError(record, txResult.submissionError);
+      await this.recordSubmissionError(record, txResult.submissionError);
     }
     await this.watchForUpdates();
 
@@ -299,20 +423,28 @@ export class TransactionTracker {
 
     for (const txInfo of this.data.txInfos) {
       const { tx, txResult } = txInfo;
-      if (!PENDING_STATUSES.includes(tx.status)) {
+      if (!this.isTrackedAsPending(txInfo)) {
         continue;
       }
       try {
+        const latestHistoryStatus = this.getLatestHistoryStatus(tx.id);
+        const shouldRescanBestBlockTx =
+          latestHistoryStatus === TransactionHistoryStatus.Retracted ||
+          this.isNonResumableWatchStatus(latestHistoryStatus);
+
         if (tx.blockHeight) {
           if (tx.blockHeight <= finalizedHeight) {
             // ensure this block hash is still valid
             const finalizedHash = await this.blockWatch.getFinalizedHash(tx.blockHeight);
             if (finalizedHash === tx.blockHash) {
-              await table.markFinalized(tx);
+              await table.markFinalized(tx, {
+                blockNumber: finalizedHeight,
+                blockTime: new Date(finalizedBlockTime),
+              });
               txResult.setFinalized();
               continue;
             }
-          } else {
+          } else if (!shouldRescanBestBlockTx) {
             // The tx is already in a best block. Wait for finalization before attempting
             // expensive relocation scans across the recent chain window.
             continue;
@@ -373,7 +505,10 @@ export class TransactionTracker {
           });
 
           if (findTransactionResult.blockNumber <= finalizedHeight) {
-            await table.markFinalized(tx);
+            await table.markFinalized(tx, {
+              blockNumber: finalizedHeight,
+              blockTime: new Date(finalizedBlockTime),
+            });
             txResult.setFinalized();
           }
         } else {
@@ -393,13 +528,13 @@ export class TransactionTracker {
     }
     for (const txInfo of this.data.txInfos) {
       if (txInfo.tx.status === TransactionStatus.Finalized || txInfo.tx.status === TransactionStatus.Error) continue;
-      await table.updateLastFinalizedBlock(txInfo.tx, {
+      await table.updateFinalizedHead(txInfo.tx, {
         blockNumber: finalizedHeight,
         blockTime: new Date(finalizedBlockTime),
       });
-      txInfo.finalizedBlockHeight = finalizedHeight;
+      txInfo.finalizedHeadHeight = finalizedHeight;
     }
-    if (this.data.txInfos.every(x => !PENDING_STATUSES.includes(x.tx.status))) {
+    if (this.data.txInfos.every(x => !this.isTrackedAsPending(x))) {
       this.stopWatching();
     }
   }
@@ -409,13 +544,19 @@ export class TransactionTracker {
     return this.#table;
   }
 
+  private async getHistoryTable(): Promise<TransactionStatusHistoryTable> {
+    this.#historyTable ??= await this.dbPromise.then(x => x.transactionStatusHistoryTable);
+    return this.#historyTable;
+  }
+
   private getSearchStartBlockHeight(tx: ITransactionRecord): number {
-    if (tx.lastFinalizedBlockHeight === undefined) {
+    if (tx.finalizedHeadHeight === undefined) {
       return tx.submittedAtBlockHeight;
     }
-    // Keep a one-block overlap with the last finalized checkpoint so we don't
-    // miss a tx that moved onto the canonical chain right at that boundary.
-    return Math.max(tx.submittedAtBlockHeight, tx.lastFinalizedBlockHeight);
+
+    // Start from the last finalized head we processed so a tx that reappears on
+    // the canonical chain at that boundary is still rediscovered.
+    return Math.max(tx.submittedAtBlockHeight, tx.finalizedHeadHeight);
   }
 
   private async getBlock(client: ArgonClient, blockHash: string): Promise<SignedBlock> {
@@ -426,5 +567,126 @@ export class TransactionTracker {
     const block = await client.rpc.chain.getBlock(blockHash);
     this.#blockCache.set(blockHash, block);
     return block;
+  }
+
+  private async recordSubmissionError(record: ITransactionRecord, error: Error) {
+    if (record.status === TransactionStatus.Error) return;
+    const table = await this.getTable();
+    await table.recordSubmissionError(record, error);
+  }
+
+  private async handleWatchedResult(record: ITransactionRecord, txResult: TxResult, result: IWatchedTxResult) {
+    try {
+      await this.recordWatchStatus(record, result);
+      if (txResult.submissionError) {
+        await this.recordSubmissionError(record, txResult.submissionError);
+      }
+    } catch (error) {
+      console.error(`[TransactionTracker] Error handling watched tx #${record.id} update`, error);
+    }
+  }
+
+  private async recordWatchStatus(record: ITransactionRecord, result: IWatchedTxResult) {
+    const { blockNumber, status } = result;
+
+    if (status.isBroadcast) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.Broadcast,
+        source: TransactionHistorySource.Watch,
+      });
+    }
+
+    if (status.isInBlock) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.InBlock,
+        source: TransactionHistorySource.Watch,
+        blockHeight: blockNumber,
+        blockHash: status.asInBlock?.toHex(),
+      });
+    }
+
+    if (status.isFinalized) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.Finalized,
+        source: TransactionHistorySource.Watch,
+        blockHeight: blockNumber,
+        blockHash: status.asFinalized?.toHex(),
+      });
+    }
+
+    if (status.isRetracted) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.Retracted,
+        source: TransactionHistorySource.Watch,
+      });
+    }
+
+    if (status.isUsurped) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.Usurped,
+        source: TransactionHistorySource.Watch,
+        replacementTxHash: status.asUsurped.toHex(),
+      });
+    }
+
+    if (status.isDropped) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.Dropped,
+        source: TransactionHistorySource.Watch,
+      });
+    }
+
+    if (status.isInvalid) {
+      await this.recordHistoryStatus({
+        transactionId: record.id,
+        status: TransactionHistoryStatus.Invalid,
+        source: TransactionHistorySource.Watch,
+      });
+    }
+  }
+
+  private async recordHistoryStatus(entry: Parameters<TransactionStatusHistoryTable['record']>[0]) {
+    const historyTable = await this.getHistoryTable();
+    const latest = await historyTable.record(entry);
+    if (!latest) return;
+    this.#latestHistoryByTxId.set(entry.transactionId, latest);
+  }
+
+  private getLatestHistoryStatus(transactionId: number) {
+    return this.#latestHistoryByTxId.get(transactionId)?.status;
+  }
+
+  private isPendingTxInfoAtLoad(txInfo: TransactionInfo) {
+    if (txInfo.statusAtLoad !== TransactionStatus.Submitted && txInfo.statusAtLoad !== TransactionStatus.InBlock) {
+      return false;
+    }
+
+    const latestWatchStatus = this.getLatestHistoryStatus(txInfo.tx.id);
+    return !this.isNonResumableWatchStatus(latestWatchStatus);
+  }
+
+  private isTrackedAsPending(txInfo: TransactionInfo) {
+    if (txInfo.tx.status !== TransactionStatus.Submitted && txInfo.tx.status !== TransactionStatus.InBlock) {
+      return false;
+    }
+    if (txInfo.txResult.submissionError) {
+      return false;
+    }
+    return true;
+  }
+
+  private isNonResumableWatchStatus(status?: TransactionHistoryStatus) {
+    if (!status) return false;
+    return (
+      status === TransactionHistoryStatus.Dropped ||
+      status === TransactionHistoryStatus.Usurped ||
+      status === TransactionHistoryStatus.Invalid
+    );
   }
 }

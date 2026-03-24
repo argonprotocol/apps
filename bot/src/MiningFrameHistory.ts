@@ -63,7 +63,7 @@ export class MiningFrameHistory {
       auctionCloseTick: persisted?.auctionCloseTick,
       expectedAuctionCloseTick,
       winningBids,
-      slots,
+      slots: this.attachSeatStartingFrameIds(frameId, slots),
     };
   }
 
@@ -160,7 +160,7 @@ export class MiningFrameHistory {
       myLastBidMicrogons,
       auctionCloseTick,
       winningBids,
-      slots,
+      slots: this.attachSeatStartingFrameIds(frameId, slots),
     };
   }
 
@@ -195,10 +195,10 @@ export class MiningFrameHistory {
     winningBids: IMiningFrameDetail['winningBids'],
   ): IMiningFrameDetail['slots'] {
     const auctionSlotId = (frameId + 1) % 10;
-    const auctionSlot = slots.find((s: IMiningFrameDetail['slots'][number]) => s.slotId === auctionSlotId);
+    const auctionSlot = slots.find(s => s.slotId === auctionSlotId);
     if (!auctionSlot) return slots;
 
-    const seats = auctionSlot.seats.map((seat: IMiningFrameDetail['slots'][number]['seats'][number]) => ({
+    const seats = auctionSlot.seats.map(seat => ({
       ...seat,
       bid: null as typeof seat.bid,
     }));
@@ -228,10 +228,29 @@ export class MiningFrameHistory {
       if (!seat.bid && unassigned.length) seat.bid = unassigned.shift()!;
     }
 
-    return slots.map((s: IMiningFrameDetail['slots'][number]) => (s.slotId === auctionSlotId ? { ...s, seats } : s));
+    return slots.map(s => (s.slotId === auctionSlotId ? { ...s, seats } : s));
   }
 
   private hasCompleteSlots(slots?: IMiningFrameDetail['slots'] | null): boolean {
-    return Boolean(slots?.length === 10 && slots.every((s: IMiningFrameDetail['slots'][number]) => s.seats.length > 0));
+    return Boolean(
+      slots?.length === 10 &&
+        slots.every(slot => slot.seats.length > 0 && slot.seats.every(seat => 'startingFrameId' in seat)),
+    );
+  }
+
+  private attachSeatStartingFrameIds(frameId: number, slots: IMiningFrameDetail['slots']): IMiningFrameDetail['slots'] {
+    const totalSlotCount = 10;
+
+    return slots.map(slot => {
+      const startingFrameId = frameId - ((frameId - slot.slotId + totalSlotCount) % totalSlotCount);
+
+      return {
+        ...slot,
+        seats: slot.seats.map(seat => ({
+          ...seat,
+          startingFrameId: seat.miner?.startingFrameId ?? startingFrameId,
+        })),
+      };
+    });
   }
 }

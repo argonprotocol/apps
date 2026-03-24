@@ -131,6 +131,16 @@ export class CohortsTable extends BaseTable {
     return convertSqliteBigInts(records, this.bigIntFields);
   }
 
+  public async fetchByIds(ids: number[]): Promise<ICohortRecord[]> {
+    if (!ids.length) {
+      return [];
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    const records = await this.db.select<any[]>(`SELECT * FROM Cohorts WHERE id IN (${placeholders})`, ids);
+    return convertSqliteBigInts(records, this.bigIntFields);
+  }
+
   public async fetchNetMiningResults(): Promise<{
     cohortId: number;
     totalCost: number;

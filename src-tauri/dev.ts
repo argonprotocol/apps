@@ -22,7 +22,9 @@ async function main(): Promise<void> {
   const network = process.env.ARGON_NETWORK_NAME || 'testnet';
   const argonAppInstance = process.env.ARGON_APP_INSTANCE || '';
   const app = process.env.ARGON_APP || 'operations';
-  console.log(`[tauri-dev] Starting Tauri dev for app="${app}" on network="${network}" with instance="${argonAppInstance}"`);
+  console.log(
+    `[tauri-dev] Starting Tauri dev for app="${app}" on network="${network}" with instance="${argonAppInstance}"`,
+  );
 
   const tauriPort = getTauriPort(argonAppInstance, app);
   const configFileName = `tauri.${app}.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
@@ -101,7 +103,8 @@ async function resolveDevDockerNetworkConfigOverride(): Promise<RuntimeNetworkCo
   const dotenvPath = path.join(composeDir, '.env');
   const dotenvEnv = loadDotEnv({ path: dotenvPath }).parsed ?? {};
   const composeEnv: NodeJS.ProcessEnv = { ...dotenvEnv, ...process.env };
-  const composeProjectName = readNonEmpty(process.env.COMPOSE_PROJECT_NAME) ?? readNonEmpty(dotenvEnv.COMPOSE_PROJECT_NAME);
+  const composeProjectName =
+    readNonEmpty(process.env.COMPOSE_PROJECT_NAME) ?? readNonEmpty(dotenvEnv.COMPOSE_PROJECT_NAME);
 
   let archivePort: string;
   let esploraPort: string;
@@ -163,7 +166,9 @@ async function readComposePortWithRetry(
     console.warn(`[tauri-dev] Skipping ${service}:${port} after ${timeoutMs}ms: ${String(lastError)}`);
     return undefined;
   }
-  throw new Error(`Unable to resolve docker compose port for ${service}:${port} after ${timeoutMs}ms: ${String(lastError)}`);
+  throw new Error(
+    `Unable to resolve docker compose port for ${service}:${port} after ${timeoutMs}ms: ${String(lastError)}`,
+  );
 }
 
 function readComposePort(

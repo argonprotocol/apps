@@ -42,7 +42,7 @@ import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
 import { MyVaultRecovery } from './MyVaultRecovery.ts';
 import { BitcoinLocksTable, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
-import { TransactionTracker } from './TransactionTracker.ts';
+import { TxAttemptState, TransactionTracker } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -62,6 +62,9 @@ type IPendingCosignUtxo = {
   dueFrame?: number;
 };
 
+// Keep following a submitted/reorged cosign attempt briefly before retrying it.
+const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
+
 export class MyVault {
   public data: {
     isReady: boolean;
@@ -70,6 +73,7 @@ export class MyVault {
     stats: IVaultStats | null;
     pendingCollectRevenue: bigint;
     pendingCosignUtxosById: Map<number, IPendingCosignUtxo>;
+    myPendingBitcoinCosignTxInfosByUtxoId: Map<number, TransactionInfo<{ utxoId: number }>>;
     nextCollectDueDate: number;
     expiringCollectAmount: bigint;
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
@@ -138,6 +142,7 @@ export class MyVault {
       pendingCollectTxInfo: null,
       pendingAllocateTxInfo: null,
       pendingCosignUtxosById: new Map(),
+      myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
       nextCollectDueDate: 0,
       expiringCollectAmount: 0n,
       currentFrameId: 0,
@@ -250,14 +255,11 @@ export class MyVault {
     return this.#transactionTracker.data.txInfosByType[extrinsicType];
   }
 
-  public getTxInfo(
-    filterCb: (extrinsicType: ExtrinsicType, metadata: any) => boolean,
-  ): TransactionInfo<any> | undefined {
-    for (const txInfo of this.#transactionTracker.data.txInfos) {
-      if (filterCb(txInfo.tx.extrinsicType, txInfo.tx.metadataJson)) {
-        return txInfo;
-      }
-    }
+  public getBitcoinReleaseRequestTxInfo(utxoId: number): TransactionInfo<any> | undefined {
+    return this.#transactionTracker.findLatestTxInfo(txInfo => {
+      const metadata = txInfo.tx.metadataJson as any;
+      return txInfo.tx.extrinsicType === ExtrinsicType.BitcoinRequestRelease && metadata?.utxoId === utxoId;
+    });
   }
 
   public async subscribe() {
@@ -351,11 +353,21 @@ export class MyVault {
     if (updateSeq !== this.#pendingCosignUpdateSeq) {
       return;
     }
+
+    const myPendingBitcoinCosignTxInfosByUtxoId = new Map<number, TransactionInfo<{ utxoId: number }>>();
+    for (const [utxoId, txInfo] of this.data.myPendingBitcoinCosignTxInfosByUtxoId) {
+      if (!pendingCosignUtxosById.has(utxoId)) continue;
+      myPendingBitcoinCosignTxInfosByUtxoId.set(utxoId, txInfo);
+    }
+
     this.data.pendingCosignUtxosById = pendingCosignUtxosById;
+    this.data.myPendingBitcoinCosignTxInfosByUtxoId = myPendingBitcoinCosignTxInfosByUtxoId;
     this.updateCollectDueDate();
   }
 
-  public async cosignMyLock(lock: IBitcoinLockRecord): Promise<{ txInfo: TransactionInfo } | undefined> {
+  public async cosignMyLock(
+    lock: IBitcoinLockRecord,
+  ): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
     if (lock.vaultId !== this.createdVault?.vaultId) {
       // this api is only to unlock our own vault's bitcoin locks
       return;
@@ -378,7 +390,7 @@ export class MyVault {
         // let the next lock-processing poll attempt cosign again.
         return;
       }
-      return { txInfo: result.txInfo };
+      return result;
     } catch (error) {
       console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
       this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId!, error: String(error) };
@@ -515,27 +527,43 @@ export class MyVault {
   }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
     return await this.#cosignQueue.add(async () => {
       const { utxoId } = args;
-      const pendingTxInfo = this.findPendingCosignTxInfo(utxoId);
+      const latestTxAttempt = await this.findLatestReleaseCosignTxAttempt(utxoId);
+
       const cosignResult = await this.buildCosignTx(args);
       if (!cosignResult) {
         return;
       }
-      if (pendingTxInfo) {
-        return { txInfo: pendingTxInfo, vaultSignature: cosignResult.vaultSignature };
+
+      if (
+        latestTxAttempt &&
+        (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+          latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
+      ) {
+        return { txInfo: latestTxAttempt.txInfo, vaultSignature: cosignResult.vaultSignature };
       }
 
       const { tx, vaultSignature } = cosignResult;
+      const followOnTx =
+        latestTxAttempt?.txInfo && !latestTxAttempt.txInfo.tx.followOnTxId
+          ? this.#transactionTracker.createIntentForFollowOnTx(latestTxAttempt.txInfo)
+          : undefined;
 
-      const argonKeyring = await this.walletKeys.getVaultingKeypair();
-      const txInfo = await this.#transactionTracker.submitAndWatch({
-        tx,
-        signer: argonKeyring,
-        useLatestNonce: true,
-        extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-        metadata: { utxoId },
-      });
-      void this.onCosignResult(txInfo);
-      return { txInfo: txInfo, vaultSignature };
+      try {
+        const argonKeyring = await this.walletKeys.getVaultingKeypair();
+        const txInfo = await this.#transactionTracker.submitAndWatch({
+          tx,
+          signer: argonKeyring,
+          useLatestNonce: true,
+          extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+          metadata: { utxoId },
+        });
+        followOnTx?.resolve(txInfo);
+        void this.onCosignResult(txInfo);
+        return { txInfo: txInfo, vaultSignature };
+      } catch (error) {
+        followOnTx?.reject(error);
+        throw error;
+      }
     }).promise;
   }
 
@@ -549,37 +577,52 @@ export class MyVault {
     toScriptPubkey: string;
   }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
     return await this.#cosignQueue.add(async () => {
-      const pendingTxInfo = this.findPendingOrphanCosignTxInfo({
+      const latestTxAttempt = await this.findLatestOrphanCosignTxAttempt({
         ownerAccount: args.ownerAccount,
         txid: args.txid,
         vout: args.vout,
       });
-      if (pendingTxInfo) {
+
+      if (
+        latestTxAttempt &&
+        (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+          latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
+      ) {
         const cosignResult = await this.buildOrphanCosignTx(args);
         if (!cosignResult) return;
-        return { txInfo: pendingTxInfo, vaultSignature: cosignResult.vaultSignature };
+        return { txInfo: latestTxAttempt.txInfo, vaultSignature: cosignResult.vaultSignature };
       }
 
       const cosignResult = await this.buildOrphanCosignTx(args);
       if (!cosignResult) return;
       const { tx, vaultSignature } = cosignResult;
+      const followOnTx =
+        latestTxAttempt?.txInfo && !latestTxAttempt.txInfo.tx.followOnTxId
+          ? this.#transactionTracker.createIntentForFollowOnTx(latestTxAttempt.txInfo)
+          : undefined;
 
-      const argonKeyring = await this.walletKeys.getVaultingKeypair();
-      const txInfo = await this.#transactionTracker.submitAndWatch({
-        tx,
-        signer: argonKeyring,
-        useLatestNonce: true,
-        extrinsicType: ExtrinsicType.VaultCosignOrphanedUtxoRelease,
-        metadata: {
-          lockUtxoId: args.lockUtxoId,
-          ownerAccount: args.ownerAccount,
-          txid: args.txid,
-          vout: args.vout,
-          vaultSignatureHex: u8aToHex(vaultSignature),
-        },
-      });
-      void this.onOrphanCosignResult(txInfo);
-      return { txInfo, vaultSignature };
+      try {
+        const argonKeyring = await this.walletKeys.getVaultingKeypair();
+        const txInfo = await this.#transactionTracker.submitAndWatch({
+          tx,
+          signer: argonKeyring,
+          useLatestNonce: true,
+          extrinsicType: ExtrinsicType.VaultCosignOrphanedUtxoRelease,
+          metadata: {
+            lockUtxoId: args.lockUtxoId,
+            ownerAccount: args.ownerAccount,
+            txid: args.txid,
+            vout: args.vout,
+            vaultSignatureHex: u8aToHex(vaultSignature),
+          },
+        });
+        followOnTx?.resolve(txInfo);
+        void this.onOrphanCosignResult(txInfo);
+        return { txInfo, vaultSignature };
+      } catch (error) {
+        followOnTx?.reject(error);
+        throw error;
+      }
     }).promise;
   }
 
@@ -588,10 +631,17 @@ export class MyVault {
     const postProcessor = txInfo.createPostProcessor();
     const utxoId = tx.metadataJson.utxoId;
 
-    const blockHash = await txResult.waitForFinalizedBlock;
-    console.log(`Cosigned and submitted transaction for utxoId ${utxoId} at ${u8aToHex(blockHash)}`);
-    await this.trackTxResultFee(txResult);
-    postProcessor.resolve();
+    this.data.myPendingBitcoinCosignTxInfosByUtxoId.set(utxoId, txInfo);
+    try {
+      const blockHash = await txResult.waitForFinalizedBlock;
+      console.log(`Cosigned and submitted transaction for utxoId ${utxoId} at ${u8aToHex(blockHash)}`);
+      await this.trackTxResultFee(txResult);
+      postProcessor.resolve();
+    } finally {
+      if (this.data.myPendingBitcoinCosignTxInfosByUtxoId.get(utxoId) === txInfo) {
+        this.data.myPendingBitcoinCosignTxInfosByUtxoId.delete(utxoId);
+      }
+    }
   }
 
   private async onOrphanCosignResult(
@@ -623,7 +673,12 @@ export class MyVault {
       const txs: SubmittableExtrinsic[] = [];
       try {
         for (const utxoId of toCosign) {
-          if (this.findPendingCosignTxInfo(utxoId)) {
+          const latestTxAttempt = await this.findLatestReleaseCosignTxAttempt(utxoId);
+          if (
+            latestTxAttempt &&
+            (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+              latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
+          ) {
             continue;
           }
           const pendingReleaseRaw = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
@@ -676,39 +731,77 @@ export class MyVault {
     }).promise;
   }
 
-  public findPendingCosignTxInfo(utxoId: number): TransactionInfo | undefined {
-    return this.getTxInfo((extrinsicType, metadata) => {
-      if (extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease && metadata.utxoId === utxoId) {
-        return true;
+  public async findLatestReleaseCosignTxAttempt(
+    utxoId: number,
+  ): Promise<{ txInfo: TransactionInfo; txAttemptState: TxAttemptState } | undefined> {
+    const latestTxInfo = this.#transactionTracker.findLatestTxInfo(txInfo => {
+      const { extrinsicType, metadataJson } = txInfo.tx;
+      const metadata = metadataJson as any;
+
+      if (extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
+        return utxoId === metadata.utxoId;
       }
-      if (extrinsicType === ExtrinsicType.VaultCollect) {
-        const cosignedUtxoIds = metadata.cosignedUtxoIds;
-        if (Array.isArray(cosignedUtxoIds) && cosignedUtxoIds.includes(utxoId)) {
-          return true;
-        }
+
+      if (extrinsicType !== ExtrinsicType.VaultCollect) {
+        return false;
       }
-      return false;
+
+      const cosignedUtxoIds = metadata.cosignedUtxoIds;
+      return Array.isArray(cosignedUtxoIds) && cosignedUtxoIds.includes(utxoId);
     });
+
+    if (!latestTxInfo) {
+      return;
+    }
+
+    return {
+      txInfo: latestTxInfo,
+      txAttemptState: await this.#transactionTracker.getTxAttemptState(
+        latestTxInfo,
+        COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+      ),
+    };
   }
 
-  public findPendingOrphanCosignTxInfo(args: {
+  public async findLatestOrphanCosignTxAttempt(args: {
     ownerAccount: string;
     txid: string;
     vout: number;
-  }): TransactionInfo | undefined {
-    return this.getTxInfo((extrinsicType, metadata) => {
+  }): Promise<{ txInfo: TransactionInfo; txAttemptState: TxAttemptState } | undefined> {
+    const latestTxInfo = this.#transactionTracker.findLatestTxInfo(txInfo => {
+      const { extrinsicType, metadataJson } = txInfo.tx;
+      const metadata = metadataJson as any;
+
       if (extrinsicType === ExtrinsicType.VaultCosignOrphanedUtxoRelease) {
         return (
           metadata.ownerAccount === args.ownerAccount && metadata.txid === args.txid && metadata.vout === args.vout
         );
       }
-      if (extrinsicType !== ExtrinsicType.VaultCollect) return false;
+
+      if (extrinsicType !== ExtrinsicType.VaultCollect) {
+        return false;
+      }
+
       const cosignedOrphanUtxos = metadata.cosignedOrphanUtxos as ICollectOrphanCosignMetadata[] | undefined;
-      if (!Array.isArray(cosignedOrphanUtxos)) return false;
-      return cosignedOrphanUtxos.some(orphan => {
-        return orphan.ownerAccount === args.ownerAccount && orphan.txid === args.txid && orphan.vout === args.vout;
-      });
+      return (
+        Array.isArray(cosignedOrphanUtxos) &&
+        cosignedOrphanUtxos.some(orphan => {
+          return orphan.ownerAccount === args.ownerAccount && orphan.txid === args.txid && orphan.vout === args.vout;
+        })
+      );
     });
+
+    if (!latestTxInfo) {
+      return;
+    }
+
+    return {
+      txInfo: latestTxInfo,
+      txAttemptState: await this.#transactionTracker.getTxAttemptState(
+        latestTxInfo,
+        COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+      ),
+    };
   }
 
   private async buildPendingOrphanCosignTxs(args: {
@@ -740,7 +833,18 @@ export class MyVault {
         const lockUtxoId = orphan.utxoId.toNumber();
         const key = `${ownerAccount}:${txid}:${vout}`;
         if (queued.has(key)) continue;
-        if (this.findPendingOrphanCosignTxInfo({ ownerAccount, txid, vout })) continue;
+        const latestTxAttempt = await this.findLatestOrphanCosignTxAttempt({
+          ownerAccount,
+          txid,
+          vout,
+        });
+        if (
+          latestTxAttempt &&
+          (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+            latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
+        ) {
+          continue;
+        }
         queued.add(key);
 
         const blockNumber = orphan.recordedArgonBlockNumber.toNumber();
@@ -872,41 +976,46 @@ export class MyVault {
     if (tx.metadataJson.moveTo === MoveTo.MiningHold) {
       const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
       if (!followOnTx.isSettled) {
-        const argonKeyring = await this.walletKeys.getVaultingKeypair();
-        const revenue = await this.getCollectedAmount(txInfo);
-        if (revenue === undefined) {
-          throw new Error('Failed to determine collected revenue from vault collect events');
-        }
-        const client = await getMainchainClient(false);
-        const clientAt = await client.at(txInfo.txResult.blockHash!);
-        const balanceAtBlock = await clientAt.query.system
-          .account(this.walletKeys.vaultingAddress)
-          .then(x => x.data.free.toBigInt());
+        try {
+          const argonKeyring = await this.walletKeys.getVaultingKeypair();
+          const revenue = await this.getCollectedAmount(txInfo);
+          if (revenue === undefined) {
+            throw new Error('Failed to determine collected revenue from vault collect events');
+          }
+          const client = await getMainchainClient(false);
+          const clientAt = await client.at(txInfo.txResult.blockHash!);
+          const balanceAtBlock = await clientAt.query.system
+            .account(this.walletKeys.vaultingAddress)
+            .then(x => x.data.free.toBigInt());
 
-        // Make sure the collect amount doesn't drain the account below operational reserves
-        const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
-        if (maxAmountToMove < 50_000n) {
-          throw new Error('The amount requested to move is too low after accounting for operational reserves.');
-        }
-        let amountToMove = revenue;
-        if (amountToMove > maxAmountToMove) {
-          amountToMove = maxAmountToMove;
-        }
+          // Make sure the collect amount doesn't drain the account below operational reserves
+          const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
+          if (maxAmountToMove < 50_000n) {
+            throw new Error('The amount requested to move is too low after accounting for operational reserves.');
+          }
+          let amountToMove = revenue;
+          if (amountToMove > maxAmountToMove) {
+            amountToMove = maxAmountToMove;
+          }
 
-        const moveTo = tx.metadataJson.moveTo; // this can only be Mining because of IF block
-        const moveToAddress = this.walletKeys.miningHoldAddress;
-        const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
-          tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
-          signer: argonKeyring,
-          extrinsicType: ExtrinsicType.Transfer,
-          metadata: {
-            moveFrom: MoveFrom.VaultingHold,
-            moveTo,
-            amount: amountToMove,
-          },
-          useLatestNonce: true,
-        });
-        followOnTx.resolve(followOnTxInfo);
+          const moveTo = tx.metadataJson.moveTo; // this can only be Mining because of IF block
+          const moveToAddress = this.walletKeys.miningHoldAddress;
+          const followOnTxInfo = await this.#transactionTracker.submitAndWatch({
+            tx: client.tx.balances.transferKeepAlive(moveToAddress, amountToMove),
+            signer: argonKeyring,
+            extrinsicType: ExtrinsicType.Transfer,
+            metadata: {
+              moveFrom: MoveFrom.VaultingHold,
+              moveTo,
+              amount: amountToMove,
+            },
+            useLatestNonce: true,
+          });
+          followOnTx.resolve(followOnTxInfo);
+        } catch (error) {
+          followOnTx.reject(error);
+          throw error;
+        }
       }
       try {
         await txInfo.followOnTxInfo;

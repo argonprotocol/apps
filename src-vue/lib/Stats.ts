@@ -170,8 +170,12 @@ export class Stats {
     await this.config.isLoadedPromise;
     this.db = await this.dbPromise;
     await this.currency.load();
+    const initialFrameId = this.latestFrameId;
     await this.miningFrames.load();
     this.latestFrameId = this.miningFrames.currentFrameId;
+    if (this.selectedFrameId === initialFrameId) {
+      this.selectedFrameId = this.latestFrameId;
+    }
 
     await this.updateDashboard();
 

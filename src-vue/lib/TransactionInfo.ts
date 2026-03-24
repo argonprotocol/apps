@@ -48,11 +48,13 @@ export class TransactionInfo<MetadataType = unknown> {
     this.txResult = args.txResult;
     this.statusAtLoad = args.tx.status;
 
-    const timeOfLastBlock = args.tx.lastFinalizedBlockTime ? args.tx.lastFinalizedBlockTime : args.tx.createdAt;
+    const timeOfLastBlock = args.tx.finalizedHeadTime ? args.tx.finalizedHeadTime : args.tx.createdAt;
+    const includedAtBlockHeight = args.tx.blockHeight;
+    const finalizedHeadHeight = args.tx.finalizedHeadHeight;
 
     this.blockProgress = new BlockProgress({
-      blockHeightGoal: args.tx.blockHeight,
-      blockHeightCurrent: args.tx.lastFinalizedBlockHeight,
+      blockHeightGoal: includedAtBlockHeight,
+      blockHeightCurrent: finalizedHeadHeight,
       minimumConfirmations: REQUIRED_FINALIZATION_BLOCKS,
       millisPerBlock: TICK_MILLIS,
       timeOfLastBlock: dayjs.utc(timeOfLastBlock),
@@ -105,7 +107,7 @@ export class TransactionInfo<MetadataType = unknown> {
     this.progressCallbacks = [];
   }
 
-  public set finalizedBlockHeight(value: number) {
+  public set finalizedHeadHeight(value: number) {
     this.blockProgress.setCurrentBlockHeight(value);
   }
 
@@ -200,7 +202,7 @@ export class TransactionInfo<MetadataType = unknown> {
 
     if (this.followOnTxInfoDeferred && this.resolvedFollowOnTxInfo) {
       const currentBlockHeight = this.blockProgress.blockHeightCurrent;
-      if (currentBlockHeight !== undefined) this.resolvedFollowOnTxInfo.finalizedBlockHeight = currentBlockHeight;
+      if (currentBlockHeight !== undefined) this.resolvedFollowOnTxInfo.finalizedHeadHeight = currentBlockHeight;
       const followOnStatus = this.resolvedFollowOnTxInfo.getStatus();
       console.log('Merging follow-on tx status', { followOnStatus, status });
       if (followOnStatus) {

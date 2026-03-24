@@ -15,6 +15,7 @@ import { BaseTable } from './db/BaseTable.ts';
 import { VaultRevenueEventsTable } from './db/VaultRevenueEventsTable.ts';
 import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
 import { BitcoinUtxosTable } from './db/BitcoinUtxosTable.ts';
+import { TransactionStatusHistoryTable } from './db/TransactionStatusHistoryTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -26,6 +27,7 @@ export class Db {
   public framesTable: FramesTable;
   public frameBidsTable: FrameBidsTable;
   public transactionsTable: TransactionsTable;
+  public transactionStatusHistoryTable: TransactionStatusHistoryTable;
   public vaultsTable: VaultsTable;
   public vaultRevenueEventsTable: VaultRevenueEventsTable;
   public bitcoinLocksTable: BitcoinLocksTable;
@@ -47,6 +49,7 @@ export class Db {
     this.vaultsTable = new VaultsTable(this);
     this.vaultRevenueEventsTable = new VaultRevenueEventsTable(this);
     this.transactionsTable = new TransactionsTable(this);
+    this.transactionStatusHistoryTable = new TransactionStatusHistoryTable(this);
     this.bitcoinLocksTable = new BitcoinLocksTable(this);
     this.walletLedgerTable = new WalletLedgerTable(this);
     this.walletTransfersTable = new WalletTransfersTable(this);

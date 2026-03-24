@@ -77,7 +77,7 @@ describe('BitcoinLocks release status sync', () => {
     expect(setStatusError).toHaveBeenCalledWith(fundingRecord, 'Error: signing failed');
   });
 
-  it('release flow waits for Argon cosign visibility before storing local state or submitting to bitcoin', async () => {
+  it('release flow continues once the local cosign tx reaches its first block', async () => {
     const harness = createReleaseFlowHarness();
 
     // @ts-expect-error - private access
@@ -87,18 +87,14 @@ describe('BitcoinLocks release status sync', () => {
     expect(harness.cosignMyLock).toHaveBeenCalledWith(harness.lock);
     expect(harness.setReleaseCosign).not.toHaveBeenCalled();
 
-    const releaseCosignOnChain = {
-      blockHeight: 77,
-      signature: new Uint8Array([7, 8, 9]),
-    };
-    harness.state.releaseCosignOnChain = releaseCosignOnChain;
+    harness.state.blockNumber = 77;
 
     // @ts-expect-error - private access
     await harness.store.syncLockReleaseArgonCosign(harness.lock, createArgonClientStub());
 
     expect(harness.setReleaseCosign).toHaveBeenCalledWith(harness.fundingRecord, {
-      releaseCosignVaultSignature: releaseCosignOnChain.signature,
-      releaseCosignHeight: releaseCosignOnChain.blockHeight,
+      releaseCosignVaultSignature: harness.vaultSignature,
+      releaseCosignHeight: 77,
     });
     expect(harness.ensureLockReleaseProcessing).toHaveBeenCalledTimes(1);
 
@@ -587,7 +583,11 @@ function createStoreStub(overrides: object): BitcoinLocks {
   return Object.assign(Object.create(BitcoinLocks.prototype), overrides) as BitcoinLocks;
 }
 
-function createReleaseFlowHarness(args?: { waitForInFirstBlock?: Promise<unknown>; txFailure?: string | undefined }) {
+function createReleaseFlowHarness(args?: {
+  waitForInFirstBlock?: Promise<unknown>;
+  waitForFinalizedBlock?: Promise<unknown>;
+  txFailure?: string | undefined;
+}) {
   const lock = createLockRecord({
     uuid: 'lock-1',
     utxoId: 11,
@@ -603,20 +603,28 @@ function createReleaseFlowHarness(args?: { waitForInFirstBlock?: Promise<unknown
   const state = {
     releaseCosignOnChain: undefined as { blockHeight: number; signature: Uint8Array } | undefined,
     txFailure: args?.txFailure,
+    blockNumber: undefined as number | undefined,
     waitForInFirstBlock: args?.waitForInFirstBlock ?? Promise.resolve('0x1234'),
+    waitForFinalizedBlock: args?.waitForFinalizedBlock ?? Promise.resolve('0x1234'),
   };
+  const vaultSignature = new Uint8Array([7, 8, 9]);
 
   const setReleaseCosign = vi.fn<(...args: any[]) => Promise<void>>().mockImplementation(async (record, update) => {
     Object.assign(record, update);
   });
   const ensureLockReleaseProcessing = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
   const ownerCosignAndSendToBitcoin = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
-  const cosignMyLock = vi.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({
-    txInfo: {
-      txResult: {
-        waitForInFirstBlock: state.waitForInFirstBlock,
+  const cosignMyLock = vi.fn<(...args: any[]) => Promise<any>>().mockImplementation(async () => {
+    return {
+      txInfo: {
+        txResult: {
+          blockNumber: state.blockNumber,
+          waitForInFirstBlock: state.waitForInFirstBlock,
+          waitForFinalizedBlock: state.waitForFinalizedBlock,
+        },
       },
-    },
+      vaultSignature,
+    };
   });
 
   const utxoTracking = {
@@ -678,6 +686,7 @@ function createReleaseFlowHarness(args?: { waitForInFirstBlock?: Promise<unknown
     ensureLockReleaseProcessing,
     ownerCosignAndSendToBitcoin,
     cosignMyLock,
+    vaultSignature,
   };
 }
 
