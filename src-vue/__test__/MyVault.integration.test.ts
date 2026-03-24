@@ -25,8 +25,6 @@ import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
-afterAll(teardown);
-
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
@@ -35,6 +33,10 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
   let db: Db;
   let vaultId: number;
   let myVault: MyVault;
+  const trackedBitcoinLocks: BitcoinLocks[] = [];
+  const trackedBlockWatches: BlockWatch[] = [];
+  const trackedDbs: Db[] = [];
+  const trackedMiningFrames: MiningFrames[] = [];
   const vaultRules: IVaultingRules = {
     ...(Config.getDefault('vaultingRules') as IVaultingRules),
     personalBtcPct: 50,
@@ -53,6 +55,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
   beforeAll(async () => {
     db = await createTestDb();
+    trackedDbs.push(db);
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
       profiles: ['bob'],
       chainStartTimeoutMs: 120_000,
@@ -71,6 +74,12 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
     setMainchainClients(clients);
     NetworkConfig.setNetwork('dev-docker');
   }, 120e3);
+
+  afterAll(async () => {
+    myVault?.unsubscribe();
+    await cleanupTrackedResources();
+    await teardown();
+  });
 
   it('should work when no vault is found', async () => {
     const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
@@ -105,15 +114,17 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
       const currency = new CurrencyBase(clients);
       await currency.fetchMainchainRates();
-      const miningFrames = new MiningFrames(clients);
+      const miningFrames = trackMiningFrames(new MiningFrames(clients));
       const vaults = new Vaults('dev-docker', currency, miningFrames);
       const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
-      const bitcoinLocksStore = new BitcoinLocks(
-        Promise.resolve(db),
-        walletKeys,
-        miningFrames.blockWatch,
-        currency,
-        transactionTracker,
+      const bitcoinLocksStore = trackBitcoinLocks(
+        new BitcoinLocks(
+          Promise.resolve(db),
+          walletKeys,
+          miningFrames.blockWatch,
+          currency,
+          transactionTracker,
+        ),
       );
       myVault = new MyVault(
         Promise.resolve(db),
@@ -183,14 +194,17 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
       // check bitcoin
       const newDb = await createTestDb();
-      const blockWatch = new BlockWatch(clients);
+      trackedDbs.push(newDb);
+      const blockWatch = trackBlockWatch(new BlockWatch(clients));
       const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb), blockWatch);
-      const bitcoinLocksStoreRecovery = new BitcoinLocks(
-        Promise.resolve(newDb),
-        walletKeys,
-        blockWatch,
-        myVault.vaults.currency,
-        transactionTracker2,
+      const bitcoinLocksStoreRecovery = trackBitcoinLocks(
+        new BitcoinLocks(
+          Promise.resolve(newDb),
+          walletKeys,
+          blockWatch,
+          myVault.vaults.currency,
+          transactionTracker2,
+        ),
       );
       await bitcoinLocksStoreRecovery.load();
       expect(Object.keys(bitcoinLocksStoreRecovery.data.locksByUtxoId)).toHaveLength(0);
@@ -225,4 +239,37 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(rules).toStrictEqual(vaultRules);
     },
   );
+
+  async function cleanupTrackedResources(): Promise<void> {
+    await Promise.allSettled(trackedBitcoinLocks.map(x => x.shutdown()));
+    trackedBitcoinLocks.length = 0;
+
+    await Promise.allSettled(trackedMiningFrames.map(x => x.stop()));
+    trackedMiningFrames.length = 0;
+
+    for (const blockWatch of trackedBlockWatches) {
+      blockWatch.destroy();
+    }
+    trackedBlockWatches.length = 0;
+
+    await Promise.allSettled(trackedDbs.map(x => x.close()));
+    trackedDbs.length = 0;
+
+    await clients?.disconnect();
+  }
+
+  function trackBitcoinLocks(bitcoinLocks: BitcoinLocks): BitcoinLocks {
+    trackedBitcoinLocks.push(bitcoinLocks);
+    return bitcoinLocks;
+  }
+
+  function trackBlockWatch(blockWatch: BlockWatch): BlockWatch {
+    trackedBlockWatches.push(blockWatch);
+    return blockWatch;
+  }
+
+  function trackMiningFrames(miningFrames: MiningFrames): MiningFrames {
+    trackedMiningFrames.push(miningFrames);
+    return miningFrames;
+  }
 });

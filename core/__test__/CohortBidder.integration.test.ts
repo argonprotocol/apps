@@ -17,8 +17,19 @@ import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.ts'
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;
-afterEach(teardown);
-afterAll(teardown);
+
+const trackedMainchainClients: MainchainClients[] = [];
+const trackedMiningFrames: MiningFrames[] = [];
+
+afterEach(async () => {
+  await cleanupTrackedResources();
+  await teardown();
+});
+
+afterAll(async () => {
+  await cleanupTrackedResources();
+  await teardown();
+});
 
 describe('CohortBidder unit tests', () => {
   let accountset: Accountset;
@@ -425,7 +436,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const aliceClientPromise = getClient(network.archiveUrl);
     const aliceClient = await aliceClientPromise;
-    const clients = new MainchainClients(network.archiveUrl, () => false, aliceClient);
+    const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false, aliceClient));
     const bobRing = new Keyring({ type: 'sr25519' }).addFromUri('//Bob');
 
     const alice = new Accountset({
@@ -492,9 +503,13 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       async onBiddingStart(cohortStartingFrameId) {
         if (bobBidder) return;
         console.log(`Cohort ${cohortStartingFrameId} started bidding`);
+        const bobClients = trackMainchainClients(new MainchainClients(bobAddress, () => false, bob.client));
+        const bobMiningFrames = trackMiningFrames(new MiningFrames(bobClients));
+        const aliceMiningFrames = trackMiningFrames(new MiningFrames(clients));
+
         bobBidder = new CohortBidder(
           bob,
-          new MiningFrames(new MainchainClients(bobAddress, () => false, bob.client)),
+          bobMiningFrames,
           cohortStartingFrameId,
           await bob.getAvailableMinerAccounts(10),
           {
@@ -516,7 +531,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         );
         aliceBidder = new CohortBidder(
           alice,
-          new MiningFrames(clients),
+          aliceMiningFrames,
           cohortStartingFrameId,
           await alice.getAvailableMinerAccounts(10),
           {
@@ -653,3 +668,21 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     }
   }, 180e3);
 });
+
+async function cleanupTrackedResources(): Promise<void> {
+  await Promise.allSettled(trackedMiningFrames.map(x => x.stop()));
+  trackedMiningFrames.length = 0;
+
+  await Promise.allSettled(trackedMainchainClients.map(x => x.disconnect()));
+  trackedMainchainClients.length = 0;
+}
+
+function trackMainchainClients(clients: MainchainClients): MainchainClients {
+  trackedMainchainClients.push(clients);
+  return clients;
+}
+
+function trackMiningFrames(miningFrames: MiningFrames): MiningFrames {
+  trackedMiningFrames.push(miningFrames);
+  return miningFrames;
+}
