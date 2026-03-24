@@ -29,6 +29,21 @@ describe('BotSyncer', () => {
     expect(botFns.setStatus).not.toHaveBeenCalled();
   });
 
+  it('does not mark the bot broken for transient websocket event errors', async () => {
+    const { syncer, botFns } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    vi.spyOn(testSyncer, 'updateBotState').mockRejectedValue({ isTrusted: true });
+
+    await testSyncer.runSync({
+      isReady: true,
+      isSyncing: false,
+      serverError: '',
+      currentFrameId: 424,
+    });
+
+    expect(botFns.setStatus).not.toHaveBeenCalledWith(BotStatus.Broken);
+  });
+
   it('marks the bot broken for explicit server errors', async () => {
     const { syncer, botFns } = createSyncer();
     const testSyncer = syncer as unknown as IBotSyncerTestTarget;

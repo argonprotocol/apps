@@ -144,7 +144,7 @@
           </div>
         </div>
         <div class="flex flex-row space-x-2 items-center justify-end">
-          <button @click.stop="handleMismatchCardClick" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 py-2 rounded-md cursor-pointer">
+          <button @click.stop="handleMismatchCardClick" class="bg-argon-600 hover:bg-argon-700 text-white text-lg font-bold px-4 whitespace-nowrap py-2 rounded-md cursor-pointer">
             {{ mismatchCardCtaLabel }}
           </button>
         </div>

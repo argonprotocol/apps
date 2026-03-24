@@ -183,7 +183,9 @@ export class BotSyncer {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      const isWebSocketEventError = Boolean(e && typeof e === 'object' && 'isTrusted' in e);
       const isTransientConnectionError =
+        isWebSocketEventError ||
         message.includes('No response received from RPC endpoint') ||
         message.includes('BotWsClient') ||
         message.includes('request timed out') ||
