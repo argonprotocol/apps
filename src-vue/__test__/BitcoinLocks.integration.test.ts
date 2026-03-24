@@ -514,6 +514,73 @@ async function observeMismatchCandidate(
   return { ...observed, txid };
 }
 
+function getMismatchReturnRecord(
+  harness: TestHarness,
+  lock: IBitcoinLockRecord,
+  candidate: Pick<IBitcoinUtxoRecord, 'id'>,
+): IBitcoinUtxoRecord | undefined {
+  return harness.bitcoinLocks.getMismatchViewState(lock).candidates.find(view => {
+    return view.record.id === candidate.id;
+  })?.returnRecord;
+}
+
+async function waitForMismatchReturnTracked(args: {
+  timeoutMs: number;
+  label: string;
+  harness: TestHarness;
+  lock: IBitcoinLockRecord;
+  candidate: IBitcoinUtxoRecord;
+  progress: ReturnType<typeof createBitcoinLockProgressStore>;
+}): Promise<{ lock: IBitcoinLockRecord; record: IBitcoinUtxoRecord }> {
+  return await waitFor(args.timeoutMs, args.label, () => {
+    const refreshed = getCurrentLock(args.harness, args.lock.utxoId!);
+    args.progress.updateLock(refreshed);
+
+    const record = getMismatchReturnRecord(args.harness, refreshed, args.candidate);
+    if (!record) return;
+
+    if (record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) {
+      if (args.progress.orphanedReturnArgon.value.confirmations < 0) return;
+      if (args.progress.orphanedReturnArgon.value.expectedConfirmations <= 0) return;
+      return { lock: refreshed, record };
+    }
+
+    if (![BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin, BitcoinUtxoStatus.ReleaseComplete].includes(record.status)) {
+      return;
+    }
+    if (!record.releaseTxid) return;
+
+    return { lock: refreshed, record };
+  });
+}
+
+async function waitForMismatchReturnSeenOnBitcoin(args: {
+  timeoutMs: number;
+  label: string;
+  harness: TestHarness;
+  lock: IBitcoinLockRecord;
+  candidate: IBitcoinUtxoRecord;
+  progress: ReturnType<typeof createBitcoinLockProgressStore>;
+}): Promise<{ lock: IBitcoinLockRecord; record: IBitcoinUtxoRecord }> {
+  return await waitFor(args.timeoutMs, args.label, () => {
+    const refreshed = getCurrentLock(args.harness, args.lock.utxoId!);
+    args.progress.updateLock(refreshed);
+
+    const record = getMismatchReturnRecord(args.harness, refreshed, args.candidate);
+    if (!record?.releaseTxid) return;
+
+    if (record.status === BitcoinUtxoStatus.ReleaseComplete) {
+      return { lock: refreshed, record };
+    }
+
+    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return;
+    if (args.progress.orphanedReturnBitcoin.value.confirmations < 0) return;
+    if (args.progress.orphanedReturnBitcoin.value.expectedConfirmations <= 0) return;
+
+    return { lock: refreshed, record };
+  });
+}
+
 async function returnMismatchAndWaitForReadyToResume(
   harness: TestHarness,
   lock: IBitcoinLockRecord,
@@ -546,32 +613,24 @@ async function returnMismatchAndWaitForReadyToResume(
   expect(returnTx).toBeTruthy();
   await returnTx!.txResult.waitForInFirstBlock;
 
-  await waitFor(30e3, 'live mismatch return tracked on argon', () => {
-    const refreshed = getCurrentLock(harness, observed.lock.utxoId!);
-    progress.updateLock(refreshed);
-    const record = harness.bitcoinLocks.getMismatchViewState(refreshed).candidates.find(candidate => {
-      return candidate.record.id === observed.candidate.id;
-    })?.returnRecord;
-    if (!record) return;
-    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) return;
-    if (progress.orphanedReturnArgon.value.confirmations < 0) return;
-    if (progress.orphanedReturnArgon.value.expectedConfirmations <= 0) return;
-    return true;
+  await waitForMismatchReturnTracked({
+    timeoutMs: 30e3,
+    label: 'live mismatch return tracked',
+    harness,
+    lock: observed.lock,
+    candidate: observed.candidate,
+    progress,
   });
 
   await returnTx!.txResult.waitForFinalizedBlock;
 
-  const seenOnBitcoin = await waitFor(60e3, 'live mismatch return seen on bitcoin', () => {
-    const refreshed = getCurrentLock(harness, observed.lock.utxoId!);
-    progress.updateLock(refreshed);
-    const record = harness.bitcoinLocks.getMismatchViewState(refreshed).candidates.find(candidate => {
-      return candidate.record.id === observed.candidate.id;
-    })?.returnRecord;
-    if (!record?.releaseTxid) return;
-    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return;
-    if (progress.orphanedReturnBitcoin.value.confirmations < 0) return;
-    if (progress.orphanedReturnBitcoin.value.expectedConfirmations <= 0) return;
-    return { lock: refreshed, record };
+  const seenOnBitcoin = await waitForMismatchReturnSeenOnBitcoin({
+    timeoutMs: 60e3,
+    label: 'live mismatch return seen on bitcoin',
+    harness,
+    lock: observed.lock,
+    candidate: observed.candidate,
+    progress,
   });
 
   const returnedSatoshis = await waitForBitcoinTransactionOutputSatoshis({
@@ -792,32 +851,24 @@ async function returnExpiredMismatchAndWaitForChainRestore(
   expect(returnTx).toBeTruthy();
   await returnTx!.txResult.waitForInFirstBlock;
 
-  await waitFor(30e3, 'mismatch return tracked on argon', () => {
-    const refreshed = getCurrentLock(harness, expired.lock.utxoId!);
-    progress.updateLock(refreshed);
-    const record = harness.bitcoinLocks.getMismatchViewState(refreshed).candidates.find(candidate => {
-      return candidate.record.id === expired.candidate.id;
-    })?.returnRecord;
-    if (!record) return;
-    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) return;
-    if (progress.orphanedReturnArgon.value.confirmations < 0) return;
-    if (progress.orphanedReturnArgon.value.expectedConfirmations <= 0) return;
-    return true;
+  await waitForMismatchReturnTracked({
+    timeoutMs: 30e3,
+    label: 'mismatch return tracked',
+    harness,
+    lock: expired.lock,
+    candidate: expired.candidate,
+    progress,
   });
 
   await returnTx!.txResult.waitForFinalizedBlock;
 
-  const seenOnBitcoin = await waitFor(60e3, 'mismatch return seen on bitcoin', () => {
-    const refreshed = getCurrentLock(harness, expired.lock.utxoId!);
-    progress.updateLock(refreshed);
-    const record = harness.bitcoinLocks.getMismatchViewState(refreshed).candidates.find(candidate => {
-      return candidate.record.id === expired.candidate.id;
-    })?.returnRecord;
-    if (!record?.releaseTxid) return;
-    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return;
-    if (progress.orphanedReturnBitcoin.value.confirmations < 0) return;
-    if (progress.orphanedReturnBitcoin.value.expectedConfirmations <= 0) return;
-    return { lock: refreshed, record };
+  const seenOnBitcoin = await waitForMismatchReturnSeenOnBitcoin({
+    timeoutMs: 60e3,
+    label: 'mismatch return seen on bitcoin',
+    harness,
+    lock: expired.lock,
+    candidate: expired.candidate,
+    progress,
   });
 
   const returnedSatoshis = await waitForBitcoinTransactionOutputSatoshis({
