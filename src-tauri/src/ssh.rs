@@ -188,9 +188,9 @@ impl SSH {
     }
 
     pub async fn upload_file(&self, contents: &[u8], remote_path: &str) -> Result<()> {
-        // First, create the script in the remote server's home directory
+        let escaped_remote = format!("'{}'", remote_path.replace('\'', "'\\''"));
         let mut channel = self.open_channel().await?;
-        let scp_command = format!("cat > {remote_path}");
+        let scp_command = format!("cat > {escaped_remote}");
         channel.exec(true, scp_command).await?;
 
         // Write the contents of the setup script
@@ -213,11 +213,14 @@ impl SSH {
         let path = Utils::get_embedded_path(app, file_name)?;
         let file = File::open(&path).await?;
 
+        let escaped_remote = format!("'{}'", remote_path.replace('\'', "'\\''"));
         // ensure old file is removed
-        let _ = self.run_command(format!("rm -f {remote_path}")).await;
+        let _ = self.run_command(format!("rm -f {escaped_remote}")).await;
 
         let mut channel = self.open_channel().await?;
-        channel.exec(true, format!("cat > {remote_path}")).await?;
+        channel
+            .exec(true, format!("cat > {escaped_remote}"))
+            .await?;
         let mut writer = channel.make_writer();
 
         let file_size = file.metadata().await?.len();

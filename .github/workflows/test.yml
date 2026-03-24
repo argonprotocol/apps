@@ -82,9 +82,11 @@ jobs:
         run: sudo chmod 666 /var/run/docker.sock
 
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
+      # dbus-run-session provides a D-Bus session bus that WebKit/GTK requires.
       - name: Tests (Linux)
         if: matrix.platform == 'ubuntu-latest'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" yarn test
+        shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
         env:
           ARGON_E2E_HEADLESS: '0'
           E2E_SCREENSHOT_MODE: '1'

@@ -27,6 +27,7 @@ const walletKeys = getWalletKeys();
 const isCopied = Vue.ref(false);
 const masterMnemonic = Vue.ref('');
 const words = Vue.computed(() => masterMnemonic.value.split(' '));
+let clipboardClearTimer: ReturnType<typeof setTimeout> | undefined;
 
 const emit = defineEmits(['close', 'goTo']);
 
@@ -36,11 +37,24 @@ function copyToClipboard() {
   setTimeout(() => {
     isCopied.value = false;
   }, 2000);
+  clearTimeout(clipboardClearTimer);
+  const copiedValue = masterMnemonic.value;
+  clipboardClearTimer = setTimeout(async () => {
+    const current = await navigator.clipboard.readText();
+    if (current === copiedValue) {
+      navigator.clipboard.writeText('');
+    }
+  }, 180_000);
 }
 
 Vue.onMounted(() => {
   walletKeys.exposeMasterMnemonic().then(x => {
     masterMnemonic.value = x;
   });
+});
+
+Vue.onUnmounted(() => {
+  masterMnemonic.value = '';
+  clearTimeout(clipboardClearTimer);
 });
 </script>

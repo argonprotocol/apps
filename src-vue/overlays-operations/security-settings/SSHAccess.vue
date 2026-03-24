@@ -171,4 +171,8 @@ Vue.onMounted(() => {
     }
   })();
 });
+
+Vue.onUnmounted(() => {
+  status.value = { active: false };
+});
 </script>

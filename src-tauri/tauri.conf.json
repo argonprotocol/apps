@@ -30,7 +30,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "script-src 'self'; style-src 'self' 'unsafe-inline'",
       "capabilities": [
         "default"
       ]
