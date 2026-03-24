@@ -118,13 +118,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const vaults = new Vaults('dev-docker', currency, miningFrames);
       const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
       const bitcoinLocksStore = trackBitcoinLocks(
-        new BitcoinLocks(
-          Promise.resolve(db),
-          walletKeys,
-          miningFrames.blockWatch,
-          currency,
-          transactionTracker,
-        ),
+        new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
       myVault = new MyVault(
         Promise.resolve(db),
@@ -198,13 +192,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const blockWatch = trackBlockWatch(new BlockWatch(clients));
       const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb), blockWatch);
       const bitcoinLocksStoreRecovery = trackBitcoinLocks(
-        new BitcoinLocks(
-          Promise.resolve(newDb),
-          walletKeys,
-          blockWatch,
-          myVault.vaults.currency,
-          transactionTracker2,
-        ),
+        new BitcoinLocks(Promise.resolve(newDb), walletKeys, blockWatch, myVault.vaults.currency, transactionTracker2),
       );
       await bitcoinLocksStoreRecovery.load();
       expect(Object.keys(bitcoinLocksStoreRecovery.data.locksByUtxoId)).toHaveLength(0);
