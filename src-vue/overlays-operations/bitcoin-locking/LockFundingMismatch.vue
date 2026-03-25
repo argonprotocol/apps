@@ -419,6 +419,16 @@ const confirmationState = Vue.computed(() => {
   }
 
   if (bitcoinLockProgress.lockProcessing.confirmations < 0) {
+    if (
+      candidate.mempoolObservation &&
+      !candidate.mempoolObservation.isConfirmed &&
+      candidate.firstSeenBitcoinHeight <= 0
+    ) {
+      return {
+        showProgress: false,
+        label: 'Waiting for the first Bitcoin block...',
+      };
+    }
     if (candidate.firstSeenBitcoinHeight > 0 || candidate.mempoolObservation?.isConfirmed === true) {
       return {
         showProgress: false,

@@ -92,6 +92,10 @@ export default class BitcoinUtxoTracking {
     return this.getUtxoSatoshis(candidate);
   }
 
+  public hasObservedFundingSignal(lock: IBitcoinLockRecord): boolean {
+    return this.getReceivedFundingSatoshis(lock) !== undefined;
+  }
+
   public getFundingCandidateRecords(lock: IBitcoinLockRecord): IBitcoinUtxoRecord[] {
     return this.selectFundingCandidates(this.getUtxosForLock(lock));
   }
@@ -375,6 +379,7 @@ export default class BitcoinUtxoTracking {
     }
 
     const timeOfLastBlock = record.releaseLastConfirmationCheckAt || record.releaseFirstSeenAt;
+
     const blockProgress = new BlockProgress({
       blockHeightGoal: recordedTransactionHeight,
       blockHeightCurrent: this.deps.getOracleBitcoinBlockHeight(),

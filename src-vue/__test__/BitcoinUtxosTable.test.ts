@@ -66,7 +66,7 @@ describe('BitcoinUtxosTable', () => {
     const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
     expect(updated.mempoolObservation?.satoshis).toBe(99_999n);
     expect(updated.firstSeenBitcoinHeight).toBe(123);
-    expect(updated.firstSeenOracleHeight).toBe(110);
+    expect(updated.firstSeenOracleHeight).toBe(111);
   });
 
   it('setReleaseRequest stores release details on the funding record', async () => {

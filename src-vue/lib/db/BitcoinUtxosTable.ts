@@ -216,7 +216,9 @@ export class BitcoinUtxosTable extends BaseTable {
       record.firstSeenAt = dayjs.utc().toDate();
     }
     record.firstSeenBitcoinHeight = mempoolObservation.transactionBlockHeight;
-    record.firstSeenOracleHeight ??= oracleBitcoinBlockHeight;
+    if (mempoolObservation.isConfirmed && record.firstSeenOracleHeight == null) {
+      record.firstSeenOracleHeight = oracleBitcoinBlockHeight;
+    }
     await this.db.execute(
       `UPDATE BitcoinUtxos SET
         status = ?,

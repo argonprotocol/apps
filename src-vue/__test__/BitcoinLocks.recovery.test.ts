@@ -251,6 +251,84 @@ describe('BitcoinLocks getActiveLocksForVault', () => {
     expect(mismatchView.phase).toBe('none');
   });
 
+  it('treats an exact mempool funding sighting as observed without surfacing mismatch state', () => {
+    const store = createStore();
+    const lock = createLock({
+      uuid: 'pending',
+      utxoId: 1,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-03T00:00:00Z',
+    });
+    const candidate = createCandidate({
+      lockUtxoId: 1,
+      status: BitcoinUtxoStatus.SeenOnMempool,
+      satoshis: lock.satoshis,
+      firstSeenBitcoinHeight: 0,
+      mempoolObservation: {
+        isConfirmed: false,
+        confirmations: 0,
+        satoshis: lock.satoshis,
+        txid: 'a'.repeat(64),
+        vout: 0,
+        transactionBlockHeight: 0,
+        transactionBlockTime: 0,
+        argonBitcoinHeight: 100,
+      },
+      firstSeenOnArgonAt: undefined,
+    });
+
+    store.data.locksByUtxoId = { 1: lock };
+    store.utxoTracking.data.utxosByLockUtxoId = { 1: [candidate] };
+    vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(1_000);
+
+    expect(store.hasObservedFundingSignal(lock)).toBe(true);
+
+    const mismatchView = store.getMismatchViewState(lock);
+    expect(mismatchView.candidates).toEqual([]);
+    expect(mismatchView.nextCandidate).toBeUndefined();
+    expect(mismatchView.phase).toBe('none');
+  });
+
+  it('keeps mismatch state available when a mempool-only funding sighting has the wrong amount', () => {
+    const store = createStore();
+    const lock = createLock({
+      uuid: 'pending',
+      utxoId: 1,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-03T00:00:00Z',
+    });
+    const candidate = createCandidate({
+      lockUtxoId: 1,
+      status: BitcoinUtxoStatus.SeenOnMempool,
+      satoshis: 11_500n,
+      firstSeenBitcoinHeight: 0,
+      mempoolObservation: {
+        isConfirmed: false,
+        confirmations: 0,
+        satoshis: 11_500n,
+        txid: 'a'.repeat(64),
+        vout: 0,
+        transactionBlockHeight: 0,
+        transactionBlockTime: 0,
+        argonBitcoinHeight: 100,
+      },
+      firstSeenOnArgonAt: undefined,
+    });
+
+    store.utxoTracking.data.supportsCandidateUtxos = true;
+    store.data.locksByUtxoId = { 1: lock };
+    store.utxoTracking.data.utxosByLockUtxoId = { 1: [candidate] };
+    vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(1_000);
+
+    expect(store.hasObservedFundingSignal(lock)).toBe(true);
+
+    const mismatchView = store.getMismatchViewState(lock);
+    expect(mismatchView.phase).toBe('review');
+    expect(mismatchView.nextCandidate?.record.id).toBe(candidate.id);
+    expect(mismatchView.nextCandidate?.canAccept).toBe(false);
+    expect(mismatchView.nextCandidate?.canReturn).toBe(false);
+  });
+
   it('keeps mismatch candidates in oldest-seen order', () => {
     const store = createStore();
     const lock = createLock({
