@@ -28,7 +28,7 @@ import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { ensureOnlyOneInstance } from './Utils';
 import { UnitOfMeasurement } from './Currency';
 import { getUserJurisdiction } from './Countries';
-import { IS_TEST, NETWORK_NAME, NETWORK_URL } from './Env.ts';
+import { IS_STABLE_BUILD, IS_TEST, NETWORK_NAME, NETWORK_URL } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
@@ -224,7 +224,7 @@ export class Config implements IConfig {
       const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
       if (isLocalComputer && !loadedData.isServerInstalling) {
         const { sshPort } = await LocalMachine.activate();
-        if (!IS_TEST) {
+        if (!IS_TEST && IS_STABLE_BUILD) {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
         }
         loadedData.serverDetails.ipAddress = `127.0.0.1`;
@@ -389,6 +389,7 @@ export class Config implements IConfig {
       hasFirstMiningSeat: false,
       hasSecondMiningSeat: false,
       hasBitcoinLock: false,
+      showOverviewTooltip: true,
       ...(this.certificationDetails || {}),
       ...certificationDetails,
     };

@@ -377,7 +377,8 @@ async function unlockBackendReleaseInspect(refs: IInspectRefs): Promise<IUnlockB
 
   const vaultId = refs.myVault.vaultId;
   if (vaultId == null) return DEFAULT_UNLOCK_BACKEND_STATE;
-  return refs.bitcoinLocks.getVaultUnlockReleaseState(vaultId);
+  const locks = refs.bitcoinLocks.getActiveLocks();
+  return refs.bitcoinLocks.getLockUnlockReleaseState(locks[0]);
 }
 
 const UNLOCK_BACKEND_RELEASE_FN = unlockBackendReleaseInspect.toString();

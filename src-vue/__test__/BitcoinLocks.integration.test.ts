@@ -288,7 +288,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           const refreshed = getCurrentLock(harness, returnedSecond.lock.utxoId!);
           if (refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged) return;
           if (!harness.bitcoinLocks.isInactiveForVaultDisplay(refreshed)) return;
-          const activeLocks = harness.bitcoinLocks.getActiveLocksForVault(harness.myVault.createdVault!.vaultId);
+          const activeLocks = harness.bitcoinLocks.getActiveLocks();
           if (activeLocks.some(activeLock => activeLock.utxoId === refreshed.utxoId)) return;
           return true;
         });

@@ -435,7 +435,7 @@ function showReleaseOverlay() {
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const personalLock = Vue.computed(() => {
-  return bitcoinLocks.getActiveLocksForVault(myVault.vaultId!)[0];
+  return bitcoinLocks.getActiveLocks()[0];
 });
 
 const lockExpirationTime = Vue.ref(dayjs.utc());

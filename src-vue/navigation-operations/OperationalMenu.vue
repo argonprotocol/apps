@@ -19,7 +19,7 @@
           <div class="flex items-center justify-between border-b border-argon-300/20 pb-2 mb-2">
             <div class="font-bold text-argon-600 text-xl">Collect Your Treasury Bonus</div>
             <button
-              @click="controller.hideBonusTip = true"
+              @click="dismissMessage"
               class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
               aria-label="Close tooltip"
             >
@@ -136,6 +136,11 @@ defineExpose({
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
+function dismissMessage() {
+  controller.hideBonusTip = true;
+  config.setCertificationDetails({ showOverviewTooltip: false });
+  void config.save();
+}
 function onMouseEnter() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);

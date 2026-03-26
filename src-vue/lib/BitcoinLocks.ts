@@ -131,7 +131,7 @@ interface IMismatchReturnState {
 
 export default class BitcoinLocks {
   public data: {
-    pendingLock: IBitcoinLockRecord | undefined;
+    pendingLocks: IBitcoinLockRecord[];
     locksByUtxoId: { [utxoId: number]: IBitcoinLockRecord };
     mismatchErrorsByLockUtxoId: { [lockUtxoId: number]: string };
     oracleBitcoinBlockHeight: number;
@@ -145,7 +145,7 @@ export default class BitcoinLocks {
 
   public get recordCount() {
     const activeLocks = Object.values(this.locksByUtxoId).filter(lock => !this.isInactiveForVaultDisplay(lock)).length;
-    return activeLocks + (this.data.pendingLock ? 1 : 0);
+    return activeLocks + this.data.pendingLocks.length;
   }
 
   private get locksByUtxoId() {
@@ -186,7 +186,7 @@ export default class BitcoinLocks {
     this.#currency = currency;
     this.#transactionTracker = transactionTracker;
     this.data = {
-      pendingLock: undefined,
+      pendingLocks: [],
       locksByUtxoId: {},
       mismatchErrorsByLockUtxoId: {},
       oracleBitcoinBlockHeight: 0,
@@ -204,15 +204,11 @@ export default class BitcoinLocks {
     });
   }
 
-  public getActiveLocksForVault(vaultId: number): IBitcoinLockRecord[] {
+  public getActiveLocks(): IBitcoinLockRecord[] {
     const locks = Object.values(this.data.locksByUtxoId);
-    if (this.data.pendingLock?.vaultId === vaultId) {
-      locks.unshift(this.data.pendingLock);
-    }
+    locks.unshift(...this.data.pendingLocks);
     locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    return locks.filter(lock => {
-      return lock.vaultId === vaultId && !this.isInactiveForVaultDisplay(lock);
-    });
+    return locks.filter(lock => !this.isInactiveForVaultDisplay(lock));
   }
 
   public getLockByUtxoId(utxoId: number): IBitcoinLockRecord | undefined {
@@ -280,7 +276,7 @@ export default class BitcoinLocks {
         if (lock.utxoId) {
           this.locksByUtxoId[lock.utxoId] = lock;
         } else {
-          this.data.pendingLock = lock;
+          this.data.pendingLocks.push(lock);
         }
       }
       await this.utxoTracking.load();
@@ -530,7 +526,8 @@ export default class BitcoinLocks {
     }>,
   ) {
     const { bitcoin: bitcoinMeta } = txInfo.tx.metadataJson;
-    this.data.pendingLock = await this.insertPending(bitcoinMeta);
+    const pendingLock = await this.insertPending(bitcoinMeta);
+    this.data.pendingLocks.push(pendingLock);
     void this.onBitcoinLockFinalized(txInfo);
   }
 
@@ -553,8 +550,9 @@ export default class BitcoinLocks {
     });
     console.log('FINALIZED PENDING BITCOIN LOCK', lock.liquidityPromised, { record });
     this.locksByUtxoId[record.utxoId!] = record;
-    if (this.data.pendingLock?.uuid === uuid) {
-      this.data.pendingLock = undefined;
+    const pendingIdx = this.data.pendingLocks.findIndex(l => l.uuid === uuid);
+    if (pendingIdx >= 0) {
+      this.data.pendingLocks.splice(pendingIdx, 1);
     }
     postProcessor.resolve();
 
@@ -889,8 +887,7 @@ export default class BitcoinLocks {
     };
   }
 
-  public getVaultMismatchState(vaultId: number): IBitcoinVaultMismatchState {
-    const lock = this.getActiveLocksForVault(vaultId)[0];
+  public getLockMismatchState(lock: IBitcoinLockRecord | undefined): IBitcoinVaultMismatchState {
     if (!lock) {
       return {
         hasActiveLock: false,
@@ -922,7 +919,7 @@ export default class BitcoinLocks {
     };
   }
 
-  public getVaultUnlockReleaseState(vaultId: number): IBitcoinUnlockReleaseState {
+  public getLockUnlockReleaseState(lock: IBitcoinLockRecord | undefined): IBitcoinUnlockReleaseState {
     const defaultState: IBitcoinUnlockReleaseState = {
       hasActiveLock: false,
       isPendingFunding: false,
@@ -938,15 +935,6 @@ export default class BitcoinLocks {
       isReleaseComplete: false,
     };
 
-    const activeLocks = this.getActiveLocksForVault(vaultId);
-    const lock =
-      activeLocks.find(candidate =>
-        [BitcoinLockStatus.Releasing, BitcoinLockStatus.Released].includes(candidate.status),
-      ) ??
-      activeLocks.find(candidate =>
-        [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(candidate.status),
-      ) ??
-      activeLocks[0];
     if (!lock) return defaultState;
 
     const fundingRecord = this.getAcceptedFundingRecord(lock) ?? lock.fundingUtxoRecord;
@@ -991,7 +979,7 @@ export default class BitcoinLocks {
   }
 
   public getVaultUnlockStateDetails(vaultId: number): IBitcoinVaultUnlockStateDetails {
-    const activeLocks = this.getActiveLocksForVault(vaultId);
+    const activeLocks = this.getActiveLocks();
     return {
       activeLocks: activeLocks.map(lock => {
         const fundingRecord = this.getAcceptedFundingRecord(lock) ?? lock.fundingUtxoRecord;
@@ -2674,8 +2662,11 @@ export default class BitcoinLocks {
   }
 }
 
-export type IBitcoinLocksMismatchInspect = Pick<BitcoinLocks, 'load' | 'getVaultMismatchState'>;
-export type IBitcoinLocksUnlockReleaseInspect = Pick<BitcoinLocks, 'load' | 'getVaultUnlockReleaseState'>;
+export type IBitcoinLocksMismatchInspect = Pick<BitcoinLocks, 'load' | 'getLockMismatchState' | 'getActiveLocks'>;
+export type IBitcoinLocksUnlockReleaseInspect = Pick<
+  BitcoinLocks,
+  'load' | 'getLockUnlockReleaseState' | 'getActiveLocks'
+>;
 export type IBitcoinLocksUnlockDetailsInspect = Pick<BitcoinLocks, 'load' | 'getVaultUnlockStateDetails'>;
 export type IBitcoinLocksVarianceInspect = Pick<BitcoinLocks, 'load' | 'getLockSatoshiAllowedVariance'>;
 

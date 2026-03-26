@@ -106,6 +106,7 @@ export const ConfigCertificationDetailsSchema = z.object({
   hasFirstMiningSeat: z.boolean(),
   hasSecondMiningSeat: z.boolean(),
   hasBitcoinLock: z.boolean(),
+  showOverviewTooltip: z.boolean().optional(),
 });
 
 export const ConfigInstallerStep = z.object({
@@ -189,7 +190,6 @@ export const ConfigSchema = z.object({
 
   isServerInstalled: z.boolean(), // is set once after first install
   isServerInstalling: z.boolean(), // is true whenever the Installer is running
-
   hasMiningSeats: z.boolean(),
   hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
