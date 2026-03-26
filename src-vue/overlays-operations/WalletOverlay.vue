@@ -141,6 +141,7 @@ import { WalletType } from '../lib/Wallet.ts';
 import InstructionsIcon from '../assets/instructions.svg?component';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 import AlertCalloutButton from '../components/AlertCalloutButton.vue';
+import { useBasics } from '../stores/basics.ts';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -148,6 +149,7 @@ const isLoaded = Vue.ref(false);
 const walletId: Vue.Ref<WalletType.miningHold | WalletType.vaulting> = Vue.ref(WalletType.miningHold);
 
 const config = getConfig();
+const basics = useBasics();
 const wallets = useWallets();
 const currency = getCurrency();
 const controller = useOperationsController();
@@ -309,7 +311,7 @@ async function loadQRCode() {
 
 function closeOverlay() {
   isOpen.value = false;
-  controller.overlayIsOpen = false;
+  basics.overlayIsOpen = false;
 }
 
 basicEmitter.on('openWalletOverlay', async data => {
@@ -318,7 +320,7 @@ basicEmitter.on('openWalletOverlay', async data => {
   isOpen.value = true;
   isLoaded.value = true;
   showJurisdictionAlert.value = false;
-  controller.overlayIsOpen = true;
+  basics.overlayIsOpen = true;
 });
 </script>
 

@@ -16,7 +16,6 @@ import { VaultRevenueEventsTable } from './db/VaultRevenueEventsTable.ts';
 import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
 import { BitcoinUtxosTable } from './db/BitcoinUtxosTable.ts';
 import { TransactionStatusHistoryTable } from './db/TransactionStatusHistoryTable.ts';
-import { VaultCouponsTable } from './db/VaultCouponsTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -35,7 +34,6 @@ export class Db {
   public walletLedgerTable: WalletLedgerTable;
   public walletTransfersTable: WalletTransfersTable;
   public bitcoinUtxosTable: BitcoinUtxosTable;
-  public vaultCouponsTable: VaultCouponsTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -56,7 +54,6 @@ export class Db {
     this.walletLedgerTable = new WalletLedgerTable(this);
     this.walletTransfersTable = new WalletTransfersTable(this);
     this.bitcoinUtxosTable = new BitcoinUtxosTable(this);
-    this.vaultCouponsTable = new VaultCouponsTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {

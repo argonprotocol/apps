@@ -114,7 +114,9 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import Checkbox from '../components/Checkbox.vue';
 import { ArrowTopRightOnSquareIcon, CheckCircleIcon, ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { useOperationsController, OperationalStepId, operationalSteps } from '../stores/operationsController.ts';
+import { useBasics } from '../stores/basics.ts';
 
+const basics = useBasics();
 const controller = useOperationsController();
 
 const isOpen = Vue.ref(false);
@@ -133,7 +135,7 @@ function goBack(): void {
 
 function closeOverlay() {
   isOpen.value = false;
-  controller.overlayIsOpen = false;
+  basics.overlayIsOpen = false;
 }
 
 function startTask() {
@@ -156,6 +158,6 @@ function openDocumentationLink(link: string) {
 basicEmitter.on('openOperationalOverlay', async (stepId: OperationalStepId) => {
   isOpen.value = true;
   currentStepId.value = stepId;
-  controller.overlayIsOpen = true;
+  basics.overlayIsOpen = true;
 });
 </script>

@@ -307,10 +307,11 @@ if ! (already_ran "BitcoinInstall"); then
            ! jq empty <<<"$command_output" >/dev/null 2>&1 || \
            jq -e '.error? // empty' <<<"$command_output" >/dev/null 2>&1; then
          failures=$((failures + 1))
-         if [ "$failures" -ge 5 ]; then
+         if [ "$failures" -ge 10 ]; then
            failed "Bitcoin syncstatus returned error JSON too many times"
          fi
-         echo "Bitcoin syncstatus returned error JSON ($failures / 5), retrying..."
+         echo "Output: $command_output"
+         echo "Bitcoin syncstatus returned error JSON ($failures / 10), retrying..."
          continue
         fi
 

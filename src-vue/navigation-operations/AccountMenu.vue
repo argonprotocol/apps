@@ -8,7 +8,7 @@
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']">
         <ConfigIcon class="h-5 w-5" />
         <ArrowCalloutButton
-          v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic && !isOpen && !controller.overlayIsOpen"
+          v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic && !isOpen && !basics.overlayIsOpen"
           class="absolute top-1/2 left-2 -translate-y-1/2 -translate-x-full z-50"
           label="Mouse Over"
           guidance="Open your account menu."
@@ -31,7 +31,7 @@
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openProfileOverlay()" class="py-2">
-              <header>My Profile</header>
+              <header>Personal Profile</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openJurisdictionOverlay()" class="py-2">
@@ -124,8 +124,10 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useOperationsController } from '../stores/operationsController.ts';
+import { useBasics } from '../stores/basics.ts';
 
 const tour = useTour();
+const basics = useBasics();
 const controller = useOperationsController();
 
 const isOpen = Vue.ref(false);

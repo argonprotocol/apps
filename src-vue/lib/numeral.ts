@@ -84,6 +84,17 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
     micronotToNm(this: void, micronots: bigint, toUnit: UnitOfMeasurement): Numeral {
       return numeral(currency.convertMicronotTo(micronots, toUnit));
     },
+
+    satoshiToMoneyNm(this: void, satoshis: bigint): Numeral {
+      const btc = currency.convertSatToBtc(satoshis);
+      const microgons = currency.convertBtcToMicrogon(btc);
+      return numeral(currency.convertMicrogonTo(microgons, currency.key));
+    },
+    satoshiToNm(this: void, satoshis: bigint, toUnit: UnitOfMeasurement): Numeral {
+      const btc = currency.convertSatToBtc(satoshis);
+      const microgons = currency.convertBtcToMicrogon(btc);
+      return numeral(currency.convertMicrogonTo(microgons, toUnit));
+    },
   };
 }
 

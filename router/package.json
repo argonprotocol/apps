@@ -1,7 +1,25 @@
 {
   "name": "@argonprotocol/apps-router",
-  "version": "0.1.0",
+  "private": true,
+  "description": "A router for surfacing install and sync state",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx server.ts",
+    "build": "tsup",
+    "watch": "tsup --watch",
+    "tsc": "tsc --noEmit"
+  },
+  "type": "module",
+  "dependencies": {
+    "@argonprotocol/apps-core": "workspace:*",
+    "express": "^5.2.0"
+  },
   "devDependencies": {
-    "@types/bun": "^1.2.22"
-  }
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "yarn@4.10.3"
 }

@@ -89,7 +89,7 @@
       </TooltipRoot>
 
       <ArrowCalloutButton
-        v-if="controller.activeGuideId === OperationalStepId.ActivateVault &&  controller.selectedTab !== OperationsTab.Vaulting"
+        v-if="[OperationalStepId.ActivateVault, OperationalStepId.LiquidLock, OperationalStepId.AcquireBonds].includes(controller.activeGuideId!) &&  controller.selectedTab !== OperationsTab.Vaulting"
         class="absolute top-1/2 right-2 -translate-y-1/2 translate-x-full z-50"
         guidance="Click the vaulting tab to begin."
       />

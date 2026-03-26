@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <slot :hours="hours" :minutes="minutes" :seconds="seconds" :days="days"></slot>
+  <slot :hours="hours" :minutes="minutes" :seconds="seconds" :days="days" :isFinished="isFinished"></slot>
 </template>
 
 <script setup lang="ts">
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   (e: 'update:tick', time: number): void;
 }>();
 
+const isFinished = Vue.ref(false);
 const hours = Vue.ref(0);
 const minutes = Vue.ref(0);
 const seconds = Vue.ref(0);
@@ -27,6 +28,7 @@ function updateTime() {
     minutes.value = 0;
     seconds.value = 0;
     days.value = 0;
+    isFinished.value = true;
     emit('update:tick', 0);
     return;
   }
@@ -43,6 +45,8 @@ function updateTime() {
 
   if (totalSeconds > 0) {
     setTimeout(updateTime, 1000);
+  } else {
+    isFinished.value = true;
   }
 }
 Vue.watch(

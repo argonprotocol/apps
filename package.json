@@ -12,7 +12,7 @@
     "build": "yarn build:version && yarn build:server && vue-tsc --noEmit && vite build",
     "build:workspace": "yarn workspaces foreach --all run build",
     "build:indexer": "yarn workspace @argonprotocol/apps-indexer run build",
-    "build:server": "yarn workspace @argonprotocol/apps-bot run build && tsx scripts/buildServer.ts",
+    "build:server": "yarn workspace @argonprotocol/apps-bot run build && yarn workspace @argonprotocol/apps-router run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
     "clean:dev:docker": "tsx scripts/cleanDevDocker.ts",
@@ -86,6 +86,7 @@
     "nanoid": "^5.1.6",
     "numeral": "^2.0.6",
     "ordinal": "^1.0.3",
+    "pako": "^2.1.0",
     "pinia": "^3.0.3",
     "qrcode": "^1.5.4",
     "qrcode-vue": "^1.2.0",
@@ -100,6 +101,7 @@
   "workspaces": [
     "bot",
     "core",
+    "router",
     "cli",
     "indexer",
     "e2e"
@@ -111,6 +113,7 @@
     "@types/d3": "^7",
     "@types/node": "^22.18.0",
     "@types/numeral": "^2.0.5",
+    "@types/pako": "^2",
     "@types/qrcode": "^1.5.5",
     "@types/semver": "^7.7.1",
     "@vitejs/plugin-vue": "^6.0.1",

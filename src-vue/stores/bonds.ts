@@ -45,7 +45,7 @@ export const useBonds = defineStore('bonds', () => {
     await miningFrames.load();
     await vaults.load();
 
-    vaultId.value = config.connectedVault!.vaultId;
+    vaultId.value = config.upstreamOperator!.vaultId;
 
     const client = await getMainchainClient(false);
     const accountId = walletKeys.investmentAddress;

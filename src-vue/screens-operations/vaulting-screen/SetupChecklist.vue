@@ -106,7 +106,7 @@
                 {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
                 Your Wallet
                 <ArrowCalloutButton
-                  v-if="currentStep === 'FundWallet' && !controller.overlayIsOpen"
+                  v-if="currentStep === 'FundWallet' && !basics.overlayIsOpen"
                   guidance="You must fund your vault before proceeding."
                   class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
                 />
@@ -137,7 +137,7 @@
         <button
           @click="startCreateVault"
           :class="[
-          walletIsFullyFunded && serverConnectIsChecked && !controller.overlayIsOpen
+          walletIsFullyFunded && serverConnectIsChecked && !basics.overlayIsOpen
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30'
         ]"
@@ -178,10 +178,12 @@ import { useOperationsController, OperationsTab, OperationalStepId } from '../..
 import { WalletType } from '../../lib/Wallet.ts';
 import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import { useBasics } from '../../stores/basics.ts';
 
 dayjs.extend(utc);
 
 const config = getConfig();
+const basics = useBasics();
 const wallets = useWallets();
 const currency = getCurrency();
 const controller = useOperationsController();

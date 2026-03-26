@@ -63,7 +63,7 @@ export async function buildOperatorAccountRegistrationTx(args: {
   const configuredVaultingAddr = walletKeys.vaultingAddress;
   const configuredMiningHoldAddr = walletKeys.miningHoldAddress;
   const configuredMiningBotAddr = walletKeys.miningBotAddress;
-  const accessCode = config.bootstrapDetails?.accessCode?.trim();
+  const accessCode = config.bootstrapDetails?.inviteCode?.trim();
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningHoldAccount, miningBotAccount] =
     await Promise.all([
       walletKeys.getOperationalKeypair(),
@@ -151,6 +151,7 @@ export async function loadOperationalAccount(
   if (accountRaw.isEmpty) return false;
 
   const account = accountRaw.unwrap().toJSON();
+  console.log('ACCOUNT: ', account);
   const details = config.setCertificationDetails({});
 
   details.hasVault = details.hasVault || (account.vaultCreated as boolean);

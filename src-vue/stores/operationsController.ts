@@ -94,11 +94,8 @@ export const useOperationsController = defineStore('operationsController', () =>
   const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(true);
   const stopSuggestingVaultTour = Vue.ref(true);
-  const hideBonusTip = Vue.ref(false);
 
   const backButtonTriggersHome = Vue.ref(false);
-
-  const overlayIsOpen = Vue.ref(false);
 
   function isCertificationStepComplete(stepId: OperationalStepId) {
     if (stepId === OperationalStepId.BootstrapFromNode) {
@@ -135,7 +132,6 @@ export const useOperationsController = defineStore('operationsController', () =>
   async function load() {
     await config.isLoadedPromise;
     await loadOperationalAccount(config as Config, walletKeys);
-    hideBonusTip.value = config.certificationDetails?.showOverviewTooltip === false;
 
     isLoaded.value = true;
     isLoadedResolve();
@@ -163,9 +159,7 @@ export const useOperationsController = defineStore('operationsController', () =>
     isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
-    overlayIsOpen,
     backButtonTriggersHome,
-    hideBonusTip,
     activeGuideId,
     importFromFile,
     importFromMnemonic,
