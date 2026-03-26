@@ -5,8 +5,17 @@
       <strong>{{ numeral(currency.convertSatToBtc(props.personalLock.satoshis)).format('0,0.[00000000]') }} BTC</strong>
       (or
       {{ numeral(props.personalLock.satoshis).format('0,0') }}
-      sats) to the cosign address listed below so Argon can match this lock automatically. If the amount differs, we’ll
-      pause and let you choose whether to accept the adjusted amount or return the transfer.
+      sats) to the multi-sig cosign address listed below. If the amount differs, we’ll pause and let you choose whether
+      to accept the adjusted amount or return the transfer.
+    </p>
+
+    <p class="mt-5 mb-4 text-gray-600 select-text">
+      You have
+      <CountdownClock :time="fundingExpirationTime" v-slot="{ days, hours, minutes, seconds }">
+        <template v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</template>
+        <template v-else>{{ hours }}h, {{ minutes }}m, and {{ seconds }}s</template>
+      </CountdownClock>
+      to complete this step.
     </p>
 
     <div class="mb-4 rounded-lg border border-gray-300 p-4 font-mono">
@@ -25,35 +34,37 @@
     </div>
 
     <div class="mb-4 flex flex-col items-center pt-1 text-gray-500">
-      <p class="w-full text-left">
-        Alternatively, many Bitcoin wallets allow you scan the following QR code to pre-fill the transfer details.
-      </p>
-      <BitcoinQrCode class="mt-5 h-44 w-44 text-center" :bip21="fundingBip21" v-if="fundingBip21" />
-      <CopyToClipboard data-testid="fundingBip21" :content="fundingBip21" class="relative mb-4 cursor-pointer">
-        <span class="opacity-80">
-          {{ abbreviateAddress(fundingBip21, 10) }}
-          <CopyIcon class="ml-1 inline-block h-4 w-4" />
-        </span>
-        <template #copied>
-          <div class="pointer-events-none absolute top-0 left-0 h-full w-full">
+      <template v-if="showQrCode">
+        <p class="w-full text-left">
+          Many Bitcoin wallets allow you scan the following QR code to pre-fill the transfer details (
+          <span @click="showQrCode = false" class="text-argon-600 cursor-pointer">hide</span>
+          ).
+        </p>
+        <BitcoinQrCode class="mt-5 h-44 w-44 text-center" :bip21="fundingBip21" v-if="fundingBip21" />
+        <CopyToClipboard data-testid="fundingBip21" :content="fundingBip21" class="relative mb-4 cursor-pointer">
+          <span class="opacity-80">
             {{ abbreviateAddress(fundingBip21, 10) }}
             <CopyIcon class="ml-1 inline-block h-4 w-4" />
-          </div>
-        </template>
-      </CopyToClipboard>
+          </span>
+          <template #copied>
+            <div class="pointer-events-none absolute top-0 left-0 h-full w-full">
+              {{ abbreviateAddress(fundingBip21, 10) }}
+              <CopyIcon class="ml-1 inline-block h-4 w-4" />
+            </div>
+          </template>
+        </CopyToClipboard>
+      </template>
+      <div v-else class="w-full text-left">
+        Alternatively,
+        <span @click="showQrCode = true" class="text-argon-600 cursor-pointer">click to scan our QR code</span>
+        into your wallet.
+      </div>
     </div>
 
     <div class="mb-4 border-t border-gray-300 pt-4 pb-1 text-gray-500">
       <div class="flex flex-row items-center">
         <Spinner class="mr-3" />
         We're monitoring Bitcoin's network and will update this screen when your transaction is received.
-      </div>
-      <div class="mt-3 border-t border-gray-200 pt-3 text-center italic opacity-60">
-        Funding window expires in
-        <CountdownClock :time="fundingExpirationTime" v-slot="{ days, hours, minutes }">
-          <template v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</template>
-          <template v-else>{{ hours }}h {{ minutes }}m</template>
-        </CountdownClock>
       </div>
     </div>
   </div>
@@ -84,6 +95,7 @@ const props = defineProps<{
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 
+const showQrCode = Vue.ref(false);
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');
 const fundingExpirationTime = Vue.ref(dayjs.utc());

@@ -54,6 +54,6 @@ export class Currency extends CurrencyBase {
   }
 
   public convertBtcToMicrogon(bitcoins: number): bigint {
-    return this.convertBtcToMicrogon(bitcoins);
+    return super.convertBtcToMicrogon(bitcoins);
   }
 }

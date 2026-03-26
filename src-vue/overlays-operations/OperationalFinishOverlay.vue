@@ -31,7 +31,9 @@ import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { useOperationsController, operationalSteps, OperationalStepId } from '../stores/operationsController.ts';
+import { useBasics } from '../stores/basics.ts';
 
+const basics = useBasics();
 const controller = useOperationsController();
 
 const isOpen = Vue.ref(false);
@@ -42,11 +44,11 @@ const currentStepId = Vue.computed(() => {
 function closeOverlay() {
   controller.activeGuideId = null;
   isOpen.value = false;
-  controller.overlayIsOpen = false;
+  basics.overlayIsOpen = false;
 }
 
 basicEmitter.on('openOperationalFinishOverlay', () => {
   isOpen.value = true;
-  controller.overlayIsOpen = true;
+  basics.overlayIsOpen = true;
 });
 </script>

@@ -97,6 +97,8 @@ export class Config implements IConfig {
       isServerInstalled: Config.getDefault(dbFields.isServerInstalled) as boolean,
       isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
 
+      hasProfileName: Config.getDefault(dbFields.hasProfileName) as boolean,
+
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
@@ -117,6 +119,7 @@ export class Config implements IConfig {
 
   public async restoreToConnection(sql: PluginSql): Promise<void> {
     const preserveFields: (keyof IConfig)[] = [
+      'upstreamOperator',
       'bootstrapDetails',
       'serverAdd',
       'serverDetails',
@@ -370,6 +373,13 @@ export class Config implements IConfig {
     this.setField('isServerInstalling', value);
   }
 
+  public get hasProfileName(): boolean {
+    return this.getField('hasProfileName');
+  }
+  public set hasProfileName(value: boolean) {
+    this.setField('hasProfileName', value);
+  }
+
   public get certificationDetails(): IConfig['certificationDetails'] {
     return this.getField('certificationDetails');
   }
@@ -389,7 +399,7 @@ export class Config implements IConfig {
       hasFirstMiningSeat: false,
       hasSecondMiningSeat: false,
       hasBitcoinLock: false,
-      showOverviewTooltip: true,
+      showBonusTooltip: true,
       ...(this.certificationDetails || {}),
       ...certificationDetails,
     };
@@ -428,12 +438,12 @@ export class Config implements IConfig {
     this.setField('vaultingRules', value, false);
   }
 
-  public get connectedVault(): IConfig['connectedVault'] {
-    return this.getField('connectedVault');
+  public get upstreamOperator(): IConfig['upstreamOperator'] {
+    return this.getField('upstreamOperator');
   }
 
-  public set connectedVault(value: IConfig['connectedVault']) {
-    this.setField('connectedVault', value);
+  public set upstreamOperator(value: IConfig['upstreamOperator']) {
+    this.setField('upstreamOperator', value);
   }
 
   public get defaultCurrencyKey(): ICurrencyKey {
@@ -575,6 +585,7 @@ export class Config implements IConfig {
     if (this.serverDetails.ipAddress) {
       this.isServerInstalled = true;
       this.isServerInstalling = false;
+      this.setCertificationDetails({ showBonusTooltip: false });
     }
 
     if (vaultingRules) {
@@ -615,6 +626,7 @@ const dbFields = {
 
   requiresPassword: 'requiresPassword',
   bootstrapDetails: 'bootstrapDetails',
+  upstreamOperator: 'upstreamOperator',
 
   serverAdd: 'serverAdd',
   serverDetails: 'serverDetails',
@@ -627,6 +639,8 @@ const dbFields = {
 
   isServerInstalled: 'isServerInstalled',
   isServerInstalling: 'isServerInstalling',
+
+  hasProfileName: 'hasProfileName',
 
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
@@ -643,7 +657,7 @@ const defaults: IConfigDefaults = {
 
   requiresPassword: () => false,
   bootstrapDetails: () => undefined,
-  connectedVault: () => ({ vaultId: 1, operatorName: "Josh's Vault" }),
+  upstreamOperator: () => undefined,
 
   serverAdd: () => undefined,
   serverDetails: () => {
@@ -681,6 +695,8 @@ const defaults: IConfigDefaults = {
 
   isServerInstalled: () => false,
   isServerInstalling: () => false,
+
+  hasProfileName: () => false,
 
   hasMiningSeats: () => false,
   hasMiningBids: () => false,
