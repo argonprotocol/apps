@@ -207,10 +207,21 @@
         <BitcoinIcon class="w-22 inline-block mr-7 -rotate-24 opacity-80 relative top-px bitcoin-spin" />
         <div class="flex flex-col items-start justify-center grow pr-5">
           <div class="text-xl font-bold opacity-60 pb-1.5">
-            Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC
-            deposit is being confirmed on Bitcoin
+            <template v-if="isFundingSeenInMempoolOnly">
+              Your
+              {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }}
+              BTC deposit was seen in Bitcoin's mempool
+            </template>
+            <template v-else>
+              Your {{ numeral(currency.convertSatToBtc(personalLock?.lockDetails?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC
+              deposit is being confirmed on Bitcoin
+            </template>
           </div>
-          <ProgressBar :progress="lockProcessingStep.progressPct" />
+          <div v-if="isFundingSeenInMempoolOnly" class="flex flex-row items-center gap-2 text-slate-500">
+            <Spinner class="h-4 w-4" />
+            <span>Waiting for the first Bitcoin block...</span>
+          </div>
+          <ProgressBar v-else :progress="lockProcessingStep.progressPct" />
         </div>
       </div>
     </div>
@@ -477,6 +488,11 @@ const hasCachedLockProgress = Vue.computed(() => {
 const hasLockProgressReady = Vue.computed(() => {
   return hasInitializedLockProgress.value || hasCachedLockProgress.value;
 });
+const hasObservedFundingSignal = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return false;
+  return bitcoinLocks.hasObservedFundingSignal(lock);
+});
 const showCheckingFundingStatus = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
   if (showFundingMismatch.value || showMismatchAccept.value) return false;
@@ -486,13 +502,17 @@ const showReadyForBitcoin = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
   if (showFundingMismatch.value || showMismatchAccept.value) return false;
   if (!hasLockProgressReady.value) return false;
+  if (hasObservedFundingSignal.value) return false;
   return lockProcessingStep.value.confirmations < 0;
 });
 const showFundingBitcoinProcessing = Vue.computed(() => {
   if (!lockPendingFunding.value || !personalLock.value) return false;
   if (showFundingMismatch.value || showMismatchAccept.value) return false;
   if (!hasLockProgressReady.value) return false;
-  return lockProcessingStep.value.confirmations >= 0;
+  return hasObservedFundingSignal.value || lockProcessingStep.value.confirmations >= 0;
+});
+const isFundingSeenInMempoolOnly = Vue.computed(() => {
+  return hasObservedFundingSignal.value && lockProcessingStep.value.confirmations < 0;
 });
 const isLockedStatus = Vue.computed(() => {
   const lock = personalLock.value;
@@ -632,6 +652,16 @@ const mismatchConfirmationState = Vue.computed(() => {
     };
   }
   if (lockProcessingStep.value.confirmations < 0) {
+    if (
+      candidate.mempoolObservation &&
+      !candidate.mempoolObservation.isConfirmed &&
+      candidate.firstSeenBitcoinHeight <= 0
+    ) {
+      return {
+        showProgress: false,
+        label: 'Waiting for the first Bitcoin block...',
+      };
+    }
     if (candidate.firstSeenBitcoinHeight > 0 || candidate.mempoolObservation?.isConfirmed === true) {
       return {
         showProgress: false,

@@ -250,7 +250,7 @@ const lockStep = Vue.computed<LockStep>(() => {
   }
 
   if (lock.status === BitcoinLockStatus.LockPendingFunding) {
-    if (lockProcessingDetails.value.confirmations >= 0) {
+    if (bitcoinLocks.hasObservedFundingSignal(lock) || lockProcessingDetails.value.confirmations >= 0) {
       return LockStep.ProcessingOnBitcoin;
     }
     return LockStep.ReadyForBitcoin;

@@ -90,6 +90,7 @@ describe('BitcoinUtxoTracking', () => {
     expect(reloaded.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(reloaded.firstSeenBitcoinHeight).toBe(120);
     expect(reloaded.mempoolObservation?.satoshis).toBe(11_000n);
+    expect(tracking.hasObservedFundingSignal(lock)).toBe(true);
   });
 
   it('prefers argon candidates and chooses closest satoshi match', async () => {
@@ -119,6 +120,58 @@ describe('BitcoinUtxoTracking', () => {
     const preferred = tracking.getPreferredFundingCandidateRecord(lock);
     expect(preferred?.txid).toBe('b'.repeat(64));
     expect(tracking.getReceivedFundingSatoshis(lock)).toBe(10_200n);
+  });
+
+  it('captures the oracle height when funding first becomes confirmed', async () => {
+    const db = await createTestDb();
+    let oracleBitcoinBlockHeight = 110;
+    const tracking = createTracking(db, {
+      getOracleBitcoinBlockHeight: () => oracleBitcoinBlockHeight,
+    });
+    const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, satoshis: 10_000n });
+
+    const record = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'c'.repeat(64), vout: 0, satoshis: 10_000n },
+      {
+        mempoolObservation: {
+          isConfirmed: false,
+          confirmations: 0,
+          satoshis: 10_000n,
+          txid: 'c'.repeat(64),
+          vout: 0,
+          transactionBlockHeight: 0,
+          transactionBlockTime: 1710000000,
+          argonBitcoinHeight: 110,
+        },
+      },
+    );
+
+    oracleBitcoinBlockHeight = 111;
+    await tracking.upsertUtxoRecord(
+      lock,
+      { txid: record.txid, vout: record.vout, satoshis: record.satoshis },
+      {
+        mempoolObservation: {
+          isConfirmed: true,
+          confirmations: 1,
+          satoshis: 10_000n,
+          txid: record.txid,
+          vout: record.vout,
+          transactionBlockHeight: 120,
+          transactionBlockTime: 1710000300,
+          argonBitcoinHeight: 111,
+        },
+      },
+    );
+
+    oracleBitcoinBlockHeight = 118;
+
+    const details = tracking.getLockProcessingDetails(lock);
+
+    expect(record.firstSeenOracleHeight).toBe(111);
+    expect(details.confirmations).toBe(7);
+    expect(details.expectedConfirmations).toBe(9);
   });
 
   it('tracks release lifecycle on the funding record', async () => {
@@ -393,6 +446,7 @@ describe('BitcoinUtxoTracking', () => {
     expect(details.progressPct).toBe(0);
     expect(details.confirmations).toBe(-1);
     expect(details.receivedSatoshis).toBeUndefined();
+    expect(tracking.hasObservedFundingSignal(lock)).toBe(false);
   });
 
   it('observeMempoolFunding ignores old Argon-seen release records', async () => {

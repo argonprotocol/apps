@@ -789,6 +789,10 @@ export default class BitcoinLocks {
     return this.utxoTracking.getReceivedFundingSatoshis(lock);
   }
 
+  public hasObservedFundingSignal(lock: IBitcoinLockRecord): boolean {
+    return this.utxoTracking.hasObservedFundingSignal(lock);
+  }
+
   public getMismatchViewState(lock: IBitcoinLockRecord): IBitcoinMismatchViewState {
     type IMismatchCandidateBuildState = IBitcoinMismatchCandidateView & { canAcceptBase: boolean };
 

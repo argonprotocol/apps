@@ -19,23 +19,42 @@
         </div>
       </div>
     </template>
+    <p v-else-if="isWaitingForFirstBitcoinBlock" class="pt-2">
+      <template v-if="observedBtcLabel !== undefined">
+        We detected a transfer of {{ observedBtcLabel }} BTC in Bitcoin's mempool.
+      </template>
+      <template v-else>We detected your Bitcoin transfer in Bitcoin's mempool.</template>
+      We’re waiting for the first Bitcoin block before confirmation tracking begins.
+    </p>
+
     <p v-else class="pt-2">
-      Argon miners confirmed a transfer of
-      {{ numeral(currency.convertSatToBtc(satoshisObserved ?? 0n)).format('0,0.[00000000]') }} BTC. We’re waiting for
-      final confirmation on Bitcoin. This usually takes about an hour from start to finish.
+      <template v-if="observedBtcLabel !== undefined">
+        Argon miners confirmed a transfer of {{ observedBtcLabel }} BTC.
+      </template>
+      <template v-else>Argon miners confirmed your Bitcoin transfer.</template>
+      We’re waiting for final confirmation on Bitcoin. This usually takes about an hour from start to finish.
     </p>
 
     <p class="mb-2 italic">You can close this overlay without interrupting the process.</p>
 
-    <div class="mt-16">
-      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
+    <div
+      v-if="isWaitingForFirstBitcoinBlock"
+      class="mt-12 flex items-center justify-center gap-3 text-center text-gray-500">
+      <Spinner class="h-5 w-5" />
+      <span>Waiting for the first Bitcoin block...</span>
     </div>
 
-    <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
+    <template v-else>
+      <div class="mt-16">
+        <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
+      </div>
 
-    <div class="text-center font-light text-gray-500">
-      {{ progressLabel }}
-    </div>
+      <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
+
+      <div class="text-center font-light text-gray-500">
+        {{ progressLabel }}
+      </div>
+    </template>
   </div>
 </template>
 
@@ -46,6 +65,7 @@ import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
+import Spinner from '../../components/Spinner.vue';
 import { generateProgressLabel } from '../../lib/Utils.ts';
 import { useBitcoinLockProgress } from '../../stores/bitcoinLockProgress.ts';
 
@@ -60,6 +80,7 @@ const currency = getCurrency();
 const satoshisObserved = Vue.ref<bigint | undefined>(undefined);
 const personalLock = Vue.computed(() => props.personalLock);
 const progressPct = Vue.computed(() => bitcoinLockProgress.lockProcessing.progressPct);
+const isWaitingForFirstBitcoinBlock = Vue.computed(() => bitcoinLockProgress.lockProcessing.confirmations < 0);
 
 const progressLabel = Vue.computed(() => {
   return generateProgressLabel(
@@ -77,7 +98,8 @@ const reservedBtcLabel = Vue.computed(() => {
   return numeral(currency.convertSatToBtc(personalLock.value.satoshis ?? 0n)).format('0,0.[00000000]');
 });
 const observedBtcLabel = Vue.computed(() => {
-  return numeral(currency.convertSatToBtc(satoshisObserved.value ?? 0n)).format('0,0.[00000000]');
+  if (satoshisObserved.value === undefined) return undefined;
+  return numeral(currency.convertSatToBtc(satoshisObserved.value)).format('0,0.[00000000]');
 });
 const differenceBtcLabel = Vue.computed(() => {
   const observed = satoshisObserved.value;
