@@ -178,7 +178,8 @@ async function mismatchBackendStateInspect(refs: IInspectRefs): Promise<IMismatc
       nextCandidateCanReturn: false,
     };
   }
-  return refs.bitcoinLocks.getVaultMismatchState(vaultId);
+  const locks = refs.bitcoinLocks.getActiveLocks();
+  return refs.bitcoinLocks.getLockMismatchState(locks[0]);
 }
 
 const MISMATCH_BACKEND_STATE_FN = mismatchBackendStateInspect.toString();

@@ -54,14 +54,20 @@ export interface IBitcoinVaultUnlockStateDetails {
   }>;
 }
 
+export interface IBitcoinLockRecord {
+  [key: string]: unknown;
+}
+
 export interface IBitcoinLocksMismatchInspect {
   load(): Promise<unknown>;
-  getVaultMismatchState(vaultId: number): IBitcoinVaultMismatchState;
+  getLockMismatchState(lock: IBitcoinLockRecord | undefined): IBitcoinVaultMismatchState;
+  getActiveLocks(): IBitcoinLockRecord[];
 }
 
 export interface IBitcoinLocksUnlockReleaseInspect {
   load(): Promise<unknown>;
-  getVaultUnlockReleaseState(vaultId: number): IBitcoinUnlockReleaseState;
+  getLockUnlockReleaseState(lock: IBitcoinLockRecord | undefined): IBitcoinUnlockReleaseState;
+  getActiveLocks(): IBitcoinLockRecord[];
 }
 
 export interface IBitcoinLocksUnlockDetailsInspect {
