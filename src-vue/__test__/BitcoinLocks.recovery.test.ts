@@ -210,7 +210,6 @@ describe('BitcoinLocks getActiveLocks', () => {
       firstSeenOnArgonAt: undefined,
     });
 
-    store.utxoTracking.data.supportsCandidateUtxos = true;
     store.data.locksByUtxoId = { 1: lock };
     store.utxoTracking.data.utxosByLockUtxoId = { 1: [candidate] };
     vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(1_000);
@@ -317,7 +316,6 @@ describe('BitcoinLocks getActiveLocks', () => {
       firstSeenOnArgonAt: undefined,
     });
 
-    store.utxoTracking.data.supportsCandidateUtxos = true;
     store.data.locksByUtxoId = { 1: lock };
     store.utxoTracking.data.utxosByLockUtxoId = { 1: [candidate] };
     vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(1_000);

@@ -1213,13 +1213,6 @@ export class MyVault {
     const accountId = vault.operatorAccountId;
     const client = await getMainchainClient(false);
 
-    // TODO: Remove this compatibility check once all nodes are updated beyond v146
-    if (SpecLte146.isAtSpec(client)) {
-      const holds = await client.query.balances.holds(accountId);
-      const held = this.extractTreasuryMicrogonsCommitted(holds);
-      return { heldPrincipal: held, targetPrincipal: held };
-    }
-
     const treasuryFunderState = await client.query.treasury.funderStateByVaultAndAccount(vaultId, accountId);
     if (treasuryFunderState.isNone) {
       return { heldPrincipal: 0n, targetPrincipal: 0n };
@@ -1362,17 +1355,9 @@ export class MyVault {
     }
 
     const client = await getMainchainClient(false);
-    // TODO: remove after we upgrade past spec 146
-    if (SpecLte146.isAtSpec(client)) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      return (client.tx.treasury as unknown as SpecLte146.ITreasuryTxSpec).vaultOperatorPrebond(
-        vaultId,
-        newAllocation / 10n,
-      ) as any;
-    } else {
-      return client.tx.treasury.setAllocation(vaultId, newAllocation);
-    }
+    return client.tx.treasury.setAllocation(vaultId, newAllocation);
   }
+
   public async activateSecuritization(args: {
     rules: IVaultingRules;
     tip?: bigint;
