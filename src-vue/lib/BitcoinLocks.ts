@@ -16,8 +16,8 @@ import {
   ITxProgressCallback,
   KeyringPair,
   type SubmittableExtrinsic,
-  Vault,
   u8aToHex,
+  Vault,
 } from '@argonprotocol/mainchain';
 import { Db } from './Db.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
@@ -33,16 +33,14 @@ import {
   IBlockHeaderInfo,
   IDeferred,
   MiningFrames,
-  queryCandidateUtxoRefsByUtxoId,
   SATOSHIS_PER_BITCOIN,
   SingleFileQueue,
-  supportsRejectUtxoCandidateTx,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
-import { type ITransactionRecord, ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
+import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
 
@@ -266,7 +264,6 @@ export default class BitcoinLocks {
       const archiveClient = await getMainchainClient(true);
       const latestClient = await getMainchainClient(false);
       this.#config ??= await BitcoinLock.getConfig(archiveClient);
-      this.utxoTracking.updateSupportsCandidateUtxos(latestClient);
       this.#lockTicksPerDay = archiveClient.consts.bitcoinLocks.argonTicksPerDay.toNumber();
       this.data.bitcoinNetwork = getBitcoinNetworkFromApi(this.#config.bitcoinNetwork);
 
@@ -1150,7 +1147,6 @@ export default class BitcoinLocks {
   }
 
   private isMismatchCandidateSeenOnArgon(candidateRecord: IBitcoinUtxoRecord): boolean {
-    if (!this.utxoTracking.supportsCandidateUtxosEnabled) return true;
     if (candidateRecord.status === BitcoinUtxoStatus.Orphaned) return true;
     return !!candidateRecord.firstSeenOnArgonAt;
   }
@@ -2281,7 +2277,7 @@ export default class BitcoinLocks {
       throw new Error('Missing lock owner account needed for orphan release.');
     }
     const txs: SubmittableExtrinsic[] = [];
-    const candidateRefs = await queryCandidateUtxoRefsByUtxoId(args.client, args.lock.utxoId!);
+    const candidateRefs = await args.client.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(args.lock.utxoId!);
     const candidateStillOnChain =
       !!candidateRefs &&
       [...candidateRefs.entries()].some(([utxoRef]) => {
@@ -2291,9 +2287,6 @@ export default class BitcoinLocks {
         );
       });
     if (candidateStillOnChain) {
-      if (!supportsRejectUtxoCandidateTx(args.client)) {
-        throw new Error('Candidate rejection is not supported on this chain.');
-      }
       txs.push(
         args.client.tx.bitcoinUtxos.rejectUtxoCandidate(args.lock.utxoId!, {
           txid: args.request.utxoRef.txid,

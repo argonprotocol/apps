@@ -8,7 +8,6 @@ import {
   MainchainClients,
   MiningFrames,
   NetworkConfig,
-  queryCandidateUtxoRefsByUtxoId,
 } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
@@ -216,7 +215,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           if (!chainLock) return;
           const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
           if (chainFundingRef) return;
-          const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, resumed.utxoId!);
+          const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(resumed.utxoId!);
           if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
 
           return true;
@@ -677,7 +676,7 @@ async function returnMismatchAndWaitForReadyToResume(
       const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
       if (chainFundingRef) return;
 
-      const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, refreshed.utxoId!);
+      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
       if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
 
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
@@ -821,7 +820,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
       const chainLock = await BitcoinLock.get(chainClient, currentLock.utxoId!);
       if (chainLock) return;
 
-      const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, currentLock.utxoId!);
+      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(currentLock.utxoId!);
       if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
 
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(currentLock.vaultId);
@@ -920,7 +919,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
         return;
       }
 
-      const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, refreshed.utxoId!);
+      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
       if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
       if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
