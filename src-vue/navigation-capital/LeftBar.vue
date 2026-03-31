@@ -14,14 +14,14 @@
     </div>
 
     <div class="text-center flex-row items-center justify-center py-10 border-b border-slate-500/20">
-      <div class="font-bold text-4xl">₳0.00</div>
+      <div class="font-bold text-4xl">{{ currency.symbol }}{{ formattedTotal }}</div>
       <div>Total Value</div>
     </div>
 
     <ul class="mt-5 px-3">
       <li @click="controller.setScreenKey(CapitalTab.Mainchain)" :Selected="controller.selectedTab === CapitalTab.Mainchain || undefined">
         <div>Mainchain Balance</div>
-        <div>{{currency.symbol}}0.00</div>
+        <div>{{ currency.symbol }}{{ formattedMainchain }}</div>
       </li>
       <li @click="controller.setScreenKey(CapitalTab.Localchain)" :Selected="controller.selectedTab === CapitalTab.Localchain || undefined">
         <div>Localchain Balance</div>
@@ -36,15 +36,15 @@
     <div class="mt-10 px-3">
       <header class="px-2 opacity-40">INVESTMENT RETURNS</header>
       <ul class="mt-2">
-        <li>
+        <li @click="controller.setScreenKey(CapitalTab.ArgonBonds)" :Selected="controller.selectedTab === CapitalTab.ArgonBonds || undefined">
           <div>Argon Bonds</div>
-          <div>0.00%</div>
+          <div>{{ numeral(bonds.estimatedApy).format('0.00') }}%</div>
         </li>
-        <li>
+        <li @click="controller.setScreenKey(CapitalTab.BitcoinLocks)" :Selected="controller.selectedTab === CapitalTab.BitcoinLocks || undefined">
           <div>Bitcoin Locks</div>
           <div>0.00%</div>
         </li>
-        <li>
+        <li @click="controller.setScreenKey(CapitalTab.StableSwaps)" :Selected="controller.selectedTab === CapitalTab.StableSwaps || undefined">
           <div>Stable Swaps</div>
           <div>0.00%</div>
         </li>
@@ -82,9 +82,29 @@ import { readDir } from '@tauri-apps/plugin-fs';
 import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { CapitalTab, useCapitalController } from '../stores/capitalController.ts';
+import { useWallets } from '../stores/wallets.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import { useBonds } from '../stores/bonds.ts';
 
 const controller = useCapitalController();
 const currency = getCurrency();
+const wallets = useWallets();
+const bonds = useBonds();
+
+const mainchainBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
+const totalValue = Vue.computed(() => mainchainBalance.value + bonds.heldPrincipal);
+
+const formattedMainchain = Vue.computed(() => {
+  if (!currency.isLoaded) return '0.00';
+  const { microgonToMoneyNm } = createNumeralHelpers(currency);
+  return microgonToMoneyNm(mainchainBalance.value).format('0,0.00');
+});
+
+const formattedTotal = Vue.computed(() => {
+  if (!currency.isLoaded) return '0.00';
+  const { microgonToMoneyNm } = createNumeralHelpers(currency);
+  return microgonToMoneyNm(totalValue.value).format('0,0.00');
+});
 const tour = useTour();
 
 const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
@@ -114,6 +134,7 @@ tour.registerPositionCheck('currencyMenu', () => {
 
 Vue.onMounted(async () => {
   await fetchInstances();
+  await bonds.load();
 });
 </script>
 

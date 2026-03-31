@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, TreasuryPool, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
@@ -74,7 +74,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsActivatedPct = Vue.computed(() => {
-    const pctBn = BigNumber(treasuryMicrogonsActivated.value).div(treasuryTotalValue.value);
+    const pctBn = BigNumber(treasuryMicrogonsActivated.value).div(treasuryMicrogonsMaxCapacity.value);
     return pctBn.multipliedBy(100).toNumber();
   });
 
@@ -83,7 +83,27 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsMaxCapacity = Vue.computed(() => {
-    return securityMicrogonsActivated.value;
+    const sats = myVault.data.securitizedSatoshis;
+    if (sats <= 0n) return 0n;
+    return currency.priceIndex.getBtcMicrogonPrice(sats);
+  });
+
+  // Treasury (all funders — for vault-wide utilization stats)
+
+  const treasuryMicrogonsTotalBonded = Vue.computed(() => {
+    return TreasuryPool.totalBondedCapital(myVault.data.bondFunders);
+  });
+
+  const treasuryMicrogonsTotalActivated = Vue.computed(() => {
+    return bigIntMin(treasuryMicrogonsTotalBonded.value, treasuryMicrogonsMaxCapacity.value);
+  });
+
+  const treasuryMicrogonsTotalActivatedPct = Vue.computed(() => {
+    if (treasuryMicrogonsMaxCapacity.value <= 0n) return 0;
+    return BigNumber(treasuryMicrogonsTotalActivated.value)
+      .div(BigNumber(treasuryMicrogonsMaxCapacity.value))
+      .multipliedBy(100)
+      .toNumber();
   });
 
   // Operational Fees
@@ -123,6 +143,9 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     treasuryMicrogonsActivatedPct,
     treasuryTotalValue,
     treasuryMicrogonsMaxCapacity,
+    treasuryMicrogonsTotalBonded,
+    treasuryMicrogonsTotalActivated,
+    treasuryMicrogonsTotalActivatedPct,
 
     operationalFeeMicrogons,
     totalVaultValue,

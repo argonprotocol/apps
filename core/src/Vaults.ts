@@ -26,6 +26,7 @@ import { TreasuryPool } from './TreasuryPool.js';
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
+  public readonly vaultSatoshisById: { [id: number]: { lockedSatoshis: bigint; securitizedSatoshis: bigint } } = {};
   public stats?: IAllVaultStats;
 
   constructor(
@@ -49,7 +50,12 @@ export class Vaults {
       const vaults = await client.query.vaults.vaultsById.entries();
       for (const [vaultIdRaw, vaultRaw] of vaults) {
         const id = vaultIdRaw.args[0].toNumber();
-        this.vaultsById[id] = new Vault(id, vaultRaw.unwrap(), NetworkConfig.tickMillis);
+        const raw = vaultRaw.unwrap();
+        this.vaultsById[id] = new Vault(id, raw, NetworkConfig.tickMillis);
+        this.vaultSatoshisById[id] = {
+          lockedSatoshis: raw.lockedSatoshis.toBigInt(),
+          securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
+        };
       }
       this.stats ??= await this.loadStats();
 
@@ -58,6 +64,21 @@ export class Vaults {
       this.waitForLoad.reject(error as Error);
     }
     return this.waitForLoad.promise;
+  }
+
+  public async subscribeToVault(vaultId: number, onUpdate: (vault: Vault) => void): Promise<() => void> {
+    const client = await this.mainchainClients.get(false);
+
+    return await client.query.vaults.vaultsById(vaultId, vaultOption => {
+      if (!vaultOption.isSome) return;
+      const raw = vaultOption.unwrap();
+      this.vaultsById[vaultId] = new Vault(vaultId, raw, NetworkConfig.tickMillis);
+      this.vaultSatoshisById[vaultId] = {
+        lockedSatoshis: raw.lockedSatoshis.toBigInt(),
+        securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
+      };
+      onUpdate(this.vaultsById[vaultId]);
+    });
   }
 
   public async getVaultPoolsByFrameForAccountId(accountIdFilter: string) {

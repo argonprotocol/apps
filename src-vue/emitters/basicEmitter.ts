@@ -3,10 +3,15 @@ import Importer from '../lib/Importer.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import { OperationalStepId } from '../stores/operationsController.ts';
+import { MoveTo } from '@argonprotocol/apps-core';
 
 type IBasicEmitter = {
   openWalletOverlay: { walletType: WalletType.miningHold | WalletType.vaulting; screen: string };
-  openMoveCapitalOverlay: { walletType: WalletType.miningHold | WalletType.vaulting };
+  openMoveCapitalOverlay: {
+    walletType: WalletType.miningHold | WalletType.vaulting;
+    moveTo?: MoveTo;
+    maxAmount?: bigint;
+  };
 
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;

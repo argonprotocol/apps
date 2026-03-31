@@ -21,7 +21,7 @@
               are ready to be moved wherever you want.
             </p>
             <p v-else>
-              You have no unused holdings.
+              You have no inflation-free savings.
             </p>
           </div>
         </template>
@@ -231,11 +231,11 @@
           <div class="grow">
             {{ microgonToArgonNm(breakdown.treasuryMicrogons).format('0,0.[00]') }} ARGN
           </div>
-          <div v-if="breakdown.treasuryMicrogonsMaxCapacity > breakdown.treasuryMicrogons" class="flex flex-row items-center gap-x-1">
+          <div v-if="breakdown.treasuryMicrogonsTotalActivatedPct < 98" class="flex flex-row items-center gap-x-1">
             <ExclamationTriangleIcon class="size-5 text-yellow-600" aria-hidden="true" />
             LOW
           </div>
-          <div class="opacity-60" v-else>{{ numeral(breakdown.treasuryMicrogonsActivatedPct).format('0,0.[00]')}}%</div>
+          <div class="opacity-60" v-else>{{ numeral(breakdown.treasuryMicrogonsTotalActivatedPct).format('0,0.[00]')}}%</div>
         </div>
         <template #tooltip>
           <div class="break-words whitespace-normal">

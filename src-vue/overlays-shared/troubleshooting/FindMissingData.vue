@@ -131,7 +131,7 @@ async function checkBitcoins() {
   const table = await bitcoinLocks.getTable();
   const existing = await table.fetchAll();
   const bitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
-    bitcoinLocksStore: bitcoinLocks,
+    bitcoinLocks: bitcoinLocks,
     vaultSetupBlockNumber: myVault.metadata!.createdAtBlockHeight!,
     vault: myVault.createdVault!,
     mainchainClients: getMainchainClients(),

@@ -430,8 +430,9 @@ async function createLock(harness: TestHarness, microgonLiquidity?: bigint): Pro
   const availableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
   const targetLiquidity = microgonLiquidity ?? (availableBitcoinSpace * 4n) / 5n;
   expect(targetLiquidity).toBeGreaterThan(0n);
+  const satoshis = await harness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
 
-  await harness.myVault.startBitcoinLocking({ microgonLiquidity: targetLiquidity });
+  await harness.myVault.startBitcoinLocking({ satoshis });
   return await waitFor(120e3, 'pending bitcoin lock finalization', () => {
     const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId)
       .filter(record => record.vaultId === harness.myVault.createdVault!.vaultId)

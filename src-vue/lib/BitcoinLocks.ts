@@ -13,7 +13,6 @@ import {
   BitcoinLock,
   formatArgons,
   type IBitcoinLockConfig,
-  ITxProgressCallback,
   KeyringPair,
   type SubmittableExtrinsic,
   u8aToHex,
@@ -26,7 +25,6 @@ import BitcoinMempool from './BitcoinMempool.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import {
-  bigNumberToBigInt,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -36,7 +34,6 @@ import {
   SATOSHIS_PER_BITCOIN,
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
-import BigNumber from 'bignumber.js';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -207,6 +204,13 @@ export default class BitcoinLocks {
     locks.unshift(...this.data.pendingLocks);
     locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return locks.filter(lock => !this.isInactiveForVaultDisplay(lock));
+  }
+
+  public getAllLocks(): IBitcoinLockRecord[] {
+    const locks = Object.values(this.data.locksByUtxoId);
+    locks.unshift(...this.data.pendingLocks);
+    locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return locks;
   }
 
   public getLockByUtxoId(utxoId: number): IBitcoinLockRecord | undefined {
@@ -407,93 +411,70 @@ export default class BitcoinLocks {
     return await client.query.bitcoinLocks.minimumSatoshis().then(x => x.toBigInt());
   }
 
-  public async createInitializeTx(args: {
+  public async initializeLock(args: {
     vault: Vault;
-    argonKeyring: KeyringPair;
-    microgonLiquidity: bigint;
-    maxMicrogonSpend?: bigint;
-    addingVaultSpace?: bigint;
+    satoshis: bigint;
     tip?: bigint;
-    txProgressCallback?: ITxProgressCallback;
     couponProofKeypair?: KeyringPair;
     skipCouponValidation?: boolean;
   }) {
-    const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey(args);
-    const {
-      vault,
-      argonKeyring,
-      maxMicrogonSpend,
-      tip = 0n,
-      addingVaultSpace = 0n,
-      skipCouponValidation,
-      couponProofKeypair,
-    } = args;
+    const { vault, satoshis, tip, couponProofKeypair, skipCouponValidation } = args;
+    const argonKeyring = await this.walletKeys.getLiquidLockingKeypair();
 
     const minimumSatoshis = await this.minimumSatoshiPerLock();
-    let microgonLiquidity = args.microgonLiquidity;
-    const availableBtcSpace =
-      vault.availableBitcoinSpace() +
-      bigNumberToBigInt(BigNumber(addingVaultSpace).dividedBy(vault.securitizationRatioBN()));
-    if (availableBtcSpace < microgonLiquidity) {
-      console.info('Vault liquidity is less than requested microgon liquidity, using vault available space instead.', {
-        availableBtcSpace,
-        requestedLiquidity: microgonLiquidity,
-      });
-      microgonLiquidity = availableBtcSpace;
+    if (satoshis < minimumSatoshis) {
+      throw new Error(
+        `Unable to create a bitcoin lock with the given sats: ${satoshis}. Minimum is ${minimumSatoshis}`,
+      );
     }
-
     if (!this.#currency.priceIndex.btcUsdPrice) {
       throw new Error('Network bitcoin pricing is currently unavailable. Please try again later.');
     }
 
-    const basicFeeCapability = await this.canPayMinimumFee(args);
+    const basicFeeCapability = await this.canPayMinimumFee({ ...args, argonKeyring });
     if (!basicFeeCapability.canAfford) {
       const { txFeePlusTip, securityFee } = basicFeeCapability;
       throw new Error(
-        `You cannot afford the basic transaction fees of this transaction (Tx Fees: ${formatArgons(txFeePlusTip)}, Security Fee: ${formatArgons(securityFee)})`,
+        `You cannot afford the basic transaction fees of this transaction (Tx Fees: ${formatArgons(txFeePlusTip)}, Minimum Possible Security Fee: ${formatArgons(securityFee)})`,
       );
     }
-
-    let satoshis = await this.satoshisForArgonLiquidity(microgonLiquidity);
-    const microgonsPerBtc = this.#currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN);
     const submitTxClient = await getMainchainClient(false);
-    while (satoshis >= minimumSatoshis) {
-      const { txFee, canAfford } = await BitcoinLock.createInitializeTx({
-        client: submitTxClient,
-        vault,
-        priceIndex: this.#currency.priceIndex,
-        ownerBitcoinPubkey,
-        argonKeyring,
-        microgonsPerBtc,
-        satoshis,
-        tip,
-        couponProofKeypair,
-        skipCouponProofCheck: skipCouponValidation,
-      });
+    const microgonsPerBtc = this.#currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN);
 
-      if (canAfford && (maxMicrogonSpend === undefined || maxMicrogonSpend >= txFee)) {
-        break;
-      }
-      console.log(`Failed to create affordable bitcoin lock with ${satoshis} satoshis, trying with less...`);
-      // If the transaction creation fails, reduce the satoshis by 10 and try again
-      satoshis -= 10n;
-    }
-    if (satoshis < minimumSatoshis) {
-      throw new Error(`Unable to create a bitcoin lock with the given liquidity: ${microgonLiquidity}`);
-    }
+    const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey(args);
     const { tx, securityFee } = await BitcoinLock.createInitializeTx({
-      ...args,
       client: submitTxClient,
+      vault,
       priceIndex: this.#currency.priceIndex,
       ownerBitcoinPubkey,
+      argonKeyring,
       microgonsPerBtc,
       satoshis,
       tip,
       couponProofKeypair,
       skipCouponProofCheck: skipCouponValidation,
     });
+    const bitcoinUuid = BitcoinLocksTable.createUuid();
+    const txInfo = await this.#transactionTracker.submitAndWatch({
+      tx,
+      signer: argonKeyring,
+      extrinsicType: ExtrinsicType.BitcoinRequestLock,
+      metadata: {
+        bitcoin: {
+          uuid: bitcoinUuid,
+          vaultId: args.vault.vaultId,
+          satoshis,
+          hdPath,
+          securityFee,
+        },
+      },
+      tip: args.tip,
+    });
 
-    return { hdPath, tx, ownerBitcoinPubkey, satoshis, securityFee };
+    await this.createPendingBitcoinLock(txInfo);
+    const pendingLock = this.data.pendingLocks.at(-1);
+    if (!pendingLock) throw new Error('Pending lock was not created');
+    return { pendingLock, txInfo };
   }
 
   public async insertPending(details: {
@@ -580,7 +561,7 @@ export default class BitcoinLocks {
   public async estimatedReleaseArgonTxFee(args: {
     lock: IBitcoinLockRecord;
     tip?: bigint;
-    vaultingAddress: string;
+    liquidLockingAddress: string;
     toScriptPubkey?: string;
     bitcoinFeeRatePerVb?: bigint;
   }): Promise<bigint> {
@@ -589,7 +570,7 @@ export default class BitcoinLocks {
       // NOTE: not submitting, so a default value is ok
       toScriptPubkey = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080',
       bitcoinFeeRatePerVb = 5n,
-      vaultingAddress,
+      liquidLockingAddress,
     } = args;
     // get release fee at current block
     const client = await getMainchainClient(false);
@@ -598,33 +579,33 @@ export default class BitcoinLocks {
 
     const fee = await client.tx.bitcoinLocks
       .requestRelease(lock.utxoId!, addressBytesHex(toScriptPubkey, this.bitcoinNetwork), bitcoinNetworkFee)
-      .paymentInfo(vaultingAddress, { tip: args.tip ?? 0n });
+      .paymentInfo(liquidLockingAddress, { tip: args.tip ?? 0n });
     return fee.partialFee.toBigInt();
   }
 
   public async estimatedMismatchAcceptArgonTxFee(args: {
     lock: IBitcoinLockRecord;
     candidateRecord: IBitcoinUtxoRecord;
-    vaultingAddress: string;
+    liquidLockingAddress: string;
     tip?: bigint;
   }): Promise<bigint> {
-    const { lock, candidateRecord, vaultingAddress } = args;
+    const { lock, candidateRecord, liquidLockingAddress } = args;
     if (!lock.utxoId) return 0n;
     const client = await getMainchainClient(false);
     const { tx } = await this.buildMismatchAcceptTx({ client, lock, candidateRecord });
-    const fee = await tx.paymentInfo(vaultingAddress, { tip: args.tip ?? 0n });
+    const fee = await tx.paymentInfo(liquidLockingAddress, { tip: args.tip ?? 0n });
     return fee.partialFee.toBigInt();
   }
 
   public async estimatedMismatchReturnArgonTxFee(args: {
     lock: IBitcoinLockRecord;
     candidateRecord: IBitcoinUtxoRecord;
-    vaultingAddress: string;
+    liquidLockingAddress: string;
     toScriptPubkey: string;
     feeRatePerSatVb?: bigint;
     tip?: bigint;
   }): Promise<bigint> {
-    const { lock, candidateRecord, toScriptPubkey, feeRatePerSatVb = 5n, vaultingAddress } = args;
+    const { lock, candidateRecord, toScriptPubkey, feeRatePerSatVb = 5n, liquidLockingAddress } = args;
     if (!lock.utxoId) return 0n;
 
     const client = await getMainchainClient(false);
@@ -642,8 +623,16 @@ export default class BitcoinLocks {
       // Estimated fee only; signature bytes length needs to be valid, content is not used for weight estimation.
       vaultSignature: new Uint8Array(71).fill(1),
     });
-    const fee = await tx.paymentInfo(vaultingAddress, { tip: args.tip ?? 0n });
+    const fee = await tx.paymentInfo(liquidLockingAddress, { tip: args.tip ?? 0n });
     return fee.partialFee.toBigInt();
+  }
+
+  public getMintPercent(lock: IBitcoinLockRecord): number {
+    const ratchets = lock.ratchets ?? [];
+    const totalMint = ratchets.reduce((sum, r) => sum + (r.mintAmount ?? 0n), 0n);
+    const totalPending = ratchets.reduce((sum, r) => sum + (r.mintPending ?? 0n), 0n);
+    if (totalMint <= 0n) return 0;
+    return Math.round(Number(((totalMint - totalPending) * 100n) / totalMint));
   }
 
   public async ratchet(lock: IBitcoinLockRecord, argonKeyring: KeyringPair, tip = 0n) {
@@ -1261,7 +1250,7 @@ export default class BitcoinLocks {
           toScriptPubkey: addressBytesHex(args.toScriptPubkey, this.bitcoinNetwork),
           bitcoinNetworkFee: args.bitcoinNetworkFee,
         },
-        argonKeyring: await this.walletKeys.getVaultingKeypair(),
+        argonKeyring: await this.walletKeys.getLiquidLockingKeypair(),
         disableAutomaticTxTracking: true,
       });
 
@@ -1457,7 +1446,7 @@ export default class BitcoinLocks {
       lock,
       candidateRecord,
     });
-    const signer = await this.walletKeys.getVaultingKeypair();
+    const signer = await this.walletKeys.getLiquidLockingKeypair();
 
     return await this.#transactionTracker.submitAndWatch({
       tx,
@@ -1536,7 +1525,7 @@ export default class BitcoinLocks {
       });
       record = candidateRecord;
 
-      const signer = await this.walletKeys.getVaultingKeypair();
+      const signer = await this.walletKeys.getLiquidLockingKeypair();
       const txInfo = await this.#transactionTracker.submitAndWatch({
         tx,
         signer,

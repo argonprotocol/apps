@@ -1,11 +1,11 @@
 <!-- prettier-ignore -->
 <template>
-  <TooltipProvider :disableHoverableContent="true" data-testid="VaultingDashboard" class="flex flex-col h-full">
+  <div data-testid="VaultingDashboard" class="flex flex-col h-full">
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
       <section v-if="showCollectBar" box class="flex flex-row items-center text-slate-900/90 !py-3">
         <div class="flex flex-row items-center w-full min-h-[6%]">
           <div v-if="myVault.data.pendingCollectTxInfo" class="px-6 flex flex-row items-center w-full h-full">
-            <div class="flex flex-row items-center text-lg relative text-slate-800/90" v-if="pendingCollectTxMetadata?.expectedCollectRevenue">
+            <div v-if="pendingCollectTxMetadata?.expectedCollectRevenue" class="flex flex-row items-center text-lg relative text-slate-800/90">
               <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
               <strong>{{ currency.symbol }}{{ microgonToMoneyNm(pendingCollectTxMetadata?.expectedCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is being collected</strong>&nbsp;
             </div>
@@ -88,76 +88,78 @@
         </div>
       </section>
 
-      <section class="flex flex-row gap-x-2" :class="[showCollectBar ? 'h-[12%]' : 'h-[14%]']">
-        <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>
-              {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-            </span>
-            <label>Total Bitcoin Locked</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
-            The total value of bitcoins that are currently locked in your vault.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-        <TooltipRoot>
-          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span class="flex flex-row items-center justify-center space-x-3">
-              <span>{{ numeral(rules.securitizationRatio).format('0.[00]') }}</span>
-              <span class="!font-light">to</span>
-              <span>1</span>
-            </span>
-            <label>Securitization Ratio</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-            The ratio of argon-to-bitcoin that you have committed as securitization collateral.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-        <TooltipRoot>
-          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBonds).format('0,0.00') }}</span>
-            <label>External Treasury Bonds</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-            The amount of external capital invested into your vault's treasury bonds.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-        <TooltipRoot>
-          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>
-              {{ currency.symbol}}{{ microgonToMoneyNm(totalTreasuryPoolBonds).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-            </span>
-            <label>Total Treasury Bonds</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-            Your vault's total capital, both internal and external, that is invested in treasury bonds.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-        <TooltipRoot>
-          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
-            <label>Total Earnings</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-            Your vault's earnings to-date. This includes bitcoin locking fees and treasury bonds.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-        <TooltipRoot>
-          <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(currentApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
-            <label>Estimated APY</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-            Your vault's rolling annual percentage yield based on total capital committed.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-      </section>
+      <TooltipProvider :disableHoverableContent="true">
+        <section class="flex flex-row gap-x-2" :class="[showCollectBar ? 'h-[12%]' : 'h-[14%]']">
+          <TooltipRoot>
+            <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+              <span>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              </span>
+              <label>Total Bitcoin Locked</label>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-xs text-slate-900/60">
+              The total value of bitcoins that are currently locked in your vault.
+              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+            </TooltipContent>
+          </TooltipRoot>
+          <TooltipRoot>
+            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+              <span class="flex flex-row items-center justify-center space-x-3">
+                <span>{{ numeral(rules.securitizationRatio).format('0.[00]') }}</span>
+                <span class="!font-light">to</span>
+                <span>1</span>
+              </span>
+              <label>Securitization Ratio</label>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
+              The ratio of argon-to-bitcoin that you have committed as securitization collateral.
+              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+            </TooltipContent>
+          </TooltipRoot>
+          <TooltipRoot>
+            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBonds).format('0,0.00') }}</span>
+              <label>External Treasury Bonds</label>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
+              The amount of external capital invested into your vault's treasury bonds.
+              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+            </TooltipContent>
+          </TooltipRoot>
+          <TooltipRoot>
+            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+              <span>
+                {{ currency.symbol}}{{ microgonToMoneyNm(totalTreasuryPoolBonds).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              </span>
+              <label>Total Treasury Bonds</label>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
+              Your vault's total capital, both internal and external, that is invested in treasury bonds.
+              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+            </TooltipContent>
+          </TooltipRoot>
+          <TooltipRoot>
+            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+              <span>{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+              <label>Total Earnings</label>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
+              Your vault's earnings to-date. This includes bitcoin locking fees and treasury bonds.
+              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+            </TooltipContent>
+          </TooltipRoot>
+          <TooltipRoot>
+            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+              <span>{{ numeral(currentApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
+              <label>Estimated APY</label>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
+              Your vault's rolling annual percentage yield based on total capital committed.
+              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
+            </TooltipContent>
+          </TooltipRoot>
+        </section>
+      </TooltipProvider>
 
       <section class="flex flex-row gap-x-2.5 grow">
         <div box class="flex flex-col w-[22.5%] px-2">
@@ -230,9 +232,10 @@
                   <TreemapChart
                     :total="bitcoinMapTotal"
                     :items="bitcoinMapItems"
-                    theme="sand"
-                    remainderLabel="Unused BTC Space"
-                    :remainder-display-value="formatMoney(bitcoinMapRemainder)"
+                    theme="btc"
+                    :remainderLabel="bitcoinRemainderLabel"
+                    :remainder-display-value="bitcoinRemainderDisplayValue"
+                    @tile-click="handleBitcoinTileClick"
                   />
                 </div>
                 <div BondMap class="w-1/2">
@@ -240,30 +243,70 @@
                     v-if="bondMapTotal"
                     :total="bondMapTotal"
                     :items="bondMapItems"
-                    theme="plum"
-                    remainder-label="Unused Bond Capacity"
+                    theme="argon"
+                    remainder-label="Available Bonds"
+                    :remainder-minimum="10000"
                     :remainder-display-value="formatMoney(bondMapRemainder)"
+                    @tile-click="handleBondTileClick"
                   />
                   <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
                     No Bonds Available
                   </div>
                 </div>
               </div>
-              <div class="pt-4 pb-3">
-                <div class="mb-2 flex items-center gap-x-3 text-center">
-                  <span class="h-px grow bg-slate-400/30"></span>
-                  <span class="text-base leading-none font-bold text-slate-700/60">Stabilization Vaulting Stats</span>
-                  <span class="h-px grow bg-slate-400/30"></span>
+              <TooltipProvider :disableHoverableContent="true">
+                <div class="pt-4 pb-3">
+                  <div class="mb-2 flex items-center gap-x-3 text-center">
+                    <span class="h-px grow bg-slate-400/30"></span>
+                    <span class="text-base leading-none font-bold text-slate-700/60">Stabilization Vaulting Stats</span>
+                    <span class="h-px grow bg-slate-400/30"></span>
+                  </div>
+                  <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
+                    <TooltipRoot :delayDuration="200">
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.securityMicrogons).format('0,0.00') }} In Potential BTC Locks</TooltipTrigger>
+                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        The total argon value of bitcoin that could be locked in your vault based on your securitization commitment.
+                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                      </TooltipContent>
+                    </TooltipRoot>
+                    <TooltipRoot :delayDuration="200">
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(potentialDailyRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} Potential Daily Revenue</TooltipTrigger>
+                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        The current potential earnings from the bid pool if all your capital is used for bitcoin security and external funders buy all possible bonds. This number will update until the mining auction closes.
+                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                      </TooltipContent>
+                    </TooltipRoot>
+                    <TooltipRoot :delayDuration="200">
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryMicrogonsMaxCapacity).format('0,0.00') }} In Potential Bond Buys</TooltipTrigger>
+                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        The total treasury bond capacity available for purchase, based on your active bitcoin locks.
+                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                      </TooltipContent>
+                    </TooltipRoot>
+                    <TooltipRoot :delayDuration="200">
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% of Allowed BTC Is Locked</TooltipTrigger>
+                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        The percentage of your vault's bitcoin security space that is currently filled with active locks.
+                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                      </TooltipContent>
+                    </TooltipRoot>
+                    <TooltipRoot :delayDuration="200">
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</TooltipTrigger>
+                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        How much of your vault's potential mining pool revenue is being earned. Maximize this by using your capital for bitcoin security and funding treasury externally.
+                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                      </TooltipContent>
+                    </TooltipRoot>
+                    <TooltipRoot :delayDuration="200">
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryMicrogonsTotalActivatedPct).format('0,0.[00]')}}% of Allowed Bonds Are Secured</TooltipTrigger>
+                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        The percentage of your vault's treasury bond capacity that has been purchased by all investors.
+                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                      </TooltipContent>
+                    </TooltipRoot>
+                  </div>
                 </div>
-                <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
-                  <div>{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.securityMicrogons).format('0,0.00') }} In Potential BTC Locks</div>
-                  <div>$3,241.61 In Potential Daily Revenue</div>
-                  <div>{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryMicrogonsActivated).format('0,0.00') }} In Potential Bond Buys</div>
-                  <div>{{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% of Allowed BTC Is Locked</div>
-                  <div>89% of Allowed Revenue Is Captured</div>
-                  <div>{{ numeral(vaultingBreakdown.treasuryMicrogonsActivatedPct).format('0,0.[00]')}}% of Allowed Bonds Are Secured</div>
-                </div>
-              </div>
+              </TooltipProvider>
             </div>
           </section>
 
@@ -277,19 +320,44 @@
         </div>
       </section>
     </div>
-  </TooltipProvider>
 
-  <!-- Overlays -->
-  <VaultCollectOverlay
-    v-if="showCollectOverlay"
-    @close="showCollectOverlay = false"
-  />
+    <!-- Overlays -->
+    <VaultCollectOverlay
+      v-if="showCollectOverlay"
+      @close="showCollectOverlay = false"
+    />
 
-  <VaultEditOverlay
-    v-if="showEditOverlay"
-    @close="showEditOverlay = false"
-  />
+    <VaultEditOverlay
+      v-if="showEditOverlay"
+      @close="showEditOverlay = false"
+    />
 
+    <BitcoinLockingOverlay
+      v-if="showLockingOverlay"
+      :personalLock="selectedLock"
+      @close="closeLockingOverlay"
+      :vault="myVault.createdVault!"
+    />
+
+    <BitcoinLockDetailOverlay
+      v-if="showLockDetailOverlay"
+      :lock="selectedLock!"
+      @close="closeLockDetailOverlay"
+      @unlock="onUnlockFromDetail"
+    />
+
+    <BondDetailOverlay
+      v-if="showBondDetailOverlay && selectedBondHolder"
+      :holder="selectedBondHolder"
+      @close="closeBondDetailOverlay"
+    />
+
+    <BitcoinUnlockingOverlay
+      v-if="showUnlockingOverlay"
+      :personalLock="selectedLock"
+      @close="closeUnlockingOverlay"
+    />
+  </div>
 </template>
 
 <script lang="ts">
@@ -299,7 +367,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
-import type FrameSlider from '../../components/FrameSlider.vue';
+import FrameSlider from '../../components/FrameSlider.vue';
 
 const currentFrame = Vue.ref({
   id: 0,
@@ -329,18 +397,31 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency';
 import numeral from '../../lib/numeral';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
+import type { IExternalBitcoinLock, IBondFunder, IFrameBondHolder } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultCollectOverlay from '../../overlays-operations/VaultCollectOverlay.vue';
 import VaultEditOverlay from '../../overlays-operations/VaultEditOverlay.vue';
+import BitcoinLockDetailOverlay from '../../overlays-operations/BitcoinLockDetailOverlay.vue';
+import BitcoinLockingOverlay from '../../overlays-operations/BitcoinLockingOverlay.vue';
+import BitcoinUnlockingOverlay from '../../overlays-operations/BitcoinUnlockingOverlay.vue';
+import BondDetailOverlay from '../../overlays-operations/BondDetailOverlay.vue';
 import AssetMenu from '../components/AssetMenu.vue';
 import SigningIcon from '../../assets/signing.svg?component';
 import MoneyIcon from '../../assets/money.svg?component';
 import SuccessIcon from '../../assets/success.svg?component';
 import ConfigIcon from '../../assets/config.svg?component';
-import { NetworkConfig, bigIntMin, calculateAPY } from '@argonprotocol/apps-core';
+import {
+  NetworkConfig,
+  bigIntMin,
+  bigNumberToBigInt,
+  calculateAPY,
+  MoveTo,
+  TreasuryPool,
+} from '@argonprotocol/apps-core';
+import { BigNumber } from 'bignumber.js';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -353,7 +434,8 @@ import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
-import TreemapChart from '../../components/TreemapChart.vue';
+import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
+import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -421,7 +503,7 @@ const showPendingCollectRevenue = Vue.computed(() => {
 });
 
 const totalTreasuryPoolBonds = Vue.computed(() => {
-  return internalTreasuryPoolBonds.value + externalTreasuryBonds.value;
+  return TreasuryPool.totalBondedCapital(myVault.data.bondFunders);
 });
 
 const internalTreasuryPoolBonds = Vue.computed(() => {
@@ -429,12 +511,7 @@ const internalTreasuryPoolBonds = Vue.computed(() => {
 });
 
 const externalTreasuryBonds = Vue.computed(() => {
-  const revenue = myVault.data.stats;
-  if (!revenue) return 0n;
-  return revenue.changesByFrame
-    .slice(0, 10)
-    .filter(x => x.frameId >= myVault.data.currentFrameId - 10)
-    .reduce((acc, change) => acc + (change.treasuryPool.externalCapital ?? 0n), 0n);
+  return TreasuryPool.externalBondedCapital(myVault.data.bondFunders);
 });
 
 const bitcoinLockedValue = Vue.computed<bigint>(() => {
@@ -452,44 +529,197 @@ const revenueMicrogons = Vue.computed(() => {
   return earnings;
 });
 
+const potentialDailyRevenue = Vue.computed(() => {
+  if (!myVault.createdVault) return 0n;
+
+  const { distributableBidPool, globalCapital, myVaultCapital } = myVault.data.currentFrameBondData;
+  const sats = myVault.data.securitizedSatoshis;
+  const btcValue = sats > 0n ? currency.priceIndex.getBtcMicrogonPrice(sats) : 0n;
+
+  return TreasuryPool.potentialDailyRevenue({
+    distributableBidPool,
+    globalActiveCapital: globalCapital,
+    myActiveCapital: myVaultCapital,
+    fullTreasuryCapacity: btcValue / 10n,
+    operatorKeepPct: 100 - (rules.profitSharingPct ?? 0),
+  });
+});
+
+const revenueCapturedPct = Vue.computed(() => {
+  const allFunds =
+    vaultingBreakdown.sidelinedMicrogons + vaultingBreakdown.treasuryMicrogons + vaultingBreakdown.securityMicrogons;
+  if (allFunds <= 0n) return 0;
+
+  const securityFactor = BigNumber(vaultingBreakdown.securityMicrogonsActivated).dividedBy(BigNumber(allFunds));
+
+  const totalCapacity = vaultingBreakdown.securityMicrogons + vaultingBreakdown.treasuryMicrogonsMaxCapacity;
+  const activated = vaultingBreakdown.securityMicrogonsActivated + vaultingBreakdown.treasuryMicrogonsTotalActivated;
+  const utilizationFactor =
+    totalCapacity > 0n ? BigNumber(activated).dividedBy(BigNumber(totalCapacity)) : BigNumber(0);
+
+  return securityFactor.multipliedBy(utilizationFactor).multipliedBy(100).toNumber();
+});
+
 function formatMoney(value: bigint) {
-  return `${currency.symbol}${microgonToMoneyNm(value).formatIfElse('< 1_000', '0,0.00', '0,0')}`;
+  return `${currency.symbol}${microgonToMoneyNm(value).format('0,0')}`;
 }
 
 const bitcoinMapTotal = Vue.computed(() => {
-  console.log('BITCOIN MAP TOTAL: ', vaultingBreakdown.securityMicrogons);
   return vaultingBreakdown.securityMicrogons;
 });
 
-const bitcoinMapItems = Vue.computed(() => {
-  const items: Array<{
-    id: string;
-    label: string;
-    amount: bigint;
-    displayValue: string;
-    emphasis?: 'default' | 'strong';
-  }> = [];
+type MapItem = {
+  id: string;
+  label: string;
+  amount: bigint;
+  displayValue?: string;
+  emphasis?: 'default' | 'strong';
+  status?: TileStatus;
+};
 
-  if (vaultingBreakdown.securityMicrogonsActivated > 0n) {
+function deriveExternalLockStatus(ext: IExternalBitcoinLock): BitcoinLockStatus {
+  // isPending is set from BitcoinLock.isFunded — true means funded
+  if (ext.isPending) return BitcoinLockStatus.LockPendingFunding;
+  return BitcoinLockStatus.LockedAndMinted;
+}
+
+function formatLockLabel(lock: IBitcoinLockRecord): string {
+  const btc = currency.convertSatToBtc(lock.satoshis);
+  return `${numeral(btc).format('0,0.[0000]')} BTC`;
+}
+
+function getLockTileStatus(lock: IBitcoinLockRecord): TileStatus {
+  if (bitcoinLocks.isLockedStatus(lock)) return 'active';
+  if (bitcoinLocks.isReleaseStatus(lock)) return 'active';
+  return 'pending';
+}
+
+const localLocksByUuid = Vue.computed(() => {
+  const map: Record<string, IBitcoinLockRecord> = {};
+  const locks = bitcoinLocks.getActiveLocks();
+  for (const lock of locks) {
+    map[lock.uuid] = lock;
+  }
+  return map;
+});
+
+function handleBondTileClick(key: string) {
+  if (key === '__remainder__') {
+    basicEmitter.emit('openMoveCapitalOverlay', {
+      walletType: WalletType.vaulting,
+      moveTo: MoveTo.VaultingTreasury,
+      maxAmount: bondMapRemainder.value,
+    });
+    return;
+  }
+  if (key.startsWith('funder:')) {
+    const accountId = key.slice(7);
+    const holder = myVault.data.currentFrameBondData.bondHolders.find(h => h.accountId === accountId);
+    if (holder) {
+      selectedBondHolder.value = holder;
+      showBondDetailOverlay.value = true;
+    }
+    return;
+  }
+}
+
+function handleBitcoinTileClick(key: string) {
+  if (key === '__remainder__') {
+    if (bitcoinRemainderIsSmall.value) {
+      basicEmitter.emit('openMoveCapitalOverlay', {
+        walletType: WalletType.vaulting,
+        moveTo: MoveTo.VaultingSecurity,
+        maxAmount: bitcoinMapRemainder.value,
+      });
+    } else {
+      openLockingOverlay();
+    }
+    return;
+  }
+
+  // Local lock
+  const lock = localLocksByUuid.value[key];
+  if (lock) {
+    if (bitcoinLocks.isLockedStatus(lock) || bitcoinLocks.isReleaseStatus(lock)) {
+      openLockDetailOverlay(lock);
+    } else {
+      openLockingOverlay(lock);
+    }
+    return;
+  }
+
+  // External lock (key is "chain:<utxoId>")
+  if (key.startsWith('chain:')) {
+    const utxoId = Number(key.slice(6));
+    const extLock = myVault.data.externalLocks[utxoId];
+    if (extLock) {
+      openLockDetailOverlay({
+        utxoId: extLock.utxoId,
+        satoshis: extLock.satoshis,
+        liquidityPromised: extLock.liquidityPromised,
+        status: deriveExternalLockStatus(extLock),
+        lockDetails: extLock.lockDetails,
+      } as IBitcoinLockRecord);
+    }
+  }
+}
+
+const bitcoinMapItems = Vue.computed((): MapItem[] => {
+  // Historical frames: collapse to locked vs open aggregate
+  if (!currentFrameIsActive.value) {
+    const items: MapItem[] = [];
+    if (vaultingBreakdown.securityMicrogonsActivated > 0n) {
+      items.push({
+        id: 'locked-aggregate',
+        label: 'Bitcoin Locked',
+        amount: vaultingBreakdown.securityMicrogonsActivated,
+        displayValue: formatMoney(vaultingBreakdown.securityMicrogonsActivated),
+        emphasis: 'strong',
+      });
+    }
+    if (vaultingBreakdown.securityMicrogonsPending > 0n) {
+      items.push({
+        id: 'pending-aggregate',
+        label: 'Pending Activation',
+        amount: vaultingBreakdown.securityMicrogonsPending,
+        displayValue: formatMoney(vaultingBreakdown.securityMicrogonsPending),
+      });
+    }
+    return items;
+  }
+
+  // Current frame: per-lock items
+  const items: MapItem[] = [];
+
+  const localLocks = bitcoinLocks.getActiveLocks();
+  for (const lock of localLocks) {
+    const microgons = lock.liquidityPromised;
+    const tileStatus = getLockTileStatus(lock);
     items.push({
-      id: 'locked',
-      label: 'Bitcoin Locked',
-      amount: vaultingBreakdown.securityMicrogonsActivated,
-      displayValue: formatMoney(vaultingBreakdown.securityMicrogonsActivated),
+      id: lock.uuid,
+      label: formatLockLabel(lock),
+      amount: microgons,
+      displayValue: formatMoney(microgons),
+      emphasis: bitcoinLocks.isLockedStatus(lock) ? 'strong' : 'default',
+      status: tileStatus,
+    });
+  }
+
+  for (const extLock of Object.values(myVault.data.externalLocks)) {
+    const microgons = extLock.liquidityPromised ?? 0n;
+    const btc = currency.convertSatToBtc(extLock.satoshis);
+    const hasPendingCosign = myVault.data.pendingCosignUtxosById.has(extLock.utxoId);
+    const status: TileStatus = extLock.isPending ? 'pending' : hasPendingCosign ? 'pending' : 'active';
+    items.push({
+      id: `chain:${extLock.utxoId}`,
+      label: `${numeral(btc).format('0,0.[0000]')} BTC`,
+      amount: microgons,
+      displayValue: formatMoney(microgons),
       emphasis: 'strong',
+      status,
     });
   }
 
-  if (vaultingBreakdown.securityMicrogonsPending > 0n) {
-    items.push({
-      id: 'pending',
-      label: 'Pending Activation',
-      amount: vaultingBreakdown.securityMicrogonsPending,
-      displayValue: formatMoney(vaultingBreakdown.securityMicrogonsPending),
-    });
-  }
-
-  console.log('BITCOIN MAP ITEMS: ', items);
   return items;
 });
 
@@ -498,40 +728,86 @@ const bitcoinMapRemainder = Vue.computed(() => {
   return bitcoinMapTotal.value > used ? bitcoinMapTotal.value - used : 0n;
 });
 
+const bitcoinRemainderIsSmall = Vue.computed(() => {
+  const total = bitcoinMapTotal.value;
+  if (total <= 0n) return true;
+  return bitcoinMapRemainder.value * 100n < total;
+});
+
+const bitcoinRemainderLabel = Vue.computed(() => {
+  return bitcoinRemainderIsSmall.value ? 'Add BTC Space' : 'Unused BTC Space';
+});
+
+const bitcoinRemainderDisplayValue = Vue.computed(() => {
+  return bitcoinRemainderIsSmall.value ? '' : formatMoney(bitcoinMapRemainder.value);
+});
+
 const bondMapTotal = Vue.computed(() => {
-  return vaultingBreakdown.treasuryMicrogonsMaxCapacity;
+  return vaultingBreakdown.treasuryMicrogonsMaxCapacity / 10n;
 });
 
 const treasuryBondsActivated = Vue.computed(() => {
   return bigIntMin(vaultingBreakdown.treasuryMicrogons, vaultingBreakdown.treasuryMicrogonsMaxCapacity);
 });
 
-const bondMapItems = Vue.computed(() => {
-  const items: Array<{
-    id: string;
-    label: string;
-    amount: bigint;
-    displayValue: string;
-    emphasis?: 'default' | 'strong';
-  }> = [];
-
-  if (treasuryBondsActivated.value > 0n) {
-    items.push({
-      id: 'internal-bonds',
-      label: 'Treasury Bonds',
-      amount: treasuryBondsActivated.value,
-      displayValue: formatMoney(treasuryBondsActivated.value),
-      emphasis: 'strong',
-    });
+const bondMapItems = Vue.computed((): MapItem[] => {
+  // Historical frames: fall back to aggregated internal/external tiles
+  if (!currentFrameIsActive.value) {
+    const items: MapItem[] = [];
+    if (treasuryBondsActivated.value > 0n) {
+      items.push({
+        id: 'internal-bonds',
+        label: 'Treasury Bonds',
+        amount: treasuryBondsActivated.value,
+        displayValue: formatMoney(treasuryBondsActivated.value),
+        emphasis: 'strong',
+      });
+    }
+    if (externalTreasuryBonds.value > 0n) {
+      items.push({
+        id: 'external-bonds',
+        label: 'External Treasury Bonds',
+        amount: externalTreasuryBonds.value,
+        displayValue: formatMoney(externalTreasuryBonds.value),
+      });
+    }
+    return items;
   }
 
-  if (externalTreasuryBonds.value > 0n) {
-    items.push({
-      id: 'external-bonds',
-      label: 'External Treasury Bonds',
-      amount: externalTreasuryBonds.value,
-      displayValue: formatMoney(externalTreasuryBonds.value),
-    });
+  // Current frame: per-holder tiles from vaultPoolsByFrame
+  const holders = myVault.data.currentFrameBondData.bondHolders;
+  const items: MapItem[] = [];
+
+  for (const holder of holders) {
+    if (holder.bondedAmount > 0n) {
+      items.push({
+        id: `funder:${holder.accountId}`,
+        label: formatMoney(holder.bondedAmount),
+        amount: holder.bondedAmount,
+        emphasis: holder.isOperator ? 'strong' : 'default',
+      });
+    }
+  }
+
+  // If no frame data yet, fall back to aggregated data
+  if (holders.length === 0) {
+    if (treasuryBondsActivated.value > 0n) {
+      items.push({
+        id: 'internal-bonds',
+        label: 'Treasury Bonds',
+        amount: treasuryBondsActivated.value,
+        displayValue: formatMoney(treasuryBondsActivated.value),
+        emphasis: 'strong',
+      });
+    }
+    if (externalTreasuryBonds.value > 0n) {
+      items.push({
+        id: 'external-bonds',
+        label: 'External Treasury Bonds',
+        amount: externalTreasuryBonds.value,
+        displayValue: formatMoney(externalTreasuryBonds.value),
+      });
+    }
   }
 
   return items;
@@ -549,6 +825,48 @@ const pendingCosignPenalty = Vue.computed(() => {
 
 const showCollectOverlay = Vue.ref(false);
 const showEditOverlay = Vue.ref(false);
+const showLockingOverlay = Vue.ref(false);
+const showLockDetailOverlay = Vue.ref(false);
+const showUnlockingOverlay = Vue.ref(false);
+const showBondDetailOverlay = Vue.ref(false);
+const selectedLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
+const selectedBondHolder = Vue.ref<IFrameBondHolder | undefined>(undefined);
+
+function openLockingOverlay(lock?: IBitcoinLockRecord) {
+  selectedLock.value = lock;
+  showLockingOverlay.value = true;
+}
+
+function closeLockingOverlay() {
+  showLockingOverlay.value = false;
+  selectedLock.value = undefined;
+}
+
+function openLockDetailOverlay(lock: IBitcoinLockRecord) {
+  selectedLock.value = lock;
+  showLockDetailOverlay.value = true;
+}
+
+function closeLockDetailOverlay() {
+  showLockDetailOverlay.value = false;
+  selectedLock.value = undefined;
+}
+
+function closeBondDetailOverlay() {
+  showBondDetailOverlay.value = false;
+  selectedBondHolder.value = undefined;
+}
+
+function onUnlockFromDetail(lock: IBitcoinLockRecord) {
+  showLockDetailOverlay.value = false;
+  selectedLock.value = lock;
+  showUnlockingOverlay.value = true;
+}
+
+function closeUnlockingOverlay() {
+  showUnlockingOverlay.value = false;
+  selectedLock.value = undefined;
+}
 
 const showCollectBar = Vue.computed(() => {
   return (
@@ -570,7 +888,8 @@ const hasNextFrame = Vue.computed(() => {
 });
 
 const hasPrevFrame = Vue.computed(() => {
-  return sliderFrameIndex.value > 0;
+  return false;
+  // return sliderFrameIndex.value > 0;
 });
 
 const currentFrameStartDate = Vue.computed(() => {
@@ -586,8 +905,8 @@ const currentFrameEndDate = Vue.computed(() => {
   if (!lastTick) {
     return '-----';
   }
-  const date = dayjs.utc(lastTick * TICK_MILLIS);
-  return date.local().add(1, 'minute').format('MMMM D, h:mm A');
+  const date = dayjs.utc((lastTick + 1) * TICK_MILLIS);
+  return date.local().format('MMMM D, h:mm A');
 });
 
 const currentFrameIsActive = Vue.computed(() => {

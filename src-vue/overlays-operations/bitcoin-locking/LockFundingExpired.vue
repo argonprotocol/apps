@@ -1,39 +1,46 @@
 <template>
-  <div class="space-y-4 px-10 pt-4 pb-8">
-    <div class="rounded-lg border border-slate-300 bg-white px-5 py-4">
-      <p class="text-argon-700 text-xs font-light tracking-wide uppercase">
-        {{ isAcknowledged ? 'Funding Expired' : 'Action Required' }}
-      </p>
-      <h2 class="mt-1 text-xl font-semibold text-slate-900">Bitcoin funding window expired.</h2>
-      <p class="mt-2 text-sm text-slate-700">
-        <template v-if="isAcknowledged">
-          This funding request has expired. Start a new funding attempt when you're ready.
-        </template>
-        <template v-else>
-          This lock expired before Bitcoin funding was confirmed. Review it, then start a new funding attempt when
-          you're ready.
-        </template>
-      </p>
+  <div class="space-y-5 px-10 pt-5 pb-5">
+    <div class="flex flex-row items-center gap-6">
+      <div class="relative w-20 shrink-0">
+        <BitcoinIcon class="w-20 -rotate-24 opacity-50" />
+        <ClockIcon class="absolute -top-1 -right-1 w-9 rounded-full bg-white p-0.5 text-amber-500" />
+      </div>
+      <div class="flex grow flex-col">
+        <div class="text-xl font-bold opacity-70">{{ formattedBtc }} BTC Lock Expired</div>
+        <div class="mt-1 opacity-50">
+          {{ currency.symbol }}{{ microgonToMoneyNm(personalLock.liquidityPromised).format('0,0.[00]') }}
+          Liquidity Requested
+        </div>
+      </div>
     </div>
 
-    <div class="rounded-lg border border-slate-300 bg-slate-50/60 px-5 py-4 text-sm text-slate-700">
-      That funding request is closed. Starting again opens a new Bitcoin lock for this vault.
-    </div>
+    <p class="text-sm text-slate-600">
+      This lock expired before Bitcoin funding was confirmed. No Bitcoin was received for this lock request.
+    </p>
 
-    <div>
+    <div class="flex flex-row items-center justify-end border-t border-slate-200 pt-4">
       <button
-        data-testid="LockFundingExpired.startNew()"
-        @click="emit('startNew')"
-        class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white">
-        Choose a New Amount
+        data-testid="LockFundingExpired.acknowledge()"
+        @click="acknowledge"
+        class="cursor-pointer rounded-md border border-slate-400 px-5 py-2 text-base font-semibold text-slate-700 hover:bg-slate-100">
+        Acknowledge &amp; Dismiss
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
-import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import numeral from '../../lib/numeral.ts';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
+import { ClockIcon } from '@heroicons/vue/24/outline';
+
+const currency = getCurrency();
+const bitcoinLocks = getBitcoinLocks();
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -43,7 +50,10 @@ const emit = defineEmits<{
   (e: 'startNew'): void;
 }>();
 
-const isAcknowledged = Vue.computed(() => {
-  return props.personalLock.status === BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged;
-});
+const formattedBtc = numeral(currency.convertSatToBtc(props.personalLock.satoshis)).format('0,0.[00000000]');
+
+async function acknowledge() {
+  await bitcoinLocks.acknowledgeExpiredWaitingForFunding(props.personalLock).catch(() => undefined);
+  emit('startNew');
+}
 </script>

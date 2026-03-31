@@ -9,6 +9,8 @@
         :isOpen="isOpen"
         :showInputMenus="true"
         :walletType="walletType"
+        :moveTo="moveTo"
+        :maxAmount="maxAmount"
         @close="closeOverlay"
       />
     </div>
@@ -20,9 +22,12 @@ import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import MoveCapitalCore from './move-capital/MoveCapitalCore.vue';
 import { WalletType } from '../lib/Wallet.ts';
+import { MoveTo } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(false);
 const walletType = Vue.ref<WalletType.miningHold | WalletType.vaulting>();
+const moveTo = Vue.ref<MoveTo | undefined>();
+const maxAmount = Vue.ref<bigint | undefined>();
 
 const walletTypeName = {
   [WalletType.miningHold]: 'Mining',
@@ -36,5 +41,7 @@ function closeOverlay() {
 basicEmitter.on('openMoveCapitalOverlay', async data => {
   isOpen.value = true;
   walletType.value = data.walletType;
+  moveTo.value = data.moveTo;
+  maxAmount.value = data.maxAmount;
 });
 </script>

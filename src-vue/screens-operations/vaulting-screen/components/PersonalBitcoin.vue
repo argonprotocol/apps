@@ -349,6 +349,7 @@
   <BitcoinLockingOverlay
     v-if="doShowLockingOverlay"
     :personalLock="lockingOverlayLock"
+    :vault="myVault.createdVault!"
     @close="closeLockingOverlay"
   />
 
@@ -756,8 +757,8 @@ async function updateBitcoinUnlockPrices() {
     unlockPrice.value = 0n;
     return;
   }
-  const vaultingAddress = getWalletKeys().vaultingAddress;
-  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, vaultingAddress }).catch(() => 0n);
+  const liquidLockingAddress = getWalletKeys().liquidLockingAddress;
+  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, liquidLockingAddress }).catch(() => 0n);
   unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
 }
 

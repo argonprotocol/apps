@@ -45,25 +45,39 @@
       </CopyToClipboard>
     </div>
 
-    <div class="mb-4 flex flex-row items-center border-t border-gray-300 pt-4 pb-1 text-gray-500">
-      <Spinner class="mr-3" />
-      We're monitoring Bitcoin's network and will update this screen when your transaction is received.
+    <div class="mb-4 border-t border-gray-300 pt-4 pb-1 text-gray-500">
+      <div class="flex flex-row items-center">
+        <Spinner class="mr-3" />
+        We're monitoring Bitcoin's network and will update this screen when your transaction is received.
+      </div>
+      <div class="mt-3 border-t border-gray-200 pt-3 text-center italic opacity-60">
+        Funding window expires in
+        <CountdownClock :time="fundingExpirationTime" v-slot="{ days, hours, minutes }">
+          <template v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</template>
+          <template v-else>{{ hours }}h {{ minutes }}m</template>
+        </CountdownClock>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import numeral from '../../lib/numeral';
 import { abbreviateAddress } from '../../lib/Utils';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../../components/BitcoinQrCode.vue';
+import CountdownClock from '../../components/CountdownClock.vue';
 import CopyIcon from '../../assets/copy.svg?component';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import Spinner from '../../components/Spinner.vue';
+
+dayjs.extend(utc);
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -74,9 +88,11 @@ const bitcoinLocks = getBitcoinLocks();
 
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');
+const fundingExpirationTime = Vue.ref(dayjs.utc());
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
+  fundingExpirationTime.value = dayjs.utc(bitcoinLocks.verifyExpirationTime(props.personalLock));
   try {
     scriptPaytoAddress.value = bitcoinLocks.formatP2wshAddress(props.personalLock.lockDetails.p2wshScriptHashHex);
   } catch (error) {
