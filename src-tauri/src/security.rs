@@ -1,4 +1,8 @@
+use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use anyhow::Result;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use bip32::{ExtendedKey, Prefix, XPrv};
 use secrecy::SecretString;
 use sp_core::crypto::AddressUri;
@@ -11,7 +15,7 @@ use tauri::AppHandle;
 
 use crate::{ssh::SSH, utils::Utils};
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Security {
     pub mining_hold_address: String,
@@ -21,6 +25,14 @@ pub struct Security {
     pub ssh_public_key: String,
 }
 
+/// On-disk wallet file: public metadata + encrypted mnemonic.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WalletFile {
+    encrypted_mnemonic: String,
+    meta: Security,
+}
+
 impl Security {
     pub fn expose_private_key_openssh(app: &AppHandle) -> anyhow::Result<SecretString> {
         let mnemonic = Self::expose_mnemonic(app)?;
@@ -28,9 +40,8 @@ impl Security {
         Ok(SecretString::new(private_key))
     }
 
-    fn mnemonic_path(app: &AppHandle) -> PathBuf {
-        let absolute_config_dir = Utils::get_absolute_config_instance_dir(app);
-        absolute_config_dir.join("mnemonic")
+    fn wallet_path(app: &AppHandle) -> PathBuf {
+        Utils::get_absolute_config_instance_dir(app).join("wallet.json")
     }
 
     pub fn derive_bitcoin_extended_key(
@@ -49,10 +60,111 @@ impl Security {
         Ok(extended_key)
     }
 
+    /// Get the encryption key from the OS keychain.
+    /// Today this is automatic (no user prompt). In the future,
+    /// this can be swapped to require biometric/password auth.
+    fn encryption_key(app: &AppHandle) -> Result<[u8; 32]> {
+        let app_id = &app.config().identifier;
+        let service = format!("{app_id}.mnemonic");
+        let account = Utils::get_relative_config_instance_dir(app_id)
+            .to_string_lossy()
+            .to_string();
+        let entry = keyring::Entry::new(&service, &account)?;
+
+        let hex_key = match entry.get_password() {
+            Ok(k) => k,
+            Err(keyring::Error::NoEntry) => {
+                let mut key = [0u8; 32];
+                rand::RngCore::fill_bytes(&mut rand::rng(), &mut key);
+                let new_key = hex::encode(key);
+                entry.set_password(&new_key)?;
+                new_key
+            }
+            Err(e) => return Err(e.into()),
+        };
+        anyhow::ensure!(
+            hex_key.len() == 64,
+            "Keychain encryption key is invalid (expected 64 hex chars, got {}). \
+             Delete the keychain entry for this app and restart to regenerate.",
+            hex_key.len()
+        );
+        let mut key = [0u8; 32];
+        hex::decode_to_slice(&hex_key, &mut key).map_err(|e| {
+            anyhow::anyhow!(
+                "Keychain encryption key is not valid hex: {e}. \
+                 Delete the keychain entry for this app and restart to regenerate."
+            )
+        })?;
+        Ok(key)
+    }
+
+    fn encrypt_mnemonic(key: &[u8; 32], plaintext: &str) -> Result<String> {
+        let cipher = Aes256Gcm::new_from_slice(key)?;
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext.as_bytes())
+            .map_err(|e| anyhow::anyhow!("Encryption failed: {e}"))?;
+        // Format: 12-byte nonce || ciphertext, base64 encoded
+        let mut combined = Vec::with_capacity(12 + ciphertext.len());
+        combined.extend_from_slice(&nonce);
+        combined.extend_from_slice(&ciphertext);
+        Ok(BASE64.encode(combined))
+    }
+
+    fn decrypt_mnemonic(key: &[u8; 32], encoded: &str) -> Result<String> {
+        let data = BASE64.decode(encoded)?;
+        anyhow::ensure!(data.len() > 12, "Encrypted mnemonic is too short");
+        let cipher = Aes256Gcm::new_from_slice(key)?;
+        let nonce = Nonce::from_slice(&data[..12]);
+        let plaintext = cipher
+            .decrypt(nonce, &data[12..])
+            .map_err(|e| anyhow::anyhow!("Decryption failed: {e}"))?;
+        Ok(String::from_utf8(plaintext)?)
+    }
+
     pub fn expose_mnemonic(app: &AppHandle) -> Result<String> {
-        let mnemonic_file_path = Self::mnemonic_path(app);
-        let master_mnemonic = fs::read_to_string(&mnemonic_file_path)?;
-        Ok(master_mnemonic)
+        let raw = fs::read_to_string(Self::wallet_path(app))?;
+        let wallet: WalletFile = serde_json::from_str(&raw)?;
+        let key = Self::encryption_key(app)?;
+        Self::decrypt_mnemonic(&key, &wallet.encrypted_mnemonic)
+    }
+
+    /// Migrate legacy plaintext mnemonic file to the new wallet.json format.
+    fn migrate_legacy_mnemonic(app: &AppHandle) -> Result<()> {
+        let legacy_path = Utils::get_absolute_config_instance_dir(app).join("mnemonic");
+        if !legacy_path.exists() || Self::wallet_path(app).exists() {
+            return Ok(());
+        }
+        let raw = fs::read_to_string(&legacy_path)?;
+        let mnemonic = raw.trim();
+        let word_count = mnemonic.split_whitespace().count();
+        if word_count != 12 && word_count != 24 {
+            return Ok(());
+        }
+        log::info!("Migrating plaintext mnemonic to encrypted wallet.json");
+        Self::write_wallet_file(app, mnemonic)?;
+        let _ = fs::remove_file(&legacy_path);
+        Ok(())
+    }
+
+    fn write_wallet_file(app: &AppHandle, mnemonic: &str) -> Result<Security> {
+        let (_, ssh_public_key) = Self::derive_ssh_key(mnemonic)?;
+        let security = Self::create_with_addresses(mnemonic, &ssh_public_key)?;
+
+        let key = Self::encryption_key(app)?;
+        let wallet = WalletFile {
+            encrypted_mnemonic: Self::encrypt_mnemonic(&key, mnemonic)?,
+            meta: security.clone(),
+        };
+
+        let config_dir = Utils::get_absolute_config_instance_dir(app);
+        fs::create_dir_all(&config_dir)?;
+        let wallet_path = Self::wallet_path(app);
+        let tmp_path = wallet_path.with_extension("json.tmp");
+        fs::write(&tmp_path, serde_json::to_string_pretty(&wallet)?)?;
+        fs::rename(&tmp_path, &wallet_path)?;
+
+        Ok(security)
     }
 
     pub fn sr_derive(app: &AppHandle, suri: &str) -> Result<(sr25519::Pair, [u8; 32])> {
@@ -99,24 +211,26 @@ impl Security {
             let _ = fs::remove_file(&private_key_path);
         }
 
-        if Self::mnemonic_path(app).exists() {
-            let mnemonic = Self::expose_mnemonic(app)?;
-            let (_, ssh_public_key) = Self::derive_ssh_key(&mnemonic)?;
-            Self::create_with_addresses(&mnemonic, &ssh_public_key)
+        Self::migrate_legacy_mnemonic(app)?;
+
+        let wallet_path = Self::wallet_path(app);
+        if wallet_path.exists() {
+            let raw = fs::read_to_string(&wallet_path)?;
+            let wallet: WalletFile = serde_json::from_str(&raw)?;
+            Ok(wallet.meta)
         } else {
             Security::create(app)
         }
     }
 
     pub fn save_with_mnemonic(app: &AppHandle, mnemonic: &str) -> Result<Self> {
-        let (_, public_key) = Self::derive_ssh_key(mnemonic)?;
-        let config_dir = Utils::get_absolute_config_instance_dir(app);
-        fs::create_dir_all(&config_dir)?;
+        // Remove legacy file if it exists
+        let legacy_path = Utils::get_absolute_config_instance_dir(app).join("mnemonic");
+        if legacy_path.exists() {
+            let _ = fs::remove_file(&legacy_path);
+        }
 
-        // Save mnemonics
-        fs::write(config_dir.join("mnemonic"), mnemonic)?;
-
-        Self::create_with_addresses(mnemonic, &public_key)
+        Self::write_wallet_file(app, mnemonic)
     }
 
     fn create_with_addresses(mnemonic: &str, public_key: &str) -> Result<Self> {

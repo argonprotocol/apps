@@ -93,6 +93,11 @@ async function importAccount() {
   await controller.importFromMnemonic(mnemonic.value.join(' '));
 
   isImporting.value = false;
+  mnemonic.value.fill('');
   emit('close');
 }
+
+Vue.onUnmounted(() => {
+  mnemonic.value.fill('');
+});
 </script>
