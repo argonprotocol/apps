@@ -25,25 +25,21 @@ export default createBitcoinFundLockExactOperation();
 function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, IFundLockExactState> {
   const operation = new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
     async inspect({ flow }) {
-      const [panelState, personal, lockOverlay, lockingEntry, fundingBip21] = await Promise.all([
+      const [panelState, lockingEntryVisible, lockOverlay, fundingBip21] = await Promise.all([
         flow.inspect(bitcoinEnsureMismatchActionPanel),
-        flow.isVisible('PersonalBitcoin'),
+        hasDashboardLockEntry(flow),
         flow.isVisible('BitcoinLockingOverlay'),
-        flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
         flow.isVisible('fundingBip21.copyContent()'),
       ]);
-      const lockState = personal.exists
-        ? await flow.getAttribute('PersonalBitcoin', 'data-lock-state', { timeoutMs: 1_000 }).catch(() => null)
-        : null;
       const lockingOverlayState = lockOverlay.visible
         ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
         : null;
-      const lockStatus = panelState.chainState.lockStatus ?? lockState?.trim();
+      const lockStatus = panelState.chainState.lockStatus;
       const inFundingState = panelState.chainState.isPendingFunding;
       const fundingReadyToResume = panelState.chainState.isFundingReadyToResume;
       const fundingEntryVisible =
         fundingBip21.visible ||
-        lockingEntry.visible ||
+        lockingEntryVisible ||
         (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin');
       const processingOnBitcoinVisible = lockingOverlayState === 'ProcessingOnBitcoin';
       const isComplete = panelState.chainState.isPostFundingLock || processingOnBitcoinVisible;
@@ -127,4 +123,9 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
   });
 
   return operation;
+}
+
+async function hasDashboardLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
+  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
+    .visible;
 }

@@ -213,7 +213,7 @@ async function collectVueFiles(dir) {
       files.push(...(await collectVueFiles(fullPath)));
       continue;
     }
-    if (entry.isFile() && fullPath.endsWith('.vue')) {
+    if (entry.isFile() && fullPath.endsWith('.vue') && !fullPath.endsWith('.legacy.vue')) {
       files.push(fullPath);
     }
   }

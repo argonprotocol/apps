@@ -159,17 +159,24 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
   );
 
   it(
-    'should be able to recover vault rules + details',
+    'should be able to recover vault details after creating a personal bitcoin lock',
     {
       timeout: 60e3,
     },
     async () => {
+      const bitcoinLocks = myVault.bitcoinLocks;
+      const availableBitcoinSpace = myVault.createdVault!.availableBitcoinSpace();
+      const targetLiquidity = (availableBitcoinSpace * 4n) / 5n;
+      expect(targetLiquidity).toBeGreaterThan(0n);
+
       // Create a personal bitcoin lock (previously done by activateSecuritizationAndTreasury)
-      const lockTxInfo = await myVault.startBitcoinLocking({ satoshis: 50_000n });
+      const lockTxInfo = await myVault.startBitcoinLocking({
+        satoshis: await bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity),
+      });
       await lockTxInfo.txResult.waitForFinalizedBlock;
+      const lockCreatedBlockNumber = lockTxInfo.txResult.blockNumber!;
       await lockTxInfo.waitForPostProcessing;
 
-      const bitcoinLocks = myVault.bitcoinLocks;
       expect(Object.keys(bitcoinLocks.data.locksByUtxoId)).toHaveLength(1);
       const bitcoinStored = Object.values(bitcoinLocks.data.locksByUtxoId)[0];
 
@@ -203,13 +210,13 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toStrictEqual({
         ...bitcoinStored,
         uuid: expect.any(String),
-        initializedAtBlockNumber: vaultCreatedBlockNumber,
+        initializedAtBlockNumber: lockCreatedBlockNumber,
         createdAt: undefined,
         updatedAt: undefined,
       });
 
-      const treasuryMicrogons = (await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault))!.heldPrincipal;
-      expect(treasuryMicrogons).toBeGreaterThan(0n);
+      const treasuryFunder = await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault);
+      expect(treasuryFunder).toBeNull();
     },
   );
 

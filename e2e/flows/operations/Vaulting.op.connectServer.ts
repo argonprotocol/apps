@@ -1,6 +1,6 @@
 import { clickIfVisible } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
-import type { IMiningFlowContext } from '../contexts/miningContext.ts';
+import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
 type IConnectServerUiState = {
@@ -19,12 +19,12 @@ interface IConnectServerState extends IE2EOperationInspectState<Record<string, n
 
 const DEFAULT_CONNECT_READY_TIMEOUT_MS = 120_000;
 
-export default new Operation<IMiningFlowContext, IConnectServerState>(import.meta, {
+export default new Operation<IVaultingFlowContext, IConnectServerState>(import.meta, {
   async inspect({ flow }) {
     const [connectEntry, connectOverlay, dashboard] = await Promise.all([
       flow.isVisible('SetupChecklist.openServerConnectPanel()'),
       flow.isVisible({ selector: '.ConnectOverlay' }),
-      flow.isVisible('MiningDashboard'),
+      flow.isVisible('VaultingDashboard'),
     ]);
     const connectText = await flow
       .getText('SetupChecklist.openServerConnectPanel()', { timeoutMs: 2_000 })
@@ -43,7 +43,7 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
 
     const blockers: string[] = [];
     if (!isComplete && !connectOverlay.visible && !connectEntry.visible) {
-      blockers.push('Mining server connect step is not visible.');
+      blockers.push('Vaulting server connect step is not visible.');
     }
     return {
       chainState: {},
@@ -73,7 +73,6 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
     flowState.connectedServerTab = input.serverTab;
 
     if (input.serverTab === 'local') {
-      // Avoid racing with tab-state updates; ensure local tab content is rendered before connecting.
       await flow.waitFor('ServerConnectOverlay.local.warning', { timeoutMs: 15_000 });
       const warningText = await flow
         .getText('ServerConnectOverlay.local.warning', { timeoutMs: 1_000 })

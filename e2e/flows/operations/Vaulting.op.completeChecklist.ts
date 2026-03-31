@@ -7,7 +7,6 @@ import type { Config } from '../types/srcVue.ts';
 type ICompleteChecklistUiState = {
   checklistVisible: boolean;
   fundStepVisible: boolean;
-  lockOverlayVisible: boolean;
   dashboardVisible: boolean;
 };
 
@@ -17,15 +16,14 @@ type ICompleteChecklistState = IE2EOperationInspectState<IVaultingChecklistState
 
 export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
-    const [setupState, checklistEntry, fundStepEntry, lockOverlayEntry, dashboard] = await Promise.all([
+    const [setupState, checklistEntry, fundStepEntry, dashboard] = await Promise.all([
       flow.queryApp<IVaultingChecklistState>(VAULTING_CHECKLIST_STATE_FN, { timeoutMs: 10_000 }),
       flow.isVisible('SetupChecklist.openVaultCreateOverlay()'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
-      flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
     ]);
     const hasSavedVaultingRules = setupState?.hasSavedVaultingRules ?? false;
-    const isComplete = hasSavedVaultingRules || lockOverlayEntry.visible || dashboard.visible;
+    const isComplete = hasSavedVaultingRules || dashboard.visible;
     const canRun = checklistEntry.visible && !isComplete;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
@@ -43,7 +41,6 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       uiState: {
         checklistVisible: checklistEntry.visible,
         fundStepVisible: fundStepEntry.visible,
-        lockOverlayVisible: lockOverlayEntry.visible,
         dashboardVisible: dashboard.visible,
       },
       state: operationState,
@@ -51,7 +48,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     };
   },
   async run({ flow }, state) {
-    if (state.uiState.lockOverlayVisible || state.uiState.dashboardVisible) {
+    if (state.uiState.dashboardVisible) {
       return;
     }
 

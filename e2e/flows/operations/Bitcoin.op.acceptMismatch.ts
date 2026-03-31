@@ -73,7 +73,7 @@ export default new Operation<IBitcoinFlowContext, IAcceptMismatchState>(import.m
       throw new Error(`${flowName}: mismatch accept action remained disabled after readiness polling.`);
     }
     if (!panelState.mismatchPanelVisible) {
-      await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+      await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
     }
     await flow.click('LockFundingMismatch.acceptMismatch()', { timeoutMs: 60_000 });
     await flow.poll(
@@ -92,3 +92,14 @@ export default new Operation<IBitcoinFlowContext, IAcceptMismatchState>(import.m
     );
   },
 });
+
+async function clickDashboardLockEntry(
+  flow: IBitcoinFlowContext['flow'],
+  options: { timeoutMs?: number } = {},
+): Promise<boolean> {
+  return await clickIfVisible(
+    flow,
+    { selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 },
+    options,
+  );
+}

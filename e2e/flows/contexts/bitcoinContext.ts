@@ -83,10 +83,11 @@ function parseBitcoinFlowInput(
   flowName: string,
   options: ICreateBitcoinFlowContextOptions,
 ): IBitcoinFlowInput {
-  const minimumLockArgons = normalizeAmountInput(
-    flow.input.minimumLockArgons ?? process.env.BITCOIN_MINIMUM_LOCK_ARGONS,
-    `${flowName}.minimumLockArgons`,
-  );
+  const minimumLockArgons =
+    normalizeAmountInput(
+      flow.input.minimumLockArgons ?? process.env.BITCOIN_MINIMUM_LOCK_ARGONS,
+      `${flowName}.minimumLockArgons`,
+    ) || '50';
   const mismatchDirection = parseStringChoice(
     pickUnknown(flow.input.mismatchDirection, process.env.BITCOIN_MISMATCH_DIRECTION),
     options.mismatchDirectionDefault ?? 'below',

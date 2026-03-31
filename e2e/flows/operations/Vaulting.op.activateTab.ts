@@ -1,10 +1,12 @@
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 import { Operation } from './index.ts';
-import appDismissBlockingOverlays from './App.op.dismissBlockingOverlays.ts';
+import appPrepareAccess from './App.op.prepareAccess.ts';
+import { clickIfVisible, dismissOpenLockingOverlay } from '../helpers/utils.ts';
 
 type IActivateTabUiState = {
   activeTabVisible: boolean;
-  hasBlockingOverlays: boolean;
+  welcomeOverlayVisible: boolean;
+  walletFundingOverlayVisible: boolean;
   bitcoinLockingDialogVisible: boolean;
 };
 
@@ -19,13 +21,17 @@ const OPEN_LOCKING_DIALOG_SELECTOR = '[role="dialog"][data-state="open"].Bitcoin
 
 export default new Operation<IActivateVaultingTabContext, IActivateTabState>(import.meta, {
   async inspect({ flow }) {
-    const [activeTabContent, dismissBlockingOverlaysState] = await Promise.all([
+    const [activeTabContent, prepareAccessState, walletFundingOverlay, openBitcoinLockingDialogs] = await Promise.all([
       flow.isVisible('VaultingScreen'),
-      flow.inspect(appDismissBlockingOverlays),
+      flow.inspect(appPrepareAccess),
+      flow.isVisible('WalletFundingReceivedOverlay.closeOverlay()'),
+      flow.count({ selector: OPEN_LOCKING_DIALOG_SELECTOR }).catch(() => 0),
     ]);
     const activeTabVisible = activeTabContent.visible;
-    const hasBlockingOverlays = dismissBlockingOverlaysState.state === 'runnable';
-    const bitcoinLockingDialogVisible = dismissBlockingOverlaysState.uiState.bitcoinLockingDialogVisible;
+    const welcomeOverlayVisible = prepareAccessState.state === 'runnable';
+    const walletFundingOverlayVisible = walletFundingOverlay.visible;
+    const bitcoinLockingDialogVisible = openBitcoinLockingDialogs > 0;
+    const hasBlockingOverlays = welcomeOverlayVisible || walletFundingOverlayVisible || bitcoinLockingDialogVisible;
     const isComplete = activeTabVisible && !hasBlockingOverlays;
     let operationState: 'complete' | 'runnable' = 'runnable';
     if (isComplete) {
@@ -36,7 +42,8 @@ export default new Operation<IActivateVaultingTabContext, IActivateTabState>(imp
       chainState: {},
       uiState: {
         activeTabVisible,
-        hasBlockingOverlays,
+        welcomeOverlayVisible,
+        walletFundingOverlayVisible,
         bitcoinLockingDialogVisible,
       },
       state: operationState,
@@ -46,7 +53,19 @@ export default new Operation<IActivateVaultingTabContext, IActivateTabState>(imp
   async run(context) {
     const { flow, flowName } = context;
 
-    await flow.run(appDismissBlockingOverlays);
+    await flow.run(appPrepareAccess);
+    await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()', { timeoutMs: 5_000 });
+
+    if ((await countOpenLockingDialogs(flow).catch(() => 0)) > 0) {
+      let dismissed = await dismissOpenLockingOverlay(flow, 'LockMinting.closeOverlay()');
+      if (!dismissed) {
+        dismissed = await dismissOpenLockingOverlay(flow, 'LockStart.closeOverlay()');
+      }
+      if (!dismissed) {
+        throw new Error(`${flowName}: blocking bitcoin locking dialog is still open.`);
+      }
+    }
+
     const remainingDialogs = await countOpenLockingDialogs(flow).catch(() => 0);
     if (remainingDialogs > 0) {
       throw new Error(`${flowName}: blocking bitcoin locking dialog is still open.`);
