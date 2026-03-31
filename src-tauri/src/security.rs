@@ -37,7 +37,6 @@ struct WalletFile {
     meta: Security,
 }
 
-#[derive(Debug, Clone, Copy)]
 struct X25519Keypair {
     secret_key: [u8; 32],
     public_key: [u8; 32],
@@ -285,7 +284,7 @@ impl Security {
         let local_keypair = Self::x25519_keypair_from_ed_keypair(pair, seed)?;
         let counterparty_public_key = Self::decode_x25519_public_key(counterparty_public_key)?;
         let shared_secret =
-            Self::derive_x25519_shared_secret(local_keypair.secret_key, counterparty_public_key)?;
+            Self::derive_x25519_shared_secret(&local_keypair.secret_key, counterparty_public_key)?;
         let encryption_key = Self::derive_x25519_encryption_key(&shared_secret)?;
 
         let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
@@ -310,12 +309,12 @@ impl Security {
         let local_keypair = Self::x25519_keypair_from_ed_keypair(pair, seed)?;
         let counterparty_public_key = Self::decode_x25519_public_key(counterparty_public_key)?;
         let shared_secret =
-            Self::derive_x25519_shared_secret(local_keypair.secret_key, counterparty_public_key)?;
+            Self::derive_x25519_shared_secret(&local_keypair.secret_key, counterparty_public_key)?;
         let encryption_key = Self::derive_x25519_encryption_key(&shared_secret)?;
 
         anyhow::ensure!(
-            encrypted_message.len() > 12,
-            "Encrypted payload must include a 12-byte nonce and ciphertext"
+            encrypted_message.len() >= 12 + 16,
+            "Encrypted payload must be at least 28 bytes (12-byte nonce + 16-byte authentication tag + ciphertext)"
         );
 
         let (nonce, ciphertext) = encrypted_message.split_at(12);
@@ -341,11 +340,11 @@ impl Security {
     }
 
     fn derive_x25519_shared_secret(
-        secret_key: [u8; 32],
+        secret_key: &[u8; 32],
         counterparty_public_key: [u8; 32],
     ) -> Result<[u8; 32]> {
         let shared_secret = MontgomeryPoint(counterparty_public_key)
-            .mul_clamped(secret_key)
+            .mul_clamped(*secret_key)
             .to_bytes();
 
         anyhow::ensure!(
@@ -452,5 +451,110 @@ mod tests {
         .expect("message should decrypt");
 
         assert_eq!(decrypted, payload);
+    }
+
+    #[test]
+    fn x25519_encrypt_rejects_invalid_counterparty_key_length() {
+        let (_pair, mnemonic, _seed) = sp_core::ed25519::Pair::generate_with_phrase(None);
+        let (alice_pair, alice_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//1")
+            .expect("alice key should derive");
+
+        let invalid_counterparty_key = vec![0u8; 31];
+        let payload = vec![1, 2, 3, 4];
+
+        let result = Security::encrypt_x25519_message_from_keypair(
+            &alice_pair,
+            &alice_seed,
+            &invalid_counterparty_key,
+            &payload,
+        );
+
+        assert!(
+            result.is_err(),
+            "encryption should fail for invalid key length"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Counterparty public key must be 32 bytes"),
+            "error should mention the expected counterparty key length"
+        );
+    }
+
+    #[test]
+    fn x25519_decrypt_rejects_too_short_ciphertext() {
+        let (_pair, mnemonic, _seed) = sp_core::ed25519::Pair::generate_with_phrase(None);
+
+        let (alice_pair, alice_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//1")
+            .expect("alice key should derive");
+        let (bob_pair, bob_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//2")
+            .expect("bob key should derive");
+
+        let alice_public_key = Security::x25519_keypair_from_ed_keypair(&alice_pair, &alice_seed)
+            .expect("alice x25519 conversion should work")
+            .public_key;
+        let too_short_ciphertext = vec![0u8; 27];
+
+        let result = Security::decrypt_x25519_message_from_keypair(
+            &bob_pair,
+            &bob_seed,
+            &alice_public_key,
+            &too_short_ciphertext,
+        );
+
+        assert!(
+            result.is_err(),
+            "decryption should fail for ciphertext shorter than nonce plus tag"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Encrypted payload must be at least 28 bytes"),
+            "error should mention the minimum encrypted payload length"
+        );
+    }
+
+    #[test]
+    fn x25519_decrypt_fails_with_wrong_counterparty_key() {
+        let (_pair, mnemonic, _seed) = sp_core::ed25519::Pair::generate_with_phrase(None);
+
+        let (alice_pair, alice_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//1")
+            .expect("alice key should derive");
+        let (bob_pair, bob_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//2")
+            .expect("bob key should derive");
+        let (charlie_pair, charlie_seed) =
+            Security::ed_derive_from_mnemonic(&mnemonic, "//chat//3")
+                .expect("charlie key should derive");
+
+        let bob_public_key = Security::x25519_keypair_from_ed_keypair(&bob_pair, &bob_seed)
+            .expect("bob x25519 conversion should work")
+            .public_key;
+        let charlie_public_key =
+            Security::x25519_keypair_from_ed_keypair(&charlie_pair, &charlie_seed)
+                .expect("charlie x25519 conversion should work")
+                .public_key;
+        let payload = vec![9, 8, 7, 6];
+
+        let encrypted = Security::encrypt_x25519_message_from_keypair(
+            &alice_pair,
+            &alice_seed,
+            &bob_public_key,
+            &payload,
+        )
+        .expect("message should encrypt");
+
+        let result = Security::decrypt_x25519_message_from_keypair(
+            &bob_pair,
+            &bob_seed,
+            &charlie_public_key,
+            &encrypted,
+        );
+
+        assert!(
+            result.is_err(),
+            "decryption should fail when using the wrong counterparty public key"
+        );
     }
 }
