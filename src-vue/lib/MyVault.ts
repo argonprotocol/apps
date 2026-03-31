@@ -92,6 +92,7 @@ export class MyVault {
     currentFrameId: number;
     treasury: {
       heldPrincipal: bigint;
+      targetPrincipal: bigint;
       pendingReturnAmount: bigint;
       pendingReturnAtFrame: number | null;
     };
@@ -181,6 +182,7 @@ export class MyVault {
       bondFunders: [],
       treasury: {
         heldPrincipal: 0n,
+        targetPrincipal: 0n,
         pendingReturnAmount: 0n,
         pendingReturnAtFrame: null,
       },
@@ -277,6 +279,7 @@ export class MyVault {
         const operatorFunder = await MyVault.fetchAllocatedMicrogonsForTreasuryPool(this.createdVault!);
         if (operatorFunder) {
           this.data.treasury.heldPrincipal = operatorFunder.heldPrincipal;
+          this.data.treasury.targetPrincipal = operatorFunder.targetPrincipal;
           this.data.treasury.pendingReturnAmount = operatorFunder.pendingReturnAmount;
           this.data.treasury.pendingReturnAtFrame = operatorFunder.pendingReturnAtFrame;
         }
@@ -1324,10 +1327,12 @@ export class MyVault {
     return await TreasuryPool.subscribeFunderState(client, vaultId, this.walletKeys.vaultingAddress, true, state => {
       if (state) {
         this.data.treasury.heldPrincipal = state.heldPrincipal;
+        this.data.treasury.targetPrincipal = state.targetPrincipal;
         this.data.treasury.pendingReturnAmount = state.pendingReturnAmount;
         this.data.treasury.pendingReturnAtFrame = state.pendingReturnAtFrame;
       } else {
         this.data.treasury.heldPrincipal = 0n;
+        this.data.treasury.targetPrincipal = 0n;
         this.data.treasury.pendingReturnAmount = 0n;
         this.data.treasury.pendingReturnAtFrame = null;
       }
@@ -1403,7 +1408,7 @@ export class MyVault {
       feesInMicrogons: foundVault.txFee ?? 0n,
       vault,
       bitcoin,
-      treasuryMicrogons: this.data.treasury.heldPrincipal,
+      treasuryMicrogons: this.data.treasury.targetPrincipal,
     });
   }
 
@@ -1628,7 +1633,7 @@ export class MyVault {
       txs.push(tx);
     }
 
-    let treasuryMicrogons = this.data.treasury.heldPrincipal;
+    let treasuryMicrogons = this.data.treasury.targetPrincipal;
     if (addedTreasuryMicrogons > 0n) {
       treasuryMicrogons += addedTreasuryMicrogons;
       txs.push(await this.buildTreasuryAllocationTx(treasuryMicrogons));

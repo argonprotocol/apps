@@ -23,15 +23,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from '../lib/numeral.ts';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
-import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import LockDetail from './bitcoin-locking/LockDetail.vue';
 
-const currency = getCurrency();
 const myVault = getMyVault();
 
 const props = defineProps<{

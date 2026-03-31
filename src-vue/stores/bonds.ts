@@ -32,6 +32,7 @@ export const useBonds = defineStore('bonds', () => {
   });
 
   const heldPrincipal = Vue.computed(() => funderState.value?.heldPrincipal ?? 0n);
+  const targetPrincipal = Vue.computed(() => funderState.value?.targetPrincipal ?? 0n);
 
   let unsubFunder: (() => void) | undefined;
   let unsubFrame: { unsubscribe: () => void } | undefined;
@@ -75,6 +76,7 @@ export const useBonds = defineStore('bonds', () => {
     frameHistory,
     estimatedApy,
     heldPrincipal,
+    targetPrincipal,
     isLoaded,
     load,
     refreshFrameHistory,

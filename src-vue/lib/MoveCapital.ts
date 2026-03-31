@@ -230,7 +230,7 @@ export class MoveCapital {
       );
       txs.push(tx);
     } else if (moveFrom === MoveFrom.VaultingTreasury && assetsToMove.ARGN) {
-      const newAmount = this.myVault.data.treasury.heldPrincipal - assetsToMove[MoveToken.ARGN];
+      const newAmount = this.myVault.data.treasury.targetPrincipal - assetsToMove[MoveToken.ARGN];
       const tx = await this.myVault.buildTreasuryAllocationTx(newAmount);
       txs.push(tx);
     }
