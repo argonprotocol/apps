@@ -4,7 +4,11 @@ use anyhow::Result;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use bip32::{ExtendedKey, Prefix, XPrv};
+use curve25519_dalek::edwards::CompressedEdwardsY;
+use curve25519_dalek::montgomery::MontgomeryPoint;
+use hkdf::Hkdf;
 use secrecy::SecretString;
+use sha2::{Digest, Sha256, Sha512};
 use sp_core::crypto::AddressUri;
 use sp_core::crypto::Ss58Codec;
 use sp_core::{DeriveJunction, Pair, ed25519, sr25519};
@@ -31,6 +35,12 @@ pub struct Security {
 struct WalletFile {
     encrypted_mnemonic: String,
     meta: Security,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct X25519Keypair {
+    secret_key: [u8; 32],
+    public_key: [u8; 32],
 }
 
 impl Security {
@@ -188,6 +198,37 @@ impl Security {
         Self::ed_derive_from_mnemonic(&mnemonic, suri)
     }
 
+    pub fn derive_x25519_public_key(app: &AppHandle, suri: &str) -> Result<Vec<u8>> {
+        let (pair, seed) = Self::ed_derive(app, suri)?;
+        let keypair = Self::x25519_keypair_from_ed_keypair(&pair, &seed)?;
+        Ok(keypair.public_key.to_vec())
+    }
+
+    pub fn encrypt_x25519_message(
+        app: &AppHandle,
+        suri: &str,
+        counterparty_public_key: &[u8],
+        payload: &[u8],
+    ) -> Result<Vec<u8>> {
+        let (pair, seed) = Self::ed_derive(app, suri)?;
+        Self::encrypt_x25519_message_from_keypair(&pair, &seed, counterparty_public_key, payload)
+    }
+
+    pub fn decrypt_x25519_message(
+        app: &AppHandle,
+        suri: &str,
+        counterparty_public_key: &[u8],
+        encrypted_message: &[u8],
+    ) -> Result<Vec<u8>> {
+        let (pair, seed) = Self::ed_derive(app, suri)?;
+        Self::decrypt_x25519_message_from_keypair(
+            &pair,
+            &seed,
+            counterparty_public_key,
+            encrypted_message,
+        )
+    }
+
     fn ed_derive_from_mnemonic(mnemonic: &str, suri: &str) -> Result<(ed25519::Pair, [u8; 32])> {
         let (pair, seed) = ed25519::Pair::from_phrase(mnemonic, None)?;
         let suri = AddressUri::parse(suri)?;
@@ -203,6 +244,124 @@ impl Security {
         let (ssh_key, _seed) = Self::ed_derive_from_mnemonic(mnemonic, "//ssh-ed25519//1")?;
         let (private_key, public_key) = SSH::format_as_openssh(ssh_key)?;
         Ok((private_key, public_key))
+    }
+
+    fn x25519_keypair_from_ed_keypair(
+        pair: &ed25519::Pair,
+        seed: &[u8; 32],
+    ) -> Result<X25519Keypair> {
+        let public = pair.public();
+        Self::x25519_keypair_from_ed_bytes(seed, public.as_array_ref())
+    }
+
+    fn x25519_keypair_from_ed_bytes(
+        seed: &[u8; 32],
+        public_key: &[u8; 32],
+    ) -> Result<X25519Keypair> {
+        let secret_hash = Sha512::digest(seed);
+
+        let mut secret_key = [0u8; 32];
+        secret_key.copy_from_slice(&secret_hash[..32]);
+
+        let public_key = CompressedEdwardsY::from_slice(public_key)
+            .map_err(|e| anyhow::anyhow!("Failed to read Ed25519 public key bytes: {e}"))?
+            .decompress()
+            .ok_or_else(|| anyhow::anyhow!("Invalid Ed25519 public key"))?
+            .to_montgomery()
+            .to_bytes();
+
+        Ok(X25519Keypair {
+            secret_key,
+            public_key,
+        })
+    }
+
+    fn encrypt_x25519_message_from_keypair(
+        pair: &ed25519::Pair,
+        seed: &[u8; 32],
+        counterparty_public_key: &[u8],
+        payload: &[u8],
+    ) -> Result<Vec<u8>> {
+        let local_keypair = Self::x25519_keypair_from_ed_keypair(pair, seed)?;
+        let counterparty_public_key = Self::decode_x25519_public_key(counterparty_public_key)?;
+        let shared_secret =
+            Self::derive_x25519_shared_secret(local_keypair.secret_key, counterparty_public_key)?;
+        let encryption_key = Self::derive_x25519_encryption_key(&shared_secret)?;
+
+        let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = cipher
+            .encrypt(&nonce, payload)
+            .map_err(|e| anyhow::anyhow!("Encryption failed: {e}"))?;
+
+        let mut encrypted = Vec::with_capacity(12 + ciphertext.len());
+        encrypted.extend_from_slice(&nonce);
+        encrypted.extend_from_slice(&ciphertext);
+
+        Ok(encrypted)
+    }
+
+    fn decrypt_x25519_message_from_keypair(
+        pair: &ed25519::Pair,
+        seed: &[u8; 32],
+        counterparty_public_key: &[u8],
+        encrypted_message: &[u8],
+    ) -> Result<Vec<u8>> {
+        let local_keypair = Self::x25519_keypair_from_ed_keypair(pair, seed)?;
+        let counterparty_public_key = Self::decode_x25519_public_key(counterparty_public_key)?;
+        let shared_secret =
+            Self::derive_x25519_shared_secret(local_keypair.secret_key, counterparty_public_key)?;
+        let encryption_key = Self::derive_x25519_encryption_key(&shared_secret)?;
+
+        anyhow::ensure!(
+            encrypted_message.len() > 12,
+            "Encrypted payload must include a 12-byte nonce and ciphertext"
+        );
+
+        let (nonce, ciphertext) = encrypted_message.split_at(12);
+
+        let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
+        let plaintext = cipher
+            .decrypt(Nonce::from_slice(nonce), ciphertext)
+            .map_err(|e| anyhow::anyhow!("Decryption failed: {e}"))?;
+
+        Ok(plaintext)
+    }
+
+    fn decode_x25519_public_key(public_key: &[u8]) -> Result<[u8; 32]> {
+        anyhow::ensure!(
+            public_key.len() == 32,
+            "Counterparty public key must be 32 bytes, got {}",
+            public_key.len()
+        );
+
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(public_key);
+        Ok(bytes)
+    }
+
+    fn derive_x25519_shared_secret(
+        secret_key: [u8; 32],
+        counterparty_public_key: [u8; 32],
+    ) -> Result<[u8; 32]> {
+        let shared_secret = MontgomeryPoint(counterparty_public_key)
+            .mul_clamped(secret_key)
+            .to_bytes();
+
+        anyhow::ensure!(
+            shared_secret != [0u8; 32],
+            "Counterparty public key produced an invalid shared secret"
+        );
+
+        Ok(shared_secret)
+    }
+
+    fn derive_x25519_encryption_key(shared_secret: &[u8; 32]) -> Result<[u8; 32]> {
+        let hkdf = Hkdf::<Sha256>::new(Some(b"argon/x25519/aes256gcm/v1"), shared_secret);
+        let mut key = [0u8; 32];
+        hkdf.expand(b"message-encryption", &mut key)
+            .map_err(|_| anyhow::anyhow!("Failed to derive an AES key from the shared secret"))?;
+        Ok(key)
     }
 
     pub fn load(app: &AppHandle) -> Result<Self> {
@@ -251,5 +410,47 @@ impl Security {
     pub fn create(app: &AppHandle) -> Result<Self> {
         let (_pair, phrase, _seed) = ed25519::Pair::generate_with_phrase(None);
         Self::save_with_mnemonic(app, &phrase)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Security;
+    use sp_core::Pair;
+
+    #[test]
+    fn x25519_conversion_encrypts_between_derived_ed25519_keys() {
+        let (_pair, mnemonic, _seed) = sp_core::ed25519::Pair::generate_with_phrase(None);
+
+        let (alice_pair, alice_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//1")
+            .expect("alice key should derive");
+        let (bob_pair, bob_seed) = Security::ed_derive_from_mnemonic(&mnemonic, "//chat//2")
+            .expect("bob key should derive");
+
+        let alice_public_key = Security::x25519_keypair_from_ed_keypair(&alice_pair, &alice_seed)
+            .expect("alice x25519 conversion should work")
+            .public_key;
+        let bob_public_key = Security::x25519_keypair_from_ed_keypair(&bob_pair, &bob_seed)
+            .expect("bob x25519 conversion should work")
+            .public_key;
+        let payload = vec![127, 0, 0, 1, 0x23, 0x84];
+
+        let encrypted = Security::encrypt_x25519_message_from_keypair(
+            &alice_pair,
+            &alice_seed,
+            &bob_public_key,
+            &payload,
+        )
+        .expect("message should encrypt");
+
+        let decrypted = Security::decrypt_x25519_message_from_keypair(
+            &bob_pair,
+            &bob_seed,
+            &alice_public_key,
+            &encrypted,
+        )
+        .expect("message should decrypt");
+
+        assert_eq!(decrypted, payload);
     }
 }
