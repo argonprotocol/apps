@@ -45,8 +45,12 @@ void getVersion().then(version => {
 });
 
 if (isE2E) {
+  console.info('[E2E] Loading driver client module');
   void import('./e2e/init')
-    .then(({ initE2EClient }) => initE2EClient())
+    .then(({ initE2EClient }) => {
+      console.info('[E2E] Driver client module loaded');
+      initE2EClient();
+    })
     .catch(error => {
       console.error('[E2E] Failed to initialize driver client', error);
     });

@@ -3,6 +3,7 @@ import {
   ArgonClient,
   BitcoinLock,
   FIXED_U128_DECIMALS,
+  hexToU8a,
   IBitcoinLock,
   ITxProgressCallback,
   Keyring,
@@ -13,6 +14,7 @@ import {
   SubmittableExtrinsic,
   toFixedNumber,
   TxResult,
+  TxSubmitter,
   u64,
   u8aToHex,
   Vault,
@@ -45,8 +47,9 @@ import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { ensureOperatorAccountRegistered } from './OperationalAccount.ts';
+import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
 import { Config } from './Config.ts';
+import bs58check from 'bs58check';
 
 export const FEE_ESTIMATE = 75_000n;
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
@@ -1093,30 +1096,48 @@ export class MyVault {
     this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, deferred.promise);
     try {
       const { masterXpubPath, rules, config } = args;
-      await ensureOperatorAccountRegistered('vaulting', { walletKeys: this.walletKeys, config });
       const argonKeyring = await this.walletKeys.getVaultingKeypair();
       console.log('Creating a vault with address', argonKeyring.address);
       const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
       const masterXpub = vaultXpriv.publicExtendedKey;
       const client = await getMainchainClient(false);
+      if (rules.securitizationRatio < 1 || rules.securitizationRatio > 2) {
+        throw new Error('Securitization ratio must be between 1 and 2');
+      }
 
-      const microgonsForSecuritization = MyVault.getSecuritizationTarget(rules);
+      let bitcoinXpubkey = hexToU8a(masterXpub);
+      if (bitcoinXpubkey.length !== 78) {
+        bitcoinXpubkey = bs58check.decode(masterXpub);
+      }
+      if (bitcoinXpubkey.length !== 78) {
+        throw new Error('Invalid Bitcoin xpub key length, must be 78 bytes');
+      }
 
-      const { txResult } = await Vault.create(
-        client,
-        argonKeyring,
-        {
-          securitizationRatio: rules.securitizationRatio,
-          securitization: microgonsForSecuritization,
-          annualPercentRate: rules.btcPctFee / 100,
-          baseFee: rules.btcFlatFee,
-          bitcoinXpub: masterXpub,
-          treasuryProfitSharing: rules.profitSharingPct / 100,
-          disableAutomaticTxTracking: true,
+      const vaultParams = {
+        terms: {
+          bitcoinAnnualPercentRate: toFixedNumber(rules.btcPctFee / 100, FIXED_U128_DECIMALS),
+          bitcoinBaseFee: BigInt(rules.btcFlatFee),
+          treasuryProfitSharing: toFixedNumber(rules.profitSharingPct / 100, PERMILL_DECIMALS),
         },
-        { tickDurationMillis: NetworkConfig.tickMillis },
-      );
+        securitizationRatio: toFixedNumber(rules.securitizationRatio, FIXED_U128_DECIMALS),
+        securitization: MyVault.getSecuritizationTarget(rules),
+        bitcoinXpubkey,
+      };
 
+      const txs: SubmittableExtrinsic[] = [];
+      const registerOperatorAccountTx = await buildOperatorAccountRegistrationTx({
+        walletKeys: this.walletKeys,
+        config,
+        client,
+      });
+      if (registerOperatorAccountTx) {
+        txs.push(registerOperatorAccountTx);
+      }
+      txs.push(client.tx.vaults.create(vaultParams));
+      const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
+      const txResult = await new TxSubmitter(client, tx, argonKeyring).submit({
+        useLatestNonce: true,
+      });
       const txInfo = await this.#transactionTracker.trackTxResult({
         txResult,
         extrinsicType: ExtrinsicType.VaultCreate,
@@ -1137,29 +1158,34 @@ export class MyVault {
   private async onVaultCreated(txInfo: TransactionInfo<{ masterXpubPath: string }>): Promise<Vault> {
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
-    const client = await getMainchainClient(true);
-    const blockHash = await txResult.waitForFinalizedBlock;
-    const api = await client.at(blockHash);
-    const blockNumber = await api.query.system.number();
-    let vaultId: number | undefined;
-    for (const event of txResult.events) {
-      if (client.events.vaults.VaultCreated.is(event)) {
-        vaultId = event.data.vaultId.toNumber();
-        break;
+    try {
+      const client = await getMainchainClient(false);
+      const blockHash = await txResult.waitForFinalizedBlock;
+      const api = await client.at(blockHash);
+      const blockNumber = await api.query.system.number();
+      let vaultId: number | undefined;
+      for (const event of txResult.events) {
+        if (client.events.vaults.VaultCreated.is(event)) {
+          vaultId = event.data.vaultId.toNumber();
+          break;
+        }
       }
+      if (!vaultId) {
+        throw new Error('VaultCreated event not found in transaction events');
+      }
+      const vault = await Vault.get(api as any, vaultId);
+      await this.recordVault({
+        vault,
+        createBlockNumber: blockNumber.toNumber(),
+        txFee: txResult.finalFee ?? 0n,
+        masterXpubPath: tx.metadataJson.masterXpubPath,
+      });
+      postProcessor.resolve();
+      return vault;
+    } catch (error) {
+      postProcessor.reject(error as Error);
+      throw error;
     }
-    if (!vaultId) {
-      throw new Error('VaultCreated event not found in transaction events');
-    }
-    const vault = await Vault.get(api as any, vaultId);
-    await this.recordVault({
-      vault,
-      createBlockNumber: blockNumber.toNumber(),
-      txFee: txResult.finalFee ?? 0n,
-      masterXpubPath: tx.metadataJson.masterXpubPath,
-    });
-    postProcessor.resolve();
-    return vault;
   }
 
   public async updateRevenueStats(frameRevenues?: Vec<PalletVaultsVaultFrameRevenue>): Promise<void> {
