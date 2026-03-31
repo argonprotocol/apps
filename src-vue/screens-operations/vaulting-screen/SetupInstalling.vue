@@ -34,7 +34,6 @@ import ProgressBar from '../../components/ProgressBar.vue';
 import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
 import VaultIcon from '../../assets/vault.svg?component';
 import { abbreviateAddress, generateProgressLabel } from '../../lib/Utils.ts';
-import { getCurrency } from '../../stores/currency.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 
@@ -45,15 +44,13 @@ const myVault = getMyVault();
 const progressPct = Vue.ref(0);
 const errorMessage = Vue.ref('');
 
-const vaultingRules = config.vaultingRules;
 const blockConfirmations = Vue.ref(-1);
 
 let expectedConfirmations = 0;
 
 const progressLabel = Vue.computed(() => {
-  const prefix = progressPct.value <= 50 ? 'Submitted Vault ' : 'Activated Funding';
   return generateProgressLabel(blockConfirmations.value, expectedConfirmations, {
-    prefix,
+    prefix: 'Submitted Vault',
     blockType: 'Argon',
   });
 });
@@ -64,8 +61,8 @@ async function createVault() {
   await myVault.load();
 
   if (myVault.createdVault) {
-    progressPct.value = 50;
-    void activateVault();
+    progressPct.value = 100;
+    void finalizeVault();
     return;
   }
 
@@ -84,7 +81,7 @@ async function createVault() {
       ) => {
         console.log(`Vault creation progress: Step ${args.progressPct}% - ${args.confirmations} confirmations`);
         blockConfirmations.value = args.confirmations;
-        progressPct.value = args.progressPct / 2;
+        progressPct.value = args.progressPct;
         expectedConfirmations = args.expectedConfirmations;
         if (error) {
           console.error('Error creating vault:', error);
@@ -92,64 +89,21 @@ async function createVault() {
         }
       },
     );
-    void txInfo.waitForPostProcessing.then(activateVault);
+    void txInfo.waitForPostProcessing.then(finalizeVault);
   } catch (error: any) {
     console.error('Error creating vault:', error);
     errorMessage.value = error.message || 'Unknown error occurred while creating vault.';
   }
 }
 
-let unsubscribeActivation: (() => void) | null = null;
-async function activateVault() {
-  if (errorMessage.value) return;
-
-  unsubscribeCreation?.();
-  unsubscribeCreation = null;
-  try {
-    console.log('Activating vault');
-    const txInfo = await myVault.activateSecuritization({
-      rules: vaultingRules,
-    });
-    if (!txInfo) {
-      void finalizeVault();
-      return;
-    }
-    unsubscribeActivation = txInfo.subscribeToProgress(
-      (
-        args: { progressPct: number; confirmations: number; expectedConfirmations: number },
-        error: Error | undefined,
-      ) => {
-        console.log(`Vault activation progress: Step ${args.progressPct}% - ${args.confirmations} confirmations`);
-        blockConfirmations.value = args.confirmations;
-        progressPct.value = 50 + args.progressPct / 2;
-        expectedConfirmations = args.expectedConfirmations;
-        if (error) {
-          console.error('Error activating vault:', error);
-          errorMessage.value = error.message || 'Unknown error occurred while activating vault.';
-        }
-      },
-    );
-    void txInfo.waitForPostProcessing.then(finalizeVault);
-  } catch (error) {
-    console.error('Error prebonding treasury pool:', error);
-    errorMessage.value = error instanceof Error ? error.message : `${error}`;
-  }
-}
-
 function finalizeVault() {
   progressPct.value = 100;
-  unsubscribeActivation?.();
-  unsubscribeActivation = null;
   config.vaultingSetupStatus = VaultingSetupStatus.Finished;
   config.setCertificationDetails({ hasVault: true });
   void config.save();
 }
 
 Vue.onUnmounted(() => {
-  if (unsubscribeActivation) {
-    unsubscribeActivation();
-    unsubscribeActivation = null;
-  }
   if (unsubscribeCreation) {
     unsubscribeCreation();
     unsubscribeCreation = null;

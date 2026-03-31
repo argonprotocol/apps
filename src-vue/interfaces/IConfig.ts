@@ -169,11 +169,18 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 
 // ---- Main Schema ---- //
 
+export const ConnectedVaultSchema = z.object({
+  vaultId: z.number(),
+  operatorName: z.string(),
+});
+
 export const ConfigSchema = z.object({
   version: z.string(),
 
   requiresPassword: z.boolean(),
   bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
+
+  connectedVault: ConnectedVaultSchema.optional(),
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
@@ -231,9 +238,12 @@ export type IConfigStringified = {
   [K in keyof IConfig]: string;
 };
 
+export type IConnectedVault = z.infer<typeof ConnectedVaultSchema>;
+
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
+  connectedVault: () => IConfig['connectedVault'];
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];

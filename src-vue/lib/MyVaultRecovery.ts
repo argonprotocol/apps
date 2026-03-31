@@ -115,11 +115,11 @@ export class MyVaultRecovery {
 
   public static async recoverPersonalBitcoin(args: {
     mainchainClients: MainchainClients;
-    bitcoinLocksStore: BitcoinLocks;
+    bitcoinLocks: BitcoinLocks;
     vaultSetupBlockNumber: number;
     vault: Vault;
   }): Promise<(IBitcoinLockRecord & { initializedAtBlockNumber: number })[]> {
-    const { mainchainClients, bitcoinLocksStore, vault, vaultSetupBlockNumber } = args;
+    const { mainchainClients, bitcoinLocks, vault, vaultSetupBlockNumber } = args;
     const vaultingAddress = vault.operatorAccountId;
     const vaultId = vault.vaultId;
     const client = await mainchainClients.archiveClientPromise;
@@ -132,9 +132,9 @@ export class MyVaultRecovery {
 
     async function findPubkey(ownerPubkey: Uint8Array, maxTries = 100) {
       for (let i = 0; i < maxTries; i++) {
-        const next = await bitcoinLocksStore.getDerivedPubkey(vaultId, i);
+        const next = await bitcoinLocks.getDerivedPubkey(vaultId, i);
         if (u8aEq(ownerPubkey, next.ownerBitcoinPubkey)) {
-          const table = await bitcoinLocksStore.getTable();
+          const table = await bitcoinLocks.getTable();
           await table.setVaultHdKeyIndex(vaultId, i);
           return next;
         }
@@ -143,7 +143,7 @@ export class MyVaultRecovery {
     }
 
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
-    const table = await bitcoinLocksStore.getTable();
+    const table = await bitcoinLocks.getTable();
 
     for (const [utxoId, utxoMaybe] of myBitcoins) {
       const utxo = utxoMaybe.unwrap();
@@ -162,7 +162,7 @@ export class MyVaultRecovery {
           continue;
         }
 
-        const lock = await bitcoinLocksStore.getFromApi(utxoId.args[0].toNumber());
+        const lock = await bitcoinLocks.getFromApi(utxoId.args[0].toNumber());
         let bitcoinTxAddition: { blockHash: Uint8Array; blockNumber: number } | undefined;
         if (lock.createdAtArgonBlock > 0) {
           bitcoinTxAddition = {
@@ -200,7 +200,7 @@ export class MyVaultRecovery {
         let record = await table.findLockByHdPath(thisHdPath.hdPath);
         if (!record) {
           const uuid = BitcoinLocksTable.createUuid();
-          record = await bitcoinLocksStore.insertPending({
+          record = await bitcoinLocks.insertPending({
             uuid,
             vaultId,
             satoshis: lock.satoshis,

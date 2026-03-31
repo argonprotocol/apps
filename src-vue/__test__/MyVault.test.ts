@@ -538,7 +538,7 @@ function createVault(args?: {
     blockWatch,
     getFrameDate: vi.fn(() => new Date('2026-01-01T00:00:00Z')),
   } as unknown as MiningFrames;
-  const bitcoinLocksStore = {} as BitcoinLocks;
+  const bitcoinLocks = {} as BitcoinLocks;
 
   const myVault = new MyVault(
     Promise.resolve({
@@ -549,7 +549,7 @@ function createVault(args?: {
     {} as any,
     createMockWalletKeys(),
     transactionTracker,
-    bitcoinLocksStore,
+    bitcoinLocks,
     miningFrames,
   );
 

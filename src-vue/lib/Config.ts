@@ -428,6 +428,14 @@ export class Config implements IConfig {
     this.setField('vaultingRules', value, false);
   }
 
+  public get connectedVault(): IConfig['connectedVault'] {
+    return this.getField('connectedVault');
+  }
+
+  public set connectedVault(value: IConfig['connectedVault']) {
+    this.setField('connectedVault', value);
+  }
+
   public get defaultCurrencyKey(): ICurrencyKey {
     return this.getField('defaultCurrencyKey');
   }
@@ -635,6 +643,7 @@ const defaults: IConfigDefaults = {
 
   requiresPassword: () => false,
   bootstrapDetails: () => undefined,
+  connectedVault: () => ({ vaultId: 1, operatorName: "Josh's Vault" }),
 
   serverAdd: () => undefined,
   serverDetails: () => {
@@ -714,8 +723,8 @@ const defaults: IConfigDefaults = {
   },
   vaultingRules: () => {
     return {
-      capitalForSecuritizationPct: 50,
-      capitalForTreasuryPct: 50,
+      capitalForSecuritizationPct: 100,
+      capitalForTreasuryPct: 0,
       securitizationRatio: 1,
       profitSharingPct: 10,
       btcFlatFee: 2n * BigInt(MICROGONS_PER_ARGON),
@@ -727,7 +736,7 @@ const defaults: IConfigDefaults = {
       poolUtilizationPctMin: 50,
       poolUtilizationPctMax: 100,
 
-      personalBtcPct: 100,
+      personalBtcPct: 0,
 
       baseMicrogonCommitment: 2_000n * BigInt(MICROGONS_PER_ARGON),
       baseMicronotCommitment: 0n,

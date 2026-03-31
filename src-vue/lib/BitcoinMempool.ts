@@ -94,6 +94,17 @@ export default class BitcoinMempool {
     };
   }
 
+  public txUrl(txid: string): string {
+    const mempoolTxid = this.convertBoundaryTxid(txid, 'mempool');
+    const base = (this.baseUrl ?? 'https://mempool.space/api').replace(/\/api\/?$/, '');
+    return `${base}/tx/${mempoolTxid}`;
+  }
+
+  public displayTxid(txid: string): string {
+    const mempoolTxid = this.convertBoundaryTxid(txid, 'mempool');
+    return `${mempoolTxid.slice(0, 8)}...${mempoolTxid.slice(-8)}`;
+  }
+
   private getApiUrl(path: string): string {
     const baseUrl = this.baseUrl ?? 'https://mempool.space/api';
     return `${baseUrl}/${path}`;

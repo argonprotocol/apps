@@ -7,7 +7,7 @@ import { createDeferred, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
-import { SECURITY } from '../lib/Env.ts';
+import { IS_CAPITAL_APP, IS_OPERATIONS_APP, SECURITY } from '../lib/Env.ts';
 import { getSpendableMiningHoldMicrogons, IWallet } from '../lib/Wallet.ts';
 import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
@@ -26,7 +26,10 @@ export function getWalletKeys() {
 
 let walletBalances: WalletBalances;
 export function getWalletBalances() {
-  walletBalances ??= new WalletBalances(getWalletKeys(), getDbPromise(), getBlockWatch(), getMyVault());
+  if (!walletBalances) {
+    const myVault = IS_OPERATIONS_APP ? getMyVault() : undefined;
+    walletBalances = new WalletBalances(getWalletKeys(), getDbPromise(), getBlockWatch(), myVault);
+  }
   return walletBalances;
 }
 
@@ -55,6 +58,10 @@ export const useWallets = defineStore('wallets', () => {
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
   const operationalWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.operationalAddress });
   const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
+
+  const liquidLockingWallet = Vue.computed(() => {
+    return IS_CAPITAL_APP ? investmentWallet : vaultingWallet;
+  });
 
   const miningHoldSpendableMicrogons = Vue.computed(() => {
     return getSpendableMiningHoldMicrogons(miningHoldWallet.availableMicrogons);
@@ -248,6 +255,7 @@ export const useWallets = defineStore('wallets', () => {
     miningHoldWallet,
     miningBotWallet,
     vaultingWallet,
+    liquidLockingWallet,
     miningHoldSpendableMicrogons,
     operationalWallet,
     miningHoldDisplayedMicrogons,

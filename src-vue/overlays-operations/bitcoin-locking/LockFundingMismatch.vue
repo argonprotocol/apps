@@ -276,7 +276,7 @@ const bitcoinLocks = getBitcoinLocks();
 const vaults = getVaults();
 const currency = getCurrency();
 const wallets = useWallets();
-const vaultingAddress = getWalletKeys().vaultingAddress;
+const liquidLockingAddress = getWalletKeys().liquidLockingAddress;
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 const bitcoinLockProgress = useBitcoinLockProgress();
 const TRANSACTION_FEE_BUFFER_MICROGONS = 25_000n;
@@ -504,7 +504,7 @@ const acceptTotalFeeMicrogons = Vue.computed(() => {
   return acceptTransactionFeeMicrogons.value + acceptAdditionalSecuritizationFeeMicrogons.value;
 });
 
-const availableMicrogons = Vue.computed(() => wallets.vaultingWallet.availableMicrogons ?? 0n);
+const availableMicrogons = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons ?? 0n);
 const canAffordAccept = Vue.computed(() => availableMicrogons.value >= acceptTotalFeeMicrogons.value);
 const canAffordReturn = Vue.computed(() => availableMicrogons.value >= returnTransactionFeeMicrogons.value);
 const isSubmittingReturn = Vue.computed(() => isSubmitting.value && lastAction.value === 'return');
@@ -760,7 +760,7 @@ async function refreshEstimatedOptionFees() {
       .estimatedMismatchAcceptArgonTxFee({
         lock: currentLock.value,
         candidateRecord: candidate,
-        vaultingAddress,
+        liquidLockingAddress,
       })
       .catch(() => null);
   }
@@ -772,7 +772,7 @@ async function refreshEstimatedOptionFees() {
       .estimatedMismatchReturnArgonTxFee({
         lock: currentLock.value,
         candidateRecord: candidate,
-        vaultingAddress,
+        liquidLockingAddress,
         toScriptPubkey: destination,
         feeRatePerSatVb: selectedFeeRatePerSatVb.value,
       })

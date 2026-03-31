@@ -25,6 +25,8 @@ export enum ExtrinsicType {
   BitcoinOrphanedUtxoRelease = 'BitcoinOrphanedUtxoRelease',
 
   Transfer = 'Transfer',
+
+  TreasurySetAllocation = 'TreasurySetAllocation',
 }
 
 export enum TransactionStatus {
