@@ -53,7 +53,7 @@
           <div class="shrink-0">
             <div class="text-xs font-medium uppercase tracking-wide text-slate-400">Bonds Held</div>
             <div class="mt-1 text-3xl font-bold text-argon-text-primary font-mono">
-              {{ currency.symbol }}{{ microgonToMoneyNm(funderState!.heldPrincipal).format('0,0.00') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(funderState!.targetPrincipal).format('0,0.00') }}
             </div>
           </div>
 
@@ -130,13 +130,13 @@
       </div>
     </template>
 
-    <AdjustBondOverlay
-      v-if="showOverlay"
-      :vaultId="bonds.vaultId"
-      :currentAmount="funderState?.heldPrincipal ?? 0n"
-      :walletBalance="walletBalance"
-      :availableVaultSpace="vaultAvailableCapacity"
-      @close="showOverlay = false"
+      <AdjustBondOverlay
+        v-if="showOverlay"
+        :vaultId="bonds.vaultId"
+        :currentAmount="funderState?.targetPrincipal ?? 0n"
+        :walletBalance="walletBalance"
+        :availableVaultSpace="vaultAvailableCapacity"
+        @close="showOverlay = false"
       @submitted="onSubmitted"
     />
   </div>
@@ -182,7 +182,7 @@ const distributableBidPool = Vue.ref(0n);
 const globalActiveCapital = Vue.ref(0n);
 const vaultActiveCapital = Vue.ref(0n);
 
-const hasBond = Vue.computed(() => bonds.heldPrincipal > 0n);
+const hasBond = Vue.computed(() => bonds.targetPrincipal > 0n);
 
 const vaultAvailableCapacity = Vue.computed(() => {
   const perFrameCapacity = vaultTotalCapacity.value / 10n;

@@ -1,9 +1,13 @@
+import BigNumber from 'bignumber.js';
 import type { PalletTreasuryFunderState } from '@argonprotocol/mainchain';
+
+import { compoundXTimes } from './utils.js';
 
 export class BondFunder {
   public readonly accountId: string;
   public readonly isOwn: boolean;
   public readonly heldPrincipal: bigint;
+  public readonly targetPrincipal: bigint;
   public readonly pendingReturnAmount: bigint;
   public readonly pendingReturnAtFrame: number | null;
   public readonly lifetimeCompoundedEarnings: bigint;
@@ -21,10 +25,13 @@ export class BondFunder {
     if ('pendingUnlockAmount' in raw) {
       this.pendingReturnAmount = raw.pendingUnlockAmount.toBigInt();
       this.pendingReturnAtFrame = raw.pendingUnlockAtFrame.isSome ? raw.pendingUnlockAtFrame.unwrap().toNumber() : null;
+      this.targetPrincipal =
+        this.heldPrincipal > this.pendingReturnAmount ? this.heldPrincipal - this.pendingReturnAmount : 0n;
     } else {
       // Old model compat: targetPrincipal existed before simplified bonds
-      const targetPrincipal = (raw as { targetPrincipal: { toBigInt(): bigint } }).targetPrincipal.toBigInt();
-      this.pendingReturnAmount = this.heldPrincipal > targetPrincipal ? this.heldPrincipal - targetPrincipal : 0n;
+      this.targetPrincipal = (raw as { targetPrincipal: { toBigInt(): bigint } }).targetPrincipal.toBigInt();
+      this.pendingReturnAmount =
+        this.heldPrincipal > this.targetPrincipal ? this.heldPrincipal - this.targetPrincipal : 0n;
       this.pendingReturnAtFrame = null;
     }
   }
@@ -37,7 +44,11 @@ export class BondFunder {
     const framesSinceBasis = Math.max(0, currentFrameId - this.lifetimePrincipalLastBasisFrame);
     const effectiveDeployed = this.lifetimePrincipalDeployed + this.heldPrincipal * BigInt(framesSinceBasis);
     if (effectiveDeployed <= 0n) return 0;
-    const perFrameReturn = Number(this.lifetimeCompoundedEarnings) / Number(effectiveDeployed);
-    return (Math.pow(1 + perFrameReturn, 365) - 1) * 100;
+
+    const perFrameReturn = BigNumber(this.lifetimeCompoundedEarnings.toString())
+      .dividedBy(effectiveDeployed.toString())
+      .toNumber();
+
+    return compoundXTimes(perFrameReturn, 365) * 100;
   }
 }

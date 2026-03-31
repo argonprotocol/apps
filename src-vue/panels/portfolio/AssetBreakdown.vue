@@ -400,8 +400,7 @@ const treasuryPendingReturnMicrogons = Vue.computed(() => {
 });
 
 const treasuryBondedMicrogons = Vue.computed(() => {
-  const activeBonded = myVault.data.treasury.heldPrincipal - myVault.data.treasury.pendingReturnAmount;
-  return activeBonded > 0n ? activeBonded : 0n;
+  return myVault.data.treasury.targetPrincipal;
 });
 
 const treasuryPendingReturnDate = Vue.computed(() => {

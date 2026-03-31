@@ -148,8 +148,6 @@ import BitcoinUnlockingOverlay from '../overlays-operations/BitcoinUnlockingOver
 
 const currency = getCurrency();
 const config = getConfig();
-const connectedVault = config.connectedVault!;
-const vaultId = connectedVault.vaultId;
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -252,7 +250,7 @@ Vue.onMounted(async () => {
   await currency.isLoadedPromise;
   await bitcoinLocks.load();
 
-  unsubVault = await vaults.subscribeToVault(vaultId, updateAvailableSpace);
+  unsubVault = await vaults.subscribeToVault(config.connectedVault!.vaultId, updateAvailableSpace);
 
   isLoaded.value = true;
 });

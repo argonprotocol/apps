@@ -45,6 +45,8 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const securityMicrogonsActivatedPct = Vue.computed<number>(() => {
+    if (securityMicrogons.value <= 0n) return 0;
+
     const pctBn = BigNumber(securityMicrogonsActivated.value).div(securityMicrogons.value);
     return pctBn.multipliedBy(100).toNumber();
   });
@@ -74,6 +76,8 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsActivatedPct = Vue.computed(() => {
+    if (treasuryMicrogonsMaxCapacity.value <= 0n) return 0;
+
     const pctBn = BigNumber(treasuryMicrogonsActivated.value).div(treasuryMicrogonsMaxCapacity.value);
     return pctBn.multipliedBy(100).toNumber();
   });
