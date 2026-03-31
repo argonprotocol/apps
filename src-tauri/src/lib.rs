@@ -198,6 +198,38 @@ async fn derive_ed25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], Str
 }
 
 #[tauri::command]
+async fn derive_x25519_public_key(app: AppHandle, suri: &str) -> Result<Vec<u8>, String> {
+    let public_key = Security::derive_x25519_public_key(&app, suri).map_err(|e| e.to_string())?;
+    Ok(public_key)
+}
+
+#[tauri::command]
+async fn encrypt_x25519_message(
+    app: AppHandle,
+    suri: &str,
+    counterparty_public_key: Vec<u8>,
+    payload: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let encrypted =
+        Security::encrypt_x25519_message(&app, suri, &counterparty_public_key, &payload)
+            .map_err(|e| e.to_string())?;
+    Ok(encrypted)
+}
+
+#[tauri::command]
+async fn decrypt_x25519_message(
+    app: AppHandle,
+    suri: &str,
+    counterparty_public_key: Vec<u8>,
+    encrypted_message: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let decrypted =
+        Security::decrypt_x25519_message(&app, suri, &counterparty_public_key, &encrypted_message)
+            .map_err(|e| e.to_string())?;
+    Ok(decrypted)
+}
+
+#[tauri::command]
 async fn derive_bitcoin_extended_key(
     app: AppHandle,
     hd_path: &str,
@@ -648,6 +680,9 @@ pub fn run() {
             derive_sr25519_seed,
             derive_sr25519_address,
             derive_ed25519_seed,
+            derive_x25519_public_key,
+            encrypt_x25519_message,
+            decrypt_x25519_message,
             derive_bitcoin_extended_key,
             expose_mnemonic,
             overwrite_mnemonic,

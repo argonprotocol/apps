@@ -86,10 +86,6 @@ jobs:
         shell: bash
         run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
 
-      - name: Install SQLite on Windows
-        if: runner.os == 'Windows'
-        run: choco install sqlite
-
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -232,4 +228,3 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           VERSION: ${{ env.VERSION }}
           RELEASE_NOTES: ${{ env.RELEASE_NOTES }}
-
