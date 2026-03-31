@@ -4,7 +4,7 @@ import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts'
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
 import { Operation } from './index.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
-import { sleep } from '../helpers/utils.ts';
+import { clickIfVisible, sleep } from '../helpers/utils.ts';
 
 type IOpenLockFundingOverlayUiState = {
   lockingEntryVisible: boolean;
@@ -85,7 +85,10 @@ export default new Operation<IBitcoinFlowContext, IOpenLockFundingOverlayState>(
       await flow.run(vaultingActivateTab);
     }
     if (!state.uiState.lockOverlayVisible) {
-      await flow.click('PersonalBitcoin.showLockingOverlay()', { timeoutMs: 15_000 });
+      const opened = await clickDashboardLockEntry(flow, { timeoutMs: 15_000 });
+      if (!opened) {
+        throw new Error('Lock funding overlay entry point is not clickable.');
+      }
     }
 
     const deadline = Date.now() + 15_000;
@@ -104,3 +107,14 @@ export default new Operation<IBitcoinFlowContext, IOpenLockFundingOverlayState>(
     throw new Error('Lock funding overlay did not advance to the funding details state.');
   },
 });
+
+async function clickDashboardLockEntry(
+  flow: IBitcoinFlowContext['flow'],
+  options: { timeoutMs?: number } = {},
+): Promise<boolean> {
+  return await clickIfVisible(
+    flow,
+    { selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 },
+    options,
+  );
+}

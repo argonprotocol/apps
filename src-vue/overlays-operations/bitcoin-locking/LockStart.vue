@@ -10,7 +10,7 @@
         unencumbered Argon stablecoins. We call this process "Liquid Locking".
       </p>
 
-      <div v-if="errorMessage" class="mt-4 rounded-md bg-red-50 p-4">
+      <div v-if="errorMessage" data-testid="LockStart.errorMessage" class="mt-4 rounded-md bg-red-50 p-4">
         <div class="flex">
           <div class="shrink-0">
             <ExclamationTriangleIcon class="size-5 text-red-400" aria-hidden="true" />
@@ -27,6 +27,7 @@
         <div class="flex w-1/2 grow flex-col space-y-1">
           <label class="font-bold opacity-40">Bitcoins to Lock</label>
           <InputNumber
+            data-testid="LockStart.bitcoinAmount"
             v-model="bitcoinAmount"
             @input="handleBtcChange"
             :maxDecimals="8"
@@ -43,6 +44,7 @@
         <div class="flex w-1/2 grow flex-col space-y-1">
           <label class="font-bold opacity-40">Argons to Receive</label>
           <InputMoney
+            data-testid="LockStart.argonAmount"
             v-model="microgonAmount"
             @input="handleArgonChange"
             :maxDecimals="0"

@@ -47,8 +47,6 @@ export async function logDefaultAppFailureDiagnostics(
     openDialogTestId,
     openDialogClass,
     openDialogText,
-    personalHiddenCount,
-    personalInertCount,
   ] = await Promise.all([
     flow.isVisible('MiningScreen').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('VaultingScreen').catch(() => ({ visible: false, exists: false, enabled: false })),
@@ -77,8 +75,6 @@ export async function logDefaultAppFailureDiagnostics(
       .getText({ selector: '[role="dialog"][data-state="open"]' }, { timeoutMs: 1_000 })
       .then(text => text.slice(0, 240))
       .catch(() => null),
-    flow.count({ selector: '[aria-hidden="true"] [data-testid="PersonalBitcoin"]' }).catch(() => -1),
-    flow.count({ selector: '[inert] [data-testid="PersonalBitcoin"]' }).catch(() => -1),
   ]);
 
   const appState = {
@@ -104,8 +100,6 @@ export async function logDefaultAppFailureDiagnostics(
     openDialogTestId,
     openDialogClass,
     openDialogText,
-    personalHiddenCount,
-    personalInertCount,
   };
 
   const payload = {

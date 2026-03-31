@@ -1,3 +1,4 @@
+<!-- Legacy reference component. Not imported by the current app. Kept for historical/design reference only. -->
 <!-- prettier-ignore -->
 <template>
   <section

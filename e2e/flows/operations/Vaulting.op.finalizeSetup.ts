@@ -7,6 +7,9 @@ const VAULT_CREATE_TRANSITION_TIMEOUT_MS = 20_000;
 
 type IVaultingFundingInspect = {
   walletIsFullyFunded: boolean;
+  walletsLoaded: boolean;
+  hasMiningMachine: boolean;
+  canStartVault: boolean;
   overlayIsOpen: boolean;
   availableMicrogons: string;
   availableMicronots: string;
@@ -15,7 +18,6 @@ type IVaultingFundingInspect = {
 };
 
 type IFinalizeSetupUiState = {
-  lockOverlayVisible: boolean;
   dashboardVisible: boolean;
   createVaultVisible: boolean;
   createVaultClickable: boolean;
@@ -26,7 +28,7 @@ type IFinalizeSetupState = IE2EOperationInspectState<IVaultingFundingInspect, IF
 
 export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.meta, {
   async inspect({ flow }) {
-    const [fundingState, lockOverlayEntry, dashboard, createVaultEntry, installingState] = await Promise.all([
+    const [fundingState, dashboard, createVaultEntry, installingState] = await Promise.all([
       flow.queryApp<IVaultingFundingInspect>(
         ((refs: {
           config: {
@@ -34,8 +36,14 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
               baseMicrogonCommitment?: bigint;
               baseMicronotCommitment?: bigint;
             } | null;
+            serverAdd?: {
+              localComputer?: unknown;
+              customServer?: unknown;
+              digitalOcean?: unknown;
+            } | null;
           };
           wallets: {
+            isLoaded: boolean;
             vaultingWallet: {
               availableMicrogons: bigint;
               availableMicronots: bigint;
@@ -49,9 +57,19 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
           const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
           const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
           const availableMicronots = refs.wallets.vaultingWallet.availableMicronots ?? 0n;
+          const hasMiningMachine =
+            !!refs.config.serverAdd?.customServer ||
+            !!refs.config.serverAdd?.localComputer ||
+            !!refs.config.serverAdd?.digitalOcean;
+          const walletsLoaded = refs.wallets.isLoaded;
+          const walletIsFullyFunded =
+            availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots;
 
           return {
-            walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
+            walletIsFullyFunded,
+            walletsLoaded,
+            hasMiningMachine,
+            canStartVault: walletIsFullyFunded && walletsLoaded && hasMiningMachine && !refs.controller.overlayIsOpen,
             overlayIsOpen: refs.controller.overlayIsOpen,
             availableMicrogons: availableMicrogons.toString(),
             availableMicronots: availableMicronots.toString(),
@@ -61,21 +79,16 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
         }).toString(),
         { timeoutMs: 10_000 },
       ),
-      flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
       flow.isVisible('VaultingDashboard'),
       flow.isVisible('SetupChecklist.startCreateVault()'),
       flow.isVisible({ selector: '.VaultIsInstalling' }),
     ]);
     const createVaultVisible = createVaultEntry.visible;
     const createVaultClickable = createVaultEntry.clickable;
-    const walletIsFullyFunded = fundingState?.walletIsFullyFunded ?? false;
+    const canStartVault = fundingState?.canStartVault ?? false;
     const hasFinalizeEntryPoint = createVaultVisible || installingState.visible;
-    const isComplete = lockOverlayEntry.visible || dashboard.visible;
-    const canRun =
-      !lockOverlayEntry.visible &&
-      !dashboard.visible &&
-      walletIsFullyFunded &&
-      (installingState.visible || createVaultVisible);
+    const isComplete = dashboard.visible;
+    const canRun = !dashboard.visible && (installingState.visible || (createVaultVisible && canStartVault));
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -84,14 +97,23 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     }
 
     const blockers: string[] = [];
-    if (!isComplete && !walletIsFullyFunded) {
+    if (!isComplete && !(fundingState?.walletIsFullyFunded ?? false)) {
       blockers.push('Vaulting wallet is not fully funded yet.');
+    } else if (!isComplete && !(fundingState?.walletsLoaded ?? false)) {
+      blockers.push('Vaulting wallet state is still loading.');
+    } else if (!isComplete && !(fundingState?.hasMiningMachine ?? false)) {
+      blockers.push('Vaulting server connection is not ready yet.');
+    } else if (!isComplete && (fundingState?.overlayIsOpen ?? false)) {
+      blockers.push('A vaulting overlay is still open.');
     } else if (!isComplete && !hasFinalizeEntryPoint) {
       blockers.push('Vaulting is not at the finalize step yet.');
     }
     return {
       chainState: fundingState ?? {
         walletIsFullyFunded: false,
+        walletsLoaded: false,
+        hasMiningMachine: false,
+        canStartVault: false,
         overlayIsOpen: false,
         availableMicrogons: '0',
         availableMicronots: '0',
@@ -99,7 +121,6 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
         requiredMicronots: '0',
       },
       uiState: {
-        lockOverlayVisible: lockOverlayEntry.visible,
         dashboardVisible: dashboard.visible,
         createVaultVisible,
         createVaultClickable,
@@ -110,7 +131,7 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     };
   },
   async run({ flow, flowName }, state) {
-    if (state.uiState.lockOverlayVisible || state.uiState.dashboardVisible) {
+    if (state.uiState.dashboardVisible) {
       return;
     }
     if (!state.uiState.createVaultVisible && !state.uiState.installingVisible) {
@@ -118,6 +139,9 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     }
 
     if (state.uiState.createVaultVisible) {
+      if (!state.chainState.canStartVault) {
+        return;
+      }
       await flow.click('SetupChecklist.startCreateVault()', { timeoutMs: 30_000 });
       await waitForVaultCreateTransition(flow, flowName);
     }
@@ -129,9 +153,6 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
         if (vaultInstallError) {
           throw new Error(`${flowName}: vault creation failed: ${vaultInstallError}`);
         }
-
-        const lockOverlayEntry = await flow.isVisible('PersonalBitcoin.showLockingOverlay()');
-        if (lockOverlayEntry.visible) return true;
 
         const dashboard = await flow.isVisible('VaultingDashboard');
         if (dashboard.visible) return true;
@@ -167,16 +188,20 @@ async function waitForVaultCreateTransition(flow: IVaultingFlowContext['flow'], 
   await pollEvery(
     1_000,
     async () => {
-      const [lockOverlayEntry, dashboard, installingVisible, createVaultVisible] = await Promise.all([
-        flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
+      const [dashboard, installingVisible, createVaultVisible] = await Promise.all([
         flow.isVisible('VaultingDashboard'),
         flow.isVisible({ selector: '.VaultIsInstalling' }),
         flow.isVisible('SetupChecklist.startCreateVault()'),
       ]);
-      if (lockOverlayEntry.visible || dashboard.visible || installingVisible.visible) {
+      if (dashboard.visible || installingVisible.visible) {
         return true;
       }
-      return !createVaultVisible.visible;
+      if (!createVaultVisible.visible) {
+        return true;
+      }
+
+      await flow.click('SetupChecklist.startCreateVault()', { timeoutMs: 10_000 }).catch(() => undefined);
+      return false;
     },
     {
       timeoutMs: VAULT_CREATE_TRANSITION_TIMEOUT_MS,

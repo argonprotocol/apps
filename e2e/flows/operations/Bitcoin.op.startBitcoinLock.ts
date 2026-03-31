@@ -10,7 +10,7 @@ import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 const SATOSHIS_PER_BTC = 100_000_000n;
 
 type IStartBitcoinLockUiState = {
-  lockingEntryVisible: boolean;
+  lockStartEntryVisible: boolean;
   lockOverlayVisible: boolean;
   lockOverlayState: string | null;
   lockStartVisible: boolean;
@@ -22,12 +22,13 @@ type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinVaultMismatchSta
 export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import.meta, {
   async inspect({ flow }) {
     const panelState = await flow.inspect(bitcoinEnsureMismatchActionPanel);
-    const [lockOverlay, lockStart, fundingBip21] = await Promise.all([
+    const [lockStartEntry, lockOverlay, lockStart, fundingBip21] = await Promise.all([
+      flow.isVisible({ selector: '[bitcoinmap] .treemap__tile--remainder' }),
       flow.isVisible('BitcoinLockingOverlay'),
       flow.isVisible('LockStart.submitLiquidLock()'),
       flow.isVisible('fundingBip21.copyContent()'),
     ]);
-    const lockingEntryVisible = panelState.lockingEntryVisible;
+    const lockStartEntryVisible = lockStartEntry.visible;
     const lockOverlayVisible = lockOverlay.visible;
     const lockOverlayState = lockOverlay.visible
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
@@ -38,7 +39,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     const canRun =
       !isComplete &&
       !panelState.chainState.hasActiveLock &&
-      (lockingEntryVisible || lockOverlayVisible || lockStartVisible);
+      (lockStartEntryVisible || lockOverlayVisible || lockStartVisible);
     let operationState: IE2EOperationState = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -52,13 +53,13 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     if (!isComplete && panelState.chainState.hasActiveLock) {
       blockers.push('Another lock is already active.');
     }
-    if (!isComplete && !lockingEntryVisible && !lockOverlayVisible && !lockStartVisible) {
+    if (!isComplete && !lockStartEntryVisible && !lockOverlayVisible && !lockStartVisible) {
       blockers.push('Bitcoin lock creation UI is not visible.');
     }
     return {
       chainState: panelState.chainState,
       uiState: {
-        lockingEntryVisible,
+        lockStartEntryVisible,
         lockOverlayVisible,
         lockOverlayState,
         lockStartVisible,
@@ -68,8 +69,8 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
       phase:
         lockOverlay.visible && lockOverlayState
           ? `locking:${lockOverlayState}`
-          : lockingEntryVisible
-            ? 'dashboard'
+          : lockStartEntryVisible
+            ? 'dashboard:remainder'
             : undefined,
       blockers: canRun ? [] : blockers,
     };
@@ -80,7 +81,10 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
 
     if (!state.uiState.lockOverlayVisible && !state.uiState.lockStartVisible) {
       await flow.run(vaultingActivateTab);
-      await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+      const opened = await clickDashboardBitcoinRemainder(flow, { timeoutMs: 5_000 });
+      if (!opened) {
+        throw new Error(`${flowName}: Bitcoin lock entry point is not clickable on the vault dashboard.`);
+      }
     }
     if (!state.uiState.lockStartVisible) {
       await flow.waitFor('LockStart.submitLiquidLock()', { timeoutMs: 10_000 });
@@ -97,7 +101,11 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         clear: true,
         timeoutMs: 3_000,
       });
-      await sleep(350);
+      await flow.click(
+        { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },
+        { timeoutMs: 3_000 },
+      );
+      await sleep(500);
     } else if (input.minimumLockSatoshis != null) {
       await flow.type(
         { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },
@@ -107,7 +115,11 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
           timeoutMs: 3_000,
         },
       );
-      await sleep(350);
+      await flow.click(
+        { selector: '[data-testid="LockStart.argonAmount"] [data-testid="input-number"]' },
+        { timeoutMs: 3_000 },
+      );
+      await sleep(500);
     }
 
     const didSubmit = await clickIfVisible(flow, 'LockStart.submitLiquidLock()');
@@ -134,3 +146,10 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     );
   },
 });
+
+async function clickDashboardBitcoinRemainder(
+  flow: IBitcoinFlowContext['flow'],
+  options: { timeoutMs?: number } = {},
+): Promise<boolean> {
+  return await clickIfVisible(flow, { selector: '[bitcoinmap] .treemap__tile--remainder' }, options);
+}

@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div class="flex flex-col px-6 pt-3 pb-7">
-    <div v-if="errorMessage" class="mb-6 px-3 text-red-700">{{ errorMessage }}</div>
+    <div v-if="errorMessage" data-testid="UnlockStart.error" class="mb-6 px-3 text-red-700">{{ errorMessage }}</div>
     <div class="flex flex-col space-y-6 px-3 pt-3">
       <template v-if="canAfford">
         <div class="mb-6">

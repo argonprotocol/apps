@@ -89,6 +89,7 @@
         v-if="isOwnLock && !isPendingFunding && !isReleased"
         class="mt-5 flex justify-end border-t border-slate-200 pt-4">
         <button
+          data-testid="LockDetail.unlock()"
           @click="emit('unlock')"
           class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white">
           Unlock Bitcoin
