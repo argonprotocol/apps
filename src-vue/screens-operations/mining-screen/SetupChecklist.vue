@@ -376,13 +376,33 @@ async function launchMiningBot() {
   const myVault = getMyVault();
   const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 
-  const miningHoldWallet = wallets.miningHoldWallet;
-  await moveCapital.moveAvailableMiningHoldToBot(miningHoldWallet, walletKeys, config as Config);
+  try {
+    config.biddingRules = biddingRules;
+    config.miningSetupStatus = MiningSetupStatus.Installing;
+    await config.save();
 
-  config.biddingRules = biddingRules;
-  config.miningSetupStatus = MiningSetupStatus.Installing;
-  await config.save();
-  isLaunchingMiningBot.value = false;
+    const miningHoldWallet = wallets.miningHoldWallet;
+    const miningHoldSweepTxInfo = await moveCapital.moveAvailableMiningHoldToBot(
+      miningHoldWallet,
+      walletKeys,
+      config as Config,
+    );
+    if (miningHoldSweepTxInfo) return;
+
+    // If no sweep tx was queued, the bot still cannot move forward with setup.
+    config.miningSetupStatus = MiningSetupStatus.Checklist;
+    await config.save();
+  } catch (error) {
+    if (config.miningSetupStatus === MiningSetupStatus.Installing) {
+      config.miningSetupStatus = MiningSetupStatus.Checklist;
+      await config.save().catch(saveError => {
+        console.error('[SetupChecklist] Failed to restore mining checklist after launch error', saveError);
+      });
+    }
+    throw error;
+  } finally {
+    isLaunchingMiningBot.value = false;
+  }
 }
 
 async function updateAPYs() {

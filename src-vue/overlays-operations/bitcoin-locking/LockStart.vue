@@ -155,6 +155,18 @@ function updateFeeEstimate() {
   securityFee.value = props.vault.calculateBitcoinFee(microgonAmount.value);
 }
 
+async function initializeDefaultAmounts(microgons: bigint) {
+  const sats = await bitcoinLocks.satoshisForArgonLiquidity(microgons);
+  const btc = currency.convertSatToBtc(sats);
+
+  satoshiAmount.value = sats;
+  microgonAmount.value = microgons;
+  bitcoinAmount.value = btc;
+
+  lastSetMicrogonAmount = microgons;
+  lastSetBtcAmount = btc;
+}
+
 async function internalHandleArgonChange(microgons: bigint) {
   if (microgons === lastSetMicrogonAmount) {
     return;
@@ -189,6 +201,10 @@ async function submitLiquidLock() {
   try {
     isSaving.value = true;
     errorMessage.value = null;
+    if (satoshis <= 0n && microgonAmount.value > 0n) {
+      satoshis = await bitcoinLocks.satoshisForArgonLiquidity(microgonAmount.value);
+      satoshiAmount.value = satoshis;
+    }
     if (satoshis <= 0n) {
       throw new Error('Please enter a valid amount of Argons to receive.');
     }
@@ -215,12 +231,8 @@ function closeOverlay() {
 
 Vue.onMounted(async () => {
   bitcoinSpaceInMicrogons.value = props.availableBitcoinSpaceMicrogons;
-  bitcoinSpaceInBtc.value = currency.convertSatToBtc(
-    await bitcoinLocks.satoshisForArgonLiquidity(bitcoinSpaceInMicrogons.value),
-  );
-
-  microgonAmount.value = bitcoinSpaceInMicrogons.value;
-  bitcoinAmount.value = bitcoinSpaceInBtc.value;
+  await initializeDefaultAmounts(bitcoinSpaceInMicrogons.value);
+  bitcoinSpaceInBtc.value = bitcoinAmount.value;
   updateFeeEstimate();
 });
 </script>

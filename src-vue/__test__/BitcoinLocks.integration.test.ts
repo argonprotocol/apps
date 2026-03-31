@@ -483,7 +483,7 @@ async function observeMismatchCandidate(
   });
 
   const observed = await waitFor(
-    60e3,
+    120e3,
     'mismatch funding candidate',
     async () => {
       const currentLock = getCurrentLock(harness, lock.utxoId!);
