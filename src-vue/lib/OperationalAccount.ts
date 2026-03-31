@@ -131,7 +131,7 @@ async function registerOperatorAccount(
   const tx = client.tx.operationalAccounts.register({
     V1: {
       operationalAccount: operationalAddr,
-      encryptionPubkey: operationalEncryptionKey.publicKey,
+      encryptionPubkey: operationalEncryptionKey,
       operationalAccountProof: { signature: operationalAccountProof.signature },
       vaultAccount: vaultingAddr,
       miningFundingAccount: miningHoldAddr,

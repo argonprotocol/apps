@@ -45,7 +45,9 @@ export function createMockWalletKeys(mnemonic?: string) {
   vi.spyOn(walletKeys, 'getOperationalKeypair').mockImplementation(async () => operationalAccount);
   vi.spyOn(walletKeys, 'getMiningBotKeypair').mockImplementation(async () => miningBotAccount);
   vi.spyOn(walletKeys, 'getMiningHoldKeypair').mockImplementation(async () => miningHoldAccount);
-  vi.spyOn(walletKeys, 'getOperationalEncryptionKeypair').mockImplementation(async () => operationalAccount);
+  vi.spyOn(walletKeys, 'getOperationalEncryptionKeypair').mockImplementation(async () =>
+    Uint8Array.from(Array(32).fill(1)),
+  );
   vi.spyOn(walletKeys, 'getVaultingKeypair').mockImplementation(async () => vaultingAccount);
   vi.spyOn(walletKeys, 'exposeMasterMnemonic').mockImplementation(async () => mnemonic);
   vi.spyOn(walletKeys, 'getMiningSessionMiniSecret').mockImplementation(async () => {
