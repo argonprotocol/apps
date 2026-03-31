@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { getConfig } from '../../stores/config';
+import { Config, getConfig } from '../../stores/config';
 import { getMyVault } from '../../stores/vaults.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { DEFAULT_MASTER_XPUB_PATH } from '../../lib/MyVault.ts';
@@ -72,6 +72,7 @@ async function createVault() {
     const txInfo = await myVault.createNew({
       rules: config.vaultingRules,
       masterXpubPath,
+      config: config as Config,
     });
 
     unsubscribeCreation = txInfo.subscribeToProgress(

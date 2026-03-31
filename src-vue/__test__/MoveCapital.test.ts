@@ -1,14 +1,27 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
-import { miningHoldOperationalReserveMicrogons, type IWallet } from '../lib/Wallet.ts';
+import { type IWallet, miningHoldOperationalReserveMicrogons } from '../lib/Wallet.ts';
 import { ensureOperatorAccountRegistered } from '../lib/OperationalAccount.ts';
+import { Config } from '../lib/Config.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
+import { createTestDb } from './helpers/db.ts';
+import { setDbPromise } from '../stores/helpers/dbPromise.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 vi.mock('../lib/OperationalAccount.ts', () => ({
   ensureOperatorAccountRegistered: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('MoveCapital', () => {
+  let config: Config;
+  let walletKeys: WalletKeys;
+  beforeAll(async () => {
+    const db = await createTestDb();
+    setDbPromise(Promise.resolve(db));
+    walletKeys = createMockWalletKeys();
+    config = new Config(Promise.resolve(db), walletKeys);
+  });
   it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
     const moveCapital = createMoveCapital();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
@@ -18,7 +31,7 @@ describe('MoveCapital', () => {
       availableMicronots: 7n,
     });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenCalledWith(
       MoveFrom.MiningHold,
@@ -46,7 +59,7 @@ describe('MoveCapital', () => {
       availableMicronots: 4n,
     });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       1,
@@ -82,7 +95,7 @@ describe('MoveCapital', () => {
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
     const wallet = createWallet({ availableMicrogons: 10n, availableMicronots: 4n });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
 
     expect(moveSpy).not.toHaveBeenCalled();
   });
@@ -95,7 +108,7 @@ describe('MoveCapital', () => {
     });
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
 
-    await moveCapital.moveAvailableMiningHoldToBot(createWallet({ availableMicronots: 4n }));
+    await moveCapital.moveAvailableMiningHoldToBot(createWallet({ availableMicronots: 4n }), walletKeys, config);
 
     expect(moveSpy).not.toHaveBeenCalled();
   });
@@ -107,6 +120,8 @@ describe('MoveCapital', () => {
 
     await moveCapital.moveAvailableMiningHoldToBot(
       createWallet({ availableMicrogons: miningHoldOperationalReserveMicrogons }),
+      walletKeys,
+      config,
     );
 
     expect(feeSpy).not.toHaveBeenCalled();

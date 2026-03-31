@@ -8,9 +8,10 @@ import {
 } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
-import { getConfig, Config } from '../stores/config.ts';
+import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
 let setupOperatorAccountPromise: Promise<void> | null = null;
 export type IOperationalAccountFeePayer = 'vaulting' | 'miningBot';
@@ -50,11 +51,13 @@ function createAccessCodeProof(accessCode: string, operationalAddr: string) {
   };
 }
 
-async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
-  const config = getConfig();
+async function registerOperatorAccount(
+  feePayer: IOperationalAccountFeePayer,
+  deps: { walletKeys: WalletKeys; config: Config },
+) {
+  const { config, walletKeys } = deps;
   if (config.certificationDetails) return;
 
-  const walletKeys = getWalletKeys();
   const client = await getMainchainClient(false);
   const configuredOperationalAddr = walletKeys.operationalAddress;
   const configuredVaultingAddr = walletKeys.vaultingAddress;
@@ -84,7 +87,7 @@ async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
     console.warn('Operational account registration address mismatch detected', mismatchedAddresses);
   }
 
-  const foundOperationalAccount = await loadOperationalAccount(config as Config);
+  const foundOperationalAccount = await loadOperationalAccount(config, walletKeys);
   if (foundOperationalAccount) return;
 
   const operationalAccountProof = createOwnershipProof(
@@ -147,13 +150,16 @@ async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
   await config.save();
 }
 
-export async function ensureOperatorAccountRegistered(feePayer: IOperationalAccountFeePayer) {
+export async function ensureOperatorAccountRegistered(
+  feePayer: IOperationalAccountFeePayer,
+  deps: { walletKeys: WalletKeys; config: Config },
+) {
   if (setupOperatorAccountPromise) {
     await setupOperatorAccountPromise;
     return;
   }
 
-  setupOperatorAccountPromise = registerOperatorAccount(feePayer);
+  setupOperatorAccountPromise = registerOperatorAccount(feePayer, deps);
   try {
     await setupOperatorAccountPromise;
   } finally {
@@ -161,9 +167,8 @@ export async function ensureOperatorAccountRegistered(feePayer: IOperationalAcco
   }
 }
 
-export async function loadOperationalAccount(config: Config): Promise<boolean> {
+export async function loadOperationalAccount(config: Config, walletKeys: WalletKeys): Promise<boolean> {
   const client = await getMainchainClient(false);
-  const walletKeys = getWalletKeys();
   const accountRaw = await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
   if (accountRaw.isEmpty) return false;
 

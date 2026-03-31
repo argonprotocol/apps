@@ -6,24 +6,9 @@ import {
   PERMILL_DECIMALS,
 } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
-import { bigNumberToBigInt, calculateAPY, percentOf } from './utils.js';
+import { bigNumberToBigInt, percentOf } from './utils.js';
 import BigNumber from 'bignumber.js';
-
-export interface IFunderState {
-  heldPrincipal: bigint;
-  targetPrincipal: bigint;
-  lifetimeCompoundedEarnings: bigint;
-  lifetimePrincipalDeployed: bigint;
-  lifetimePrincipalLastBasisFrame: number;
-}
-
-export interface IBondFunder {
-  accountId: string;
-  heldPrincipal: bigint;
-  targetPrincipal: bigint;
-  bondedPrincipal: bigint;
-  isOwn: boolean;
-}
+import { BondFunder } from './BondFunder.js';
 
 export interface IFrameBondHolder {
   accountId: string;
@@ -83,17 +68,6 @@ export class TreasuryPool {
     return client.registry.createType('AccountId32', raw).toU8a();
   }
 
-  public static funderAPY(funder: IFunderState, currentFrameId: number): number {
-    if (funder.lifetimePrincipalDeployed <= 0n) return 0;
-    const activeDays = currentFrameId - funder.lifetimePrincipalLastBasisFrame;
-    if (activeDays <= 0) return 0;
-    return calculateAPY(
-      funder.lifetimePrincipalDeployed,
-      funder.lifetimePrincipalDeployed + funder.lifetimeCompoundedEarnings,
-      activeDays,
-    );
-  }
-
   public static potentialDailyRevenue(args: {
     distributableBidPool: bigint;
     globalActiveCapital: bigint;
@@ -116,11 +90,11 @@ export class TreasuryPool {
     return bigNumberToBigInt(BigNumber(grossRevenue).multipliedBy(operatorKeepPct).dividedBy(100));
   }
 
-  public static externalBondedCapital(funders: IBondFunder[]): bigint {
+  public static externalBondedCapital(funders: BondFunder[]): bigint {
     return funders.filter(f => !f.isOwn).reduce((sum, f) => sum + f.heldPrincipal, 0n);
   }
 
-  public static totalBondedCapital(funders: IBondFunder[]): bigint {
+  public static totalBondedCapital(funders: BondFunder[]): bigint {
     return funders.reduce((sum, f) => sum + f.heldPrincipal, 0n);
   }
 
@@ -212,18 +186,12 @@ export class TreasuryPool {
     client: ArgonClient,
     vaultId: number,
     accountId: string,
-    onUpdate: (state: IFunderState | null) => void,
+    isOwn: boolean,
+    onUpdate: (state: BondFunder | null) => void,
   ): Promise<() => void> {
     return await client.query.treasury.funderStateByVaultAndAccount(vaultId, accountId, stateOption => {
       if (stateOption.isSome) {
-        const s = stateOption.unwrap();
-        onUpdate({
-          heldPrincipal: s.heldPrincipal.toBigInt(),
-          targetPrincipal: s.targetPrincipal.toBigInt(),
-          lifetimeCompoundedEarnings: s.lifetimeCompoundedEarnings.toBigInt(),
-          lifetimePrincipalDeployed: s.lifetimePrincipalDeployed.toBigInt(),
-          lifetimePrincipalLastBasisFrame: s.lifetimePrincipalLastBasisFrame.toNumber(),
-        });
+        onUpdate(new BondFunder(accountId, stateOption.unwrap(), isOwn));
       } else {
         onUpdate(null);
       }

@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { type IFunderState, TreasuryPool } from '@argonprotocol/apps-core';
+import { BondFunder, TreasuryPool } from '@argonprotocol/apps-core';
 import { getConfig } from './config.ts';
 import { getWalletKeys } from './wallets.ts';
 import { getVaults } from './vaults.ts';
@@ -21,14 +21,14 @@ export const useBonds = defineStore('bonds', () => {
   const miningFrames = getMiningFrames();
   const currency = getCurrency();
 
-  const funderState = Vue.ref<IFunderState | null>(null);
+  const funderState = Vue.ref<BondFunder | null>(null);
   const frameHistory = Vue.ref<IFrameEarningsRow[]>([]);
   const isLoaded = Vue.ref(false);
   const vaultId = Vue.ref(0);
 
   const estimatedApy = Vue.computed(() => {
     if (!funderState.value || funderState.value.heldPrincipal <= 0n) return 0;
-    return TreasuryPool.funderAPY(funderState.value, miningFrames.currentFrameId);
+    return funderState.value.getAPY(miningFrames.currentFrameId);
   });
 
   const heldPrincipal = Vue.computed(() => funderState.value?.heldPrincipal ?? 0n);
@@ -49,7 +49,7 @@ export const useBonds = defineStore('bonds', () => {
     const client = await getMainchainClient(false);
     const accountId = walletKeys.investmentAddress;
 
-    unsubFunder = await TreasuryPool.subscribeFunderState(client, vaultId.value, accountId, state => {
+    unsubFunder = await TreasuryPool.subscribeFunderState(client, vaultId.value, accountId, false, state => {
       funderState.value = state;
     });
 

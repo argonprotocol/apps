@@ -16,6 +16,7 @@ import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { ensureOperatorAccountRegistered } from './OperationalAccount.ts';
+import { Config } from './Config.ts';
 
 export interface IAssetsToMove {
   [MoveToken.ARGN]?: bigint;
@@ -89,8 +90,11 @@ export class MoveCapital {
     }
   }
 
-  public async moveAvailableMiningHoldToBot(wallet: IWallet): Promise<void> {
-    await ensureOperatorAccountRegistered('miningBot');
+  public async moveAvailableMiningHoldToBot(wallet: IWallet, walletKeys: WalletKeys, config: Config): Promise<void> {
+    await ensureOperatorAccountRegistered('miningBot', {
+      walletKeys,
+      config,
+    });
 
     const assetsToMove: IAssetsToMove = {};
     const spendableMicrogons = getSpendableMiningHoldMicrogons(wallet.availableMicrogons);
@@ -226,7 +230,7 @@ export class MoveCapital {
       );
       txs.push(tx);
     } else if (moveFrom === MoveFrom.VaultingTreasury && assetsToMove.ARGN) {
-      const newAmount = this.myVault.data.treasury.targetPrincipal - assetsToMove[MoveToken.ARGN];
+      const newAmount = this.myVault.data.treasury.heldPrincipal - assetsToMove[MoveToken.ARGN];
       const tx = await this.myVault.buildTreasuryAllocationTx(newAmount);
       txs.push(tx);
     }

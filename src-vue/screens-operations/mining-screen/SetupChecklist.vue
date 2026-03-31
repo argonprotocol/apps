@@ -204,7 +204,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import basicEmitter from '../../emitters/basicEmitter';
-import { getConfig } from '../../stores/config';
+import { Config, getConfig } from '../../stores/config';
 import { getWalletKeys, useWallets } from '../../stores/wallets';
 import { getCurrency } from '../../stores/currency';
 import Checkbox from '../../components/Checkbox.vue';
@@ -215,7 +215,7 @@ import { getBiddingCalculator } from '../../stores/mainchain';
 import BotReturns from '../../overlays-operations/bot/BotReturns.vue';
 import BotCapital from '../../overlays-operations/bot/BotCapital.vue';
 import BotCreatePanel from '../../panels/BotCreatePanel.vue';
-import { useOperationsController, OperationsTab, OperationalStepId } from '../../stores/operationsController.ts';
+import { OperationalStepId, OperationsTab, useOperationsController } from '../../stores/operationsController.ts';
 import BotCreatePriceChangeOverlay from '../../overlays-operations/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
@@ -377,7 +377,7 @@ async function launchMiningBot() {
   const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 
   const miningHoldWallet = wallets.miningHoldWallet;
-  await moveCapital.moveAvailableMiningHoldToBot(miningHoldWallet);
+  await moveCapital.moveAvailableMiningHoldToBot(miningHoldWallet, walletKeys, config as Config);
 
   config.biddingRules = biddingRules;
   config.miningSetupStatus = MiningSetupStatus.Installing;

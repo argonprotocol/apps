@@ -70,7 +70,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsUnused = Vue.computed(() => {
-    return bigIntMax(0n, myVault.data.treasury.targetPrincipal - treasuryMicrogonsActivated.value);
+    return myVault.data.treasury.pendingReturnAmount;
   });
 
   const treasuryMicrogonsActivatedPct = Vue.computed(() => {

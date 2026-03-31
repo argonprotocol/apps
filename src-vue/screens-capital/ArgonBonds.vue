@@ -133,7 +133,7 @@
     <AdjustBondOverlay
       v-if="showOverlay"
       :vaultId="bonds.vaultId"
-      :currentAmount="funderState?.targetPrincipal ?? 0n"
+      :currentAmount="funderState?.heldPrincipal ?? 0n"
       :walletBalance="walletBalance"
       :availableVaultSpace="vaultAvailableCapacity"
       @close="showOverlay = false"
@@ -207,13 +207,9 @@ const frameHistory = Vue.computed<IFrameRow[]>(() => {
 
 const walletBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
 
-const hasPendingReturn = Vue.computed(
-  () => (bonds.funderState?.heldPrincipal ?? 0n) > (bonds.funderState?.targetPrincipal ?? 0n),
-);
+const hasPendingReturn = Vue.computed(() => bonds.funderState?.hasPendingReturn ?? false);
 
-const pendingReturnAmount = Vue.computed(
-  () => (bonds.funderState?.heldPrincipal ?? 0n) - (bonds.funderState?.targetPrincipal ?? 0n),
-);
+const pendingReturnAmount = Vue.computed(() => bonds.funderState?.pendingReturnAmount ?? 0n);
 
 const bondsReturnedDate = Vue.computed(() => {
   const nextDate = miningFrames.getFrameDate(miningFrames.currentFrameId + 10);
