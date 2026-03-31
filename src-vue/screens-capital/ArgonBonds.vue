@@ -30,9 +30,10 @@
         class="rounded-lg border border-amber-200 bg-amber-50 px-5 py-3 flex flex-row items-center gap-3">
         <div class="text-sm text-amber-700">
           <span class="font-semibold">{{ currency.symbol }}{{ microgonToMoneyNm(pendingReturnAmount).format('0,0.00') }}</span>
-          is being returned to your wallet by
-          <CountdownClock :time="bondsReturnedDate" v-slot="{ hours, minutes, seconds, days }">
-            <template v-if="days > 0 || hours > 0 || minutes > 0 || seconds > 0">
+          is being returned to your wallet
+          <template v-if="bondsReturnedDate">
+            by
+            <CountdownClock :time="bondsReturnedDate" v-slot="{ hours, minutes, seconds, days }">
               in
               <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
               <template v-else-if="hours > 0">
@@ -41,9 +42,8 @@
               </template>
               <span v-else-if="minutes > 0">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
               <span v-else>{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
-            </template>
-            <template v-else>at the next frame</template>
-          </CountdownClock>
+            </CountdownClock>
+          </template>
         </div>
       </div>
 
@@ -153,7 +153,7 @@ import { useWallets } from '../stores/wallets.ts';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
 import { getConfig } from '../stores/config.ts';
 import { NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
-import { useBonds, type IFrameEarningsRow } from '../stores/bonds.ts';
+import { type IFrameEarningsRow, useBonds } from '../stores/bonds.ts';
 import AdjustBondOverlay from '../overlays-operations/AdjustBondOverlay.vue';
 import CountdownClock from '../components/CountdownClock.vue';
 import Tooltip from '../components/Tooltip.vue';
@@ -212,8 +212,9 @@ const hasPendingReturn = Vue.computed(() => bonds.funderState?.hasPendingReturn 
 const pendingReturnAmount = Vue.computed(() => bonds.funderState?.pendingReturnAmount ?? 0n);
 
 const bondsReturnedDate = Vue.computed(() => {
-  const nextDate = miningFrames.getFrameDate(miningFrames.currentFrameId + 10);
-  return dayjs.utc(nextDate);
+  const pendingReturnAtFrame = bonds.funderState?.pendingReturnAtFrame;
+  if (pendingReturnAtFrame == null) return null;
+  return dayjs.utc(miningFrames.getFrameDate(pendingReturnAtFrame));
 });
 
 const estimatedApy = bonds.estimatedApy;
