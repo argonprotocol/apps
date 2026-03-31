@@ -37,6 +37,7 @@ import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtx
 import { createBitcoinLockProgressStore } from '../stores/bitcoinLockProgress.ts';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
+import { setDbPromise } from '../stores/helpers/dbPromise.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 const walletFundingMicrogons = 100_000_000n;
@@ -341,6 +342,7 @@ async function createHarness(): Promise<TestHarness> {
   setMainchainClients(clients);
 
   const db = await createTestDb();
+  setDbPromise(Promise.resolve(db));
   const walletKeys = createMockWalletKeys();
   await sudoFundWallet({
     address: walletKeys.vaultingAddress,
@@ -382,24 +384,21 @@ async function createHarness(): Promise<TestHarness> {
   vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
   vi.spyOn(myVault.vaults, 'updateRevenue').mockResolvedValue({} as IAllVaultStats);
 
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
   await myVault.load();
   console.log('[BitcoinLocks.integration] loaded vault stores');
   const vaultCreation = await myVault.createNew({
     masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
     rules: defaultVaultRules,
+    config,
   });
   await vaultCreation.txResult.waitForFinalizedBlock;
   await vaultCreation.waitForPostProcessing;
   console.log('[BitcoinLocks.integration] created vault', myVault.createdVault?.vaultId);
   await myVault.subscribe();
 
-  const allocation = await myVault.activateSecuritization({
-    rules: defaultVaultRules,
-  });
-  expect(allocation).toBeTruthy();
-  await allocation!.txResult.waitForFinalizedBlock;
-  await allocation!.waitForPostProcessing;
-  console.log('[BitcoinLocks.integration] allocated securitization', myVault.createdVault?.vaultId);
+  console.log('[BitcoinLocks.integration] securitization set during vault creation', myVault.createdVault?.vaultId);
 
   await waitFor(
     60e3,

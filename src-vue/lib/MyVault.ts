@@ -23,8 +23,8 @@ import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
   bigIntMax,
+  BondFunder,
   createDeferred,
-  type IBondFunder,
   IDeferred,
   type IFrameBondHolder,
   IVaultStats,
@@ -46,6 +46,7 @@ import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { ensureOperatorAccountRegistered } from './OperationalAccount.ts';
+import { Config } from './Config.ts';
 
 export const FEE_ESTIMATE = 75_000n;
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
@@ -70,7 +71,8 @@ export interface IExternalBitcoinLock {
   lockDetails: IBitcoinLock;
 }
 
-export type { IBondFunder, IFrameBondHolder };
+export type { IFrameBondHolder };
+export { BondFunder };
 
 // Keep following a submitted/reorged cosign attempt briefly before retrying it.
 const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
@@ -89,8 +91,9 @@ export class MyVault {
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
     currentFrameId: number;
     treasury: {
-      targetPrincipal: bigint;
       heldPrincipal: bigint;
+      pendingReturnAmount: bigint;
+      pendingReturnAtFrame: number | null;
     };
     pendingCollectTxInfo: TransactionInfo<{
       expectedCollectRevenue: bigint;
@@ -108,7 +111,7 @@ export class MyVault {
       bondHolders: IFrameBondHolder[];
     };
     externalLocks: { [utxoId: number]: IExternalBitcoinLock };
-    bondFunders: IBondFunder[];
+    bondFunders: BondFunder[];
     pendingAllocateTxInfo: TransactionInfo<{
       prebondedMicrogons: bigint;
       addedSecuritizationMicrogons: bigint;
@@ -177,8 +180,9 @@ export class MyVault {
       externalLocks: {},
       bondFunders: [],
       treasury: {
-        targetPrincipal: 0n,
         heldPrincipal: 0n,
+        pendingReturnAmount: 0n,
+        pendingReturnAtFrame: null,
       },
     };
     this.vaults = vaults;
@@ -270,7 +274,12 @@ export class MyVault {
       if (vaultId) {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
-        this.data.treasury = await MyVault.fetchAllocatedMicrogonsForTreasuryPool(this.createdVault!);
+        const operatorFunder = await MyVault.fetchAllocatedMicrogonsForTreasuryPool(this.createdVault!);
+        if (operatorFunder) {
+          this.data.treasury.heldPrincipal = operatorFunder.heldPrincipal;
+          this.data.treasury.pendingReturnAmount = operatorFunder.pendingReturnAmount;
+          this.data.treasury.pendingReturnAtFrame = operatorFunder.pendingReturnAtFrame;
+        }
       }
 
       this.data.isReady = true;
@@ -1071,6 +1080,7 @@ export class MyVault {
   public async createNew(args: {
     rules: IVaultingRules;
     masterXpubPath: string;
+    config: Config;
   }): Promise<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>> {
     const pendingTxInfo = this.#singleRunTransactions.get(ExtrinsicType.VaultCreate);
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
@@ -1079,8 +1089,8 @@ export class MyVault {
     const deferred = createDeferred<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>>();
     this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, deferred.promise);
     try {
-      const { masterXpubPath, rules } = args;
-      await ensureOperatorAccountRegistered('vaulting');
+      const { masterXpubPath, rules, config } = args;
+      await ensureOperatorAccountRegistered('vaulting', { walletKeys: this.walletKeys, config });
       const argonKeyring = await this.walletKeys.getVaultingKeypair();
       console.log('Creating a vault with address', argonKeyring.address);
       const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
@@ -1205,18 +1215,11 @@ export class MyVault {
 
     const entries = await client.query.treasury.funderStateByVaultAndAccount.entries(vaultId);
 
-    const funders: IBondFunder[] = [];
+    const funders: BondFunder[] = [];
     for (const [key, stateOption] of entries) {
       if (stateOption.isNone) continue;
-      const state = stateOption.unwrap();
       const accountId = key.args[1].toString();
-      funders.push({
-        accountId,
-        heldPrincipal: state.heldPrincipal.toBigInt(),
-        bondedPrincipal: state.bondedPrincipal.toBigInt(),
-        targetPrincipal: state.targetPrincipal.toBigInt(),
-        isOwn: accountId === ownAddress,
-      });
+      funders.push(new BondFunder(accountId, stateOption.unwrap(), accountId === ownAddress));
     }
     this.data.bondFunders = funders;
   }
@@ -1318,33 +1321,27 @@ export class MyVault {
     const client = await getMainchainClient(false);
     const vaultId = this.createdVault!.vaultId;
 
-    return await TreasuryPool.subscribeFunderState(client, vaultId, this.walletKeys.vaultingAddress, state => {
+    return await TreasuryPool.subscribeFunderState(client, vaultId, this.walletKeys.vaultingAddress, true, state => {
       if (state) {
         this.data.treasury.heldPrincipal = state.heldPrincipal;
-        this.data.treasury.targetPrincipal = state.targetPrincipal;
+        this.data.treasury.pendingReturnAmount = state.pendingReturnAmount;
+        this.data.treasury.pendingReturnAtFrame = state.pendingReturnAtFrame;
       } else {
         this.data.treasury.heldPrincipal = 0n;
-        this.data.treasury.targetPrincipal = 0n;
+        this.data.treasury.pendingReturnAmount = 0n;
+        this.data.treasury.pendingReturnAtFrame = null;
       }
     });
   }
 
-  public static async fetchAllocatedMicrogonsForTreasuryPool(
-    vault: Vault,
-  ): Promise<{ heldPrincipal: bigint; targetPrincipal: bigint }> {
+  public static async fetchAllocatedMicrogonsForTreasuryPool(vault: Vault): Promise<BondFunder | null> {
     const vaultId = vault.vaultId;
     const accountId = vault.operatorAccountId;
     const client = await getMainchainClient(false);
 
     const treasuryFunderState = await client.query.treasury.funderStateByVaultAndAccount(vaultId, accountId);
-    if (treasuryFunderState.isNone) {
-      return { heldPrincipal: 0n, targetPrincipal: 0n };
-    }
-    const state = treasuryFunderState.unwrap();
-    return {
-      heldPrincipal: state.heldPrincipal.toBigInt(),
-      targetPrincipal: state.targetPrincipal.toBigInt(),
-    };
+    if (treasuryFunderState.isNone) return null;
+    return new BondFunder(accountId, treasuryFunderState.unwrap(), true);
   }
 
   public async recordVault(data: {
@@ -1631,7 +1628,7 @@ export class MyVault {
       txs.push(tx);
     }
 
-    let treasuryMicrogons = this.data.treasury.targetPrincipal;
+    let treasuryMicrogons = this.data.treasury.heldPrincipal;
     if (addedTreasuryMicrogons > 0n) {
       treasuryMicrogons += addedTreasuryMicrogons;
       txs.push(await this.buildTreasuryAllocationTx(treasuryMicrogons));

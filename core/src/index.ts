@@ -26,6 +26,7 @@ export * from './SingleFileQueue.js';
 export * from './JsonExt.js';
 export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
+export * from './BondFunder.js';
 export * from './MainchainCompat.js';
 
 export * from './utils.js';
