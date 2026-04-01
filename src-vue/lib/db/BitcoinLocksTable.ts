@@ -100,18 +100,26 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async insertPending(
-    lock: Pick<IBitcoinLockRecord, 'uuid' | 'status' | 'satoshis' | 'cosignVersion' | 'network' | 'hdPath' | 'vaultId'>,
+    lock: Pick<
+      IBitcoinLockRecord,
+      'uuid' | 'status' | 'satoshis' | 'cosignVersion' | 'network' | 'hdPath' | 'vaultId'
+    > & {
+      lockedMarketRate?: bigint;
+      liquidityPromised?: bigint;
+    },
   ): Promise<IBitcoinLockRecord> {
     const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
       `INSERT INTO BitcoinLocks (
-        uuid, status, satoshis, cosignVersion, network, hdPath, vaultId, fundingUtxoRecordId
+        uuid, status, satoshis, lockedMarketRate, liquidityPromised, cosignVersion, network, hdPath, vaultId, fundingUtxoRecordId
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       ) RETURNING *`,
       toSqlParams([
         lock.uuid,
         lock.status,
         lock.satoshis,
+        lock.lockedMarketRate ?? 0n,
+        lock.liquidityPromised ?? 0n,
         lock.cosignVersion,
         lock.network,
         lock.hdPath,

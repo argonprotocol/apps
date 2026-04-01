@@ -139,7 +139,7 @@
 
     <LockStart
       v-if="lockStep === LockStep.Start"
-      :availableBitcoinSpaceMicrogons="availableSpace"
+      :maxLockLiquidityMicrogons="maxLockLiquidityMicrogons"
       :vault="props.vault"
       @close="closeOverlay"
       @lockCreated="onLockCreated" />
@@ -192,7 +192,7 @@ const myVault = getMyVault();
 
 const props = defineProps<{
   personalLock?: IBitcoinLockRecord;
-  availableBitcoinSpaceMicrogons?: bigint;
+  maxLockLiquidityMicrogons?: bigint;
   vault: Vault;
 }>();
 
@@ -223,9 +223,9 @@ function onLockCreated(lock: IBitcoinLockRecord) {
   createdLock.value = lock;
 }
 
-const availableSpace = Vue.computed(() => {
-  if (props.availableBitcoinSpaceMicrogons != null) {
-    return props.availableBitcoinSpaceMicrogons;
+const maxLockLiquidityMicrogons = Vue.computed(() => {
+  if (props.maxLockLiquidityMicrogons != null) {
+    return props.maxLockLiquidityMicrogons;
   }
   return myVault.createdVault?.availableBitcoinSpace() ?? 0n;
 });

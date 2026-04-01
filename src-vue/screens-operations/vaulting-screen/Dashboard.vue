@@ -534,7 +534,7 @@ const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
   const { distributableBidPool, globalCapital, myVaultCapital } = myVault.data.currentFrameBondData;
-  const sats = myVault.data.securitizedSatoshis;
+  const sats = BigInt(myVault.createdVault.securitizedSatoshis ?? 0);
   const btcValue = sats > 0n ? currency.priceIndex.getBtcMicrogonPrice(sats) : 0n;
 
   return TreasuryPool.potentialDailyRevenue({
@@ -694,7 +694,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
 
   const localLocks = bitcoinLocks.getActiveLocks();
   for (const lock of localLocks) {
-    const microgons = lock.liquidityPromised;
+    const microgons = bitcoinLocks.getDisplayLiquidityPromised(lock);
     const tileStatus = getLockTileStatus(lock);
     items.push({
       id: lock.uuid,

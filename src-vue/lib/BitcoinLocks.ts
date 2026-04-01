@@ -440,6 +440,7 @@ export default class BitcoinLocks {
     }
     const submitTxClient = await getMainchainClient(false);
     const microgonsPerBtc = this.#currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN);
+    const liquidityPromised = this.#currency.priceIndex.getBtcMicrogonPrice(satoshis);
 
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey(args);
     const { tx, securityFee } = await BitcoinLock.createInitializeTx({
@@ -465,6 +466,8 @@ export default class BitcoinLocks {
           vaultId: args.vault.vaultId,
           satoshis,
           hdPath,
+          lockedMarketRate: microgonsPerBtc,
+          liquidityPromised,
           securityFee,
         },
       },
@@ -480,6 +483,8 @@ export default class BitcoinLocks {
   public async insertPending(details: {
     uuid: string;
     satoshis: bigint;
+    lockedMarketRate?: bigint;
+    liquidityPromised?: bigint;
     vaultId: number;
     hdPath: string;
   }): Promise<IBitcoinLockRecord> {
@@ -499,6 +504,8 @@ export default class BitcoinLocks {
         vaultId: number;
         hdPath: string;
         satoshis: bigint;
+        lockedMarketRate: bigint;
+        liquidityPromised: bigint;
         securityFee: bigint;
       };
     }>,
@@ -771,6 +778,16 @@ export default class BitcoinLocks {
 
   public getReceivedFundingSatoshis(lock: IBitcoinLockRecord): bigint | undefined {
     return this.utxoTracking.getReceivedFundingSatoshis(lock);
+  }
+
+  public getDisplayLiquidityPromised(lock: Pick<IBitcoinLockRecord, 'liquidityPromised' | 'satoshis'>): bigint {
+    if (lock.liquidityPromised > 0n) {
+      return lock.liquidityPromised;
+    }
+    if (lock.satoshis <= 0n) {
+      return 0n;
+    }
+    return this.#currency.priceIndex.getBtcMicrogonPrice(lock.satoshis);
   }
 
   public hasObservedFundingSignal(lock: IBitcoinLockRecord): boolean {
