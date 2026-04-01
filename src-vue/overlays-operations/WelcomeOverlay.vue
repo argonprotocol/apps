@@ -106,7 +106,7 @@ import ImportAccountOverview from './import-account/Overview.vue';
 import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
 import { VaultInvites } from '../lib/VaultInvites.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
-import { ICapitalInvite } from '@argonprotocol/apps-router';
+import type { ICapitalInvite } from '@argonprotocol/apps-router';
 
 const config = getConfig();
 
@@ -151,10 +151,32 @@ async function connectToNetwork() {
   }
 
   const meta = VaultInvites.decodeInviteCode(inviteCode.value);
+  if (meta.hasError || meta.isEmpty) {
+    formError.value = 'The access code you provided is invalid.';
+    return;
+  }
+
   const host = `http://${meta.ipAddress}:${meta.port}`;
-  const response = await fetch(`${host}/capital-users/${inviteCode.value}/register-app`);
-  const rawBody = await response.text();
-  const body = JsonExt.parse<{ fromName: string; invite: ICapitalInvite }>(rawBody);
+  let body: { fromName: string; invite: ICapitalInvite };
+  try {
+    const response = await fetch(`${host}/capital-users/${inviteCode.value}/register-app`);
+    if (!response.ok) {
+      formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+      return;
+    }
+
+    const rawBody = await response.text();
+    body = JsonExt.parse<{ fromName: string; invite: ICapitalInvite }>(rawBody);
+  } catch {
+    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+    return;
+  }
+
+  if (!body?.fromName || !body.invite?.vaultId) {
+    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+    return;
+  }
+
   const invite = body.invite;
 
   config.upstreamOperator = {

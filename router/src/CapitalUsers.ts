@@ -4,7 +4,6 @@ import type { ICapitalMember } from './interfaces/ICapitalMember.ts';
 
 export class CapitalUsers {
   public static createUser(payload: any) {
-    console.log('Creating Capital User', payload);
     return CapitalUserTable.insert({
       name: payload.name,
       inviteCode: payload.inviteCode ?? null,
@@ -24,40 +23,20 @@ export class CapitalUsers {
   }
 
   public static fetchMembers() {
-    return CapitalUserTable.fetchMembers();
+    return CapitalUserTable.fetchMembers().map(user => {
+      return this.extractMemberFromUser(user)!;
+    });
   }
 
   public static fetchInvites(): ICapitalInvite[] {
-    return CapitalUserTable.fetchInvites().map(invite => {
-      return {
-        id: invite.id,
-        name: invite.name,
-        inviteCode: invite.inviteCode,
-        couponTxId: invite.couponTxId,
-        couponMaxSatoshis: invite.couponMaxSatoshis,
-        couponExpiresAt: invite.couponExpiresAt,
-        lastClickedAt: invite.lastClickedAt,
-        registeredAppAt: invite.registeredAppAt,
-      } as ICapitalInvite;
+    return CapitalUserTable.fetchInvites().map(user => {
+      return this.extractInviteFromUser(user)!;
     });
   }
 
   public static fetchInviteByCode(inviteCode: string): ICapitalInvite | null {
-    const invite = CapitalUserTable.fetchInviteByCode(inviteCode);
-    if (!invite) {
-      return null;
-    }
-
-    return {
-      id: invite.id,
-      name: invite.name,
-      inviteCode: invite.inviteCode,
-      couponTxId: invite.couponTxId,
-      couponMaxSatoshis: invite.couponMaxSatoshis,
-      couponExpiresAt: invite.couponExpiresAt,
-      lastClickedAt: invite.lastClickedAt,
-      registeredAppAt: invite.registeredAppAt,
-    } as ICapitalInvite;
+    const user = CapitalUserTable.fetchInviteByCode(inviteCode);
+    return user ? this.extractInviteFromUser(user) : null;
   }
 
   public static setClickedAt(inviteCode: string): ICapitalInvite | null {

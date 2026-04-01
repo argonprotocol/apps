@@ -177,8 +177,6 @@
                 <div class="pt-4 pb-3">
                   <div class="mb-2 flex items-center gap-x-3 text-center">
                     <span class="h-px grow bg-slate-400/30"></span>
-                    <span class="text-base leading-none font-bold text-slate-700/60">Stabilization Vaulting Stats</span>
-                    <span class="h-px grow bg-slate-400/30"></span>
                   </div>
                   <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
                     <TooltipRoot :delayDuration="200">

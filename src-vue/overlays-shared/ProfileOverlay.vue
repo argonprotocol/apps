@@ -15,6 +15,9 @@
         setting up your profile.
       </div>
       <div v-else class="pt-2">
+        <div v-if="errorMessage" class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ errorMessage }}
+        </div>
         <p class="text-base font-light text-slate-900">
           This app is completely anonymous, and the name below is not saved on the
           blockchain or 3rd-party database. It's only used to personalize the invites you send to family and friends.
@@ -62,10 +65,13 @@ const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const hasServer = Vue.ref(true);
 const isSaving = Vue.ref(false);
+const errorMessage = Vue.ref('');
 
 const name = Vue.ref('');
 
 async function load() {
+  errorMessage.value = '';
+  hasServer.value = true;
   await config.load();
   const { ipAddress } = config.serverDetails;
   if (!config.isServerInstalled || !ipAddress) {
@@ -73,11 +79,18 @@ async function load() {
     return;
   }
 
-  const response = await fetch(`http://${ipAddress}:${SERVER_ENV_VARS.ROUTER_PORT}/profile`);
-  const { profile } = await response.json();
+  try {
+    const response = await fetch(`http://${ipAddress}:${SERVER_ENV_VARS.ROUTER_PORT}/profile`);
+    if (!response.ok) {
+      errorMessage.value = 'Unable to load your profile right now. Please try again.';
+      return;
+    }
 
-  hasServer.value = true;
-  name.value = profile.name;
+    const { profile } = await response.json();
+    name.value = profile?.name ?? '';
+  } catch {
+    errorMessage.value = 'Unable to load your profile right now. Please try again.';
+  }
 }
 
 async function saveProfile() {
@@ -85,10 +98,16 @@ async function saveProfile() {
 
   const cleanName = name.value?.trim();
   isSaving.value = true;
+  errorMessage.value = '';
 
   try {
     const { ipAddress } = config.serverDetails;
-    await fetch(`http://${ipAddress}:${SERVER_ENV_VARS.ROUTER_PORT}/profile`, {
+    if (!ipAddress) {
+      errorMessage.value = 'You must add a cloud machine before saving your profile.';
+      return;
+    }
+
+    const response = await fetch(`http://${ipAddress}:${SERVER_ENV_VARS.ROUTER_PORT}/profile`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -98,8 +117,15 @@ async function saveProfile() {
       }),
     });
 
+    if (!response.ok) {
+      errorMessage.value = 'Unable to save your profile right now. Please try again.';
+      return;
+    }
+
     config.hasProfileName = !!cleanName;
     closeOverlay();
+  } catch {
+    errorMessage.value = 'Unable to save your profile right now. Please try again.';
   } finally {
     isSaving.value = false;
   }

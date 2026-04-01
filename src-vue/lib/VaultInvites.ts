@@ -13,8 +13,9 @@ export class VaultInvites {
     port?: string;
     privateKey?: string;
     hasError?: boolean;
+    isEmpty?: boolean;
   } {
-    if (!hex) return {};
+    if (!hex) return { isEmpty: true };
 
     try {
       hex = hex.replace(/^0x/, '');
@@ -24,6 +25,7 @@ export class VaultInvites {
       const bytes = Uint8Array.from(int);
       const decoded = pako.inflate(bytes, { to: 'string' });
       const [ipAddress, port, privateKey] = decoded.split(':');
+      if (!ipAddress || !port || !privateKey) return { hasError: true };
 
       return { ipAddress, port, privateKey };
     } catch (error) {

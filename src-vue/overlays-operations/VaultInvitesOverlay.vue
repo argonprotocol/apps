@@ -97,7 +97,7 @@ import { JsonExt } from '@argonprotocol/apps-core';
 import { VaultInvites } from '../lib/VaultInvites.ts';
 import dayjs, { Dayjs } from 'dayjs';
 import CountdownClock from '../components/CountdownClock.vue';
-import { ICapitalInvite } from '@argonprotocol/apps-router';
+import type { ICapitalInvite } from '@argonprotocol/apps-router';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { NetworkConfig } from '@argonprotocol/apps-core';
@@ -154,7 +154,6 @@ function statusClass(txId: number): string {
 }
 
 function extractStatus(invite: any): 'converted' | 'pending' | 'expired' | 'clicked' {
-  console.log('INVITE', invite);
   if (invite.registeredAppAt) {
     return 'converted';
   } else if (invite.lastClickedAt) {
@@ -175,6 +174,7 @@ function openServerOverlay() {
 }
 
 async function loadInvites() {
+  errorMessage.value = null;
   await transactionTracker.load();
   await myVault.load();
   const vaultId = myVault.createdVault?.vaultId;
@@ -182,9 +182,21 @@ async function loadInvites() {
     invites.value = [];
     return;
   }
-  const response = await fetch(`http://${ipAddress.value}:${SERVER_ENV_VARS.ROUTER_PORT}/capital-users/invites`);
-  const rawBody = await response.text();
-  invites.value = JsonExt.parse<ICapitalInvite[]>(rawBody);
+
+  try {
+    const response = await fetch(`http://${ipAddress.value}:${SERVER_ENV_VARS.ROUTER_PORT}/capital-users/invites`);
+    if (!response.ok) {
+      invites.value = [];
+      errorMessage.value = 'Unable to load invites right now. Please try again.';
+      return;
+    }
+
+    const rawBody = await response.text();
+    invites.value = JsonExt.parse<ICapitalInvite[]>(rawBody);
+  } catch {
+    invites.value = [];
+    errorMessage.value = 'Unable to load invites right now. Please try again.';
+  }
 }
 
 async function createCoupon() {
@@ -292,11 +304,5 @@ async function submitCapitalUser(payload: {
 basicEmitter.on('openVaultInvitesOverlay', () => {
   isOpen.value = true;
   void loadInvites();
-});
-
-Vue.watch(isOpen, isNowOpen => {
-  if (isNowOpen) {
-    void loadInvites();
-  }
 });
 </script>

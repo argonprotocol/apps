@@ -29,7 +29,7 @@
               {{ member.name }} has {{ currency.symbol
               }}{{ satoshiToMoneyNm(member.couponMaxSatoshis).format('0,0.00') }} in free BTC locking
             </div>
-            <div class="grow">Last seen {{ member.appLastSeenAt }}</div>
+            <div class="grow text-right">Last seen {{ dayjs(member.appLastSeenAt).fromNow() }}</div>
           </div>
         </div>
       </div>
@@ -39,6 +39,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
@@ -46,9 +48,11 @@ import { getMyVault } from '../stores/vaults.ts';
 import { getConfig } from '../stores/config.ts';
 import { SERVER_ENV_VARS } from '../lib/Env.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
-import { ICapitalMember } from '@argonprotocol/apps-router';
+import type { ICapitalMember } from '@argonprotocol/apps-router';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
+
+dayjs.extend(relativeTime);
 
 const config = getConfig();
 const myVault = getMyVault();
@@ -59,7 +63,6 @@ const { satoshiToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
-const inviteName = Vue.ref('');
 const members = Vue.ref<ICapitalMember[]>([]);
 
 const ipAddress = Vue.computed(() => {
@@ -79,6 +82,7 @@ function openServerOverlay() {
 }
 
 async function loadMembers() {
+  errorMessage.value = null;
   await transactionTracker.load();
   await myVault.load();
   const vaultId = myVault.createdVault?.vaultId;
@@ -86,20 +90,25 @@ async function loadMembers() {
     members.value = [];
     return;
   }
-  const response = await fetch(`http://${ipAddress.value}:${SERVER_ENV_VARS.ROUTER_PORT}/capital-users/members`);
-  const rawBody = await response.text();
-  members.value = JsonExt.parse<ICapitalMember[]>(rawBody);
-  console.log('MEMBERS: ', members.value);
+
+  try {
+    const response = await fetch(`http://${ipAddress.value}:${SERVER_ENV_VARS.ROUTER_PORT}/capital-users/members`);
+    if (!response.ok) {
+      members.value = [];
+      errorMessage.value = 'Unable to load members right now. Please try again.';
+      return;
+    }
+
+    const rawBody = await response.text();
+    members.value = JsonExt.parse<ICapitalMember[]>(rawBody);
+  } catch {
+    members.value = [];
+    errorMessage.value = 'Unable to load members right now. Please try again.';
+  }
 }
 
 basicEmitter.on('openVaultMembersOverlay', () => {
   isOpen.value = true;
   void loadMembers();
-});
-
-Vue.watch(isOpen, isNowOpen => {
-  if (isNowOpen) {
-    void loadMembers();
-  }
 });
 </script>
