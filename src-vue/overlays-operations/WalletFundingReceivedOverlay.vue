@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { getConfig } from '../stores/config';
+import { Config, getConfig } from '../stores/config';
 import { getCurrency } from '../stores/currency';
 import { getMyVault } from '../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
@@ -124,7 +124,12 @@ async function queueMiningHoldAutoTransfer(wallet: IWallet) {
     // after the in-flight transfer settles instead of submitting a second transfer in parallel.
     do {
       shouldRetryAutoTransfer = false;
-      await moveCapital.moveAvailableMiningHoldToBot(wallet);
+      const sweepTxInfo = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config as Config);
+      if (sweepTxInfo) {
+        await sweepTxInfo.waitForPostProcessing.catch(error => {
+          console.error('[WalletFundingReceivedOverlay] Mining hold sweep failed while waiting to retry', error);
+        });
+      }
     } while (shouldRetryAutoTransfer);
   } finally {
     isAutoTransferringMiningHold = false;

@@ -198,11 +198,12 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
         }
 
         console.info(`[E2E] ${flowName}: finalizeSetup clicking launch mining bot`);
-        return await clickIfVisible(flow, 'SetupChecklist.launchMiningBot()', { timeoutMs: 1_500 });
+        await clickIfVisible(flow, 'SetupChecklist.launchMiningBot()', { timeoutMs: 1_500 });
+        return false;
       },
       {
         timeoutMs: 120_000,
-        timeoutMessage: `${flowName}: launch mining bot did not become clickable.`,
+        timeoutMessage: `${flowName}: launch mining bot did not transition into setup.`,
       },
     );
     await waitForInstallUiToAppearOrComplete(flow, didFinishInstall, flowName);

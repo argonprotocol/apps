@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Certificate outer border -->
+    <rect x="6" y="4" width="88" height="100" rx="2" stroke-width="2.5" />
+    <!-- Certificate inner border -->
+    <rect x="12" y="9" width="76" height="90" rx="1" stroke-width="1.2" />
+
+    <!-- Title lines -->
+    <line x1="26" y1="21" x2="74" y2="21" stroke-width="2" />
+    <line x1="32" y1="27" x2="68" y2="27" stroke-width="1.5" />
+
+    <!-- Body text lines -->
+    <line x1="20" y1="38" x2="80" y2="38" stroke-width="1.2" />
+    <line x1="20" y1="45" x2="80" y2="45" stroke-width="1.2" />
+    <line x1="20" y1="52" x2="56" y2="52" stroke-width="1.2" />
+  </g>
+
+  <!-- Seal stamp inside the certificate, bottom-center -->
+  <circle cx="50" cy="84" r="17" fill="white" stroke="currentColor" stroke-width="2.5" />
+  <circle cx="50" cy="84" r="11.5" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2.5 2" />
+</svg>

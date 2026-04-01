@@ -115,7 +115,7 @@ function createTxInfo(status: TransactionStatus, metadataJson: Record<string, un
   } as unknown as TransactionInfo;
 }
 
-describe('BitcoinLocks getActiveLocksForVault', () => {
+describe('BitcoinLocks getActiveLocks', () => {
   it('keeps resumable and unacknowledged expired locks active while excluding released locks', () => {
     const store = createStore();
 
@@ -158,18 +158,20 @@ describe('BitcoinLocks getActiveLocksForVault', () => {
       }),
     };
 
-    const active = store.getActiveLocksForVault(1);
+    const active = store.getActiveLocks();
     expect(active.map(x => x.uuid)).toEqual(['resume-ready', 'expired', 'pending', 'minted']);
   });
 
   it('includes pending lock for the same vault', () => {
     const store = createStore();
 
-    store.data.pendingLock = createLock({
-      uuid: 'pending-init',
-      status: BitcoinLockStatus.LockIsProcessingOnArgon,
-      createdAt: '2026-01-05T00:00:00Z',
-    });
+    store.data.pendingLocks = [
+      createLock({
+        uuid: 'pending-init',
+        status: BitcoinLockStatus.LockIsProcessingOnArgon,
+        createdAt: '2026-01-05T00:00:00Z',
+      }),
+    ];
     store.data.locksByUtxoId = {
       1: createLock({
         uuid: 'older-active',
@@ -179,7 +181,7 @@ describe('BitcoinLocks getActiveLocksForVault', () => {
       }),
     };
 
-    const active = store.getActiveLocksForVault(1);
+    const active = store.getActiveLocks();
     expect(active.map(x => x.uuid)).toEqual(['pending-init', 'older-active']);
   });
 
@@ -208,7 +210,6 @@ describe('BitcoinLocks getActiveLocksForVault', () => {
       firstSeenOnArgonAt: undefined,
     });
 
-    store.utxoTracking.data.supportsCandidateUtxos = true;
     store.data.locksByUtxoId = { 1: lock };
     store.utxoTracking.data.utxosByLockUtxoId = { 1: [candidate] };
     vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(1_000);
@@ -315,7 +316,6 @@ describe('BitcoinLocks getActiveLocksForVault', () => {
       firstSeenOnArgonAt: undefined,
     });
 
-    store.utxoTracking.data.supportsCandidateUtxos = true;
     store.data.locksByUtxoId = { 1: lock };
     store.utxoTracking.data.utxosByLockUtxoId = { 1: [candidate] };
     vi.spyOn(store, 'getLockSatoshiAllowedVariance').mockReturnValue(1_000);
@@ -763,7 +763,7 @@ describe('BitcoinLocks release inspection', () => {
     lock.fundingUtxoRecord = fundingRecord;
     store.data.locksByUtxoId = { 41: lock };
 
-    const state = store.getVaultUnlockReleaseState(lock.vaultId);
+    const state = store.getLockUnlockReleaseState(lock);
 
     expect(state.hasReleaseTxid).toBe(true);
     expect(state.isArgonSubmitting).toBe(true);

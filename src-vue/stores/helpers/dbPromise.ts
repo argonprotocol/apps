@@ -8,3 +8,7 @@ export function getDbPromise() {
   }
   return dbPromise;
 }
+
+export function setDbPromise(newDbPromise: Promise<Db> | undefined) {
+  dbPromise = newDbPromise;
+}

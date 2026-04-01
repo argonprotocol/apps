@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import basicEmitter from '../emitters/basicEmitter';
 import { getConfig, type Config } from './config';
-import { getWalletKeys } from './wallets.ts';
+import { getWalletBalances, getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
@@ -44,6 +44,8 @@ export const useCapitalController = defineStore('capitalController', () => {
 
   async function load() {
     await config.isLoadedPromise;
+    const walletBalances = getWalletBalances();
+    await walletBalances.load();
     isLoaded.value = true;
     isLoadedResolve();
   }

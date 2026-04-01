@@ -1,24 +1,43 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
-import { miningHoldOperationalReserveMicrogons, type IWallet } from '../lib/Wallet.ts';
-import { ensureOperatorAccountRegistered } from '../lib/OperationalAccount.ts';
+import { type IWallet, miningHoldOperationalReserveMicrogons } from '../lib/Wallet.ts';
+import { buildOperatorAccountRegistrationTx } from '../lib/OperationalAccount.ts';
+import { Config } from '../lib/Config.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
+import { createTestDb } from './helpers/db.ts';
+import { setDbPromise } from '../stores/helpers/dbPromise.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
+import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 
 vi.mock('../lib/OperationalAccount.ts', () => ({
-  ensureOperatorAccountRegistered: vi.fn().mockResolvedValue(undefined),
+  buildOperatorAccountRegistrationTx: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../stores/mainchain.ts', () => ({
+  getMainchainClient: vi.fn().mockResolvedValue({}),
 }));
 
 describe('MoveCapital', () => {
+  let config: Config;
+  let walletKeys: WalletKeys;
+  beforeAll(async () => {
+    const db = await createTestDb();
+    setDbPromise(Promise.resolve(db));
+    walletKeys = createMockWalletKeys();
+    config = new Config(Promise.resolve(db), walletKeys);
+  });
   it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
     const moveCapital = createMoveCapital();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
-    const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
+    const txInfo = { tx: { id: 1 } } as any;
+    const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue(txInfo);
     const wallet = createWallet({
       availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
       availableMicronots: 7n,
     });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    const result = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenCalledWith(
       MoveFrom.MiningHold,
@@ -26,6 +45,8 @@ describe('MoveCapital', () => {
       { ARGN: 50n, ARGNOT: 7n },
       wallet,
       'mining-bot-address',
+      [],
+      expect.anything(),
     );
     expect(moveSpy).toHaveBeenCalledWith(
       MoveFrom.MiningHold,
@@ -33,8 +54,12 @@ describe('MoveCapital', () => {
       { ARGN: 45n, ARGNOT: 7n },
       wallet,
       'mining-bot-address',
+      false,
+      [],
+      expect.anything(),
     );
-    expect(ensureOperatorAccountRegistered).toHaveBeenCalledOnce();
+    expect(buildOperatorAccountRegistrationTx).toHaveBeenCalledOnce();
+    expect(result).toBe(txInfo);
   });
 
   it('retries the fee calculation without argons when only argonots should move', async () => {
@@ -46,7 +71,7 @@ describe('MoveCapital', () => {
       availableMicronots: 4n,
     });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       1,
@@ -55,6 +80,8 @@ describe('MoveCapital', () => {
       { ARGN: 3n, ARGNOT: 4n },
       wallet,
       'mining-bot-address',
+      [],
+      expect.anything(),
     );
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       2,
@@ -63,6 +90,8 @@ describe('MoveCapital', () => {
       { ARGNOT: 4n },
       wallet,
       'mining-bot-address',
+      [],
+      expect.anything(),
     );
     expect(moveSpy).toHaveBeenCalledWith(
       MoveFrom.MiningHold,
@@ -70,6 +99,9 @@ describe('MoveCapital', () => {
       { ARGNOT: 4n },
       wallet,
       'mining-bot-address',
+      false,
+      [],
+      expect.anything(),
     );
   });
 
@@ -82,9 +114,10 @@ describe('MoveCapital', () => {
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
     const wallet = createWallet({ availableMicrogons: 10n, availableMicronots: 4n });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet);
+    const result = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
 
     expect(moveSpy).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
   });
 
   it('skips the sweep when fee calculation fails', async () => {
@@ -95,9 +128,14 @@ describe('MoveCapital', () => {
     });
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
 
-    await moveCapital.moveAvailableMiningHoldToBot(createWallet({ availableMicronots: 4n }));
+    const result = await moveCapital.moveAvailableMiningHoldToBot(
+      createWallet({ availableMicronots: 4n }),
+      walletKeys,
+      config,
+    );
 
     expect(moveSpy).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
   });
 
   it('skips the sweep when there is nothing available to move', async () => {
@@ -105,17 +143,59 @@ describe('MoveCapital', () => {
     const feeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(0n);
     const moveSpy = vi.spyOn(moveCapital, 'move').mockResolvedValue({} as any);
 
-    await moveCapital.moveAvailableMiningHoldToBot(
+    const result = await moveCapital.moveAvailableMiningHoldToBot(
       createWallet({ availableMicrogons: miningHoldOperationalReserveMicrogons }),
+      walletKeys,
+      config,
     );
 
     expect(feeSpy).not.toHaveBeenCalled();
     expect(moveSpy).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
+  });
+
+  it('reuses an in-flight mining hold sweep instead of submitting a duplicate move', async () => {
+    const moveCapital = createMoveCapital();
+    vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(0n);
+
+    let resolveMove: ((value: any) => void) | undefined;
+    const txInfo = {
+      tx: {
+        id: 1,
+        status: TransactionStatus.Submitted,
+        accountAddress: 'mining-hold-address',
+      },
+    } as any;
+    const moveSpy = vi.spyOn(moveCapital, 'move').mockImplementation(
+      () =>
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+        new Promise(resolve => {
+          resolveMove = resolve;
+        }) as any,
+    );
+    const wallet = createWallet({
+      availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
+      availableMicronots: 7n,
+    });
+
+    const firstSweep = moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+    const secondSweep = moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+
+    await vi.waitFor(() => expect(moveSpy).toHaveBeenCalledOnce());
+
+    resolveMove?.(txInfo);
+
+    await expect(firstSweep).resolves.toBe(txInfo);
+    await expect(secondSweep).resolves.toBe(txInfo);
   });
 });
 
 function createMoveCapital() {
-  return new MoveCapital({ miningBotAddress: 'mining-bot-address' } as any, {} as any, {} as any);
+  return new MoveCapital(
+    { miningBotAddress: 'mining-bot-address' } as any,
+    { data: { txInfos: [] }, findLatestPendingTxInfo: () => undefined } as any,
+    {} as any,
+  );
 }
 
 function createWallet(partial: Partial<IWallet>): IWallet {

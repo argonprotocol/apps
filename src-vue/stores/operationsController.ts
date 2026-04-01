@@ -134,7 +134,8 @@ export const useOperationsController = defineStore('operationsController', () =>
 
   async function load() {
     await config.isLoadedPromise;
-    await loadOperationalAccount(config as Config);
+    await loadOperationalAccount(config as Config, walletKeys);
+    hideBonusTip.value = config.certificationDetails?.showOverviewTooltip === false;
 
     isLoaded.value = true;
     isLoadedResolve();

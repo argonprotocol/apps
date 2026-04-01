@@ -47,7 +47,7 @@
       <div class="mt-3 mb-1">Move To</div>
       <InputMenu v-if="canChangeDestination" v-model="moveTo" :options="moveToOptions" :selectFirst="true" class="w-full" />
       <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-        {{ moveTo }} Account
+        {{ moveToName[moveTo] }}
       </div>
       <template v-if="moveTo === MoveTo.External">
         <input
@@ -146,11 +146,20 @@
 import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 
 const moveFromName = {
-  [MoveFrom.MiningHold]: 'Unused Holdings',
+  [MoveFrom.MiningHold]: 'Inflation-Free Savings',
   [MoveFrom.MiningBot]: 'Mining Bids',
-  [MoveFrom.VaultingHold]: 'Unused Holdings',
+  [MoveFrom.VaultingHold]: 'Inflation-Free Savings',
   [MoveFrom.VaultingSecurity]: 'Bitcoin Security',
   [MoveFrom.VaultingTreasury]: 'Treasury Bonds',
+};
+
+const moveToName = {
+  [MoveTo.VaultingTreasury]: 'Treasury Bonds',
+  [MoveTo.VaultingSecurity]: 'Bitcoin Security',
+  [MoveTo.MiningBot]: 'Mining Bids',
+  [MoveTo.MiningHold]: 'Inflation-Free Savings',
+  [MoveTo.VaultingHold]: 'Inflation-Free Savings',
+  [MoveTo.External]: 'External Address',
 };
 
 const moveTokenName = {
@@ -193,6 +202,7 @@ const props = withDefaults(
     moveFrom?: MoveFrom;
     showInputMenus?: boolean;
     moveTo?: MoveTo;
+    maxAmount?: bigint;
     moveToken?: MoveToken;
     isOpen: boolean;
     side?: 'top' | 'right' | 'bottom' | 'left';
@@ -226,7 +236,7 @@ const moveToken = Vue.ref(props.moveToken);
 const amountToMove = Vue.ref<bigint>(0n);
 
 const externalAddress = Vue.ref('');
-const canChangeDestination = Vue.computed(() => !pendingTxInfo.value);
+const canChangeDestination = Vue.computed(() => !pendingTxInfo.value && !props.moveTo);
 const txFee = Vue.ref(0n);
 
 const isLoaded = Vue.ref(false);
@@ -280,18 +290,21 @@ const maxAmountToMove = Vue.computed(() => {
     }
   }
 
+  if (props.maxAmount !== undefined && props.maxAmount < max) {
+    return props.maxAmount;
+  }
   return max;
 });
 
 const moveFromOptions = Vue.computed(() => {
   if (props.walletType === WalletType.miningHold) {
     return [
-      { name: 'Unused Holdings', value: MoveFrom.MiningHold },
+      { name: 'Inflation-Free Savings', value: MoveFrom.MiningHold },
       { name: 'Mining Bids', value: MoveFrom.MiningBot },
     ];
   } else if (props.walletType === WalletType.vaulting) {
     return [
-      { name: 'Unused Holdings', value: MoveFrom.VaultingHold },
+      { name: 'Inflation-Free Savings', value: MoveFrom.VaultingHold },
       { name: 'Bitcoin Security', value: MoveFrom.VaultingSecurity },
       { name: 'Treasury Bonds', value: MoveFrom.VaultingTreasury },
     ];
@@ -319,15 +332,15 @@ const moveToOptions = Vue.computed(() => {
   if (walletFrom === WalletType.miningHold) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
   } else if (walletFrom === WalletType.miningBot) {
-    options.push({ name: 'Unused Holdings', value: MoveTo.MiningHold });
+    options.push({ name: 'Inflation-Free Savings', value: MoveTo.MiningHold });
   } else if (moveFrom.value === MoveFrom.VaultingHold) {
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
     options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
   } else if (moveFrom.value === MoveFrom.VaultingSecurity) {
-    options.push({ name: 'Unused Holdings', value: MoveTo.VaultingHold });
+    options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
     options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
   } else if (moveFrom.value === MoveFrom.VaultingTreasury) {
-    options.push({ name: 'Unused Holdings', value: MoveTo.VaultingHold });
+    options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
   }
 

@@ -1,3 +1,4 @@
+<!-- Legacy reference component. Not imported by the current app. Kept for historical/design reference only. -->
 <!-- prettier-ignore -->
 <template>
   <section
@@ -349,6 +350,7 @@
   <BitcoinLockingOverlay
     v-if="doShowLockingOverlay"
     :personalLock="lockingOverlayLock"
+    :vault="myVault.createdVault!"
     @close="closeLockingOverlay"
   />
 
@@ -435,7 +437,7 @@ function showReleaseOverlay() {
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const personalLock = Vue.computed(() => {
-  return bitcoinLocks.getActiveLocksForVault(myVault.vaultId!)[0];
+  return bitcoinLocks.getActiveLocks()[0];
 });
 
 const lockExpirationTime = Vue.ref(dayjs.utc());
@@ -756,8 +758,8 @@ async function updateBitcoinUnlockPrices() {
     unlockPrice.value = 0n;
     return;
   }
-  const vaultingAddress = getWalletKeys().vaultingAddress;
-  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, vaultingAddress }).catch(() => 0n);
+  const liquidLockingAddress = getWalletKeys().liquidLockingAddress;
+  const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, liquidLockingAddress }).catch(() => 0n);
   unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
 }
 

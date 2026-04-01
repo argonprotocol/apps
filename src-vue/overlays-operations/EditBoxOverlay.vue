@@ -23,9 +23,7 @@
         <VaultProjectedUtilization v-else-if="id === 'projectedUtilization'" @update:data="updateData" ref="editorInstance" />
         <VaultBtcLockingFees v-else-if="id === 'btcLockingFees'" @update:data="updateData" ref="editorInstance" />
         <VaultPoolRevenueShare v-else-if="id === 'poolRevenueShare'" @update:data="updateData" ref="editorInstance" />
-        <VaultTreasuryFunding v-else-if="id === 'treasuryFunding'" @update:data="updateData" ref="editorInstance" />
         <VaultSecuritizationRatio v-else-if="id === 'securitizationRatio'" @update:data="updateData" ref="editorInstance" />
-        <VaultPersonalBtc v-else-if="id === 'personalBtc'" @update:data="updateData" ref="editorInstance" />
       </div>
 
       <div v-if="shouldHideSaveButton" class="flex flex-row justify-end pb-3 pr-3 space-x-3 mt-5 mx-2 border-t border-slate-400/50 pt-3">
@@ -59,12 +57,10 @@ export type IEditBoxOverlayTypeForMining =
   | 'cloudMachine';
 
 export type IEditBoxOverlayTypeForVaulting =
-  | 'treasuryFunding'
   | 'securitizationRatio'
   | 'poolRevenueShare'
   | 'btcLockingFees'
-  | 'projectedUtilization'
-  | 'personalBtc';
+  | 'projectedUtilization';
 
 export type IEditBoxOverlayType = IEditBoxOverlayTypeForMining | IEditBoxOverlayTypeForVaulting;
 </script>
@@ -80,12 +76,10 @@ import VaultProjectedUtilization from './edit-box/VaultProjectedUtilization.vue'
 import VaultBtcLockingFees from './edit-box/VaultBtcLockingFees.vue';
 import VaultPoolRevenueShare from './edit-box/VaultPoolRevenueShare.vue';
 import VaultSecuritizationRatio from './edit-box/VaultSecuritizationRatio.vue';
-import VaultPersonalBtc from './edit-box/VaultPersonalBtc.vue';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
-import VaultTreasuryFunding from './edit-box/VaultTreasuryFunding.vue';
 
 const props = defineProps<{
   id: IEditBoxOverlayType;
@@ -120,9 +114,7 @@ const titles = {
   projectedUtilization: 'Projected Utilization',
   btcLockingFees: 'Bitcoin Locking Fees',
   poolRevenueShare: 'Treasury Revenue Split',
-  treasuryFunding: 'Internal Treasury Funding',
   securitizationRatio: 'Securitization Ratio',
-  personalBtc: 'Internal Bitcoin Locking',
 };
 
 // --- Draggable Modal Logic ---

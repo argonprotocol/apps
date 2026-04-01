@@ -1,19 +1,18 @@
 import {
+  ArgonClient,
   getOfflineRegistry,
   hexToU8a,
   Keyring,
   type KeyringPair,
-  TxSubmitter,
+  type SubmittableExtrinsic,
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
-import { getConfig, Config } from '../stores/config.ts';
+import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { getWalletKeys } from '../stores/wallets.ts';
+import { WalletKeys } from './WalletKeys.ts';
 
-let setupOperatorAccountPromise: Promise<void> | null = null;
-export type IOperationalAccountFeePayer = 'vaulting' | 'miningBot';
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
 const MINING_FUNDING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_funding';
@@ -50,12 +49,15 @@ function createAccessCodeProof(accessCode: string, operationalAddr: string) {
   };
 }
 
-async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
-  const config = getConfig();
+export async function buildOperatorAccountRegistrationTx(args: {
+  walletKeys: WalletKeys;
+  config: Config;
+  client?: ArgonClient;
+}): Promise<SubmittableExtrinsic | undefined> {
+  const { config, walletKeys } = args;
   if (config.certificationDetails) return;
 
-  const walletKeys = getWalletKeys();
-  const client = await getMainchainClient(false);
+  const client = args.client ?? (await getMainchainClient(false));
   const configuredOperationalAddr = walletKeys.operationalAddress;
   const configuredVaultingAddr = walletKeys.vaultingAddress;
   const configuredMiningHoldAddr = walletKeys.miningHoldAddress;
@@ -84,7 +86,7 @@ async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
     console.warn('Operational account registration address mismatch detected', mismatchedAddresses);
   }
 
-  const foundOperationalAccount = await loadOperationalAccount(config as Config);
+  const foundOperationalAccount = await loadOperationalAccount(config, walletKeys, client);
   if (foundOperationalAccount) return;
 
   const operationalAccountProof = createOwnershipProof(
@@ -125,10 +127,10 @@ async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
     },
   });
 
-  const tx = client.tx.operationalAccounts.register({
+  return client.tx.operationalAccounts.register({
     V1: {
       operationalAccount: operationalAddr,
-      encryptionPubkey: operationalEncryptionKey.publicKey,
+      encryptionPubkey: operationalEncryptionKey,
       operationalAccountProof: { signature: operationalAccountProof.signature },
       vaultAccount: vaultingAddr,
       miningFundingAccount: miningHoldAddr,
@@ -139,31 +141,14 @@ async function registerOperatorAccount(feePayer: IOperationalAccountFeePayer) {
       accessCode: accessCode ? createAccessCodeProof(accessCode, operationalAddr) : null,
     },
   });
-  const submitterAccount = feePayer === 'vaulting' ? vaultingAccount : miningBotAccount;
-  const txResult = await new TxSubmitter(client, tx, submitterAccount).submit();
-  await txResult.waitForInFirstBlock;
-
-  // config.hasOperatorAccount = true;
-  await config.save();
 }
 
-export async function ensureOperatorAccountRegistered(feePayer: IOperationalAccountFeePayer) {
-  if (setupOperatorAccountPromise) {
-    await setupOperatorAccountPromise;
-    return;
-  }
-
-  setupOperatorAccountPromise = registerOperatorAccount(feePayer);
-  try {
-    await setupOperatorAccountPromise;
-  } finally {
-    setupOperatorAccountPromise = null;
-  }
-}
-
-export async function loadOperationalAccount(config: Config): Promise<boolean> {
-  const client = await getMainchainClient(false);
-  const walletKeys = getWalletKeys();
+export async function loadOperationalAccount(
+  config: Config,
+  walletKeys: WalletKeys,
+  client?: ArgonClient,
+): Promise<boolean> {
+  client ??= await getMainchainClient(false);
   const accountRaw = await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
   if (accountRaw.isEmpty) return false;
 

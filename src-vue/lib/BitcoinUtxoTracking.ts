@@ -1,20 +1,14 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import {
-  getPercent,
-  MiningFrames,
-  NetworkConfig,
-  queryCandidateUtxoRefsByUtxoId,
-  supportsCandidateUtxoRefsByUtxoId,
-} from '@argonprotocol/apps-core';
+import { getPercent, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { type ApiDecoration, type ArgonClient, type IBitcoinLockConfig } from '@argonprotocol/mainchain';
 import {
   BitcoinUtxosTable,
   BitcoinUtxoStatus,
   IBitcoinUtxoRecord,
-  IMempoolFundingObservation,
   type IConfirmedReleaseCosign,
+  IMempoolFundingObservation,
 } from './db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { BlockProgress } from './BlockProgress.ts';
@@ -39,7 +33,6 @@ export default class BitcoinUtxoTracking {
     utxosByLockUtxoId: { [utxoId: number]: IBitcoinUtxoRecord[] };
     utxosByKey: { [key: string]: IBitcoinUtxoRecord };
     utxosById: { [id: number]: IBitcoinUtxoRecord };
-    supportsCandidateUtxos: boolean;
   };
 
   constructor(private readonly deps: IUtxoTrackingDeps) {
@@ -47,17 +40,7 @@ export default class BitcoinUtxoTracking {
       utxosByLockUtxoId: {},
       utxosByKey: {},
       utxosById: {},
-      supportsCandidateUtxos: false,
     };
-  }
-
-  public get supportsCandidateUtxosEnabled(): boolean {
-    return this.data.supportsCandidateUtxos;
-  }
-
-  public updateSupportsCandidateUtxos(apiClient: ApiDecoration<'promise'>): boolean {
-    this.data.supportsCandidateUtxos = supportsCandidateUtxoRefsByUtxoId(apiClient);
-    return this.data.supportsCandidateUtxos;
   }
 
   public async load(): Promise<void> {
@@ -158,8 +141,7 @@ export default class BitcoinUtxoTracking {
       if (!client || seenClients.has(client)) continue;
       seenClients.add(client);
 
-      const supportsCandidates = this.updateSupportsCandidateUtxos(client);
-      const candidates = supportsCandidates ? await this.syncArgonFundingCandidates(lock, client) : [];
+      const candidates = await this.syncArgonFundingCandidates(lock, client);
       const orphans = await this.syncArgonOrphanedCandidates(lock, client);
       if (candidates.length || orphans.length) return;
     }
@@ -167,9 +149,7 @@ export default class BitcoinUtxoTracking {
     // Archive can lag candidate visibility briefly; fall back to latest head for UI responsiveness.
     const latestClient = await this.deps.getMainchainClient(false).catch(() => undefined);
     if (!latestClient) return;
-    if (this.updateSupportsCandidateUtxos(latestClient)) {
-      await this.syncArgonFundingCandidates(lock, latestClient);
-    }
+    await this.syncArgonFundingCandidates(lock, latestClient);
     await this.syncArgonOrphanedCandidates(lock, latestClient);
   }
 
@@ -180,7 +160,7 @@ export default class BitcoinUtxoTracking {
     if (!lock.utxoId) return [];
 
     const records: IBitcoinUtxoRecord[] = [];
-    const queryValue = await queryCandidateUtxoRefsByUtxoId(apiClient, lock.utxoId);
+    const queryValue = await apiClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(lock.utxoId);
     if (!queryValue) return [];
 
     for (const [utxoRef, sats] of queryValue.entries()) {

@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, TreasuryPool, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
@@ -45,6 +45,8 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const securityMicrogonsActivatedPct = Vue.computed<number>(() => {
+    if (securityMicrogons.value <= 0n) return 0;
+
     const pctBn = BigNumber(securityMicrogonsActivated.value).div(securityMicrogons.value);
     return pctBn.multipliedBy(100).toNumber();
   });
@@ -70,11 +72,13 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsUnused = Vue.computed(() => {
-    return bigIntMax(0n, myVault.data.treasury.targetPrincipal - treasuryMicrogonsActivated.value);
+    return myVault.data.treasury.pendingReturnAmount;
   });
 
   const treasuryMicrogonsActivatedPct = Vue.computed(() => {
-    const pctBn = BigNumber(treasuryMicrogonsActivated.value).div(treasuryTotalValue.value);
+    if (treasuryMicrogonsMaxCapacity.value <= 0n) return 0;
+
+    const pctBn = BigNumber(treasuryMicrogonsActivated.value).div(treasuryMicrogonsMaxCapacity.value);
     return pctBn.multipliedBy(100).toNumber();
   });
 
@@ -83,7 +87,27 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsMaxCapacity = Vue.computed(() => {
-    return securityMicrogonsActivated.value;
+    const sats = myVault.data.securitizedSatoshis;
+    if (sats <= 0n) return 0n;
+    return currency.priceIndex.getBtcMicrogonPrice(sats);
+  });
+
+  // Treasury (all funders — for vault-wide utilization stats)
+
+  const treasuryMicrogonsTotalBonded = Vue.computed(() => {
+    return TreasuryPool.totalBondedCapital(myVault.data.bondFunders);
+  });
+
+  const treasuryMicrogonsTotalActivated = Vue.computed(() => {
+    return bigIntMin(treasuryMicrogonsTotalBonded.value, treasuryMicrogonsMaxCapacity.value);
+  });
+
+  const treasuryMicrogonsTotalActivatedPct = Vue.computed(() => {
+    if (treasuryMicrogonsMaxCapacity.value <= 0n) return 0;
+    return BigNumber(treasuryMicrogonsTotalActivated.value)
+      .div(BigNumber(treasuryMicrogonsMaxCapacity.value))
+      .multipliedBy(100)
+      .toNumber();
   });
 
   // Operational Fees
@@ -123,6 +147,9 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     treasuryMicrogonsActivatedPct,
     treasuryTotalValue,
     treasuryMicrogonsMaxCapacity,
+    treasuryMicrogonsTotalBonded,
+    treasuryMicrogonsTotalActivated,
+    treasuryMicrogonsTotalActivatedPct,
 
     operationalFeeMicrogons,
     totalVaultValue,

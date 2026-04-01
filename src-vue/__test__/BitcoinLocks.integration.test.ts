@@ -8,7 +8,6 @@ import {
   MainchainClients,
   MiningFrames,
   NetworkConfig,
-  queryCandidateUtxoRefsByUtxoId,
 } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
@@ -38,6 +37,7 @@ import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtx
 import { createBitcoinLockProgressStore } from '../stores/bitcoinLockProgress.ts';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
+import { setDbPromise } from '../stores/helpers/dbPromise.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 const walletFundingMicrogons = 100_000_000n;
@@ -216,7 +216,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           if (!chainLock) return;
           const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
           if (chainFundingRef) return;
-          const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, resumed.utxoId!);
+          const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(resumed.utxoId!);
           if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
 
           return true;
@@ -288,7 +288,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           const refreshed = getCurrentLock(harness, returnedSecond.lock.utxoId!);
           if (refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged) return;
           if (!harness.bitcoinLocks.isInactiveForVaultDisplay(refreshed)) return;
-          const activeLocks = harness.bitcoinLocks.getActiveLocksForVault(harness.myVault.createdVault!.vaultId);
+          const activeLocks = harness.bitcoinLocks.getActiveLocks();
           if (activeLocks.some(activeLock => activeLock.utxoId === refreshed.utxoId)) return;
           return true;
         });
@@ -342,6 +342,7 @@ async function createHarness(): Promise<TestHarness> {
   setMainchainClients(clients);
 
   const db = await createTestDb();
+  setDbPromise(Promise.resolve(db));
   const walletKeys = createMockWalletKeys();
   await sudoFundWallet({
     address: walletKeys.vaultingAddress,
@@ -383,24 +384,21 @@ async function createHarness(): Promise<TestHarness> {
   vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
   vi.spyOn(myVault.vaults, 'updateRevenue').mockResolvedValue({} as IAllVaultStats);
 
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
   await myVault.load();
   console.log('[BitcoinLocks.integration] loaded vault stores');
   const vaultCreation = await myVault.createNew({
     masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
     rules: defaultVaultRules,
+    config,
   });
   await vaultCreation.txResult.waitForFinalizedBlock;
   await vaultCreation.waitForPostProcessing;
   console.log('[BitcoinLocks.integration] created vault', myVault.createdVault?.vaultId);
   await myVault.subscribe();
 
-  const allocation = await myVault.activateSecuritization({
-    rules: defaultVaultRules,
-  });
-  expect(allocation).toBeTruthy();
-  await allocation!.txResult.waitForFinalizedBlock;
-  await allocation!.waitForPostProcessing;
-  console.log('[BitcoinLocks.integration] allocated securitization', myVault.createdVault?.vaultId);
+  console.log('[BitcoinLocks.integration] securitization set during vault creation', myVault.createdVault?.vaultId);
 
   await waitFor(
     60e3,
@@ -431,8 +429,9 @@ async function createLock(harness: TestHarness, microgonLiquidity?: bigint): Pro
   const availableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
   const targetLiquidity = microgonLiquidity ?? (availableBitcoinSpace * 4n) / 5n;
   expect(targetLiquidity).toBeGreaterThan(0n);
+  const satoshis = await harness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
 
-  await harness.myVault.startBitcoinLocking({ microgonLiquidity: targetLiquidity });
+  await harness.myVault.startBitcoinLocking({ satoshis });
   return await waitFor(120e3, 'pending bitcoin lock finalization', () => {
     const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId)
       .filter(record => record.vaultId === harness.myVault.createdVault!.vaultId)
@@ -484,7 +483,7 @@ async function observeMismatchCandidate(
   });
 
   const observed = await waitFor(
-    60e3,
+    120e3,
     'mismatch funding candidate',
     async () => {
       const currentLock = getCurrentLock(harness, lock.utxoId!);
@@ -677,7 +676,7 @@ async function returnMismatchAndWaitForReadyToResume(
       const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
       if (chainFundingRef) return;
 
-      const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, refreshed.utxoId!);
+      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
       if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
 
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
@@ -821,7 +820,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
       const chainLock = await BitcoinLock.get(chainClient, currentLock.utxoId!);
       if (chainLock) return;
 
-      const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, currentLock.utxoId!);
+      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(currentLock.utxoId!);
       if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
 
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(currentLock.vaultId);
@@ -920,7 +919,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
         return;
       }
 
-      const candidateRefs = await queryCandidateUtxoRefsByUtxoId(chainClient, refreshed.utxoId!);
+      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
       if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
       if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;

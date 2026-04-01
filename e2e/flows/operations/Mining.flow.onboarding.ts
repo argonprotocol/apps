@@ -60,7 +60,7 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
       setupInstallingVisible,
     };
   },
-  async run({ flow }, state) {
+  async run({ flow, input }, state) {
     if (
       state.dashboardVisible ||
       state.firstAuctionVisible ||
@@ -73,6 +73,7 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
     await flow.run(miningActivateTab);
     await flow.run(miningStartRegistration);
     await flow.run(miningCompleteChecklist);
+    input.fundingArgons ??= '500';
     await flow.run(miningFundWallet);
     await flow.run(miningConnectServer);
     await flow.run(miningFinalizeSetup, {

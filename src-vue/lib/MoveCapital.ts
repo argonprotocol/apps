@@ -1,5 +1,5 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
+import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import {
   bigIntMax,
   ethAddressToH256,
@@ -15,12 +15,15 @@ import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
-import { ensureOperatorAccountRegistered } from './OperationalAccount.ts';
+import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
+import { Config } from './Config.ts';
 
 export interface IAssetsToMove {
   [MoveToken.ARGN]?: bigint;
   [MoveToken.ARGNOT]?: bigint;
 }
+
+let pendingMiningHoldSweepPromise: Promise<TransactionInfo | undefined> | undefined;
 
 export class MoveCapital {
   public transactionError: string = '';
@@ -57,9 +60,13 @@ export class MoveCapital {
     fromWallet: IWallet,
     toAddress: string,
     shouldDeductFeeFromCapital = false,
+    prependedTxs: SubmittableExtrinsic[] = [],
+    client?: ArgonClient,
   ): Promise<TransactionInfo> {
+    client ??= await getMainchainClient(false);
+
     if (shouldDeductFeeFromCapital) {
-      const fee = await this.calculateFee(moveFrom, moveTo, assetsToMove, fromWallet, toAddress);
+      const fee = await this.calculateFee(moveFrom, moveTo, assetsToMove, fromWallet, toAddress, prependedTxs, client);
       assetsToMove = {
         [MoveToken.ARGN]: assetsToMove[MoveToken.ARGN] ? assetsToMove[MoveToken.ARGN] - fee : 0n,
         [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] ?? 0n,
@@ -77,7 +84,7 @@ export class MoveCapital {
       }
       return await this.myVault.increaseVaultAllocations(allocations);
     } else {
-      const transaction = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress);
+      const transaction = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
       const { tx, metadata } = transaction;
       const signer = await this.getSigner(moveFrom);
       return await this.transactionTracker.submitAndWatch({
@@ -89,9 +96,32 @@ export class MoveCapital {
     }
   }
 
-  public async moveAvailableMiningHoldToBot(wallet: IWallet): Promise<void> {
-    await ensureOperatorAccountRegistered('miningBot');
+  public async moveAvailableMiningHoldToBot(
+    wallet: IWallet,
+    walletKeys: WalletKeys,
+    config: Config,
+  ): Promise<TransactionInfo | undefined> {
+    if (pendingMiningHoldSweepPromise) {
+      return await pendingMiningHoldSweepPromise;
+    }
 
+    const sweepPromise = this.moveAvailableMiningHoldToBotInner(wallet, walletKeys, config);
+    pendingMiningHoldSweepPromise = sweepPromise;
+
+    try {
+      return await sweepPromise;
+    } finally {
+      if (pendingMiningHoldSweepPromise === sweepPromise) {
+        pendingMiningHoldSweepPromise = undefined;
+      }
+    }
+  }
+
+  private async moveAvailableMiningHoldToBotInner(
+    wallet: IWallet,
+    walletKeys: WalletKeys,
+    config: Config,
+  ): Promise<TransactionInfo | undefined> {
     const assetsToMove: IAssetsToMove = {};
     const spendableMicrogons = getSpendableMiningHoldMicrogons(wallet.availableMicrogons);
 
@@ -103,12 +133,25 @@ export class MoveCapital {
     }
     if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) return;
 
+    const client = await getMainchainClient(false);
+    const prependedTxs: SubmittableExtrinsic[] = [];
+    const registrationTx = await buildOperatorAccountRegistrationTx({
+      walletKeys,
+      config,
+      client,
+    });
+    if (registrationTx) {
+      prependedTxs.push(registrationTx);
+    }
+
     let fee = await this.calculateFee(
       MoveFrom.MiningHold,
       MoveTo.MiningBot,
       assetsToMove,
       wallet,
       this.walletKeys.miningBotAddress,
+      prependedTxs,
+      client,
     );
     if (this.transactionError) {
       console.info('[MoveCapital] Skipping mining hold auto-transfer due to fee calculation error', {
@@ -142,6 +185,8 @@ export class MoveCapital {
           finalAssetsToMove,
           wallet,
           this.walletKeys.miningBotAddress,
+          prependedTxs,
+          client,
         );
         if (this.transactionError) {
           console.info('[MoveCapital] Skipping mining hold auto-transfer due to fee calculation error', {
@@ -165,9 +210,17 @@ export class MoveCapital {
 
     if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) return;
 
-    await this.move(MoveFrom.MiningHold, MoveTo.MiningBot, finalAssetsToMove, wallet, this.walletKeys.miningBotAddress);
+    return await this.move(
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      finalAssetsToMove,
+      wallet,
+      this.walletKeys.miningBotAddress,
+      false,
+      prependedTxs,
+      client,
+    );
   }
-
   private async getSigner(moveFrom: MoveFrom) {
     const walletType = this.getWalletTypeFromMove(moveFrom);
     switch (walletType) {
@@ -208,9 +261,16 @@ export class MoveCapital {
     };
   }
 
-  public async buildTransaction(moveFrom: MoveFrom, moveTo: MoveTo, assetsToMove: IAssetsToMove, toAddress: string) {
-    const txs: SubmittableExtrinsic[] = [];
-    const client = await getMainchainClient(false);
+  public async buildTransaction(
+    moveFrom: MoveFrom,
+    moveTo: MoveTo,
+    assetsToMove: IAssetsToMove,
+    toAddress: string,
+    prependedTxs: SubmittableExtrinsic[] = [],
+    client?: ArgonClient,
+  ) {
+    client ??= await getMainchainClient(false);
+    const txs: SubmittableExtrinsic[] = [...prependedTxs];
 
     /// 1. Reduce funding / withdraw from vaulting as needed
     if (moveFrom === MoveFrom.VaultingSecurity && assetsToMove.ARGN) {
@@ -278,10 +338,13 @@ export class MoveCapital {
     assetsToMove: IAssetsToMove,
     fromWallet: IWallet,
     toAddress: string,
+    prependedTxs: SubmittableExtrinsic[] = [],
+    client?: ArgonClient,
   ): Promise<bigint> {
+    client ??= await getMainchainClient(false);
     this.transactionError = '';
     try {
-      const { tx } = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress);
+      const { tx } = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
       const feeObj = await tx.paymentInfo(fromWallet.address);
       let fee = feeObj.partialFee.toBigInt();
 

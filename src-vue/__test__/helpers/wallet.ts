@@ -35,12 +35,19 @@ export function createTestWallet(mnemonic?: string) {
 
 export function createMockWalletKeys(mnemonic?: string) {
   mnemonic ??= mnemonicGenerate();
-  const { miningBotAccount, vaultingAccount, walletKeys } = createTestWallet(mnemonic);
+  const { miningBotAccount, vaultingAccount, walletKeys, operationalAccount, miningHoldAccount } =
+    createTestWallet(mnemonic);
   vi.spyOn(walletKeys, 'getBitcoinChildXpriv').mockImplementation(async (path, networks) => {
     const xpriv = await bip39.mnemonicToSeed(mnemonic);
     const version = getBip32Version(networks);
     return HDKey.fromMasterSeed(xpriv, version).derive(path);
   });
+  vi.spyOn(walletKeys, 'getOperationalKeypair').mockImplementation(async () => operationalAccount);
+  vi.spyOn(walletKeys, 'getMiningBotKeypair').mockImplementation(async () => miningBotAccount);
+  vi.spyOn(walletKeys, 'getMiningHoldKeypair').mockImplementation(async () => miningHoldAccount);
+  vi.spyOn(walletKeys, 'getOperationalEncryptionKeypair').mockImplementation(async () =>
+    Uint8Array.from(Array(32).fill(1)),
+  );
   vi.spyOn(walletKeys, 'getVaultingKeypair').mockImplementation(async () => vaultingAccount);
   vi.spyOn(walletKeys, 'exposeMasterMnemonic').mockImplementation(async () => mnemonic);
   vi.spyOn(walletKeys, 'getMiningSessionMiniSecret').mockImplementation(async () => {

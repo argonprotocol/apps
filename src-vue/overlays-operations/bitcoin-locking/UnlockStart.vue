@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div class="flex flex-col px-6 pt-3 pb-7">
-    <div v-if="errorMessage" class="mb-6 px-3 text-red-700">{{ errorMessage }}</div>
+    <div v-if="errorMessage" data-testid="UnlockStart.error" class="mb-6 px-3 text-red-700">{{ errorMessage }}</div>
     <div class="flex flex-col space-y-6 px-3 pt-3">
       <template v-if="canAfford">
         <div class="mb-6">
@@ -72,14 +72,13 @@ import * as Vue from 'vue';
 import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../../lib/BitcoinAddressValidation.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { getMyVault, getVaults } from '../../stores/vaults.ts';
+import { getVaults } from '../../stores/vaults.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import BitcoinFeeRateInput from './components/BitcoinFeeRateInput.vue';
 
 const vaults = getVaults();
-const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
 const wallets = useWallets();
@@ -87,6 +86,7 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
+  externalError?: string;
 }>();
 
 const emit = defineEmits<{
@@ -100,7 +100,7 @@ const destinationAddress = Vue.ref('');
 const requestReleaseError = Vue.ref('');
 
 const errorMessage = Vue.computed(() => {
-  return myVault.data.finalizeMyBitcoinError?.error ?? requestReleaseError.value;
+  return props.externalError ?? requestReleaseError.value;
 });
 
 const releasePrice = Vue.ref(0n);
@@ -111,10 +111,10 @@ const canAfford = Vue.computed(() => {
 
 const neededMicrogons = Vue.computed(() => {
   const amountNeeded = releasePrice.value + 25_000n; // 25,000 txfee buffer
-  if (wallets.vaultingWallet.availableMicrogons >= amountNeeded) {
+  if (wallets.liquidLockingWallet.availableMicrogons >= amountNeeded) {
     return 0n;
   }
-  return amountNeeded - wallets.vaultingWallet.availableMicrogons;
+  return amountNeeded - wallets.liquidLockingWallet.availableMicrogons;
 });
 
 const trimmedDestinationAddress = Vue.computed(() => destinationAddress.value.trim());
@@ -190,7 +190,6 @@ async function updateFeeRates() {
 }
 
 Vue.onMounted(async () => {
-  await myVault.load();
   await bitcoinLocks.load();
   void updateFeeRates();
 });

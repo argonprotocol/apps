@@ -24,6 +24,7 @@ import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import { setDbPromise } from '../stores/helpers/dbPromise.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -55,6 +56,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
   beforeAll(async () => {
     db = await createTestDb();
+    setDbPromise(Promise.resolve(db));
     trackedDbs.push(db);
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
       profiles: ['bob'],
@@ -117,26 +119,22 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const miningFrames = trackMiningFrames(new MiningFrames(clients));
       const vaults = new Vaults('dev-docker', currency, miningFrames);
       const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
-      const bitcoinLocksStore = trackBitcoinLocks(
+      const bitcoinLocks = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
-      myVault = new MyVault(
-        Promise.resolve(db),
-        vaults,
-        walletKeys,
-        transactionTracker,
-        bitcoinLocksStore,
-        miningFrames,
-      );
+      myVault = new MyVault(Promise.resolve(db), vaults, walletKeys, transactionTracker, bitcoinLocks, miningFrames);
       vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
       vi.spyOn(myVault.vaults, 'updateRevenue').mockImplementation(async () => {
         return {} as IAllVaultStats;
       });
 
+      const config = new Config(Promise.resolve(db), walletKeys);
+      await config.load();
       await myVault.load();
       const vaultCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
         rules: vaultRules,
+        config,
       });
       await vaultCreation.txResult.waitForFinalizedBlock;
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
@@ -161,25 +159,26 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
   );
 
   it(
-    'should be able to recover vault rules + details',
+    'should be able to recover vault details after creating a personal bitcoin lock',
     {
       timeout: 60e3,
     },
     async () => {
-      const vaultSave = await myVault.activateSecuritization({
-        rules: vaultRules,
-      });
-      const bitcoinLocksStore = myVault.bitcoinLocksStore;
-      expect(vaultSave).toBeTruthy();
-      const client = await clients.archiveClientPromise;
-      console.log('wait for finalize');
-      const api = await client.at(await vaultSave!.txResult.waitForFinalizedBlock);
-      const rulesSavedBlockNumber = await api.query.system.number().then(x => x.toNumber());
-      console.log('finalized at', rulesSavedBlockNumber);
+      const bitcoinLocks = myVault.bitcoinLocks;
+      const availableBitcoinSpace = myVault.createdVault!.availableBitcoinSpace();
+      const targetLiquidity = (availableBitcoinSpace * 4n) / 5n;
+      expect(targetLiquidity).toBeGreaterThan(0n);
 
-      await vaultSave!.waitForPostProcessing;
-      expect(Object.keys(bitcoinLocksStore.data.locksByUtxoId)).toHaveLength(1);
-      const bitcoinStored = Object.values(bitcoinLocksStore.data.locksByUtxoId)[0];
+      // Create a personal bitcoin lock (previously done by activateSecuritizationAndTreasury)
+      const lockTxInfo = await myVault.startBitcoinLocking({
+        satoshis: await bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity),
+      });
+      await lockTxInfo.txResult.waitForFinalizedBlock;
+      const lockCreatedBlockNumber = lockTxInfo.txResult.blockNumber!;
+      await lockTxInfo.waitForPostProcessing;
+
+      expect(Object.keys(bitcoinLocks.data.locksByUtxoId)).toHaveLength(1);
+      const bitcoinStored = Object.values(bitcoinLocks.data.locksByUtxoId)[0];
 
       // recover again so we get the right securitization
       const recovery = await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
@@ -191,16 +190,16 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       trackedDbs.push(newDb);
       const blockWatch = trackBlockWatch(new BlockWatch(clients));
       const transactionTracker2 = new TransactionTracker(Promise.resolve(newDb), blockWatch);
-      const bitcoinLocksStoreRecovery = trackBitcoinLocks(
+      const bitcoinLocksRecovery = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(newDb), walletKeys, blockWatch, myVault.vaults.currency, transactionTracker2),
       );
-      await bitcoinLocksStoreRecovery.load();
-      expect(Object.keys(bitcoinLocksStoreRecovery.data.locksByUtxoId)).toHaveLength(0);
+      await bitcoinLocksRecovery.load();
+      expect(Object.keys(bitcoinLocksRecovery.data.locksByUtxoId)).toHaveLength(0);
       const bitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
         mainchainClients: clients,
         vaultSetupBlockNumber: vaultCreatedBlockNumber,
         vault: recoveredVault,
-        bitcoinLocksStore: bitcoinLocksStoreRecovery,
+        bitcoinLocks: bitcoinLocksRecovery,
       });
       expect(bitcoins).toHaveLength(1);
       const bitcoin = bitcoins[0];
@@ -211,20 +210,13 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toStrictEqual({
         ...bitcoinStored,
         uuid: expect.any(String),
-        initializedAtBlockNumber: rulesSavedBlockNumber,
+        initializedAtBlockNumber: lockCreatedBlockNumber,
         createdAt: undefined,
         updatedAt: undefined,
       });
 
-      const treasuryMicrogons = (await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault)).heldPrincipal;
-      expect(treasuryMicrogons).toBe(MyVault.getMicrogonSplit(vaultRules, vaultCreationFees).microgonsForTreasury);
-      const rules = MyVaultRecovery.rebuildRules({
-        feesInMicrogons: vaultCreationFees + (vaultSave!.txResult.finalFee ?? 0n),
-        vault: recoveredVault,
-        treasuryMicrogons,
-        bitcoin,
-      });
-      expect(rules).toStrictEqual(vaultRules);
+      const treasuryFunder = await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault);
+      expect(treasuryFunder).toBeNull();
     },
   );
 

@@ -106,6 +106,7 @@ export const ConfigCertificationDetailsSchema = z.object({
   hasFirstMiningSeat: z.boolean(),
   hasSecondMiningSeat: z.boolean(),
   hasBitcoinLock: z.boolean(),
+  showOverviewTooltip: z.boolean().optional(),
 });
 
 export const ConfigInstallerStep = z.object({
@@ -168,11 +169,18 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 
 // ---- Main Schema ---- //
 
+export const ConnectedVaultSchema = z.object({
+  vaultId: z.number(),
+  operatorName: z.string(),
+});
+
 export const ConfigSchema = z.object({
   version: z.string(),
 
   requiresPassword: z.boolean(),
   bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
+
+  connectedVault: ConnectedVaultSchema.optional(),
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
@@ -189,7 +197,6 @@ export const ConfigSchema = z.object({
 
   isServerInstalled: z.boolean(), // is set once after first install
   isServerInstalling: z.boolean(), // is true whenever the Installer is running
-
   hasMiningSeats: z.boolean(),
   hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
@@ -231,9 +238,12 @@ export type IConfigStringified = {
   [K in keyof IConfig]: string;
 };
 
+export type IConnectedVault = z.infer<typeof ConnectedVaultSchema>;
+
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
+  connectedVault: () => IConfig['connectedVault'];
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];

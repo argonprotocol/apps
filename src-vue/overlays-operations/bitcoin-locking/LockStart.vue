@@ -10,7 +10,7 @@
         unencumbered Argon stablecoins. We call this process "Liquid Locking".
       </p>
 
-      <div v-if="errorMessage" class="mt-4 rounded-md bg-red-50 p-4">
+      <div v-if="errorMessage" data-testid="LockStart.errorMessage" class="mt-4 rounded-md bg-red-50 p-4">
         <div class="flex">
           <div class="shrink-0">
             <ExclamationTriangleIcon class="size-5 text-red-400" aria-hidden="true" />
@@ -27,6 +27,7 @@
         <div class="flex w-1/2 grow flex-col space-y-1">
           <label class="font-bold opacity-40">Bitcoins to Lock</label>
           <InputNumber
+            data-testid="LockStart.bitcoinAmount"
             v-model="bitcoinAmount"
             @input="handleBtcChange"
             :maxDecimals="8"
@@ -43,6 +44,7 @@
         <div class="flex w-1/2 grow flex-col space-y-1">
           <label class="font-bold opacity-40">Argons to Receive</label>
           <InputMoney
+            data-testid="LockStart.argonAmount"
             v-model="microgonAmount"
             @input="handleArgonChange"
             :maxDecimals="0"
@@ -52,6 +54,19 @@
             :dragByMin="1_000_000n"
             class="px-1 py-2 text-lg" />
         </div>
+      </div>
+    </div>
+
+    <div v-if="securityFee > 0n" class="mt-4 px-10">
+      <div
+        class="flex flex-row items-center justify-between rounded border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm">
+        <span class="text-slate-600">
+          Lock fee: {{ currency.symbol }}{{ microgonToMoneyNm(securityFee).format('0,0.[00]') }}
+        </span>
+        <span v-if="neededMicrogons > 0n" class="font-semibold text-red-600">
+          Need {{ currency.symbol }}{{ microgonToMoneyNm(neededMicrogons).format('0,0.[00]') }} more
+        </span>
+        <span v-else class="text-green-600">Balance sufficient</span>
       </div>
     </div>
 
@@ -84,19 +99,27 @@ import InputNumber from '../../components/InputNumber.vue';
 import InputMoney from '../../components/InputMoney.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { SATS_PER_BTC } from '@argonprotocol/mainchain';
+import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { getMyVault, getVaults } from '../../stores/vaults.ts';
+import { getVaults } from '../../stores/vaults.ts';
+import { useWallets } from '../../stores/wallets.ts';
+import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+
+const props = defineProps<{
+  availableBitcoinSpaceMicrogons: bigint;
+  vault: Vault;
+}>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'lockCreated', lock: IBitcoinLockRecord): void;
 }>();
 
 const currency = getCurrency();
-const myVault = getMyVault();
 const vaults = getVaults();
-const bitcoinLocksStore = getBitcoinLocks();
+const bitcoinLocks = getBitcoinLocks();
+const wallets = useWallets();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -107,6 +130,16 @@ const isSaving = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
 const bitcoinAmount = Vue.ref(0);
 const microgonAmount = Vue.ref(0n);
+const satoshiAmount = Vue.ref(0n);
+const securityFee = Vue.ref(0n);
+
+const neededMicrogons = Vue.computed(() => {
+  if (securityFee.value <= 0n) return 0n;
+  const buffer = 25_000n;
+  const needed = securityFee.value + buffer;
+  if (wallets.liquidLockingWallet.availableMicrogons >= needed) return 0n;
+  return needed - wallets.liquidLockingWallet.availableMicrogons;
+});
 
 const handleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
 const handleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
@@ -114,46 +147,76 @@ const handleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWai
 let lastSetMicrogonAmount = 0n;
 let lastSetBtcAmount = 0;
 
+function updateFeeEstimate() {
+  if (!props.vault || microgonAmount.value <= 0n) {
+    securityFee.value = 0n;
+    return;
+  }
+  securityFee.value = props.vault.calculateBitcoinFee(microgonAmount.value);
+}
+
+async function initializeDefaultAmounts(microgons: bigint) {
+  const sats = await bitcoinLocks.satoshisForArgonLiquidity(microgons);
+  const btc = currency.convertSatToBtc(sats);
+
+  satoshiAmount.value = sats;
+  microgonAmount.value = microgons;
+  bitcoinAmount.value = btc;
+
+  lastSetMicrogonAmount = microgons;
+  lastSetBtcAmount = btc;
+}
+
 async function internalHandleArgonChange(microgons: bigint) {
   if (microgons === lastSetMicrogonAmount) {
     return;
   }
-  const sats = await bitcoinLocksStore.satoshisForArgonLiquidity(microgons);
+  const sats = await bitcoinLocks.satoshisForArgonLiquidity(microgons);
+  satoshiAmount.value = sats;
   const btc = currency.convertSatToBtc(sats);
   console.log(`${microgons} microgons -> Btc market rate of ${sats} sats -> ${btc} btc`);
   bitcoinAmount.value = btc;
   lastSetBtcAmount = bitcoinAmount.value;
   lastSetMicrogonAmount = microgons;
+  updateFeeEstimate();
 }
 
 async function internalHandleBtcChange(value: number) {
   if (value === lastSetBtcAmount) {
     return;
   }
-  const sats = BigInt(Math.floor(value * Number(SATS_PER_BTC)));
+  const sats = BigInt(Math.round(value * Number(SATS_PER_BTC)));
+  satoshiAmount.value = sats;
   microgonAmount.value = await vaults.getMarketRateInMicrogons(sats);
   console.log(`Btc market rate of ${sats} sats -> ${microgonAmount.value} argons`);
   lastSetMicrogonAmount = microgonAmount.value;
   lastSetBtcAmount = value;
+  updateFeeEstimate();
 }
 
 async function submitLiquidLock() {
   if (isSaving.value) return;
 
-  let microgonLiquidity = microgonAmount.value;
+  let satoshis = satoshiAmount.value;
   try {
     isSaving.value = true;
     errorMessage.value = null;
-    if (microgonLiquidity <= 0n) {
+    if (satoshis <= 0n && microgonAmount.value > 0n) {
+      satoshis = await bitcoinLocks.satoshisForArgonLiquidity(microgonAmount.value);
+      satoshiAmount.value = satoshis;
+    }
+    if (satoshis <= 0n) {
       throw new Error('Please enter a valid amount of Argons to receive.');
     }
-    if (microgonLiquidity > bitcoinSpaceInMicrogons.value) {
-      microgonLiquidity = bitcoinSpaceInMicrogons.value;
-    }
 
-    await myVault.startBitcoinLocking({
-      microgonLiquidity,
+    await bitcoinLocks.initializeLock({
+      satoshis,
+      vault: props.vault,
     });
+    const createdLock = bitcoinLocks.data.pendingLocks.at(-1);
+    if (createdLock) {
+      emit('lockCreated', createdLock);
+    }
   } catch (e: any) {
     console.error('Error initializing liquid lock:', e);
     errorMessage.value = e.message;
@@ -167,19 +230,9 @@ function closeOverlay() {
 }
 
 Vue.onMounted(async () => {
-  await myVault.load();
-  await myVault.subscribe();
-
-  bitcoinSpaceInMicrogons.value = myVault.createdVault!.availableBitcoinSpace();
-  bitcoinSpaceInBtc.value = currency.convertSatToBtc(
-    await bitcoinLocksStore.satoshisForArgonLiquidity(bitcoinSpaceInMicrogons.value),
-  );
-
-  microgonAmount.value = bitcoinSpaceInMicrogons.value;
-  bitcoinAmount.value = bitcoinSpaceInBtc.value;
-});
-
-Vue.onUnmounted(async () => {
-  myVault.unsubscribe();
+  bitcoinSpaceInMicrogons.value = props.availableBitcoinSpaceMicrogons;
+  await initializeDefaultAmounts(bitcoinSpaceInMicrogons.value);
+  bitcoinSpaceInBtc.value = bitcoinAmount.value;
+  updateFeeEstimate();
 });
 </script>

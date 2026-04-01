@@ -4,7 +4,7 @@ import { Config } from './Config';
 import { LocalMachine } from './LocalMachine';
 import { ITryServerData, SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
-import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env';
+import { INSTANCE_NAME, IS_STABLE_BUILD, IS_TEST, NETWORK_NAME } from './Env';
 import { WalletKeys } from './WalletKeys.ts';
 
 export class MiningMachineError extends Error {
@@ -372,7 +372,7 @@ export class MiningMachine {
       );
     }
     progressFn?.(75);
-    if (!IS_TEST) {
+    if (!IS_TEST && IS_STABLE_BUILD) {
       await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
       await enableAutostart();
     }
