@@ -85,7 +85,10 @@ for (const data of existingAssets.data) {
   });
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
   const isExperimental = name.includes('Experimental');
-  const isDebug = name.includes('-debug');
+  if (name.includes('-debug')) {
+    console.warn(`Skipping debug asset in release channels: ${name}`);
+    continue;
+  }
   const appType = (name.match(/Argon\.(Operations|Capital)/)?.[1] || '').toLowerCase();
   const fileKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
   const file = files[fileKey];
@@ -104,17 +107,14 @@ for (const data of existingAssets.data) {
   }
 
   if (name.includes('x64-setup')) {
-    for (let key of ['windows-x86_64', 'windows-x86_64-nsis']) {
-      if (isDebug) {
-        key += '-debug';
-      }
+    for (const key of ['windows-x86_64', 'windows-x86_64-nsis']) {
       file.platforms[key] = {
         signature,
         url: downloadUrl,
       };
     }
-  } else if (name.match(/universal(-debug)?.app.tar.gz/)) {
-    for (let key of [
+  } else if (name.match(/universal\.app\.tar\.gz/)) {
+    for (const key of [
       'darwin-universal',
       'darwin-universal-app',
       'darwin-aarch64',
@@ -122,30 +122,20 @@ for (const data of existingAssets.data) {
       'darwin-aarch64-app',
       'darwin-x86_64-app',
     ]) {
-      if (isDebug) {
-        key += '-debug';
-      }
       file.platforms[key] = {
         signature,
         url: downloadUrl,
       };
     }
   } else if (name.includes('.AppImage')) {
-    for (let key of ['linux-x86_64', 'linux-x86_64-appimage']) {
-      if (isDebug) {
-        key += '-debug';
-      }
+    for (const key of ['linux-x86_64', 'linux-x86_64-appimage']) {
       file.platforms[key] = {
         signature,
         url: downloadUrl,
       };
     }
-  } else if (name.match(/amd64(-debug)?\.deb/g)) {
-    let key = 'linux-x86_64-deb';
-    if (isDebug) {
-      key += '-debug';
-    }
-    file.platforms[key] = {
+  } else if (name.match(/amd64\.deb/g)) {
+    file.platforms['linux-x86_64-deb'] = {
       signature,
       url: downloadUrl,
     };

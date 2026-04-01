@@ -5,6 +5,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../resources/");
     println!("cargo:rerun-if-changed=../local-machine/");
     println!("cargo:rerun-if-env-changed=NODE_ENV");
+    println!("cargo:rerun-if-env-changed=APPLE_SIGNING_IDENTITY");
+    println!("cargo:rustc-check-cfg=cfg(argon_signed_build)");
 
     // Check if NODE_ENV is set (highest priority)
     let mode = if let Ok(node_env) = std::env::var("NODE_ENV") {
@@ -41,6 +43,12 @@ fn main() {
             println!("cargo:rustc-env={key}={value}");
             println!("set-env:  {key}={value}");
         }
+    }
+
+    if env::var("APPLE_SIGNING_IDENTITY")
+        .is_ok_and(|value| !value.trim().is_empty() && value.trim() != "-")
+    {
+        println!("cargo:rustc-cfg=argon_signed_build");
     }
 
     tauri_build::build()
