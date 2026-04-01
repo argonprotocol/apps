@@ -39,8 +39,8 @@
             <InputMenu
               v-model="moveTo"
               :options="[
-                { name: 'Vaulting Account', value: 'Vaulting' },
-                { name: 'Mining Account', value: 'Mining' },
+                { name: 'Vaulting Account', value: MoveTo.VaultingHold },
+                { name: 'Mining Account', value: MoveTo.MiningHold },
               ]"
               class="mt-5 flex max-w-2/3" />
           </span>

@@ -2,94 +2,8 @@
 <template>
   <div data-testid="VaultingDashboard" class="flex flex-col h-full">
     <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
-      <section v-if="showCollectBar" box class="flex flex-row items-center text-slate-900/90 !py-3">
-        <div class="flex flex-row items-center w-full min-h-[6%]">
-          <div v-if="myVault.data.pendingCollectTxInfo" class="px-6 flex flex-row items-center w-full h-full">
-            <div v-if="pendingCollectTxMetadata?.expectedCollectRevenue" class="flex flex-row items-center text-lg relative text-slate-800/90">
-              <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
-              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(pendingCollectTxMetadata?.expectedCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is being collected</strong>&nbsp;
-            </div>
-            <div v-else class="flex flex-row items-center text-lg relative text-slate-800/90">
-              <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
-              <strong>{{ pendingCollectTxMetadata?.cosignedUtxoIds.length ?? 0 }} co-signatures are processing.</strong>&nbsp;
-            </div>
-            <div class="grow flex flex-row items-center pl-2 pr-3">
-              <div class="h-4 w-full bg-linear-to-r from-transparent to-argon-700/10"></div>
-              <div class="flex items-center justify-center">
-                <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M7 5l5 5-5 5" fill="currentColor" />
-                </svg>
-              </div>
-            </div>
-            <button @click="showCollectOverlay = true" class="bg-white border border-argon-600/20 hover:bg-argon-600/10 inner-button-shadow cursor-pointer rounded-md px-8 py-2 font-bold text-argon-600 focus:outline-none">
-              View Progress
-            </button>
-          </div>
-          <div v-else-if="showPendingCollectRevenue" class="px-6 flex flex-row items-center w-full h-full">
-            <div class="flex flex-row items-center text-lg relative text-slate-800/90">
-              <MoneyIcon class="h-10 w-10 inline-block mr-4 relative top-1 text-argon-800/60" />
-              <strong>{{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.pendingCollectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} is waiting to be collected</strong>&nbsp;
-              <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
-                <template v-if="hours || minutes || days || seconds > 0">
-                  ({{ currency.symbol }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse('< 1_000', '0,0.00', '0,0')}} expires in&nbsp;
-                  <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
-                  <span v-else-if="hours || minutes > 1">
-                    <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
-                    <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-                  </span>
-                  <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>)
-                </template>
-              </CountdownClock>
-            </div>
-            <div class="grow flex flex-row items-center pl-2 pr-3">
-              <div class="h-4 w-full bg-linear-to-r from-transparent to-argon-700/10"></div>
-              <div class="flex items-center justify-center">
-                <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M7 5l5 5-5 5" fill="currentColor" />
-                </svg>
-              </div>
-            </div>
-            <button @click="showCollectOverlay = true" class="bg-white border border-argon-600/20 hover:bg-argon-600/10 inner-button-shadow cursor-pointer rounded-md px-8 py-2 font-bold text-argon-600 focus:outline-none">
-              Collect Revenue
-            </button>
-          </div>
-          <div v-else-if="pendingManualCosignCount" class="px-6 flex flex-row items-center w-full h-full">
-            <div class="flex flex-row items-center text-lg relative text-slate-800/90">
-              <SigningIcon class="h-10 w-10 inline-block mr-4 relative text-argon-800/60" />
-              <strong>{{ pendingManualCosignCount }} bitcoin transaction{{ pendingManualCosignCount === 1 ? '' : 's' }} require{{ pendingManualCosignCount === 1 ? 's' : '' }} signing at a penalty of {{ currency.symbol }}{{ microgonToMoneyNm(pendingCosignPenalty).formatIfElse('< 1_000', '0,0.00', '0,0') }}</strong>&nbsp;(expires in&nbsp;
-              <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
-                <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }} </span>
-                <template v-else>
-                  <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }} </span>
-                  <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-                </template>
-              </CountdownClock>)
-            </div>
-            <div class="grow flex flex-row items-center pl-2 pr-3">
-              <div class="h-4 w-full bg-gradient-to-r from-transparent to-argon-700/10"></div>
-              <div class="flex items-center justify-center">
-                <svg viewBox="7 5 5 10" fill="currentColor" class="text-argon-700/10 h-7" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M7 5l5 5-5 5" fill="currentColor" />
-                </svg>
-              </div>
-            </div>
-            <button @click="showCollectOverlay = true" class="bg-white border border-argon-600/20 hover:bg-argon-600/10 inner-button-shadow cursor-pointer rounded-md px-8 py-2 font-bold text-argon-600 focus:outline-none">
-              Sign Bitcoin Transactions
-            </button>
-          </div>
-          <div v-else-if="!bitcoinLockedValue" class="flex flex-row px-3 items-center w-full h-full">
-            <SuccessIcon class="w-10 h-10 text-argon-600 mr-4 relative opacity-80" />
-            <div class="opacity-60 relative top-px">Your vault is operational, but it's not earning revenue. You must finish locking your bitcoin!</div>
-          </div>
-          <div v-else class="flex flex-row px-3 items-center w-full h-full">
-            <SuccessIcon class="w-10 h-10 text-argon-600 mr-4 relative opacity-80" />
-            <div class="opacity-60 relative top-px">Your vault is operational and in good order!</div>
-          </div>
-        </div>
-      </section>
-
       <TooltipProvider :disableHoverableContent="true">
-        <section class="flex flex-row gap-x-2" :class="[showCollectBar ? 'h-[12%]' : 'h-[14%]']">
+        <section class="flex flex-row gap-x-2 h-[14%]">
           <TooltipRoot>
             <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
               <span>
@@ -322,21 +236,9 @@
     </div>
 
     <!-- Overlays -->
-    <VaultCollectOverlay
-      v-if="showCollectOverlay"
-      @close="showCollectOverlay = false"
-    />
-
     <VaultEditOverlay
       v-if="showEditOverlay"
       @close="showEditOverlay = false"
-    />
-
-    <BitcoinLockingOverlay
-      v-if="showLockingOverlay"
-      :personalLock="selectedLock"
-      @close="closeLockingOverlay"
-      :vault="myVault.createdVault!"
     />
 
     <BitcoinLockDetailOverlay
@@ -352,11 +254,6 @@
       @close="closeBondDetailOverlay"
     />
 
-    <BitcoinUnlockingOverlay
-      v-if="showUnlockingOverlay"
-      :personalLock="selectedLock"
-      @close="closeUnlockingOverlay"
-    />
   </div>
 </template>
 
@@ -365,7 +262,6 @@ import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IVaultFrameRecord } from '../../interfaces/IVaultFrameRecord';
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 import FrameSlider from '../../components/FrameSlider.vue';
 
@@ -385,7 +281,6 @@ const currentFrame = Vue.ref({
   profitMaximizationPercent: 0,
 } as IVaultFrameRecord);
 
-dayjs.extend(relativeTime);
 dayjs.extend(utc);
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const frameRecords = Vue.ref<IVaultFrameRecord[]>([]);
@@ -398,30 +293,15 @@ import { getCurrency } from '../../stores/currency';
 import numeral from '../../lib/numeral';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import type { IExternalBitcoinLock, IFrameBondHolder } from '../../lib/MyVault.ts';
-import { BondFunder } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
-import CountdownClock from '../../components/CountdownClock.vue';
 import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
-import VaultCollectOverlay from '../../overlays-operations/VaultCollectOverlay.vue';
 import VaultEditOverlay from '../../overlays-operations/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays-operations/BitcoinLockDetailOverlay.vue';
-import BitcoinLockingOverlay from '../../overlays-operations/BitcoinLockingOverlay.vue';
-import BitcoinUnlockingOverlay from '../../overlays-operations/BitcoinUnlockingOverlay.vue';
 import BondDetailOverlay from '../../overlays-operations/BondDetailOverlay.vue';
 import AssetMenu from '../components/AssetMenu.vue';
-import SigningIcon from '../../assets/signing.svg?component';
-import MoneyIcon from '../../assets/money.svg?component';
-import SuccessIcon from '../../assets/success.svg?component';
 import ConfigIcon from '../../assets/config.svg?component';
-import {
-  NetworkConfig,
-  bigIntMin,
-  bigNumberToBigInt,
-  calculateAPY,
-  MoveTo,
-  TreasuryPool,
-} from '@argonprotocol/apps-core';
+import { NetworkConfig, bigIntMin, calculateAPY, MoveTo, TreasuryPool } from '@argonprotocol/apps-core';
 import { BigNumber } from 'bignumber.js';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMiningFrames } from '../../stores/mainchain.ts';
@@ -438,7 +318,6 @@ import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.t
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 
-dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
 const myVault = getMyVault();
@@ -456,52 +335,6 @@ const latestFrameId = Vue.computed(() => {
 });
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
-
-// For the Vault UI countdown clock
-const nextCollectDueDate = Vue.computed(() => {
-  return dayjs.utc(myVault.data.nextCollectDueDate);
-});
-
-const pendingCollectTxMetadata = Vue.computed(() => {
-  return myVault.data.pendingCollectTxInfo?.tx.metadataJson;
-});
-
-const myOwnPendingBitcoinCosignUtxoIds = Vue.computed(() => {
-  const utxoIds = new Set<number>();
-
-  for (const utxoId of myVault.data.pendingCosignUtxosById.keys()) {
-    if (!bitcoinLocks.getLockByUtxoId(utxoId)) continue;
-    utxoIds.add(utxoId);
-  }
-
-  return utxoIds;
-});
-
-const myPendingBitcoinCosignTxCount = Vue.computed(() => {
-  let count = 0;
-  for (const utxoId of myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.keys()) {
-    if (!myOwnPendingBitcoinCosignUtxoIds.value.has(utxoId)) continue;
-    count += 1;
-  }
-  return count;
-});
-
-const pendingManualCosignEntries = Vue.computed(() => {
-  return Array.from(myVault.data.pendingCosignUtxosById.entries()).filter(([utxoId]) => {
-    if (myOwnPendingBitcoinCosignUtxoIds.value.has(utxoId)) {
-      return false;
-    }
-    return !myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.has(utxoId);
-  });
-});
-
-const pendingManualCosignCount = Vue.computed(() => {
-  return pendingManualCosignEntries.value.length;
-});
-
-const showPendingCollectRevenue = Vue.computed(() => {
-  return Boolean(myVault.data.pendingCollectRevenue && !myOwnPendingBitcoinCosignUtxoIds.value.size);
-});
 
 const totalTreasuryPoolBonds = Vue.computed(() => {
   return TreasuryPool.totalBondedCapital(myVault.data.bondFunders);
@@ -609,7 +442,6 @@ function handleBondTileClick(key: string) {
     basicEmitter.emit('openMoveCapitalOverlay', {
       walletType: WalletType.vaulting,
       moveTo: MoveTo.VaultingTreasury,
-      maxAmount: bondMapRemainder.value,
     });
     return;
   }
@@ -819,28 +651,14 @@ const bondMapRemainder = Vue.computed(() => {
   return bondMapTotal.value > used ? bondMapTotal.value - used : 0n;
 });
 
-const pendingCosignPenalty = Vue.computed(() => {
-  const sum = pendingManualCosignEntries.value.reduce((acc, [, entry]) => acc + entry.marketValue, 0n);
-  return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
-});
-
-const showCollectOverlay = Vue.ref(false);
 const showEditOverlay = Vue.ref(false);
-const showLockingOverlay = Vue.ref(false);
 const showLockDetailOverlay = Vue.ref(false);
-const showUnlockingOverlay = Vue.ref(false);
 const showBondDetailOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const selectedBondHolder = Vue.ref<IFrameBondHolder | undefined>(undefined);
 
 function openLockingOverlay(lock?: IBitcoinLockRecord) {
-  selectedLock.value = lock;
-  showLockingOverlay.value = true;
-}
-
-function closeLockingOverlay() {
-  showLockingOverlay.value = false;
-  selectedLock.value = undefined;
+  basicEmitter.emit('openBitcoinLock', { lock });
 }
 
 function openLockDetailOverlay(lock: IBitcoinLockRecord) {
@@ -860,23 +678,9 @@ function closeBondDetailOverlay() {
 
 function onUnlockFromDetail(lock: IBitcoinLockRecord) {
   showLockDetailOverlay.value = false;
-  selectedLock.value = lock;
-  showUnlockingOverlay.value = true;
-}
-
-function closeUnlockingOverlay() {
-  showUnlockingOverlay.value = false;
   selectedLock.value = undefined;
+  basicEmitter.emit('openBitcoinUnlock', lock);
 }
-
-const showCollectBar = Vue.computed(() => {
-  return (
-    myVault.data.pendingCollectTxInfo ||
-    showPendingCollectRevenue.value ||
-    pendingManualCosignCount.value ||
-    !bitcoinLockedValue
-  );
-});
 
 const sliderFrameIndex = Vue.computed(() => {
   const lastIndex = Math.max(frameRecords.value.length - 1, 0);
@@ -976,7 +780,6 @@ let onTickSubscription: { unsubscribe: () => void };
 Vue.onMounted(async () => {
   await miningFrames.load();
   await myVault.load();
-  await myVault.subscribe();
   await bitcoinLocks.load();
 
   Vue.watch(
@@ -999,7 +802,6 @@ Vue.onMounted(async () => {
 Vue.onUnmounted(() => {
   onFrameSubscription.unsubscribe();
   onTickSubscription.unsubscribe();
-  myVault.unsubscribe();
 });
 </script>
 

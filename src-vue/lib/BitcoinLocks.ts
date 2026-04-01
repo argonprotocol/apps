@@ -217,7 +217,7 @@ export default class BitcoinLocks {
     return this.data.locksByUtxoId[utxoId];
   }
 
-  public approximateExpirationTime(lock: IBitcoinLockRecord): number {
+  public unlockDeadlineTime(lock: IBitcoinLockRecord): number {
     if (!this.#config) {
       throw new Error('Bitcoin lock configuration is not loaded for expiration time.');
     }

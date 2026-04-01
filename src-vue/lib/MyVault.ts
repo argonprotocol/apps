@@ -46,6 +46,7 @@ import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
+import { computeCollectDeadline } from './VaultDeadlineWatcher.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
 import { Config } from './Config.ts';
@@ -352,32 +353,14 @@ export class MyVault {
   }
 
   private updateCollectDueDate() {
-    const framesToCollect = this.#configs!.timeToCollectFrames;
-    let nextCollectFrame = this.data.currentFrameId + framesToCollect;
-    this.data.expiringCollectAmount = 0n;
-    const oldestToCollectFrame = this.data.currentFrameId - framesToCollect;
-    for (const frameChange of this.#collectFrames) {
-      if (frameChange.uncollectedEarnings > 0n) {
-        this.data.expiringCollectAmount = frameChange.uncollectedEarnings;
-        // descending order
-        nextCollectFrame = frameChange.frameId + framesToCollect;
-      }
-      if (frameChange.frameId < oldestToCollectFrame) break;
-    }
-    if (this.data.pendingCosignUtxosById.size > 0) {
-      let earliestCosignDueFrame = Number.MAX_SAFE_INTEGER;
-      for (const pendingCosign of this.data.pendingCosignUtxosById.values()) {
-        if (pendingCosign.dueFrame === undefined) {
-          continue;
-        }
-        earliestCosignDueFrame = Math.min(earliestCosignDueFrame, pendingCosign.dueFrame);
-      }
-      if (earliestCosignDueFrame < Number.MAX_SAFE_INTEGER) {
-        nextCollectFrame = Math.min(nextCollectFrame, earliestCosignDueFrame);
-      }
-    }
-    nextCollectFrame = Math.max(this.data.currentFrameId + 1, nextCollectFrame);
-
+    const cosignDueFrames = [...this.data.pendingCosignUtxosById.values()].map(x => x.dueFrame);
+    const { nextCollectFrame, expiringCollectAmount } = computeCollectDeadline({
+      collectFrames: this.#collectFrames,
+      cosignDueFrames,
+      currentFrameId: this.data.currentFrameId,
+      timeToCollectFrames: this.#configs!.timeToCollectFrames,
+    });
+    this.data.expiringCollectAmount = expiringCollectAmount;
     this.data.nextCollectDueDate = this.miningFrames.getFrameDate(nextCollectFrame).getTime();
   }
 

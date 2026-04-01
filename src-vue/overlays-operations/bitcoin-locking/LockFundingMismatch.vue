@@ -86,8 +86,15 @@
     <template v-else-if="showOptionCards">
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <section
-          :class="acceptRecommended ? 'border-argon-400 bg-argon-50/25' : 'border-slate-300 bg-white'"
-          class="flex h-full flex-col rounded-lg border p-3.5">
+          :class="
+            isAcceptSelected
+              ? 'border-argon-500 bg-argon-50/35 ring-argon-300/70 ring-1'
+              : acceptRecommended
+                ? 'border-argon-300/70 bg-white'
+                : 'border-slate-300 bg-white'
+          "
+          class="flex h-full cursor-pointer flex-col rounded-lg border p-3.5 transition-colors"
+          @click="selectAction('accept')">
           <div class="mb-1 flex items-center gap-2">
             <p class="text-xs font-light tracking-wide text-slate-400 uppercase">Option 1</p>
             <span
@@ -130,7 +137,7 @@
                 @click="acceptMismatch"
                 :disabled="isSubmitting || !canAcceptMismatch || !canAffordAccept"
                 :class="
-                  acceptRecommended
+                  isAcceptSelected
                     ? 'border-argon-600 bg-argon-600 hover:bg-argon-700 text-white'
                     : 'border-argon-600/50 text-argon-700 hover:bg-argon-50 bg-white'
                 "
@@ -148,8 +155,15 @@
         </section>
 
         <section
-          :class="returnRecommended ? 'border-argon-400 bg-argon-50/25' : 'border-slate-300 bg-white'"
-          class="flex h-full flex-col rounded-lg border p-3.5">
+          :class="
+            isReturnSelected
+              ? 'border-argon-500 bg-argon-50/35 ring-argon-300/70 ring-1'
+              : returnRecommended
+                ? 'border-argon-300/70 bg-white'
+                : 'border-slate-300 bg-white'
+          "
+          class="flex h-full cursor-pointer flex-col rounded-lg border p-3.5 transition-colors"
+          @click="selectAction('return')">
           <div class="mb-1 flex items-center gap-2">
             <p class="text-xs font-light tracking-wide text-slate-400 uppercase">Option 2</p>
             <span
@@ -204,7 +218,7 @@
               @click="returnMismatch"
               :disabled="!isReturnDestinationValid || isSubmitting || !canReturnMismatch || !canAffordReturn"
               :class="
-                returnRecommended
+                isReturnSelected
                   ? 'border-argon-600 bg-argon-600 hover:bg-argon-700 text-white'
                   : 'border-argon-600/50 text-argon-700 hover:bg-argon-50 bg-white'
               "
@@ -259,6 +273,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
 import { generateProgressLabel } from '../../lib/Utils.ts';
@@ -528,6 +543,14 @@ const returnRecommended = Vue.computed(() => {
     isFundingExpired.value || mismatchCandidateCount.value > 1 || (isMoreThanReserved.value && isUnderSecuritized.value)
   );
 });
+const selectedAction = Vue.ref<'accept' | 'return' | null>(null);
+const defaultSelectedAction = Vue.computed<'accept' | 'return'>(() => {
+  if (acceptRecommended.value) return 'accept';
+  if (returnRecommended.value) return 'return';
+  return 'accept';
+});
+const isAcceptSelected = Vue.computed(() => selectedAction.value === 'accept');
+const isReturnSelected = Vue.computed(() => selectedAction.value === 'return');
 
 const panelTitle = Vue.computed(() => {
   if (showResumeFundingState.value || showReturnCompleteState.value) return 'Mismatch Bitcoin Deposit Returned';
@@ -734,6 +757,10 @@ function formatArgon(microgons: bigint): string {
   return `${isNegative ? '-' : ''}${currency.symbol}${amount}`;
 }
 
+function selectAction(action: 'accept' | 'return') {
+  selectedAction.value = action;
+}
+
 let refreshFeeEstimateTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeEstimateRunId = 0;
 
@@ -793,6 +820,7 @@ async function resumeFunding() {
 
   try {
     await bitcoinLocks.resumeWaitingForFunding(currentLock.value);
+    basicEmitter.emit('resumeBitcoinFunding', currentLock.value);
   } catch (err) {
     actionError.value = (err as Error).message;
   } finally {
@@ -887,6 +915,14 @@ Vue.watch(
     queueFeeEstimateRefresh();
   },
   { deep: true },
+);
+
+Vue.watch(
+  () => showOptionCards.value,
+  showOptions => {
+    selectedAction.value = showOptions ? defaultSelectedAction.value : null;
+  },
+  { immediate: true },
 );
 
 Vue.watch(

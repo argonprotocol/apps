@@ -742,7 +742,7 @@ async function loadPersonalUtxo() {
     loadedUtxoId = lock.utxoId!;
     bitcoinLocks.confirmAddress(lock);
     lockInitializeExpirationTime.value = dayjs.utc(bitcoinLocks.verifyExpirationTime(lock!));
-    const expirationMillis = bitcoinLocks.approximateExpirationTime(lock);
+    const expirationMillis = bitcoinLocks.unlockDeadlineTime(lock);
     lockExpirationTime.value = dayjs.utc(expirationMillis);
   }
 }
@@ -795,7 +795,6 @@ let stopLockProgressTracking: (() => void) | undefined;
 
 Vue.onMounted(async () => {
   await myVault.load();
-  await myVault.subscribe();
   await bitcoinLocks.load();
   stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
   hasInitializedLockProgress.value = true;
@@ -825,7 +824,6 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
-  myVault.unsubscribe();
   stopLockProgressTracking?.();
   stopLockProgressTracking = undefined;
 });
