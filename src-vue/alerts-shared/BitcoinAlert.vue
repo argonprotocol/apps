@@ -181,7 +181,7 @@ const expirationTime = Vue.computed(() => {
 });
 
 const lockExpirationTime = Vue.computed(() => {
-  return dayjs.utc(bitcoinLocks.approximateExpirationTime(props.notice.lock));
+  return dayjs.utc(bitcoinLocks.unlockDeadlineTime(props.notice.lock));
 });
 
 const title = Vue.computed(() => {

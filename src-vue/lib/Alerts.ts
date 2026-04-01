@@ -1,5 +1,4 @@
-import { bigIntMin } from '@argonprotocol/apps-core';
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { bigIntMin, NetworkConfig } from '@argonprotocol/apps-core';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import type { IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
@@ -63,7 +62,7 @@ type IBitcoinAlertSource = {
   getAcceptedFundingRecord(lock: IBitcoinLockRecord): IBitcoinUtxoRecord | undefined;
   getLockUnlockReleaseState(lock: IBitcoinLockRecord): IBitcoinUnlockReleaseState;
   isLockedStatus(lock: IBitcoinLockRecord): boolean;
-  approximateExpirationTime(lock: IBitcoinLockRecord): number;
+  unlockDeadlineTime(lock: IBitcoinLockRecord): number;
   verifyExpirationTime(lock: IBitcoinLockRecord): number;
 };
 
@@ -197,7 +196,7 @@ export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: n
       continue;
     }
 
-    const expiresAt = bitcoinLocks.approximateExpirationTime(lock);
+    const expiresAt = bitcoinLocks.unlockDeadlineTime(lock);
     if (bitcoinLocks.isLockedStatus(lock) && isAlertLockNearExpiration(expiresAt, now)) {
       alerts.push({
         kind: 'unlockExpiring',

@@ -742,7 +742,7 @@ async function loadPersonalUtxo() {
     loadedUtxoId = lock.utxoId!;
     bitcoinLocks.confirmAddress(lock);
     lockInitializeExpirationTime.value = dayjs.utc(bitcoinLocks.verifyExpirationTime(lock!));
-    const expirationMillis = bitcoinLocks.approximateExpirationTime(lock);
+    const expirationMillis = bitcoinLocks.unlockDeadlineTime(lock);
     lockExpirationTime.value = dayjs.utc(expirationMillis);
   }
 }

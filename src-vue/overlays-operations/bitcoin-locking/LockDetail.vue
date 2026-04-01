@@ -296,7 +296,7 @@ Vue.onMounted(() => {
       lockExpirationTime.value = dayjs.utc();
     }
   } else {
-    const expirationMillis = bitcoinLocks.approximateExpirationTime(props.lock);
+    const expirationMillis = bitcoinLocks.unlockDeadlineTime(props.lock);
     lockExpirationTime.value = dayjs.utc(expirationMillis);
   }
   void loadPrices();
