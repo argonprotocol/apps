@@ -106,7 +106,6 @@ export class MyVault {
       moveTo: MoveTo;
       allocationPercents?: { treasury: number; securitization: number };
     }> | null;
-    securitizedSatoshis: bigint;
     currentFrameBondData: {
       distributableBidPool: bigint;
       globalCapital: bigint;
@@ -173,7 +172,6 @@ export class MyVault {
       nextCollectDueDate: 0,
       expiringCollectAmount: 0n,
       currentFrameId: 0,
-      securitizedSatoshis: 0n,
       currentFrameBondData: {
         distributableBidPool: 0n,
         globalCapital: 0n,
@@ -323,7 +321,6 @@ export class MyVault {
       const nextVault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
       this.vaults.vaultsById[vaultId] = nextVault;
       this.data.createdVault = nextVault;
-      this.data.securitizedSatoshis = raw.securitizedSatoshis.toBigInt();
       void this.refreshExternalLocks();
     });
 
@@ -1689,6 +1686,7 @@ export class MyVault {
     this.data.pendingAllocateTxInfo = null;
     console.log('Vault allocations increased');
     await this.trackTxResultFee(txResult);
+    await this.refreshBondData();
     postProcessor.resolve();
   }
 

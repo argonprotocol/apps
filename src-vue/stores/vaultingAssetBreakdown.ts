@@ -87,7 +87,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryMicrogonsMaxCapacity = Vue.computed(() => {
-    const sats = myVault.data.securitizedSatoshis;
+    const sats = BigInt(myVault.createdVault?.securitizedSatoshis ?? 0);
     if (sats <= 0n) return 0n;
     return currency.priceIndex.getBtcMicrogonPrice(sats);
   });
