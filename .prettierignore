@@ -1,0 +1,11 @@
+**/node_modules
+.yarn
+dist
+build
+coverage
+target
+tmp
+.temp
+*.log
+
+src-tauri/target

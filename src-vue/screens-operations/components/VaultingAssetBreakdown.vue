@@ -334,7 +334,6 @@ Vue.onMounted(async () => {
   if (!myVault.createdVault) {
     return;
   }
-  await myVault.subscribe();
   await bitcoinLocks.load();
 });
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
