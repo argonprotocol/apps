@@ -112,19 +112,6 @@ export async function buildOperatorAccountRegistrationTx(args: {
     MINING_BOT_ACCOUNT_PROOF_MESSAGE_KEY,
   );
 
-  console.log('Operational account proof verification', {
-    operationalAddr,
-    vaultingAddr,
-    miningHoldAddr,
-    miningBotAddr,
-    proofs: {
-      operational: operationalAccountProof.isValid,
-      vault: vaultAccountProof.isValid,
-      miningFunding: miningFundingAccountProof.isValid,
-      miningBot: miningBotAccountProof.isValid,
-    },
-  });
-
   return client.tx.operationalAccounts.register({
     V1: {
       operationalAccount: operationalAddr,
@@ -151,7 +138,6 @@ export async function loadOperationalAccount(
   if (accountRaw.isEmpty) return false;
 
   const account = accountRaw.unwrap().toJSON();
-  console.log('ACCOUNT: ', account);
   const details = config.setCertificationDetails({});
 
   details.hasVault = details.hasVault || (account.vaultCreated as boolean);

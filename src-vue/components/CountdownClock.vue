@@ -20,8 +20,17 @@ const hours = Vue.ref(0);
 const minutes = Vue.ref(0);
 const seconds = Vue.ref(0);
 const days = Vue.ref(0);
+let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+function clearTimer() {
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+    timeoutId = null;
+  }
+}
 
 function updateTime() {
+  clearTimer();
   const now = dayjs.utc();
   if (props.time < now) {
     hours.value = 0;
@@ -33,6 +42,7 @@ function updateTime() {
     return;
   }
 
+  isFinished.value = false;
   const totalDays = props.time.diff(now, 'days');
   days.value = totalDays > 0 ? totalDays : 0;
 
@@ -44,7 +54,7 @@ function updateTime() {
   emit('update:tick', totalSeconds);
 
   if (totalSeconds > 0) {
-    setTimeout(updateTime, 1000);
+    timeoutId = setTimeout(updateTime, 1000);
   } else {
     isFinished.value = true;
   }
@@ -52,8 +62,10 @@ function updateTime() {
 Vue.watch(
   () => props.time,
   () => {
+    clearTimer();
     updateTime();
   },
 );
 Vue.onMounted(updateTime);
+Vue.onUnmounted(clearTimer);
 </script>

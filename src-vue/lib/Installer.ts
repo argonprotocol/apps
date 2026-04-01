@@ -524,7 +524,6 @@ export default class Installer {
       console.log(`Uploading server to ${remoteDir}`);
       await SSH.uploadEmbeddedFile(localServerTar, `${workDir}/${serverTar}`, (progress: number) => {
         totalProgress += progress;
-        console.log(`Uploading server to ${remoteDir} - ${progress}%`);
         progressFn?.(totalCount, totalProgress);
       });
 
