@@ -2,7 +2,7 @@ import * as pako from 'pako';
 
 export class VaultInvites {
   public static encodeInviteCode(ipAddress: string, port: string, privateKey: string) {
-    const input = `${ipAddress}:${port}:${privateKey}`;
+    const input = `${ipAddress};${port};${privateKey}`;
     const out = pako.deflate(input);
     const hex = Array.from(out, (byte: number) => byte.toString(16).padStart(2, '0')).join('');
     return `0x${hex}`;
@@ -24,7 +24,7 @@ export class VaultInvites {
 
       const bytes = Uint8Array.from(int);
       const decoded = pako.inflate(bytes, { to: 'string' });
-      const [ipAddress, port, privateKey] = decoded.split(':');
+      const [ipAddress, port, privateKey] = decoded.split(';');
       if (!ipAddress || !port || !privateKey) return { hasError: true };
 
       return { ipAddress, port, privateKey };

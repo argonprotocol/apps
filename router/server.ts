@@ -138,7 +138,7 @@ app.get(
   }),
 );
 
-app.get(
+app.post(
   '/capital-users/:inviteCode/register-app',
   safeJsonRoute(async (req: Request, res: Response) => {
     const profile = Profile.fetch();

@@ -128,20 +128,16 @@ export const ConfigServerInstallerSchema = z.object({
   isRunning: z.boolean(),
 });
 
-export const ConfigBootstrapDetailsSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal(BootstrapType.Private),
-    ipAddress: HostOrIpSchema,
-    inviteCode: z.string(),
-    privateKey: z.string(),
-  }),
-  z.object({
-    type: z.literal(BootstrapType.Public),
-    ipAddress: HostOrIpSchema,
-    inviteCode: z.string().optional(),
-    privateKey: z.string().optional(),
-  }),
-]);
+export const ConfigBootstrapDetailsSchema = z.object({
+  type: z.nativeEnum(BootstrapType),
+  routerHost: HostOrIpSchema,
+});
+
+export const UpstreamOperatorSchema = z.object({
+  name: z.string(),
+  vaultId: z.number(),
+  inviteCode: z.string(),
+});
 
 export const ConfigSyncDetailsSchema = z.object({
   progress: z.number(),
@@ -171,20 +167,11 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 
 // ---- Main Schema ---- //
 
-export const UpstreamOperatorSchema = z.object({
-  name: z.string(),
-  vaultId: z.number(),
-  inviteCode: z.string(),
-});
-
-// ---- Main Schema ---- //
-
 export const ConfigSchema = z.object({
   version: z.string(),
-
   requiresPassword: z.boolean(),
-  bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
 
+  bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
   upstreamOperator: UpstreamOperatorSchema.optional(),
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),

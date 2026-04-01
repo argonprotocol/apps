@@ -166,11 +166,11 @@ export class Config implements IConfig {
         if (key === dbFields.bootstrapDetails && rawValue !== undefined && rawValue !== '') {
           const bootstrapDetails = JsonExt.parse(rawValue as string);
           const resolvedIpAddress =
-            bootstrapDetails?.ipAddress === BOOTSTRAP_NETWORK_PLACEHOLDER
+            bootstrapDetails?.routerHost === BOOTSTRAP_NETWORK_PLACEHOLDER
               ? stripSocketProtocol(NETWORK_URL)
-              : stripSocketProtocol(bootstrapDetails?.ipAddress ?? '');
-          if (bootstrapDetails && bootstrapDetails.ipAddress !== resolvedIpAddress) {
-            bootstrapDetails.ipAddress = resolvedIpAddress;
+              : stripSocketProtocol(bootstrapDetails?.routerHost ?? '');
+          if (bootstrapDetails && bootstrapDetails.routerHost !== resolvedIpAddress) {
+            bootstrapDetails.routerHost = resolvedIpAddress;
             rawValue = JsonExt.stringify(bootstrapDetails, 2);
             dbRawData[key as keyof typeof dbRawData] = rawValue as any;
             rawData[key as keyof typeof rawData] = rawValue;

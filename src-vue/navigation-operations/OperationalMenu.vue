@@ -131,7 +131,7 @@ const rootRef = Vue.ref<HTMLElement>();
 
 const isShowingBonusTooltip = Vue.computed(() => {
   const showBonusTooltip = config.certificationDetails?.showBonusTooltip;
-  return showBonusTooltip && !isOpen.value && config.bootstrapDetails;
+  return showBonusTooltip && !isOpen.value && config.upstreamOperator;
 });
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

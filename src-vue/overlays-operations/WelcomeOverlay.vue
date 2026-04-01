@@ -159,7 +159,7 @@ async function connectToNetwork() {
   const host = `http://${meta.ipAddress}:${meta.port}`;
   let body: { fromName: string; invite: ICapitalInvite };
   try {
-    const response = await fetch(`${host}/capital-users/${inviteCode.value}/register-app`);
+    const response = await fetch(`${host}/capital-users/${inviteCode.value}/register-app`, { method: 'POST' });
     if (!response.ok) {
       formError.value = 'Unable to connect with that access code. Please verify it and try again.';
       return;
@@ -182,14 +182,12 @@ async function connectToNetwork() {
   config.upstreamOperator = {
     name: body.fromName,
     vaultId: invite.vaultId,
-    inviteCode: inviteCode.value,
+    inviteCode: inviteCode.value.trim(),
   };
 
   config.bootstrapDetails = {
     type: BootstrapType.Private,
-    ipAddress: [meta.ipAddress, meta.port].filter(x => x).join(':'),
-    inviteCode: inviteCode.value.trim()!,
-    privateKey: meta.privateKey!,
+    routerHost: [meta.ipAddress, meta.port].filter(x => x).join(':'),
   };
 
   await config.save();
