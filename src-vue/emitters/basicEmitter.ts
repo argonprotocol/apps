@@ -4,6 +4,7 @@ import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import { OperationalStepId } from '../stores/operationsController.ts';
 import { MoveTo } from '@argonprotocol/apps-core';
+import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
 type IBasicEmitter = {
   openWalletOverlay: { walletType: WalletType.miningHold | WalletType.vaulting; screen: string };
@@ -35,6 +36,10 @@ type IBasicEmitter = {
   openProfileOverlay: void;
 
   openVaultCouponsOverlay: void;
+  openVaultCollect: void;
+  openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
+  openBitcoinUnlock: IBitcoinLockRecord;
+  resumeBitcoinFunding: IBitcoinLockRecord;
 
   openServerOverlay: void;
   openOperationalOverlay: OperationalStepId;
