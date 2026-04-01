@@ -25,12 +25,12 @@ export function computeCollectDeadline(args: {
   const oldestToCollectFrame = currentFrameId - timeToCollectFrames;
 
   for (const frame of collectFrames) {
+    if (frame.frameId < oldestToCollectFrame) break;
+
     if (frame.uncollectedEarnings > 0n) {
       expiringCollectAmount = frame.uncollectedEarnings;
       nextCollectFrame = frame.frameId + timeToCollectFrames;
     }
-
-    if (frame.frameId < oldestToCollectFrame) break;
   }
 
   let earliestCosignDueFrame = Number.MAX_SAFE_INTEGER;
@@ -55,6 +55,7 @@ export class VaultDeadlineWatcher {
   private currentFrameId = 0;
   private timeToCollectFrames = 0;
   private pendingCollectRevenue = 0n;
+  private pendingCosignUpdateSeq = 0;
 
   constructor(
     private vaultId: number,
@@ -84,9 +85,9 @@ export class VaultDeadlineWatcher {
       this.emitState();
     });
 
-    const sub3 = await client.query.vaults.pendingCosignByVaultId(this.vaultId, async rawUtxoIds => {
-      await this.updateCosignDueFrames(client, rawUtxoIds);
-      this.emitState();
+    const sub3 = await client.query.vaults.pendingCosignByVaultId(this.vaultId, rawUtxoIds => {
+      const updateSeq = ++this.pendingCosignUpdateSeq;
+      void this.updateCosignDueFrames(client, rawUtxoIds, updateSeq);
     });
 
     const sub4 = await client.query.vaults.lastCollectFrameByVaultId(this.vaultId, () => this.emitState());
@@ -104,17 +105,29 @@ export class VaultDeadlineWatcher {
   private async updateCosignDueFrames(
     client: ArgonClient,
     rawUtxoIds: Iterable<{ toNumber(): number }>,
+    updateSeq: number,
   ): Promise<void> {
+    const priorDueFrames = this.cosignDueFrames;
+    const utxoIds = Array.from(rawUtxoIds, utxoId => utxoId.toNumber());
     const newDueFrames = new Map<number, number | undefined>();
 
-    for (const utxoId of rawUtxoIds) {
-      const id = utxoId.toNumber();
-      const releaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(id);
-      const dueFrame = releaseRaw.isSome ? releaseRaw.unwrap().cosignDueFrame.toNumber() : this.cosignDueFrames.get(id);
+    const releaseRequests = utxoIds.length
+      ? await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId.multi(utxoIds)
+      : [];
+
+    if (updateSeq !== this.pendingCosignUpdateSeq) {
+      return;
+    }
+
+    for (let i = 0; i < utxoIds.length; i += 1) {
+      const id = utxoIds[i];
+      const releaseRaw = releaseRequests[i];
+      const dueFrame = releaseRaw.isSome ? releaseRaw.unwrap().cosignDueFrame.toNumber() : priorDueFrames.get(id);
       newDueFrames.set(id, dueFrame);
     }
 
     this.cosignDueFrames = newDueFrames;
+    this.emitState();
   }
 
   private emitState(): void {

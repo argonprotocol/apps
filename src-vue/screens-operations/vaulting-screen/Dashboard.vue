@@ -442,7 +442,6 @@ function handleBondTileClick(key: string) {
     basicEmitter.emit('openMoveCapitalOverlay', {
       walletType: WalletType.vaulting,
       moveTo: MoveTo.VaultingTreasury,
-      maxAmount: bondMapRemainder.value,
     });
     return;
   }
@@ -463,6 +462,7 @@ function handleBitcoinTileClick(key: string) {
       basicEmitter.emit('openMoveCapitalOverlay', {
         walletType: WalletType.vaulting,
         moveTo: MoveTo.VaultingSecurity,
+        maxAmount: bitcoinMapRemainder.value,
       });
     } else {
       openLockingOverlay();

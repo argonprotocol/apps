@@ -18,7 +18,7 @@
           {{ title }}
         </div>
 
-        <div v-if="$slots.subline" :class="sublineClass" class="-pt-1 text-sm leading-snug">
+        <div v-if="$slots.subline" :class="sublineClass" class="text-sm leading-snug">
           <slot name="subline" />
         </div>
       </div>

@@ -349,10 +349,11 @@ clients.events.on('working', () => {
 clients.events.on('degraded', () => {
   isApiClientDegraded.value = true;
 });
-basicEmitter.on('resumeBitcoinFunding', lock => {
+
+function markResumedFunding(lock: IBitcoinLockRecord) {
   if (!lock.utxoId) return;
   resumedFundingByLockUtxoId.value[lock.utxoId] = true;
-});
+}
 
 function openBotCreateOverlay() {
   basicEmitter.emit('openBotEditOverlay');
@@ -447,6 +448,34 @@ async function loadAttentionData() {
   }
 }
 
+Vue.watch(
+  () => myVault.createdVault?.vaultId,
+  vaultId => {
+    if (!vaultId) return;
+    void myVault.subscribe().catch(() => undefined);
+  },
+  { immediate: true },
+);
+
+Vue.watch(
+  bitcoinAlerts,
+  alerts => {
+    const activeFundingExpiringUtxoIds = new Set(
+      alerts
+        .filter(alert => alert.kind === 'fundingExpiring')
+        .map(alert => alert.lock.utxoId)
+        .filter(Boolean) as number[],
+    );
+
+    for (const utxoId of Object.keys(resumedFundingByLockUtxoId.value)) {
+      if (!activeFundingExpiringUtxoIds.has(Number(utxoId))) {
+        delete resumedFundingByLockUtxoId.value[Number(utxoId)];
+      }
+    }
+  },
+  { immediate: true },
+);
+
 Vue.watch(noticeCount, count => {
   if (count === 0) {
     isExpanded.value = false;
@@ -460,6 +489,7 @@ Vue.onMounted(() => {
   basicEmitter.on('openBitcoinLock', openBitcoinLock);
   basicEmitter.on('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.on('closeAllOverlays', closeSharedOverlays);
+  basicEmitter.on('resumeBitcoinFunding', markResumedFunding);
 });
 
 Vue.onUnmounted(() => {
@@ -467,6 +497,7 @@ Vue.onUnmounted(() => {
   basicEmitter.off('openBitcoinLock', openBitcoinLock);
   basicEmitter.off('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.off('closeAllOverlays', closeSharedOverlays);
+  basicEmitter.off('resumeBitcoinFunding', markResumedFunding);
   myVault.unsubscribe();
 });
 </script>

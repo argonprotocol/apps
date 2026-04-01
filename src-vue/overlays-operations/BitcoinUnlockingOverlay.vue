@@ -188,7 +188,7 @@ const unlockStep = Vue.computed<UnlockStep>(() => {
 const isNearExpiration = Vue.computed(() => {
   const lock = personalLock.value;
   if (!lock) return false;
-  const expTime = bitcoinLocks.approximateExpirationTime(lock);
+  const expTime = bitcoinLocks.unlockDeadlineTime(lock);
   if (!expTime) return false;
   return expTime < Date.now() + 10 * TICK_MILLIS;
 });
