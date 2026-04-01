@@ -504,11 +504,7 @@ pub fn run() {
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
         .map_or("null".to_string(), |v| v.to_string());
 
-    let mut updater_target = tauri_plugin_updater::target().unwrap_or_default();
-    if cfg!(debug_assertions) {
-        updater_target += "-debug";
-    }
-
+    let updater_target = tauri_plugin_updater::target().unwrap_or_default();
     println!("Updater target = {updater_target}");
     let app_name_clone = app_name.clone();
     let network_config_override_json_clone = network_config_override_json.clone();

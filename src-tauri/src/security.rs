@@ -14,6 +14,8 @@ use sp_core::crypto::Ss58Codec;
 use sp_core::{DeriveJunction, Pair, ed25519, sr25519};
 use std::fs;
 use std::path::PathBuf;
+#[cfg(all(target_os = "macos", not(argon_signed_build)))]
+use std::process::Command;
 use std::str::FromStr;
 use tauri::AppHandle;
 
@@ -79,30 +81,32 @@ impl Security {
         let account = Utils::get_relative_config_instance_dir(app_id)
             .to_string_lossy()
             .to_string();
-        let entry = keyring::Entry::new(&service, &account)?;
 
-        let hex_key = match entry.get_password() {
-            Ok(k) => k,
-            Err(keyring::Error::NoEntry) => {
-                let mut key = [0u8; 32];
-                rand::RngCore::fill_bytes(&mut rand::rng(), &mut key);
-                let new_key = hex::encode(key);
-                entry.set_password(&new_key)?;
-                new_key
+        #[cfg(all(target_os = "macos", not(argon_signed_build)))]
+        let use_local_dev_path = app_id.ends_with(".local");
+
+        #[cfg(any(not(target_os = "macos"), argon_signed_build))]
+        let use_local_dev_path = false;
+
+        let hex_key = if use_local_dev_path {
+            read_or_create_local_dev_wallet_key(&service, &account)?
+        } else {
+            let entry = keyring::Entry::new(&service, &account)?;
+            match entry.get_password() {
+                Ok(k) => k,
+                Err(keyring::Error::NoEntry) => {
+                    let new_key = generate_wallet_key_hex();
+                    entry.set_password(&new_key)?;
+                    new_key
+                }
+                Err(e) => return Err(e.into()),
             }
-            Err(e) => return Err(e.into()),
         };
-        anyhow::ensure!(
-            hex_key.len() == 64,
-            "Keychain encryption key is invalid (expected 64 hex chars, got {}). \
-             Delete the keychain entry for this app and restart to regenerate.",
-            hex_key.len()
-        );
+
         let mut key = [0u8; 32];
-        hex::decode_to_slice(&hex_key, &mut key).map_err(|e| {
+        hex::decode_to_slice(hex_key.as_bytes(), &mut key).map_err(|e| {
             anyhow::anyhow!(
-                "Keychain encryption key is not valid hex: {e}. \
-                 Delete the keychain entry for this app and restart to regenerate."
+                "Keychain encryption key is not valid hex: {e}. Delete the keychain entry for this app and restart to regenerate."
             )
         })?;
         Ok(key)
@@ -413,6 +417,59 @@ impl Security {
         let (_pair, phrase, _seed) = ed25519::Pair::generate_with_phrase(None);
         Self::save_with_mnemonic(app, &phrase)
     }
+}
+
+#[cfg(all(target_os = "macos", not(argon_signed_build)))]
+fn read_or_create_local_dev_wallet_key(service: &str, account: &str) -> Result<String> {
+    let output = Command::new("security")
+        .arg("find-generic-password")
+        .arg("-a")
+        .arg(account)
+        .arg("-s")
+        .arg(service)
+        .arg("-w")
+        .output()?;
+
+    if output.status.success() {
+        return Ok(String::from_utf8(output.stdout)?.trim().to_string());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.contains("could not be found in the keychain") {
+        anyhow::bail!("Failed to read local keychain entry: {}", stderr.trim());
+    }
+
+    let hex_key = generate_wallet_key_hex();
+    let output = Command::new("security")
+        .arg("add-generic-password")
+        .arg("-U")
+        .arg("-a")
+        .arg(account)
+        .arg("-s")
+        .arg(service)
+        .arg("-w")
+        .arg(&hex_key)
+        .arg("-A")
+        .output()?;
+
+    anyhow::ensure!(
+        output.status.success(),
+        "Failed to create local keychain entry: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+
+    Ok(hex_key)
+}
+
+#[cfg(any(not(target_os = "macos"), argon_signed_build))]
+fn read_or_create_local_dev_wallet_key(_service: &str, _account: &str) -> Result<String> {
+    unreachable!("local dev keychain path should not be used in signed or non-mac builds");
+}
+
+fn generate_wallet_key_hex() -> String {
+    let mut key = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::rng(), &mut key);
+    hex::encode(key)
 }
 
 #[cfg(test)]
