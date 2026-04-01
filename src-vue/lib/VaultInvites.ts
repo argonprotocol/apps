@@ -29,7 +29,7 @@ export class VaultInvites {
 
       return { ipAddress, port, privateKey };
     } catch (error) {
-      console.error('Error decoding access key:', error);
+      console.error('Error decoding access code:', error);
       return { hasError: true };
     }
   }

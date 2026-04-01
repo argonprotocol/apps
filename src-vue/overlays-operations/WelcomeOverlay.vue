@@ -98,7 +98,7 @@ import * as Vue from 'vue';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import OverlayBase from '../overlays-shared/OverlayBase.vue';
 import { getConfig } from '../stores/config';
-import { APP_NAME, IS_OPERATIONS_APP, IS_CAPITAL_APP, SERVER_ENV_VARS } from '../lib/Env.ts';
+import { APP_NAME, IS_OPERATIONS_APP, IS_CAPITAL_APP } from '../lib/Env.ts';
 import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType } from '../interfaces/IConfig.ts';
 import { DialogTitle } from 'reka-ui';
