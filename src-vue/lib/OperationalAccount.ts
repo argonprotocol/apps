@@ -55,9 +55,10 @@ export async function buildOperatorAccountRegistrationTx(args: {
   client?: ArgonClient;
 }): Promise<SubmittableExtrinsic | undefined> {
   const { config, walletKeys } = args;
-  if (config.certificationDetails) return;
-
   const client = args.client ?? (await getMainchainClient(false));
+  const foundOperationalAccount = await loadOperationalAccount(config, walletKeys, client);
+  if (foundOperationalAccount) return;
+
   const configuredOperationalAddr = walletKeys.operationalAddress;
   const configuredVaultingAddr = walletKeys.vaultingAddress;
   const configuredMiningHoldAddr = walletKeys.miningHoldAddress;
@@ -85,9 +86,6 @@ export async function buildOperatorAccountRegistrationTx(args: {
   if (Object.values(mismatchedAddresses).some(Boolean)) {
     console.warn('Operational account registration address mismatch detected', mismatchedAddresses);
   }
-
-  const foundOperationalAccount = await loadOperationalAccount(config, walletKeys, client);
-  if (foundOperationalAccount) return;
 
   const operationalAccountProof = createOwnershipProof(
     operationalAccount,

@@ -2,11 +2,9 @@
   <div class="px-10 pt-3">
     <p class="mt-5 mb-4 text-gray-600 select-text">
       You must send exactly
-      <strong>
-        {{ numeral(currency.convertSatToBtc(props.personalLock.lockDetails.satoshis)).format('0,0.[00000000]') }} BTC
-      </strong>
+      <strong>{{ numeral(currency.convertSatToBtc(props.personalLock.satoshis)).format('0,0.[00000000]') }} BTC</strong>
       (or
-      {{ numeral(props.personalLock.lockDetails.satoshis).format('0,0') }}
+      {{ numeral(props.personalLock.satoshis).format('0,0') }}
       sats) to the cosign address listed below so Argon can match this lock automatically. If the amount differs, we’ll
       pause and let you choose whether to accept the adjusted amount or return the transfer.
     </p>

@@ -6,7 +6,7 @@
         <div>
           <h2 class="text-xl font-bold text-slate-800/70">Bitcoin Locks</h2>
           <div v-if="isLoaded && vaultSecuritizationMicrogons > 0n" class="mt-0.5 text-sm text-slate-400">
-            <span class="font-medium text-slate-600">{{ currency.symbol }}{{ microgonToMoneyNm(availableSpaceMicrogons).format('0,0') }}</span>
+            <span class="font-medium text-slate-600">{{ currency.symbol }}{{ microgonToMoneyNm(availableSecuritizationMicrogons).format('0,0') }}</span>
             available of
             <span>{{ currency.symbol }}{{ microgonToMoneyNm(vaultSecuritizationMicrogons).format('0,0') }}</span>
             vault capacity
@@ -63,7 +63,7 @@
                 {{ formatBtc(lock) }} BTC
               </div>
               <div class="text-xs text-slate-500">
-                {{ currency.symbol }}{{ microgonToMoneyNm(lock.liquidityPromised).format('0,0.00') }} liquidity
+                {{ currency.symbol }}{{ microgonToMoneyNm(getDisplayLiquidityPromised(lock)).format('0,0.00') }} liquidity
                 · {{ lockStatusLabel(lock) }}
               </div>
             </div>
@@ -83,7 +83,7 @@
               {{ formatBtc(lock) }} BTC
             </div>
             <div class="text-xs text-slate-400">
-              {{ currency.symbol }}{{ microgonToMoneyNm(lock.liquidityPromised).format('0,0.00') }} liquidity
+              {{ currency.symbol }}{{ microgonToMoneyNm(getDisplayLiquidityPromised(lock)).format('0,0.00') }} liquidity
               · Released
             </div>
           </div>
@@ -110,7 +110,7 @@
     <BitcoinLockingOverlay
       v-if="showLockingOverlay && vault"
       :personalLock="selectedLock"
-      :availableBitcoinSpaceMicrogons="availableSpaceMicrogons"
+      :maxLockLiquidityMicrogons="maxLockLiquidityMicrogons"
       :vault="vault!"
       @close="closeLockingOverlay"
     />
@@ -153,7 +153,8 @@ const bitcoinLocks = getBitcoinLocks();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 let vault: Vault | undefined;
-const availableSpaceMicrogons = Vue.ref(0n);
+const availableSecuritizationMicrogons = Vue.ref(0n);
+const maxLockLiquidityMicrogons = Vue.ref(0n);
 const vaultSecuritizationMicrogons = Vue.ref(0n);
 const isLoaded = Vue.ref(false);
 const showLockingOverlay = Vue.ref(false);
@@ -183,11 +184,15 @@ const totalLockedMarketValue = Vue.computed(() => {
 });
 
 const totalLiquidityCaptured = Vue.computed(() => {
-  return nonReleasedLocks.value.reduce((sum, l) => sum + l.liquidityPromised, 0n);
+  return nonReleasedLocks.value.reduce((sum, l) => sum + getDisplayLiquidityPromised(l), 0n);
 });
 
 function formatBtc(lock: IBitcoinLockRecord): string {
   return numeral(currency.convertSatToBtc(lock.satoshis)).format('0,0.[0000]');
+}
+
+function getDisplayLiquidityPromised(lock: IBitcoinLockRecord): bigint {
+  return bitcoinLocks.getDisplayLiquidityPromised(lock);
 }
 
 function lockStatusLabel(lock: IBitcoinLockRecord): string {
@@ -242,7 +247,8 @@ let unsubVault: (() => void) | undefined;
 function updateAvailableSpace(rawVault: Vault) {
   vault = rawVault;
   vaultSecuritizationMicrogons.value = rawVault.securitization;
-  availableSpaceMicrogons.value = rawVault.availableSecuritization();
+  availableSecuritizationMicrogons.value = rawVault.availableSecuritization();
+  maxLockLiquidityMicrogons.value = rawVault.availableBitcoinSpace();
 }
 
 Vue.onMounted(async () => {
