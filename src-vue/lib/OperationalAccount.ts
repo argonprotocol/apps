@@ -12,6 +12,7 @@ import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { WalletKeys } from './WalletKeys.ts';
+import { VaultInvites } from './VaultInvites.ts';
 
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
@@ -63,7 +64,8 @@ export async function buildOperatorAccountRegistrationTx(args: {
   const configuredVaultingAddr = walletKeys.vaultingAddress;
   const configuredMiningHoldAddr = walletKeys.miningHoldAddress;
   const configuredMiningBotAddr = walletKeys.miningBotAddress;
-  const accessCode = config.bootstrapDetails?.inviteCode?.trim();
+  const inviteCode = config.upstreamOperator?.inviteCode?.trim();
+  const { privateKey: inviteCodeKey } = VaultInvites.decodeInviteCode(inviteCode!);
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningHoldAccount, miningBotAccount] =
     await Promise.all([
       walletKeys.getOperationalKeypair(),
@@ -123,7 +125,7 @@ export async function buildOperatorAccountRegistrationTx(args: {
       vaultAccountProof: { signature: vaultAccountProof.signature },
       miningFundingAccountProof: { signature: miningFundingAccountProof.signature },
       miningBotAccountProof: { signature: miningBotAccountProof.signature },
-      accessCode: accessCode ? createAccessCodeProof(accessCode, operationalAddr) : null,
+      accessCode: inviteCodeKey ? createAccessCodeProof(inviteCodeKey, operationalAddr) : null,
     },
   });
 }

@@ -38,7 +38,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
       fn: `(refs) => {
         refs.config.bootstrapDetails = {
           type: 'Public',
-          ipAddress: 'LOADING',
+          routerHost: 'LOADING',
         };
         return refs.config.save().then(() => ({
           showWelcomeOverlay: refs.config.showWelcomeOverlay,
