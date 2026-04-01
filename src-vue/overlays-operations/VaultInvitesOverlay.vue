@@ -37,7 +37,7 @@
                 </template>
               </CountdownClock>
             </div>
-            <div>{{ extractStatus(invite) }}</div>
+            <div :class="statusClass(invite)">{{ extractStatus(invite) }}</div>
             <CopyToClipboard
               :content="`${NetworkConfig.get().websiteHost}/capital-invite/${invite.inviteCode}`"
               class="cursor-pointer">
@@ -49,7 +49,7 @@
           </div>
         </div>
       </div>
-      <div v-if="isAddingCoupon" class="mx-4">
+      <div v-if="isAddingInvite" class="mx-4">
         <div>
           <label>Recipient Name</label>
           <input
@@ -64,16 +64,16 @@
         </div>
 
         <div class="mt-2 flex flex-row gap-x-2">
-          <button @click="toggleAddCoupon" class="text-argon-600 rounded border px-3 py-1">Cancel</button>
+          <button @click="toggleAddInvite" class="text-argon-600 rounded border px-3 py-1">Cancel</button>
           <button
-            @click="createCoupon"
-            :disabled="isCreatingCoupon"
+            @click="createInvite"
+            :disabled="isCreatingInvite"
             class="border-argon-700 bg-argon-600 rounded border px-3 py-1 text-white disabled:opacity-50">
-            {{ isCreatingCoupon ? 'Creating...' : 'Create' }}
+            {{ isCreatingInvite ? 'Creating...' : 'Create' }}
           </button>
         </div>
       </div>
-      <div v-else @click="toggleAddCoupon" class="text-argon-600 mx-4 cursor-pointer">+ Add Invite</div>
+      <div v-else @click="toggleAddInvite" class="text-argon-600 mx-4 cursor-pointer">+ Add Invite</div>
     </template>
   </OverlayBase>
 </template>
@@ -95,7 +95,7 @@ import { getConfig } from '../stores/config.ts';
 import { SERVER_ENV_VARS, TICK_MILLIS } from '../lib/Env.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { VaultInvites } from '../lib/VaultInvites.ts';
-import dayjs, { Dayjs } from 'dayjs';
+import dayjs from 'dayjs';
 import CountdownClock from '../components/CountdownClock.vue';
 import type { ICapitalInvite } from '@argonprotocol/apps-router';
 import { createNumeralHelpers } from '../lib/numeral.ts';
@@ -112,8 +112,8 @@ const currency = getCurrency();
 const { satoshiToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
-const isAddingCoupon = Vue.ref(false);
-const isCreatingCoupon = Vue.ref(false);
+const isAddingInvite = Vue.ref(false);
+const isCreatingInvite = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
 const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
@@ -127,41 +127,44 @@ function closeOverlay() {
   isOpen.value = false;
 }
 
-function toggleAddCoupon() {
+function toggleAddInvite() {
   errorMessage.value = null;
-  isAddingCoupon.value = !isAddingCoupon.value;
-  if (!isAddingCoupon.value) {
+  isAddingInvite.value = !isAddingInvite.value;
+  if (!isAddingInvite.value) {
     inviteName.value = '';
     maxSatoshisNumber.value = 100_000_000;
   }
 }
 
-function transactionStatus(txId: number): string {
+function extractTxStatus(txId: number): string | undefined {
   const txInfo = transactionTracker.data.txInfos.find(x => x.tx.id === txId);
-  if (!txInfo) return 'Recorded';
-  if (txInfo.tx.status === TransactionStatus.Finalized) return 'Finalized';
-  if (txInfo.tx.status === TransactionStatus.Error) return 'Failed';
-  if (txInfo.tx.status === TransactionStatus.TimedOutWaitingForBlock) return 'Timed Out';
-  if (txInfo.tx.status === TransactionStatus.InBlock) return 'In Block';
-  return 'Submitting';
+  if (!txInfo) return undefined;
+  if (txInfo.tx.status === TransactionStatus.Finalized) return undefined;
+  if (txInfo.tx.status === TransactionStatus.Error) return 'Transaction Failed';
+  if (txInfo.tx.status === TransactionStatus.TimedOutWaitingForBlock) return 'Transaction Timed Out';
+  if (txInfo.tx.status === TransactionStatus.InBlock) return 'Transaction In Block';
+  return 'Waiting for Block';
 }
 
-function statusClass(txId: number): string {
-  const status = transactionStatus(txId);
-  if (status === 'Finalized') return 'text-green-700';
-  if (status === 'Failed' || status === 'Timed Out') return 'text-red-700';
+function statusClass(invite: ICapitalInvite): string {
+  const status = extractStatus(invite);
+  if (status.includes('User')) return 'text-green-700';
+  if (status.includes('Failed') || status.includes('Expired')) return 'text-red-700';
   return 'text-slate-600';
 }
 
-function extractStatus(invite: any): 'converted' | 'pending' | 'expired' | 'clicked' {
+function extractStatus(invite: ICapitalInvite): string {
+  const txStatus = extractTxStatus(invite.couponTxId);
   if (invite.registeredAppAt) {
-    return 'converted';
+    return 'User Joined';
   } else if (invite.lastClickedAt) {
-    return 'clicked';
+    return 'User Clicked';
+  } else if (txStatus) {
+    return txStatus as string;
   } else if (invite.couponExpiresAt && invite.couponExpiresAt < new Date()) {
-    return 'expired';
+    return 'Invite Expired';
   } else {
-    return 'pending';
+    return 'Waiting for User';
   }
 }
 
@@ -199,8 +202,8 @@ async function loadInvites() {
   }
 }
 
-async function createCoupon() {
-  if (isCreatingCoupon.value) return;
+async function createInvite() {
+  if (isCreatingInvite.value) return;
 
   const name = inviteName.value.trim();
   if (!name) {
@@ -216,7 +219,7 @@ async function createCoupon() {
 
   try {
     errorMessage.value = null;
-    isCreatingCoupon.value = true;
+    isCreatingInvite.value = true;
 
     await myVault.load();
     const vaultId = myVault.createdVault?.vaultId;
@@ -269,11 +272,11 @@ async function createCoupon() {
     });
 
     await loadInvites();
-    toggleAddCoupon();
+    toggleAddInvite();
   } catch (error: any) {
     errorMessage.value = error?.message ?? 'Unable to create coupon.';
   } finally {
-    isCreatingCoupon.value = false;
+    isCreatingInvite.value = false;
   }
 }
 
@@ -303,6 +306,10 @@ async function submitCapitalUser(payload: {
 
 basicEmitter.on('openVaultInvitesOverlay', () => {
   isOpen.value = true;
+});
+
+Vue.watch([isOpen, () => config.isServerInstalled], () => {
+  if (!isOpen.value || !config.isServerInstalled) return;
   void loadInvites();
 });
 </script>
