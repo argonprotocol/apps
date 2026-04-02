@@ -123,6 +123,7 @@ async function saveProfile() {
     }
 
     config.hasProfileName = !!cleanName;
+    await config.save();
     closeOverlay();
   } catch {
     errorMessage.value = 'Unable to save your profile right now. Please try again.';
