@@ -5,12 +5,14 @@ import { bigIntMax, bigIntMin, TreasuryPool, UnitOfMeasurement } from '@argonpro
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
+import { useMainchainCompat } from './mainchain.ts';
 import { MyVault } from '../lib/MyVault.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
   const myVault = getMyVault();
   const currency = getCurrency();
+  const { bondFullCapacityPerFrame } = useMainchainCompat();
 
   // Sidelined
 
@@ -92,6 +94,18 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return currency.priceIndex.getBtcMicrogonPrice(sats);
   });
 
+  const treasuryMicrogonsBondPurchaseCapacity = Vue.computed(() => {
+    return TreasuryPool.getBondPurchaseCapacity(treasuryMicrogonsMaxCapacity.value, bondFullCapacityPerFrame.value);
+  });
+
+  const treasuryMicrogonsNextFrameAvailable = Vue.computed(() => {
+    return TreasuryPool.calculateNextFrameBondAvailability(
+      treasuryMicrogonsMaxCapacity.value,
+      myVault.data.bondFunders,
+      bondFullCapacityPerFrame.value,
+    ).nextFrameAvailable;
+  });
+
   // Treasury (all funders — for vault-wide utilization stats)
 
   const treasuryMicrogonsTotalBonded = Vue.computed(() => {
@@ -147,6 +161,8 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     treasuryMicrogonsActivatedPct,
     treasuryTotalValue,
     treasuryMicrogonsMaxCapacity,
+    treasuryMicrogonsBondPurchaseCapacity,
+    treasuryMicrogonsNextFrameAvailable,
     treasuryMicrogonsTotalBonded,
     treasuryMicrogonsTotalActivated,
     treasuryMicrogonsTotalActivatedPct,

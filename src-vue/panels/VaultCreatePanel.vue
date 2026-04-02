@@ -62,7 +62,7 @@
                         <tooltip content="This includes everything, even transaction fees">total capital need</tooltip> of
                       </div>
                       <div class="flex flex-row items-center justify-center grow relative h-26 font-bold font-mono text-argon-600">
-                        <InputMoney v-model="rules.baseMicrogonCommitment" :min="1_000_000_000n" :minDecimals="0" class="focus:outline-none" />
+                        <InputMoney v-model="rules.baseMicrogonCommitment" :min="2_000_000_000n" :minDecimals="0" class="focus:outline-none" />
                         <CapitalOverlay align="end">
                           <div class="relative ml-1 w-10 h-10">
                             <PiechartIcon PiechartIcon class="absolute top-0 left-0 w-10 h-10 text-gray-300 hover:!text-argon-600 pointer-events-none" />
