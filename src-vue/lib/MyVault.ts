@@ -1316,7 +1316,7 @@ export class MyVault {
 
       // if there's a change record, the vault did something
       startingFrame = Math.min(startingFrame, change.frameId);
-      capitalDeployed.push(change.securitization + 10n * change.treasuryPool.vaultCapital);
+      capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
     }
 
     const averageCapitalDeployed = capitalDeployed.length

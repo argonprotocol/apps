@@ -290,6 +290,13 @@ const maxAmountToMove = Vue.computed(() => {
     }
   }
 
+  if (moveTo.value === MoveTo.VaultingTreasury && moveToken.value === MoveToken.ARGN) {
+    max =
+      max < vaultingBreakdown.treasuryMicrogonsNextFrameAvailable
+        ? max
+        : vaultingBreakdown.treasuryMicrogonsNextFrameAvailable;
+  }
+
   if (props.maxAmount !== undefined && props.maxAmount < max) {
     return props.maxAmount;
   }

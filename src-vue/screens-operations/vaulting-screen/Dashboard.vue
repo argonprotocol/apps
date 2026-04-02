@@ -373,14 +373,12 @@ const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
   const { distributableBidPool, globalCapital, myVaultCapital } = myVault.data.currentFrameBondData;
-  const sats = BigInt(myVault.createdVault.securitizedSatoshis ?? 0);
-  const btcValue = sats > 0n ? currency.priceIndex.getBtcMicrogonPrice(sats) : 0n;
 
   return TreasuryPool.potentialDailyRevenue({
     distributableBidPool,
     globalActiveCapital: globalCapital,
     myActiveCapital: myVaultCapital,
-    fullTreasuryCapacity: btcValue / 10n,
+    fullTreasuryCapacity: vaultingBreakdown.treasuryMicrogonsBondPurchaseCapacity,
     operatorKeepPct: 100 - (rules.profitSharingPct ?? 0),
   });
 });
@@ -582,7 +580,11 @@ const bitcoinRemainderDisplayValue = Vue.computed(() => {
 });
 
 const bondMapTotal = Vue.computed(() => {
-  return vaultingBreakdown.treasuryMicrogonsMaxCapacity / 10n;
+  const used = bondMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
+
+  // Keep current holder tiles truthful to the current frame. The remainder alone carries
+  // the tomorrow projection, so reduced next-frame capacity only affects the available block.
+  return used + vaultingBreakdown.treasuryMicrogonsNextFrameAvailable;
 });
 
 const treasuryBondsActivated = Vue.computed(() => {
