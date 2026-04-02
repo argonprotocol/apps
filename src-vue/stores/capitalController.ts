@@ -30,8 +30,6 @@ export const useCapitalController = defineStore('capitalController', () => {
   const stopSuggestingBotTour = Vue.ref(false);
   const stopSuggestingVaultTour = Vue.ref(false);
 
-  const overlayIsOpen = Vue.ref(false);
-
   function setTab(value: CapitalTab) {
     if (selectedTab.value === value) return;
 
@@ -72,7 +70,6 @@ export const useCapitalController = defineStore('capitalController', () => {
     isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
-    overlayIsOpen,
     importFromFile,
     importFromMnemonic,
     setScreenKey: setTab,

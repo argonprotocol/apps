@@ -31,8 +31,10 @@
       <BotEditOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
+      <ProfileOverlay />
       <JurisdictionOverlay />
-      <VaultCouponsOverlay />
+      <VaultInvitesOverlay />
+      <VaultMembersOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
     </template>
@@ -76,11 +78,12 @@ import WalletFundingReceivedOverlay from './overlays-operations/WalletFundingRec
 import Portfolio from './panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays-operations/MoveCapitalOverlay.vue';
 import ServerOverlay from './overlays-operations/ServerOverlay.vue';
-import VaultCouponsOverlay from './overlays-operations/VaultCouponsOverlay.vue';
+import VaultInvitesOverlay from './overlays-operations/VaultInvitesOverlay.vue';
+import VaultMembersOverlay from './overlays-operations/VaultMembersOverlay.vue';
 import OperationalOverlay from './overlays-operations/OperationalOverlay.vue';
 import OperationalFinishOverlay from './overlays-operations/OperationalFinishOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import ProfileOverlay from './overlays-shared/ProfileOverlay.vue';
 import { checkInstallerIfCloseAllowed } from './stores/installer.ts';
 
 const controller = useOperationsController();

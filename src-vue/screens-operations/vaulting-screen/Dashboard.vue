@@ -130,10 +130,10 @@
               <div class="flex flex-row items-center w-full gap-x-3 text-base my-4 px-2.5">
                 <div class="text-slate-700/80">Grow revenue by expanding your network</div>
                 <div class="grow flex flex-row gap-x-3 text-argon-600">
-                  <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
+                  <button @click="openVaultMembersOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
                     Manage Members
                   </button>
-                  <button @click="openManageInvites" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
+                  <button @click="openVaultInvitesOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
                     Manage Member Invites
                   </button>
                   <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
@@ -142,7 +142,7 @@
                 </div>
               </div>
               <div class="flex flex-row items-stretch gap-x-2 w-full grow px-2">
-                <div BitcoinMap class="w-1/2">
+                <div BitcoinMap class="w-1/2 relative">
                   <TreemapChart
                     :total="bitcoinMapTotal"
                     :items="bitcoinMapItems"
@@ -150,6 +150,11 @@
                     :remainderLabel="bitcoinRemainderLabel"
                     :remainder-display-value="bitcoinRemainderDisplayValue"
                     @tile-click="handleBitcoinTileClick"
+                  />
+                  <ArrowCalloutButton
+                    v-if="[OperationalStepId.LiquidLock].includes(controller.activeGuideId!)"
+                    class="absolute top-1/2 right-2 -translate-y-1/2 translate-x-full z-50"
+                    guidance="Click the vaulting tab to begin."
                   />
                 </div>
                 <div BondMap class="w-1/2">
@@ -171,8 +176,6 @@
               <TooltipProvider :disableHoverableContent="true">
                 <div class="pt-4 pb-3">
                   <div class="mb-2 flex items-center gap-x-3 text-center">
-                    <span class="h-px grow bg-slate-400/30"></span>
-                    <span class="text-base leading-none font-bold text-slate-700/60">Stabilization Vaulting Stats</span>
                     <span class="h-px grow bg-slate-400/30"></span>
                   </div>
                   <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
@@ -317,11 +320,14 @@ import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { OperationalStepId, OperationsTab, useOperationsController } from '../../stores/operationsController.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);
 
 const myVault = getMyVault();
 const vaults = getVaults();
+const controller = useOperationsController();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const currency = getCurrency();
@@ -770,8 +776,12 @@ async function loadChartData(currentFrameId?: number) {
     frameRecords.value.find(frame => frame.id === targetFrameId) ?? frameRecords.value.at(-1) ?? currentFrame.value;
 }
 
-function openManageInvites() {
-  basicEmitter.emit('openVaultCouponsOverlay');
+function openVaultInvitesOverlay() {
+  basicEmitter.emit('openVaultInvitesOverlay');
+}
+
+function openVaultMembersOverlay() {
+  basicEmitter.emit('openVaultMembersOverlay');
 }
 
 let onFrameSubscription: { unsubscribe: () => void };

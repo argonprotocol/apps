@@ -79,7 +79,9 @@ export class NetworkConfig {
    */
   public static async loadConfigs(
     client: ArgonClient,
-  ): Promise<Omit<INetworkConfig, 'esploraHost' | 'archiveUrl' | 'bitcoinBlockMillis' | 'indexerHost'>> {
+  ): Promise<
+    Omit<INetworkConfig, 'esploraHost' | 'archiveUrl' | 'bitcoinBlockMillis' | 'indexerHost' | 'websiteHost'>
+  > {
     const config = await client.query.miningSlot.miningConfig().then(x => ({
       ticksBetweenSlots: x.ticksBetweenSlots.toNumber(),
       slotBiddingStartAfterTicks: x.slotBiddingStartAfterTicks.toNumber(),
@@ -103,6 +105,7 @@ export interface INetworkConfig {
   tickMillis: number;
   biddingStartTick: number;
   archiveUrl: string;
+  websiteHost: string;
   indexerHost: string;
   bitcoinBlockMillis: number;
   esploraHost: string;

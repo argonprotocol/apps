@@ -86,7 +86,7 @@ export default class Importer {
     await this.config.load(true);
     this.config.bootstrapDetails = {
       type: BootstrapType.Public,
-      ipAddress: 'LOADING',
+      routerHost: 'LOADING',
     };
     await this.config.save();
 

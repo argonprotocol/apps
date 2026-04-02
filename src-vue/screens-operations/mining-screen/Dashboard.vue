@@ -144,8 +144,6 @@
                 <div class="pt-4 pb-3">
                   <div class="mb-2 flex items-center gap-x-3 text-center">
                     <span class="h-px grow bg-slate-400/30"></span>
-                    <span class="text-base leading-none font-bold text-slate-700/60">Mining Auction Stats</span>
-                    <span class="h-px grow bg-slate-400/30"></span>
                   </div>
                   <div class="grid grid-cols-4 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
                     <div>{{ numeral(auctionBidCount).format('0,0') }} Bids Placed this Frame</div>

@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div>
-    <div v-if="!isOpen && !controller.hideBonusTip && config.bootstrapDetails" class="z-50 absolute top-6 right-[46px] pt-[12px]">
+    <div v-if="isShowingBonusTooltip" class="z-50 absolute top-6 right-[46px] pt-[12px]">
       <MenuArrow
         class="absolute top-0 right-6"
         :width="24"
@@ -129,18 +129,18 @@ const controller = useOperationsController();
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
 
-// Expose the root element to parent components
-defineExpose({
-  $el: rootRef,
+const isShowingBonusTooltip = Vue.computed(() => {
+  const showBonusTooltip = config.certificationDetails?.showBonusTooltip;
+  return showBonusTooltip && !isOpen.value && config.upstreamOperator;
 });
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function dismissMessage() {
-  controller.hideBonusTip = true;
-  config.setCertificationDetails({ showOverviewTooltip: false });
+  config.setCertificationDetails({ showBonusTooltip: false });
   void config.save();
 }
+
 function onMouseEnter() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
@@ -184,9 +184,14 @@ function openOverlay(stepId: OperationalStepId, event: MouseEvent) {
 
 function openOperationalOverlay(stepId: OperationalStepId) {
   isOpen.value = false;
-  controller.hideBonusTip = true;
+  config.setCertificationDetails({ showBonusTooltip: false });
   basicEmitter.emit('openOperationalOverlay', stepId);
 }
+
+// Expose the root element to parent components
+defineExpose({
+  $el: rootRef,
+});
 </script>
 
 <style scoped>

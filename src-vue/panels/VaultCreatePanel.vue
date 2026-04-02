@@ -134,8 +134,8 @@
                 </button>
                 <Tooltip asChild :calculateWidth="() => calculateElementWidth(saveButtonElement)" side="top" content="Clicking this button does not commit you to anything.">
                   <button @click="saveRules" ref="saveButtonElement" class="bg-argon-button text-xl font-bold text-white px-7 py-1 rounded-md cursor-pointer">
-                    <span v-if="!isSaving">{{ isBrandNew ? 'Initialize' : 'Update' }} Rules</span>
-                    <span v-else>{{ isBrandNew ? 'Initializing' : 'Updating' }} Rules...</span>
+                    <span v-if="!isSaving">{{ isBrandNew ? 'Confirm' : 'Update' }} Rules</span>
+                    <span v-else>{{ isBrandNew ? 'Saving' : 'Updating' }} Rules...</span>
                   </button>
                 </Tooltip>
               </div>

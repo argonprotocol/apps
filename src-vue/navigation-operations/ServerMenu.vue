@@ -11,14 +11,11 @@
           <PluginSmallIcon class="h-3.5 relative mr-1.5" />
           Add Node
         </div>
-        <div v-else-if="config.isServerInstalling" class="relative h-full">
-          <span :class="isOpen ? 'invisible' : 'invisible'" class="pl-2.5 pr-3 pt-1">Installing Server</span>
-          <div
-            class="absolute top-0 left-0 h-full w-full bg-[#F2EAF3]"
-            style="box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.15)"
-          >
-            <div :style="{ width: `${installerProgress}%` }" class="h-full bg-white border-r min-w-1 text-right" />
-            <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-bold text-slate-600/60 font-mono">{{ numeral(installerProgress).format('0.[0]')}}%</div>
+        <div v-else-if="config.isServerInstalling" class="relative -top-px flex flex-row pl-2.5 pr-3 pt-1">
+          {{ config.isServerInstalled ? 'Updating' : 'Installing'}}
+          <div class="relative ml-px">
+            <span class="text-white">...</span>
+            <span class="absolute top-0 left-0 h-full w-full text-left connecting-dots" aria-hidden="true">...</span>
           </div>
         </div>
         <div v-else-if="lastUpdatedAt" class="pl-2.5 pr-3 pt-px flex flex-row items-center">

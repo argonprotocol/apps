@@ -18,10 +18,8 @@ import { version as packageVersion } from '../package.json';
   const filePath = Path.join('resources', fileName);
   const stagingDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'argon-server-bundle-'));
   const serverSourceDir = Path.join(dirname, '../server');
-  const routerSourceDir = Path.join(dirname, '../router');
   try {
     fs.cpSync(serverSourceDir, stagingDir, { recursive: true });
-    fs.cpSync(routerSourceDir, Path.join(stagingDir, 'router'), { recursive: true });
     await tar.create(
       {
         gzip: { mtime: 0 } as any,

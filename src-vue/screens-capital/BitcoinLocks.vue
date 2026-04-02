@@ -256,7 +256,7 @@ Vue.onMounted(async () => {
   await currency.isLoadedPromise;
   await bitcoinLocks.load();
 
-  unsubVault = await vaults.subscribeToVault(config.connectedVault!.vaultId, updateAvailableSpace);
+  unsubVault = await vaults.subscribeToVault(config.upstreamOperator!.vaultId, updateAvailableSpace);
 
   isLoaded.value = true;
 });

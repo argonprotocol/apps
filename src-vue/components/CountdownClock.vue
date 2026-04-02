@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <slot :hours="hours" :minutes="minutes" :seconds="seconds" :days="days"></slot>
+  <slot :hours="hours" :minutes="minutes" :seconds="seconds" :days="days" :isFinished="isFinished"></slot>
 </template>
 
 <script setup lang="ts">
@@ -15,22 +15,34 @@ const emit = defineEmits<{
   (e: 'update:tick', time: number): void;
 }>();
 
+const isFinished = Vue.ref(false);
 const hours = Vue.ref(0);
 const minutes = Vue.ref(0);
 const seconds = Vue.ref(0);
 const days = Vue.ref(0);
+let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+function clearTimer() {
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+    timeoutId = null;
+  }
+}
 
 function updateTime() {
+  clearTimer();
   const now = dayjs.utc();
   if (props.time < now) {
     hours.value = 0;
     minutes.value = 0;
     seconds.value = 0;
     days.value = 0;
+    isFinished.value = true;
     emit('update:tick', 0);
     return;
   }
 
+  isFinished.value = false;
   const totalDays = props.time.diff(now, 'days');
   days.value = totalDays > 0 ? totalDays : 0;
 
@@ -42,14 +54,18 @@ function updateTime() {
   emit('update:tick', totalSeconds);
 
   if (totalSeconds > 0) {
-    setTimeout(updateTime, 1000);
+    timeoutId = setTimeout(updateTime, 1000);
+  } else {
+    isFinished.value = true;
   }
 }
 Vue.watch(
   () => props.time,
   () => {
+    clearTimer();
     updateTime();
   },
 );
 Vue.onMounted(updateTime);
+Vue.onUnmounted(clearTimer);
 </script>
