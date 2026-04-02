@@ -251,12 +251,16 @@ function updateAvailableSpace(rawVault: Vault) {
   maxLockLiquidityMicrogons.value = rawVault.availableBitcoinSpace();
 }
 
+Vue.watch([isLoaded, () => config.upstreamOperator!.vaultId], async () => {
+  if (!isLoaded.value || !config.upstreamOperator!.vaultId) return;
+  unsubVault?.();
+  unsubVault = await vaults.subscribeToVault(config.upstreamOperator!.vaultId, updateAvailableSpace);
+});
+
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
   await currency.isLoadedPromise;
   await bitcoinLocks.load();
-
-  unsubVault = await vaults.subscribeToVault(config.upstreamOperator!.vaultId, updateAvailableSpace);
 
   isLoaded.value = true;
 });
