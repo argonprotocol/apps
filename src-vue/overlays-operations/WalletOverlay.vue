@@ -92,7 +92,7 @@
 
       <div class="-mt-3 -mb-5 -mr-5 flex w-52 shrink-0 self-stretch border-l border-slate-200/70 bg-slate-50">
         <div class="w-full px-5 pt-6 pb-6 text-center">
-          <img :src="qrCode" class="w-full" alt="QR Code for Vault Address" />
+          <img :src="qrCode" class="w-full" :alt="`QR code for ${walletName} wallet address`" />
 
           <CopyToClipboard data-testid="walletAddress" :content="wallet.address" class="relative mt-4 cursor-pointer py-1">
             <div class="inline-flex max-w-full items-center gap-x-2 text-sm text-slate-700">
