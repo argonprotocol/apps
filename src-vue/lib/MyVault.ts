@@ -1567,33 +1567,6 @@ export class MyVault {
     return { txResult };
   }
 
-  public createCouponProofKeypair(client: ArgonClient): KeyringPair | undefined {
-    if (!BitcoinLock.areFeeCouponsSupported(client)) {
-      return undefined;
-    }
-    return new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonicGenerate());
-  }
-
-  public registerFeeCoupon(args: {
-    client: ArgonClient;
-    couponProofKeypair?: KeyringPair;
-    maxSatoshis: number | bigint;
-    txs: SubmittableExtrinsic[];
-  }) {
-    const { client, couponProofKeypair, maxSatoshis } = args;
-    if (!BitcoinLock.areFeeCouponsSupported(client) || !couponProofKeypair) {
-      return undefined;
-    }
-    const tx = BitcoinLock.createFeeCouponTx({
-      client,
-      couponProofKeypair,
-      maxSatoshis: Number(maxSatoshis),
-    });
-    if (tx) {
-      args.txs.push(tx);
-    }
-  }
-
   public async startBitcoinLocking(args: { satoshis: bigint; tip?: bigint }): Promise<TransactionInfo> {
     const vault = this.createdVault;
     if (!vault) throw new Error('No vault created to lock bitcoin');
