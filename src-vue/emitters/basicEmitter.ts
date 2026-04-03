@@ -7,7 +7,10 @@ import { MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
 type IBasicEmitter = {
-  openWalletOverlay: { walletType: WalletType.miningHold | WalletType.vaulting; screen: string };
+  openWalletOverlay: {
+    walletType: WalletType.miningHold | WalletType.vaulting;
+    screen: 'receive' | 'receive-onboarding';
+  };
   openMoveCapitalOverlay: {
     walletType: WalletType.miningHold | WalletType.vaulting;
     moveTo?: MoveTo;

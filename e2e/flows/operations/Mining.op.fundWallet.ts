@@ -6,30 +6,10 @@ import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
 const DEFAULT_MINING_FUNDING_MULTIPLIER = 10n;
+const MICROGONS_PER_ARGON_TEXT = BigInt(MICROGONS_PER_ARGON).toString();
 
 type IFundingState = {
   walletFullyFunded: boolean;
-};
-
-type IMiningFundingQueryRefs = {
-  config: {
-    hasSavedBiddingRules: boolean;
-    biddingRules: {
-      initialMicrogonRequirement?: bigint;
-      initialMicronotRequirement?: bigint;
-    };
-  };
-  wallets: {
-    miningHoldWallet: {
-      availableMicronots: bigint;
-      reservedMicronots: bigint;
-    };
-    miningBotWallet: {
-      availableMicronots: bigint;
-      reservedMicronots: bigint;
-    };
-    totalMiningMicrogons?: bigint;
-  };
 };
 
 type IFundWalletUiState = {
@@ -166,23 +146,26 @@ function deriveMiningFunding(
 
 async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFundingState | undefined> {
   return await flow.queryApp<IFundingState>(
-    (({ config, wallets }: IMiningFundingQueryRefs): IFundingState => {
+    `(({ config, wallets }) => {
       if (!config.hasSavedBiddingRules) {
         return { walletFullyFunded: false };
       }
 
+      const futureTransactionFeeBudgetMicrogons =
+        config.miningSetupStatus === 'Finished' ? 0n : 2n * BigInt('${MICROGONS_PER_ARGON_TEXT}');
       const availableMicronots =
         wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
       const reservedMicronots = wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
       const availableMicrogons = wallets.totalMiningMicrogons ?? 0n;
-      const requiredMicrogons = config.biddingRules.initialMicrogonRequirement ?? 0n;
+      const requiredMicrogons =
+        (config.biddingRules.initialMicrogonRequirement ?? 0n) + futureTransactionFeeBudgetMicrogons;
       const requiredMicronots = config.biddingRules.initialMicronotRequirement ?? 0n;
 
       return {
         walletFullyFunded:
           availableMicrogons >= requiredMicrogons && availableMicronots + reservedMicronots >= requiredMicronots,
       };
-    }).toString(),
+    })`,
     { timeoutMs: 10_000 },
   );
 }

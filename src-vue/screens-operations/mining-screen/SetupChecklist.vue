@@ -148,8 +148,8 @@
               </p>
               <p v-else-if="config.hasSavedBiddingRules">
                 Your account needs a minimum of
-                {{ microgonToArgonNm(config.biddingRules?.initialMicrogonRequirement || 0n).format('0,0.[00000000]') }} argon{{
-                  microgonToArgonNm(config.biddingRules?.initialMicrogonRequirement || 0n).format('0.00000000') === '1.00000000' ? '' : 's'
+                {{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]') }} argon{{
+                  microgonToArgonNm(minimumMicrogonsNeeded).format('0.00000000') === '1.00000000' ? '' : 's'
                 }}
                 and
                 {{
@@ -203,6 +203,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter';
 import { Config, getConfig } from '../../stores/config';
 import { getWalletKeys, useWallets } from '../../stores/wallets';
@@ -245,6 +246,7 @@ const alignOffsetForBotReturns = Vue.ref(0);
 const alignOffsetForBotCapital = Vue.ref(0);
 
 const capitalCommitment = Vue.ref(0n);
+const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
 
 const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
@@ -286,8 +288,20 @@ const walletIsPartiallyFunded = Vue.computed(() => {
   return (wallets.totalMiningMicrogons || availableMicronots.value) > 0n;
 });
 
+const onboardingAdditionalMicrogons = Vue.computed(() => {
+  if (config.miningSetupStatus === MiningSetupStatus.Finished) {
+    return 0n;
+  }
+
+  return futureTransactionFeeBudgetMicrogons;
+});
+
+const minimumMicrogonsNeeded = Vue.computed(() => {
+  return (config.biddingRules.initialMicrogonRequirement ?? 0n) + onboardingAdditionalMicrogons.value;
+});
+
 const additionalMicrogonsNeeded = Vue.computed(() => {
-  return bigIntMax(config.biddingRules.initialMicrogonRequirement - wallets.totalMiningMicrogons, 0n);
+  return bigIntMax(minimumMicrogonsNeeded.value - wallets.totalMiningMicrogons, 0n);
 });
 
 const additionalMicronotsNeeded = Vue.computed(() => {
@@ -340,7 +354,7 @@ function openBotCreateOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive-onboarding' });
 }
 
 function openServerConnectPanel() {

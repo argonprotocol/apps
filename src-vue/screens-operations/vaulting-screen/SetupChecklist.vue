@@ -113,8 +113,8 @@
               </h2>
               <p>
                 Your account needs a minimum of
-                {{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00000000]') }} argon{{
-                  microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0') === '1' ? '' : 's'
+                {{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]') }} argon{{
+                  microgonToArgonNm(minimumMicrogonsNeeded).format('0') === '1' ? '' : 's'
                 }}
                 <template v-if="config.vaultingRules?.baseMicronotCommitment">
                   and
@@ -163,6 +163,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter';
 import { getConfig } from '../../stores/config';
 import { useWallets } from '../../stores/wallets';
@@ -196,6 +197,9 @@ const VaultCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
 const alignOffsetForReturns = Vue.ref(0);
 const alignOffsetForCapital = Vue.ref(0);
 
+const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
+const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(MICROGONS_PER_ARGON);
+
 const serverConnectIsChecked = Vue.computed(() => {
   return wallets.isLoaded && hasMiningMachine.value;
 });
@@ -218,12 +222,34 @@ const walletIsPartiallyFunded = Vue.computed(() => {
   return (wallets.vaultingWallet.availableMicrogons || wallets.vaultingWallet.availableMicronots) > 0;
 });
 
+const vaultTreasuryBondSuggestionMicrogons = Vue.computed(() => {
+  const suggestedMicrogons = (config.vaultingRules?.baseMicrogonCommitment ?? 0n) / 20n;
+  if (suggestedMicrogons <= 0n) return 0n;
+
+  return (
+    ((suggestedMicrogons + treasuryBondSuggestionIncrementMicrogons - 1n) / treasuryBondSuggestionIncrementMicrogons) *
+    treasuryBondSuggestionIncrementMicrogons
+  );
+});
+
+const onboardingAdditionalMicrogons = Vue.computed(() => {
+  if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) {
+    return 0n;
+  }
+
+  return futureTransactionFeeBudgetMicrogons + vaultTreasuryBondSuggestionMicrogons.value;
+});
+
+const minimumMicrogonsNeeded = Vue.computed(() => {
+  return (config.vaultingRules?.baseMicrogonCommitment ?? 0n) + onboardingAdditionalMicrogons.value;
+});
+
 const walletIsFullyFunded = Vue.computed(() => {
   if (!walletIsPartiallyFunded.value) {
     return false;
   }
 
-  if (wallets.vaultingWallet.availableMicrogons < (config.vaultingRules?.baseMicrogonCommitment || 0n)) {
+  if (wallets.vaultingWallet.availableMicrogons < minimumMicrogonsNeeded.value) {
     return false;
   }
 
@@ -267,7 +293,7 @@ function openVaultCreateOverlay() {
 }
 
 function openFundVaultingAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive-onboarding' });
 }
 
 async function startCreateVault() {
