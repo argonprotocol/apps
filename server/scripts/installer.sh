@@ -246,7 +246,13 @@ if ! (already_ran "DockerInstall"); then
         failed "Docker version $version is less than required major version 27"
     fi
 
-    network_name="${COMPOSE_PROJECT_NAME:-argon}-net"
+    project_name="${COMPOSE_PROJECT_NAME:-argon}"
+    network_name="${project_name}-net"
+    status_container_ids=$(run_command "sudo docker ps -aq --filter \"label=com.docker.compose.project=${project_name}\" --filter \"label=com.docker.compose.service=status\"")
+    if [ -n "$status_container_ids" ]; then
+      echo "Found legacy status service containers, removing before starting router"
+      run_command "sudo docker rm -f $status_container_ids"
+    fi
     run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || sudo docker network create ${network_name}"
     run_compose "sudo docker compose up router -d --build"
 

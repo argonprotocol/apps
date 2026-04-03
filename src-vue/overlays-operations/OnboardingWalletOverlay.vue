@@ -314,7 +314,11 @@
             </div>
           </div>
 
-          <img :src="qrCode" class="mt-5 w-full  p-3 border-t pt-8 border-slate-300"  />
+          <img
+            :src="qrCode"
+            :alt="`QR code for ${walletName} wallet address`"
+            class="mt-5 w-full p-3 border-t pt-8 border-slate-300"
+          />
           <CopyToClipboard
             data-testid="walletAddress"
             :content="wallet.address"
@@ -615,25 +619,32 @@ function openJurisdictionOverlay() {
 }
 
 let calculatorIsSubscribed = false;
+let calculatorLoadSubscription: { unsubscribe: () => void } | null = null;
 
 async function load() {
-  void loadQRCode();
+  try {
+    await loadQRCode();
+  } catch (error) {
+    console.error('Failed to load onboarding wallet QR code', error);
+  }
+
   if (walletId.value === 'miningHold' && !calculatorIsSubscribed) {
     calculatorIsSubscribed = true;
     await config.isLoadedPromise;
 
-    const loadSubscription = calculator.onLoad(() => {
+    calculatorLoadSubscription = calculator.onLoad(() => {
       const projections = calculator.runProjections(config.biddingRules, 'maximum');
       requiredMicrogonsForGoal.value = projections.microgonRequirement;
       requiredMicronotsForGoal.value = projections.micronotRequirement;
-    });
-    Vue.onMounted(() => {
-      loadSubscription.unsubscribe();
     });
 
     await calculator.load();
   }
 }
+
+Vue.onUnmounted(() => {
+  calculatorLoadSubscription?.unsubscribe();
+});
 
 async function loadQRCode() {
   let address = '';

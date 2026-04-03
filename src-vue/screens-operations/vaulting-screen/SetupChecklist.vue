@@ -237,7 +237,7 @@ const onboardingAdditionalMicrogons = Vue.computed(() => {
     return 0n;
   }
 
-  return futureTransactionFeeBudgetMicrogons + vaultTreasuryBondSuggestionMicrogons.value;
+  return futureTransactionFeeBudgetMicrogons;
 });
 
 const minimumMicrogonsNeeded = Vue.computed(() => {
