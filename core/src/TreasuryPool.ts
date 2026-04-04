@@ -9,6 +9,7 @@ import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt, percentOf } from './utils.js';
 import BigNumber from 'bignumber.js';
 import { BondFunder } from './BondFunder.js';
+import { MainchainCompat } from './MainchainCompat.js';
 
 export interface IFrameBondHolder {
   accountId: string;
@@ -24,6 +25,16 @@ export interface IFrameBondSummary {
   keepPct: number;
   frameStartDate: string;
   frameEndDate: string;
+}
+
+export interface IBondTargetAllocation {
+  targetPrincipal: bigint;
+}
+
+export interface INextFrameBondAvailability {
+  nextFrameCapacity: bigint;
+  totalTargetPrincipal: bigint;
+  nextFrameAvailable: bigint;
 }
 
 export class TreasuryPool {
@@ -66,6 +77,30 @@ export class TreasuryPool {
     const palletId = client.consts.treasury.palletId.toU8a();
     const raw = u8aConcat(stringToU8a('modl'), palletId, new Uint8Array(32 - 4 - palletId.length));
     return client.registry.createType('AccountId32', raw).toU8a();
+  }
+
+  public static getBondPurchaseCapacity(
+    totalBondCapacity: bigint,
+    bondFullCapacity = MainchainCompat.bondFullCapacityPerFrame,
+  ): bigint {
+    if (totalBondCapacity <= 0n) return 0n;
+    return bondFullCapacity ? totalBondCapacity : totalBondCapacity / 10n;
+  }
+
+  public static calculateNextFrameBondAvailability(
+    totalBondCapacity: bigint,
+    funders: IBondTargetAllocation[],
+    bondFullCapacityPerFrame = MainchainCompat.bondFullCapacityPerFrame,
+  ): INextFrameBondAvailability {
+    const nextFrameCapacity = TreasuryPool.getBondPurchaseCapacity(totalBondCapacity, bondFullCapacityPerFrame);
+    const totalTargetPrincipal = funders.reduce((sum, funder) => sum + funder.targetPrincipal, 0n);
+    const nextFrameAvailable = totalTargetPrincipal < nextFrameCapacity ? nextFrameCapacity - totalTargetPrincipal : 0n;
+
+    return {
+      nextFrameCapacity,
+      totalTargetPrincipal,
+      nextFrameAvailable,
+    };
   }
 
   public static potentialDailyRevenue(args: {

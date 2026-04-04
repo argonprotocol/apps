@@ -150,7 +150,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
+import { getMainchainClient, getMiningFrames, useMainchainCompat } from '../stores/mainchain.ts';
 import { getConfig } from '../stores/config.ts';
 import { NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
 import { type IFrameEarningsRow, useBonds } from '../stores/bonds.ts';
@@ -171,6 +171,7 @@ const wallets = useWallets();
 const miningFrames = getMiningFrames();
 const config = getConfig();
 const bonds = useBonds();
+const { bondFullCapacityPerFrame } = useMainchainCompat();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.ref(false);
@@ -185,7 +186,10 @@ const vaultActiveCapital = Vue.ref(0n);
 const hasBond = Vue.computed(() => bonds.targetPrincipal > 0n);
 
 const vaultAvailableCapacity = Vue.computed(() => {
-  const perFrameCapacity = vaultTotalCapacity.value / 10n;
+  const perFrameCapacity = TreasuryPool.getBondPurchaseCapacity(
+    vaultTotalCapacity.value,
+    bondFullCapacityPerFrame.value,
+  );
   const available = perFrameCapacity - vaultActiveCapital.value;
   return available > 0n ? available : 0n;
 });

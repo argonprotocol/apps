@@ -1316,7 +1316,7 @@ export class MyVault {
 
       // if there's a change record, the vault did something
       startingFrame = Math.min(startingFrame, change.frameId);
-      capitalDeployed.push(change.securitization + 10n * change.treasuryPool.vaultCapital);
+      capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
     }
 
     const averageCapitalDeployed = capitalDeployed.length
@@ -1565,33 +1565,6 @@ export class MyVault {
     postProcessor.resolve();
 
     return { txResult };
-  }
-
-  public createCouponProofKeypair(client: ArgonClient): KeyringPair | undefined {
-    if (!BitcoinLock.areFeeCouponsSupported(client)) {
-      return undefined;
-    }
-    return new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonicGenerate());
-  }
-
-  public registerFeeCoupon(args: {
-    client: ArgonClient;
-    couponProofKeypair?: KeyringPair;
-    maxSatoshis: number | bigint;
-    txs: SubmittableExtrinsic[];
-  }) {
-    const { client, couponProofKeypair, maxSatoshis } = args;
-    if (!BitcoinLock.areFeeCouponsSupported(client) || !couponProofKeypair) {
-      return undefined;
-    }
-    const tx = BitcoinLock.createFeeCouponTx({
-      client,
-      couponProofKeypair,
-      maxSatoshis: Number(maxSatoshis),
-    });
-    if (tx) {
-      args.txs.push(tx);
-    }
   }
 
   public async startBitcoinLocking(args: { satoshis: bigint; tip?: bigint }): Promise<TransactionInfo> {

@@ -411,14 +411,8 @@ export default class BitcoinLocks {
     return await client.query.bitcoinLocks.minimumSatoshis().then(x => x.toBigInt());
   }
 
-  public async initializeLock(args: {
-    vault: Vault;
-    satoshis: bigint;
-    tip?: bigint;
-    couponProofKeypair?: KeyringPair;
-    skipCouponValidation?: boolean;
-  }) {
-    const { vault, satoshis, tip, couponProofKeypair, skipCouponValidation } = args;
+  public async initializeLock(args: { vault: Vault; satoshis: bigint; tip?: bigint }) {
+    const { vault, satoshis, tip } = args;
     const argonKeyring = await this.walletKeys.getLiquidLockingKeypair();
 
     const minimumSatoshis = await this.minimumSatoshiPerLock();
@@ -452,8 +446,6 @@ export default class BitcoinLocks {
       microgonsPerBtc,
       satoshis,
       tip,
-      couponProofKeypair,
-      skipCouponProofCheck: skipCouponValidation,
     });
     const bitcoinUuid = BitcoinLocksTable.createUuid();
     const txInfo = await this.#transactionTracker.submitAndWatch({

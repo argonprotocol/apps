@@ -5,23 +5,15 @@ import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
+const MICROGONS_PER_ARGON_TEXT = BigInt(MICROGONS_PER_ARGON).toString();
+
 type IVaultingFundingInspect = {
   walletIsFullyFunded: boolean;
-  walletsLoaded: boolean;
-  hasMiningMachine: boolean;
-  canStartVault: boolean;
-  overlayIsOpen: boolean;
-  availableMicrogons: string;
-  availableMicronots: string;
-  requiredMicrogons: string;
-  requiredMicronots: string;
 };
 
 type IFundVaultingWalletUiState = {
   dashboardVisible: boolean;
   fundOverlayVisible: boolean;
-  createVaultVisible: boolean;
-  createVaultClickable: boolean;
   installingVisible: boolean;
 };
 
@@ -29,64 +21,38 @@ type IFundVaultingWalletState = IE2EOperationInspectState<IVaultingFundingInspec
 
 export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(import.meta, {
   async inspect({ flow }) {
-    const [fundingState, dashboard, fundOverlayEntry, createVaultEntry, installingState] = await Promise.all([
+    const [fundingState, dashboard, fundOverlayEntry, installingState] = await Promise.all([
       flow.queryApp<IVaultingFundingInspect>(
-        ((refs: {
-          config: {
-            vaultingRules?: {
-              baseMicrogonCommitment?: bigint;
-              baseMicronotCommitment?: bigint;
-            } | null;
-            serverAdd?: {
-              localComputer?: unknown;
-              customServer?: unknown;
-              digitalOcean?: unknown;
-            } | null;
-          };
-          wallets: {
-            isLoaded: boolean;
-            vaultingWallet: {
-              availableMicrogons: bigint;
-              availableMicronots: bigint;
-            };
-          };
-          controller: {
-            overlayIsOpen: boolean;
-          };
-        }) => {
-          const requiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
-          const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
-          const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
-          const availableMicronots = refs.wallets.vaultingWallet.availableMicronots ?? 0n;
-          const hasMiningMachine =
-            !!refs.config.serverAdd?.customServer ||
-            !!refs.config.serverAdd?.localComputer ||
-            !!refs.config.serverAdd?.digitalOcean;
-          const walletsLoaded = refs.wallets.isLoaded;
-          const walletIsFullyFunded =
-            availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots;
+        `(({ config, wallets }) => {
+          const futureTransactionFeeBudgetMicrogons = 2n * BigInt('${MICROGONS_PER_ARGON_TEXT}');
+          const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt('${MICROGONS_PER_ARGON_TEXT}');
+          const baseRequiredMicrogons = config.vaultingRules?.baseMicrogonCommitment ?? 0n;
+          const suggestedTreasuryMicrogons = baseRequiredMicrogons / 20n;
+          const treasuryBondSuggestionMicrogons =
+            config.vaultingSetupStatus === 'Finished' || suggestedTreasuryMicrogons <= 0n
+              ? 0n
+              : ((suggestedTreasuryMicrogons + treasuryBondSuggestionIncrementMicrogons - 1n) /
+                  treasuryBondSuggestionIncrementMicrogons) *
+                treasuryBondSuggestionIncrementMicrogons;
+          const requiredMicrogons =
+            baseRequiredMicrogons +
+            (config.vaultingSetupStatus === 'Finished'
+              ? 0n
+              : futureTransactionFeeBudgetMicrogons + treasuryBondSuggestionMicrogons);
+          const requiredMicronots = config.vaultingRules?.baseMicronotCommitment ?? 0n;
+          const availableMicrogons = wallets.vaultingWallet.availableMicrogons ?? 0n;
+          const availableMicronots = wallets.vaultingWallet.availableMicronots ?? 0n;
 
           return {
-            walletIsFullyFunded,
-            walletsLoaded,
-            hasMiningMachine,
-            canStartVault: walletIsFullyFunded && walletsLoaded && hasMiningMachine && !refs.controller.overlayIsOpen,
-            overlayIsOpen: refs.controller.overlayIsOpen,
-            availableMicrogons: availableMicrogons.toString(),
-            availableMicronots: availableMicronots.toString(),
-            requiredMicrogons: requiredMicrogons.toString(),
-            requiredMicronots: requiredMicronots.toString(),
+            walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
           };
-        }).toString(),
+        })`,
         { timeoutMs: 10_000 },
       ),
       flow.isVisible('VaultingDashboard'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
-      flow.isVisible('SetupChecklist.startCreateVault()'),
       flow.isVisible({ selector: '.VaultIsInstalling' }),
     ]);
-    const createVaultVisible = createVaultEntry.visible;
-    const createVaultClickable = createVaultEntry.clickable;
     const installingVisible = installingState.visible;
     const walletIsFullyFunded = fundingState?.walletIsFullyFunded ?? false;
     const isComplete = walletIsFullyFunded || installingVisible || dashboard.visible;
@@ -103,20 +69,10 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     return {
       chainState: fundingState ?? {
         walletIsFullyFunded: false,
-        walletsLoaded: false,
-        hasMiningMachine: false,
-        canStartVault: false,
-        overlayIsOpen: false,
-        availableMicrogons: '0',
-        availableMicronots: '0',
-        requiredMicrogons: '0',
-        requiredMicronots: '0',
       },
       uiState: {
         dashboardVisible: dashboard.visible,
         fundOverlayVisible: fundOverlayEntry.visible,
-        createVaultVisible,
-        createVaultClickable,
         installingVisible,
       },
       state: operationState,
@@ -162,7 +118,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     }
 
     await flow.click('WalletOverlay.closeOverlay()', { timeoutMs: 8_000 });
-    await pollEvery(250, async () => !(await flow.inspect(this)).chainState.overlayIsOpen, {
+    await pollEvery(250, async () => !(await flow.inspect(this)).uiState.fundOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,
     });

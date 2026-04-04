@@ -7,6 +7,6 @@ SELECT
   '{"type":"Public","routerHost":"ARGON_NETWORK_NAME"}'
 FROM Config
 WHERE key = 'showWelcomeOverlay'
-  AND value = 'true';
+  AND value = 'false';
 
 DELETE FROM Config WHERE key = 'showWelcomeOverlay';
