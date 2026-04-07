@@ -93,13 +93,6 @@ export interface StableSwapQuoteResult {
   priceAfterFixed18: bigint;
 }
 
-type StableSwapExactOutputQuoteResult = [
-  { toString(): string },
-  { toString(): string },
-  { toString(): string },
-  { toString(): string },
-];
-
 type StableSwapSdkPoolState = {
   sqrtPriceX96: bigint;
   liquidity: bigint;
@@ -703,12 +696,7 @@ export async function quoteStableSwapExactOutput(args: {
       return null;
     }
 
-    const decoded = SwapQuoter.V2INTERFACE.decodeFunctionResult(
-      'quoteExactOutputSingle',
-      quoteResult.data,
-    ) as StableSwapExactOutputQuoteResult;
-    const amountIn = BigInt(decoded[0].toString());
-    const sqrtPriceX96After = BigInt(decoded[1].toString());
+    const { amountIn, sqrtPriceX96After } = decodeStableSwapExactOutputQuote(quoteResult.data);
     const tickAfter = TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96After.toString()) as any);
     const quotedPool = createStableSwapSdkPool(pool, {
       sqrtPriceX96: sqrtPriceX96After,
@@ -826,6 +814,21 @@ function usdcToFixed18(usdc: bigint): bigint {
 
 function usdcToMicrogons(usdc: bigint, microgonsPerUsd: bigint): bigint {
   return (usdc * microgonsPerUsd) / 1_000_000n;
+}
+
+function decodeStableSwapExactOutputQuote(data: Hex): {
+  amountIn: bigint;
+  sqrtPriceX96After: bigint;
+} {
+  const decoded = SwapQuoter.V2INTERFACE.decodeFunctionResult(
+    'quoteExactOutputSingle',
+    data,
+  ) as unknown as readonly [{ toString(): string }, { toString(): string }];
+
+  return {
+    amountIn: BigInt(decoded[0].toString()),
+    sqrtPriceX96After: BigInt(decoded[1].toString()),
+  };
 }
 
 function createStableSwapSdkPool(pool: StableSwapPoolMetadata, state?: StableSwapSdkPoolState): UniswapV3Pool {

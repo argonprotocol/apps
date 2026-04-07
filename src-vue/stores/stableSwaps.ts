@@ -78,6 +78,8 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     await config.isLoadedPromise;
     await currency.isLoadedPromise;
 
+    publicClient = createStableSwapPublicClient(config.ethereumRpcUrl);
+
     isLoadingMarket.value = true;
     marketError.value = '';
 
@@ -86,7 +88,6 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
         publicClient,
         currency.microgonsPer.USD,
         getTargetPriceFixed18(),
-        activePool ?? undefined,
       );
 
       activePool = pool;
