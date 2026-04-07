@@ -2,7 +2,9 @@ import NetworkConfigSettings from '../network.config.json' with { type: 'json' }
 import type { ArgonClient } from '@argonprotocol/mainchain';
 
 export { NetworkConfigSettings };
-export type INetworkConfigOverride = Partial<INetworkConfig>;
+export type INetworkConfigOverride = Partial<Omit<INetworkConfig, 'ethereum'>> & {
+  ethereum?: Partial<IEthereumNetworkConfig>;
+};
 
 export class NetworkConfig {
   public static networkName: keyof typeof NetworkConfigSettings | undefined = undefined;
@@ -38,9 +40,14 @@ export class NetworkConfig {
     if (!(networkName in NetworkConfigSettings)) {
       throw new Error(`${networkName} is not a valid Network chain name`);
     }
+    const baseConfig = NetworkConfigSettings[networkName] as INetworkConfig;
     this.runtimeOverrides[networkName] = {
-      ...NetworkConfigSettings[networkName],
+      ...baseConfig,
       ...override,
+      ethereum: {
+        ...baseConfig.ethereum,
+        ...override.ethereum,
+      },
     };
   }
 
@@ -80,7 +87,10 @@ export class NetworkConfig {
   public static async loadConfigs(
     client: ArgonClient,
   ): Promise<
-    Omit<INetworkConfig, 'esploraHost' | 'archiveUrl' | 'bitcoinBlockMillis' | 'indexerHost' | 'websiteHost'>
+    Omit<
+      INetworkConfig,
+      'esploraHost' | 'archiveUrl' | 'bitcoinBlockMillis' | 'indexerHost' | 'websiteHost' | 'ethereum'
+    >
   > {
     const config = await client.query.miningSlot.miningConfig().then(x => ({
       ticksBetweenSlots: x.ticksBetweenSlots.toNumber(),
@@ -109,4 +119,11 @@ export interface INetworkConfig {
   indexerHost: string;
   bitcoinBlockMillis: number;
   esploraHost: string;
+  ethereum: IEthereumNetworkConfig;
+}
+
+export interface IEthereumNetworkConfig {
+  rpcUrl: string;
+  argonTokenAddress: string;
+  usdcTokenAddress: string;
 }

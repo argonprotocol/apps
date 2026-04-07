@@ -51,8 +51,14 @@ export function toSqliteBigInt(num: bigint): number {
   return Number(num);
 }
 
-export function fromSqliteBigInt(num: number): bigint {
+export function fromSqliteBigInt(num: number | string | bigint): bigint {
   try {
+    if (typeof num === 'string') {
+      return BigInt(num);
+    }
+    if (typeof num === 'bigint') {
+      return num;
+    }
     return BigInt(Math.floor(num));
   } catch (e) {
     console.log('num', num);
