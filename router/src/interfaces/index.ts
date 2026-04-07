@@ -1,2 +1,2 @@
-export * from './ICapitalInvite.js';
-export * from './ICapitalMember.js';
+export * from './ITreasuryInvite.js';
+export * from './ITreasuryMember.js';

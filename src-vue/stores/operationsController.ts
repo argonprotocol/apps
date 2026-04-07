@@ -7,13 +7,13 @@ import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
-import BootstrapToNode from '../overlays-operations/operational/BootstrapToNode.vue';
-import BackupMnemonic from '../overlays-operations/operational/BackupMnemonic.vue';
-import ActivateVault from '../overlays-operations/operational/ActivateVault.vue';
-import LiquidLock from '../overlays-operations/operational/LiquidLock.vue';
-import AcquireBonds from '../overlays-operations/operational/AcquireBonds.vue';
-import WinMiningSeats from '../overlays-operations/operational/WinMiningSeats.vue';
-import WinMoreMiningSeats from '../overlays-operations/operational/WinMoreMiningSeats.vue';
+import BootstrapToNode from '../app-operations/overlays/operational/BootstrapToNode.vue';
+import BackupMnemonic from '../app-operations/overlays/operational/BackupMnemonic.vue';
+import ActivateVault from '../app-operations/overlays/operational/ActivateVault.vue';
+import LiquidLock from '../app-operations/overlays/operational/LiquidLock.vue';
+import AcquireBonds from '../app-operations/overlays/operational/AcquireBonds.vue';
+import WinMiningSeats from '../app-operations/overlays/operational/WinMiningSeats.vue';
+import WinMoreMiningSeats from '../app-operations/overlays/operational/WinMoreMiningSeats.vue';
 import { loadOperationalAccount } from '../lib/OperationalAccount.ts';
 
 export enum OperationsTab {

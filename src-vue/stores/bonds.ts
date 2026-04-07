@@ -45,16 +45,25 @@ export const useBonds = defineStore('bonds', () => {
     await miningFrames.load();
     await vaults.load();
 
-    vaultId.value = config.upstreamOperator!.vaultId;
-
     const client = await getMainchainClient(false);
     const accountId = walletKeys.investmentAddress;
 
-    unsubFunder = await TreasuryPool.subscribeFunderState(client, vaultId.value, accountId, false, state => {
-      funderState.value = state;
-    });
+    Vue.watch(
+      () => config.upstreamOperator!.vaultId,
+      async () => {
+        vaultId.value = config.upstreamOperator!.vaultId;
+        if (!vaultId.value) {
+          unsubFunder?.();
+          return;
+        }
 
-    await refreshFrameHistory();
+        unsubFunder = await TreasuryPool.subscribeFunderState(client, vaultId.value, accountId, false, state => {
+          funderState.value = state;
+        });
+        await refreshFrameHistory();
+      },
+    );
+
     isLoaded.value = true;
 
     unsubFrame = miningFrames.onFrameId(() => {

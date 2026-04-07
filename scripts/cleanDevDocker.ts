@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = Path.resolve(scriptDir, '..');
-const appIds = ['com.argon.operations.local', 'com.argon.capital.local'];
+const appIds = ['com.argon.operations.local', 'com.argon.treasury.local'];
 
 const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
 const rawInstance = readNonEmptyEnv('ARGON_APP_INSTANCE') ?? 'e2e';

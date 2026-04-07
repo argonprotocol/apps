@@ -136,7 +136,7 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
 
-      - name: Build and Publish Capital Stable
+      - name: Build and Publish Treasury Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@v0.6
         env:
@@ -159,7 +159,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.capital.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.treasury.conf.json
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}

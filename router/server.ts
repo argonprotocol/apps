@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 import { ArgonApis } from './src/ArgonApis';
 import { LOCAL_NODE_URL, MAIN_NODE_URL, PORT } from './src/env';
 import { BitcoinApis } from './src/BitcoinApis';
-import { CapitalUsers } from './src/CapitalUsers.ts';
+import { TreasuryUsers } from './src/TreasuryUsers.ts';
 import { Profile } from './src/Profile.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 
@@ -82,7 +82,7 @@ app.get(
 );
 
 app.post(
-  '/capital-users/create',
+  '/treasury-users/create',
   express.text({ type: '*/*' }),
   safeJsonRoute(async (req: Request, res: Response) => {
     const rawBody = req.body;
@@ -92,39 +92,39 @@ app.post(
     }
 
     const payload = JsonExt.parse(rawBody);
-    const user = CapitalUsers.createUser(payload);
+    const user = TreasuryUsers.createUser(payload);
 
     return { success: true, user };
   }),
 );
 
 app.get(
-  '/capital-users/invites',
+  '/treasury-users/invites',
   safeJsonRoute(async () => {
-    return CapitalUsers.fetchInvites();
+    return TreasuryUsers.fetchInvites();
   }),
 );
 
 app.get(
-  '/capital-users/members',
+  '/treasury-users/members',
   safeJsonRoute(async () => {
-    return CapitalUsers.fetchMembers();
+    return TreasuryUsers.fetchMembers();
   }),
 );
 
 app.get(
-  '/capital-users/register',
+  '/treasury-users/register',
   safeJsonRoute(async () => {
     return { success: true };
   }),
 );
 
 app.get(
-  '/capital-users/:inviteCode',
+  '/treasury-users/:inviteCode',
   safeJsonRoute(async (req: Request, res: Response) => {
     const profile = Profile.fetch();
     const inviteCode = req.params.inviteCode;
-    const invite = CapitalUsers.setClickedAt(inviteCode);
+    const invite = TreasuryUsers.setClickedAt(inviteCode);
     if (!invite) {
       sendJson(res, { error: 'Invite not found' }, 404);
       return;
@@ -139,11 +139,11 @@ app.get(
 );
 
 app.post(
-  '/capital-users/:inviteCode/register-app',
+  '/treasury-users/:inviteCode/register-app',
   safeJsonRoute(async (req: Request, res: Response) => {
     const profile = Profile.fetch();
     const inviteCode = req.params.inviteCode;
-    const invite = CapitalUsers.setRegisteredAppAt(inviteCode);
+    const invite = TreasuryUsers.setRegisteredAppAt(inviteCode);
     if (!invite) {
       sendJson(res, { error: 'Invite not found' }, 404);
       return;

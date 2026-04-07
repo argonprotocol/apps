@@ -2,10 +2,10 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';
 import './lib/LogForwarding.ts';
-import CapitalApp from './CapitalApp.vue';
-import OperationsApp from './OperationsApp.vue';
+import AppTreasury from './app-treasury/App.vue';
+import AppOperations from './app-operations/App.vue';
 import './main.css';
-import { IS_CAPITAL_APP } from './lib/Env.ts';
+import { IS_TREASURY_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
 
 window.addEventListener('unhandledrejection', error => {
@@ -36,12 +36,12 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 
-const App = IS_CAPITAL_APP ? CapitalApp : OperationsApp;
+const App = IS_TREASURY_APP ? AppTreasury : AppOperations;
 const app = createApp(App);
 app.use(createPinia());
 app.mount('#app');
 void getVersion().then(version => {
-  console.log(`Starting Argon ${IS_CAPITAL_APP ? 'Capital' : 'Operations'} App v${version}`);
+  console.log(`Starting Argon ${IS_TREASURY_APP ? 'Treasury' : 'Operations'} App v${version}`);
 });
 
 if (isE2E) {
