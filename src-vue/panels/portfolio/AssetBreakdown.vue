@@ -375,7 +375,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import MoveCapitalButton from '../../overlays-operations/MoveCapitalButton.vue';
+import MoveCapitalButton from '../../app-operations/overlays/MoveCapitalButton.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
 import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';

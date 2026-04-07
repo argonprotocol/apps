@@ -1,0 +1,13 @@
+{
+  "identifier": "com.argon.treasury.local",
+  "productName": "Argon Treasury",
+  "bundle": {
+    "icon": [
+      "icons-treasury/local/mainnet/32x32.png",
+      "icons-treasury/local/mainnet/128x128.png",
+      "icons-treasury/local/mainnet/128x128@2x.png",
+      "icons-treasury/local/mainnet/icon.icns",
+      "icons-treasury/local/mainnet/icon.ico"
+    ]
+  }
+}

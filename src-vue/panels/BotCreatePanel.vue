@@ -189,19 +189,19 @@ import {
   JsonExt,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
-import ActiveBidsOverlayButton from '../overlays-operations/ActiveBidsOverlayButton.vue';
+import ActiveBidsOverlayButton from '../app-operations/overlays/ActiveBidsOverlayButton.vue';
 import { bigIntCeil, bigNumberToInteger } from '@argonprotocol/apps-core/src/utils.ts';
 import InputMoney from '../components/InputMoney.vue';
-import NeedMoreCapitalHover from '../overlays-operations/bot/NeedMoreCapitalHover.vue';
-import ReturnsOverlay from '../overlays-operations/bot/BotReturns.vue';
-import CapitalOverlay from '../overlays-operations/bot/BotCapital.vue';
+import NeedMoreCapitalHover from '../app-operations/overlays/bot/NeedMoreCapitalHover.vue';
+import ReturnsOverlay from '../app-operations/overlays/bot/BotReturns.vue';
+import CapitalOverlay from '../app-operations/overlays/bot/BotCapital.vue';
 import { getBot } from '../stores/bot.ts';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
 import BotTour from './bot-create-tour/Base.vue';
 import { useOperationsController } from '../stores/operationsController.ts';
-import Draggable from '../overlays-operations/helpers/Draggable.ts';
+import Draggable from '../app-operations/overlays/helpers/Draggable.ts';
 import BotSettings from '../components/BotSettings.vue';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 

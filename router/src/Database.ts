@@ -15,7 +15,7 @@ db.exec(`
     name TEXT
   );
 
-  CREATE TABLE IF NOT EXISTS CapitalInvites (
+  CREATE TABLE IF NOT EXISTS TreasuryInvites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     inviteCode TEXT NOT NULL UNIQUE,
@@ -34,7 +34,7 @@ db.exec(`
     createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
-  CREATE INDEX IF NOT EXISTS idx_capital_invites_coupon_public_key ON CapitalInvites(couponPublicKey);
+  CREATE INDEX IF NOT EXISTS idx_treasury_invites_coupon_public_key ON TreasuryInvites(couponPublicKey);
 `);
 
 export { db };

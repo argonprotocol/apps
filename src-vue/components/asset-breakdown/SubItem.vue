@@ -51,7 +51,7 @@ import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
 import { TooltipArrow, TooltipContent, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import CustomTooltipArrow from './TooltipArrow.vue';
-import MoveCapitalButton from '../../overlays-operations/MoveCapitalButton.vue';
+import MoveCapitalButton from '../../app-operations/overlays/MoveCapitalButton.vue';
 import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 
 const props = withDefaults(
