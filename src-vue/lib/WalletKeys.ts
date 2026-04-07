@@ -3,7 +3,7 @@ import { Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol
 import { BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
-import { IS_CAPITAL_APP } from './Env.ts';
+import { IS_TREASURY_APP } from './Env.ts';
 
 export class WalletKeys {
   public sshPublicKey: string;
@@ -108,19 +108,19 @@ export class WalletKeys {
   }
 
   public get liquidLockingAddress(): string {
-    return IS_CAPITAL_APP ? this.investmentAddress : this.vaultingAddress;
+    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
   }
 
   public async getLiquidLockingKeypair(): Promise<KeyringPair> {
-    return IS_CAPITAL_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
   }
 
   public get treasuryAddress(): string {
-    return IS_CAPITAL_APP ? this.investmentAddress : this.vaultingAddress;
+    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
   }
 
   public async getTreasuryKeypair(): Promise<KeyringPair> {
-    return IS_CAPITAL_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {

@@ -62,7 +62,7 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["argon-capital"]
+        "schemes": ["argon-treasury"]
       }
     }
   }
