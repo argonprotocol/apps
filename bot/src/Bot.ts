@@ -4,6 +4,8 @@ import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
 import { Storage } from './Storage.ts';
 import { AutoBidder } from './AutoBidder.ts';
 import { BlockSync } from './BlockSync.ts';
+import { BitcoinLockRelayService } from './BitcoinLockRelayService.ts';
+import { Db } from './Db.ts';
 import { DockerStatus } from './DockerStatus.ts';
 import {
   Accountset,
@@ -13,6 +15,8 @@ import {
   type IBiddingRules,
   type IBidReductionReason,
   type IBotState,
+  type IBitcoinLockRelayJobRequest,
+  type IBitcoinLockRelayRecord,
   type IHistoryFile,
   type IMiningFrameDetail,
   JsonExt,
@@ -25,11 +29,14 @@ import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 interface IBotOptions {
   datadir: string;
-  pair: KeyringPair;
+  db: Db;
+  bidderKeypair: KeyringPair;
+  vaultOperatorAddress: string;
   localRpcUrl: string;
   archiveRpcUrl: string;
   biddingRulesPath: string;
   sessionMiniSecret: string;
+  bitcoinInitializerDelegateKeypair: KeyringPair;
   oldestFrameIdToSync?: number;
   shouldSkipDockerSync?: boolean;
 }
@@ -42,9 +49,10 @@ export default class Bot {
   public miningFrames!: MiningFrames;
   public blockWatch!: BlockWatch;
   public miningFrameHistory!: MiningFrameHistory;
+  public db: Db;
+  public relayService: BitcoinLockRelayService;
 
   public isStarting: boolean = false;
-  public isWaitingForBiddingRules: boolean = false;
   public isSyncing: boolean = false;
   public isReady: boolean = false;
   public get maxSeatsInPlay(): number {
@@ -60,16 +68,29 @@ export default class Bot {
 
   private options: IBotOptions;
   private biddingRules: IBiddingRules | null = null;
+  private biddingRulesJson: string | null = null;
   private localClient!: ArgonClient;
-  private mainchainClients!: MainchainClients;
+  private readonly mainchainClients!: MainchainClients;
   private shutdownDeferred = createDeferred(false);
 
   constructor(options: IBotOptions) {
     this.options = options;
+    this.db = options.db;
+    this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl, () =>
+      Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
+    );
+    this.blockWatch = new BlockWatch(this.mainchainClients, true);
+    this.relayService = new BitcoinLockRelayService(
+      this.db,
+      this.mainchainClients,
+      this.blockWatch,
+      this.options.vaultOperatorAddress,
+      this.options.bitcoinInitializerDelegateKeypair,
+    );
   }
 
   public async state(startupError: string | null = null): Promise<IBotState> {
-    const isBooted = !!this.blockSync && !!this.history && !!this.autobidder;
+    const isBooted = !!this.blockSync && !!this.history;
     if (!isBooted) {
       const [argonBlockNumbers, bitcoinBlockNumbers] = await Promise.all([
         DockerStatus.getArgonBlockNumbers(),
@@ -89,7 +110,6 @@ export default class Bot {
         botLastActiveBlockNumber: 0,
         isReady: this.isReady,
         ...(this.isStarting ? { isStarting: true } : {}),
-        ...(this.isWaitingForBiddingRules ? { isWaitingForBiddingRules: true } : {}),
         ...(this.isSyncing ? { isSyncing: true } : {}),
         argonBlockNumbers,
         bitcoinBlockNumbers,
@@ -163,6 +183,14 @@ export default class Bot {
     return this.miningFrameHistory.getDetail(frameId);
   }
 
+  public async queueBitcoinLockRelay(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
+    return await this.relayService.queueRelay(request);
+  }
+
+  public async getBitcoinLockRelayStatus(relayId: number): Promise<IBitcoinLockRelayRecord> {
+    return await this.relayService.getRelayStatus(relayId);
+  }
+
   public async start(): Promise<void> {
     if (this.isStarting || this.isReady) return;
     this.isStarting = true;
@@ -170,9 +198,6 @@ export default class Bot {
     try {
       let currentFrameId = await this.currentFrameId.catch(() => 0);
       try {
-        this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl, () =>
-          Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
-        );
         const client = await this.mainchainClients.archiveClientPromise;
         currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
       } catch (error) {
@@ -203,15 +228,17 @@ export default class Bot {
       }
       this.errorMessage = null;
 
+      await this.relayService.start();
+
       this.biddingRules = this.loadBiddingRules();
+      this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;
       this.accountset = new Accountset({
         client: this.localClient,
-        seedAccount: this.options.pair,
+        seedAccount: this.options.bidderKeypair,
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
         subaccountRange: getRange(0, 144),
       });
       const miningFramesPath = this.storage.getPath('miningFrames.json');
-      this.blockWatch = new BlockWatch(this.mainchainClients, true);
       this.miningFrames = new MiningFrames(this.mainchainClients, this.blockWatch, {
         read: () => fs.readFile(miningFramesPath, 'utf8').catch(() => '[]'),
         write: data => fs.writeFile(miningFramesPath, data, 'utf8'),
@@ -222,7 +249,7 @@ export default class Bot {
         this.mainchainClients,
         this.storage,
         this.history,
-        this.biddingRules || ({} as IBiddingRules),
+        this.biddingRules,
         this.miningFrames,
       );
       this.blockSync = new BlockSync(
@@ -263,12 +290,6 @@ export default class Bot {
       this.history.handleFinishedSyncing();
       this.isSyncing = false;
 
-      if (!this.biddingRules) {
-        console.log('No bidding rules were found, cannot finish loading');
-        this.isWaitingForBiddingRules = true;
-        return;
-      }
-
       console.log('Starting block sync');
       while (true) {
         try {
@@ -290,6 +311,7 @@ export default class Bot {
         throw error;
       }
 
+      this.watchBiddingRulesFile();
       this.isReady = true;
     } finally {
       this.isStarting = false;
@@ -302,21 +324,34 @@ export default class Bot {
     }
     this.shutdownDeferred.setIsRunning(true);
     console.log('SHUTTING DOWN BOT');
+    if (this.options.biddingRulesPath) {
+      Fs.unwatchFile(this.options.biddingRulesPath);
+    }
     await this.autobidder.stop();
+    await this.relayService.shutdown();
     this.blockWatch.stop();
-    await this.miningFrames.stop();
-    await this.blockSync.stop();
-    await this.history.handleShutdown();
-    await this.storage.close();
+    await this.miningFrames?.stop?.();
+    await this.blockSync?.stop?.();
+    await this.history?.handleShutdown?.();
+    await this.storage?.close?.();
+    this.db.close();
     await this.mainchainClients.disconnect();
     console.log('BOT SHUT DOWN');
     this.shutdownDeferred.resolve();
     return this.shutdownDeferred.promise;
   }
 
-  private loadBiddingRules(): IBiddingRules {
+  private loadBiddingRules(): IBiddingRules | null {
+    if (!this.options.biddingRulesPath) {
+      return null;
+    }
+
+    if (!Fs.existsSync(this.options.biddingRulesPath)) {
+      return null;
+    }
+
     const rawJsonString = Fs.readFileSync(this.options.biddingRulesPath, 'utf8');
-    return JsonExt.parse(rawJsonString);
+    return JsonExt.parse<IBiddingRules>(rawJsonString);
   }
 
   private getFinalizedFrameId(): number {
@@ -349,5 +384,30 @@ export default class Bot {
     if (!isArgonMinerReady) return false;
 
     return true;
+  }
+
+  private watchBiddingRulesFile() {
+    if (!this.options.biddingRulesPath) return;
+
+    Fs.watchFile(this.options.biddingRulesPath, { interval: 1_000 }, (current, previous) => {
+      if (current.mtimeMs === previous.mtimeMs) return;
+      void this.reloadBiddingRules();
+    });
+  }
+
+  private async reloadBiddingRules() {
+    try {
+      const nextBiddingRules = this.loadBiddingRules();
+      const nextBiddingRulesJson = nextBiddingRules ? JsonExt.stringify(nextBiddingRules) : null;
+      if (nextBiddingRulesJson === this.biddingRulesJson) {
+        return;
+      }
+
+      this.biddingRules = nextBiddingRules;
+      this.biddingRulesJson = nextBiddingRulesJson;
+      await this.autobidder.updateBiddingRules(this.biddingRules);
+    } catch (error) {
+      console.error('Error reloading bidding rules', error);
+    }
   }
 }

@@ -12,9 +12,9 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { ensureOnlyOneInstance, resetOnlyOneInstance } from './Utils';
 import { createDeferred, type IDeferred } from '@argonprotocol/apps-core';
-import { message as tauriMessage, ask as tauriAsk } from '@tauri-apps/plugin-dialog';
+import { ask as tauriAsk, message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -63,7 +63,7 @@ export default class Installer {
   private readonly config: Config;
   private readonly walletKeys: WalletKeys;
 
-  private _server?: Server;
+  private _server?: ServerAdmin;
 
   constructor(config: Config, walletKeys: WalletKeys) {
     ensureOnlyOneInstance(this.constructor);
@@ -297,12 +297,12 @@ export default class Installer {
     await SSH.runCommand(`sudo ufw status | grep ${ipAddress} || sudo ufw allow from ${ipAddress}`);
   }
 
-  private async getServer(retries?: number): Promise<Server> {
+  private async getServer(retries?: number): Promise<ServerAdmin> {
     // We were getting into issues where server hadn't been created yet. I decided to just force
     // getting it in every function that needs it.
     if (!this._server) {
       const connection = await SSH.getOrCreateConnection(retries);
-      this._server = new Server(connection, this.config.serverDetails);
+      this._server = new ServerAdmin(connection, this.config.serverDetails);
       await this.ensureIpAddressIsWhitelisted();
     }
     return this._server;
@@ -522,7 +522,7 @@ export default class Installer {
 
     try {
       console.log(`Uploading server to ${remoteDir}`);
-      await SSH.uploadEmbeddedFile(localServerTar, `${workDir}/${serverTar}`, (progress: number) => {
+      await SSH.uploadEmbeddedFile(localServerTar, `${workDir}/${serverTar}`, progress => {
         totalProgress += progress;
         progressFn?.(totalCount, totalProgress);
       });
@@ -563,17 +563,22 @@ export default class Installer {
     const server = await this.getServer();
     await server.createConfigDir();
     const miningBotAccount = await this.walletKeys.exportMiningBotAccountJson('');
+    const delegateAccount = (await this.walletKeys.getVaultDelegateKeypair()).toJson('');
     await server.uploadMiningBotWallet(miningBotAccount);
-    progressFn?.(4, 1);
+    progressFn?.(5, 1);
+    await server.uploadVaultDelegateWallet(delegateAccount);
+    progressFn?.(5, 2);
     await server.uploadBiddingRules(this.config.biddingRules);
-    progressFn?.(4, 2);
-    await server.uploadEnvState({ oldestFrameIdToSync: this.config.oldestFrameIdToSync });
-    progressFn?.(4, 3);
+    progressFn?.(5, 3);
+    await server.uploadEnvState({
+      oldestFrameIdToSync: this.config.oldestFrameIdToSync,
+      vaultOperatorAddress: this.walletKeys.vaultingAddress,
+    });
+    progressFn?.(5, 4);
     await server.uploadEnvSecurity({
       sessionMiniSecret: await this.walletKeys.getMiningSessionMiniSecret(),
-      keypairPassphrase: '',
     });
-    progressFn?.(4, 4);
+    progressFn?.(5, 5);
   }
 
   private async clearStepFiles(

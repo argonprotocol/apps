@@ -137,6 +137,7 @@ export const UpstreamOperatorSchema = z.object({
   name: z.string(),
   vaultId: z.number(),
   inviteCode: z.string(),
+  bitcoinLockCouponToken: z.string().optional(),
 });
 
 export const ConfigSyncDetailsSchema = z.object({

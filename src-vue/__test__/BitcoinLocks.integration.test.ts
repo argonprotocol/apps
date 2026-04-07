@@ -2,13 +2,7 @@ import Path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BitcoinLock } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import {
-  Currency as CurrencyBase,
-  type IAllVaultStats,
-  MainchainClients,
-  MiningFrames,
-  NetworkConfig,
-} from '@argonprotocol/apps-core';
+import { MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
@@ -21,38 +15,18 @@ import {
   waitForBitcoinTransactionConfirmations,
   waitForBitcoinTransactionOutputSatoshis,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
-import { createTestDb } from './helpers/db.ts';
-import { createMockWalletKeys } from './helpers/wallet.ts';
-import { Config } from '../lib/Config.ts';
-import type IVaultingRules from '../interfaces/IVaultingRules.ts';
-import { Vaults } from '../lib/Vaults.ts';
-import { TransactionTracker } from '../lib/TransactionTracker.ts';
-import BitcoinLocks from '../lib/BitcoinLocks.ts';
-import BitcoinMempool from '../lib/BitcoinMempool.ts';
-import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { createBitcoinLockProgressStore } from '../stores/bitcoinLockProgress.ts';
 import type { Db } from '../lib/Db.ts';
-import type { WalletKeys } from '../lib/WalletKeys.ts';
-import { setDbPromise } from '../stores/helpers/dbPromise.ts';
+import {
+  type BitcoinLocksHarness as TestHarness,
+  createBitcoinLocksHarness as createHarness,
+  cleanupBitcoinLocksHarness as cleanupHarness,
+} from './helpers/bitcoinLocksHarness.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
-const walletFundingMicrogons = 100_000_000n;
-const defaultVaultRules: IVaultingRules = {
-  ...(Config.getDefault('vaultingRules') as IVaultingRules),
-  personalBtcPct: 0,
-  securitizationRatio: 1,
-  capitalForTreasuryPct: 50,
-  capitalForSecuritizationPct: 50,
-  baseMicrogonCommitment: 10_000_000n,
-  baseMicronotCommitment: 0n,
-  btcFlatFee: 100_000n,
-  btcPctFee: 2.5,
-  profitSharingPct: 5,
-};
 
 let clients: MainchainClients;
 let network: StartedArgonTestNetwork;
@@ -109,7 +83,11 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
   }, 240e3);
 
   it('accepts a mismatch candidate and persists the accepted funding record on chain and in the db', async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      archiveUrl: network.archiveUrl,
+      esploraHost: network.networkConfigOverride.esploraHost,
+      network: 'dev-docker',
+    });
     const progress = createBitcoinLockProgressStore({
       myVault: harness.myVault,
       bitcoinLocks: harness.bitcoinLocks,
@@ -148,7 +126,11 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
   });
 
   it('returns an expired mismatch funding candidate and restores vault capacity on chain and in the db', async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      archiveUrl: network.archiveUrl,
+      esploraHost: network.networkConfigOverride.esploraHost,
+      network: 'dev-docker',
+    });
     const progress = createBitcoinLockProgressStore({
       myVault: harness.myVault,
       bitcoinLocks: harness.bitcoinLocks,
@@ -171,7 +153,11 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
   });
 
   it('returns a mismatch funding candidate before expiry and leaves the lock ready to resume', async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      archiveUrl: network.archiveUrl,
+      esploraHost: network.networkConfigOverride.esploraHost,
+      network: 'dev-docker',
+    });
     const progress = createBitcoinLockProgressStore({
       myVault: harness.myVault,
       bitcoinLocks: harness.bitcoinLocks,
@@ -230,7 +216,11 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
   });
 
   it('keeps a new funded lock isolated after a prior release and a prior mismatch return', async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      archiveUrl: network.archiveUrl,
+      esploraHost: network.networkConfigOverride.esploraHost,
+      network: 'dev-docker',
+    });
     const progress = createBitcoinLockProgressStore({
       myVault: harness.myVault,
       bitcoinLocks: harness.bitcoinLocks,
@@ -327,111 +317,16 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
   });
 });
 
-type TestHarness = {
-  db: Db;
-  clients: MainchainClients;
-  walletKeys: WalletKeys;
-  vaults: Vaults;
-  myVault: MyVault;
-  bitcoinLocks: BitcoinLocks;
-  miningFrames: MiningFrames;
-};
-
-async function createHarness(): Promise<TestHarness> {
-  clients = new MainchainClients(network.archiveUrl);
-  setMainchainClients(clients);
-
-  const db = await createTestDb();
-  setDbPromise(Promise.resolve(db));
-  const walletKeys = createMockWalletKeys();
-  await sudoFundWallet({
-    address: walletKeys.vaultingAddress,
-    microgons: walletFundingMicrogons,
-    micronots: 0n,
-    archiveUrl: network.archiveUrl,
-  });
-  console.log('[BitcoinLocks.integration] funded vault wallet', walletKeys.vaultingAddress);
-  const archiveClient = await clients.archiveClientPromise;
-  await waitFor(30e3, 'vault wallet finalized funding visibility', async () => {
-    const finalizedHead = await archiveClient.rpc.chain.getFinalizedHead();
-    const finalizedClient = await archiveClient.at(finalizedHead);
-    const balance = await finalizedClient.query.system
-      .account(walletKeys.vaultingAddress)
-      .then(x => x.data.free.toBigInt());
-    if (balance < walletFundingMicrogons) return;
-    return balance;
-  });
-
-  const currency = new CurrencyBase(clients);
-  await currency.fetchMainchainRates();
-  const miningFrames = new MiningFrames(clients);
-  const vaults = new Vaults('dev-docker', currency, miningFrames);
-  Object.assign(vaults, {
-    saveStats: async () => {},
-    loadStatsFromFile: async () => undefined,
-  });
-  const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
-  const bitcoinLocks = new BitcoinLocks(
-    Promise.resolve(db),
-    walletKeys,
-    miningFrames.blockWatch,
-    currency,
-    transactionTracker,
-    new BitcoinMempool(network.networkConfigOverride.esploraHost),
-  );
-  const myVault = new MyVault(Promise.resolve(db), vaults, walletKeys, transactionTracker, bitcoinLocks, miningFrames);
-
-  vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
-  vi.spyOn(myVault.vaults, 'updateRevenue').mockResolvedValue({} as IAllVaultStats);
-
-  const config = new Config(Promise.resolve(db), walletKeys);
-  await config.load();
-  await myVault.load();
-  console.log('[BitcoinLocks.integration] loaded vault stores');
-  const vaultCreation = await myVault.createNew({
-    masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-    rules: defaultVaultRules,
-    config,
-  });
-  await vaultCreation.txResult.waitForFinalizedBlock;
-  await vaultCreation.waitForPostProcessing;
-  console.log('[BitcoinLocks.integration] created vault', myVault.createdVault?.vaultId);
-  await myVault.subscribe();
-
-  console.log('[BitcoinLocks.integration] securitization set during vault creation', myVault.createdVault?.vaultId);
-
-  await waitFor(
-    60e3,
-    'vault securitization availability',
-    () => (myVault.createdVault?.availableBitcoinSpace() ?? 0n) > 0n,
-  );
-
-  return {
-    db,
-    clients,
-    walletKeys,
-    vaults,
-    myVault,
-    bitcoinLocks,
-    miningFrames,
-  };
-}
-
-async function cleanupHarness(harness: TestHarness): Promise<void> {
-  harness.myVault.unsubscribe();
-  await harness.bitcoinLocks.shutdown();
-  harness.miningFrames.blockWatch.stop();
-  await harness.db.close();
-  await harness.clients.disconnect();
-}
-
 async function createLock(harness: TestHarness, microgonLiquidity?: bigint): Promise<IBitcoinLockRecord> {
   const availableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
   const targetLiquidity = microgonLiquidity ?? (availableBitcoinSpace * 4n) / 5n;
   expect(targetLiquidity).toBeGreaterThan(0n);
   const satoshis = await harness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
 
-  await harness.myVault.startBitcoinLocking({ satoshis });
+  await harness.bitcoinLocks.initializeLock({
+    satoshis,
+    vault: harness.myVault.createdVault!,
+  });
   return await waitFor(120e3, 'pending bitcoin lock finalization', () => {
     const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId)
       .filter(record => record.vaultId === harness.myVault.createdVault!.vaultId)

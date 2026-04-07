@@ -170,12 +170,16 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(targetLiquidity).toBeGreaterThan(0n);
 
       // Create a personal bitcoin lock (previously done by activateSecuritizationAndTreasury)
-      const lockTxInfo = await myVault.startBitcoinLocking({
+      const { txInfo: lockTxInfo } = await bitcoinLocks.initializeLock({
         satoshis: await bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity),
+        vault: myVault.createdVault!,
       });
-      await lockTxInfo.txResult.waitForFinalizedBlock;
-      const lockCreatedBlockNumber = lockTxInfo.txResult.blockNumber!;
-      await lockTxInfo.waitForPostProcessing;
+      expect(lockTxInfo).toBeTruthy();
+
+      const trackedLockTxInfo = lockTxInfo!;
+      await trackedLockTxInfo.txResult.waitForFinalizedBlock;
+      const lockCreatedBlockNumber = trackedLockTxInfo.txResult.blockNumber!;
+      await trackedLockTxInfo.waitForPostProcessing;
 
       expect(Object.keys(bitcoinLocks.data.locksByUtxoId)).toHaveLength(1);
       const bitcoinStored = Object.values(bitcoinLocks.data.locksByUtxoId)[0];

@@ -212,6 +212,9 @@ export class BitcoinUtxosTable extends BaseTable {
   ): Promise<void> {
     const hadMempoolObservation = !!record.mempoolObservation;
     record.mempoolObservation = mempoolObservation;
+    if (!(record.firstSeenAt instanceof Date) || Number.isNaN(record.firstSeenAt.getTime())) {
+      record.firstSeenAt = dayjs.utc().toDate();
+    }
     if (!hadMempoolObservation && record.firstSeenBitcoinHeight <= 0) {
       record.firstSeenAt = dayjs.utc().toDate();
     }

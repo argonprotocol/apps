@@ -1,6 +1,15 @@
 import prettierConfig from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 import { importX } from 'eslint-plugin-import-x';
+import noRedundantContextualParameterTypes from './eslint-rules/no-redundant-contextual-parameter-types.ts';
+import noSingleUsePassThroughHelper from './eslint-rules/no-single-use-pass-through-helper.ts';
+
+const argonRules = {
+  rules: {
+    'no-single-use-pass-through-helper': noSingleUsePassThroughHelper,
+    'no-redundant-contextual-parameter-types': noRedundantContextualParameterTypes,
+  },
+};
 
 export default tseslint.config(
   tseslint.configs.recommendedTypeChecked,
@@ -8,7 +17,12 @@ export default tseslint.config(
   importX.flatConfigs.typescript,
   { ignores: ['**/node_modules/**', '**/lib/**/*.js', '**/target', 'e2e/scripts/**/*.mjs'] },
   {
+    plugins: {
+      argon: argonRules,
+    },
     rules: {
+      'argon/no-single-use-pass-through-helper': 'error',
+      'argon/no-redundant-contextual-parameter-types': 'warn',
       'import-x/no-named-as-default-member': 'off',
       'import-x/no-named-as-default': 'off',
       '@typescript-eslint/prefer-promise-reject-errors': 'off',
@@ -63,6 +77,8 @@ export default tseslint.config(
   {
     files: ['**/*.test.ts', '**/__test__/**', 'scripts/**'],
     rules: {
+      'argon/no-single-use-pass-through-helper': 'off',
+      'argon/no-redundant-contextual-parameter-types': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/restrict-template-expressions': 'off',
       '@typescript-eslint/ban-ts-comment': 'off',
@@ -75,6 +91,8 @@ export default tseslint.config(
   {
     files: ['e2e/**/*.ts'],
     rules: {
+      'argon/no-single-use-pass-through-helper': 'off',
+      'argon/no-redundant-contextual-parameter-types': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-redundant-type-constituents': 'off',
@@ -98,14 +116,30 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src-vue/e2e/**/*.ts'],
+    rules: {
+      'argon/no-single-use-pass-through-helper': 'off',
+      'argon/no-redundant-contextual-parameter-types': 'off',
+    },
+  },
+  {
     files: ['**/*.d.ts'],
     rules: {
+      'argon/no-single-use-pass-through-helper': 'off',
+      'argon/no-redundant-contextual-parameter-types': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/no-namespace': 'off',
       '@typescript-eslint/consistent-type-definitions': 'off',
       '@typescript-eslint/no-empty-interface': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-empty-object-type': 'off',
+    },
+  },
+  {
+    files: ['eslint-rules/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
     },
   },
   prettierConfig,

@@ -10,6 +10,8 @@ export default defineConfig({
   clean: true,
   outDir: '../server/router/src',
   platform: 'node',
+  removeNodeProtocol: false,
+  external: ['node:sqlite'],
   sourcemap: true,
   shims: false,
   splitting: false,

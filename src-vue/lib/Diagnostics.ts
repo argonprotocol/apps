@@ -1,10 +1,11 @@
 import { Config } from './Config';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
+import { ServerApiClient } from './ServerApiClient.ts';
 import { SSH } from './SSH';
 import { WalletKeys } from './WalletKeys.ts';
 
 export class Diagnostics {
-  private server!: Server;
+  private server!: ServerAdmin;
   private config: Config;
   private walletKeys: WalletKeys;
 
@@ -20,7 +21,7 @@ export class Diagnostics {
   public async load() {
     if (this.server) return;
     const connection = await SSH.getOrCreateConnection();
-    this.server = new Server(connection, this.config.serverDetails);
+    this.server = new ServerAdmin(connection, this.config.serverDetails);
     console.log('Diagnostics IS LOADED');
   }
 
@@ -63,14 +64,22 @@ export class Diagnostics {
   }
 
   public async healthOfBitcoinNode() {
-    const info = await this.server.fetchBitcoinBlockChainInfo();
+    const { ipAddress } = this.config.serverDetails;
+    if (!ipAddress) {
+      throw new Error('No server IP address configured');
+    }
+    const info = await ServerApiClient.getBitcoinBlockChainInfo(ipAddress);
     return {
       info,
     };
   }
 
   public async healthOfArgonNode() {
-    const info = await this.server.fetchArgonBlockChainInfo();
+    const { ipAddress } = this.config.serverDetails;
+    if (!ipAddress) {
+      throw new Error('No server IP address configured');
+    }
+    const info = await ServerApiClient.getArgonBlockChainInfo(ipAddress);
     return {
       info,
     };

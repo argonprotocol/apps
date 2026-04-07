@@ -6,7 +6,7 @@ import { createDeferred, type IBidsFile, IBotState, MiningFrames } from '@argonp
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
 import { BotWsClient } from './BotWsClient';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
@@ -54,15 +54,15 @@ export class Bot {
     try {
       const db = await this.dbPromise;
       this.botSyncer = new BotSyncer(this.config, db, installer, miningFrames, {
-        onEvent: (type: keyof IBotEmitter, payload?: any) => botEmitter.emit(type, payload),
-        setStatus: (x: BotStatus) => {
+        onEvent: (type, payload) => botEmitter.emit(type, payload),
+        setStatus: x => {
           if (this.status === x) return;
           this.status = x;
           botEmitter.emit('status-changed', x);
         },
         setBotState: x => (this.state = x),
-        setServerSyncProgress: (x: number) => (this.syncProgress = x * 0.9),
-        setDbSyncProgress: (x: number) => (this.syncProgress = 90 + x * 0.1),
+        setServerSyncProgress: x => (this.syncProgress = x * 0.9),
+        setDbSyncProgress: x => (this.syncProgress = 90 + x * 0.1),
       });
 
       await this.botSyncer.load();
@@ -82,7 +82,7 @@ export class Bot {
   }
 
   public async restart(): Promise<void> {
-    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     this.botSyncer.isPaused = true;
     await server.stopBotDocker();
     await server.startBotDocker();
@@ -91,7 +91,7 @@ export class Bot {
 
   public async loadServerBiddingRules(): Promise<void> {
     if (this.config.miningSetupStatus !== MiningSetupStatus.Finished) return;
-    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     const remoteRules = await server.downloadBiddingRules();
     if (!remoteRules) return;
     this.config.biddingRules = remoteRules;
@@ -99,7 +99,7 @@ export class Bot {
   }
 
   public async resyncBiddingRules(): Promise<void> {
-    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     try {
       this.status = BotStatus.ServerSyncing;
       this.syncProgress = 25;

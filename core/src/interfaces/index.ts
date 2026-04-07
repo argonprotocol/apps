@@ -3,6 +3,7 @@ export * from './IBidderParams.js';
 export * from './IBiddingRules.js';
 export * from './IBidsFile.js';
 export * from './IBitcoinBlockMeta.js';
+export * from './IBitcoinLockRelay.js';
 export * from './IBlockNumbers.js';
 export * from './IBlockSyncFile.js';
 export * from './IBotStateFile.js';

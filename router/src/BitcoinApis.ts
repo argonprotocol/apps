@@ -3,6 +3,7 @@ import type { IBlockchainInfo } from './interfaces/IBlockchainInfo';
 import { callBitcoinRpc, getRoundedPercent, readTextFileOrDefault } from './utils';
 import type { IBlockNumbers } from './interfaces/IBlockNumbers';
 import type { IBitcoinBlockMeta } from './interfaces/IBitcoinBlocksMeta';
+import { BITCOIN_CHAIN, LOGS_DIR } from './env';
 
 let cache: null | {
   latestBlocks: IBitcoinBlockNumbers & IBlockchainInfo;
@@ -10,20 +11,20 @@ let cache: null | {
 } = null;
 
 export class BitcoinApis {
-  static dataPullProgressFilePath = `${process.env.LOGS_DIR}/step-BitcoinInstall.progress-pull-bitcoin-data.json`;
-  static buildBitcoinProgressFilePath = `${process.env.LOGS_DIR}/step-BitcoinInstall.progress-build-bitcoin-node.json`;
+  static dataPullProgressFilePath = `${LOGS_DIR}/step-BitcoinInstall.progress-pull-bitcoin-data.json`;
+  static buildBitcoinProgressFilePath = `${LOGS_DIR}/step-BitcoinInstall.progress-build-bitcoin-node.json`;
 
-  static async blockchainInfo(): Promise<IBlockchainInfo> {
+  public static async blockchainInfo(): Promise<IBlockchainInfo> {
     return callBitcoinRpc('getblockchaininfo');
   }
 
-  static async dockerPercentComplete(): Promise<number> {
+  public static async dockerPercentComplete(): Promise<number> {
     const percents = await Promise.all([
       readTextFileOrDefault(this.dataPullProgressFilePath),
       readTextFileOrDefault(this.buildBitcoinProgressFilePath),
     ]);
 
-    const sum = percents.reduce((acc: number, val: string) => {
+    const sum = percents.reduce((acc, val) => {
       const value = Number(val.trim());
       if (!value) {
         return acc;
@@ -33,7 +34,7 @@ export class BitcoinApis {
     return getRoundedPercent(sum / (percents.length * 100));
   }
 
-  static async latestBlocks(): Promise<IBlockNumbers & IBlockchainInfo> {
+  public static async latestBlocks(): Promise<IBlockNumbers & IBlockchainInfo> {
     const now = Date.now();
     if (cache && now - cache.timestamp < 2000) {
       return cache.latestBlocks;
@@ -42,7 +43,7 @@ export class BitcoinApis {
     const blockchainInfo = await this.blockchainInfo();
 
     let mainNodeBlockNumber = 0;
-    if (process.env.BITCOIN_CHAIN === 'mainnet') {
+    if (BITCOIN_CHAIN === 'mainnet') {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10_000);
       const response = await fetch('https://blockchain.info/latestblock', {
@@ -72,7 +73,7 @@ export class BitcoinApis {
     return latestBlocks;
   }
 
-  static async syncStatus(): Promise<{ syncPercent: number } & IBlockNumbers> {
+  public static async syncStatus(): Promise<{ syncPercent: number } & IBlockNumbers> {
     let dockerPercent = await this.dockerPercentComplete().catch(() => 0);
     const { localNodeBlockNumber, mainNodeBlockNumber, initialblockdownload, blocks, headers } =
       await this.latestBlocks().catch(() => ({
@@ -87,17 +88,14 @@ export class BitcoinApis {
       dockerPercent = 100;
     }
 
-    let blockSyncPercent = mainNodeBlockNumber ? getRoundedPercent(localNodeBlockNumber / mainNodeBlockNumber) : 0;
+    const blockSyncPercent = mainNodeBlockNumber ? getRoundedPercent(localNodeBlockNumber / mainNodeBlockNumber) : 0;
     const localSyncedInfo = await callBitcoinRpc<Record<string, { synced: boolean; best_block_height: number }>>(
       'getindexinfo',
     ).catch(() => ({
       na: { synced: false, best_block_height: 0 },
     }));
     const indexesSynced =
-      Object.values(localSyncedInfo).every(
-        (index: { synced: boolean; best_block_height: number }) =>
-          index.synced && index.best_block_height === localNodeBlockNumber,
-      ) &&
+      Object.values(localSyncedInfo).every(index => index.synced && index.best_block_height === localNodeBlockNumber) &&
       Object.keys(localSyncedInfo).length > 0;
 
     let syncPercent = getRoundedPercent((dockerPercent * 0.7 + blockSyncPercent * 0.3) / 100, 1);
@@ -112,17 +110,17 @@ export class BitcoinApis {
       syncPercent,
       mainNodeBlockNumber,
       localNodeBlockNumber,
-      bitcoinNode: { indexinfo: localSyncedInfo, initialblockdownload, blocks, headers },
-    } as any;
+      // bitcoinNode: { indexinfo: localSyncedInfo, initialblockdownload, blocks, headers },
+    };
   }
 
-  static async recentBlocks(blockCount: number): Promise<IBitcoinBlockMeta[]> {
+  public static async recentBlocks(blockCount: number): Promise<IBitcoinBlockMeta[]> {
     const blockcount = await callBitcoinRpc<number>('getblockcount');
     const hashes = await Promise.all(
       Array.from({ length: blockCount }, (_, i) => callBitcoinRpc<string>('getblockhash', blockcount - i)),
     );
     const blocks = await Promise.all(
-      hashes.map((h: string) => callBitcoinRpc<IBitcoinBlockMeta & { tx: string[] }>('getblock', h, 1)),
+      hashes.map(h => callBitcoinRpc<IBitcoinBlockMeta & { tx: string[] }>('getblock', h, 1)),
     );
     return blocks.map(({ tx, ...block }: IBitcoinBlockMeta & { tx: string[] }) => block);
   }

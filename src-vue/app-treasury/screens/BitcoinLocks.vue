@@ -139,6 +139,7 @@ import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { TooltipProvider } from 'reka-ui';
 import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+import { BitcoinLockCoupons } from '@argonprotocol/apps-router';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { ChevronRightIcon } from '@heroicons/vue/24/outline';
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
@@ -198,6 +199,9 @@ function getDisplayLiquidityPromised(lock: IBitcoinLockRecord): bigint {
 function lockStatusLabel(lock: IBitcoinLockRecord): string {
   switch (lock.status) {
     case BitcoinLockStatus.LockIsProcessingOnArgon:
+      if (lock.relayMetadataJson?.status === 'Failed') {
+        return 'Submission Failed';
+      }
       return 'Processing on Argon';
     case BitcoinLockStatus.LockPendingFunding:
       return 'Pending Funding';
@@ -249,6 +253,21 @@ function updateAvailableSpace(rawVault: Vault) {
   vaultSecuritizationMicrogons.value = rawVault.securitization;
   availableSecuritizationMicrogons.value = rawVault.availableSecuritization();
   maxLockLiquidityMicrogons.value = rawVault.availableBitcoinSpace();
+
+  const couponToken = config.upstreamOperator?.bitcoinLockCouponToken;
+  if (!couponToken) return;
+
+  try {
+    const coupon = BitcoinLockCoupons.parseToken(couponToken);
+    if (coupon.payload.vaultId !== rawVault.vaultId) return;
+
+    const couponLiquidity = (coupon.payload.maxSatoshis * currency.microgonsPer.BTC) / SATS_PER_BTC;
+    if (couponLiquidity < maxLockLiquidityMicrogons.value) {
+      maxLockLiquidityMicrogons.value = couponLiquidity;
+    }
+  } catch {
+    // Ignore malformed offer metadata and fall back to the vault maximum.
+  }
 }
 
 Vue.watch([isLoaded, () => config.upstreamOperator!.vaultId], async () => {

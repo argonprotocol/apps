@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { JsonExt } from '@argonprotocol/apps-core';
+import { BITCOIN_RPC_URL } from './env';
 import type { IJsonRpcResponse } from './interfaces/IJsonRpcResponse';
 
 let requestId = 1;
@@ -44,7 +45,7 @@ export function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
 }
 
 export function safeJsonRoute(handler: (req: Request) => Promise<any>): (req: Request) => Promise<Response> {
-  return async (req: Request) => {
+  return async (req) => {
     if (req.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -75,7 +76,7 @@ export async function callBitcoinRpc<T = unknown>(method: string, ...params: any
     method,
     params,
   });
-  const url = new URL(process.env.BITCOIN_RPC_URL!);
+  const url = new URL(BITCOIN_RPC_URL!);
   const login = `${url.username}:${url.password}`;
   url.username = '';
   url.password = '';
@@ -93,7 +94,7 @@ export async function callBitcoinRpc<T = unknown>(method: string, ...params: any
   const json = (await res.json()) as { error?: unknown; result: T };
 
   if (json.error) throw new Error(`Bitcoin RPC error ${JSON.stringify(json.error)}`);
-  return json.result as T;
+  return json.result;
 }
 
 export async function callArgonRpc<T = unknown>(url: string, method: string, params: any[] = []): Promise<IJsonRpcResponse<T>> {

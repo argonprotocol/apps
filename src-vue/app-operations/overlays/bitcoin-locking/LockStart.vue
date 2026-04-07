@@ -115,6 +115,7 @@ import { getCurrency } from '../../../stores/currency.ts';
 import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
+import { getConfig } from '../../../stores/config.ts';
 import { getVaults } from '../../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
@@ -132,6 +133,7 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
+const config = getConfig();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 
@@ -152,6 +154,25 @@ const isVaultOperator = Vue.computed(() => {
   return walletKeys.vaultingAddress === props.vault.operatorAccountId;
 });
 
+const operatorCoupon = Vue.computed(() => {
+  const upstreamOperator = config.upstreamOperator;
+  const operatorHost = config.bootstrapDetails?.routerHost?.trim();
+  if (!upstreamOperator?.bitcoinLockCouponToken || !operatorHost || upstreamOperator.vaultId !== props.vault.vaultId) {
+    return undefined;
+  }
+
+  return {
+    vaultId: upstreamOperator.vaultId,
+    inviteCode: upstreamOperator.inviteCode,
+    operatorHost,
+    couponToken: upstreamOperator.bitcoinLockCouponToken,
+  };
+});
+
+const isOperatorCouponLock = Vue.computed(() => {
+  return !!operatorCoupon.value;
+});
+
 const neededMicrogons = Vue.computed(() => {
   if (securityFee.value <= 0n) return 0n;
   const buffer = 25_000n;
@@ -161,7 +182,7 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 const showFeePanel = Vue.computed(() => {
-  return !isVaultOperator.value && securityFee.value > 0n;
+  return !isVaultOperator.value && !isOperatorCouponLock.value && securityFee.value > 0n;
 });
 
 const handleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
@@ -172,7 +193,7 @@ let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
 
 function updateFeeEstimate() {
-  if (!props.vault || liquidityToReceiveMicrogons.value <= 0n || isVaultOperator.value) {
+  if (!props.vault || liquidityToReceiveMicrogons.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
     securityFee.value = 0n;
     return;
   }
@@ -225,6 +246,7 @@ async function submitLiquidLock() {
 
   let satoshis = lockSatoshis.value;
   try {
+    await config.isLoadedPromise;
     isSaving.value = true;
     errorMessage.value = null;
     if (satoshis <= 0n && liquidityToReceiveMicrogons.value > 0n) {
@@ -238,6 +260,7 @@ async function submitLiquidLock() {
     await bitcoinLocks.initializeLock({
       satoshis,
       vault: props.vault,
+      operatorCoupon: operatorCoupon.value,
     });
     const createdLock = bitcoinLocks.data.pendingLocks.at(-1);
     if (createdLock) {
@@ -275,4 +298,8 @@ Vue.watch(
   },
   { immediate: true },
 );
+
+Vue.onMounted(async () => {
+  await config.isLoadedPromise;
+});
 </script>
