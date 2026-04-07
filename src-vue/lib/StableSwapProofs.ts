@@ -1,6 +1,6 @@
 import { encode as rlpEncode } from '@ethereumjs/rlp';
 import { Trie } from '@ethereumjs/trie';
-import { hexToBytes, toHex, type Address, type Hash, type Hex, type PublicClient } from 'viem';
+import { hexToBytes, toHex, type Hash, type Hex, type PublicClient, type RpcTransactionReceipt } from 'viem';
 
 export interface StableSwapReceiptProof {
   txHash: string;
@@ -13,22 +13,7 @@ export interface StableSwapReceiptProof {
   proof: string[];
 }
 
-type StableSwapRawReceipt = {
-  blockHash: Hash;
-  blockNumber: Hex;
-  cumulativeGasUsed: Hex;
-  logs: Array<{
-    address: Address;
-    data: Hex;
-    topics: Hex[];
-  }>;
-  logsBloom: Hex;
-  root?: Hex;
-  status?: Hex;
-  transactionHash: Hash;
-  transactionIndex: Hex;
-  type?: Hex;
-};
+type StableSwapRawReceipt = RpcTransactionReceipt;
 
 export async function buildStableSwapReceiptProofs(args: {
   client: PublicClient;
@@ -41,17 +26,21 @@ export async function buildStableSwapReceiptProofs(args: {
   });
 
   const trie = await Trie.create();
-  const rawReceipts = await mapWithConcurrency(block.transactions, 8, async txHash => {
-    return await client.request({
-      method: 'eth_getTransactionReceipt',
-      params: [txHash],
-    });
-  });
+  const rawReceipts: Array<RpcTransactionReceipt | null> = await mapWithConcurrency(
+    block.transactions,
+    8,
+    async txHash => {
+      return await client.request({
+        method: 'eth_getTransactionReceipt',
+        params: [txHash],
+      });
+    },
+  );
 
   const receiptsByHash = new Map<string, StableSwapRawReceipt>();
   const encodedReceiptsByHash = new Map<string, Uint8Array>();
 
-  for (const rawReceipt of rawReceipts as StableSwapRawReceipt[]) {
+  for (const rawReceipt of rawReceipts) {
     if (!rawReceipt) continue;
 
     const key = encodeReceiptKey(rawReceipt.transactionIndex);
@@ -110,7 +99,7 @@ function encodeEthereumReceipt(receipt: StableSwapRawReceipt): Uint8Array {
     return payload;
   }
 
-  const prefix = hexToBytes(receipt.type);
+  const prefix = hexToBytes(receipt.type as Hex);
   const encoded = new Uint8Array(prefix.length + payload.length);
   encoded.set(prefix, 0);
   encoded.set(payload, prefix.length);
