@@ -2,7 +2,7 @@ import { Db } from './Db';
 import { BaseDirectory, remove } from '@tauri-apps/plugin-fs';
 import { AdvancedRestartOption } from '../interfaces/IAdvancedRestartOption';
 import { SSH } from './SSH';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
 import { Config } from './Config.ts';
 import Installer from './Installer.ts';
 import { LocalMachine } from './LocalMachine.ts';
@@ -12,7 +12,7 @@ import PluginSql from '@tauri-apps/plugin-sql';
 export default class Restarter {
   private readonly dbPromise: Promise<Db>;
 
-  private _server?: Server;
+  private _server?: ServerAdmin;
   private readonly _config: Config;
 
   constructor(dbPromise: Promise<Db>, config: Config) {
@@ -23,7 +23,7 @@ export default class Restarter {
   public async getServer() {
     if (!this._server) {
       const connection = await SSH.getOrCreateConnection();
-      this._server = new Server(connection, this._config.serverDetails);
+      this._server = new ServerAdmin(connection, this._config.serverDetails);
     }
     return this._server;
   }
@@ -31,7 +31,7 @@ export default class Restarter {
   public async run(toRestart: Set<AdvancedRestartOption>, installer: Installer): Promise<void> {
     if (toRestart.has(AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine)) {
       installer.stop();
-      let server: Server | undefined;
+      let server: ServerAdmin | undefined;
       try {
         server = await this.getServer();
       } catch (error) {

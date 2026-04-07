@@ -4,7 +4,6 @@ import type { IBidReductionReason } from '../CohortBidder.js';
 export interface IBotStateStarting {
   isReady: boolean;
   isStarting?: boolean;
-  isWaitingForBiddingRules?: boolean;
   isSyncing?: boolean;
   syncProgress: number;
   argonBlockNumbers: IBlockNumbers;

@@ -5,12 +5,14 @@ export function createDeferred<T = void>(isRunning: boolean = true): IDeferred<T
   let isRejected = false;
 
   const promise = new Promise<T>((res, rej) => {
-    resolve = (value: T | Promise<T>) => {
+    resolve = value => {
+      if (isResolved || isRejected) return;
       isResolved = true;
       isRunning = false;
       res(value);
     };
     reject = (reason?: unknown) => {
+      if (isResolved || isRejected) return;
       isRejected = true;
       isRunning = false;
       rej(reason);
@@ -22,8 +24,8 @@ export function createDeferred<T = void>(isRunning: boolean = true): IDeferred<T
   // Create the object with arrow functions to avoid 'this' binding issues
 
   return {
-    resolve: (value: T | Promise<T>) => resolve(value),
-    reject: (reason?: unknown) => reject(reason),
+    resolve: value => resolve(value),
+    reject: reason => reject(reason),
     promise,
     setIsRunning,
     get isResolved() {

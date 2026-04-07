@@ -10,8 +10,16 @@
 
   <div v-else class="flex flex-col space-y-5 px-10 pt-10 pb-20">
     <p>
-      Your request to lock {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
-      BTC has been submitted to Argon and is awaiting finalization. This usually takes four to five minutes.
+      <template v-if="isWaitingOnRouter">
+        Your request to lock
+        {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
+        BTC is queued on the vault router and will be submitted to Argon as soon as capacity is available.
+      </template>
+      <template v-else>
+        Your request to lock
+        {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
+        BTC has been submitted to Argon and is awaiting finalization. This usually takes four to five minutes.
+      </template>
     </p>
 
     <p class="mb-2 italic">You can close this overlay without interrupting the process.</p>
@@ -48,8 +56,12 @@ const bitcoinLockProgress = useBitcoinLockProgress();
 const personalLock = Vue.computed(() => props.personalLock);
 const progressPct = Vue.computed(() => bitcoinLockProgress.lockProcessing.progressPct);
 const transactionError = Vue.computed(() => bitcoinLockProgress.lockProcessing.error);
+const isWaitingOnRouter = Vue.computed(() => bitcoinLocks.isRelayWaitingOnServer(personalLock.value));
 
 const progressLabel = Vue.computed(() => {
+  if (isWaitingOnRouter.value) {
+    return personalLock.value.relayMetadataJson?.queueReason ?? 'Waiting for the vault router to submit this lock.';
+  }
   return generateProgressLabel(
     bitcoinLockProgress.lockProcessing.confirmations,
     bitcoinLockProgress.lockProcessing.expectedConfirmations,

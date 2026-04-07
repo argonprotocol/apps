@@ -9,6 +9,8 @@ export default defineConfig({
   clean: true,
   outDir: '../server/bot/src',
   platform: 'node',
+  removeNodeProtocol: false,
+  external: ['node:sqlite'],
   sourcemap: true,
   shims: false,
   splitting: false,

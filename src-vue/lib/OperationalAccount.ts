@@ -64,8 +64,8 @@ export async function buildOperatorAccountRegistrationTx(args: {
   const configuredVaultingAddr = walletKeys.vaultingAddress;
   const configuredMiningHoldAddr = walletKeys.miningHoldAddress;
   const configuredMiningBotAddr = walletKeys.miningBotAddress;
-  const inviteCode = config.upstreamOperator?.inviteCode?.trim();
-  const { privateKey: inviteCodeKey } = VaultInvites.decodeInviteCode(inviteCode!);
+  const inviteCodeKey = config.upstreamOperator?.inviteCode?.trim();
+
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningHoldAccount, miningBotAccount] =
     await Promise.all([
       walletKeys.getOperationalKeypair(),

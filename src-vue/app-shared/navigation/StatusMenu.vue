@@ -128,7 +128,7 @@
                   </tr>
                 </tbody>
               </table>
-              <motion
+              <Motion
                 as="div"
                 :animate="{
                   backgroundPosition: ['0% 0', '200% 0'],

@@ -1,13 +1,12 @@
 import { parse as parseEnv } from 'dotenv';
 import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
-import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
+import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
 import { SSH } from './SSH';
 import { IConfigServerDetails, InstallStepKey } from '../interfaces/IConfig';
 import { join, tempDir } from '@tauri-apps/api/path';
 import { LocalMachine } from './LocalMachine.ts';
-import { fetch } from '@tauri-apps/plugin-http';
 import { getInstanceConfigDir } from './Utils.ts';
 
 export enum InstallStepStatusType {
@@ -29,31 +28,7 @@ const installStepStatusPriorityByType: Record<InstallStepStatusType, number> = {
 };
 export const DOCKER_COMPOSE_PROJECT_NAME = toComposeProjectName(INSTANCE_NAME, NETWORK_NAME);
 
-export interface IBitcoinBlockChainInfo {
-  chain: string;
-  blocks: number;
-  headers: number;
-  bestBlockHash: string;
-  difficulty: number;
-  time: number;
-  medianTime: number;
-  verificationProgress: number;
-  initialBlockDownload: boolean;
-  chainwork: string;
-  sizeOnDisk: number;
-  pruned: boolean;
-  warnings: string[];
-  localNodeBlockNumber: number;
-  mainNodeBlockNumber: number;
-}
-
-export interface IArgonBlockChainInfo {
-  localNodeBlockNumber: number;
-  mainNodeBlockNumber: number;
-  isComplete: boolean;
-}
-
-export class Server {
+export class ServerAdmin {
   private readonly connection: SSHConnection;
   private readonly serverDetails: IConfigServerDetails;
 
@@ -150,8 +125,10 @@ export class Server {
     return biddingRulesRaw ? JsonExt.parse(biddingRulesRaw) : undefined;
   }
 
-  public async uploadEnvState(envState: { oldestFrameIdToSync: number }): Promise<void> {
-    const envStateStr = `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}\n`;
+  public async uploadEnvState(envState: { oldestFrameIdToSync: number; vaultOperatorAddress: string }): Promise<void> {
+    const envStateStr =
+      `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}\n` +
+      `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}\n`;
     await this.connection.uploadFileWithTimeout(envStateStr, `${this.workDir}/config/.env.state`, 10e3);
   }
 
@@ -233,10 +210,8 @@ export class Server {
     await this.runComposeCommand(`restart argon-miner bitcoin-node bot`, 10e3);
   }
 
-  public async uploadEnvSecurity(envSecurity: { sessionMiniSecret: string; keypairPassphrase: string }): Promise<void> {
-    const envSecurityStr =
-      `SESSION_MINI_SECRET="${envSecurity.sessionMiniSecret}"\n` +
-      `KEYPAIR_PASSPHRASE=${envSecurity.keypairPassphrase}`;
+  public async uploadEnvSecurity(envSecurity: { sessionMiniSecret: string }): Promise<void> {
+    const envSecurityStr = `SESSION_MINI_SECRET="${envSecurity.sessionMiniSecret}"`;
     await this.connection.uploadFileWithTimeout(envSecurityStr, `${this.workDir}/config/.env.security`, 10e3);
   }
 
@@ -245,6 +220,15 @@ export class Server {
     await this.connection.uploadFileWithTimeout(
       miningBotWalletStringified,
       `${this.workDir}/config/walletMiningBot.json`,
+      10e3,
+    );
+  }
+
+  public async uploadVaultDelegateWallet(delegateWalletJson: KeyringPair$Json): Promise<void> {
+    const delegateWalletStringified = JsonExt.stringify(delegateWalletJson, 2);
+    await this.connection.uploadFileWithTimeout(
+      delegateWalletStringified,
+      `${this.workDir}/config/walletVaultDelegate.json`,
       10e3,
     );
   }
@@ -265,7 +249,7 @@ export class Server {
       10e3,
     );
     if (this.connection.isDockerHostProxy) {
-      const fullVmPath = await Server.virtualMachineFolder();
+      const fullVmPath = await ServerAdmin.virtualMachineFolder();
       // sed replace all instances of ../ with the fullPath
       const sedCommand = `sed -i -e 's|^ROOT=.*|ROOT="${fullVmPath}/app"|' ${this.workDir}/server/.env`;
       await this.connection.runCommandWithTimeout(sedCommand, 10e3);
@@ -327,57 +311,6 @@ export class Server {
     } catch (error) {
       console.error('Error killing installer script:', error);
     }
-  }
-
-  public async fetchBitcoinInstallProgress(): Promise<number> {
-    const result = await this.fetchStatus<ISyncStatus>('bitcoin', 'syncstatus', 30e3).catch(() => null);
-    return result?.syncPercent ?? 0.0;
-  }
-
-  public async fetchBitcoinBlockChainInfo(): Promise<IBitcoinBlockChainInfo> {
-    const blocks = await this.fetchStatus<IBitcoinLatestBlocks>('bitcoin', `latestblocks`, 30e3);
-
-    const output2: any = await this.fetchStatus('bitcoin', 'getblockchaininfo', 30e3);
-    return {
-      chain: output2.chain,
-      blocks: output2.blocks,
-      headers: output2.headers,
-      bestBlockHash: output2.bestblockhash,
-      difficulty: output2.difficulty,
-      time: output2.time,
-      medianTime: output2.mediantime,
-      verificationProgress: output2.verificationprogress,
-      initialBlockDownload: output2.initialblockdownload,
-      chainwork: output2.chainwork,
-      sizeOnDisk: output2.size_on_disk,
-      pruned: output2.pruned,
-      warnings: output2.warnings,
-      localNodeBlockNumber: blocks.localNodeBlockNumber,
-      mainNodeBlockNumber: blocks.mainNodeBlockNumber,
-    };
-  }
-
-  public async fetchArgonBlockChainInfo(): Promise<IArgonBlockChainInfo> {
-    const { localNodeBlockNumber, mainNodeBlockNumber } = await this.fetchStatus<ILatestBlocks>(
-      'argon',
-      `latestblocks`,
-      10e3,
-    );
-
-    const completeResponse = await this.fetchStatus<boolean | object>('argon', 'iscomplete', 10e3);
-    const isComplete = completeResponse === true;
-
-    return {
-      localNodeBlockNumber,
-      mainNodeBlockNumber,
-      isComplete,
-    };
-  }
-
-  public async fetchArgonInstallProgress(): Promise<number> {
-    const result = await this.fetchStatus<ISyncStatus>('argon', 'syncstatus', 30e3);
-
-    return result?.syncPercent ?? 0.0;
   }
 
   public async downloadInstallStepStatuses(): Promise<IInstallStepStatuses> {
@@ -442,42 +375,4 @@ export class Server {
       timeoutMs,
     );
   }
-
-  private async fetchStatus<T>(service: 'argon' | 'bitcoin', path: string, timeoutMs = 10e3): Promise<T> {
-    if (path.startsWith('/')) {
-      path = path.slice(1);
-    }
-    const ip = this.connection.host;
-    const aborController = new AbortController();
-    const signal = aborController.signal;
-    const timeout = setTimeout(() => {
-      aborController.abort();
-    }, timeoutMs);
-    const response = await fetch(`http://${ip}:${SERVER_ENV_VARS.ROUTER_PORT}/${service}/${path}`, {
-      signal,
-    });
-    clearTimeout(timeout);
-    if (!response.ok) {
-      console.error(`[STATUS] ${response.status}: ${service}/${path}`, await response.text());
-      throw new Error(`HTTP error ${response.status}`);
-    }
-    const data = (await response.json()) as Promise<T>;
-    console.debug(`[STATUS] ${service}/${path}`, data);
-    return data;
-  }
-}
-
-interface ISyncStatus {
-  mainNodeBlockNumber: number;
-  localNodeBlockNumber: number;
-  syncPercent: number;
-}
-
-interface ILatestBlocks {
-  mainNodeBlockNumber: number;
-  localNodeBlockNumber: number;
-}
-
-interface IBitcoinLatestBlocks extends ILatestBlocks {
-  localNodeBlockTime: number;
 }

@@ -7,12 +7,14 @@ import type {
   IBotApiMethod,
   IBotApiResponse,
   IBotApiSpec,
+  IBitcoinLockRelayJobRequest,
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@argonprotocol/apps-core';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
+import { HttpError } from './HttpError.ts';
 
 export class BotServer {
   public startupError = '';
@@ -58,6 +60,27 @@ export class BotServer {
 
     app.get('/is-ready', async (_req, res) => {
       res.status(200).type('application/json').send(bot.isReady);
+    });
+
+    app.post('/internal/bitcoin-lock-relays', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        if (!req.body) {
+          throw new HttpError('Missing JSON body', 400);
+        }
+
+        return await bot.queueBitcoinLockRelay(JsonExt.parse<IBitcoinLockRelayJobRequest>(String(req.body)));
+      });
+    });
+
+    app.get('/internal/bitcoin-lock-relays/:relayId', async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        const relayId = Number(req.params.relayId);
+        if (!Number.isFinite(relayId) || relayId <= 0) {
+          throw new HttpError('Invalid relay id.', 400);
+        }
+
+        return await bot.getBitcoinLockRelayStatus(relayId);
+      });
     });
 
     wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
@@ -213,4 +236,18 @@ export function startServer(bot: Bot, port: number | string = 0, heartbeatInterv
   const server = new BotServer(bot, port, heartbeatIntervalMs);
   server.start();
   return server;
+}
+
+async function safeJsonRoute(res: express.Response, handler: () => Promise<unknown>): Promise<void> {
+  try {
+    sendJson(res, await handler());
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 500;
+    const message = error instanceof Error ? error.message : String(error);
+    sendJson(res, { error: message }, status);
+  }
+}
+
+function sendJson(res: express.Response, data: unknown, status = 200): void {
+  res.status(status).type('application/json').send(JsonExt.stringify(data));
 }

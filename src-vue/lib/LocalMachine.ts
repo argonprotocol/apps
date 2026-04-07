@@ -1,4 +1,4 @@
-import { DOCKER_COMPOSE_PROJECT_NAME } from './Server.ts';
+import { DOCKER_COMPOSE_PROJECT_NAME } from './ServerAdmin.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { message } from '@tauri-apps/plugin-dialog';
 

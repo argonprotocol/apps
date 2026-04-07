@@ -74,16 +74,14 @@
 
     <div v-else-if="currentStep.startsWith('Import')" class="mx-2 pt-5 font-light leading-6">
       <div class="pl-5 pr-10">
-        <ImportAccountOverview v-if="currentStep === 'Import'" @close="backToMain" @goTo="showImportFrom" class="pb-5" />
         <ImportAccountFromMnemonic
-          v-if="currentStep === 'Import:FromMnemonic'"
           ref="importAccountFromMnemonicRef"
           :showButton="false"
           @close="backToMain"
           @goTo="showImportFrom"
         />
       </div>
-      <div v-if="currentStep === 'Import:FromMnemonic'" class="flex flex-row items-center justify-between border-t border-slate-300 py-5 px-5 mt-6 space-x-4">
+      <div  class="flex flex-row items-center justify-between border-t border-slate-300 py-5 px-5 mt-6 space-x-4">
         <button @click="importFromMnemonic" tabindex="0" class="w-full flex flex-row justify-center items-center space-x-2 bg-argon-button border border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-12 py-2 rounded-md cursor-pointer focus:outline-none">
           Import Account
         </button>
@@ -98,17 +96,18 @@ import * as Vue from 'vue';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import { getConfig } from '../../stores/config.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 import { APP_NAME, IS_OPERATIONS_APP, IS_TREASURY_APP } from '../../lib/Env.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 import { BootstrapType } from '../../interfaces/IConfig.ts';
 import { DialogTitle } from 'reka-ui';
-import ImportAccountOverview from './import-account/Overview.vue';
 import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
 import { VaultInvites } from '../../lib/VaultInvites.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
-import type { ITreasuryInvite } from '@argonprotocol/apps-router';
+import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
+import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 
 const config = getConfig();
+const walletKeys = getWalletKeys();
 
 const isOpen = Vue.ref(config.showWelcomeOverlay);
 const importAccountFromMnemonicRef = Vue.ref<InstanceType<typeof ImportAccountFromMnemonic> | null>(null);
@@ -183,19 +182,18 @@ async function connectToNetwork() {
     return;
   }
 
-  const host = `http://${meta.ipAddress}:${meta.port}`;
-  let body: { fromName: string; invite: ITreasuryInvite };
+  let body: { fromName: string; invite: ITreasuryUserInvite };
   try {
-    const response = await fetch(`${host}/treasury-users/${inviteCode.value}/register-app`, { method: 'POST' });
-    if (!response.ok) {
-      formError.value = 'Unable to connect with that access code. Please verify it and try again.';
-      return;
-    }
-
-    const rawBody = await response.text();
-    body = JsonExt.parse<{ fromName: string; invite: ITreasuryInvite }>(rawBody);
-  } catch {
-    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+    body = await UpstreamOperatorClient.openTreasuryAppInvite(
+      [meta.ipAddress, meta.port].filter(Boolean).join(':'),
+      inviteCode.value.trim(),
+      walletKeys.liquidLockingAddress,
+    );
+  } catch (error) {
+    formError.value =
+      error instanceof Error && error.message
+        ? error.message
+        : 'An error occurred trying to connect with that access code. Please verify it and try again.';
     return;
   }
 
@@ -210,6 +208,7 @@ async function connectToNetwork() {
     name: body.fromName,
     vaultId: invite.vaultId,
     inviteCode: inviteCode.value.trim(),
+    bitcoinLockCouponToken: invite.offerToken ?? undefined,
   };
 
   config.bootstrapDetails = {

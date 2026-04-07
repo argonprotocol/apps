@@ -14,6 +14,8 @@ export enum ExtrinsicType {
   VaultInitialAllocate = 'VaultInitialAllocate',
   VaultIncreaseAllocation = 'VaultIncreaseAllocation',
   VaultCollect = 'VaultCollect',
+  VaultSetBitcoinLockDelegate = 'VaultSetBitcoinLockDelegate',
+  VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
   VaultRegisterCoupon = 'VaultRegisterCoupon',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
