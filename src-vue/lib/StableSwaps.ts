@@ -820,10 +820,10 @@ function decodeStableSwapExactOutputQuote(data: Hex): {
   amountIn: bigint;
   sqrtPriceX96After: bigint;
 } {
-  const decoded = SwapQuoter.V2INTERFACE.decodeFunctionResult(
-    'quoteExactOutputSingle',
-    data,
-  ) as unknown as readonly [{ toString(): string }, { toString(): string }];
+  const decoded = SwapQuoter.V2INTERFACE.decodeFunctionResult('quoteExactOutputSingle', data) as unknown as readonly [
+    { toString(): string },
+    { toString(): string },
+  ];
 
   return {
     amountIn: BigInt(decoded[0].toString()),
