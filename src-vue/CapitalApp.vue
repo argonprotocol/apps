@@ -9,6 +9,7 @@
       <EthereumScreen v-if="controller.selectedTab === CapitalTab.Ethereum" />
       <ArgonBondsScreen v-if="controller.selectedTab === CapitalTab.ArgonBonds" />
       <BitcoinLocksScreen v-if="controller.selectedTab === CapitalTab.BitcoinLocks" />
+      <StableSwapsScreen v-if="controller.selectedTab === CapitalTab.StableSwaps" />
     </main>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
@@ -51,6 +52,7 @@ import LocalchainScreen from './screens-capital/LocalchainScreen.vue';
 import EthereumScreen from './screens-capital/EthereumScreen.vue';
 import BitcoinLocksScreen from './screens-capital/BitcoinLocks.vue';
 import ArgonBondsScreen from './screens-capital/ArgonBonds.vue';
+import StableSwapsScreen from './screens-capital/StableSwaps.vue';
 import { CapitalTab, useCapitalController } from './stores/capitalController.ts';
 
 const controller = useCapitalController();

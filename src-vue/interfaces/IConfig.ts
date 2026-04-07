@@ -170,6 +170,7 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 export const ConfigSchema = z.object({
   version: z.string(),
   requiresPassword: z.boolean(),
+  ethereumRpcUrl: z.string().optional(),
 
   bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
   upstreamOperator: UpstreamOperatorSchema.optional(),
@@ -237,6 +238,7 @@ export type IConnectedVault = z.infer<typeof UpstreamOperatorSchema>;
 
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
+  ethereumRpcUrl: () => IConfig['ethereumRpcUrl'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
   upstreamOperator: () => IConfig['upstreamOperator'];
 
