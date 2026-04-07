@@ -41,7 +41,7 @@ export async function buildStableSwapReceiptProofs(args: {
   });
 
   const trie = await Trie.create();
-  const rawReceipts = await mapWithConcurrency(block.transactions as Hash[], 8, async txHash => {
+  const rawReceipts = await mapWithConcurrency(block.transactions, 8, async txHash => {
     return await client.request({
       method: 'eth_getTransactionReceipt',
       params: [txHash],
