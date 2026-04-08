@@ -1,89 +1,125 @@
 <!-- prettier-ignore -->
 <template>
-  <div
-    class="bg-white/95 h-full min-w-80 flex flex-col select-none"
-    style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
-    data-tauri-drag-region
-  >
-    <div class="flex flex-row items-center pointer-events-none relative pt-1 mx-1 border-b border-slate-500/20 h-[55px]">
-      <WindowControls />
-      <div class="text-[19px] font-bold whitespace-nowrap">
-        {{ APP_NAME }}
-        <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
-      </div>
-    </div>
-
-    <div class="text-center flex-row items-center justify-center py-10 border-b border-slate-500/20">
-      <div class="font-bold text-4xl">{{ currency.symbol }}{{ formattedTotal }}</div>
-      <div>Total Value</div>
-    </div>
-
-    <ul class="mt-5 px-3">
-      <li @click="controller.setScreenKey(TreasuryTab.Mainchain)" :Selected="controller.selectedTab === TreasuryTab.Mainchain || undefined">
-        <div>Mainchain Balance</div>
-        <div>{{ currency.symbol }}{{ formattedMainchain }}</div>
-      </li>
-      <li @click="controller.setScreenKey(TreasuryTab.Localchain)" :Selected="controller.selectedTab === TreasuryTab.Localchain || undefined">
-        <div>Localchain Balance</div>
-        <div>{{currency.symbol}}0.00</div>
-      </li>
-      <li @click="controller.setScreenKey(TreasuryTab.Ethereum)" :Selected="controller.selectedTab === TreasuryTab.Ethereum || undefined">
-        <div>Ethereum Balance</div>
-        <div>{{currency.symbol}}0.00</div>
-      </li>
-    </ul>
-
-    <div class="mt-10 px-3">
-      <header class="px-2 opacity-40">INVESTMENT RETURNS</header>
-      <ul class="mt-2">
-        <li @click="controller.setScreenKey(TreasuryTab.ArgonBonds)" :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined">
+  <div class="h-full min-w-80 flex flex-col gap-y-1.5 select-none z-10">
+    <section DashBox class="px-4">
+      <header class="flex flex-row items-center pt-3 pb-2 opacity-50">
+        <MainchainIcon class="mr-2 h-4 w-4" />
+        <div>MAINCHAIN NETWORK</div>
+      </header>
+      <ul>
+        <li Divider />
+        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.MainchainSavings)" :Selected="controller.selectedTab === TreasuryTab.MainchainSavings || undefined">
+          <div>Inflation-Free Savings</div>
+          <div>{{ currency.symbol }}{{ formattedMainchain }}</div>
+          <div Selector>
+            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
+          </div>
+        </li>
+        <li Divider />
+        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.ArgonBonds)" :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined">
           <div>Argon Bonds</div>
           <div>{{ numeral(bonds.estimatedApy).format('0.00') }}%</div>
+          <div Selector>
+            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
+          </div>
         </li>
-        <li @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)" :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined">
+        <li Divider />
+        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)" :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined">
           <div>Bitcoin Locks</div>
           <div>0.00%</div>
+          <div Selector>
+            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
+          </div>
         </li>
-        <li @click="controller.setScreenKey(TreasuryTab.StableSwaps)" :Selected="controller.selectedTab === TreasuryTab.StableSwaps || undefined">
-          <div>Stable Swaps</div>
-          <div>0.00%</div>
-        </li>
+        <li Divider />
       </ul>
-    </div>
 
-    <div class="mt-10 px-3">
-      <header class="px-2 opacity-40">NETWORK HEALTH</header>
+      <header class="flex flex-row items-center pt-5 pb-2 opacity-50">
+        <P2pIcon class="mr-2 h-4 w-4" />
+        <div>PERSON-TO-PERSON</div>
+      </header>
       <ul class="mt-2">
-        <li>
-          <div>Operational Agents</div>
-          <div>+0.00</div>
+        <li Divider />
+        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.P2pSavings)" :Selected="controller.selectedTab === TreasuryTab.P2pSavings || undefined">
+          <div>Ready Cash</div>
+          <div>{{currency.symbol}}0.00</div>
+          <div Selector>
+            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
+          </div>
         </li>
-        <li>
-          <div>Token Circulation</div>
-          <div>+0.00</div>
+        <li Divider />
+        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.P2pTaxes)" :Selected="controller.selectedTab === TreasuryTab.P2pTaxes || undefined">
+          <div>Tax Revenue</div>
+          <div>{{currency.symbol}}0.00</div>
+          <div Selector>
+            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
+          </div>
         </li>
-        <li>
-          <div>Price Stabilization</div>
-          <div>+0.00</div>
+        <li Divider />
+      </ul>
+
+      <header class="flex flex-row items-center pt-5 pb-2 opacity-50">
+        <ExternalIcon class="mr-2 h-4 w-4" />
+        <div>EXTERNAL NETWORKS</div>
+      </header>
+      <ul>
+        <li Divider />
+        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)" :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined">
+          <div>Ethereum Swaps</div>
+          <div>{{currency.symbol}}0.00</div>
+          <div Selector>
+            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
+          </div>
         </li>
       </ul>
-    </div>
+    </section>
+
+    <section DashBox class="px-4">
+      <ul class="text-slate-900/60">
+        <li Item>
+          <div>Total Portfolio Value</div>
+          <div>{{ currency.symbol }}{{ formattedTotal }}</div>
+        </li>
+        <li Divider />
+        <li Item>
+          <div>Total Portfolio Change</div>
+          <div>+0.2</div>
+        </li>
+        <li Divider />
+        <li Item>
+          <div>Portfolio Return This Year</div>
+          <div>32%</div>
+        </li>
+        <li Divider />
+        <li Item>
+          <div>Projected APY</div>
+          <div>3,283%</div>
+        </li>
+      </ul>
+    </section>
+
+    <section DashBox class="grow">
+
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import WindowControls from '../../tauri-controls/WindowControls.vue';
 import CurrencyMenu from '../../app-shared/navigation/CurrencyMenu.vue';
-import InstanceMenu, { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
+import Arrow from '../../components/Arrow.vue';
+import { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
 import { useTour } from '../../stores/tour.ts';
 import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
-import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../../lib/Env.ts';
+import { INSTANCE_NAME, NETWORK_NAME } from '../../lib/Env.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { TreasuryTab, useTreasuryController } from '../../stores/treasuryController.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import MainchainIcon from '../../assets/mainchain-icon.svg';
+import P2pIcon from '../../assets/p2p-icon.svg';
+import ExternalIcon from '../../assets/external-icon.svg';
 import { useBonds } from '../../stores/bonds.ts';
 
 const controller = useTreasuryController();
@@ -141,19 +177,46 @@ Vue.onMounted(async () => {
 <style scoped>
 @reference "../../main.css";
 
-ul li {
-  @apply my-1 flex cursor-pointer flex-row items-center rounded border border-transparent px-2 py-1.5;
+ul li[Item] {
+  @apply relative my-1 flex flex-row items-center py-1.5;
+  &[Clickable] {
+    @apply cursor-pointer;
+  }
+  div {
+    @apply relative z-10;
+  }
   div:first-child {
     @apply grow;
   }
   &[Selected] {
-    @apply bg-argon-400/10;
-    &:hover {
-      @apply border-transparent;
+    text-shadow: 1px 1px 1px white;
+    div[Selector] {
+      @apply block;
+    }
+    /*
+      &:hover {
+        @apply border-transparent;
+      }
+    */
+  }
+
+  div[Selector] {
+    @apply absolute top-[-5px] left-0 z-0 hidden h-[calc(100%+10px)] w-[calc(100%+20px)] border-y border-slate-400/40 bg-[#ECE1EE] shadow-md;
+    &::before {
+      content: '';
+      @apply absolute -top-px -left-px h-[calc(100%+7px)] w-4/12 bg-gradient-to-r from-white to-transparent;
     }
   }
-  &:hover {
-    @apply border-dashed border-slate-500/60;
+}
+
+[ArrowWrapper] {
+  @apply absolute top-0 -right-full aspect-square h-[calc(100%+6px)] overflow-hidden pr-1.5 pb-1.5;
+  svg {
+    @apply absolute top-0 left-1/4 h-1/2 w-[calc(100%-6px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[1px_1px_1px_black];
   }
+}
+
+ul li[Divider] {
+  @apply h-px border-t border-slate-400/40;
 }
 </style>

@@ -1,16 +1,18 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="h-screen w-screen flex flex-row overflow-hidden cursor-default rounded-2xl">
-    <LeftBar />
-    <main v-if="controller.isLoaded && !controller.isImporting" class="flex flex-col grow relative h-full overflow-scroll">
-      <TopBar />
-      <MainchainScreen v-if="controller.selectedTab === TreasuryTab.Mainchain" />
-      <LocalchainScreen v-if="controller.selectedTab === TreasuryTab.Localchain" />
-      <EthereumScreen v-if="controller.selectedTab === TreasuryTab.Ethereum" />
-      <ArgonBondsScreen v-if="controller.selectedTab === TreasuryTab.ArgonBonds" />
-      <BitcoinLocksScreen v-if="controller.selectedTab === TreasuryTab.BitcoinLocks" />
-      <StableSwapsScreen v-if="controller.selectedTab === TreasuryTab.StableSwaps" />
-    </main>
+  <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default gap-y-2">
+    <TopBar />
+    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pb-2">
+      <LeftBar />
+      <main DashBox class="flex flex-col grow relative h-full overflow-scroll">
+        <MainchainScreen v-if="controller.selectedTab === TreasuryTab.MainchainSavings" />
+        <ArgonBondsScreen v-if="controller.selectedTab === TreasuryTab.ArgonBonds" />
+        <BitcoinLocksScreen v-if="controller.selectedTab === TreasuryTab.BitcoinLocks" />
+        <P2PSavingsScreen v-if="controller.selectedTab === TreasuryTab.P2pSavings" />
+        <P2PTaxesScreen v-if="controller.selectedTab === TreasuryTab.P2pTaxes" />
+        <StableSwapsScreen v-if="controller.selectedTab === TreasuryTab.EthereumSwaps" />
+      </main>
+    </div>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
         <div class="text-2xl font-bold text-slate-600/40 uppercase">Loading...</div>
@@ -48,8 +50,8 @@ import BootingOverlay from '../app-shared/overlays/BootingOverlay.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import TopBar from './navigation/TopBar.vue';
 import MainchainScreen from './screens/MainchainScreen.vue';
-import LocalchainScreen from './screens/LocalchainScreen.vue';
-import EthereumScreen from './screens/EthereumScreen.vue';
+import P2PSavingsScreen from './screens/P2pSavingsScreen.vue';
+import P2PTaxesScreen from './screens/P2pTaxesScreen.vue';
 import BitcoinLocksScreen from './screens/BitcoinLocks.vue';
 import ArgonBondsScreen from './screens/ArgonBonds.vue';
 import StableSwapsScreen from './screens/StableSwaps.vue';

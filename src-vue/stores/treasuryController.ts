@@ -9,12 +9,12 @@ import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
 
 export enum TreasuryTab {
-  Mainchain = 'Mainchain',
-  Localchain = 'Localchain',
-  Ethereum = 'Ethereum',
+  MainchainSavings = 'MainchainSavings',
   ArgonBonds = 'ArgonBonds',
   BitcoinLocks = 'BitcoinLocks',
-  StableSwaps = 'StableSwaps',
+  P2pSavings = 'P2pSavings',
+  P2pTaxes = 'P2pTaxes',
+  EthereumSwaps = 'EthereumSwaps',
 }
 
 export const useTreasuryController = defineStore('treasuryController', () => {
@@ -24,7 +24,7 @@ export const useTreasuryController = defineStore('treasuryController', () => {
   const dbPromise = getDbPromise();
   const config = getConfig();
   const walletKeys = getWalletKeys();
-  const selectedTab = Vue.ref<TreasuryTab>('' as TreasuryTab);
+  const selectedTab = Vue.ref<TreasuryTab>(TreasuryTab.MainchainSavings);
 
   const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(false);
@@ -48,12 +48,6 @@ export const useTreasuryController = defineStore('treasuryController', () => {
     isLoadedResolve();
   }
 
-  async function importFromFile(dataRaw: string) {
-    isImporting.value = true;
-    const importer = new Importer(config as Config, walletKeys, dbPromise);
-    basicEmitter.emit('openImportingAccountOverlay', { importer, dataRaw });
-  }
-
   async function importFromMnemonic(mnemonic: string) {
     isImporting.value = true;
     const importer = new Importer(config as Config, walletKeys, dbPromise);
@@ -70,7 +64,6 @@ export const useTreasuryController = defineStore('treasuryController', () => {
     isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
-    importFromFile,
     importFromMnemonic,
     setScreenKey: setTab,
   };
