@@ -155,16 +155,18 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
             winningBids: [],
             slots: [],
           }) satisfies IMiningFrameDetail,
-        queueBitcoinLockRelay: async request => await activeRelayService.queueRelay(request),
-        getBitcoinLockRelayStatus: async relayId => await activeRelayService.getRelayStatus(relayId),
+        initializeBitcoinLockCoupon: async request => await activeRelayService.queueRelay(request),
+        getBitcoinLockStatus: async offerCode => await activeRelayService.getBitcoinLockStatus(offerCode),
+        getBitcoinLockStatuses: async () => await activeRelayService.getLatestBitcoinLockStatuses(),
       } satisfies Pick<
         Bot,
         | 'isReady'
         | 'state'
         | 'getHistoryForFrame'
         | 'getMiningFrameDetail'
-        | 'queueBitcoinLockRelay'
-        | 'getBitcoinLockRelayStatus'
+        | 'initializeBitcoinLockCoupon'
+        | 'getBitcoinLockStatus'
+        | 'getBitcoinLockStatuses'
       >;
       botServer = startBotServer(botApi as unknown as Bot, 0);
       await botServer.waitForListening();
@@ -220,8 +222,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         x => x.inviteCode === inviteCode,
       );
       expect(issuedInvite?.lastClickedAt).toBeFalsy();
-      expect(issuedInvite?.redeemedAt).toBeFalsy();
-      expect(issuedInvite?.lockedBitcoinAt).toBeFalsy();
 
       // Opening the invite should update click tracking on the operator api.
       // The operator overlays do not auto-poll today, so this test re-fetches the api directly after each step.
@@ -229,7 +229,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       expect(openedInvite.fromName).toBe('Operator One');
       expect(openedInvite.invite.expirationTick).toBeGreaterThan(0);
       expect(openedInvite.invite.accountAddress).toBe(accountAddress);
-      expect(routerDb.treasuryUserInvitesTable.fetchInviteByCode(inviteCode)?.accountAddress).toBe(accountAddress);
+      expect(routerDb.userInvitesTable.fetchByCode(inviteCode)?.accountAddress).toBe(accountAddress);
 
       await expect(
         UpstreamOperatorClient.openTreasuryAppInvite(
@@ -244,7 +244,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
           x => x.inviteCode === inviteCode,
         );
         if (!invite?.lastClickedAt) return;
-        if (invite.redeemedAt || invite.lockedBitcoinAt) return;
         return invite;
       });
       expect(clickedInvite.lastClickedAt).toBeTruthy();
@@ -252,13 +251,12 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const clickedMember = await waitFor(30e3, 'router member click tracked', async () => {
         const member = (await ServerApiClient.getTreasuryAppMembers(routerAddress.host)).find(x => x.name === 'Casey');
         if (!member?.lastClickedAt) return;
-        if (member.redeemedAt || member.lockedBitcoinAt) return;
         return member;
       });
       expect(clickedMember.lastClickedAt).toBeTruthy();
 
       await expect(
-        UpstreamOperatorClient.initializeBitcoinLock(operatorHost, inviteCode, {
+        UpstreamOperatorClient.initializeBitcoinLock(operatorHost, openedInvite.invite.offerCode, {
           offerToken: openedInvite.invite.offerToken,
           ownerAccountAddress: operatorHarness.walletKeys.liquidLockingAddress,
           ownerBitcoinPubkey: '02deadbeef',
@@ -274,6 +272,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         operatorCoupon: {
           vaultId: operatorVault.vaultId,
           inviteCode,
+          offerCode: openedInvite.invite.offerCode,
           operatorHost,
           accountAddress,
           couponToken: openedInvite.invite.offerToken,
@@ -287,26 +286,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         );
       });
       expect(pendingLock.relayMetadataJson?.operatorHost).toBe(operatorHost);
-      expect(pendingLock.relayMetadataJson?.relayId).toBeGreaterThan(0);
-      const relayId = pendingLock.relayMetadataJson!.relayId;
-
-      const redeemedInvite = await waitFor(30e3, 'router invite redeemed state', async () => {
-        const invite = (await ServerApiClient.getTreasuryAppInvites(routerAddress.host)).find(
-          x => x.inviteCode === inviteCode,
-        );
-        if (!invite?.redeemedAt) return;
-        if (invite.lockedBitcoinAt) return;
-        return invite;
-      });
-      expect(redeemedInvite.redeemedAt).toBeTruthy();
-
-      const redeemedMember = await waitFor(30e3, 'router member redeemed state', async () => {
-        const member = (await ServerApiClient.getTreasuryAppMembers(routerAddress.host)).find(x => x.name === 'Casey');
-        if (!member?.redeemedAt) return;
-        if (member.lockedBitcoinAt) return;
-        return member;
-      });
-      expect(redeemedMember.redeemedAt).toBeTruthy();
+      expect(pendingLock.relayMetadataJson?.offerCode).toBe(openedInvite.invite.offerCode);
 
       const progressedPendingLock = await waitFor(45e3, 'relay progress reflected in local pending lock', () => {
         const lock = treasuryHarness.bitcoinLocks.data.pendingLocks.find(x => x.uuid === pendingLock.uuid);
@@ -316,25 +296,30 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       });
       expect(progressedPendingLock.relayMetadataJson?.status).toBeTruthy();
 
-      // Use the raw HTTP response here on purpose: the typed client already hides internal-only fields,
-      // but this test is verifying the public router payload itself does not leak bot relay internals.
+      const inBlockRelay = await waitFor(45e3, 'public relay in block', async () => {
+        const relay = await UpstreamOperatorClient.getBitcoinLockStatus(operatorHost, openedInvite.invite.offerCode);
+        if (!['InBlock', 'Finalized'].includes(relay.status)) return;
+        if (relay.expiresAtBlockHeight == null || relay.submittedAtBlockHeight == null) return;
+        return relay;
+      });
+      expect(inBlockRelay.expiresAtBlockHeight).toBeGreaterThan(inBlockRelay.submittedAtBlockHeight!);
+
       const publicRelayResponse = await fetch(
-        `http://${operatorHost}/treasury-users/${encodeURIComponent(inviteCode)}/relays/${relayId}`,
+        `http://${operatorHost}/bitcoin-lock-coupons/${encodeURIComponent(openedInvite.invite.offerCode)}`,
       );
       expect(publicRelayResponse.ok).toBe(true);
-      const publicRelayBody = JsonExt.parse<{ relay: Record<string, unknown> }>(await publicRelayResponse.text());
-      expect(publicRelayBody.relay.routerInviteId).toBeUndefined();
-      expect(publicRelayBody.relay.ownerAccountAddress).toBeUndefined();
-      expect(publicRelayBody.relay.vaultId).toBeUndefined();
+      const publicRelayBody = JsonExt.parse<{ bitcoinLock: Record<string, unknown> }>(await publicRelayResponse.text());
+      expect(publicRelayBody.bitcoinLock.offerCode).toBe(openedInvite.invite.offerCode);
+      expect(publicRelayBody.bitcoinLock.status).toBeTruthy();
 
-      // The treasury app should finalize the new lock and replace relay metadata with real lock references.
+      // The treasury app should finalize the new lock and retain coupon relay metadata.
       const finalizedLock = await waitFor(120e3, 'coupon relay lock finalized', async () => {
         const lock = Object.values(treasuryHarness.bitcoinLocks.data.locksByUtxoId)
           .filter(record => record.utxoId && !initialUtxoIds.has(record.utxoId))
           .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
         if (!lock) return;
         if (lock.status !== BitcoinLockStatus.LockPendingFunding) return;
-        if (lock.relayMetadataJson) return;
+        if (lock.relayMetadataJson?.offerCode !== openedInvite.invite.offerCode) return;
 
         const chainLock = await BitcoinLock.get(await treasuryHarness.clients.get(false), lock.utxoId!);
         if (!chainLock) return;
@@ -343,22 +328,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       });
       expect(finalizedLock.satoshis).toBe(requestedSatoshis);
       expect(finalizedLock.lockDetails.utxoId).toBe(finalizedLock.utxoId);
-
-      const finalizedInvite = await waitFor(45e3, 'router invite finalized state', async () => {
-        const invite = (await ServerApiClient.getTreasuryAppInvites(routerAddress.host)).find(
-          x => x.inviteCode === inviteCode,
-        );
-        if (!invite?.redeemedAt || !invite.lockedBitcoinAt) return;
-        return invite;
-      });
-      expect(finalizedInvite.lockedBitcoinAt).toBeTruthy();
-
-      const finalizedMember = await waitFor(45e3, 'router member finalized state', async () => {
-        const member = (await ServerApiClient.getTreasuryAppMembers(routerAddress.host)).find(x => x.name === 'Casey');
-        if (!member?.redeemedAt || !member.lockedBitcoinAt) return;
-        return member;
-      });
-      expect(finalizedMember.lockedBitcoinAt).toBeTruthy();
+      expect(finalizedLock.relayMetadataJson?.offerCode).toBe(openedInvite.invite.offerCode);
     } finally {
       SERVER_ENV_VARS.ROUTER_PORT = previousRouterPort;
       await routerServer?.close().catch(() => undefined);

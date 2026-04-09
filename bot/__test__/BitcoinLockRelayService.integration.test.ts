@@ -5,79 +5,222 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sudo } from '@argonprotocol/testing';
 import {
   type BlockWatch,
-  type IBitcoinLockRelayRecord,
+  type IBitcoinLockCouponStatus,
   type IBitcoinLockRelayJobRequest,
   type IBlockHeaderInfo,
-  type IDeferred,
   type MainchainClients,
   NetworkConfig,
   TransactionEvents,
-  createDeferred,
 } from '@argonprotocol/apps-core';
-import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
-import { BitcoinLock } from '@argonprotocol/mainchain';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
 import { Db } from '../src/Db.ts';
 
 NetworkConfig.setNetwork('dev-docker');
 
 const { BitcoinLockRelayService } = await import('../src/BitcoinLockRelayService.ts');
-type RelayServiceInstance = InstanceType<typeof BitcoinLockRelayService>;
+type TestRelayService = {
+  vaultId?: number;
+  startInternal(): Promise<void>;
+  submitNewRelay(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockCouponStatus>;
+  checkRelayCapacity(request: IBitcoinLockRelayJobRequest): Promise<unknown>;
+  handleSubmissionUpdate(relayId: number, client: unknown, result: ISubmittableResult): Promise<void>;
+  reconcileNonTerminalRelays(): Promise<void>;
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe.sequential('BitcoinLockRelayService integration', () => {
-  it('marks a queued relay failed when submission throws and clears reservations', async () => {
+  it('returns the same active relay when the same invite is submitted twice', async () => {
     const harness = await createRelayServiceHarness();
-    const service = getTestService(harness.service);
+    const service = harness.service as unknown as TestRelayService;
 
     try {
       vi.spyOn(service, 'startInternal').mockImplementation(async () => {
         service.vaultId = 1;
       });
-      vi.spyOn(service, 'checkRelayCapacity').mockImplementation(async () => ({
-        canSubmit: true,
-        client: {} as any,
-        vault: { vaultId: 1 } as any,
-        reservedLiquidityMicrogons: 44n,
-      }));
-      vi.spyOn(service, 'submitRelay').mockRejectedValue(new Error('submission exploded'));
-
-      const relay = await harness.service.queueRelay(createRelayRequest());
-
-      const failedRelay = await waitFor(5e3, 'queued relay failure', () => {
-        const record = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
-        if (record?.status !== 'Failed') return;
-        return record;
+      const submitSpy = vi.spyOn(service, 'submitNewRelay').mockImplementation(async request => {
+        return harness.db.bitcoinLockRelaysTable.insertRelay({
+          ...request,
+          vaultId: 1,
+          status: 'Submitted',
+        });
       });
 
-      expect(failedRelay.error).toBe('submission exploded');
-      expect(failedRelay.reservedSatoshis).toBe(0n);
-      expect(failedRelay.reservedLiquidityMicrogons).toBe(0n);
+      const first = await harness.service.queueRelay(createRelayRequest());
+      const second = await harness.service.queueRelay(createRelayRequest());
+
+      expect(second).toEqual(first);
+      expect(harness.db.bitcoinLockRelaysTable.fetchByOfferCode(first.offerCode)?.status).toBe('Submitted');
+      expect(submitSpy).toHaveBeenCalledTimes(1);
     } finally {
       await harness.cleanup();
     }
   });
 
-  it('fails a submitted relay when reconciliation cannot find it before the retry window expires', async () => {
-    const harness = await createRelayServiceHarness({ bestBlockNumber: 25, finalizedBlockNumber: 25 });
-    const service = getTestService(harness.service);
+  it('coalesces concurrent initialize requests for the same invite', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
 
     try {
-      const relay = harness.db.bitcoinLockRelaysTable.insertQueuedRelay({
+      vi.spyOn(service, 'startInternal').mockImplementation(async () => {
+        service.vaultId = 1;
+      });
+
+      let resolveRelay!: (value: any) => void;
+      const relayPromise = new Promise(resolve => {
+        resolveRelay = resolve;
+      });
+      const submitSpy = vi
+        .spyOn(service, 'submitNewRelay')
+        .mockReturnValue(relayPromise as Promise<IBitcoinLockCouponStatus>);
+
+      const firstPromise = harness.service.queueRelay(createRelayRequest());
+      const secondPromise = harness.service.queueRelay(createRelayRequest());
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(submitSpy).toHaveBeenCalledTimes(1);
+
+      resolveRelay(
+        harness.db.bitcoinLockRelaysTable.insertRelay({
+          ...createRelayRequest(),
+          vaultId: 1,
+          status: 'Submitted',
+        }),
+      );
+
+      const [first, second] = await Promise.all([firstPromise, secondPromise]);
+      expect(second).toEqual(first);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('rejects a preflight failure without creating a relay row', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      vi.spyOn(service, 'startInternal').mockImplementation(async () => {
+        service.vaultId = 1;
+      });
+      vi.spyOn(service, 'checkRelayCapacity').mockResolvedValue({
+        canSubmit: false,
+        reason: 'Vault securitization is currently exhausted for this lock request.',
+        statusCode: 409,
+      });
+
+      await expect(harness.service.queueRelay(createRelayRequest())).rejects.toThrow('Vault securitization');
+      expect(harness.db.bitcoinLockRelaysTable.fetchByOfferCode('offer-code')).toBeNull();
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('marks pre-inclusion watch failures as failed', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      const failures: Array<{
+        kind: 'Retracted' | 'Dropped' | 'Invalid' | 'Usurped';
+        errorMatcher: string;
+      }> = [
+        { kind: 'Retracted', errorMatcher: 'Relay was retracted before it was included in a block.' },
+        { kind: 'Dropped', errorMatcher: 'Relay was dropped before it was included in a block.' },
+        { kind: 'Invalid', errorMatcher: 'Relay was rejected as invalid by the node.' },
+        { kind: 'Usurped', errorMatcher: 'usurped' },
+      ];
+
+      for (const [index, { kind, errorMatcher }] of failures.entries()) {
+        const request = createRelayRequest();
+        request.offerCode = `offer-code-${index}`;
+
+        const relay = harness.db.bitcoinLockRelaysTable.insertRelay({
+          ...request,
+          vaultId: 1,
+          status: 'Submitted',
+        });
+
+        await service.handleSubmissionUpdate(relay.id, {} as any, createSubmissionResult({ blockHash: '0x1', kind }));
+
+        const failedRelay = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
+        expect(failedRelay?.status).toBe('Failed');
+        if (kind === 'Usurped') {
+          expect(failedRelay?.error).toContain(errorMatcher);
+        } else {
+          expect(failedRelay?.error).toBe(errorMatcher);
+        }
+      }
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('stores in-block fees when the extrinsic fails in block', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      const relay = harness.db.bitcoinLockRelaysTable.insertRelay({
         ...createRelayRequest(),
         vaultId: 1,
-        status: 'Queued',
-        queueReason: null,
+        status: 'Submitted',
+      });
+
+      vi.spyOn(service as any, 'getRelayEventData').mockResolvedValue({
+        inBlockHeight: 12,
+        blockHashHex: '0xblock',
+        txFeePlusTip: 14n,
+        txTip: 2n,
+        extrinsicError: new Error('Dispatch error'),
+      });
+
+      await service.handleSubmissionUpdate(
+        relay.id,
+        {} as any,
+        {
+          status: {
+            isRetracted: false,
+            isUsurped: false,
+            isDropped: false,
+            isInvalid: false,
+            isInBlock: true,
+            isFinalized: false,
+            asInBlock: {
+              toHex: () => '0xblock',
+            },
+          },
+        } as unknown as ISubmittableResult,
+      );
+
+      const failedRelay = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
+      expect(failedRelay?.status).toBe('Failed');
+      expect(failedRelay?.error).toBe('Dispatch error');
+      expect(failedRelay?.inBlockHeight).toBe(12);
+      expect(failedRelay?.inBlockHash).toBe('0xblock');
+      expect(failedRelay?.txFeePlusTip).toBe(14n);
+      expect(failedRelay?.txTip).toBe(2n);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('fails a submitted relay when it expires without ever reaching a block', async () => {
+    const harness = await createRelayServiceHarness({ bestBlockNumber: 20, finalizedBlockNumber: 20 });
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      const relay = harness.db.bitcoinLockRelaysTable.insertRelay({
+        ...createRelayRequest(),
+        vaultId: 1,
+        status: 'Submitted',
       });
       harness.db.bitcoinLockRelaysTable.update(relay.id, {
-        status: 'Submitted',
         extrinsicHash: '0xdeadbeef',
-        submittedAtBlockHeight: 1,
-        reservedSatoshis: relay.requestedSatoshis,
-        reservedLiquidityMicrogons: 99n,
+        submittedAtBlockHeight: 12,
+        expiresAtBlockHeight: 20,
       });
 
       vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(null as any);
@@ -86,31 +229,26 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
       const failedRelay = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
       expect(failedRelay?.status).toBe('Failed');
-      expect(failedRelay?.error).toContain('not observed in a block');
-      expect(failedRelay?.reservedSatoshis).toBe(0n);
-      expect(failedRelay?.reservedLiquidityMicrogons).toBe(0n);
+      expect(failedRelay?.error).toContain('expired before it was included');
     } finally {
       await harness.cleanup();
     }
   });
 
-  it('updates a submitted relay to in-block during reconciliation when the extrinsic is found', async () => {
+  it('recovers a submitted relay into in-block when it is found in chain history', async () => {
     const harness = await createRelayServiceHarness({ bestBlockNumber: 14, finalizedBlockNumber: 10 });
-    const service = getTestService(harness.service);
+    const service = harness.service as unknown as TestRelayService;
 
     try {
-      const relay = harness.db.bitcoinLockRelaysTable.insertQueuedRelay({
+      const relay = harness.db.bitcoinLockRelaysTable.insertRelay({
         ...createRelayRequest(),
         vaultId: 1,
-        status: 'Queued',
-        queueReason: null,
+        status: 'Submitted',
       });
       harness.db.bitcoinLockRelaysTable.update(relay.id, {
-        status: 'Submitted',
         extrinsicHash: '0xinblock',
         submittedAtBlockHeight: 8,
-        reservedSatoshis: relay.requestedSatoshis,
-        reservedLiquidityMicrogons: 99n,
+        expiresAtBlockHeight: 16,
       });
 
       vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue({
@@ -138,146 +276,72 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       expect(inBlockRelay?.inBlockHeight).toBe(12);
       expect(inBlockRelay?.txFeePlusTip).toBe(14n);
       expect(inBlockRelay?.utxoId).toBe(42);
-      expect(inBlockRelay?.createdLock?.ownerAccountAddress).toBe(relay.ownerAccountAddress);
     } finally {
       await harness.cleanup();
     }
   });
 
-  it('fails an in-block submission update when the extrinsic itself errors', async () => {
-    const harness = await createRelayServiceHarness();
-    const service = getTestService(harness.service);
+  it('finalizes an in-block relay during reconciliation once finality is deep enough', async () => {
+    const harness = await createRelayServiceHarness({ bestBlockNumber: 90, finalizedBlockNumber: 90 });
+    const service = harness.service as unknown as TestRelayService;
 
     try {
-      const relay = harness.db.bitcoinLockRelaysTable.insertQueuedRelay({
+      const relay = harness.db.bitcoinLockRelaysTable.insertRelay({
         ...createRelayRequest(),
         vaultId: 1,
-        status: 'Queued',
-        queueReason: null,
-      });
-      harness.db.bitcoinLockRelaysTable.update(relay.id, {
-        status: 'Submitted',
-        extrinsicHash: '0xerr',
-        submittedAtBlockHeight: 7,
-      });
-
-      vi.spyOn(service, 'getRelayEventData').mockImplementation(async () => ({
-        inBlockHeight: 8,
-        blockHashHex: '0xblock',
-        txFeePlusTip: 3n,
-        txTip: 1n,
-        extrinsicError: new Error('extrinsic failed'),
-      }));
-
-      const submissionDeferred = createDeferred<void>(false);
-      const submissionResult = createSubmissionResult({
-        isInBlock: true,
-        blockHash: '0xblock',
-      });
-
-      await service.handleSubmissionUpdate(relay.id, {} as any, submissionResult, submissionDeferred);
-      await expect(submissionDeferred.promise).rejects.toThrow('extrinsic failed');
-
-      const failedRelay = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
-      expect(failedRelay?.status).toBe('Failed');
-      expect(failedRelay?.error).toBe('extrinsic failed');
-    } finally {
-      await harness.cleanup();
-    }
-  });
-
-  it('finalizes an in-block relay and clears reservations after the lock is found on chain', async () => {
-    const harness = await createRelayServiceHarness({ finalizedBlockNumber: 88 });
-    const service = getTestService(harness.service);
-
-    try {
-      const relay = harness.db.bitcoinLockRelaysTable.insertQueuedRelay({
-        ...createRelayRequest(),
-        vaultId: 1,
-        status: 'Queued',
-        queueReason: null,
-      });
-      harness.db.bitcoinLockRelaysTable.update(relay.id, {
         status: 'InBlock',
-        inBlockHeight: 77,
+      });
+      harness.db.bitcoinLockRelaysTable.update(relay.id, {
+        inBlockHeight: 82,
+        inBlockHash: '0xnew-block',
         utxoId: 42,
-        reservedSatoshis: relay.requestedSatoshis,
-        reservedLiquidityMicrogons: 123n,
       });
 
-      const finalizedLock = {
+      await service.reconcileNonTerminalRelays();
+
+      const finalizedRelay = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
+      expect(finalizedRelay?.status).toBe('Finalized');
+      expect(finalizedRelay?.finalizedHeight).toBe(90);
+      expect(finalizedRelay?.utxoId).toBe(42);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('moves an in-block relay back to submitted when its block is reorged out', async () => {
+    const harness = await createRelayServiceHarness({ bestBlockNumber: 90, finalizedBlockNumber: 84 });
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      const relay = harness.db.bitcoinLockRelaysTable.insertRelay({
+        ...createRelayRequest(),
         vaultId: 1,
-        ownerAccount: relay.ownerAccountAddress,
-        satoshis: relay.requestedSatoshis,
-        liquidityPromised: 555n,
-        lockedMarketRate: relay.microgonsPerBtc,
-        securityFees: 9n,
-        createdAtHeight: 77,
-      };
+        status: 'InBlock',
+      });
+      harness.db.bitcoinLockRelaysTable.update(relay.id, {
+        inBlockHeight: 82,
+        inBlockHash: '0xold-block',
+        txFeePlusTip: 14n,
+        txTip: 2n,
+        utxoId: 42,
+      });
 
-      vi.spyOn(harness.clients, 'get').mockResolvedValue({} as any);
-      vi.spyOn(BitcoinLock, 'get').mockResolvedValue(finalizedLock as any);
+      await service.reconcileNonTerminalRelays();
 
-      await service.tryFinalizeRelay(relay.id);
-
-      const record = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
-      expect(record?.status).toBe('Finalized');
-      expect(record?.finalizedHeight).toBe(88);
-      expect(record?.createdLock?.utxoId).toBe(42);
-      expect(record?.createdLock?.ownerAccountAddress).toBe(relay.ownerAccountAddress);
-      expect(record?.createdLock?.lockDetailsJson).toEqual(finalizedLock);
-      expect(record?.reservedSatoshis).toBe(0n);
-      expect(record?.reservedLiquidityMicrogons).toBe(0n);
+      const updatedRelay = harness.db.bitcoinLockRelaysTable.fetchById(relay.id);
+      expect(updatedRelay?.status).toBe('Submitted');
+      expect(updatedRelay?.inBlockHeight).toBeNull();
+      expect(updatedRelay?.inBlockHash).toBeNull();
+      expect(updatedRelay?.txFeePlusTip).toBeNull();
+      expect(updatedRelay?.txTip).toBeNull();
+      expect(updatedRelay?.utxoId).toBeNull();
     } finally {
       await harness.cleanup();
     }
   });
 });
 
-type RelayServiceHarness = {
-  db: Db;
-  clients: MainchainClients;
-  service: RelayServiceInstance;
-  cleanup(): Promise<void>;
-};
-
-type TestableRelayService = {
-  vaultId?: number;
-  startInternal(): Promise<void>;
-  checkRelayCapacity(relay: IBitcoinLockRelayRecord): Promise<unknown>;
-  submitRelay(relay: IBitcoinLockRelayRecord, client: unknown, vault: unknown): Promise<void>;
-  reconcileNonTerminalRelays(): Promise<void>;
-  tryFinalizeRelay(relayId: number): Promise<void>;
-  getRelayEventData(
-    client: unknown,
-    result: ISubmittableResult,
-    blockHashHex: string,
-  ): Promise<{
-    txFeePlusTip: bigint;
-    txTip: bigint;
-    extrinsicError?: Error;
-    inBlockHeight: number;
-    blockHashHex: string;
-    createdLock?: {
-      utxoId: number;
-      liquidityPromised: bigint;
-      lockedMarketRate: bigint;
-      securityFees: bigint;
-      ownerAccountAddress: string;
-    };
-  }>;
-  handleSubmissionUpdate(
-    relayId: number,
-    client: unknown,
-    result: ISubmittableResult,
-    submissionDeferred: IDeferred<void>,
-  ): Promise<void>;
-};
-
-async function createRelayServiceHarness(args?: {
-  bestBlockNumber?: number;
-  finalizedBlockNumber?: number;
-}): Promise<RelayServiceHarness> {
+async function createRelayServiceHarness(args?: { bestBlockNumber?: number; finalizedBlockNumber?: number }) {
   const datadir = fs.mkdtempSync(Path.join(os.tmpdir(), 'bitcoin-lock-relay-service-'));
   const db = new Db(datadir);
   db.migrate();
@@ -300,14 +364,9 @@ async function createRelayServiceHarness(args?: {
   };
 }
 
-function getTestService(service: RelayServiceInstance): TestableRelayService {
-  return service as unknown as TestableRelayService;
-}
-
-function createRelayRequest(): IBitcoinLockRelayJobRequest {
+function createRelayRequest(offerCode = 'offer-code'): IBitcoinLockRelayJobRequest {
   return {
-    routerInviteId: 1,
-    offerCode: 'offer-code',
+    offerCode,
     maxSatoshis: 50_000n,
     expirationTick: 999_999,
     requestedSatoshis: 25_000n,
@@ -319,14 +378,39 @@ function createRelayRequest(): IBitcoinLockRelayJobRequest {
 
 function createFakeBlockWatch(args?: { bestBlockNumber?: number; finalizedBlockNumber?: number }): BlockWatch {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-  const bestBlockHeader = { blockNumber: args?.bestBlockNumber ?? 1 } as IBlockHeaderInfo;
-  const finalizedBlockHeader = { blockNumber: args?.finalizedBlockNumber ?? 1 } as IBlockHeaderInfo;
+  const bestBlockHeader = {
+    blockNumber: args?.bestBlockNumber ?? 1,
+    tick: 1,
+    blockHash: '0xbest',
+    blockTime: Date.now(),
+    parentHash: '0xparent',
+    author: sudo().address,
+    isFinalized: false,
+  } as IBlockHeaderInfo;
+  const finalizedBlockHeader = {
+    blockNumber: args?.finalizedBlockNumber ?? 1,
+    tick: 1,
+    blockHash: '0xfinal',
+    blockTime: Date.now(),
+    parentHash: '0xparent',
+    author: sudo().address,
+    isFinalized: true,
+  } as IBlockHeaderInfo;
 
   return {
     start: vi.fn(async () => undefined),
     stop: vi.fn(),
     bestBlockHeader,
     finalizedBlockHeader,
+    getHeader: vi.fn(async (blockNumber: number) => ({
+      blockNumber,
+      tick: 1,
+      blockHash: blockNumber === 82 ? '0xnew-block' : `0x${blockNumber.toString(16)}`,
+      blockTime: Date.now(),
+      parentHash: '0xparent',
+      author: sudo().address,
+      isFinalized: blockNumber <= finalizedBlockHeader.blockNumber,
+    })),
     getRpcClient: vi.fn(async () => ({
       events: {
         bitcoinLocks: {
@@ -353,22 +437,21 @@ function createFakeBlockWatch(args?: { bestBlockNumber?: number; finalizedBlockN
   } as unknown as BlockWatch;
 }
 
-function createSubmissionResult(args: {
-  isInBlock?: boolean;
-  isFinalized?: boolean;
-  blockHash: string;
-}): ISubmittableResult {
+function createSubmissionResult(args: { blockHash: string; kind: 'Dropped' | 'Invalid' | 'Retracted' | 'Usurped' }) {
   return {
     status: {
-      isRetracted: false,
-      isUsurped: false,
-      isDropped: false,
-      isInvalid: false,
-      isInBlock: args.isInBlock ?? false,
-      isFinalized: args.isFinalized ?? false,
+      isRetracted: args.kind === 'Retracted',
+      isUsurped: args.kind === 'Usurped',
+      isDropped: args.kind === 'Dropped',
+      isInvalid: args.kind === 'Invalid',
+      isInBlock: false,
+      isFinalized: false,
+      asUsurped: {
+        toHex: () => '0xusurped',
+      },
       asInBlock: {
         toHex: () => args.blockHash,
       },
     },
-  } as ISubmittableResult;
+  } as unknown as ISubmittableResult;
 }

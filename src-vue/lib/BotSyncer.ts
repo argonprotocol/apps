@@ -83,7 +83,7 @@ export class BotSyncer {
       await client.connectDeferred.promise;
       this.botWsClient = client;
 
-      client.events.on('/state', (state: IBotState) => {
+      client.events.on('/state', state => {
         this.pendingState = state;
         this.lastStateRefreshAt = Date.now();
         void this.drainSyncQueue();

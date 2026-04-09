@@ -130,7 +130,9 @@ if (process.argv[2] === 'force' || shouldRefreshMainRef || !composeExists || !sh
 
   for (const ref of candidateRefs) {
     console.log(`Downloading docker-compose.yml for argon dev-docker network (${ref})`);
-    const response = await fetch(`https://raw.githubusercontent.com/argonprotocol/mainchain/${ref}/docker-compose.yml`);
+    const response = await fetch(
+      `https://raw.githubusercontent.com/argonprotocol/mainchain/${ref}/dev.docker-compose.yml`,
+    );
     if (!response.ok) {
       failures.push(`${ref}: ${response.status} ${response.statusText}`);
       continue;

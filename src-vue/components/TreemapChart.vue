@@ -12,7 +12,7 @@
     </div>
 
     <!-- Treemap tiles -->
-    <div ref="containerRef" class="relative grow">
+    <div ref="containerRef" class="relative grow overflow-hidden">
       <div
         v-for="rect in rectangles"
         :key="rect.key"
@@ -104,7 +104,7 @@ const props = withDefaults(
     remainderDisplayValue?: string;
     theme?: 'btc' | 'argon';
     remainderThreshold?: number;
-    remainderMinimum?: number;
+    remainderMinimum?: AmountLike;
   }>(),
   {
     remainderLabel: 'Unused',
@@ -167,14 +167,15 @@ const rectangles = Vue.computed(() => {
       emphasis: item.emphasis ?? 'default',
       status: item.status ?? ('active' as TileStatus),
     }))
-    .filter(item => item.value > 0)
-    .sort((a, b) => b.value - a.value);
+    .filter(item => item.value > 0);
 
   const total = Math.max(toNumber(props.total), 0);
-  const used = normalizedItems.reduce((sum, item) => sum + item.value, 0);
+  const sortedItems = normalizedItems.sort((a, b) => b.value - a.value);
+
+  const used = sortedItems.reduce((sum, item) => sum + item.value, 0);
   const remainder = Math.max(total - used, 0);
 
-  const nodes: ITreemapNodeDatum[] = [...normalizedItems];
+  const nodes: ITreemapNodeDatum[] = [...sortedItems];
   const remainderMin = toNumber(props.remainderMinimum);
   const remainderIsLarge = remainder > total * props.remainderThreshold;
   if (remainderIsLarge && remainder > remainderMin) {
@@ -251,16 +252,38 @@ const remainderNode = Vue.computed(() => {
 });
 
 function getRectStyle(rect: IRectNode) {
+  let left = rect.x;
+  let top = rect.y;
+  let width = rect.width;
+  let height = rect.height;
+
+  if (rect.kind === 'item') {
+    if (width < 6) {
+      width = 6;
+      left = Math.min(left, Math.max(containerWidth.value - width, 0));
+    }
+
+    if (height < 6) {
+      height = 6;
+      top = Math.min(top, Math.max(containerHeight.value - height, 0));
+    }
+  }
+
   return {
-    left: `${rect.x}px`,
-    top: `${rect.y}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+    zIndex: rect.width < 6 || rect.height < 6 ? 2 : 1,
   };
 }
 </script>
 
 <style scoped>
+.treemap__tile {
+  box-sizing: border-box;
+}
+
 .treemap__tile--item {
   background: rgba(255, 255, 255, 0.34);
 }

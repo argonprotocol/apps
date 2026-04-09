@@ -21,7 +21,7 @@
       </template>
 
       <template v-else-if="notice.isProcessing">
-        <strong>{{ notice.signatureCount }} co-signature{{ notice.signatureCount === 1 ? '' : 's' }} are processing.</strong>
+        <strong>{{ notice.signatureCount }} co-signature{{ notice.signatureCount === 1 ? ' is' : 's are' }} processing.</strong>
       </template>
 
       <template v-else-if="notice.collectRevenue && !notice.signatureCount">
@@ -222,7 +222,7 @@ const cardTitle = Vue.computed(() => {
   }
 
   if (props.notice.isProcessing) {
-    return `${props.notice.signatureCount} co-signature${props.notice.signatureCount === 1 ? '' : 's'} are processing`;
+    return `${props.notice.signatureCount} co-signature${props.notice.signatureCount === 1 ? ' is' : 's are'} processing`;
   }
 
   if (props.notice.collectRevenue && props.notice.signatureCount) {

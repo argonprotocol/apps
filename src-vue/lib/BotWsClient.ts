@@ -163,7 +163,7 @@ export class BotWsClient {
       this.scheduleReconnect();
     });
 
-    this.webSocket.addEventListener('message', (event: MessageEvent) => {
+    this.webSocket.addEventListener('message', event => {
       try {
         const response: JsonRpcResponse = JsonExt.parse(event.data);
         if ('id' in response && this.messageWaiters.has(response.id)) {

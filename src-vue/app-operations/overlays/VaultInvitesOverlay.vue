@@ -110,7 +110,11 @@ import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
-import { BitcoinLockCoupons, type ITreasuryUserInviteSummary } from '@argonprotocol/apps-router';
+import {
+  BitcoinLockCoupons,
+  type IBitcoinLockCouponStatus,
+  type ITreasuryUserInviteSummary,
+} from '@argonprotocol/apps-router';
 import { getConfig } from '../../stores/config.ts';
 import { SERVER_ENV_VARS } from '../../lib/Env.ts';
 import { VaultInvites } from '../../lib/VaultInvites.ts';
@@ -140,6 +144,7 @@ const errorMessage = Vue.ref<string | null>(null);
 const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
 const invites = Vue.ref<ITreasuryUserInviteSummary[]>([]);
+const bitcoinLockStatusesByOfferCode = Vue.ref<Record<string, IBitcoinLockCouponStatus>>({});
 
 const ipAddress = Vue.computed(() => {
   return config.serverDetails.ipAddress;
@@ -168,9 +173,12 @@ function statusClass(invite: ITreasuryUserInviteSummary): string {
 }
 
 function extractStatus(invite: ITreasuryUserInviteSummary): string {
-  if (invite.lockedBitcoinAt) {
+  const bitcoinLock = bitcoinLockStatusesByOfferCode.value[invite.offerCode];
+  if (bitcoinLock?.status === 'Failed') {
+    return 'Bitcoin Lock Failed';
+  } else if (bitcoinLock?.status === 'Finalized') {
     return 'Bitcoin Lock Started';
-  } else if (invite.redeemedAt) {
+  } else if (bitcoinLock?.status === 'Submitted' || bitcoinLock?.status === 'InBlock') {
     return 'User Started Bitcoin Lock';
   } else if (invite.lastClickedAt) {
     return 'User Clicked';
@@ -193,13 +201,20 @@ async function loadInvites() {
   errorMessage.value = null;
   if (!ipAddress.value) {
     invites.value = [];
+    bitcoinLockStatusesByOfferCode.value = {};
     return;
   }
 
   try {
-    invites.value = await ServerApiClient.getTreasuryAppInvites(ipAddress.value);
+    const [loadedInvites, bitcoinLocks] = await Promise.all([
+      ServerApiClient.getTreasuryAppInvites(ipAddress.value),
+      ServerApiClient.getBitcoinLockCouponStatuses(ipAddress.value),
+    ]);
+    invites.value = loadedInvites;
+    bitcoinLockStatusesByOfferCode.value = Object.fromEntries(bitcoinLocks.map(lock => [lock.offerCode, lock]));
   } catch {
     invites.value = [];
+    bitcoinLockStatusesByOfferCode.value = {};
     errorMessage.value = 'Unable to load invites right now. Please try again.';
   }
 }
@@ -276,6 +291,7 @@ async function createInvite() {
       throw new Error('Unable to calculate an invite expiration window.');
     }
 
+    const inviteAccessCode = nanoid(10);
     const offerCode = nanoid(10);
     const offerToken = BitcoinLockCoupons.createToken(
       {
@@ -286,7 +302,7 @@ async function createInvite() {
       },
       signer,
     );
-    const inviteCode = VaultInvites.encodeInviteCode(ipAddress.value, SERVER_ENV_VARS.ROUTER_PORT, offerCode);
+    const inviteCode = VaultInvites.encodeInviteCode(ipAddress.value, SERVER_ENV_VARS.ROUTER_PORT, inviteAccessCode);
     await ServerApiClient.createTreasuryAppInvite(ipAddress.value, {
       name,
       inviteCode,
@@ -310,9 +326,16 @@ basicEmitter.on('openVaultInvitesOverlay', () => {
   isOpen.value = true;
 });
 
-Vue.watch([isOpen, () => config.isServerInstalled], () => {
-  if (!isOpen.value || !config.isServerInstalled) return;
+Vue.watch([isOpen, () => config.isServerInstalled], ([open, isServerInstalled], _oldValue, onCleanup) => {
+  if (!open || !isServerInstalled) return;
+
   void loadInvites();
   void loadDelegateSetupState();
+
+  const interval = setInterval(() => {
+    void loadInvites();
+  }, 5_000);
+
+  onCleanup(() => clearInterval(interval));
 });
 </script>

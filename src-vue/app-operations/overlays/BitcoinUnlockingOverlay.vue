@@ -124,8 +124,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
-import { BitcoinLockStatus, IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoStatus } from '../../lib/db/BitcoinUtxosTable.ts';
+import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import UnlockStart from './bitcoin-locking/UnlockStart.vue';
 import UnlockIsProcessing from './bitcoin-locking/UnlockIsProcessing.vue';
 import UnlockComplete from './bitcoin-locking/UnlockComplete.vue';
@@ -151,38 +150,33 @@ const emit = defineEmits<{
 
 // The tooltip is acting weird without this delay
 const isLoaded = Vue.ref(false);
+const openedLock = Vue.ref(props.personalLock);
 
 const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
-  return props.personalLock;
-});
-const fundingUtxoRecord = Vue.computed(() => {
-  const lock = personalLock.value;
-  if (!lock) return undefined;
-  return bitcoinLocks.getAcceptedFundingRecord(lock);
-});
+  const uuid = props.personalLock?.uuid;
+  if (!uuid) return props.personalLock;
 
-const wasOpenedWithoutBitcoin = Vue.ref(
-  !props.personalLock || props.personalLock.status === BitcoinLockStatus.Released,
-);
+  const found = bitcoinLocks.getAllLocks().find(lock => lock.uuid === uuid);
+  if (found) {
+    openedLock.value = found;
+    return found;
+  }
+
+  return openedLock.value;
+});
+const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(personalLock.value));
+
+const wasOpenedWithoutBitcoin = Vue.ref(!props.personalLock);
 
 const unlockStep = Vue.computed<UnlockStep>(() => {
   const lock = personalLock.value;
   if (!lock || wasOpenedWithoutBitcoin.value) return UnlockStep.Start;
 
-  const releaseStatus = fundingUtxoRecord.value?.status;
-  const hasReleaseError = !!fundingUtxoRecord.value?.statusError;
-  const hasReleaseInProgress =
-    releaseStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon ||
-    releaseStatus === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin ||
-    hasReleaseError;
+  if (releaseState.value.isReleaseComplete) return UnlockStep.Complete;
 
-  if (bitcoinLocks.isLockedStatus(lock) && !hasReleaseInProgress) {
-    return UnlockStep.Start;
-  } else if (hasReleaseInProgress || bitcoinLocks.isReleaseStatus(lock)) {
-    return UnlockStep.IsProcessing;
-  } else {
-    return UnlockStep.Complete;
-  }
+  if (bitcoinLocks.isLockedStatus(lock) && !releaseState.value.isReleaseStatus) return UnlockStep.Start;
+
+  return UnlockStep.IsProcessing;
 });
 
 const isNearExpiration = Vue.computed(() => {

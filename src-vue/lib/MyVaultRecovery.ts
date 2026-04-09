@@ -18,14 +18,11 @@ export class MyVaultRecovery {
     treasuryMicrogons?: bigint;
     bitcoin?: { liquidityPromised: bigint };
   }): IVaultingRules {
-    const { vault, treasuryMicrogons = 0n, bitcoin = { liquidityPromised: 0n }, feesInMicrogons } = args;
+    const { vault, treasuryMicrogons = 0n, bitcoin = { liquidityPromised: 0n } } = args;
 
     const securitization = vault.securitization;
     const securitizationRatio = vault.securitizationRatio;
-    // assume the amount in argons was a round number
-    const baseMicrogonCommitment = BigInt(
-      Math.round(Number(securitization + treasuryMicrogons + feesInMicrogons) / 10e6) * 10e6,
-    );
+    const baseMicrogonCommitment = securitization + treasuryMicrogons;
     const capitalForSecuritizationPct = BigNumber(securitization)
       .div(securitization + treasuryMicrogons)
       .times(100)

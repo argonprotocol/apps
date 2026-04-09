@@ -19,6 +19,7 @@ import { TransactionStatusHistoryTable } from './db/TransactionStatusHistoryTabl
 import { StableSwapSyncStateTable } from './db/StableSwapSyncStateTable.ts';
 import { StableSwapMarketStateTable } from './db/StableSwapMarketStateTable.ts';
 import { StableSwapPurchasesTable } from './db/StableSwapPurchasesTable.ts';
+import { UpstreamBitcoinLockCouponsTable } from './db/UpstreamBitcoinLockCouponsTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -40,6 +41,7 @@ export class Db {
   public stableSwapSyncStateTable: StableSwapSyncStateTable;
   public stableSwapMarketStateTable: StableSwapMarketStateTable;
   public stableSwapPurchasesTable: StableSwapPurchasesTable;
+  public upstreamBitcoinLockCouponsTable: UpstreamBitcoinLockCouponsTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -63,6 +65,7 @@ export class Db {
     this.stableSwapSyncStateTable = new StableSwapSyncStateTable(this);
     this.stableSwapMarketStateTable = new StableSwapMarketStateTable(this);
     this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);
+    this.upstreamBitcoinLockCouponsTable = new UpstreamBitcoinLockCouponsTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {

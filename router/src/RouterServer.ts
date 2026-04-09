@@ -1,18 +1,18 @@
 import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
-import { JsonExt } from '@argonprotocol/apps-core';
+import { type IBitcoinLockRelayRequest, JsonExt } from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BITCOIN_CONFIG, SERVER_ROOT } from './env.ts';
 import type { Db } from './Db.ts';
-import { toPublicBitcoinLockRelay } from './PublicBitcoinLockRelay.ts';
 import { RouterError } from './RouterError.ts';
 import { TreasuryInviteService } from './TreasuryInviteService.ts';
 import type {
+  IBitcoinLockCouponStatus,
   IBitcoinLockRelayRecord,
-  IBitcoinLockRelayResponse,
+  IListBitcoinLockCouponStatusesResponse,
+  IBitcoinLockStatusResponse,
   ICreateTreasuryInviteResponse,
-  IInitializeBitcoinLockRequest,
   IListTreasuryInvitesResponse,
   IListTreasuryMembersResponse,
   IOpenTreasuryInviteRequest,
@@ -112,82 +112,49 @@ export class RouterServer {
     app.post(
       '/treasury-users/create',
       express.text({ type: '*/*' }),
-      safeJsonRoute(async (req, res) => {
-        const rawBody = req.body;
-        if (!rawBody) {
-          sendJson(res, { error: 'Missing JSON body' }, 400);
-          return;
-        }
+      safeJsonRoute<ICreateTreasuryInviteResponse>(req => {
+        const body = requireBody<ITreasuryUserInviteCreateRequest>(req);
+        const invite = inviteService.createInvite(body);
 
-        const invite = await inviteService.createInvite(
-          JsonExt.parse<ITreasuryUserInviteCreateRequest>(String(rawBody)),
-        );
-
-        return { invite } satisfies ICreateTreasuryInviteResponse;
+        return { invite };
       }),
     );
 
     app.get(
       '/treasury-users/invites',
-      safeJsonRoute(async () => {
-        return {
-          invites: db.treasuryUserInvitesTable.fetchInvites(),
-        } satisfies IListTreasuryInvitesResponse;
+      safeJsonRoute<IListTreasuryInvitesResponse>(async () => {
+        return { invites: inviteService.listInvites() };
       }),
     );
 
     app.get(
       '/treasury-users/members',
-      safeJsonRoute(async () => {
-        return {
-          members: db.treasuryUserInvitesTable.fetchMembers(),
-        } satisfies IListTreasuryMembersResponse;
+      safeJsonRoute<IListTreasuryMembersResponse>(async () => {
+        return { members: inviteService.listMembers() };
       }),
     );
 
     app.get(
-      '/treasury-users/:inviteCode/relays/:relayId',
-      safeJsonRoute(async req => {
-        const relayId = Number(req.params.relayId);
-        if (!Number.isFinite(relayId) || relayId <= 0) {
-          throw new RouterError('Invalid relay id.');
-        }
+      '/bitcoin-lock-coupons',
+      safeJsonRoute<IListBitcoinLockCouponStatusesResponse>(async () => {
+        return { bitcoinLocks: await fetchBotBitcoinLockStatuses(botInternalUrl) };
+      }),
+    );
 
-        const invite = db.treasuryUserInvitesTable.fetchInviteByCode(req.params.inviteCode);
-        if (!invite) {
-          throw new RouterError('Invite not found.', 404);
-        }
-
-        const relay = await fetchBotRelay(`${botInternalUrl}/internal/bitcoin-lock-relays/${relayId}`).catch(error => {
-          if (error instanceof RouterError) {
-            throw new RouterError(error.message || `Bot request failed for relay ${relayId}.`, error.status);
-          }
-          throw error;
-        });
-        if (relay.routerInviteId !== invite.id) {
-          throw new RouterError('Relay not found.', 404);
-        }
-        if (relay.status === 'Finalized') {
-          db.treasuryUserInvitesTable.setLockedBitcoinAt(invite.id);
-        }
-
-        return { relay: toPublicBitcoinLockRelay(relay) } satisfies IBitcoinLockRelayResponse;
+    app.get(
+      '/bitcoin-lock-coupons/:offerCode',
+      safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
+        return { bitcoinLock: await fetchBotBitcoinLockStatus(botInternalUrl, req.params.offerCode) };
       }),
     );
 
     app.post(
       '/treasury-users/:inviteCode',
       express.text({ type: '*/*' }),
-      safeJsonRoute(async (req, res) => {
-        const rawBody = req.body;
-        if (!rawBody) {
-          sendJson(res, { error: 'Missing JSON body' }, 400);
-          return;
-        }
-
-        const { accountAddress } = JsonExt.parse<IOpenTreasuryInviteRequest>(String(rawBody));
+      safeJsonRoute<IOpenTreasuryInviteResponse>((req, res) => {
+        const { accountAddress } = requireBody<IOpenTreasuryInviteRequest>(req);
         const profile = db.profileTable.fetch();
-        const invite = await inviteService.openInvite(req.params.inviteCode, accountAddress);
+        const invite = inviteService.openInvite(req.params.inviteCode, accountAddress);
         if (!invite) {
           sendJson(res, { error: 'Invite not found' }, 404);
           return;
@@ -196,62 +163,50 @@ export class RouterServer {
         return {
           fromName: profile.name,
           invite,
-        } satisfies IOpenTreasuryInviteResponse;
+        };
       }),
     );
 
     app.post(
-      '/treasury-users/:inviteCode/initialize-bitcoin-lock',
+      '/bitcoin-lock-coupons/:offerCode/initialize',
       express.text({ type: '*/*' }),
-      safeJsonRoute(async (req, res) => {
-        const rawBody = req.body;
-        if (!rawBody) {
-          sendJson(res, { error: 'Missing JSON body' }, 400);
-          return;
-        }
+      safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
+        const body = requireBody<IBitcoinLockRelayRequest>(req);
 
-        const relayRequest = await inviteService.createRelayRequest(
-          req.params.inviteCode,
-          JsonExt.parse<IInitializeBitcoinLockRequest>(String(rawBody)),
-        );
-        const relay = await fetchBotRelay(`${botInternalUrl}/internal/bitcoin-lock-relays`, {
+        const relayRequest = inviteService.createRelayRequest(req.params.offerCode, body);
+        const bitcoinLock = await fetchBot<IBitcoinLockStatusResponse['bitcoinLock']>(
+          `${botInternalUrl}/internal/bitcoin-lock-coupons/initialize`,
+          {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
           body: JsonExt.stringify(relayRequest),
-        }).catch(error => {
+          },
+        ).catch(error => {
           if (error instanceof RouterError) {
             throw new RouterError(error.message || 'Bot request failed to initialize this bitcoin lock.', error.status);
           }
           throw error;
         });
 
-        db.treasuryUserInvitesTable.setRedeemedAt(relayRequest.routerInviteId);
-
-        return { relay: toPublicBitcoinLockRelay(relay) } satisfies IBitcoinLockRelayResponse;
+        return { bitcoinLock };
       }),
     );
 
     app.post(
       '/profile',
       express.text({ type: '*/*' }),
-      safeJsonRoute(async (req, res) => {
-        const rawBody = req.body;
-        if (!rawBody) {
-          sendJson(res, { error: 'Missing JSON body' }, 400);
-          return;
-        }
-
-        const payload = JsonExt.parse<IRouterProfileUpdateRequest>(String(rawBody));
+      safeJsonRoute<IRouterProfileResponse>(req => {
+        const payload = requireBody<IRouterProfileUpdateRequest>(req);
         const profile = db.profileTable.save(payload);
-        return { profile } satisfies IRouterProfileResponse;
+        return { profile };
       }),
     );
 
     app.get(
       '/profile',
-      safeJsonRoute(async () => {
+      safeJsonRoute<IRouterProfileResponse>(async () => {
         const profile = db.profileTable.fetch();
-        return { profile } satisfies IRouterProfileResponse;
+        return { profile };
       }),
     );
 
@@ -260,7 +215,9 @@ export class RouterServer {
     });
 
     this.server = app.listen(this.options.port ?? 0, () => {
-      console.log(`Router server is running on port ${(this.server.address() as { port?: number } | null)?.port ?? this.options.port}`);
+      console.log(
+        `Router server is running on port ${(this.server.address() as { port?: number } | null)?.port ?? this.options.port}`,
+      );
       this.resolveListening();
     });
     this.server.once('error', err => {
@@ -295,14 +252,28 @@ export class RouterServer {
   }
 }
 
-async function fetchBotRelay(url: string, init?: RequestInit): Promise<IBitcoinLockRelayRecord> {
+async function fetchBotBitcoinLockStatuses(botInternalUrl: string): Promise<IBitcoinLockCouponStatus[]> {
+  return await fetchBot<IBitcoinLockRelayRecord[]>(`${botInternalUrl}/internal/bitcoin-lock-coupons`);
+}
+
+async function fetchBotBitcoinLockStatus(botInternalUrl: string, offerCode: string) {
+  return await fetchBot<IBitcoinLockRelayRecord>(
+    `${botInternalUrl}/internal/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}`,
+  );
+}
+
+async function fetchBot<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const rawBody = await response.text();
-  const body = rawBody ? JsonExt.parse<IBitcoinLockRelayRecord | IRouterErrorResponse>(rawBody) : undefined;
+  const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
 
   if (!response.ok) {
     const message =
-      body != null && typeof body === 'object' && !Array.isArray(body) && 'error' in body && typeof body.error === 'string'
+      body != null &&
+      typeof body === 'object' &&
+      !Array.isArray(body) &&
+      'error' in body &&
+      typeof body.error === 'string'
         ? body.error
         : 'Bot request failed.';
     throw new RouterError(message, response.status);
@@ -312,15 +283,24 @@ async function fetchBotRelay(url: string, init?: RequestInit): Promise<IBitcoinL
     throw new RouterError('Bot request failed.', response.status || 500);
   }
 
-  return body as IBitcoinLockRelayRecord;
+  return body as T;
 }
 
 function sendJson(res: Response, data: unknown, status = 200): void {
   res.status(status).type('application/json').send(JsonExt.stringify(data));
 }
 
-function safeJsonRoute(
-  handler: (req: Request, res: Response) => Promise<unknown>,
+function requireBody<T>(req: Request): T {
+  const rawBody = req.body;
+  if (!rawBody) {
+    throw new RouterError('Missing JSON body', 400);
+  }
+
+  return JsonExt.parse<T>(String(rawBody));
+}
+
+function safeJsonRoute<T>(
+  handler: (req: Request, res: Response) => Promise<T | undefined> | T | undefined,
 ): (req: Request, res: Response) => Promise<void> {
   return async (req, res) => {
     try {

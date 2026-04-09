@@ -117,7 +117,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       await flow.waitFor('Received.argonots', { timeoutMs: 120_000 });
     }
 
-    await flow.click('WalletOverlay.closeOverlay()', { timeoutMs: 8_000 });
+    await flow.click('OverlayBase.closeOverlay()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.fundOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,

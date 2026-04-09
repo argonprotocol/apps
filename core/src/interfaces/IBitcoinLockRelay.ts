@@ -1,11 +1,4 @@
-export type BitcoinLockRelayStatus =
-  | 'Queued'
-  | 'WaitingForCapacity'
-  | 'Submitting'
-  | 'Submitted'
-  | 'InBlock'
-  | 'Finalized'
-  | 'Failed';
+export type BitcoinLockRelayStatus = 'Submitted' | 'InBlock' | 'Finalized' | 'Failed';
 
 export interface IBitcoinLockRelayRequest {
   offerToken: string;
@@ -16,7 +9,6 @@ export interface IBitcoinLockRelayRequest {
 }
 
 export interface IBitcoinLockRelayJobRequest {
-  routerInviteId: number;
   offerCode: string;
   maxSatoshis: bigint;
   expirationTick: number;
@@ -26,22 +18,9 @@ export interface IBitcoinLockRelayJobRequest {
   microgonsPerBtc: bigint;
 }
 
-export interface IBitcoinLockRelayLock {
-  utxoId: number;
-  vaultId: number;
-  ownerAccountAddress: string;
-  satoshis: bigint;
-  liquidityPromised: bigint;
-  lockedMarketRate: bigint;
-  securityFees: bigint;
-  createdAtHeight: number;
-  lockDetailsJson?: any;
-}
-
-export interface IBitcoinLockRelay {
-  id: number;
+export interface IBitcoinLockCouponStatus {
+  offerCode: string;
   status: BitcoinLockRelayStatus;
-  queueReason?: string;
   error?: string;
   delegateAddress?: string;
   extrinsicHash?: string;
@@ -49,25 +28,24 @@ export interface IBitcoinLockRelay {
   nonce?: number;
   submittedAtBlockHeight?: number;
   submittedAtTime?: Date;
+  expiresAtBlockHeight?: number;
+  inBlockHeight?: number;
   finalizedHeight?: number;
   txFeePlusTip?: bigint;
   utxoId?: number;
-  createdLock?: IBitcoinLockRelayLock;
 }
 
-export interface IBitcoinLockRelayRecord extends IBitcoinLockRelay {
-  routerInviteId: number;
-  offerCode: string;
+export interface IBitcoinLockRelayRecord extends IBitcoinLockCouponStatus {
+  id: number;
   vaultId: number;
   maxSatoshis: bigint;
   expirationTick: number;
   requestedSatoshis: bigint;
-  reservedSatoshis: bigint;
-  reservedLiquidityMicrogons: bigint;
+  securitizationUsedMicrogons: bigint;
   ownerAccountAddress: string;
   ownerBitcoinPubkey: string;
   microgonsPerBtc: bigint;
-  inBlockHeight?: number;
+  inBlockHash?: string | null;
   txTip?: bigint;
   createdAt: Date;
   updatedAt: Date;

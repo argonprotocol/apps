@@ -1,82 +1,97 @@
 import type { SQLInputValue, SQLOutputValue, StatementSync } from 'node:sqlite';
-import type { BitcoinLockRelayStatus, IBitcoinLockRelayLock, IBitcoinLockRelayRecord } from '@argonprotocol/apps-core';
+import type { BitcoinLockRelayStatus, IBitcoinLockRelayRecord } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqliteParams, toSqliteValue } from '@argonprotocol/apps-core';
 import type { Db } from '../Db.ts';
 import { BaseTable } from './BaseTable.ts';
 
-export interface IBitcoinLockRelayQueuedInsert {
+export interface IBitcoinLockRelayInsert {
   status: BitcoinLockRelayStatus;
-  queueReason?: string | null;
-  routerInviteId: number;
   offerCode: string;
   vaultId: number;
   maxSatoshis: bigint;
   expirationTick: number;
   requestedSatoshis: bigint;
+  securitizationUsedMicrogons?: bigint;
   ownerAccountAddress: string;
   ownerBitcoinPubkey: string;
   microgonsPerBtc: bigint;
+  delegateAddress?: string;
+  extrinsicHash?: string;
+  extrinsicMethodJson?: any;
+  nonce?: number;
+  submittedAtBlockHeight?: number;
+  submittedAtTime?: Date;
+  expiresAtBlockHeight?: number;
 }
 
 type IBitcoinLockRelayPatch = {
   status?: BitcoinLockRelayStatus;
-  queueReason?: string | null;
   error?: string | null;
-  reservedSatoshis?: bigint;
-  reservedLiquidityMicrogons?: bigint;
   delegateAddress?: string | null;
   extrinsicHash?: string | null;
   extrinsicMethodJson?: any;
   nonce?: number | null;
   submittedAtBlockHeight?: number | null;
   submittedAtTime?: Date | null;
+  expiresAtBlockHeight?: number | null;
   inBlockHeight?: number | null;
   inBlockHash?: string | null;
   finalizedHeight?: number | null;
   txFeePlusTip?: bigint | null;
   txTip?: bigint | null;
   utxoId?: number | null;
-  createdLock?: IBitcoinLockRelayLock | null;
   updatedAt?: Date | null;
 };
 
 type SqlRelayRow = Record<string, SQLOutputValue>;
 
 export class BitcoinLockRelaysTable extends BaseTable {
-  private readonly insertQueuedRelayStmt: StatementSync;
+  private readonly insertRelayStmt: StatementSync;
   private readonly getRelayByIdStmt: StatementSync;
-  private readonly getLatestRelayByInviteIdStmt: StatementSync;
+  private readonly getRelayByOfferCodeStmt: StatementSync;
+  private readonly listRelaysStmt: StatementSync;
   private readonly listNonTerminalRelaysStmt: StatementSync;
-  private readonly listOutstandingReservationRelaysStmt: StatementSync;
 
   constructor(db: Db) {
     super(db);
 
-    this.insertQueuedRelayStmt = this.db.sql.prepare(`
+    this.insertRelayStmt = this.db.sql.prepare(`
       INSERT INTO BitcoinLockRelays (
-        routerInviteId,
         offerCode,
         vaultId,
         maxSatoshis,
         expirationTick,
         status,
-        queueReason,
         requestedSatoshis,
+        securitizationUsedMicrogons,
         ownerAccountAddress,
         ownerBitcoinPubkey,
-        microgonsPerBtc
+        microgonsPerBtc,
+        delegateAddress,
+        extrinsicHash,
+        extrinsicMethodJson,
+        nonce,
+        submittedAtBlockHeight,
+        submittedAtTime,
+        expiresAtBlockHeight
       ) VALUES (
-        $routerInviteId,
         $offerCode,
         $vaultId,
         $maxSatoshis,
         $expirationTick,
         $status,
-        $queueReason,
         $requestedSatoshis,
+        $securitizationUsedMicrogons,
         $ownerAccountAddress,
         $ownerBitcoinPubkey,
-        $microgonsPerBtc
+        $microgonsPerBtc,
+        $delegateAddress,
+        $extrinsicHash,
+        $extrinsicMethodJson,
+        $nonce,
+        $submittedAtBlockHeight,
+        $submittedAtTime,
+        $expiresAtBlockHeight
       )
       RETURNING *
     `);
@@ -88,12 +103,17 @@ export class BitcoinLockRelaysTable extends BaseTable {
       LIMIT 1
     `);
 
-    this.getLatestRelayByInviteIdStmt = this.db.sql.prepare(`
+    this.getRelayByOfferCodeStmt = this.db.sql.prepare(`
       SELECT *
       FROM BitcoinLockRelays
-      WHERE routerInviteId = $routerInviteId
-      ORDER BY id DESC
+      WHERE offerCode = $offerCode
       LIMIT 1
+    `);
+
+    this.listRelaysStmt = this.db.sql.prepare(`
+      SELECT *
+      FROM BitcoinLockRelays
+      ORDER BY offerCode ASC
     `);
 
     this.listNonTerminalRelaysStmt = this.db.sql.prepare(`
@@ -102,30 +122,13 @@ export class BitcoinLockRelaysTable extends BaseTable {
       WHERE status NOT IN ('Finalized', 'Failed')
       ORDER BY id ASC
     `);
-
-    this.listOutstandingReservationRelaysStmt = this.db.sql.prepare(`
-      SELECT *
-      FROM BitcoinLockRelays
-      WHERE status IN ('Submitting', 'Submitted', 'InBlock')
-        AND (reservedSatoshis != '0' OR reservedLiquidityMicrogons != '0')
-      ORDER BY id ASC
-    `);
   }
 
-  public insertQueuedRelay(relay: IBitcoinLockRelayQueuedInsert): IBitcoinLockRelayRecord {
-    const record = this.insertQueuedRelayStmt.get(
+  public insertRelay(relay: IBitcoinLockRelayInsert): IBitcoinLockRelayRecord {
+    const record = this.insertRelayStmt.get(
       toSqliteParams({
-        routerInviteId: relay.routerInviteId,
-        offerCode: relay.offerCode,
-        vaultId: relay.vaultId,
-        maxSatoshis: relay.maxSatoshis,
-        expirationTick: relay.expirationTick,
-        status: relay.status,
-        queueReason: relay.queueReason ?? null,
-        requestedSatoshis: relay.requestedSatoshis,
-        ownerAccountAddress: relay.ownerAccountAddress,
-        ownerBitcoinPubkey: relay.ownerBitcoinPubkey,
-        microgonsPerBtc: relay.microgonsPerBtc,
+        ...relay,
+        securitizationUsedMicrogons: relay.securitizationUsedMicrogons ?? 0n,
       }),
     ) as SqlRelayRow;
 
@@ -137,19 +140,17 @@ export class BitcoinLockRelaysTable extends BaseTable {
     return record ? this.mapRelay(record) : null;
   }
 
-  public fetchLatestByInviteId(routerInviteId: number): IBitcoinLockRelayRecord | null {
-    const record = this.getLatestRelayByInviteIdStmt.get({ $routerInviteId: routerInviteId }) as
-      | SqlRelayRow
-      | undefined;
+  public fetchByOfferCode(offerCode: string): IBitcoinLockRelayRecord | null {
+    const record = this.getRelayByOfferCodeStmt.get({ $offerCode: offerCode }) as SqlRelayRow | undefined;
     return record ? this.mapRelay(record) : null;
+  }
+
+  public fetchAll(): IBitcoinLockRelayRecord[] {
+    return (this.listRelaysStmt.all() as SqlRelayRow[]).map(record => this.mapRelay(record));
   }
 
   public fetchNonTerminal(): IBitcoinLockRelayRecord[] {
     return (this.listNonTerminalRelaysStmt.all() as SqlRelayRow[]).map(record => this.mapRelay(record));
-  }
-
-  public fetchOutstandingReservations(): IBitcoinLockRelayRecord[] {
-    return (this.listOutstandingReservationRelaysStmt.all() as SqlRelayRow[]).map(record => this.mapRelay(record));
   }
 
   public update(id: number, patch: IBitcoinLockRelayPatch): IBitcoinLockRelayRecord {
@@ -183,26 +184,17 @@ export class BitcoinLockRelaysTable extends BaseTable {
     return relay;
   }
 
-  public clearReservation(id: number): IBitcoinLockRelayRecord {
-    return this.update(id, {
-      reservedSatoshis: 0n,
-      reservedLiquidityMicrogons: 0n,
-      queueReason: null,
-    });
-  }
-
   private mapRelay(record: SqlRelayRow): IBitcoinLockRelayRecord {
     return convertFromSqliteFields<IBitcoinLockRelayRecord>(record, {
       bigint: [
         'maxSatoshis',
         'requestedSatoshis',
-        'reservedSatoshis',
-        'reservedLiquidityMicrogons',
+        'securitizationUsedMicrogons',
         'microgonsPerBtc',
         'txFeePlusTip',
         'txTip',
       ],
-      json: ['extrinsicMethodJson', 'createdLock'],
+      json: ['extrinsicMethodJson'],
       date: ['submittedAtTime', 'createdAt', 'updatedAt'],
     });
   }
