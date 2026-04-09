@@ -118,6 +118,33 @@ const currentStep = Vue.ref<'Create' | 'Import' | 'Import:FromMnemonic' | null>(
 const inviteCode = Vue.ref<string>('');
 const formError = Vue.ref('');
 
+function extractInviteCodeFromUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+
+  const match = parsedUrl.pathname.match(/^\/treasury-invite\/([^/?#]+)/);
+  if (!match?.[1]) return trimmed;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return '';
+  }
+}
+
+if (typeof window !== 'undefined') {
+  const inviteFromPageUrl = extractInviteCodeFromUrl(window.location.href);
+  if (inviteFromPageUrl !== window.location.href.trim()) {
+    inviteCode.value = inviteFromPageUrl;
+  }
+}
+
 function backToMain() {
   formError.value = '';
   currentStep.value = null;
@@ -195,7 +222,13 @@ async function connectToNetwork() {
 }
 
 Vue.watch(inviteCode, () => {
-  const decoded = VaultInvites.decodeInviteCode(inviteCode.value);
+  const normalizedInviteCode = extractInviteCodeFromUrl(inviteCode.value);
+  if (normalizedInviteCode !== inviteCode.value) {
+    inviteCode.value = normalizedInviteCode;
+    return;
+  }
+
+  const decoded = VaultInvites.decodeInviteCode(normalizedInviteCode);
   formError.value = '';
   hasValidInviteCode.value = true;
   if (decoded.hasError) {

@@ -2,16 +2,12 @@
 <template>
   <div>
     <div v-if="isShowingBonusTooltip" class="z-50 absolute top-6 right-[46px] pt-[12px]">
-      <MenuArrow
-        class="absolute top-0 right-6"
-        :width="24"
-        :height="14"
+      <Arrow
+        class="absolute top-0 right-6 w-6 h-3.5"
         fill="white"
       />
-      <MenuArrow
-        class="absolute top-0 right-6"
-        :width="24"
-        :height="14"
+      <Arrow
+        class="absolute top-0 right-6 w-6 h-3.5"
         fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
       />
       <div class="bg-white border border-argon-400/50 rounded shadow-xl pt-0.5 pl-0.5">
@@ -116,7 +112,7 @@ import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getConfig } from '../../stores/config.ts';
 import Checkbox from '../../components/Checkbox.vue';
-import MenuArrow from '../../components/MenuArrow.vue';
+import Arrow from '../../components/Arrow.vue';
 import { useOperationsController, operationalSteps, OperationalStepId } from '../../stores/operationsController.ts';
 import Spinner from '../../components/Spinner.vue';
 

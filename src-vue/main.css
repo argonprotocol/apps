@@ -25,6 +25,8 @@
   --color-argon-error-darker: #c62030;
   --color-argon-error-darkest: #800000;
 
+  --bg-color: #f9f2fa;
+
   --text-md: 15px;
 }
 
@@ -43,7 +45,7 @@
 html {
   height: 100%;
   border-radius: 10px;
-  background: #f9f2fa;
+  background: var(--bg-color);
 }
 
 body {
@@ -51,7 +53,7 @@ body {
   height: 100%;
   border-radius: 10px;
   overflow: hidden;
-  background-color: #f9f2fa;
+  background-color: var(--bg-color);
 }
 @font-face {
   font-family: 'Inter';
@@ -123,4 +125,8 @@ html[data-e2e-no-motion='1'] *::after {
   animation: none !important;
   transition: none !important;
   scroll-behavior: auto !important;
+}
+
+[DashBox] {
+  @apply rounded border-[1px] border-slate-400/40 bg-white shadow-md;
 }
