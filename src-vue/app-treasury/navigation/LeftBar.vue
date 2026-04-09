@@ -62,7 +62,7 @@
         <ExternalIcon class="mr-2 h-4 w-4" />
         <div>EXTERNAL NETWORKS</div>
       </header>
-      <ul>
+      <ul class="pb-1.5">
         <li Divider />
         <li Clickable Item @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)" :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined">
           <div>Ethereum Swaps</div>
@@ -98,7 +98,17 @@
       </ul>
     </section>
 
-    <section DashBox class="grow">
+    <section DashBox class="grow flex flex-row items-center justify-center gap-x-2 text-center">
+      <ul class="flex flex-col items-center gap-y-10">
+        <li>
+          <DiscordIcon class="h-7 w-7 inline-block" />
+          <div class="mt-1">Community</div>
+        </li>
+        <li>
+          <InstructionsIcon class="h-6 w-6 inline-block" />
+          <div class="mt-2">Documentation</div>
+        </li>
+      </ul>
 
     </section>
   </div>
@@ -120,6 +130,8 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import MainchainIcon from '../../assets/mainchain-icon.svg';
 import P2pIcon from '../../assets/p2p-icon.svg';
 import ExternalIcon from '../../assets/external-icon.svg';
+import DiscordIcon from '../../assets/discord.svg';
+import InstructionsIcon from '../../assets/instructions.svg';
 import { useBonds } from '../../stores/bonds.ts';
 
 const controller = useTreasuryController();

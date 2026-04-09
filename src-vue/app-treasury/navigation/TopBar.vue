@@ -50,15 +50,23 @@ const controller = useTreasuryController();
 const instances = Vue.ref<IInstance[]>([]);
 
 async function fetchInstances() {
-  const configDir = await appConfigDir();
-
-  const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
-  instances.value = entries
-    .filter(entry => entry.isDirectory)
-    .map(entry => ({
-      name: entry.name,
-      isSelected: entry.name === INSTANCE_NAME,
-    }));
+  try {
+    const configDir = await appConfigDir();
+    const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
+    instances.value = entries
+      .filter(entry => entry.isDirectory)
+      .map(entry => ({
+        name: entry.name,
+        isSelected: entry.name === INSTANCE_NAME,
+      }));
+  } catch {
+    instances.value = [
+      {
+        name: INSTANCE_NAME,
+        isSelected: true,
+      },
+    ];
+  }
 }
 
 function toPossessive(name: string): string {

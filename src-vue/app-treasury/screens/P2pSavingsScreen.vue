@@ -17,6 +17,5 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
 import ComingSoonBanner from '../../assets/coming-soon-banner.svg';
 </script>
