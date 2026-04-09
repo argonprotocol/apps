@@ -131,7 +131,11 @@ function extractInviteCodeFromUrl(input: string): string {
 
   const match = parsedUrl.pathname.match(/^\/treasury-invite\/([^/?#]+)/);
   if (!match?.[1]) return trimmed;
-  return decodeURIComponent(match[1]);
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return '';
+  }
 }
 
 if (typeof window !== 'undefined') {

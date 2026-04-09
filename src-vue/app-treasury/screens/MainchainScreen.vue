@@ -14,7 +14,7 @@
         <!--        {{ walletKeys.investmentAddress }}-->
       </div>
 
-      <p class="w-0 min-w-160 whitespace-normal border-t border-slate-400/50 pt-4 mt-4 text-[17px]/7 font-light">
+      <p class="w-0 min-w-full whitespace-normal border-t border-slate-400/50 pt-4 mt-4 text-[17px]/7 font-light">
         Argon’s stablecoin is inflation-free by default. It’s value is tied to a consumer price index instead of a fiat currency or other centrally controlled monetary policy. A single argon stablecoin is designed to buy the same amount of goods a century from now as it does today.
       </p>
 
@@ -27,11 +27,9 @@
 </template>
 
 <script setup lang="ts">
-import { getWalletKeys } from '../../stores/wallets.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import MoreIcon from '../../assets/more.svg';
 import InfoIcon from '../../assets/info-outline.svg';
 
-const walletKeys = getWalletKeys();
 const currency = getCurrency();
 </script>

@@ -72,16 +72,25 @@ const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
 const instances = Vue.ref<IInstance[]>([]);
 
 async function fetchInstances() {
-  const configDir = await appConfigDir();
-
-  const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
-  instances.value = entries
-    .filter(entry => entry.isDirectory)
-    .map(entry => ({
-      name: entry.name,
-      isSelected: entry.name === INSTANCE_NAME,
-    }));
+  try {
+    const configDir = await appConfigDir();
+    const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
+    instances.value = entries
+      .filter(entry => entry.isDirectory)
+      .map(entry => ({
+        name: entry.name,
+        isSelected: entry.name === INSTANCE_NAME,
+      }));
+  } catch {
+    instances.value = [
+      {
+        name: INSTANCE_NAME,
+        isSelected: true,
+      },
+    ];
+  }
 }
+
 tour.registerPositionCheck('currencyMenu', () => {
   const currencyMenuElem = currencyMenuRef.value?.$el;
   const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
