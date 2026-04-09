@@ -123,6 +123,24 @@ export default tseslint.config(
     },
   },
   {
+    files: ['core/src/**/*.ts'],
+    rules: {
+      'import-x/no-nodejs-modules': 'error',
+    },
+  },
+  {
+    files: ['core/src/SqliteMigrations.ts', 'core/src/SqliteUtils.ts'],
+    rules: {
+      'import-x/no-nodejs-modules': ['error', { allow: ['node:sqlite'] }],
+    },
+  },
+  {
+    files: ['core/src/scripts/**/*.ts'],
+    rules: {
+      'import-x/no-nodejs-modules': 'off',
+    },
+  },
+  {
     files: ['**/*.d.ts'],
     rules: {
       'argon/no-single-use-pass-through-helper': 'off',

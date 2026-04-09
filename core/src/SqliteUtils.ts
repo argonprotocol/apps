@@ -77,8 +77,10 @@ export function convertFromSqliteFields<T>(obj: unknown, fields: ISqliteFieldTyp
   return obj as T;
 }
 
-export function toSqliteParams(record: Record<string, unknown>): Record<string, SQLInputValue> {
-  return Object.fromEntries(Object.entries(record).map(([key, value]) => [`$${key}`, toSqliteValue(value)]));
+export function toSqliteParams<T extends object>(record: T): Record<string, SQLInputValue> {
+  return Object.fromEntries(
+    Object.entries(record as Record<string, unknown>).map(([key, value]) => [`$${key}`, toSqliteValue(value)]),
+  );
 }
 
 export function toSqliteValue(value: unknown): SQLInputValue {

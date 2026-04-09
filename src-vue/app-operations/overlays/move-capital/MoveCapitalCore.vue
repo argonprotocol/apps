@@ -6,49 +6,65 @@
       There are no moveable
       {{ moveTokenName[moveToken].toLowerCase() }}s from {{ moveFromName[moveFrom].toLowerCase() }}.
     </div>
-    <form :class="!hasTokensToMove && !showInputMenus ? 'opacity-50 pointer-events-none' : ''">
-      <div class="mt-3 flex flex-row items-end space-x-2">
+    <form :class="!hasTokensToMove && !showInputMenus ? 'opacity-50' : ''">
+      <div class="mt-3 flex items-center gap-x-3">
         <div class="grow">
-          <div class="mb-1">Move From</div>
-          <InputMenu
-            v-if="showInputMenus"
-            v-model="moveFrom"
-            @change="updatedMoveFrom"
-            :options="moveFromOptions"
-            :selectFirst="true"
-            class="w-full"
-          />
+          <div class="flex flex-row items-end space-x-2">
+            <div class="grow">
+              <div class="mb-1">Move From</div>
+              <InputMenu
+                v-if="showInputMenus || isMoveToPinned"
+                v-model="moveFrom"
+                @change="updatedMoveFrom"
+                :options="moveFromInputOptions"
+                :selectFirst="true"
+                class="w-full"
+              />
+              <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
+                {{ moveFromName[moveFrom] }}
+              </div>
+            </div>
+            <div class="grow">
+              <div class="mb-1">Amount</div>
+              <InputToken
+                v-model="amountToMove"
+                @change="updatedAmountToMove"
+                :min="0n"
+                :max="maxAmountToMove"
+                :suffix="showInputMenus ? '' : ` ${moveToken}`"
+                :disabled="pendingTxInfo !== null || !canSubmit"
+                class="w-full"
+              />
+            </div>
+            <div v-if="showInputMenus">
+              <InputMenu
+                v-model="moveToken"
+                @change="updatedMoveToken"
+                :options="moveTokenOptions"
+                :selectFirst="true"
+              />
+            </div>
+          </div>
+
+          <div class="mt-3 mb-1">Move To</div>
+          <InputMenu v-if="canChangeDestination && !isMoveToPinned" v-model="moveTo" :options="moveToOptions" :selectFirst="true" class="w-full" />
           <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-            {{ moveFromName[moveFrom] }}
+            {{ moveToName[moveTo] }}
           </div>
         </div>
-        <div class="grow">
-          <div class="mb-1">Amount</div>
-          <InputToken
-            v-model="amountToMove"
-            @change="updatedAmountToMove"
-            :min="0n"
-            :max="maxAmountToMove"
-            :suffix="showInputMenus ? '' : ` ${moveToken}`"
-            :disabled="pendingTxInfo !== null || !canSubmit"
-            class="w-full"
-          />
-        </div>
-        <div v-if="showInputMenus">
-          <InputMenu
-            v-model="moveToken"
-            @change="updatedMoveToken"
-            :options="moveTokenOptions"
-            :selectFirst="true"
-          />
-        </div>
+
+        <button
+          v-if="!props.moveTo && props.maxAmount === undefined && moveTo !== MoveTo.External"
+          type="button"
+          @click="switchDirection"
+          class="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-slate-300/80 bg-white text-slate-500 shadow-sm transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-700"
+          title="Switch direction">
+          <ArrowsRightLeftIcon
+            class="h-5 w-5 transition-transform duration-300 ease-out"
+            :style="{ transform: `rotate(${switchRotation}deg)` }" />
+        </button>
       </div>
 
-      <div class="mt-3 mb-1">Move To</div>
-      <InputMenu v-if="canChangeDestination" v-model="moveTo" :options="moveToOptions" :selectFirst="true" class="w-full" />
-      <div v-else class="rounded-md border border-dashed border-slate-900/70 px-2 py-1 font-mono">
-        {{ moveToName[moveTo] }}
-      </div>
       <template v-if="moveTo === MoveTo.External">
         <input
           v-model="externalAddress"
@@ -174,6 +190,7 @@ const transactionsShownCompleted = new Set<number>();
 import ProgressBar from '../../../components/ProgressBar.vue';
 import InputMenu from '../../../components/InputMenu.vue';
 import InputToken from '../../../components/InputToken.vue';
+import { ArrowsRightLeftIcon } from '@heroicons/vue/24/outline';
 import { useMiningAssetBreakdown } from '../../../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../../../stores/vaultingAssetBreakdown.ts';
 import * as Vue from 'vue';
@@ -234,6 +251,9 @@ const moveFrom = Vue.ref(
 );
 const moveToken = Vue.ref(props.moveToken);
 const amountToMove = Vue.ref<bigint>(0n);
+const isMoveToPinned = Vue.ref(false);
+const switchRotation = Vue.ref(90);
+const switchRotationDelta = Vue.ref(180);
 
 const externalAddress = Vue.ref('');
 const canChangeDestination = Vue.computed(() => !pendingTxInfo.value && !props.moveTo);
@@ -303,13 +323,18 @@ const maxAmountToMove = Vue.computed(() => {
   return max;
 });
 
+const moveFromWalletType = Vue.computed(() => {
+  if (props.walletType != null) return props.walletType;
+  return moveCapital.getWalletTypeFromMove(props.moveFrom ?? moveFrom.value);
+});
+
 const moveFromOptions = Vue.computed(() => {
-  if (props.walletType === WalletType.miningHold) {
+  if ([WalletType.miningHold, WalletType.miningBot].includes(moveFromWalletType.value)) {
     return [
       { name: 'Inflation-Free Savings', value: MoveFrom.MiningHold },
       { name: 'Mining Bids', value: MoveFrom.MiningBot },
     ];
-  } else if (props.walletType === WalletType.vaulting) {
+  } else if (moveFromWalletType.value === WalletType.vaulting) {
     return [
       { name: 'Inflation-Free Savings', value: MoveFrom.VaultingHold },
       { name: 'Bitcoin Security', value: MoveFrom.VaultingSecurity },
@@ -317,6 +342,14 @@ const moveFromOptions = Vue.computed(() => {
     ];
   }
   return [];
+});
+
+const moveFromInputOptions = Vue.computed(() => {
+  if (!isMoveToPinned.value) return moveFromOptions.value;
+
+  return moveFromOptions.value.filter(option => {
+    return getMoveToOptions(option.value).some(moveToOption => moveToOption.value === moveTo.value);
+  });
 });
 
 const moveTokenOptions = Vue.computed(() => {
@@ -333,22 +366,21 @@ const moveTokenOptions = Vue.computed(() => {
   return options;
 });
 
-const moveToOptions = Vue.computed(() => {
+function getMoveToOptions(moveFromValue: MoveFrom) {
   const options = [];
-  const walletFrom = moveCapital.getWalletTypeFromMove(moveFrom.value!);
+  const walletFrom = moveCapital.getWalletTypeFromMove(moveFromValue);
   if (walletFrom === WalletType.miningHold) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
   } else if (walletFrom === WalletType.miningBot) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.MiningHold });
-  } else if (moveFrom.value === MoveFrom.VaultingHold) {
+  } else if (moveFromValue === MoveFrom.VaultingHold) {
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
     options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
-  } else if (moveFrom.value === MoveFrom.VaultingSecurity) {
+  } else if (moveFromValue === MoveFrom.VaultingSecurity) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
     options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
-  } else if (moveFrom.value === MoveFrom.VaultingTreasury) {
+  } else if (moveFromValue === MoveFrom.VaultingTreasury) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
-    options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
   }
 
   if (walletFrom !== WalletType.miningHold && walletFrom !== WalletType.miningBot) {
@@ -360,6 +392,10 @@ const moveToOptions = Vue.computed(() => {
   options.push({ name: 'External Account', value: MoveTo.External });
 
   return options;
+}
+
+const moveToOptions = Vue.computed(() => {
+  return getMoveToOptions(moveFrom.value);
 });
 
 const canSubmit = Vue.computed(() => {
@@ -426,10 +462,49 @@ async function updatedAmountToMove(microgons: bigint, tries = 3) {
 }
 
 async function updatedMoveFrom() {
+  if (!moveToOptions.value.some(option => option.value === moveTo.value)) {
+    moveTo.value = moveToOptions.value[0].value;
+  }
   await updatedAmountToMove(maxAmountToMove.value);
 }
 
 async function updatedMoveToken() {
+  await updatedAmountToMove(maxAmountToMove.value);
+}
+
+async function switchDirection() {
+  switchRotation.value += switchRotationDelta.value;
+  switchRotationDelta.value *= -1;
+
+  if (moveTo.value === MoveTo.External) {
+    return;
+  }
+
+  if (props.moveFrom && !props.showInputMenus) {
+    if (!isMoveToPinned.value) {
+      const previousMoveTo = moveTo.value as unknown as MoveFrom;
+      moveTo.value = props.moveFrom as unknown as MoveTo;
+      isMoveToPinned.value = true;
+      moveFrom.value =
+        moveFromInputOptions.value.find(option => option.value === previousMoveTo)?.value ??
+        moveFromInputOptions.value[0].value;
+    } else {
+      const previousMoveFrom = moveFrom.value as unknown as MoveTo;
+      isMoveToPinned.value = false;
+      moveFrom.value = props.moveFrom;
+      moveTo.value =
+        moveToOptions.value.find(option => option.value === previousMoveFrom)?.value ?? moveToOptions.value[0].value;
+    }
+  } else {
+    const currentMoveFrom = moveFrom.value;
+    moveFrom.value = moveTo.value as unknown as MoveFrom;
+    moveTo.value = currentMoveFrom as unknown as MoveTo;
+
+    if (!moveToOptions.value.some(option => option.value === moveTo.value)) {
+      moveTo.value = moveToOptions.value[0].value;
+    }
+  }
+
   await updatedAmountToMove(maxAmountToMove.value);
 }
 
@@ -583,6 +658,13 @@ Vue.watch(
   async () => {
     if (props.isOpen) {
       isLoaded.value = false;
+      isMoveToPinned.value = false;
+      moveFrom.value =
+        props.moveFrom || (props.walletType === WalletType.vaulting ? MoveFrom.VaultingHold : MoveFrom.MiningHold);
+      moveTo.value = props.moveTo ?? moveToOptions.value[0].value;
+      if (!moveToOptions.value.some(option => option.value === moveTo.value)) {
+        moveTo.value = moveToOptions.value[0].value;
+      }
       await updatedAmountToMove(maxAmountToMove.value);
 
       const pendingTx = pendingTxInfo.value;

@@ -7,7 +7,7 @@ export default class BitcoinPrices {
   public indexByDate: { [date: string]: number } = {};
 
   constructor() {
-    this.prices = bitcoinPrices.map((priceRow, index): IBitcoinPriceRecord => {
+    this.prices = bitcoinPrices.map((priceRow, index) => {
       this.indexByDate[priceRow.date] = index;
       return { date: priceRow.date, price: Number(priceRow.price) };
     });
@@ -18,7 +18,7 @@ export default class BitcoinPrices {
   }
 
   public getForYear(yearToRun: string): IBitcoinPriceRecord[] {
-    return this.prices.filter((row: IBitcoinPriceRecord) => row.date.startsWith(yearToRun));
+    return this.prices.filter(row => row.date.startsWith(yearToRun));
   }
 
   public getDateRange(startingDate: string, endingDate: string): IBitcoinPriceRecord[] {
@@ -35,6 +35,6 @@ export default class BitcoinPrices {
     if (date instanceof dayjs) {
       date = date.format('YYYY-MM-DD');
     }
-    return this.prices.find((row: IBitcoinPriceRecord) => row.date === date) ?? { date: '', price: 0 };
+    return this.prices.find(row => row.date === date) ?? { date: '', price: 0 };
   }
 }

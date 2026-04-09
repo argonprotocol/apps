@@ -1,7 +1,7 @@
 import { JsonExt } from '@argonprotocol/apps-core';
 import type {
-  IBitcoinLockRelay,
-  IBitcoinLockRelayResponse,
+  IBitcoinLockCouponStatus,
+  IBitcoinLockStatusResponse,
   IInitializeBitcoinLockRequest,
   IOpenTreasuryInviteRequest,
   IOpenTreasuryInviteResponse,
@@ -36,12 +36,12 @@ export class UpstreamOperatorClient {
 
   public static async initializeBitcoinLock(
     operatorHost: string,
-    inviteCode: string,
+    offerCode: string,
     payload: IInitializeBitcoinLockRequest,
-  ): Promise<IBitcoinLockRelay> {
-    const body = await this.request<IBitcoinLockRelayResponse>(
+  ): Promise<IBitcoinLockCouponStatus> {
+    const body = await this.request<IBitcoinLockStatusResponse>(
       operatorHost,
-      `/treasury-users/${encodeURIComponent(inviteCode)}/initialize-bitcoin-lock`,
+      `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
       {
         method: 'POST',
         headers: {
@@ -50,19 +50,15 @@ export class UpstreamOperatorClient {
         body: JsonExt.stringify(payload),
       },
     );
-    return body.relay;
+    return body.bitcoinLock;
   }
 
-  public static async getBitcoinLockRelayStatus(
-    operatorHost: string,
-    inviteCode: string,
-    relayId: number,
-  ): Promise<IBitcoinLockRelay> {
-    const body = await this.request<IBitcoinLockRelayResponse>(
+  public static async getBitcoinLockStatus(operatorHost: string, offerCode: string): Promise<IBitcoinLockCouponStatus> {
+    const body = await this.request<IBitcoinLockStatusResponse>(
       operatorHost,
-      `/treasury-users/${encodeURIComponent(inviteCode)}/relays/${relayId}`,
+      `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}`,
     );
-    return body.relay;
+    return body.bitcoinLock;
   }
 
   private static async request<T>(operatorHost: string, path: string, init?: RequestInit): Promise<T> {

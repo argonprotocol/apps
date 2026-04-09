@@ -37,7 +37,14 @@ const props = defineProps<{
 }>();
 
 const releaseDestinationAddress = Vue.computed(() => {
-  return bitcoinLocks.getAcceptedFundingRecord(props.personalLock)?.releaseToDestinationAddress ?? '';
+  const address = bitcoinLocks.getAcceptedFundingRecord(props.personalLock)?.releaseToDestinationAddress ?? '';
+  if (!address) return '';
+
+  try {
+    return bitcoinLocks.formatAddressBytes(address);
+  } catch {
+    return address;
+  }
 });
 
 const emit = defineEmits<{

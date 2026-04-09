@@ -74,11 +74,16 @@ export class MainchainClients {
     return this.prunedClientPromise;
   }
 
-  public get(needsHistoricalBlocks: boolean): Promise<ArgonClient> {
-    if (needsHistoricalBlocks) {
-      return this.archiveClientPromise;
+  public async get(needsHistoricalBlocks: boolean): Promise<ArgonClient & { clientType: 'archive' | 'pruned' }> {
+    let client: ArgonClient;
+    if (needsHistoricalBlocks || !this.prunedClientPromise) {
+      client = await this.archiveClientPromise;
+      Object.assign(client, { clientType: 'archive' });
+      return client as ArgonClient & { clientType: 'archive' };
     }
-    return this.prunedClientPromise ?? this.archiveClientPromise;
+    client = await this.prunedClientPromise;
+    Object.assign(client, { clientType: 'pruned' });
+    return client as ArgonClient & { clientType: 'pruned' };
   }
 
   public async disconnect() {

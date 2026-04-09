@@ -62,24 +62,25 @@ export class BotServer {
       res.status(200).type('application/json').send(bot.isReady);
     });
 
-    app.post('/internal/bitcoin-lock-relays', express.text({ type: '*/*' }), async (req, res) => {
+    app.post('/internal/bitcoin-lock-coupons/initialize', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
         if (!req.body) {
           throw new HttpError('Missing JSON body', 400);
         }
 
-        return await bot.queueBitcoinLockRelay(JsonExt.parse<IBitcoinLockRelayJobRequest>(String(req.body)));
+        return await bot.initializeBitcoinLockCoupon(JsonExt.parse<IBitcoinLockRelayJobRequest>(String(req.body)));
       });
     });
 
-    app.get('/internal/bitcoin-lock-relays/:relayId', async (req, res) => {
+    app.get('/internal/bitcoin-lock-coupons', async (_req, res) => {
       await safeJsonRoute(res, async () => {
-        const relayId = Number(req.params.relayId);
-        if (!Number.isFinite(relayId) || relayId <= 0) {
-          throw new HttpError('Invalid relay id.', 400);
-        }
+        return await bot.getBitcoinLockStatuses();
+      });
+    });
 
-        return await bot.getBitcoinLockRelayStatus(relayId);
+    app.get('/internal/bitcoin-lock-coupons/:offerCode', async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await bot.getBitcoinLockStatus(req.params.offerCode);
       });
     });
 

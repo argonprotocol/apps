@@ -2,7 +2,7 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { createDeferred, type IBidsFile, IBotState, MiningFrames } from '@argonprotocol/apps-core';
+import { createDeferred, type IBidsFile, IBotState, MiningFrames, waitAtLeast } from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
@@ -102,11 +102,9 @@ export class Bot {
     const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     try {
       this.status = BotStatus.ServerSyncing;
-      this.syncProgress = 25;
-      this.botSyncer.isPaused = true;
-      await server.uploadBiddingRules(this.config.biddingRules);
       this.syncProgress = 50;
-      await server.startBotDocker();
+      this.botSyncer.isPaused = true;
+      await waitAtLeast(1000, server.uploadBiddingRules(this.config.biddingRules));
       this.syncProgress = 100;
       this.status = BotStatus.Ready;
     } catch (err) {

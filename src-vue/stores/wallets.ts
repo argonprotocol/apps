@@ -276,7 +276,7 @@ export const useWallets = defineStore('wallets', () => {
     totalVaultingResources,
     totalNetWorth,
 
-    on: function <K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
+    on<K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
       const unsub = walletBalances.events.on(event, cb);
       // re-emit any load events that happened before we subscribed
       if (!walletBalances.deferredLoading.isSettled) {

@@ -6,26 +6,34 @@ export const InitialMigration: ISqliteMigration = db => {
       name TEXT
     );
 
-    CREATE TABLE TreasuryUserInvites (
+    CREATE TABLE UserInvites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inviteType TEXT NOT NULL,
       name TEXT NOT NULL,
       inviteCode TEXT NOT NULL UNIQUE,
-      offerCode TEXT NOT NULL UNIQUE,
-      vaultId INTEGER NOT NULL,
-      maxSatoshis TEXT NOT NULL,
-      expiresAfterTicks INTEGER NOT NULL,
-      offerToken TEXT,
-      expirationTick INTEGER,
-      expiresAt TEXT,
       firstClickedAt TEXT,
       lastClickedAt TEXT,
       accountAddress TEXT,
-      redeemedAt TEXT,
-      lockedBitcoinAt TEXT,
       createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE INDEX idx_treasury_user_invites_vault_id ON TreasuryUserInvites(vaultId);
-    CREATE INDEX idx_treasury_user_invites_created_at ON TreasuryUserInvites(createdAt DESC);
+    CREATE TABLE BitcoinLockCoupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inviteId INTEGER NOT NULL,
+      offerCode TEXT NOT NULL UNIQUE,
+      offerToken TEXT NOT NULL,
+      vaultId INTEGER NOT NULL,
+      maxSatoshis TEXT NOT NULL,
+      expiresAfterTicks INTEGER NOT NULL,
+      expirationTick INTEGER,
+      expiresAt TEXT,
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_user_invites_invite_type ON UserInvites(inviteType);
+    CREATE INDEX idx_user_invites_created_at ON UserInvites(createdAt DESC);
+    CREATE INDEX idx_bitcoin_lock_coupons_invite_id ON BitcoinLockCoupons(inviteId);
+    CREATE INDEX idx_bitcoin_lock_coupons_vault_id ON BitcoinLockCoupons(vaultId);
+    CREATE INDEX idx_bitcoin_lock_coupons_created_at ON BitcoinLockCoupons(createdAt DESC);
   `);
 };

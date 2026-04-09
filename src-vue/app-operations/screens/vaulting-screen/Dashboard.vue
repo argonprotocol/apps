@@ -147,8 +147,9 @@
                     :total="bitcoinMapTotal"
                     :items="bitcoinMapItems"
                     theme="btc"
-                    :remainderLabel="bitcoinRemainderLabel"
-                    :remainder-display-value="bitcoinRemainderDisplayValue"
+                    remainder-label="Unused BTC Space"
+                    :remainder-minimum="bitcoinMapRemainderMinimum"
+                    :remainder-display-value="formatMoney(bitcoinMapRemainder)"
                     @tile-click="handleBitcoinTileClick"
                   />
                   <ArrowCalloutButton
@@ -406,6 +407,10 @@ const bitcoinMapTotal = Vue.computed(() => {
   return vaultingBreakdown.securityMicrogons;
 });
 
+const bitcoinMapRemainderMinimum = Vue.computed(() => {
+  return currency.priceIndex.getBtcMicrogonPrice(1000n);
+});
+
 type MapItem = {
   id: string;
   label: string;
@@ -418,10 +423,11 @@ type MapItem = {
 function deriveExternalLockStatus(ext: IExternalBitcoinLock): BitcoinLockStatus {
   // isPending is set from BitcoinLock.isFunded — true means funded
   if (ext.isPending) return BitcoinLockStatus.LockPendingFunding;
+  if (ext.isReleasing) return BitcoinLockStatus.Releasing;
   return BitcoinLockStatus.LockedAndMinted;
 }
 
-function formatLockLabel(lock: IBitcoinLockRecord): string {
+function formatLockLabel(lock: { satoshis: bigint }): string {
   const btc = currency.convertSatToBtc(lock.satoshis);
   return `${numeral(btc).format('0,0.[0000]')} BTC`;
 }
@@ -462,15 +468,7 @@ function handleBondTileClick(key: string) {
 
 function handleBitcoinTileClick(key: string) {
   if (key === '__remainder__') {
-    if (bitcoinRemainderIsSmall.value) {
-      basicEmitter.emit('openMoveCapitalOverlay', {
-        walletType: WalletType.vaulting,
-        moveTo: MoveTo.VaultingSecurity,
-        maxAmount: bitcoinMapRemainder.value,
-      });
-    } else {
-      openLockingOverlay();
-    }
+    openLockingOverlay();
     return;
   }
 
@@ -490,13 +488,7 @@ function handleBitcoinTileClick(key: string) {
     const utxoId = Number(key.slice(6));
     const extLock = myVault.data.externalLocks[utxoId];
     if (extLock) {
-      openLockDetailOverlay({
-        utxoId: extLock.utxoId,
-        satoshis: extLock.satoshis,
-        liquidityPromised: extLock.liquidityPromised,
-        status: deriveExternalLockStatus(extLock),
-        lockDetails: extLock.lockDetails,
-      } as IBitcoinLockRecord);
+      openLockDetailOverlay(extLock);
     }
   }
 }
@@ -544,12 +536,10 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
 
   for (const extLock of Object.values(myVault.data.externalLocks)) {
     const microgons = extLock.liquidityPromised ?? 0n;
-    const btc = currency.convertSatToBtc(extLock.satoshis);
-    const hasPendingCosign = myVault.data.pendingCosignUtxosById.has(extLock.utxoId);
-    const status: TileStatus = extLock.isPending ? 'pending' : hasPendingCosign ? 'pending' : 'active';
+    const status: TileStatus = extLock.isPending ? 'pending' : 'active';
     items.push({
       id: `chain:${extLock.utxoId}`,
-      label: `${numeral(btc).format('0,0.[0000]')} BTC`,
+      label: formatLockLabel(extLock),
       amount: microgons,
       displayValue: formatMoney(microgons),
       emphasis: 'strong',
@@ -563,20 +553,6 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
 const bitcoinMapRemainder = Vue.computed(() => {
   const used = bitcoinMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
   return bitcoinMapTotal.value > used ? bitcoinMapTotal.value - used : 0n;
-});
-
-const bitcoinRemainderIsSmall = Vue.computed(() => {
-  const total = bitcoinMapTotal.value;
-  if (total <= 0n) return true;
-  return bitcoinMapRemainder.value * 100n < total;
-});
-
-const bitcoinRemainderLabel = Vue.computed(() => {
-  return bitcoinRemainderIsSmall.value ? 'Add BTC Space' : 'Unused BTC Space';
-});
-
-const bitcoinRemainderDisplayValue = Vue.computed(() => {
-  return bitcoinRemainderIsSmall.value ? '' : formatMoney(bitcoinMapRemainder.value);
 });
 
 const bondMapTotal = Vue.computed(() => {
@@ -662,14 +638,14 @@ const bondMapRemainder = Vue.computed(() => {
 const showEditOverlay = Vue.ref(false);
 const showLockDetailOverlay = Vue.ref(false);
 const showBondDetailOverlay = Vue.ref(false);
-const selectedLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
+const selectedLock = Vue.ref<IBitcoinLockRecord | IExternalBitcoinLock | undefined>(undefined);
 const selectedBondHolder = Vue.ref<IFrameBondHolder | undefined>(undefined);
 
 function openLockingOverlay(lock?: IBitcoinLockRecord) {
   basicEmitter.emit('openBitcoinLock', { lock });
 }
 
-function openLockDetailOverlay(lock: IBitcoinLockRecord) {
+function openLockDetailOverlay(lock: IBitcoinLockRecord | IExternalBitcoinLock) {
   selectedLock.value = lock;
   showLockDetailOverlay.value = true;
 }

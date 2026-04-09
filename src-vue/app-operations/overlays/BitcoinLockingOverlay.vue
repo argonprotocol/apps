@@ -139,6 +139,8 @@
 
     <LockStart
       v-if="lockStep === LockStep.Start"
+      :coupon="props.coupon"
+      :currentTick="props.currentTick"
       :maxLockLiquidityMicrogons="maxLockLiquidityMicrogons"
       :vault="props.vault"
       @close="closeOverlay"
@@ -186,11 +188,14 @@ import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';
 import { TransactionInfo } from '../../lib/TransactionInfo.ts';
+import type { IUpstreamBitcoinLockCouponRecord } from '../../lib/db/UpstreamBitcoinLockCouponsTable.ts';
 
 const bitcoinLocks = getBitcoinLocks();
 const myVault = getMyVault();
 
 const props = defineProps<{
+  coupon?: IUpstreamBitcoinLockCouponRecord;
+  currentTick?: number;
   personalLock?: IBitcoinLockRecord;
   maxLockLiquidityMicrogons?: bigint;
   vault: Vault;

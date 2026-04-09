@@ -45,7 +45,7 @@ export default class BitcoinDataFetcher {
       const data: { date: string; feeInBitcoins: number }[] = [];
       let lastNonZeroFee = 0;
 
-      feeData.forEach((feeItem: IDataPoint, index: number) => {
+      feeData.forEach((feeItem, index) => {
         const date = dayjs
           .utc(feeItem.x * 1000)
           .toISOString()
@@ -105,7 +105,7 @@ export default class BitcoinDataFetcher {
       const data: { millis: number; date: string; price: number }[] = [];
 
       // Process each data point
-      responseData.values.forEach((item: BitcoinDataPoint, index: number) => {
+      responseData.values.forEach((item, index) => {
         // Skip the first item if it has no price (y value)
         if (Object.values(data).length === 0 && !item.y) return;
 

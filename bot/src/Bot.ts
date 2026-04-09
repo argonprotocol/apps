@@ -7,6 +7,7 @@ import { BlockSync } from './BlockSync.ts';
 import { BitcoinLockRelayService } from './BitcoinLockRelayService.ts';
 import { Db } from './Db.ts';
 import { DockerStatus } from './DockerStatus.ts';
+import { setTimeout } from 'node:timers/promises';
 import {
   Accountset,
   createDeferred,
@@ -14,9 +15,9 @@ import {
   getRange,
   type IBiddingRules,
   type IBidReductionReason,
-  type IBotState,
   type IBitcoinLockRelayJobRequest,
   type IBitcoinLockRelayRecord,
+  type IBotState,
   type IHistoryFile,
   type IMiningFrameDetail,
   JsonExt,
@@ -183,12 +184,16 @@ export default class Bot {
     return this.miningFrameHistory.getDetail(frameId);
   }
 
-  public async queueBitcoinLockRelay(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
+  public async initializeBitcoinLockCoupon(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
     return await this.relayService.queueRelay(request);
   }
 
-  public async getBitcoinLockRelayStatus(relayId: number): Promise<IBitcoinLockRelayRecord> {
-    return await this.relayService.getRelayStatus(relayId);
+  public async getBitcoinLockStatus(offerCode: string): Promise<IBitcoinLockRelayRecord> {
+    return await this.relayService.getBitcoinLockStatus(offerCode);
+  }
+
+  public async getBitcoinLockStatuses(): Promise<IBitcoinLockRelayRecord[]> {
+    return await this.relayService.getLatestBitcoinLockStatuses();
   }
 
   public async start(): Promise<void> {
@@ -223,7 +228,7 @@ export default class Bot {
         } catch (error) {
           console.error('Error initializing local client, retrying...', error);
           this.errorMessage = (error as Error).toString();
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await setTimeout(1000);
         }
       }
       this.errorMessage = null;
@@ -284,7 +289,7 @@ export default class Bot {
             error = (error as Error).message;
           }
           console.error('Error loading block sync (retrying...)', error);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await setTimeout(1000);
         }
       }
       this.history.handleFinishedSyncing();
@@ -298,7 +303,7 @@ export default class Bot {
           break;
         } catch (error) {
           console.error('Error starting block sync (retrying...)', error);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await setTimeout(1000);
         }
       }
 
@@ -365,7 +370,7 @@ export default class Bot {
       if (areDockersSynced) break;
 
       console.log('Dockers are not synced, checking again in 1 second');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await setTimeout(1000);
     }
 
     console.log('Dockers are synced!');

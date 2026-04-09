@@ -1,6 +1,8 @@
 import { JsonExt } from '@argonprotocol/apps-core';
 import type {
+  IBitcoinLockCouponStatus,
   ICreateTreasuryInviteResponse,
+  IListBitcoinLockCouponStatusesResponse,
   IListTreasuryInvitesResponse,
   IListTreasuryMembersResponse,
   IRouterErrorResponse,
@@ -78,6 +80,11 @@ export class ServerApiClient {
   public static async getTreasuryAppMembers(serverIp: string): Promise<ITreasuryUserMember[]> {
     const body = await this.request<IListTreasuryMembersResponse>(serverIp, '/treasury-users/members');
     return body.members;
+  }
+
+  public static async getBitcoinLockCouponStatuses(serverIp: string): Promise<IBitcoinLockCouponStatus[]> {
+    const body = await this.request<IListBitcoinLockCouponStatusesResponse>(serverIp, '/bitcoin-lock-coupons');
+    return body.bitcoinLocks;
   }
 
   public static async createTreasuryAppInvite(

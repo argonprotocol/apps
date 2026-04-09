@@ -12,7 +12,6 @@ import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { VaultInvites } from './VaultInvites.ts';
 
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';

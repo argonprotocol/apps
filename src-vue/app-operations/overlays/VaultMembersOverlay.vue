@@ -30,8 +30,19 @@
               free BTC locking
             </div>
             <div class="grow text-right">
-              <template v-if="member.lockedBitcoinAt">Locked {{ dayjs(member.lockedBitcoinAt).fromNow() }}</template>
-              <template v-else-if="member.redeemedAt">Started {{ dayjs(member.redeemedAt).fromNow() }}</template>
+              <template v-if="bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'Failed'">
+                Lock failed
+              </template>
+              <template v-else-if="bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'Finalized'">
+                Locked
+              </template>
+              <template
+                v-else-if="
+                  bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'Submitted' ||
+                  bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'InBlock'
+                ">
+                Started
+              </template>
               <template v-else-if="member.lastClickedAt">Opened {{ dayjs(member.lastClickedAt).fromNow() }}</template>
               <template v-else>Waiting</template>
             </div>
@@ -49,7 +60,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
-import type { ITreasuryUserMember } from '@argonprotocol/apps-router';
+import type { IBitcoinLockCouponStatus, ITreasuryUserMember } from '@argonprotocol/apps-router';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { ServerApiClient } from '../../lib/ServerApiClient.ts';
@@ -64,6 +75,7 @@ const { satoshiToMoneyNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
 const members = Vue.ref<ITreasuryUserMember[]>([]);
+const bitcoinLockStatusesByOfferCode = Vue.ref<Record<string, IBitcoinLockCouponStatus>>({});
 
 const ipAddress = Vue.computed(() => {
   return config.serverDetails.ipAddress;
@@ -89,15 +101,32 @@ async function loadMembers() {
   }
 
   try {
-    members.value = await ServerApiClient.getTreasuryAppMembers(ipAddress.value);
+    const [loadedMembers, bitcoinLocks] = await Promise.all([
+      ServerApiClient.getTreasuryAppMembers(ipAddress.value),
+      ServerApiClient.getBitcoinLockCouponStatuses(ipAddress.value),
+    ]);
+    members.value = loadedMembers;
+    bitcoinLockStatusesByOfferCode.value = Object.fromEntries(bitcoinLocks.map(lock => [lock.offerCode, lock]));
   } catch {
     members.value = [];
+    bitcoinLockStatusesByOfferCode.value = {};
     errorMessage.value = 'Unable to load members right now. Please try again.';
   }
 }
 
 basicEmitter.on('openVaultMembersOverlay', () => {
   isOpen.value = true;
+});
+
+Vue.watch([isOpen, () => config.isServerInstalled], ([open, isServerInstalled], _oldValue, onCleanup) => {
+  if (!open || !isServerInstalled) return;
+
   void loadMembers();
+
+  const interval = setInterval(() => {
+    void loadMembers();
+  }, 5_000);
+
+  onCleanup(() => clearInterval(interval));
 });
 </script>

@@ -18,13 +18,13 @@ export interface IRatchet {
 }
 
 export interface IBitcoinLockRelayMetadata {
-  relayId: number;
   operatorHost?: string;
   inviteCode: string;
+  offerCode?: string;
   couponToken: string;
   status: BitcoinLockRelayStatus;
-  queueReason?: string;
   error?: string;
+  expiresAtBlockHeight?: number;
 }
 
 export enum BitcoinLockStatus {

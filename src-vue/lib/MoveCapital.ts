@@ -65,6 +65,10 @@ export class MoveCapital {
   ): Promise<TransactionInfo> {
     client ??= await getMainchainClient(false);
 
+    if (moveFrom === MoveFrom.VaultingTreasury && moveTo === MoveTo.VaultingSecurity) {
+      throw new Error('Direct moves between Treasury Bonds and Bitcoin Security are not supported.');
+    }
+
     if (shouldDeductFeeFromCapital) {
       const fee = await this.calculateFee(moveFrom, moveTo, assetsToMove, fromWallet, toAddress, prependedTxs, client);
       assetsToMove = {
