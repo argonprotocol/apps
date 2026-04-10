@@ -1,9 +1,10 @@
 <!-- prettier-ignore -->
 <template>
-  <div :class="`min-w-${props.size} min-h-${props.size} w-${props.size} h-${props.size}`">
+  <div :class="`relative min-w-${props.size} min-h-${props.size} w-${props.size} h-${props.size}`">
     <div
       v-if="props.isChecked"
       :style="`border-width: ${props.size/2}px`"
+      :class="{ 'animate-pulse': props.isPulsing }"
       class="flex items-center justify-center w-full h-full border-argon-button bg-argon-button"
     >
       <svg
@@ -51,6 +52,10 @@
 <script setup lang="ts">
 const props = defineProps({
   isChecked: {
+    type: Boolean,
+    default: false,
+  },
+  isPulsing: {
     type: Boolean,
     default: false,
   },

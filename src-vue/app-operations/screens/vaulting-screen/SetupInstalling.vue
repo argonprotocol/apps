@@ -103,7 +103,6 @@ async function createVault() {
 function finalizeVault() {
   progressPct.value = 100;
   config.vaultingSetupStatus = VaultingSetupStatus.Finished;
-  config.setCertificationDetails({ hasVault: true });
   void config.save();
 }
 

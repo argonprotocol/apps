@@ -12,11 +12,21 @@ import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { WalletKeys } from './WalletKeys.ts';
+import { createDeferred } from '@argonprotocol/apps-core';
 
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
 const MINING_FUNDING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_funding';
 const MINING_BOT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_bot';
+
+export type IOperationalChainProgress = {
+  hasVault: boolean;
+  hasUniswapTransfer: boolean;
+  hasTreasuryBondParticipation: boolean;
+  hasFirstMiningSeat: boolean;
+  hasSecondMiningSeat: boolean;
+  hasBitcoinLock: boolean;
+};
 
 function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAddr: string, domain: string) {
   const domainBytes = stringToU8a(domain);
@@ -56,8 +66,8 @@ export async function buildOperatorAccountRegistrationTx(args: {
 }): Promise<SubmittableExtrinsic | undefined> {
   const { config, walletKeys } = args;
   const client = args.client ?? (await getMainchainClient(false));
-  const foundOperationalAccount = await loadOperationalAccount(config, walletKeys, client);
-  if (foundOperationalAccount) return;
+  const existing = await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
+  if (!existing.isEmpty) return;
 
   const configuredOperationalAddr = walletKeys.operationalAddress;
   const configuredVaultingAddr = walletKeys.vaultingAddress;
@@ -129,26 +139,60 @@ export async function buildOperatorAccountRegistrationTx(args: {
   });
 }
 
-export async function loadOperationalAccount(
-  config: Config,
+export async function subscribeOperationalAccount(
   walletKeys: WalletKeys,
+  onUpdate: (update: IOperationalChainProgress) => void,
   client?: ArgonClient,
-): Promise<boolean> {
+) {
   client ??= await getMainchainClient(false);
-  const accountRaw = await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
-  if (accountRaw.isEmpty) return false;
+  const deferred = createDeferred<void>();
+  const candidateAddresses = [
+    walletKeys.operationalAddress,
+    walletKeys.vaultingAddress,
+    walletKeys.miningHoldAddress,
+    walletKeys.miningBotAddress,
+  ];
 
-  const account = accountRaw.unwrap().toJSON();
-  const details = config.setCertificationDetails({});
+  const operationalAddress =
+    (
+      await Promise.all(
+        candidateAddresses.map(async address => {
+          const linkedOperationalAccount =
+            await client.query.operationalAccounts.operationalAccountBySubAccount(address);
+          return linkedOperationalAccount.isSome ? linkedOperationalAccount.unwrap().toString() : null;
+        }),
+      )
+    ).find(Boolean) ?? walletKeys.operationalAddress;
 
-  details.hasVault = details.hasVault || (account.vaultCreated as boolean);
-  details.hasUniswapTransfer = details.hasUniswapTransfer || (account.hasUniswapTransfer as boolean);
-  details.hasTreasuryBondParticipation =
-    details.hasTreasuryBondParticipation || (account.hasTreasuryPoolParticipation as boolean);
-  details.hasFirstMiningSeat = details.hasFirstMiningSeat || ((account.miningSeatAccrual || 0) as number) >= 1;
-  details.hasSecondMiningSeat = details.hasSecondMiningSeat || ((account.miningSeatAccrual || 0) as number) >= 2;
-  details.hasBitcoinLock = details.hasBitcoinLock || ((account.bitcoinAccrual || 0) as number) > 0;
-  config.certificationDetails = details;
+  const unsubscribe = await client.query.operationalAccounts.operationalAccounts(operationalAddress, accountRaw => {
+    const entry = {
+      hasVault: false,
+      hasUniswapTransfer: false,
+      hasTreasuryBondParticipation: false,
+      hasFirstMiningSeat: false,
+      hasSecondMiningSeat: false,
+      hasBitcoinLock: false,
+    };
+    if (accountRaw.isSome) {
+      const account = accountRaw.unwrap();
+      const miningSeatAccrual = account.miningSeatAccrual.toBigInt();
 
-  return true;
+      Object.assign(entry, {
+        hasVault: account.vaultCreated.toPrimitive(),
+        hasUniswapTransfer: account.hasUniswapTransfer.toPrimitive(),
+        hasTreasuryBondParticipation: account.hasTreasuryPoolParticipation.toPrimitive(),
+        hasFirstMiningSeat: miningSeatAccrual >= 1n,
+        hasSecondMiningSeat: miningSeatAccrual >= 2n,
+        hasBitcoinLock: account.bitcoinAccrual.toBigInt() > 0n,
+      });
+    }
+    onUpdate(entry);
+
+    if (!deferred.isResolved) {
+      deferred.resolve();
+    }
+  });
+
+  await deferred.promise;
+  return unsubscribe;
 }
