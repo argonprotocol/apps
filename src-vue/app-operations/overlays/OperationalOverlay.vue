@@ -9,15 +9,19 @@
         <span
           v-if="currentStepId"
           class="inline-flex rounded-full px-3 py-1 text-sm font-semibold"
-          :class="controller.isCertificationStepComplete(currentStepId) ? 'border border-slate-300 bg-slate-100 text-slate-500/70' : 'bg-slate-100 text-slate-600'"
+          :class="{
+            'border border-slate-300 bg-slate-100 text-slate-500/70': controller.getCertificationStepStatus(currentStepId) === 'complete',
+            'border border-argon-300 bg-argon-50 text-argon-700': controller.getCertificationStepStatus(currentStepId) === 'underway',
+            'bg-slate-100 text-slate-600': controller.getCertificationStepStatus(currentStepId) === 'not_started',
+          }"
         >
-          {{ controller.isCertificationStepComplete(currentStepId) ? 'Completed' : 'Not completed' }}
+          {{ controller.getCertificationStepStatusLabel(currentStepId) }}
         </span>
       </div>
     </template>
     <div v-if="!currentStepId">
       <p class="font-light px-5 pt-5">
-        Complete the following six steps, and you'll earn
+        Complete the following seven steps, and you'll earn
         (along with your sponsor) a ₳500 bonus from the Argon Treasury.
       </p>
       <ul class="flex flex-col mt-3 mb-1 mx-3 text-base font-semibold divide-y divide-slate-600/15">
@@ -27,8 +31,21 @@
           class="flex flex-row items-center gap-x-2 py-3 pl-3 pr-2 cursor-pointer"
           :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
         >
-          <Checkbox :size="7" :isChecked="controller.isCertificationStepComplete(stepId as OperationalStepId)" />
+          <Checkbox
+            :size="7"
+            :isChecked="
+              controller.isCertificationStepComplete(stepId as OperationalStepId) ||
+              controller.isCertificationStepUnderway(stepId as OperationalStepId)
+            "
+            :isPulsing="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
+          />
           <span class="grow">{{ step.title }}</span>
+          <span
+            v-if="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
+            class="rounded-full border border-argon-300 bg-argon-50 px-2 py-1 text-xs font-medium text-argon-700"
+          >
+            Underway
+          </span>
           <span
             v-if="controller.getCertificationBlocker(stepId as OperationalStepId)"
             class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
@@ -81,20 +98,27 @@
           <button
             v-if="controller.activeGuideId === currentStepId"
             @click="cancelTask()"
-            :class="[controller.activeGuideId === currentStepId ? 'grow' : 'w-1/2']"
-            class="text-argon-600! border border-argon-600 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold ml-1 hover:bg-argon-300/10 cursor-pointer"
+            class="grow text-argon-600! border border-argon-600 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold ml-1 hover:bg-argon-300/10 cursor-pointer"
           >
             <ArrowTopRightOnSquareIcon class="mr-2 w-5" />
             Cancel Task
           </button>
           <button
-            @click="startTask()"
-            :class="[controller.activeGuideId === currentStepId ? 'grow' : 'w-1/2', currentBlockingStep ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400!' : 'cursor-pointer border-argon-700 bg-argon-600 text-white! hover:bg-argon-700']"
-            :disabled="!!currentBlockingStep"
-            class="mt-5 inline-flex flex-row items-center justify-center rounded-lg border px-8 py-2 font-bold ml-1"
+            v-else-if="controller.isCertificationStepUnderway(currentStepId)"
+            class="w-1/2 border border-argon-300 bg-argon-50 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold text-argon-700 ml-1 cursor-not-allowed"
+            disabled
           >
-            <template v-if="controller.activeGuideId === currentStepId">Return to Task</template>
-            <template v-else-if="currentBlockingStep">Complete Required Step First</template>
+            <CheckCircleIcon class="size-5 mr-2 relative" />
+            Task Underway
+          </button>
+          <button
+            v-else
+            @click="startTask()"
+            :class="[currentBlockingStep ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400!' : 'cursor-pointer border-argon-700 bg-argon-600 text-white! hover:bg-argon-700']"
+            :disabled="!!currentBlockingStep"
+            class="mt-5 inline-flex w-1/2 flex-row items-center justify-center rounded-lg border px-8 py-2 font-bold ml-1"
+          >
+            <template v-if="currentBlockingStep">Complete Required Step First</template>
             <template v-else>
               Start Task
               <ChevronDoubleRightIcon class="size-5 ml-2 relative" :class="currentBlockingStep ? 'text-slate-400' : 'text-white'" />

@@ -462,50 +462,9 @@ export class BotSyncer {
         microgonsToBeMinedPerSeat,
         micronotsToBeMinedPerSeat,
       });
-
-      await this.updateCertificationDetails(bidsFile);
     } catch (e) {
       console.error('Error syncing cohort:', e);
       throw e;
-    }
-  }
-
-  private async updateCertificationDetails(bidsFile: IBidsFile): Promise<void> {
-    let seatCountWon = bidsFile.seatCountWon;
-    let hasFetchedSeatCountWon = false;
-    let hasFirstMiningSeat = this.config.certificationDetails?.hasFirstMiningSeat || false;
-    let hasSecondMiningSeat = this.config.certificationDetails?.hasSecondMiningSeat || false;
-
-    if (!hasSecondMiningSeat && seatCountWon >= 2) {
-      hasSecondMiningSeat = true;
-    } else if (!hasSecondMiningSeat && seatCountWon) {
-      seatCountWon = await this.db.cohortsTable.fetchSeatCountWonTotal();
-      hasFetchedSeatCountWon = true;
-      if (seatCountWon >= 2) {
-        hasSecondMiningSeat = true;
-      }
-    }
-
-    if (hasSecondMiningSeat) {
-      hasFirstMiningSeat = true;
-    } else if (seatCountWon) {
-      hasFirstMiningSeat = true;
-    } else if (!hasFetchedSeatCountWon) {
-      seatCountWon = await this.db.cohortsTable.fetchSeatCountWonTotal();
-      if (seatCountWon) {
-        hasFirstMiningSeat = true;
-      }
-    }
-
-    if (
-      this.config.certificationDetails?.hasFirstMiningSeat !== hasFirstMiningSeat ||
-      this.config.certificationDetails?.hasSecondMiningSeat !== hasSecondMiningSeat
-    ) {
-      this.config.setCertificationDetails({
-        hasFirstMiningSeat,
-        hasSecondMiningSeat,
-      });
-      void this.config.save();
     }
   }
 

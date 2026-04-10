@@ -100,12 +100,6 @@ export const ConfigServerDetailsSchema = z.object({
 
 export const ConfigCertificationDetailsSchema = z.object({
   hasSavedMnemonic: z.boolean(),
-  hasVault: z.boolean(),
-  hasUniswapTransfer: z.boolean(),
-  hasTreasuryBondParticipation: z.boolean(),
-  hasFirstMiningSeat: z.boolean(),
-  hasSecondMiningSeat: z.boolean(),
-  hasBitcoinLock: z.boolean(),
   showBonusTooltip: z.boolean().optional(),
 });
 

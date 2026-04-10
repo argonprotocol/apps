@@ -401,12 +401,6 @@ export class Config implements IConfig {
   ): IConfigCertificationDetailsSchema {
     this.certificationDetails = {
       hasSavedMnemonic: false,
-      hasVault: false,
-      hasUniswapTransfer: false,
-      hasTreasuryBondParticipation: false,
-      hasFirstMiningSeat: false,
-      hasSecondMiningSeat: false,
-      hasBitcoinLock: false,
       showBonusTooltip: true,
       ...(this.certificationDetails || {}),
       ...certificationDetails,

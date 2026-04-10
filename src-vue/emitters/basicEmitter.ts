@@ -1,5 +1,4 @@
 import mitt, { type Emitter } from 'mitt';
-import Importer from '../lib/Importer.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import { OperationalStepId } from '../stores/operationsController.ts';
@@ -19,7 +18,7 @@ type IBasicEmitter = {
 
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'export' } | undefined;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;
@@ -34,7 +33,6 @@ type IBasicEmitter = {
   openPortfolioPanel: PortfolioTab;
 
   openImportAccountOverlay: void;
-  openImportingAccountOverlay: { importer: Importer; dataRaw: string };
 
   openProfileOverlay: void;
 

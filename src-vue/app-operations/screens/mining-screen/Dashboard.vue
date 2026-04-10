@@ -737,10 +737,6 @@ async function refreshLiveFrameDetail() {
       });
   }
 
-  if (controller.activeGuideId === OperationalStepId.FirstMiningSeat) {
-    basicEmitter.emit('openOperationalFinishOverlay');
-  }
-
   try {
     const detail = await loadFrameDetail(frameId);
     if (requestId !== frameDetailRequestId || !isSelectedLiveFrame.value || currentFrame.value?.id !== frameId) {

@@ -33,8 +33,8 @@ import * as Vue from 'vue';
 import { getWalletKeys } from '../../../stores/wallets.ts';
 import { OperationalStepId, useOperationsController } from '../../../stores/operationsController.ts';
 import ArrowCalloutButton from '../../../components/ArrowCalloutButton.vue';
-import basicEmitter from '../../../emitters/basicEmitter.ts';
 import { getConfig } from '../../../stores/config.ts';
+import basicEmitter from '../../../emitters/basicEmitter.ts';
 
 const config = getConfig();
 const walletKeys = getWalletKeys();
