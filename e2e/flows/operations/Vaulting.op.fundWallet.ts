@@ -14,6 +14,7 @@ type IVaultingFundingInspect = {
 type IFundVaultingWalletUiState = {
   dashboardVisible: boolean;
   fundOverlayVisible: boolean;
+  walletOverlayVisible: boolean;
   installingVisible: boolean;
 };
 
@@ -21,7 +22,7 @@ type IFundVaultingWalletState = IE2EOperationInspectState<IVaultingFundingInspec
 
 export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(import.meta, {
   async inspect({ flow }) {
-    const [fundingState, dashboard, fundOverlayEntry, installingState] = await Promise.all([
+    const [fundingState, dashboard, fundOverlayEntry, walletOverlayEntry, installingState] = await Promise.all([
       flow.queryApp<IVaultingFundingInspect>(
         `(({ config, wallets }) => {
           const futureTransactionFeeBudgetMicrogons = 2n * BigInt('${MICROGONS_PER_ARGON_TEXT}');
@@ -51,6 +52,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       ),
       flow.isVisible('VaultingDashboard'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
+      flow.isVisible('OnboardingWalletOverlay'),
       flow.isVisible({ selector: '.VaultIsInstalling' }),
     ]);
     const installingVisible = installingState.visible;
@@ -73,6 +75,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       uiState: {
         dashboardVisible: dashboard.visible,
         fundOverlayVisible: fundOverlayEntry.visible,
+        walletOverlayVisible: walletOverlayEntry.visible,
         installingVisible,
       },
       state: operationState,
@@ -110,15 +113,8 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       fundedMicronots: fundingResult.fundedMicronots.toString(),
     });
 
-    if (microgons > 0n) {
-      await flow.waitFor('Received.argons', { timeoutMs: 120_000 });
-    }
-    if (micronots > 0n) {
-      await flow.waitFor('Received.argonots', { timeoutMs: 120_000 });
-    }
-
-    await flow.click('OverlayBase.closeOverlay()', { timeoutMs: 8_000 });
-    await pollEvery(250, async () => !(await flow.inspect(this)).uiState.fundOverlayVisible, {
+    await flow.click('OnboardingWalletOverlay.closeWallet()', { timeoutMs: 8_000 });
+    await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,
     });

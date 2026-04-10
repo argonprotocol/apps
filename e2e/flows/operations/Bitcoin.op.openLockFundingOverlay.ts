@@ -31,7 +31,7 @@ export default new Operation<IBitcoinFlowContext, IOpenLockFundingOverlayState>(
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
     const fundingBip21Visible = fundingBip21.visible;
-    const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin' && fundingBip21Visible;
+    const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin';
     const wrongLockingPhaseVisible = lockOverlayVisible && !!lockOverlayState && lockOverlayState !== 'ReadyForBitcoin';
     const isComplete = readyForBitcoinVisible;
     const canRun = !isComplete && panelState.chainState.isPendingFunding && (lockingEntryVisible || lockOverlayVisible);

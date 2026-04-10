@@ -1,6 +1,11 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-9/12">
+  <OverlayBase
+    :isOpen="isOpen"
+    @close="closeOverlay"
+    @esc="closeOverlay"
+    data-testid="OnboardingWalletOverlay"
+    class="w-9/12">
     <template #title>
       <div class="text-2xl font-bold inline-block relative">
         Add Funds to Your {{ walletName }} Wallet
@@ -271,6 +276,7 @@
 
           <button
             @click="closeOverlay"
+            data-testid="OnboardingWalletOverlay.closeWallet()"
             :class="walletIsFullyFunded ? 'bg-argon-600 hover:bg-argon-700 border-argon-700 text-white' : 'bg-slate-600/20 hover:bg-slate-600/15 border border-slate-900/10 text-slate-900'"
             class="w-full mt-8 inner-button-shadow px-4 py-2 rounded-lg focus:outline-none cursor-pointer"
           >
