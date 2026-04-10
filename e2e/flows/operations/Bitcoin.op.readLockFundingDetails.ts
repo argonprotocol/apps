@@ -33,7 +33,7 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
     const lockOverlayState = lockOverlay.visible
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
-    const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin' && fundingBip21.visible;
+    const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin';
     const wrongLockingPhaseVisible =
       lockOverlay.visible && !!lockOverlayState && lockOverlayState !== 'ReadyForBitcoin';
     const isComplete = hasLockFundingDetails;
@@ -79,6 +79,11 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
 
   async run({ flow, flowName, state: flowState }, state) {
     if (state.state === 'complete') return;
+
+    if (!state.uiState.fundingBip21Visible) {
+      await flow.click({ selector: '.BitcoinLockingOverlay .text-argon-600.cursor-pointer' }, { timeoutMs: 5_000 });
+      await flow.waitFor('fundingBip21.copyContent()', { timeoutMs: 5_000 });
+    }
 
     const bip21 = await readClipboardWithRetries(
       flow,
