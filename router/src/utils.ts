@@ -45,7 +45,7 @@ export function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
 }
 
 export function safeJsonRoute(handler: (req: Request) => Promise<any>): (req: Request) => Promise<Response> {
-  return async (req) => {
+  return async req => {
     if (req.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -97,7 +97,11 @@ export async function callBitcoinRpc<T = unknown>(method: string, ...params: any
   return json.result;
 }
 
-export async function callArgonRpc<T = unknown>(url: string, method: string, params: any[] = []): Promise<IJsonRpcResponse<T>> {
+export async function callArgonRpc<T = unknown>(
+  url: string,
+  method: string,
+  params: any[] = [],
+): Promise<IJsonRpcResponse<T>> {
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: requestId++,

@@ -187,14 +187,13 @@ import RoundCap from './bitcoin-locking/components/RoundCap.vue';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';
-import { TransactionInfo } from '../../lib/TransactionInfo.ts';
-import type { IUpstreamBitcoinLockCouponRecord } from '../../lib/db/UpstreamBitcoinLockCouponsTable.ts';
+import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 
 const bitcoinLocks = getBitcoinLocks();
 const myVault = getMyVault();
 
 const props = defineProps<{
-  coupon?: IUpstreamBitcoinLockCouponRecord;
+  coupon?: IBitcoinLockCouponStatus;
   currentTick?: number;
   personalLock?: IBitcoinLockRecord;
   maxLockLiquidityMicrogons?: bigint;

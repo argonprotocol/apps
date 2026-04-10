@@ -63,8 +63,10 @@ export const useBonds = defineStore('bonds', () => {
       () => config.upstreamOperator!.vaultId,
       async () => {
         vaultId.value = config.upstreamOperator!.vaultId;
+        unsubFunder?.();
         if (!vaultId.value) {
-          unsubFunder?.();
+          funderState.value = null;
+          frameHistory.value = [];
           return;
         }
 
@@ -73,6 +75,7 @@ export const useBonds = defineStore('bonds', () => {
         });
         await refreshFrameHistory();
       },
+      { immediate: true },
     );
 
     isLoaded.value = true;

@@ -46,7 +46,7 @@ import {
   SATOSHIS_PER_BITCOIN,
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
-import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
+import type { BitcoinLockRelayStatus, IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -130,8 +130,7 @@ export interface IOperatorBitcoinLockCouponRoute {
   inviteCode: string;
   offerCode: string;
   operatorHost: string;
-  couponToken: string;
-  accountAddress?: string;
+  accountId?: string;
 }
 
 export interface IBitcoinRequestLockMetadata {
@@ -393,8 +392,13 @@ export default class BitcoinLocks {
           void this.pollRelayUntilSettled(pendingLock.uuid);
           continue;
         }
+        if (!isBitcoinLockRelayStatus(relay.status)) {
+          void this.pollRelayUntilSettled(pendingLock.uuid);
+          continue;
+        }
+        const settledRelay = relay as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
 
-        await this.syncRelayBackedPendingLock(pendingLock, relay);
+        await this.syncRelayBackedPendingLock(pendingLock, settledRelay);
       }
 
       await this.blockWatch.start();
@@ -528,9 +532,9 @@ export default class BitcoinLocks {
       if (operatorCoupon.vaultId !== vault.vaultId) {
         throw new Error('This bitcoin lock coupon is for a different vault.');
       }
-      if (operatorCoupon.accountAddress && operatorCoupon.accountAddress !== argonKeyring.address) {
+      if (operatorCoupon.accountId && operatorCoupon.accountId !== argonKeyring.address) {
         throw new Error(
-          `This invite is claimed by ${operatorCoupon.accountAddress}. Import or switch to that account before continuing.`,
+          `This invite is claimed by ${operatorCoupon.accountId}. Import or switch to that account before continuing.`,
         );
       }
 
@@ -595,18 +599,16 @@ export default class BitcoinLocks {
     satoshis: bigint;
     operatorCoupon: IOperatorBitcoinLockCouponRoute;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
-    const { inviteCode, offerCode, operatorHost, couponToken } = args.operatorCoupon;
+    const { offerCode, operatorHost } = args.operatorCoupon;
 
     const microgonsPerBtc = this.#currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN);
     const liquidityPromised = this.#currency.priceIndex.getBtcMicrogonPrice(args.satoshis);
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey({ vault: args.vault });
-    const db = await this.dbPromise;
 
     const relay = await this.requestBitcoinLockInitialization({
       offerCode,
       operatorHost,
-      couponToken,
-      ownerAccountAddress: args.argonKeyring.address,
+      ownerAccountId: args.argonKeyring.address,
       ownerBitcoinPubkey: u8aToHex(ownerBitcoinPubkey),
       requestedSatoshis: args.satoshis,
       microgonsPerBtc,
@@ -619,9 +621,8 @@ export default class BitcoinLocks {
       liquidityPromised,
       vaultId: args.vault.vaultId,
       hdPath,
-      relayMetadataJson: this.toRelayMetadata(operatorHost, inviteCode, offerCode, couponToken, relay),
+      relayMetadataJson: this.toRelayMetadata(operatorHost, offerCode, relay),
     });
-    await db.upstreamBitcoinLockCouponsTable.markUsed(offerCode, pendingLock.uuid);
     this.data.pendingLocks.push(pendingLock);
 
     await this.syncRelayBackedPendingLock(pendingLock, relay);
@@ -631,25 +632,15 @@ export default class BitcoinLocks {
   private async requestBitcoinLockInitialization(args: {
     offerCode: string;
     operatorHost: string;
-    couponToken: string;
-    ownerAccountAddress: string;
+    ownerAccountId: string;
     ownerBitcoinPubkey: string;
     requestedSatoshis: bigint;
     microgonsPerBtc: bigint;
-  }): Promise<IBitcoinLockCouponStatus> {
-    const {
-      offerCode,
-      operatorHost,
-      couponToken,
-      ownerAccountAddress,
-      ownerBitcoinPubkey,
-      requestedSatoshis,
-      microgonsPerBtc,
-    } = args;
+  }): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
+    const { offerCode, operatorHost, ownerAccountId, ownerBitcoinPubkey, requestedSatoshis, microgonsPerBtc } = args;
 
     return await UpstreamOperatorClient.initializeBitcoinLock(operatorHost, offerCode, {
-      offerToken: couponToken,
-      ownerAccountAddress,
+      ownerAccountId,
       ownerBitcoinPubkey,
       requestedSatoshis,
       microgonsPerBtc,
@@ -667,18 +658,12 @@ export default class BitcoinLocks {
 
   private async syncRelayBackedPendingLock(
     lock: IBitcoinLockRecord,
-    relay: IBitcoinLockCouponStatus,
+    relay: IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus },
   ): Promise<TransactionInfo<IBitcoinRequestLockMetadata> | undefined> {
     const table = await this.getTable();
     await table.setRelayMetadata(
       lock,
-      this.toRelayMetadata(
-        lock.relayMetadataJson?.operatorHost,
-        lock.relayMetadataJson?.inviteCode ?? '',
-        lock.relayMetadataJson?.offerCode ?? '',
-        lock.relayMetadataJson?.couponToken ?? '',
-        relay,
-      ),
+      this.toRelayMetadata(lock.relayMetadataJson?.operatorHost, relay.coupon.offerCode, relay),
     );
 
     if (relay.status === 'Failed') {
@@ -699,12 +684,13 @@ export default class BitcoinLocks {
     lock: IBitcoinLockRecord,
     relay: IBitcoinLockCouponStatus,
   ): Promise<TransactionInfo<IBitcoinRequestLockMetadata> | undefined> {
+    const relayRecord = relay.relay;
     if (
-      !relay.extrinsicHash ||
-      !relay.extrinsicMethodJson ||
-      !relay.delegateAddress ||
-      relay.submittedAtBlockHeight == null ||
-      !relay.submittedAtTime
+      !relayRecord?.extrinsicHash ||
+      !relayRecord.extrinsicMethodJson ||
+      !relayRecord.delegateAddress ||
+      relayRecord.txSubmittedAtBlockHeight == null ||
+      !relayRecord.txSubmittedAtTime
     ) {
       return undefined;
     }
@@ -720,12 +706,12 @@ export default class BitcoinLocks {
 
     const client = await getMainchainClient(false);
     const txResult = new TxResult(client, {
-      signedHash: relay.extrinsicHash,
-      method: relay.extrinsicMethodJson,
-      nonce: relay.nonce ?? 0,
-      accountAddress: relay.delegateAddress,
-      submittedTime: relay.submittedAtTime,
-      submittedAtBlockNumber: relay.submittedAtBlockHeight,
+      signedHash: relayRecord.extrinsicHash,
+      method: relayRecord.extrinsicMethodJson,
+      nonce: relayRecord.txNonce ?? 0,
+      accountAddress: relayRecord.delegateAddress,
+      submittedTime: relayRecord.txSubmittedAtTime,
+      submittedAtBlockNumber: relayRecord.txSubmittedAtBlockHeight,
     });
     txResult.isBroadcast = true;
 
@@ -750,10 +736,11 @@ export default class BitcoinLocks {
   }
 
   private async finalizePendingFromRelay(lock: IBitcoinLockRecord, relay: IBitcoinLockCouponStatus): Promise<void> {
+    const relayRecord = relay.relay;
     if (lock.utxoId) return;
-    if (!relay.utxoId) return;
+    if (!relayRecord?.utxoId) return;
 
-    const existingRecord = this.locksByUtxoId[relay.utxoId];
+    const existingRecord = this.locksByUtxoId[relayRecord.utxoId];
     if (existingRecord) {
       const pendingIdx = this.data.pendingLocks.findIndex(x => x.uuid === lock.uuid);
       if (pendingIdx >= 0) {
@@ -762,15 +749,15 @@ export default class BitcoinLocks {
       return;
     }
 
-    const lockDetails = await this.getFromApi(relay.utxoId);
-    const createdAtArgonBlockHeight = relay.inBlockHeight ?? relay.finalizedHeight ?? 0;
+    const lockDetails = await this.getFromApi(relayRecord.utxoId);
+    const createdAtArgonBlockHeight = relayRecord.txInBlockHeight ?? relayRecord.txFinalizedHeight ?? 0;
 
     const table = await this.getTable();
     const record = await table.finalizePending({
       uuid: lock.uuid,
       lock: lockDetails,
       createdAtArgonBlockHeight,
-      finalFee: relay.txFeePlusTip ?? 0n,
+      finalFee: relayRecord.txFeePlusTip ?? 0n,
     });
     this.locksByUtxoId[record.utxoId!] = record;
 
@@ -813,12 +800,17 @@ export default class BitcoinLocks {
           await new Promise(resolve => setTimeout(resolve, 2_500));
           continue;
         }
+        if (!isBitcoinLockRelayStatus(relay.status)) {
+          await new Promise(resolve => setTimeout(resolve, 2_500));
+          continue;
+        }
+        const settledRelay = relay as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
 
         if (lock) {
-          await this.syncRelayBackedPendingLock(lock, relay);
+          await this.syncRelayBackedPendingLock(lock, settledRelay);
         }
 
-        if (relay.status === 'Finalized' || relay.status === 'Failed') {
+        if (settledRelay.status === 'Finalized' || settledRelay.status === 'Failed') {
           return;
         }
 
@@ -831,19 +823,15 @@ export default class BitcoinLocks {
 
   private toRelayMetadata(
     operatorHost: string | undefined,
-    inviteCode: string,
     offerCode: string,
-    couponToken: string,
-    relay: IBitcoinLockCouponStatus,
+    relay: IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus },
   ): IBitcoinLockRelayMetadata {
     return {
       operatorHost,
-      inviteCode,
       offerCode,
-      couponToken,
       status: relay.status,
-      error: relay.error,
-      expiresAtBlockHeight: relay.expiresAtBlockHeight,
+      error: relay.relay?.error ?? undefined,
+      expiresAtBlockHeight: relay.relay?.txExpiresAtBlockHeight,
     };
   }
 
@@ -3074,6 +3062,10 @@ export type IBitcoinLocksUnlockReleaseInspect = Pick<
 >;
 export type IBitcoinLocksUnlockDetailsInspect = Pick<BitcoinLocks, 'load' | 'getVaultUnlockStateDetails'>;
 export type IBitcoinLocksVarianceInspect = Pick<BitcoinLocks, 'load' | 'getLockSatoshiAllowedVariance'>;
+
+function isBitcoinLockRelayStatus(status: IBitcoinLockCouponStatus['status']): status is BitcoinLockRelayStatus {
+  return status === 'Submitted' || status === 'InBlock' || status === 'Finalized' || status === 'Failed';
+}
 
 function getExtraLiquidityMicrogons(args: {
   lockSatoshis: bigint;

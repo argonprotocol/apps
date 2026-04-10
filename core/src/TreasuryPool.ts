@@ -133,6 +133,20 @@ export class TreasuryPool {
     return funders.reduce((sum, f) => sum + f.heldPrincipal, 0n);
   }
 
+  public static async getBondFunders(client: ArgonClient, vaultId: number, ownAddress?: string): Promise<BondFunder[]> {
+    const entries = await client.query.treasury.funderStateByVaultAndAccount.entries(vaultId);
+
+    const funders: BondFunder[] = [];
+    for (const [key, stateOption] of entries) {
+      if (stateOption.isNone) continue;
+
+      const accountId = key.args[1].toString();
+      funders.push(new BondFunder(accountId, stateOption.unwrap(), accountId === ownAddress));
+    }
+
+    return funders;
+  }
+
   public static parseFrameBondHolders(pool: PalletTreasuryTreasuryPool, operatorAddress: string) {
     const holders: IFrameBondHolder[] = [];
     let totalBonds = 0n;

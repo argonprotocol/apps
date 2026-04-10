@@ -1,52 +1,73 @@
 export type BitcoinLockRelayStatus = 'Submitted' | 'InBlock' | 'Finalized' | 'Failed';
+export type BitcoinLockCouponStatus = 'Open' | 'Expired' | BitcoinLockRelayStatus;
+
+export interface IBitcoinLockCouponRecord {
+  id: number;
+  userId: number;
+  offerCode: string;
+  vaultId: number;
+  maxSatoshis: bigint;
+  expiresAfterTicks: number;
+  expirationTick?: number;
+  accountId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IBitcoinLockRelayRecord {
+  id: number;
+  couponId: number;
+  status: BitcoinLockRelayStatus;
+  requestedSatoshis: bigint;
+  securitizationUsedMicrogons: bigint;
+  ownerAccountId: string;
+  ownerBitcoinPubkey: string;
+  microgonsPerBtc: bigint;
+  error: string | null;
+  delegateAddress: string;
+  extrinsicHash: string;
+  extrinsicMethodJson: any;
+  txNonce: number;
+  txSubmittedAtBlockHeight: number;
+  txSubmittedAtTime: Date;
+  txExpiresAtBlockHeight: number;
+  txInBlockHeight: number | null;
+  txInBlockHash: string | null;
+  txFinalizedHeight: number | null;
+  txFeePlusTip: bigint | null;
+  txTip: bigint | null;
+  utxoId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ICreateBitcoinLockCouponRequest {
+  userId: number;
+  vaultId: number;
+  maxSatoshis: bigint;
+  expiresAfterTicks: number;
+}
+
+export interface IActivateBitcoinLockCouponRequest {
+  userId: number;
+  accountId: string;
+}
 
 export interface IBitcoinLockRelayRequest {
-  offerToken: string;
   requestedSatoshis: bigint;
-  ownerAccountAddress: string;
+  ownerAccountId: string;
   ownerBitcoinPubkey: string;
   microgonsPerBtc?: bigint;
 }
 
-export interface IBitcoinLockRelayJobRequest {
-  offerCode: string;
-  maxSatoshis: bigint;
-  expirationTick: number;
-  requestedSatoshis: bigint;
-  ownerAccountAddress: string;
-  ownerBitcoinPubkey: string;
-  microgonsPerBtc: bigint;
-}
-
 export interface IBitcoinLockCouponStatus {
-  offerCode: string;
-  status: BitcoinLockRelayStatus;
-  error?: string;
-  delegateAddress?: string;
-  extrinsicHash?: string;
-  extrinsicMethodJson?: any;
-  nonce?: number;
-  submittedAtBlockHeight?: number;
-  submittedAtTime?: Date;
-  expiresAtBlockHeight?: number;
-  inBlockHeight?: number;
-  finalizedHeight?: number;
-  txFeePlusTip?: bigint;
-  utxoId?: number;
+  coupon: IBitcoinLockCouponRecord;
+  relay?: IBitcoinLockRelayRecord;
+  status: BitcoinLockCouponStatus;
+  expiresAt?: Date;
 }
 
-export interface IBitcoinLockRelayRecord extends IBitcoinLockCouponStatus {
-  id: number;
-  vaultId: number;
-  maxSatoshis: bigint;
-  expirationTick: number;
-  requestedSatoshis: bigint;
-  securitizationUsedMicrogons: bigint;
-  ownerAccountAddress: string;
-  ownerBitcoinPubkey: string;
+export interface IBitcoinLockRelayJobRequest extends IBitcoinLockRelayRequest {
+  offerCode: string;
   microgonsPerBtc: bigint;
-  inBlockHash?: string | null;
-  txTip?: bigint;
-  createdAt: Date;
-  updatedAt: Date;
 }

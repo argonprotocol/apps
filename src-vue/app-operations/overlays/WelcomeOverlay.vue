@@ -105,7 +105,6 @@ import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
 import { VaultInvites } from '../../lib/VaultInvites.ts';
 import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
 import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
-import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 
 const config = getConfig();
 const walletKeys = getWalletKeys();
@@ -204,23 +203,21 @@ async function connectToNetwork() {
   }
 
   const invite = body.invite;
+  const bitcoinLockCoupon = invite.bitcoinLockCoupon;
+  if (!bitcoinLockCoupon) {
+    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+    return;
+  }
   const operatorHost = [meta.ipAddress, meta.port].filter(x => x).join(':');
-  const db = await getDbPromise();
-
-  if (invite.offerCode && invite.offerToken) {
-    await db.upstreamBitcoinLockCouponsTable.upsert({
-      operatorHost,
-      inviteCode: inviteCode.value.trim(),
-      offerCode: invite.offerCode,
-      vaultId: invite.vaultId,
-      couponToken: invite.offerToken,
-      expirationTick: invite.expirationTick ?? undefined,
-    });
+  const vaultId = invite.vaultId;
+  if (!vaultId) {
+    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+    return;
   }
 
   config.upstreamOperator = {
     name: body.fromName,
-    vaultId: invite.vaultId,
+    vaultId,
     inviteCode: inviteCode.value.trim(),
   };
 

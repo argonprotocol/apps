@@ -1,9 +1,10 @@
 import { JsonExt } from '@argonprotocol/apps-core';
 import type {
+  BitcoinLockRelayStatus,
   IBitcoinLockCouponStatus,
   IBitcoinLockStatusResponse,
   IInitializeBitcoinLockRequest,
-  IOpenTreasuryInviteRequest,
+  IListBitcoinLockCouponsResponse,
   IOpenTreasuryInviteResponse,
   IRouterErrorResponse,
   ITreasuryUserInvite,
@@ -13,19 +14,17 @@ export class UpstreamOperatorClient {
   public static async openTreasuryAppInvite(
     operatorHost: string,
     inviteCode: string,
-    accountAddress: string,
+    accountId: string,
   ): Promise<{ fromName: string; invite: ITreasuryUserInvite }> {
     const body = await this.request<IOpenTreasuryInviteResponse>(
       operatorHost,
-      `/treasury-users/${encodeURIComponent(inviteCode)}`,
+      `/treasury-users/${encodeURIComponent(inviteCode)}/open`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JsonExt.stringify({
-          accountAddress,
-        } satisfies IOpenTreasuryInviteRequest),
+        body: JsonExt.stringify({ accountId }),
       },
     );
     return {
@@ -38,7 +37,7 @@ export class UpstreamOperatorClient {
     operatorHost: string,
     offerCode: string,
     payload: IInitializeBitcoinLockRequest,
-  ): Promise<IBitcoinLockCouponStatus> {
+  ): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
     const body = await this.request<IBitcoinLockStatusResponse>(
       operatorHost,
       `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
@@ -50,7 +49,18 @@ export class UpstreamOperatorClient {
         body: JsonExt.stringify(payload),
       },
     );
-    return body.bitcoinLock;
+    return body.bitcoinLock as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
+  }
+
+  public static async getBitcoinLockCoupons(
+    operatorHost: string,
+    accountId: string,
+  ): Promise<IBitcoinLockCouponStatus[]> {
+    const body = await this.request<IListBitcoinLockCouponsResponse>(
+      operatorHost,
+      `/treasury-users/${encodeURIComponent(accountId)}/bitcoin-lock-coupons`,
+    );
+    return body.bitcoinLockCoupons;
   }
 
   public static async getBitcoinLockStatus(operatorHost: string, offerCode: string): Promise<IBitcoinLockCouponStatus> {

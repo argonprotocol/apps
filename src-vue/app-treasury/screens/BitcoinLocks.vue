@@ -141,29 +141,31 @@ import { getVaults } from '../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
-import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 import { TooltipProvider } from 'reka-ui';
 import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import type { IUpstreamBitcoinLockCouponRecord } from '../../lib/db/UpstreamBitcoinLockCouponsTable.ts';
+import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { ChevronRightIcon } from '@heroicons/vue/24/outline';
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import BitcoinLockingOverlay from '../../app-operations/overlays/BitcoinLockingOverlay.vue';
 import BitcoinLockDetailOverlay from '../../app-operations/overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../../app-operations/overlays/BitcoinUnlockingOverlay.vue';
+import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 
 const currency = getCurrency();
 const config = getConfig();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const miningFrames = getMiningFrames();
+const walletKeys = getWalletKeys();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 let vault: Vault | undefined;
 const availableSecuritizationMicrogons = Vue.ref(0n);
 const maxLockLiquidityMicrogons = Vue.ref(0n);
 const vaultSecuritizationMicrogons = Vue.ref(0n);
-const coupons = Vue.ref<IUpstreamBitcoinLockCouponRecord[]>([]);
+const coupons = Vue.ref<IBitcoinLockCouponStatus[]>([]);
 const currentTick = Vue.ref(0);
 const isLoaded = Vue.ref(false);
 const showLockingOverlay = Vue.ref(false);
@@ -208,19 +210,9 @@ const couponProviderLabel = Vue.computed(() => {
 });
 
 const currentCoupon = Vue.computed(() => {
-  const usedOfferCodes = new Set(
-    bitcoinLocks
-      .getAllLocks()
-      .map(lock => lock.relayMetadataJson?.offerCode)
-      .filter((offerCode): offerCode is string => !!offerCode),
+  return coupons.value.find(
+    coupon => coupon.status === 'Open' && coupon.coupon.vaultId === config.upstreamOperator?.vaultId,
   );
-
-  return coupons.value.find(coupon => {
-    if (coupon.usedAt || coupon.usedLockUuid) return false;
-    if (usedOfferCodes.has(coupon.offerCode)) return false;
-    if (coupon.expirationTick != null && currentTick.value >= coupon.expirationTick) return false;
-    return true;
-  });
 });
 
 function formatBtc(lock: IBitcoinLockRecord): string {
@@ -296,15 +288,13 @@ function updateAvailableSpace(rawVault: Vault) {
 }
 
 async function loadCurrentCoupon() {
-  const vaultId = config.upstreamOperator?.vaultId;
-
-  if (!vaultId) {
+  const operatorHost = config.bootstrapDetails?.routerHost;
+  if (!operatorHost || !config.upstreamOperator?.vaultId) {
     coupons.value = [];
     return;
   }
 
-  const db = await getDbPromise();
-  coupons.value = await db.upstreamBitcoinLockCouponsTable.fetchByVault(vaultId);
+  coupons.value = await UpstreamOperatorClient.getBitcoinLockCoupons(operatorHost, walletKeys.liquidLockingAddress);
 }
 
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {

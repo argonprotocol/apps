@@ -1197,7 +1197,7 @@ export class MyVault {
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
     try {
-      const client = await getMainchainClient(false);
+      const client = await getMainchainClient(true);
       const blockHash = await txResult.waitForFinalizedBlock;
       const api = await client.at(blockHash);
       const blockNumber = await api.query.system.number();
@@ -1278,17 +1278,7 @@ export class MyVault {
     if (vaultId == null) return;
 
     client ??= await getMainchainClient(false);
-    const ownAddress = this.walletKeys.vaultingAddress;
-
-    const entries = await client.query.treasury.funderStateByVaultAndAccount.entries(vaultId);
-
-    const funders: BondFunder[] = [];
-    for (const [key, stateOption] of entries) {
-      if (stateOption.isNone) continue;
-      const accountId = key.args[1].toString();
-      funders.push(new BondFunder(accountId, stateOption.unwrap(), accountId === ownAddress));
-    }
-    this.data.bondFunders = funders;
+    this.data.bondFunders = await TreasuryPool.getBondFunders(client, vaultId, this.walletKeys.vaultingAddress);
   }
 
   private async refreshCurrentFrameBonds(client?: ArgonClient): Promise<void> {

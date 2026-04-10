@@ -1,15 +1,10 @@
-import type {
-  BitcoinLockRelayStatus,
-  IBitcoinLockRelayJobRequest,
-  IBitcoinLockRelayRecord,
-  IBitcoinLockRelayRequest,
-} from '@argonprotocol/apps-core';
-
-export type IBitcoinLockCouponStatus = IBitcoinLockRelayRecord;
-
 export type {
+  BitcoinLockCouponStatus,
   BitcoinLockRelayStatus,
+  IActivateBitcoinLockCouponRequest,
+  IBitcoinLockCouponRecord,
+  IBitcoinLockCouponStatus,
   IBitcoinLockRelayJobRequest,
-  IBitcoinLockRelayRecord,
   IBitcoinLockRelayRequest,
-};
+  ICreateBitcoinLockCouponRequest,
+} from '@argonprotocol/apps-core';

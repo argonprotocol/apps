@@ -1,8 +1,6 @@
 import type { IProfileRecord } from '../db/ProfileTable.ts';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
-import type { ITreasuryUserInviteSummary } from './ITreasuryUserInviteSummary.js';
-import type { ITreasuryUserMember } from './ITreasuryUserMember.js';
 
 export type IRouterProfile = IProfileRecord;
 export type IRouterProfileUpdateRequest = Partial<IRouterProfile>;
@@ -11,14 +9,13 @@ export type IInitializeBitcoinLockRequest = IBitcoinLockRelayRequest;
 export interface ITreasuryUserInviteCreateRequest {
   name: string;
   inviteCode: string;
-  offerCode: string;
+  vaultId: number;
   maxSatoshis: bigint;
   expiresAfterTicks: number;
-  offerToken: string;
 }
 
 export interface IOpenTreasuryInviteRequest {
-  accountAddress: string;
+  accountId: string;
 }
 
 export interface IRouterErrorResponse {
@@ -34,15 +31,15 @@ export interface ICreateTreasuryInviteResponse {
 }
 
 export interface IListTreasuryInvitesResponse {
-  invites: ITreasuryUserInviteSummary[];
+  invites: ITreasuryUserInvite[];
 }
 
 export interface IListTreasuryMembersResponse {
-  members: ITreasuryUserMember[];
+  members: ITreasuryUserInvite[];
 }
 
-export interface IListBitcoinLockCouponStatusesResponse {
-  bitcoinLocks: IBitcoinLockCouponStatus[];
+export interface IListBitcoinLockCouponsResponse {
+  bitcoinLockCoupons: IBitcoinLockCouponStatus[];
 }
 
 export interface IOpenTreasuryInviteResponse {

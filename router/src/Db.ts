@@ -4,16 +4,16 @@ import { DatabaseSync } from 'node:sqlite';
 import { runSqliteMigrations } from '@argonprotocol/apps-core';
 import { ProfileTable } from './db/ProfileTable.ts';
 import { migrations } from './db/migrations/index.ts';
+import { UsersTable } from './db/UsersTable.ts';
 import { UserInvitesTable } from './db/UserInvitesTable.ts';
-import { BitcoinLockCouponsTable } from './db/BitcoinLockCouponsTable.ts';
 import { ROUTER_DB_PATH } from './env.ts';
 export { ROUTER_DB_PATH } from './env.ts';
 
 export class Db {
   public readonly sql: DatabaseSync;
   #profileTable?: ProfileTable;
+  #usersTable?: UsersTable;
   #userInvitesTable?: UserInvitesTable;
-  #bitcoinLockCouponsTable?: BitcoinLockCouponsTable;
 
   constructor(dbPath: string = ROUTER_DB_PATH) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -29,14 +29,14 @@ export class Db {
     return this.#profileTable;
   }
 
+  public get usersTable(): UsersTable {
+    this.#usersTable ??= new UsersTable(this);
+    return this.#usersTable;
+  }
+
   public get userInvitesTable(): UserInvitesTable {
     this.#userInvitesTable ??= new UserInvitesTable(this);
     return this.#userInvitesTable;
-  }
-
-  public get bitcoinLockCouponsTable(): BitcoinLockCouponsTable {
-    this.#bitcoinLockCouponsTable ??= new BitcoinLockCouponsTable(this);
-    return this.#bitcoinLockCouponsTable;
   }
 
   public close(): void {

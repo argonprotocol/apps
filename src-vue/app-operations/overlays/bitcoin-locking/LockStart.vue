@@ -131,17 +131,16 @@ import InputMoney from '../../../components/InputMoney.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
-import { BitcoinLockCoupons } from '@argonprotocol/apps-router';
+import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { getConfig } from '../../../stores/config.ts';
 import { getVaults } from '../../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
-import type { IUpstreamBitcoinLockCouponRecord } from '../../../lib/db/UpstreamBitcoinLockCouponsTable.ts';
 
 const props = defineProps<{
-  coupon?: IUpstreamBitcoinLockCouponRecord;
+  coupon?: IBitcoinLockCouponStatus;
   currentTick?: number;
   maxLockLiquidityMicrogons: bigint;
   vault: Vault;
@@ -179,14 +178,14 @@ const isVaultOperator = Vue.computed(() => {
 });
 
 const hasCouponForVault = Vue.computed(() => {
-  return props.coupon?.vaultId === props.vault.vaultId;
+  return props.coupon?.coupon.vaultId === props.vault.vaultId;
 });
 
 const isOperatorCouponExpired = Vue.computed(() => {
   return (
-    props.coupon?.expirationTick != null &&
+    props.coupon?.coupon.expirationTick != null &&
     props.currentTick != null &&
-    props.currentTick >= props.coupon.expirationTick
+    props.currentTick >= props.coupon.coupon.expirationTick
   );
 });
 
@@ -195,12 +194,18 @@ const operatorCoupon = Vue.computed(() => {
     return undefined;
   }
 
+  const inviteCode = config.upstreamOperator?.inviteCode;
+  const operatorHost = config.bootstrapDetails?.routerHost;
+  if (!inviteCode || !operatorHost) {
+    return undefined;
+  }
+
   return {
-    vaultId: props.coupon.vaultId,
-    inviteCode: props.coupon.inviteCode,
-    offerCode: props.coupon.offerCode,
-    operatorHost: props.coupon.operatorHost,
-    couponToken: props.coupon.couponToken,
+    vaultId: props.coupon.coupon.vaultId,
+    inviteCode,
+    offerCode: props.coupon.coupon.offerCode,
+    operatorHost,
+    accountId: props.coupon.coupon.accountId,
   };
 });
 
@@ -221,17 +226,11 @@ const couponProviderLabel = Vue.computed(() => {
 });
 
 const couponMaxBtcLabel = Vue.computed(() => {
-  const couponToken = props.coupon?.couponToken;
-  if (!couponToken) {
+  if (!props.coupon) {
     return numeral(currency.convertSatToBtc(lockSatoshis.value)).format('0,0.[00000000]');
   }
 
-  try {
-    const coupon = BitcoinLockCoupons.parseToken(couponToken);
-    return numeral(currency.convertSatToBtc(coupon.payload.maxSatoshis)).format('0,0.[00000000]');
-  } catch {
-    return numeral(currency.convertSatToBtc(lockSatoshis.value)).format('0,0.[00000000]');
-  }
+  return numeral(currency.convertSatToBtc(props.coupon.coupon.maxSatoshis)).format('0,0.[00000000]');
 });
 
 const neededMicrogons = Vue.computed(() => {
@@ -346,16 +345,11 @@ Vue.watch(
     const nextVaultCapacitySatoshis = await bitcoinLocks.satoshisForArgonLiquidity(nextVaultCapacityLiquidityMicrogons);
     let nextAvailableSatoshis = nextVaultCapacitySatoshis;
 
-    if (props.coupon?.couponToken && isOperatorCouponLock.value) {
-      try {
-        const coupon = BitcoinLockCoupons.parseToken(props.coupon.couponToken);
-        nextAvailableSatoshis =
-          coupon.payload.maxSatoshis < nextVaultCapacitySatoshis
-            ? coupon.payload.maxSatoshis
-            : nextVaultCapacitySatoshis;
-      } catch {
-        // Fall back to the computed vault capacity if the coupon metadata is unavailable.
-      }
+    if (props.coupon && isOperatorCouponLock.value) {
+      nextAvailableSatoshis =
+        props.coupon.coupon.maxSatoshis < nextVaultCapacitySatoshis
+          ? props.coupon.coupon.maxSatoshis
+          : nextVaultCapacitySatoshis;
     }
 
     const nextLiquidityMicrogons = await vaults.getMarketRateInMicrogons(nextAvailableSatoshis);
