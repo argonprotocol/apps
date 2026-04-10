@@ -19,9 +19,7 @@ export interface IRatchet {
 
 export interface IBitcoinLockRelayMetadata {
   operatorHost?: string;
-  inviteCode: string;
-  offerCode?: string;
-  couponToken: string;
+  offerCode: string;
   status: BitcoinLockRelayStatus;
   error?: string;
   expiresAtBlockHeight?: number;

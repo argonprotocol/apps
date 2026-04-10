@@ -1,11 +1,7 @@
-import type { IBitcoinLockCouponRecord } from '../db/BitcoinLockCouponsTable.ts';
 import type { IUserInviteRecord } from '../db/UserInvitesTable.ts';
+import type { IBitcoinLockCouponStatus } from './IBitcoinLockRelay.js';
 
-export type ITreasuryUserInvite = Pick<
-  IUserInviteRecord,
-  'id' | 'name' | 'inviteCode' | 'firstClickedAt' | 'lastClickedAt' | 'accountAddress' | 'createdAt'
-> &
-  Pick<
-    IBitcoinLockCouponRecord,
-    'offerCode' | 'vaultId' | 'maxSatoshis' | 'expiresAfterTicks' | 'offerToken' | 'expirationTick' | 'expiresAt'
-  >;
+export type ITreasuryUserInvite = IUserInviteRecord & {
+  vaultId?: number;
+  bitcoinLockCoupon?: IBitcoinLockCouponStatus;
+};

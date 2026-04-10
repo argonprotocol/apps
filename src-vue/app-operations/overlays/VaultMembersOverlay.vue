@@ -26,20 +26,16 @@
         <div v-for="member in members" :key="member.id" class="rounded-md border-b border-slate-300 px-3 py-3">
           <div class="flex flex-row items-start justify-between gap-x-4 text-slate-800">
             <div>
-              {{ member.name }} has {{ currency.symbol }}{{ satoshiToMoneyNm(member.maxSatoshis).format('0,0.00') }} in
-              free BTC locking
+              {{ member.name }} has {{ currency.symbol
+              }}{{ satoshiToMoneyNm(member.bitcoinLockCoupon?.coupon.maxSatoshis ?? 0n).format('0,0.00') }} in free BTC
+              locking
             </div>
             <div class="grow text-right">
-              <template v-if="bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'Failed'">
-                Lock failed
-              </template>
-              <template v-else-if="bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'Finalized'">
-                Locked
-              </template>
+              <template v-if="member.bitcoinLockCoupon?.status === 'Failed'">Lock failed</template>
+              <template v-else-if="member.bitcoinLockCoupon?.status === 'Finalized'">Locked</template>
               <template
                 v-else-if="
-                  bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'Submitted' ||
-                  bitcoinLockStatusesByOfferCode[member.offerCode]?.status === 'InBlock'
+                  member.bitcoinLockCoupon?.status === 'Submitted' || member.bitcoinLockCoupon?.status === 'InBlock'
                 ">
                 Started
               </template>
@@ -60,7 +56,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
-import type { IBitcoinLockCouponStatus, ITreasuryUserMember } from '@argonprotocol/apps-router';
+import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { ServerApiClient } from '../../lib/ServerApiClient.ts';
@@ -74,8 +70,7 @@ const { satoshiToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
-const members = Vue.ref<ITreasuryUserMember[]>([]);
-const bitcoinLockStatusesByOfferCode = Vue.ref<Record<string, IBitcoinLockCouponStatus>>({});
+const members = Vue.ref<ITreasuryUserInvite[]>([]);
 
 const ipAddress = Vue.computed(() => {
   return config.serverDetails.ipAddress;
@@ -101,15 +96,9 @@ async function loadMembers() {
   }
 
   try {
-    const [loadedMembers, bitcoinLocks] = await Promise.all([
-      ServerApiClient.getTreasuryAppMembers(ipAddress.value),
-      ServerApiClient.getBitcoinLockCouponStatuses(ipAddress.value),
-    ]);
-    members.value = loadedMembers;
-    bitcoinLockStatusesByOfferCode.value = Object.fromEntries(bitcoinLocks.map(lock => [lock.offerCode, lock]));
+    members.value = await ServerApiClient.getTreasuryAppMembers(ipAddress.value);
   } catch {
     members.value = [];
-    bitcoinLockStatusesByOfferCode.value = {};
     errorMessage.value = 'Unable to load members right now. Please try again.';
   }
 }

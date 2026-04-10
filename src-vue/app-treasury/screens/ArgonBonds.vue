@@ -152,7 +152,7 @@ import { getVaults } from '../../stores/vaults.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { getMainchainClient, getMiningFrames, useMainchainCompat } from '../../stores/mainchain.ts';
 import { getConfig } from '../../stores/config.ts';
-import { NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
+import { type IBondTargetAllocation, NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
 import { type IFrameEarningsRow, useBonds } from '../../stores/bonds.ts';
 import AdjustBondOverlay from '../../app-operations/overlays/AdjustBondOverlay.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
@@ -182,16 +182,20 @@ const vaultTotalCapacity = Vue.ref(0n);
 const distributableBidPool = Vue.ref(0n);
 const globalActiveCapital = Vue.ref(0n);
 const vaultActiveCapital = Vue.ref(0n);
+const bondFunders = Vue.ref<IBondTargetAllocation[]>([]);
 
 const hasBond = Vue.computed(() => bonds.targetPrincipal > 0n);
 
-const vaultAvailableCapacity = Vue.computed(() => {
-  const perFrameCapacity = TreasuryPool.getBondPurchaseCapacity(
+const nextFrameBondAvailability = Vue.computed(() => {
+  return TreasuryPool.calculateNextFrameBondAvailability(
     vaultTotalCapacity.value,
+    bondFunders.value,
     bondFullCapacityPerFrame.value,
   );
-  const available = perFrameCapacity - vaultActiveCapital.value;
-  return available > 0n ? available : 0n;
+});
+
+const vaultAvailableCapacity = Vue.computed(() => {
+  return nextFrameBondAvailability.value.nextFrameAvailable;
 });
 
 const frameHistory = Vue.computed<IFrameRow[]>(() => {
@@ -263,11 +267,27 @@ async function onSubmitted() {
   showOverlay.value = false;
   showAllHistory.value = false;
   await bonds.refreshFrameHistory();
+  await refreshBondData();
+}
+
+async function refreshBondData() {
+  if (!bonds.vaultId) return;
+
+  const client = await getMainchainClient(false);
+  const [capital, funders] = await Promise.all([
+    TreasuryPool.getActiveCapital(client, bonds.vaultId),
+    TreasuryPool.getBondFunders(client, bonds.vaultId, wallets.liquidLockingWallet.address),
+  ]);
+
+  vaultActiveCapital.value = capital.vaultActivatedCapital;
+  globalActiveCapital.value = capital.totalActivatedCapital;
+  bondFunders.value = funders;
 }
 
 let unsubVault: (() => void) | undefined;
 let unsubBidPool: (() => void) | undefined;
 let unsubTick: { unsubscribe: () => void } | undefined;
+let unsubFrameId: { unsubscribe: () => void } | undefined;
 
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
@@ -280,17 +300,21 @@ Vue.onMounted(async () => {
     if (vault) {
       vaultTotalCapacity.value = vault.securitization;
     }
+
+    void refreshBondData();
   });
 
   unsubBidPool = await TreasuryPool.subscribeBidPool(client, bidPool => {
     distributableBidPool.value = bidPool;
   });
 
-  const capital = await TreasuryPool.getActiveCapital(client, bonds.vaultId);
-  vaultActiveCapital.value = capital.vaultActivatedCapital;
-  globalActiveCapital.value = capital.totalActivatedCapital;
+  await refreshBondData();
 
   isLoaded.value = true;
+
+  unsubFrameId = miningFrames.onFrameId(() => {
+    void refreshBondData();
+  });
 
   unsubTick = miningFrames.onTick(() => {
     updateFrameProgress();
@@ -300,6 +324,7 @@ Vue.onMounted(async () => {
 Vue.onUnmounted(() => {
   unsubVault?.();
   unsubBidPool?.();
+  unsubFrameId?.unsubscribe();
   unsubTick?.unsubscribe();
 });
 </script>

@@ -1,9 +1,15 @@
 import {
   bigNumberToBigInt,
+  type BitcoinLockCouponStatus,
   BlockWatch,
+  type IActivateBitcoinLockCouponRequest,
+  type IBitcoinLockCouponRecord,
+  type IBitcoinLockCouponStatus,
   type IBitcoinLockRelayJobRequest,
   type IBitcoinLockRelayRecord,
+  type ICreateBitcoinLockCouponRequest,
   MainchainClients,
+  MiningFrames,
   NetworkConfig,
   SATOSHIS_PER_BITCOIN,
   TransactionEvents,
@@ -17,6 +23,7 @@ import {
   Vault,
 } from '@argonprotocol/mainchain';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
+import { nanoid } from 'nanoid';
 import type { Db } from './Db.ts';
 import { HttpError } from './HttpError.ts';
 
@@ -48,13 +55,14 @@ export class BitcoinLockRelayService {
   private readonly relayWatchUnsubscribes = new Map<number, () => void>();
   private readonly inflightByOfferCode = new Map<
     string,
-    { request: IBitcoinLockRelayJobRequest; promise: Promise<IBitcoinLockRelayRecord> }
+    { request: IBitcoinLockRelayJobRequest; promise: Promise<IBitcoinLockCouponStatus> }
   >();
 
   private startedPromise?: Promise<void>;
   private stopVaultSubscription?: () => void;
   private vaultId?: number;
   private latestVault?: Vault;
+  private vaultLoadPromise?: Promise<void>;
   private isReconciling = false;
   private bestBlocksUnsub?: () => void;
   private nextNonce?: number;
@@ -73,18 +81,24 @@ export class BitcoinLockRelayService {
     return this.startedPromise;
   }
 
-  public async queueRelay(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
+  public async relayBitcoinLock(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockCouponStatus> {
     await this.start();
 
     const { offerCode } = request;
-    if (this.vaultId == null) {
-      throw new HttpError('Bitcoin lock relay vault is not loaded.', 503);
+
+    const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
+    if (!coupon) {
+      throw new HttpError('Bitcoin lock coupon not found.', 404);
     }
 
-    const existingRelay = this.db.bitcoinLockRelaysTable.fetchByOfferCode(offerCode);
+    const existingRelay = this.db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id);
     if (existingRelay) {
       assertMatchingRelayRequest(existingRelay, request);
-      return existingRelay;
+      return this.toCouponStatus(coupon, existingRelay);
+    }
+
+    if (coupon.expirationTick != null && this.blockWatch.bestBlockHeader.tick >= coupon.expirationTick) {
+      throw new HttpError('This bitcoin lock coupon has expired.', 400);
     }
 
     const inflight = this.inflightByOfferCode.get(offerCode);
@@ -93,7 +107,7 @@ export class BitcoinLockRelayService {
       return inflight.promise;
     }
 
-    const promise = this.submitNewRelay(request);
+    const promise = this.submitNewRelay(coupon, request);
     this.inflightByOfferCode.set(offerCode, { request, promise });
 
     try {
@@ -106,20 +120,71 @@ export class BitcoinLockRelayService {
     }
   }
 
-  public async getBitcoinLockStatus(offerCode: string): Promise<IBitcoinLockRelayRecord> {
+  public async createCoupon(request: ICreateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
     await this.start();
 
-    const relay = this.db.bitcoinLockRelaysTable.fetchByOfferCode(offerCode);
-    if (!relay) {
-      throw new HttpError('Bitcoin lock not found.', 404);
-    }
+    const coupon = this.db.bitcoinLockCouponsTable.insertCoupon({
+      ...request,
+      offerCode: nanoid(10),
+    });
 
-    return relay;
+    return this.toCouponStatus(coupon);
   }
 
-  public async getLatestBitcoinLockStatuses(): Promise<IBitcoinLockRelayRecord[]> {
+  public async activateLatestCoupon(request: IActivateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
     await this.start();
-    return this.db.bitcoinLockRelaysTable.fetchAll();
+
+    const coupon = this.db.bitcoinLockCouponsTable.fetchLatestByUserId(request.userId);
+    if (!coupon) {
+      throw new HttpError('Bitcoin lock coupon not found.', 404);
+    }
+    if (coupon.accountId && coupon.accountId !== request.accountId) {
+      throw new HttpError('This invite is already claimed by a different account.', 409);
+    }
+
+    const expirationTick =
+      coupon.expirationTick ?? MiningFrames.calculateCurrentTickFromSystemTime() + coupon.expiresAfterTicks;
+    const activatedCoupon = this.db.bitcoinLockCouponsTable.activateCoupon(
+      coupon.id,
+      request.accountId,
+      expirationTick,
+    );
+    if (!activatedCoupon) {
+      throw new HttpError('Bitcoin lock coupon not found.', 404);
+    }
+
+    return this.toCouponStatus(activatedCoupon);
+  }
+
+  public async getBitcoinLockCouponStatus(offerCode: string): Promise<IBitcoinLockCouponStatus> {
+    await this.start();
+
+    const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
+    if (!coupon) {
+      throw new HttpError('Bitcoin lock coupon not found.', 404);
+    }
+
+    return this.toCouponStatus(coupon, this.db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id));
+  }
+
+  public async getBitcoinLockCouponsByUserId(userId: number): Promise<IBitcoinLockCouponStatus[]> {
+    await this.start();
+
+    const relaysByCouponId = new Map(this.db.bitcoinLockRelaysTable.fetchAll().map(relay => [relay.couponId, relay]));
+
+    return this.db.bitcoinLockCouponsTable
+      .fetchByUserId(userId)
+      .map(coupon => this.toCouponStatus(coupon, relaysByCouponId.get(coupon.id)));
+  }
+
+  public async getBitcoinLockCouponStatuses(): Promise<IBitcoinLockCouponStatus[]> {
+    await this.start();
+
+    const relaysByCouponId = new Map(this.db.bitcoinLockRelaysTable.fetchAll().map(relay => [relay.couponId, relay]));
+
+    return this.db.bitcoinLockCouponsTable
+      .fetchAll()
+      .map(coupon => this.toCouponStatus(coupon, relaysByCouponId.get(coupon.id)));
   }
 
   public async shutdown(): Promise<void> {
@@ -141,7 +206,7 @@ export class BitcoinLockRelayService {
 
   private async startInternal(): Promise<void> {
     await this.blockWatch.start();
-    await this.loadVault();
+    await this.tryLoadVault();
 
     this.bestBlocksUnsub = this.blockWatch.events.on('best-blocks', () => {
       void this.reconcileNonTerminalRelays();
@@ -150,75 +215,104 @@ export class BitcoinLockRelayService {
     await this.reconcileNonTerminalRelays();
   }
 
-  private submitNewRelay(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
+  private submitNewRelay(
+    coupon: IBitcoinLockCouponRecord,
+    request: IBitcoinLockRelayJobRequest,
+  ): Promise<IBitcoinLockCouponStatus> {
     return this.runWithSubmitLock(async () => {
-      const { offerCode, requestedSatoshis, ownerAccountAddress, ownerBitcoinPubkey, microgonsPerBtc } = request;
-      const existingRelay = this.db.bitcoinLockRelaysTable.fetchByOfferCode(offerCode);
-      if (existingRelay) {
-        assertMatchingRelayRequest(existingRelay, request);
-        return existingRelay;
+      const { offerCode, requestedSatoshis, ownerAccountId, ownerBitcoinPubkey, microgonsPerBtc } = request;
+      const existingCoupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
+      if (!existingCoupon) {
+        throw new HttpError('Bitcoin lock coupon not found.', 404);
       }
 
-      const preflight = await this.checkRelayCapacity(request);
+      const existingRelay = this.db.bitcoinLockRelaysTable.fetchByCouponId(existingCoupon.id);
+      if (existingRelay) {
+        assertMatchingRelayRequest(existingRelay, request);
+        return this.toCouponStatus(existingCoupon, existingRelay);
+      }
+
+      if (!coupon.expirationTick) {
+        throw new HttpError('This invite has not been accepted yet.', 400);
+      }
+      if (coupon.accountId && coupon.accountId !== ownerAccountId) {
+        throw new HttpError('This invite is claimed by a different account.', 409);
+      }
+
+      const preflight = await this.checkRelayCapacity(coupon, request);
       if (!preflight.canSubmit) {
         throw new HttpError(preflight.reason, preflight.statusCode);
       }
 
+      if (this.vaultId == null) {
+        await this.ensureVaultLoaded();
+      }
+
       const client = await this.clients.get(false);
       const tx = client.tx.bitcoinLocks.initializeFor(
-        ownerAccountAddress,
+        ownerAccountId,
         this.vaultId!,
         requestedSatoshis,
         ownerBitcoinPubkey,
         { V1: { microgonsPerBtc } },
       );
-      const submittedAtBlockHeight = this.blockWatch.bestBlockHeader.blockNumber;
-      const submittedAtTime = new Date();
-      const expiresAtBlockHeight = submittedAtBlockHeight + RELAY_MORTALITY_BLOCKS;
-      const nonce = await this.getNextNonce(client);
+      const txSubmittedAtBlockHeight = this.blockWatch.bestBlockHeader.blockNumber;
+      const txSubmittedAtTime = new Date();
+      const txExpiresAtBlockHeight = txSubmittedAtBlockHeight + RELAY_MORTALITY_BLOCKS;
+      const txNonce = await this.getNextNonce(client);
       const signedTx = await tx.signAsync(this.bitcoinInitializerDelegateKeypair, {
-        nonce,
+        nonce: txNonce,
         era: RELAY_MORTALITY_BLOCKS,
       });
 
-      const relay = this.db.bitcoinLockRelaysTable.insertRelay({
-        ...request,
-        vaultId: this.vaultId!,
-        status: 'Submitted',
+      const submittedRelay = this.db.bitcoinLockRelaysTable.insertRelay({
+        couponId: coupon.id,
+        requestedSatoshis,
         securitizationUsedMicrogons: preflight.securitizationUsedMicrogons,
+        ownerAccountId,
+        ownerBitcoinPubkey,
+        microgonsPerBtc,
         delegateAddress: this.delegateAddress,
         extrinsicHash: signedTx.hash.toHex(),
         extrinsicMethodJson: signedTx.method.toHuman(),
-        nonce,
-        submittedAtBlockHeight,
-        submittedAtTime,
-        expiresAtBlockHeight,
+        txNonce,
+        txSubmittedAtBlockHeight,
+        txSubmittedAtTime,
+        txExpiresAtBlockHeight,
       });
+      this.relayWatchUnsubscribes.set(submittedRelay.id, () => undefined);
 
       let unsubscribe: () => void;
       try {
         unsubscribe = await signedTx.send(result => {
-          void this.handleSubmissionUpdate(relay.id, client, result);
+          void this.handleSubmissionUpdate(submittedRelay.id, client, result);
         });
       } catch (error) {
         this.nextNonce = undefined;
         const message = error instanceof Error ? error.message : String(error);
-        return this.failRelay(relay.id, message);
+        return this.failRelay(submittedRelay.id, message);
       }
 
-      const latestRelay = this.getRequiredRelay(relay.id);
-      if (latestRelay.status === 'Failed' || latestRelay.status === 'Finalized') {
+      const currentRelay = this.getRequiredRelay(submittedRelay.id);
+      if (currentRelay.status === 'Failed' || currentRelay.status === 'Finalized') {
         unsubscribe();
+        this.relayWatchUnsubscribes.delete(submittedRelay.id);
       } else {
-        this.relayWatchUnsubscribes.set(relay.id, unsubscribe);
+        this.relayWatchUnsubscribes.set(submittedRelay.id, unsubscribe);
       }
 
-      return this.getRequiredRelay(relay.id);
+      return this.getRequiredCouponStatus(coupon.id);
     });
   }
 
-  private async checkRelayCapacity(request: IBitcoinLockRelayJobRequest): Promise<IRelayPreflight> {
-    const { expirationTick, maxSatoshis, requestedSatoshis, microgonsPerBtc } = request;
+  private async checkRelayCapacity(
+    coupon: IBitcoinLockCouponRecord,
+    request: IBitcoinLockRelayJobRequest,
+  ): Promise<IRelayPreflight> {
+    await this.ensureVaultLoaded();
+
+    const { requestedSatoshis, microgonsPerBtc } = request;
+    const { expirationTick, maxSatoshis } = coupon;
     const latestVault = this.latestVault;
     if (!latestVault) {
       throw new Error('Bitcoin lock relay vault failed to load.');
@@ -231,7 +325,7 @@ export class BitcoinLockRelayService {
       };
     }
 
-    if (this.blockWatch.bestBlockHeader.tick >= expirationTick) {
+    if (expirationTick == null || this.blockWatch.bestBlockHeader.tick >= expirationTick) {
       return {
         canSubmit: false,
         reason: 'This bitcoin lock coupon has expired.',
@@ -255,7 +349,7 @@ export class BitcoinLockRelayService {
       latestVault.securitizationRatioBN().multipliedBy(requiredLiquidity),
     );
     const pendingSubmittedSecuritization = pendingSubmittedRelays.reduce(
-      (total, relay) => total + relay.securitizationUsedMicrogons,
+      (total, relay) => total + (relay.securitizationUsedMicrogons ?? 0n),
       0n,
     );
 
@@ -287,14 +381,7 @@ export class BitcoinLockRelayService {
     const status = result.status;
     if (status.isRetracted) {
       if (relay.status === 'InBlock') {
-        this.db.bitcoinLockRelaysTable.update(relayId, {
-          status: 'Submitted',
-          inBlockHeight: null,
-          inBlockHash: null,
-          txFeePlusTip: null,
-          txTip: null,
-          utxoId: null,
-        });
+        this.db.bitcoinLockRelaysTable.revertToSubmitted(relayId);
         return;
       }
       this.nextNonce = undefined;
@@ -324,8 +411,8 @@ export class BitcoinLockRelayService {
       const eventData = await this.getRelayEventData(client, result, status.asInBlock.toHex());
       if (eventData.extrinsicError) {
         this.failRelay(relayId, eventData.extrinsicError.message, {
-          inBlockHeight: eventData.inBlockHeight,
-          inBlockHash: eventData.blockHashHex,
+          txInBlockHeight: eventData.inBlockHeight,
+          txInBlockHash: eventData.blockHashHex,
           txFeePlusTip: eventData.txFeePlusTip,
           txTip: eventData.txTip,
           utxoId: eventData.createdUtxoId ?? relay.utxoId ?? null,
@@ -333,10 +420,9 @@ export class BitcoinLockRelayService {
         return;
       }
 
-      this.db.bitcoinLockRelaysTable.update(relayId, {
-        status: 'InBlock',
-        inBlockHeight: eventData.inBlockHeight,
-        inBlockHash: eventData.blockHashHex,
+      this.db.bitcoinLockRelaysTable.setInBlock(relayId, {
+        txInBlockHeight: eventData.inBlockHeight,
+        txInBlockHash: eventData.blockHashHex,
         txFeePlusTip: eventData.txFeePlusTip,
         txTip: eventData.txTip,
         utxoId: eventData.createdUtxoId ?? relay.utxoId ?? null,
@@ -358,16 +444,13 @@ export class BitcoinLockRelayService {
       const finalizedHeight = this.blockWatch.finalizedBlockHeader.blockNumber;
 
       for (const relay of this.db.bitcoinLockRelaysTable.fetchNonTerminal()) {
-        if (relay.status === 'Submitted') {
-          if (!relay.extrinsicHash || relay.submittedAtBlockHeight == null || relay.expiresAtBlockHeight == null) {
-            this.failRelay(relay.id, 'Relay submission metadata is incomplete.');
-            continue;
-          }
+        if (this.relayWatchUnsubscribes.has(relay.id)) continue;
 
+        if (relay.status === 'Submitted') {
           const inBlock = await TransactionEvents.findByExtrinsicHash({
             blockWatch: this.blockWatch,
             extrinsicHash: relay.extrinsicHash,
-            searchStartBlockHeight: relay.submittedAtBlockHeight,
+            searchStartBlockHeight: relay.txSubmittedAtBlockHeight,
             bestBlockHeight: bestHeight,
             blockCache: this.blockCache,
             ignoreHeaderErrors: true,
@@ -377,10 +460,9 @@ export class BitcoinLockRelayService {
             const client = await this.blockWatch.getRpcClient(inBlock.blockNumber);
             const createdUtxoId = extractCreatedLockEvent(client, inBlock.extrinsicEvents);
 
-            this.db.bitcoinLockRelaysTable.update(relay.id, {
-              status: 'InBlock',
-              inBlockHeight: inBlock.blockNumber,
-              inBlockHash: inBlock.blockHash,
+            this.db.bitcoinLockRelaysTable.setInBlock(relay.id, {
+              txInBlockHeight: inBlock.blockNumber,
+              txInBlockHash: inBlock.blockHash,
               txFeePlusTip: inBlock.fee + inBlock.tip,
               txTip: inBlock.tip,
               utxoId: createdUtxoId ?? relay.utxoId ?? null,
@@ -388,27 +470,20 @@ export class BitcoinLockRelayService {
             continue;
           }
 
-          if (bestHeight >= relay.expiresAtBlockHeight) {
+          if (bestHeight >= relay.txExpiresAtBlockHeight) {
             this.failRelay(relay.id, 'Relay expired before it was included in a block.');
           }
           continue;
         }
 
-        if (relay.status === 'InBlock' && relay.inBlockHeight != null && relay.inBlockHash) {
-          const header = await this.blockWatch.getHeader(relay.inBlockHeight).catch(() => undefined);
-          if (header && header.blockHash !== relay.inBlockHash) {
-            this.db.bitcoinLockRelaysTable.update(relay.id, {
-              status: 'Submitted',
-              inBlockHeight: null,
-              inBlockHash: null,
-              txFeePlusTip: null,
-              txTip: null,
-              utxoId: null,
-            });
+        if (relay.status === 'InBlock' && relay.txInBlockHeight != null && relay.txInBlockHash) {
+          const header = await this.blockWatch.getHeader(relay.txInBlockHeight).catch(() => undefined);
+          if (header && header.blockHash !== relay.txInBlockHash) {
+            this.db.bitcoinLockRelaysTable.revertToSubmitted(relay.id);
             continue;
           }
 
-          if (finalizedHeight >= relay.inBlockHeight + RELAY_FINALIZATION_CONFIRMATIONS) {
+          if (finalizedHeight >= relay.txInBlockHeight + RELAY_FINALIZATION_CONFIRMATIONS) {
             await this.tryFinalizeRelay(relay.id);
           }
         }
@@ -422,15 +497,12 @@ export class BitcoinLockRelayService {
     const relay = this.getRequiredRelay(relayId);
     if (relay.status === 'Finalized' || relay.status === 'Failed') return;
 
-    if (!relay.utxoId) {
+    if (relay.utxoId == null) {
       this.failRelay(relayId, 'Relay finalized without a created bitcoin lock event.');
       return;
     }
 
-    this.db.bitcoinLockRelaysTable.update(relayId, {
-      status: 'Finalized',
-      finalizedHeight: this.blockWatch.finalizedBlockHeader.blockNumber,
-    });
+    this.db.bitcoinLockRelaysTable.setFinalized(relayId, this.blockWatch.finalizedBlockHeader.blockNumber);
     this.stopRelayWatch(relayId);
   }
 
@@ -458,6 +530,27 @@ export class BitcoinLockRelayService {
     });
   }
 
+  private async ensureVaultLoaded(): Promise<void> {
+    if (this.vaultId != null && this.latestVault) {
+      return;
+    }
+
+    this.vaultLoadPromise ??= this.loadVault().finally(() => {
+      this.vaultLoadPromise = undefined;
+    });
+    await this.vaultLoadPromise;
+  }
+
+  private async tryLoadVault(): Promise<void> {
+    try {
+      await this.ensureVaultLoaded();
+    } catch (error) {
+      if (!isMissingVaultError(error)) {
+        throw error;
+      }
+    }
+  }
+
   private getRequiredRelay(relayId: number): IBitcoinLockRelayRecord {
     const relay = this.db.bitcoinLockRelaysTable.fetchById(relayId);
     if (!relay) {
@@ -466,24 +559,55 @@ export class BitcoinLockRelayService {
     return relay;
   }
 
+  private getRequiredCouponStatus(couponId: number): IBitcoinLockCouponStatus {
+    const coupon = this.db.bitcoinLockCouponsTable.fetchById(couponId);
+    if (!coupon) {
+      throw new Error(`Bitcoin lock coupon ${couponId} was not found.`);
+    }
+
+    return this.toCouponStatus(coupon, this.db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id));
+  }
+
   private failRelay(
     relayId: number,
     error: string,
     fields?: {
-      inBlockHeight?: number | null;
-      inBlockHash?: string | null;
+      txInBlockHeight?: number | null;
+      txInBlockHash?: string | null;
       txFeePlusTip?: bigint | null;
       txTip?: bigint | null;
       utxoId?: number | null;
     },
-  ): IBitcoinLockRelayRecord {
+  ): IBitcoinLockCouponStatus {
     this.stopRelayWatch(relayId);
 
-    return this.db.bitcoinLockRelaysTable.update(relayId, {
-      status: 'Failed',
-      error,
-      ...fields,
+    const relay = this.db.bitcoinLockRelaysTable.setFailed(relayId, error, {
+      txInBlockHeight: fields?.txInBlockHeight,
+      txInBlockHash: fields?.txInBlockHash,
+      txFeePlusTip: fields?.txFeePlusTip,
+      txTip: fields?.txTip,
+      utxoId: fields?.utxoId,
     });
+
+    return this.getRequiredCouponStatus(relay.couponId);
+  }
+
+  private toCouponStatus(
+    coupon: IBitcoinLockCouponRecord,
+    relay?: IBitcoinLockRelayRecord | null,
+  ): IBitcoinLockCouponStatus {
+    const expiresAt = coupon.expirationTick ? MiningFrames.getTickDate(coupon.expirationTick) : undefined;
+    let status: BitcoinLockCouponStatus = relay?.status ?? 'Open';
+    if (!relay && coupon.expirationTick != null && this.blockWatch.bestBlockHeader.tick >= coupon.expirationTick) {
+      status = 'Expired';
+    }
+
+    return {
+      coupon,
+      relay: relay ?? undefined,
+      status,
+      expiresAt,
+    };
   }
 
   private stopRelayWatch(relayId: number): void {
@@ -533,15 +657,12 @@ export class BitcoinLockRelayService {
 }
 
 function assertMatchingRelayRequest(
-  existingRelay: Pick<
-    IBitcoinLockRelayJobRequest,
-    'requestedSatoshis' | 'ownerAccountAddress' | 'ownerBitcoinPubkey' | 'microgonsPerBtc'
-  >,
+  existingRelay: IBitcoinLockRelayRecord | IBitcoinLockRelayJobRequest,
   request: IBitcoinLockRelayJobRequest,
 ): void {
   if (
     existingRelay.requestedSatoshis !== request.requestedSatoshis ||
-    existingRelay.ownerAccountAddress !== request.ownerAccountAddress ||
+    existingRelay.ownerAccountId !== request.ownerAccountId ||
     existingRelay.ownerBitcoinPubkey !== request.ownerBitcoinPubkey ||
     existingRelay.microgonsPerBtc !== request.microgonsPerBtc
   ) {
@@ -554,4 +675,8 @@ function extractCreatedLockEvent(client: ArgonClient, events: GenericEvent[]) {
   if (!createdEvent) return undefined;
 
   return createdEvent.data.utxoId.toNumber();
+}
+
+function isMissingVaultError(error: unknown): boolean {
+  return error instanceof HttpError && error.status === 404;
 }

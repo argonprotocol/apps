@@ -90,7 +90,10 @@ async function createVault() {
         }
       },
     );
-    void txInfo.waitForPostProcessing.then(finalizeVault);
+    void txInfo.waitForPostProcessing.then(finalizeVault).catch(error => {
+      console.error('Error finalizing vault setup:', error);
+      errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred while creating vault.';
+    });
   } catch (error: any) {
     console.error('Error creating vault:', error);
     errorMessage.value = error.message || 'Unknown error occurred while creating vault.';

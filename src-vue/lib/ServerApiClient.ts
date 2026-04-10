@@ -1,8 +1,6 @@
 import { JsonExt } from '@argonprotocol/apps-core';
 import type {
-  IBitcoinLockCouponStatus,
   ICreateTreasuryInviteResponse,
-  IListBitcoinLockCouponStatusesResponse,
   IListTreasuryInvitesResponse,
   IListTreasuryMembersResponse,
   IRouterErrorResponse,
@@ -11,8 +9,6 @@ import type {
   IRouterProfileUpdateRequest,
   ITreasuryUserInvite,
   ITreasuryUserInviteCreateRequest,
-  ITreasuryUserInviteSummary,
-  ITreasuryUserMember,
 } from '@argonprotocol/apps-router';
 import { SERVER_ENV_VARS } from './Env.ts';
 
@@ -72,19 +68,14 @@ export class ServerApiClient {
     return body.profile;
   }
 
-  public static async getTreasuryAppInvites(serverIp: string): Promise<ITreasuryUserInviteSummary[]> {
+  public static async getTreasuryAppInvites(serverIp: string): Promise<ITreasuryUserInvite[]> {
     const body = await this.request<IListTreasuryInvitesResponse>(serverIp, '/treasury-users/invites');
     return body.invites;
   }
 
-  public static async getTreasuryAppMembers(serverIp: string): Promise<ITreasuryUserMember[]> {
+  public static async getTreasuryAppMembers(serverIp: string): Promise<ITreasuryUserInvite[]> {
     const body = await this.request<IListTreasuryMembersResponse>(serverIp, '/treasury-users/members');
     return body.members;
-  }
-
-  public static async getBitcoinLockCouponStatuses(serverIp: string): Promise<IBitcoinLockCouponStatus[]> {
-    const body = await this.request<IListBitcoinLockCouponStatusesResponse>(serverIp, '/bitcoin-lock-coupons');
-    return body.bitcoinLocks;
   }
 
   public static async createTreasuryAppInvite(

@@ -4,10 +4,12 @@ import express from 'express';
 import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
 import type {
+  IActivateBitcoinLockCouponRequest,
+  IBitcoinLockRelayJobRequest,
   IBotApiMethod,
   IBotApiResponse,
   IBotApiSpec,
-  IBitcoinLockRelayJobRequest,
+  ICreateBitcoinLockCouponRequest,
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@argonprotocol/apps-core';
@@ -54,6 +56,7 @@ export class BotServer {
     const app = express();
     const wss = new WebSocketServer({ noServer: true });
     const bot = this.bot;
+    const relayService = bot.relayService;
     this.wss = wss;
 
     app.use(cors({ origin: true, methods: ['GET'] }));
@@ -62,25 +65,53 @@ export class BotServer {
       res.status(200).type('application/json').send(bot.isReady);
     });
 
-    app.post('/internal/bitcoin-lock-coupons/initialize', express.text({ type: '*/*' }), async (req, res) => {
+    app.post('/bitcoin-lock-coupons', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
         if (!req.body) {
           throw new HttpError('Missing JSON body', 400);
         }
 
-        return await bot.initializeBitcoinLockCoupon(JsonExt.parse<IBitcoinLockRelayJobRequest>(String(req.body)));
+        return await relayService.createCoupon(JsonExt.parse<ICreateBitcoinLockCouponRequest>(String(req.body)));
       });
     });
 
-    app.get('/internal/bitcoin-lock-coupons', async (_req, res) => {
+    app.post('/bitcoin-lock-coupons/activate', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
-        return await bot.getBitcoinLockStatuses();
+        if (!req.body) {
+          throw new HttpError('Missing JSON body', 400);
+        }
+
+        return await relayService.activateLatestCoupon(
+          JsonExt.parse<IActivateBitcoinLockCouponRequest>(String(req.body)),
+        );
       });
     });
 
-    app.get('/internal/bitcoin-lock-coupons/:offerCode', async (req, res) => {
+    app.post('/bitcoin-lock-coupons/initialize', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
-        return await bot.getBitcoinLockStatus(req.params.offerCode);
+        if (!req.body) {
+          throw new HttpError('Missing JSON body', 400);
+        }
+
+        return await relayService.relayBitcoinLock(JsonExt.parse<IBitcoinLockRelayJobRequest>(String(req.body)));
+      });
+    });
+
+    app.get('/bitcoin-lock-coupons', async (_req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await relayService.getBitcoinLockCouponStatuses();
+      });
+    });
+
+    app.get('/bitcoin-lock-coupons/by-user/:userId', async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await relayService.getBitcoinLockCouponsByUserId(Number(req.params.userId));
+      });
+    });
+
+    app.get('/bitcoin-lock-coupons/:offerCode', async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await relayService.getBitcoinLockCouponStatus(req.params.offerCode);
       });
     });
 

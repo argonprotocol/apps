@@ -42,12 +42,13 @@
         <div v-for="invite in invites" :key="invite.id" class="rounded-md border-b border-slate-300 px-3 py-3">
           <div class="flex flex-row items-start justify-between gap-x-4 text-slate-800">
             <div>
-              {{ invite.name }} has {{ currency.symbol }}{{ satoshiToMoneyNm(invite.maxSatoshis).format('0,0.00') }} in
-              free BTC locking
+              {{ invite.name }} has {{ currency.symbol
+              }}{{ satoshiToMoneyNm(invite.bitcoinLockCoupon?.coupon.maxSatoshis ?? 0n).format('0,0.00') }} in free BTC
+              locking
             </div>
             <div class="break-all">
-              <template v-if="invite.expiresAt">
-                <CountdownClock :time="dayjs.utc(invite.expiresAt)">
+              <template v-if="invite.bitcoinLockCoupon?.expiresAt">
+                <CountdownClock :time="dayjs.utc(invite.bitcoinLockCoupon.expiresAt)">
                   <template #default="{ days, hours, minutes, seconds, isFinished }">
                     <template v-if="isFinished">expired</template>
                     <template v-else>expires in {{ days }}d {{ hours }}h {{ minutes }}m {{ seconds }}s</template>
@@ -83,6 +84,24 @@
           <InputNumber v-model="maxSatoshisNumber" :min="1" :max="2100000000000000" suffix=" sats" />
         </div>
 
+        <div v-if="delegateSetupTxInfo" class="mt-4 space-y-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          <div class="text-sm font-medium text-slate-600">
+            Setting up your invite service to allow members to lock bitcoins.
+          </div>
+
+          <ProgressBar :progress="delegateSetupProgressPct" :hasError="!!delegateSetupProgressError" />
+
+          <div class="text-xs text-slate-500">
+            {{ delegateSetupProgressMessage }}
+          </div>
+
+          <div
+            v-if="delegateSetupProgressError"
+            class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {{ delegateSetupProgressError }}
+          </div>
+        </div>
+
         <div class="mt-2 flex flex-row gap-x-2">
           <button @click="toggleAddInvite" class="text-argon-600 rounded border px-3 py-1">Cancel</button>
           <button
@@ -107,14 +126,11 @@ import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import InputNumber from '../../components/InputNumber.vue';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
+import ProgressBar from '../../components/ProgressBar.vue';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
-import {
-  BitcoinLockCoupons,
-  type IBitcoinLockCouponStatus,
-  type ITreasuryUserInviteSummary,
-} from '@argonprotocol/apps-router';
+import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
 import { getConfig } from '../../stores/config.ts';
 import { SERVER_ENV_VARS } from '../../lib/Env.ts';
 import { VaultInvites } from '../../lib/VaultInvites.ts';
@@ -125,6 +141,8 @@ import { getCurrency } from '../../stores/currency.ts';
 import { NetworkConfig, supportsBitcoinLockDelegateSetup } from '@argonprotocol/apps-core';
 import { nanoid } from 'nanoid';
 import { ServerApiClient } from '../../lib/ServerApiClient.ts';
+import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
+import { generateProgressLabel } from '../../lib/Utils.ts';
 
 const config = getConfig();
 const myVault = getMyVault();
@@ -143,8 +161,12 @@ const inviteCreationBlockedReason = Vue.ref<string | null>(null);
 const errorMessage = Vue.ref<string | null>(null);
 const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
-const invites = Vue.ref<ITreasuryUserInviteSummary[]>([]);
-const bitcoinLockStatusesByOfferCode = Vue.ref<Record<string, IBitcoinLockCouponStatus>>({});
+const invites = Vue.ref<ITreasuryUserInvite[]>([]);
+const delegateSetupTxInfo = Vue.ref<TransactionInfo | null>(null);
+const delegateSetupProgressPct = Vue.ref(0);
+const delegateSetupProgressMessage = Vue.ref('');
+const delegateSetupProgressError = Vue.ref<string | null>(null);
+let unsubDelegateSetupProgress: (() => void) | undefined;
 
 const ipAddress = Vue.computed(() => {
   return config.serverDetails.ipAddress;
@@ -160,20 +182,26 @@ function toggleAddInvite() {
   errorMessage.value = null;
   isAddingInvite.value = !isAddingInvite.value;
   if (!isAddingInvite.value) {
+    unsubDelegateSetupProgress?.();
+    unsubDelegateSetupProgress = undefined;
+    delegateSetupTxInfo.value = null;
+    delegateSetupProgressPct.value = 0;
+    delegateSetupProgressMessage.value = '';
+    delegateSetupProgressError.value = null;
     inviteName.value = '';
     maxSatoshisNumber.value = 100_000_000;
   }
 }
 
-function statusClass(invite: ITreasuryUserInviteSummary): string {
+function statusClass(invite: ITreasuryUserInvite): string {
   const status = extractStatus(invite);
   if (status.includes('User')) return 'text-green-700';
   if (status.includes('Failed') || status.includes('Expired')) return 'text-red-700';
   return 'text-slate-600';
 }
 
-function extractStatus(invite: ITreasuryUserInviteSummary): string {
-  const bitcoinLock = bitcoinLockStatusesByOfferCode.value[invite.offerCode];
+function extractStatus(invite: ITreasuryUserInvite): string {
+  const bitcoinLock = invite.bitcoinLockCoupon;
   if (bitcoinLock?.status === 'Failed') {
     return 'Bitcoin Lock Failed';
   } else if (bitcoinLock?.status === 'Finalized') {
@@ -182,7 +210,7 @@ function extractStatus(invite: ITreasuryUserInviteSummary): string {
     return 'User Started Bitcoin Lock';
   } else if (invite.lastClickedAt) {
     return 'User Clicked';
-  } else if (invite.expiresAt && invite.expiresAt < new Date()) {
+  } else if (bitcoinLock?.status === 'Expired') {
     return 'Invite Expired';
   } else {
     return 'Waiting for User';
@@ -201,20 +229,13 @@ async function loadInvites() {
   errorMessage.value = null;
   if (!ipAddress.value) {
     invites.value = [];
-    bitcoinLockStatusesByOfferCode.value = {};
     return;
   }
 
   try {
-    const [loadedInvites, bitcoinLocks] = await Promise.all([
-      ServerApiClient.getTreasuryAppInvites(ipAddress.value),
-      ServerApiClient.getBitcoinLockCouponStatuses(ipAddress.value),
-    ]);
-    invites.value = loadedInvites;
-    bitcoinLockStatusesByOfferCode.value = Object.fromEntries(bitcoinLocks.map(lock => [lock.offerCode, lock]));
+    invites.value = await ServerApiClient.getTreasuryAppInvites(ipAddress.value);
   } catch {
     invites.value = [];
-    bitcoinLockStatusesByOfferCode.value = {};
     errorMessage.value = 'Unable to load invites right now. Please try again.';
   }
 }
@@ -261,6 +282,12 @@ async function createInvite() {
   try {
     errorMessage.value = null;
     isCreatingInvite.value = true;
+    unsubDelegateSetupProgress?.();
+    unsubDelegateSetupProgress = undefined;
+    delegateSetupTxInfo.value = null;
+    delegateSetupProgressPct.value = 0;
+    delegateSetupProgressMessage.value = '';
+    delegateSetupProgressError.value = null;
 
     await myVault.load();
     const vaultId = myVault.createdVault?.vaultId;
@@ -271,43 +298,41 @@ async function createInvite() {
       throw new Error('No server is available to create an invite.');
     }
 
-    const client = await getMainchainClient(false);
-
     isRunningInitialDelegateSetup.value = needsInitialDelegateSetup.value;
     const delegateSetupTx = await myVault.ensureDelegatedBitcoinSigner();
-    await delegateSetupTx?.txResult.waitForInFirstBlock;
-    needsInitialDelegateSetup.value = false;
-    const signer = await walletKeys.getVaultingKeypair();
+    if (delegateSetupTx) {
+      isRunningInitialDelegateSetup.value = true;
+      delegateSetupTxInfo.value = delegateSetupTx;
+      delegateSetupProgressMessage.value = 'Submitting to Argon...';
+      unsubDelegateSetupProgress = delegateSetupTx.subscribeToProgress((args, error) => {
+        delegateSetupProgressPct.value = args.progressPct;
+        delegateSetupProgressMessage.value = generateProgressLabel(args.confirmations, args.expectedConfirmations, {
+          blockType: 'Argon',
+        });
 
-    const expirationFrame = myVault.data.currentFrameId + 1;
-    const expirationFrameEndTick = miningFrames.getTickEnd(expirationFrame);
-    if (!expirationFrameEndTick) {
-      throw new Error(`Unable to calculate expiration tick for frame ${expirationFrame}.`);
+        if (error) {
+          delegateSetupProgressError.value = error.message ?? 'Transaction failed.';
+        }
+      });
+
+      await delegateSetupTx.txResult.waitForInFirstBlock;
+      needsInitialDelegateSetup.value = false;
+      unsubDelegateSetupProgress?.();
+      unsubDelegateSetupProgress = undefined;
+      delegateSetupTxInfo.value = null;
+      delegateSetupProgressPct.value = 0;
+      delegateSetupProgressMessage.value = '';
+      delegateSetupProgressError.value = null;
     }
 
-    const currentTick = Number((await client.query.ticks.currentTick()).toBigInt());
-    const expiresAfterTicks = expirationFrameEndTick - currentTick;
-    if (expiresAfterTicks <= 0) {
-      throw new Error('Unable to calculate an invite expiration window.');
-    }
+    const expiresAfterTicks = 10 * NetworkConfig.rewardTicksPerFrame;
 
     const inviteAccessCode = nanoid(10);
-    const offerCode = nanoid(10);
-    const offerToken = BitcoinLockCoupons.createToken(
-      {
-        vaultId,
-        maxSatoshis,
-        expiresAfterTicks,
-        code: offerCode,
-      },
-      signer,
-    );
     const inviteCode = VaultInvites.encodeInviteCode(ipAddress.value, SERVER_ENV_VARS.ROUTER_PORT, inviteAccessCode);
     await ServerApiClient.createTreasuryAppInvite(ipAddress.value, {
       name,
       inviteCode,
-      offerCode,
-      offerToken,
+      vaultId,
       maxSatoshis,
       expiresAfterTicks,
     });
@@ -337,5 +362,9 @@ Vue.watch([isOpen, () => config.isServerInstalled], ([open, isServerInstalled], 
   }, 5_000);
 
   onCleanup(() => clearInterval(interval));
+});
+
+Vue.onUnmounted(() => {
+  unsubDelegateSetupProgress?.();
 });
 </script>

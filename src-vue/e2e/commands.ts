@@ -1140,6 +1140,28 @@ function setElementValue(element: HTMLElement, text: string, clear: boolean): vo
   throw new CommandError('invalid_target', 'Target is not an editable field');
 }
 
+function dispatchPasteEvent(element: HTMLElement, text: string): boolean {
+  element.focus();
+
+  let clipboardData: DataTransfer | undefined;
+  if (typeof DataTransfer !== 'undefined') {
+    clipboardData = new DataTransfer();
+    clipboardData.setData('text/plain', text);
+  }
+
+  const event = new ClipboardEvent('paste', {
+    bubbles: true,
+    cancelable: true,
+    clipboardData,
+  });
+  if (!event.clipboardData && clipboardData) {
+    Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+  }
+
+  element.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
 function getElementText(element: HTMLElement): string {
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     return element.value;
@@ -1425,7 +1447,10 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     }
     await visualizeAction(element, 'paste');
     const { text, backend } = await readClipboard();
-    setElementValue(element, text, clear);
+    const wasHandled = dispatchPasteEvent(element, text);
+    if (!wasHandled) {
+      setElementValue(element, text, clear);
+    }
     return { ok: true, target: getTargetLabel(target), textLength: text.length, backend };
   }
 

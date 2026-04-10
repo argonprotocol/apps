@@ -2,15 +2,7 @@ import { NetworkConfig, NetworkConfigSettings } from '@argonprotocol/apps-core';
 import { Db } from './src/Db.ts';
 import { RouterServer } from './src/RouterServer.ts';
 import { TreasuryInviteService } from './src/TreasuryInviteService.ts';
-import {
-  ARGON_CHAIN,
-  BITCOIN_CHAIN,
-  LOCAL_NODE_URL,
-  MAIN_NODE_URL,
-  PORT,
-  ROUTER_DB_PATH,
-  VAULT_OPERATOR_ADDRESS,
-} from './src/env';
+import { ARGON_CHAIN, BITCOIN_CHAIN, LOCAL_NODE_URL, MAIN_NODE_URL, PORT, ROUTER_DB_PATH } from './src/env';
 
 console.log('Starting router server on port', PORT, {
   LOCAL_NODE_URL,
@@ -24,16 +16,12 @@ if (!(networkName in NetworkConfigSettings)) {
 }
 NetworkConfig.setNetwork(networkName as keyof typeof NetworkConfigSettings);
 
-if (!VAULT_OPERATOR_ADDRESS) {
-  throw new Error('VAULT_OPERATOR_ADDRESS must be set for the router.');
-}
-
 const db = new Db(ROUTER_DB_PATH);
 db.migrate();
 
 const server = new RouterServer({
   db,
-  inviteService: new TreasuryInviteService(db, VAULT_OPERATOR_ADDRESS),
+  inviteService: new TreasuryInviteService(db),
   botInternalUrl: 'http://bot:8080',
   port: Number(PORT),
   localNodeUrl: LOCAL_NODE_URL,

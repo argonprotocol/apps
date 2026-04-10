@@ -3,21 +3,19 @@ import type { Server } from 'node:http';
 import { type IBitcoinLockRelayRequest, JsonExt } from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
+import { BotCouponClient } from './BotCouponClient.ts';
 import { BITCOIN_CONFIG, SERVER_ROOT } from './env.ts';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import { TreasuryInviteService } from './TreasuryInviteService.ts';
 import type {
-  IBitcoinLockCouponStatus,
-  IBitcoinLockRelayRecord,
-  IListBitcoinLockCouponStatusesResponse,
   IBitcoinLockStatusResponse,
   ICreateTreasuryInviteResponse,
+  IListBitcoinLockCouponsResponse,
   IListTreasuryInvitesResponse,
   IListTreasuryMembersResponse,
   IOpenTreasuryInviteRequest,
   IOpenTreasuryInviteResponse,
-  IRouterErrorResponse,
   IRouterProfileResponse,
   IRouterProfileUpdateRequest,
   ITreasuryUserInviteCreateRequest,
@@ -31,6 +29,8 @@ interface IRouterServerOptions {
   localNodeUrl?: string;
   mainNodeUrl?: string;
 }
+
+const TREASURY_USER_ROLE = 'treasury_user' as const;
 
 export class RouterServer {
   private server!: Server;
@@ -48,6 +48,7 @@ export class RouterServer {
   public start(): void {
     const app = express();
     const { botInternalUrl, db, inviteService } = this.options;
+    const botCouponClient = new BotCouponClient(botInternalUrl);
 
     app.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -112,57 +113,102 @@ export class RouterServer {
     app.post(
       '/treasury-users/create',
       express.text({ type: '*/*' }),
-      safeJsonRoute<ICreateTreasuryInviteResponse>(req => {
+      safeJsonRoute<ICreateTreasuryInviteResponse>(async req => {
         const body = requireBody<ITreasuryUserInviteCreateRequest>(req);
-        const invite = inviteService.createInvite(body);
+        const userInvite = inviteService.createInvite(body);
+        const bitcoinLockCoupon = await botCouponClient.createCoupon({
+          userId: userInvite.id,
+          vaultId: body.vaultId,
+          maxSatoshis: body.maxSatoshis,
+          expiresAfterTicks: body.expiresAfterTicks,
+        });
 
-        return { invite };
+        return {
+          invite: {
+            ...userInvite,
+            vaultId: body.vaultId,
+            bitcoinLockCoupon,
+          },
+        };
+      }),
+    );
+
+    app.post(
+      '/treasury-users/:inviteCode/open',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IOpenTreasuryInviteResponse>(async req => {
+        const { accountId } = requireBody<IOpenTreasuryInviteRequest>(req);
+        const profile = db.profileTable.fetch();
+        const userInvite = inviteService.openInvite(req.params.inviteCode, accountId);
+        if (!userInvite) {
+          throw new RouterError('Invite not found', 404);
+        }
+        const bitcoinLockCoupon = await botCouponClient.activateLatestCoupon({
+          userId: userInvite.id,
+          accountId,
+        });
+
+        return {
+          fromName: profile.name,
+          invite: {
+            ...userInvite,
+            vaultId: bitcoinLockCoupon.coupon.vaultId,
+            bitcoinLockCoupon,
+          },
+        };
       }),
     );
 
     app.get(
       '/treasury-users/invites',
       safeJsonRoute<IListTreasuryInvitesResponse>(async () => {
-        return { invites: inviteService.listInvites() };
+        const couponsByUserId = await botCouponClient.listLatestCouponsByUserId();
+
+        return {
+          invites: db.userInvitesTable.fetchByRole(TREASURY_USER_ROLE).map(user => {
+            const bitcoinLockCoupon = couponsByUserId.get(user.id);
+            return {
+              ...user,
+              vaultId: bitcoinLockCoupon?.coupon.vaultId,
+              bitcoinLockCoupon,
+            };
+          }),
+        };
       }),
     );
 
     app.get(
       '/treasury-users/members',
       safeJsonRoute<IListTreasuryMembersResponse>(async () => {
-        return { members: inviteService.listMembers() };
+        const couponsByUserId = await botCouponClient.listLatestCouponsByUserId();
+
+        return {
+          members: db.userInvitesTable.fetchOpenedByRole(TREASURY_USER_ROLE).map(user => {
+            const bitcoinLockCoupon = couponsByUserId.get(user.id);
+            return {
+              ...user,
+              vaultId: bitcoinLockCoupon?.coupon.vaultId,
+              bitcoinLockCoupon,
+            };
+          }),
+        };
       }),
     );
 
     app.get(
       '/bitcoin-lock-coupons',
-      safeJsonRoute<IListBitcoinLockCouponStatusesResponse>(async () => {
-        return { bitcoinLocks: await fetchBotBitcoinLockStatuses(botInternalUrl) };
+      safeJsonRoute<IListBitcoinLockCouponsResponse>(async () => {
+        return {
+          bitcoinLockCoupons: await botCouponClient.listCoupons(),
+        };
       }),
     );
 
     app.get(
       '/bitcoin-lock-coupons/:offerCode',
       safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
-        return { bitcoinLock: await fetchBotBitcoinLockStatus(botInternalUrl, req.params.offerCode) };
-      }),
-    );
-
-    app.post(
-      '/treasury-users/:inviteCode',
-      express.text({ type: '*/*' }),
-      safeJsonRoute<IOpenTreasuryInviteResponse>((req, res) => {
-        const { accountAddress } = requireBody<IOpenTreasuryInviteRequest>(req);
-        const profile = db.profileTable.fetch();
-        const invite = inviteService.openInvite(req.params.inviteCode, accountAddress);
-        if (!invite) {
-          sendJson(res, { error: 'Invite not found' }, 404);
-          return;
-        }
-
         return {
-          fromName: profile.name,
-          invite,
+          bitcoinLock: await botCouponClient.getCoupon(req.params.offerCode),
         };
       }),
     );
@@ -172,23 +218,45 @@ export class RouterServer {
       express.text({ type: '*/*' }),
       safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
         const body = requireBody<IBitcoinLockRelayRequest>(req);
+        if (body.microgonsPerBtc == null) {
+          throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
+        }
 
-        const relayRequest = inviteService.createRelayRequest(req.params.offerCode, body);
-        const bitcoinLock = await fetchBot<IBitcoinLockStatusResponse['bitcoinLock']>(
-          `${botInternalUrl}/internal/bitcoin-lock-coupons/initialize`,
-          {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JsonExt.stringify(relayRequest),
-          },
-        ).catch(error => {
-          if (error instanceof RouterError) {
-            throw new RouterError(error.message || 'Bot request failed to initialize this bitcoin lock.', error.status);
-          }
-          throw error;
-        });
+        const bitcoinLock = await botCouponClient
+          .initializeCoupon(req.params.offerCode, {
+            offerCode: req.params.offerCode,
+            requestedSatoshis: body.requestedSatoshis,
+            ownerAccountId: body.ownerAccountId,
+            ownerBitcoinPubkey: body.ownerBitcoinPubkey,
+            microgonsPerBtc: body.microgonsPerBtc,
+          })
+          .catch(error => {
+            if (error instanceof RouterError) {
+              throw new RouterError(
+                error.message || 'Bot request failed to initialize this bitcoin lock.',
+                error.status,
+              );
+            }
+            throw error;
+          });
 
         return { bitcoinLock };
+      }),
+    );
+
+    app.get(
+      '/treasury-users/:accountId/bitcoin-lock-coupons',
+      safeJsonRoute<IListBitcoinLockCouponsResponse>(async req => {
+        const user = db.userInvitesTable.fetchByAccountId(req.params.accountId, TREASURY_USER_ROLE);
+        if (!user) {
+          return {
+            bitcoinLockCoupons: [],
+          };
+        }
+
+        return {
+          bitcoinLockCoupons: await botCouponClient.listCouponsByUserId(user.id),
+        };
       }),
     );
 
@@ -250,40 +318,6 @@ export class RouterServer {
       });
     });
   }
-}
-
-async function fetchBotBitcoinLockStatuses(botInternalUrl: string): Promise<IBitcoinLockCouponStatus[]> {
-  return await fetchBot<IBitcoinLockRelayRecord[]>(`${botInternalUrl}/internal/bitcoin-lock-coupons`);
-}
-
-async function fetchBotBitcoinLockStatus(botInternalUrl: string, offerCode: string) {
-  return await fetchBot<IBitcoinLockRelayRecord>(
-    `${botInternalUrl}/internal/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}`,
-  );
-}
-
-async function fetchBot<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const rawBody = await response.text();
-  const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
-
-  if (!response.ok) {
-    const message =
-      body != null &&
-      typeof body === 'object' &&
-      !Array.isArray(body) &&
-      'error' in body &&
-      typeof body.error === 'string'
-        ? body.error
-        : 'Bot request failed.';
-    throw new RouterError(message, response.status);
-  }
-
-  if (!body) {
-    throw new RouterError('Bot request failed.', response.status || 500);
-  }
-
-  return body as T;
 }
 
 function sendJson(res: Response, data: unknown, status = 200): void {

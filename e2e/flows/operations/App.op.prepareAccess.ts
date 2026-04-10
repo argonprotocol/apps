@@ -50,41 +50,27 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
     await flow.click('WelcomeOverlay.importFromMnemonic()', { timeoutMs: 10_000 });
 
     await pollEvery(
-      250,
-      async () => {
-        try {
-          await flow.command('app.location');
-          return false;
-        } catch (error) {
-          return String(error).includes('[app_not_connected]');
-        }
-      },
-      {
-        timeoutMs: 10_000,
-        timeoutMessage: 'App did not restart after mnemonic import.',
-      },
-    );
-
-    await pollEvery(
       500,
       async () => {
         try {
-          await flow.command('app.waitForReady', { timeoutMs: 1_000 });
-          return true;
-        } catch {
-          return false;
+          const importButton = await flow.isVisible('WelcomeOverlay.importFromMnemonic()');
+          return !importButton.exists || !importButton.visible;
+        } catch (error) {
+          if (isRetryableReloadError(error)) {
+            return false;
+          }
+          throw error;
         }
       },
       {
         timeoutMs: 30_000,
-        timeoutMessage: 'App did not become ready after mnemonic import.',
+        timeoutMessage: 'Welcome overlay did not clear after mnemonic import.',
       },
     );
-
-    await flow.poll<IPrepareAccessState>(latest => !latest.uiState.welcomeOverlayVisible, {
-      pollMs: 1_000,
-      timeoutMs: 30_000,
-      timeoutMessage: 'Welcome overlay did not clear after mnemonic import.',
-    });
   },
 });
+
+function isRetryableReloadError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
+}

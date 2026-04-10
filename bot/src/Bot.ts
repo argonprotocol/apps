@@ -15,8 +15,6 @@ import {
   getRange,
   type IBiddingRules,
   type IBidReductionReason,
-  type IBitcoinLockRelayJobRequest,
-  type IBitcoinLockRelayRecord,
   type IBotState,
   type IHistoryFile,
   type IMiningFrameDetail,
@@ -182,18 +180,6 @@ export default class Bot {
 
   public async getMiningFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
     return this.miningFrameHistory.getDetail(frameId);
-  }
-
-  public async initializeBitcoinLockCoupon(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
-    return await this.relayService.queueRelay(request);
-  }
-
-  public async getBitcoinLockStatus(offerCode: string): Promise<IBitcoinLockRelayRecord> {
-    return await this.relayService.getBitcoinLockStatus(offerCode);
-  }
-
-  public async getBitcoinLockStatuses(): Promise<IBitcoinLockRelayRecord[]> {
-    return await this.relayService.getLatestBitcoinLockStatuses();
   }
 
   public async start(): Promise<void> {
