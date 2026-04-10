@@ -4,13 +4,21 @@ import {
   type ExtrinsicError,
   type FrameSystemEventRecord,
   type GenericEvent,
+  type SignedBlock,
   type SpRuntimeDispatchError,
+  u8aToHex,
 } from '@argonprotocol/mainchain';
+import type { BlockWatch } from './BlockWatch.js';
 
 type IsMatchingEventFn = (
   event: GenericEvent,
   registryError?: { section: string; method: string; index: number; name: string },
 ) => boolean;
+
+type IBlockCache = {
+  get(key: string): SignedBlock | undefined;
+  set(key: string, value: SignedBlock): unknown;
+};
 
 export class TransactionEvents {
   public static async getErrorAndFeeForTransaction(args: {
@@ -104,5 +112,88 @@ export class TransactionEvents {
       }
     }
     return undefined;
+  }
+
+  public static async findByExtrinsicHash(args: {
+    blockWatch: BlockWatch;
+    extrinsicHash: string;
+    searchStartBlockHeight: number;
+    bestBlockHeight: number;
+    maxBlocksToCheck?: number;
+    blockCache?: IBlockCache;
+    ignoreHeaderErrors?: boolean;
+  }): Promise<
+    | {
+        blockNumber: number;
+        blockHash: string;
+        blockTime: number;
+        extrinsicIndex: number;
+        fee: bigint;
+        tip: bigint;
+        error?: ExtrinsicError;
+        extrinsicEvents: GenericEvent[];
+      }
+    | undefined
+  > {
+    const { blockWatch, extrinsicHash, searchStartBlockHeight, bestBlockHeight, blockCache, ignoreHeaderErrors } = args;
+    if (searchStartBlockHeight > bestBlockHeight) {
+      return undefined;
+    }
+
+    const maxBlocksToCheck = args.maxBlocksToCheck ?? Math.max(0, bestBlockHeight - searchStartBlockHeight);
+
+    for (let i = 0; i <= maxBlocksToCheck; i++) {
+      const blockHeight = searchStartBlockHeight + i;
+      if (blockHeight > bestBlockHeight) {
+        return undefined;
+      }
+
+      const header = await blockWatch.getHeader(blockHeight).catch(error => {
+        if (ignoreHeaderErrors) return null;
+        throw error;
+      });
+      if (!header) continue;
+
+      const client = await blockWatch.getRpcClient(blockHeight);
+      const block = await this.getBlock(client, header.blockHash, blockCache);
+
+      for (const [index, extrinsic] of block.block.extrinsics.entries()) {
+        if (u8aToHex(extrinsic.hash) !== extrinsicHash) continue;
+
+        const api = await client.at(header.blockHash);
+        const events = await api.query.system.events();
+        const txEvents = await this.getErrorAndFeeForTransaction({
+          client,
+          extrinsicIndex: index,
+          events: events as unknown as FrameSystemEventRecord[],
+        });
+
+        return {
+          blockNumber: blockHeight,
+          blockHash: header.blockHash,
+          blockTime: header.blockTime,
+          extrinsicIndex: index,
+          fee: txEvents.fee,
+          tip: txEvents.tip,
+          error: txEvents.error,
+          extrinsicEvents: txEvents.extrinsicEvents,
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private static async getBlock(
+    client: ArgonClient,
+    blockHash: string,
+    blockCache?: IBlockCache,
+  ): Promise<SignedBlock> {
+    const cached = blockCache?.get(blockHash);
+    if (cached) return cached;
+
+    const block = await client.rpc.chain.getBlock(blockHash);
+    blockCache?.set(blockHash, block);
+    return block;
   }
 }

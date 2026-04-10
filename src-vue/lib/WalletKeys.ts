@@ -97,6 +97,11 @@ export class WalletKeys {
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
+  public async getVaultDelegateKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting//delegate` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
   public async getOperationalEncryptionKeypair(): Promise<Uint8Array> {
     return await invokeWithTimeout<Uint8Array>('derive_x25519_public_key', { suri: `//operational//encrypt` }, 60e3);
   }

@@ -179,7 +179,7 @@ export class Stats {
 
     await this.updateDashboard();
 
-    botEmitter.on('updated-cohort-data', async (frameId: number) => {
+    botEmitter.on('updated-cohort-data', async frameId => {
       await this.updateMiningSeats();
 
       const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
@@ -203,7 +203,7 @@ export class Stats {
       // }
     });
 
-    botEmitter.on('updated-bids-data', async (_: IBidsFile['winningBids']) => {
+    botEmitter.on('updated-bids-data', async () => {
       void this.updateMiningBids();
     });
 

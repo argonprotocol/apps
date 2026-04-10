@@ -54,6 +54,15 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'router',
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+          include: ['router/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
+        },
+      },
+      {
+        test: {
           name: 'integration',
           testTimeout: 240_000,
           hookTimeout: 120_000,

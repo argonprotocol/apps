@@ -31,20 +31,26 @@ export class AutoBidder {
   private nextCohortActivationFrameId: number | null = null;
   private isStopped: boolean = false;
   private unsubscribe?: () => void;
-  private readonly biddingCalculator: BiddingCalculator;
+  private biddingCalculator?: BiddingCalculator;
   private onUpdatedFn?: () => void;
+  private localRpcUrl?: string;
+  private hasRegisteredKeys = false;
 
   constructor(
     private readonly accountset: Accountset,
     private readonly mainchainClients: MainchainClients,
     private readonly storage: Storage,
     private readonly history: History,
-    private biddingRules: IBiddingRules,
+    private biddingRules: IBiddingRules | null,
     private readonly miningFrames: MiningFrames,
   ) {
     this.mining = new Mining(this.mainchainClients);
-    const calculatorData = new BiddingCalculatorData(this.mining, this.miningFrames);
-    this.biddingCalculator = new BiddingCalculator(calculatorData, this.biddingRules);
+    if (this.biddingRules) {
+      this.biddingCalculator = new BiddingCalculator(
+        new BiddingCalculatorData(this.mining, this.miningFrames),
+        this.biddingRules,
+      );
+    }
   }
 
   public subscribeToUpdates(onUpdatedFn: () => void) {
@@ -55,7 +61,7 @@ export class AutoBidder {
   }
 
   public async start(localRpcUrl: string): Promise<void> {
-    await this.accountset.registerKeys(localRpcUrl);
+    this.localRpcUrl = localRpcUrl;
     if (this.unsubscribe) {
       this.unsubscribe();
     }
@@ -63,8 +69,18 @@ export class AutoBidder {
       onBiddingStart: this.onBiddingStart.bind(this),
       onBiddingEnd: this.onBiddingEnd.bind(this),
     });
-    await this.biddingCalculator.load();
     this.unsubscribe = unsubscribe;
+
+    if (!this.biddingRules || !this.biddingCalculator) {
+      return;
+    }
+
+    if (!this.hasRegisteredKeys) {
+      await this.accountset.registerKeys(this.localRpcUrl);
+      this.hasRegisteredKeys = true;
+    }
+
+    await this.biddingCalculator.load();
   }
 
   public async stop() {
@@ -73,15 +89,51 @@ export class AutoBidder {
     console.log('AUTOBIDDER STOPPING');
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    for (const key of this.cohortBiddersByActivationFrameId.keys()) {
-      await this.onBiddingEnd(key, true);
+    for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
+      await this.onBiddingEnd(cohortActivationFrameId, false);
     }
+    this.biddingCalculator?.unload();
     this.onUpdatedFn = undefined;
     this.cohortBiddersByActivationFrameId.clear();
     console.log('AUTOBIDDER STOPPED');
   }
 
+  public async updateBiddingRules(biddingRules: IBiddingRules | null): Promise<void> {
+    this.biddingRules = biddingRules;
+
+    if (!this.biddingRules) {
+      this.biddingCalculator?.unload();
+      this.biddingCalculator = undefined;
+      for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
+        await this.onBiddingEnd(cohortActivationFrameId, false);
+      }
+      return;
+    }
+
+    this.biddingCalculator?.unload();
+    this.biddingCalculator = new BiddingCalculator(
+      new BiddingCalculatorData(this.mining, this.miningFrames),
+      this.biddingRules,
+    );
+
+    if (!this.unsubscribe || !this.localRpcUrl) {
+      return;
+    }
+
+    if (!this.hasRegisteredKeys) {
+      await this.accountset.registerKeys(this.localRpcUrl);
+      this.hasRegisteredKeys = true;
+    }
+
+    await this.biddingCalculator.load();
+    await this.reloadActiveCohort();
+  }
+
   private async createBidderParams(cohortActivationFrameId: number): Promise<IBidderParams> {
+    if (!this.biddingCalculator || !this.biddingRules) {
+      throw new Error('Bidding rules are not configured.');
+    }
+
     await this.biddingCalculator.data.load(cohortActivationFrameId - 1);
     this.biddingCalculator.calculateBidAmounts();
     const calculator = this.biddingCalculator;
@@ -105,17 +157,21 @@ export class AutoBidder {
     };
   }
 
-  private async onBiddingEnd(cohortActivationFrameId: number, isShuttingDown = false): Promise<void> {
+  private async onBiddingEnd(cohortActivationFrameId: number, waitForFinalBids = true): Promise<void> {
     const cohortBidder = this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId);
-    if (cohortBidder) {
-      cohortBidder.isBiddingOpen = false;
-      await cohortBidder.stop(!isShuttingDown);
-      console.log('Bidding stopped', { cohortActivationFrameId });
+    if (!cohortBidder) return;
+
+    cohortBidder.isBiddingOpen = false;
+    await cohortBidder.stop(waitForFinalBids);
+    this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
+    if (this.nextCohortActivationFrameId === cohortActivationFrameId) {
+      this.nextCohortActivationFrameId = null;
     }
+    console.log('Bidding stopped', { cohortActivationFrameId });
   }
 
   private async onBiddingStart(cohortActivationFrameId: number) {
-    if (this.isStopped) return;
+    if (this.isStopped || !this.biddingRules || !this.biddingCalculator) return;
 
     try {
       const params = await this.createBidderParams(cohortActivationFrameId);
@@ -228,5 +284,20 @@ export class AutoBidder {
     } catch (err) {
       console.error('Error starting bidding for cohort', cohortActivationFrameId, err);
     }
+  }
+
+  private async reloadActiveCohort(): Promise<void> {
+    const client = await this.mainchainClients.prunedClientOrArchivePromise;
+    const isBiddingOpen = await client.query.miningSlot.isNextSlotBiddingOpen();
+    if (isBiddingOpen.isFalse) {
+      for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
+        await this.onBiddingEnd(cohortActivationFrameId, false);
+      }
+      return;
+    }
+
+    const cohortActivationFrameId = await this.mining.fetchNextFrameId(client);
+    await this.onBiddingEnd(cohortActivationFrameId, false);
+    await this.onBiddingStart(cohortActivationFrameId);
   }
 }

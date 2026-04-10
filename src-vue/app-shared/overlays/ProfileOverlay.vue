@@ -54,7 +54,7 @@
 import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { SERVER_ENV_VARS } from '../../lib/Env.ts';
+import { ServerApiClient } from '../../lib/ServerApiClient.ts';
 import { getConfig } from '../../stores/config.ts';
 import { useBasics } from '../../stores/basics.ts';
 
@@ -80,14 +80,8 @@ async function load() {
   }
 
   try {
-    const response = await fetch(`http://${ipAddress}:${SERVER_ENV_VARS.ROUTER_PORT}/profile`);
-    if (!response.ok) {
-      errorMessage.value = 'Unable to load your profile right now. Please try again.';
-      return;
-    }
-
-    const { profile } = await response.json();
-    name.value = profile?.name ?? '';
+    const profile = await ServerApiClient.getProfile(ipAddress);
+    name.value = profile.name ?? '';
   } catch {
     errorMessage.value = 'Unable to load your profile right now. Please try again.';
   }
@@ -107,20 +101,7 @@ async function saveProfile() {
       return;
     }
 
-    const response = await fetch(`http://${ipAddress}:${SERVER_ENV_VARS.ROUTER_PORT}/profile`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: cleanName,
-      }),
-    });
-
-    if (!response.ok) {
-      errorMessage.value = 'Unable to save your profile right now. Please try again.';
-      return;
-    }
+    await ServerApiClient.saveProfile(ipAddress, { name: cleanName });
 
     config.hasProfileName = !!cleanName;
     await config.save();
@@ -146,7 +127,7 @@ function openServer() {
   }
 }
 
-basicEmitter.on('openProfileOverlay', async data => {
+basicEmitter.on('openProfileOverlay', async () => {
   await load();
   isOpen.value = true;
   isLoaded.value = true;

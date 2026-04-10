@@ -10,21 +10,36 @@
 
   <div v-else class="flex flex-col space-y-5 px-10 pt-10 pb-20">
     <p>
-      Your request to lock {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
-      BTC has been submitted to Argon and is awaiting finalization. This usually takes four to five minutes.
+      <template v-if="isSubmittingToChain">
+        Your request to lock
+        {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
+        BTC is being submitted to Argon.
+      </template>
+      <template v-else>
+        Your request to lock
+        {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
+        BTC has been submitted to Argon and is awaiting confirmation. This usually takes a few minutes.
+      </template>
     </p>
 
     <p class="mb-2 italic">You can close this overlay without interrupting the process.</p>
 
-    <div class="mt-10">
-      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
-    </div>
+    <template v-if="isSubmittingToChain">
+      <div class="fade-progress mt-10 text-center text-4xl font-bold">Submitting to chain</div>
+      <div class="text-center font-light text-gray-500">Argon has not assigned a block to this request yet.</div>
+    </template>
 
-    <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
+    <template v-else>
+      <div class="mt-10">
+        <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
+      </div>
 
-    <div class="text-center font-light text-gray-500">
-      {{ progressLabel }}
-    </div>
+      <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />
+
+      <div class="text-center font-light text-gray-500">
+        {{ progressLabel }}
+      </div>
+    </template>
   </div>
 </template>
 
@@ -48,6 +63,7 @@ const bitcoinLockProgress = useBitcoinLockProgress();
 const personalLock = Vue.computed(() => props.personalLock);
 const progressPct = Vue.computed(() => bitcoinLockProgress.lockProcessing.progressPct);
 const transactionError = Vue.computed(() => bitcoinLockProgress.lockProcessing.error);
+const isSubmittingToChain = Vue.computed(() => bitcoinLockProgress.lockProcessing.expectedConfirmations <= 0);
 
 const progressLabel = Vue.computed(() => {
   return generateProgressLabel(

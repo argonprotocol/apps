@@ -37,13 +37,24 @@ export const useBonds = defineStore('bonds', () => {
   let unsubFunder: (() => void) | undefined;
   let unsubFrame: { unsubscribe: () => void } | undefined;
 
+  Vue.watch(
+    () => config.isLoaded && config.upstreamOperator,
+    () => {
+      if (!isLoaded.value) void load();
+    },
+    { deep: true },
+  );
+
   async function load() {
     if (isLoaded.value) return;
 
     await config.isLoadedPromise;
     await currency.isLoadedPromise;
+    if (!config.upstreamOperator?.vaultId) return;
     await miningFrames.load();
     await vaults.load();
+
+    vaultId.value = config.upstreamOperator.vaultId;
 
     const client = await getMainchainClient(false);
     const accountId = walletKeys.investmentAddress;
@@ -52,8 +63,10 @@ export const useBonds = defineStore('bonds', () => {
       () => config.upstreamOperator!.vaultId,
       async () => {
         vaultId.value = config.upstreamOperator!.vaultId;
+        unsubFunder?.();
         if (!vaultId.value) {
-          unsubFunder?.();
+          funderState.value = null;
+          frameHistory.value = [];
           return;
         }
 
@@ -62,6 +75,7 @@ export const useBonds = defineStore('bonds', () => {
         });
         await refreshFrameHistory();
       },
+      { immediate: true },
     );
 
     isLoaded.value = true;

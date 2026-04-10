@@ -16,7 +16,5 @@
     "noUnusedParameters": true,
     "rootDir": "."
   },
-  "include": ["server.ts", "src",
-    "src/interfaces"
-  ]
+  "include": ["server.ts", "src", "__test__", "tsup.config.ts"]
 }

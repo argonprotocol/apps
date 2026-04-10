@@ -4,7 +4,7 @@ import * as Vue from 'vue';
 import { Config } from '../lib/Config';
 import Installer, { resetInstaller } from '../lib/Installer';
 import { createMockedDbPromise } from './helpers/db';
-import { IInstallStepStatuses, InstallStepStatusType } from '../lib/Server';
+import { IInstallStepStatuses, InstallStepStatusType } from '../lib/ServerAdmin';
 import { InstallStepKey, MiningSetupStatus, ServerType } from '../interfaces/IConfig';
 import { InstallerCheck } from '../lib/InstallerCheck.ts';
 import { MiningMachine } from '../lib/MiningMachine.ts';

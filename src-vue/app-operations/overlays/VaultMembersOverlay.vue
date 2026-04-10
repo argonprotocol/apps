@@ -27,9 +27,21 @@
           <div class="flex flex-row items-start justify-between gap-x-4 text-slate-800">
             <div>
               {{ member.name }} has {{ currency.symbol
-              }}{{ satoshiToMoneyNm(member.couponMaxSatoshis).format('0,0.00') }} in free BTC locking
+              }}{{ satoshiToMoneyNm(member.bitcoinLockCoupon?.coupon.maxSatoshis ?? 0n).format('0,0.00') }} in free BTC
+              locking
             </div>
-            <div class="grow text-right">Last seen {{ dayjs(member.appLastSeenAt).fromNow() }}</div>
+            <div class="grow text-right">
+              <template v-if="member.bitcoinLockCoupon?.status === 'Failed'">Lock failed</template>
+              <template v-else-if="member.bitcoinLockCoupon?.status === 'Finalized'">Locked</template>
+              <template
+                v-else-if="
+                  member.bitcoinLockCoupon?.status === 'Submitted' || member.bitcoinLockCoupon?.status === 'InBlock'
+                ">
+                Started
+              </template>
+              <template v-else-if="member.lastClickedAt">Opened {{ dayjs(member.lastClickedAt).fromNow() }}</template>
+              <template v-else>Waiting</template>
+            </div>
           </div>
         </div>
       </div>
@@ -43,27 +55,22 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { getTransactionTracker } from '../../stores/transactions.ts';
-import { getMyVault } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config.ts';
-import { SERVER_ENV_VARS } from '../../lib/Env.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
-import type { ITreasuryMember } from '@argonprotocol/apps-router';
+import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
+import { ServerApiClient } from '../../lib/ServerApiClient.ts';
 
 dayjs.extend(relativeTime);
 
 const config = getConfig();
-const myVault = getMyVault();
-const transactionTracker = getTransactionTracker();
 const currency = getCurrency();
 
 const { satoshiToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
-const members = Vue.ref<ITreasuryMember[]>([]);
+const members = Vue.ref<ITreasuryUserInvite[]>([]);
 
 const ipAddress = Vue.computed(() => {
   return config.serverDetails.ipAddress;
@@ -83,24 +90,13 @@ function openServerOverlay() {
 
 async function loadMembers() {
   errorMessage.value = null;
-  await transactionTracker.load();
-  await myVault.load();
-  const vaultId = myVault.createdVault?.vaultId;
-  if (!vaultId) {
+  if (!ipAddress.value) {
     members.value = [];
     return;
   }
 
   try {
-    const response = await fetch(`http://${ipAddress.value}:${SERVER_ENV_VARS.ROUTER_PORT}/treasury-users/members`);
-    if (!response.ok) {
-      members.value = [];
-      errorMessage.value = 'Unable to load members right now. Please try again.';
-      return;
-    }
-
-    const rawBody = await response.text();
-    members.value = JsonExt.parse<ITreasuryMember[]>(rawBody);
+    members.value = await ServerApiClient.getTreasuryAppMembers(ipAddress.value);
   } catch {
     members.value = [];
     errorMessage.value = 'Unable to load members right now. Please try again.';
@@ -109,6 +105,17 @@ async function loadMembers() {
 
 basicEmitter.on('openVaultMembersOverlay', () => {
   isOpen.value = true;
+});
+
+Vue.watch([isOpen, () => config.isServerInstalled], ([open, isServerInstalled], _oldValue, onCleanup) => {
+  if (!open || !isServerInstalled) return;
+
   void loadMembers();
+
+  const interval = setInterval(() => {
+    void loadMembers();
+  }, 5_000);
+
+  onCleanup(() => clearInterval(interval));
 });
 </script>

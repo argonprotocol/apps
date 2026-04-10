@@ -4,6 +4,7 @@ import { JsonExt } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { nanoid } from 'nanoid';
 import type { IBitcoinUtxoRecord } from './BitcoinUtxosTable.ts';
+import type { BitcoinLockRelayStatus } from '@argonprotocol/apps-router';
 
 export interface IRatchet {
   mintAmount: bigint;
@@ -14,6 +15,14 @@ export interface IRatchet {
   burned: bigint;
   blockHeight: number;
   oracleBitcoinBlockHeight: number;
+}
+
+export interface IBitcoinLockRelayMetadata {
+  operatorHost?: string;
+  offerCode: string;
+  status: BitcoinLockRelayStatus;
+  error?: string;
+  expiresAtBlockHeight?: number;
 }
 
 export enum BitcoinLockStatus {
@@ -44,6 +53,7 @@ export interface IBitcoinLockRecord {
   network: string;
   hdPath: string;
   vaultId: number;
+  relayMetadataJson?: IBitcoinLockRelayMetadata | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,7 +61,7 @@ export interface IBitcoinLockRecord {
 export class BitcoinLocksTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
     bigint: ['satoshis', 'lockedMarketRate', 'liquidityPromised'],
-    json: ['lockDetails', 'ratchets'],
+    json: ['lockDetails', 'ratchets', 'relayMetadataJson'],
     date: ['createdAt', 'updatedAt'],
   };
 
@@ -106,13 +116,14 @@ export class BitcoinLocksTable extends BaseTable {
     > & {
       lockedMarketRate?: bigint;
       liquidityPromised?: bigint;
+      relayMetadataJson?: IBitcoinLockRelayMetadata | null;
     },
   ): Promise<IBitcoinLockRecord> {
     const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
       `INSERT INTO BitcoinLocks (
-        uuid, status, satoshis, lockedMarketRate, liquidityPromised, cosignVersion, network, hdPath, vaultId, fundingUtxoRecordId
+        uuid, status, satoshis, lockedMarketRate, liquidityPromised, cosignVersion, network, hdPath, vaultId, fundingUtxoRecordId, relayMetadataJson
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       ) RETURNING *`,
       toSqlParams([
         lock.uuid,
@@ -125,6 +136,7 @@ export class BitcoinLocksTable extends BaseTable {
         lock.hdPath,
         lock.vaultId,
         null,
+        lock.relayMetadataJson ?? null,
       ]),
     );
     if (!rawRecords.length) {
@@ -273,6 +285,17 @@ export class BitcoinLocksTable extends BaseTable {
     await this.db.execute(
       `UPDATE BitcoinLocks SET fundingUtxoRecordId = ? WHERE uuid = ?`,
       toSqlParams([fundingUtxoRecordId, lock.uuid]),
+    );
+  }
+
+  public async setRelayMetadata(
+    lock: IBitcoinLockRecord,
+    relayMetadataJson: IBitcoinLockRelayMetadata | null,
+  ): Promise<void> {
+    lock.relayMetadataJson = relayMetadataJson;
+    await this.db.execute(
+      `UPDATE BitcoinLocks SET relayMetadataJson = ? WHERE uuid = ?`,
+      toSqlParams([relayMetadataJson, lock.uuid]),
     );
   }
 

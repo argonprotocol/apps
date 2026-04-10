@@ -14,8 +14,11 @@ services:
       context: ./router
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file:
+      - ../config/.env.state
     volumes:
       - $ROOT/server:/server
+      - $ARGON_DATA_FOLDER:/data
       - $ROOT/logs:/logs
     ports:
       - '${ROUTER_PORT}:8080'
@@ -27,6 +30,7 @@ services:
       - BITCOIN_RPC_URL=http://bitcoin:bitcoin@bitcoin-node:5000/
       - BITCOIN_CHAIN=${BITCOIN_CHAIN}
       - LOGS_DIR=/logs
+      - DATADIR=/data
     healthcheck:
       # yamllint disable-line rule:line-length
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ | jq -e '.status == \"ok\"' > /dev/null || exit 1"]
@@ -159,7 +163,8 @@ services:
     environment:
       - PORT=8080
       - BIDDING_RULES_PATH=/tmp/biddingRules.json
-      - KEYPAIR_PATH=/tmp/walletMiningBot.json
+      - BIDDER_KEYPAIR_PATH=/tmp/walletMiningBot.json
+      - VAULT_DELEGATE_KEYPAIR_PATH=/tmp/walletVaultDelegate.json
       - LOCAL_RPC_URL=ws://argon-miner:9944
       - ARCHIVE_NODE_URL=${ARGON_ARCHIVE_NODE}
       - ROUTER_URL=http://router:8080
@@ -168,6 +173,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - $ARGON_CONFIG_FOLDER/walletMiningBot.json:/tmp/walletMiningBot.json
+      - $ARGON_CONFIG_FOLDER/walletVaultDelegate.json:/tmp/walletVaultDelegate.json
       - $ARGON_CONFIG_FOLDER/biddingRules.json:/tmp/biddingRules.json
       - $ARGON_DATA_FOLDER:/data
     profiles:

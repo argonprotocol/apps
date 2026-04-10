@@ -1,193 +1,31 @@
-import express, { type Request, type Response } from 'express';
-import { ArgonApis } from './src/ArgonApis';
-import { LOCAL_NODE_URL, MAIN_NODE_URL, PORT } from './src/env';
-import { BitcoinApis } from './src/BitcoinApis';
-import { TreasuryUsers } from './src/TreasuryUsers.ts';
-import { Profile } from './src/Profile.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
-
-function sendJson(res: Response, data: unknown, status = 200): void {
-  res.status(status).type('application/json').send(JsonExt.stringify(data));
-}
-
-function safeJsonRoute(
-  handler: (req: Request, res: Response) => Promise<unknown>,
-): (req: Request, res: Response) => Promise<void> {
-  return async (req: Request, res: Response) => {
-    try {
-      const data = await handler(req, res);
-      if (!res.headersSent) {
-        sendJson(res, data);
-      }
-    } catch (err) {
-      console.error('Route error:', err);
-      if (!res.headersSent) {
-        sendJson(res, { error: String(err) }, 500);
-      }
-    }
-  };
-}
+import { NetworkConfig, NetworkConfigSettings } from '@argonprotocol/apps-core';
+import { Db } from './src/Db.ts';
+import { RouterServer } from './src/RouterServer.ts';
+import { TreasuryInviteService } from './src/TreasuryInviteService.ts';
+import { ARGON_CHAIN, BITCOIN_CHAIN, LOCAL_NODE_URL, MAIN_NODE_URL, PORT, ROUTER_DB_PATH } from './src/env';
 
 console.log('Starting router server on port', PORT, {
   LOCAL_NODE_URL,
   MAIN_NODE_URL,
-  BITCOIN_CHAIN: process.env.BITCOIN_CHAIN,
+  BITCOIN_CHAIN,
 });
 
-const app = express();
+const networkName = ARGON_CHAIN === 'local' ? 'localnet' : (ARGON_CHAIN ?? 'mainnet');
+if (!(networkName in NetworkConfigSettings)) {
+  throw new Error(`${networkName} is not a valid Network chain name`);
+}
+NetworkConfig.setNetwork(networkName as keyof typeof NetworkConfigSettings);
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+const db = new Db(ROUTER_DB_PATH);
+db.migrate();
 
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(204);
-    return;
-  }
-
-  next();
+const server = new RouterServer({
+  db,
+  inviteService: new TreasuryInviteService(db),
+  botInternalUrl: 'http://bot:8080',
+  port: Number(PORT),
+  localNodeUrl: LOCAL_NODE_URL,
+  mainNodeUrl: MAIN_NODE_URL,
 });
 
-app.get(
-  '/',
-  safeJsonRoute(async () => ({
-    status: 'ok',
-    localNodeUrl: LOCAL_NODE_URL,
-    mainNodeUrl: MAIN_NODE_URL,
-    bitcoinConfig: process.env.BITCOIN_CONFIG,
-    serverRoot: process.env.SERVER_ROOT,
-  })),
-);
-
-app.get(
-  '/argon/iscomplete',
-  safeJsonRoute(async (_req, res) => {
-    const response = await ArgonApis.isComplete();
-    sendJson(res, response, typeof response === 'boolean' ? 200 : 500);
-  }),
-);
-
-app.get('/argon/latestblocks', safeJsonRoute(async () => await ArgonApis.latestBlocks()));
-app.get('/argon/syncstatus', safeJsonRoute(async () => await ArgonApis.syncStatus()));
-app.get('/bitcoin/getblockchaininfo', safeJsonRoute(async () => await BitcoinApis.blockchainInfo()));
-app.get('/bitcoin/latestblocks', safeJsonRoute(async () => await BitcoinApis.latestBlocks()));
-app.get('/bitcoin/syncstatus', safeJsonRoute(async () => await BitcoinApis.syncStatus()));
-app.get(
-  '/bitcoin/recentblocks',
-  safeJsonRoute(async (req: Request) => {
-    const blockCount = Number(String(req.query.blockCount ?? '10'));
-    return BitcoinApis.recentBlocks(blockCount);
-  }),
-);
-
-app.post(
-  '/treasury-users/create',
-  express.text({ type: '*/*' }),
-  safeJsonRoute(async (req: Request, res: Response) => {
-    const rawBody = req.body;
-    if (!rawBody) {
-      sendJson(res, { error: 'Missing JSON body' }, 400);
-      return;
-    }
-
-    const payload = JsonExt.parse(rawBody);
-    const user = TreasuryUsers.createUser(payload);
-
-    return { success: true, user };
-  }),
-);
-
-app.get(
-  '/treasury-users/invites',
-  safeJsonRoute(async () => {
-    return TreasuryUsers.fetchInvites();
-  }),
-);
-
-app.get(
-  '/treasury-users/members',
-  safeJsonRoute(async () => {
-    return TreasuryUsers.fetchMembers();
-  }),
-);
-
-app.get(
-  '/treasury-users/register',
-  safeJsonRoute(async () => {
-    return { success: true };
-  }),
-);
-
-app.get(
-  '/treasury-users/:inviteCode',
-  safeJsonRoute(async (req: Request, res: Response) => {
-    const profile = Profile.fetch();
-    const inviteCode = req.params.inviteCode;
-    const invite = TreasuryUsers.setClickedAt(inviteCode);
-    if (!invite) {
-      sendJson(res, { error: 'Invite not found' }, 404);
-      return;
-    }
-
-    return {
-      success: true,
-      fromName: profile.name,
-      invite
-    };
-  }),
-);
-
-app.post(
-  '/treasury-users/:inviteCode/register-app',
-  safeJsonRoute(async (req: Request, res: Response) => {
-    const profile = Profile.fetch();
-    const inviteCode = req.params.inviteCode;
-    const invite = TreasuryUsers.setRegisteredAppAt(inviteCode);
-    if (!invite) {
-      sendJson(res, { error: 'Invite not found' }, 404);
-      return;
-    }
-
-    return {
-      success: true,
-      fromName: profile.name,
-      invite
-    };
-  }),
-);
-
-app.post(
-  '/profile',
-  express.text({ type: '*/*' }),
-  safeJsonRoute(async (req: Request, res: Response) => {
-    const rawBody = req.body;
-    if (!rawBody) {
-      sendJson(res, { error: 'Missing JSON body' }, 400);
-      return;
-    }
-
-    const payload = JsonExt.parse(rawBody);
-    const profile = Profile.save(payload);
-
-    return { success: true, profile };
-  }),
-);
-
-
-app.get(
-  '/profile',
-  safeJsonRoute(async (_req: Request, _res: Response) => {
-    const profile = Profile.fetch();
-
-    return { success: true, profile };
-  }),
-);
-
-app.use((_req, res) => {
-  res.status(404).send('Not Found');
-});
-
-app.listen(Number(PORT), () => {
-  console.log(`Router server is running on port ${PORT}`);
-});
+server.start();

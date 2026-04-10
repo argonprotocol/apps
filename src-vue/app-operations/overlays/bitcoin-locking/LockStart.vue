@@ -2,12 +2,29 @@
   <div class="flex flex-col px-2 pt-6 pb-3">
     <div class="flex flex-col px-10">
       <p class="font-light">
-        Your vault has enough securitization to support up to {{ currency.symbol
-        }}{{ microgonToMoneyNm(availableLiquidityMicrogons).format('0,0.00') }} of bitcoin liquidity, which currently
-        corresponds to {{ numeral(availableLiquidityBtc).format('0,0.[00000000]') }} btc. As part of this process,
+        {{ vaultLabel }} has enough securitization to support up to {{ currency.symbol
+        }}{{ microgonToMoneyNm(vaultCapacityLiquidityMicrogons).format('0,0.00') }} of bitcoin liquidity, which
+        currently corresponds to {{ numeral(vaultCapacityBtc).format('0,0.[00000000]') }} BTC. As part of this process,
         you'll receive the full market value of your bitcoin in the form of fully liquid, unencumbered Argon
         stablecoins. We call this process "Liquid Locking".
       </p>
+
+      <div
+        v-if="hasCouponForVault && isOperatorCouponExpired"
+        class="mt-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+        This liquid lock coupon has expired and will not be applied. Ask {{ couponProviderLabel }} for a new invite if
+        you want a free lock.
+      </div>
+
+      <div
+        v-else-if="isOperatorCouponLock"
+        class="bg-argon-50/35 border-argon-300/70 mt-4 rounded-md border px-4 py-3 text-sm text-slate-800">
+        <div class="text-argon-700 font-semibold">Free Liquid Lock Coupon Applied</div>
+        <p class="mt-1">
+          {{ couponProviderLabel }} is covering the vault operator fee for up to {{ couponMaxBtcLabel }} BTC with this
+          coupon.
+        </p>
+      </div>
 
       <div v-if="errorMessage" data-testid="LockStart.errorMessage" class="mt-4 rounded-md bg-red-50 p-4">
         <div class="flex">
@@ -32,6 +49,7 @@
             :maxDecimals="8"
             :min="0"
             :max="availableLiquidityBtc"
+            suffix=" BTC"
             :dragBy="0.1"
             :dragByMin="0.01"
             class="px-1 py-2 text-lg" />
@@ -91,7 +109,7 @@
         Cancel
       </button>
       <button
-        :class="[isSaving ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700']"
+        :class="isSaving ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700'"
         :disabled="isSaving"
         @click="submitLiquidLock"
         class="cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white">
@@ -113,13 +131,17 @@ import InputMoney from '../../../components/InputMoney.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
+import { getConfig } from '../../../stores/config.ts';
 import { getVaults } from '../../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
 
 const props = defineProps<{
+  coupon?: IBitcoinLockCouponStatus;
+  currentTick?: number;
   maxLockLiquidityMicrogons: bigint;
   vault: Vault;
 }>();
@@ -132,11 +154,14 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
+const config = getConfig();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
+const vaultCapacityLiquidityMicrogons = Vue.ref(0n);
+const vaultCapacityBtc = Vue.ref(0);
 const availableLiquidityMicrogons = Vue.ref(0n);
 const availableLiquidityBtc = Vue.ref(0);
 
@@ -152,6 +177,62 @@ const isVaultOperator = Vue.computed(() => {
   return walletKeys.vaultingAddress === props.vault.operatorAccountId;
 });
 
+const hasCouponForVault = Vue.computed(() => {
+  return props.coupon?.coupon.vaultId === props.vault.vaultId;
+});
+
+const isOperatorCouponExpired = Vue.computed(() => {
+  return (
+    props.coupon?.coupon.expirationTick != null &&
+    props.currentTick != null &&
+    props.currentTick >= props.coupon.coupon.expirationTick
+  );
+});
+
+const operatorCoupon = Vue.computed(() => {
+  if (!hasCouponForVault.value || isOperatorCouponExpired.value || !props.coupon) {
+    return undefined;
+  }
+
+  const inviteCode = config.upstreamOperator?.inviteCode;
+  const operatorHost = config.bootstrapDetails?.routerHost;
+  if (!inviteCode || !operatorHost) {
+    return undefined;
+  }
+
+  return {
+    vaultId: props.coupon.coupon.vaultId,
+    inviteCode,
+    offerCode: props.coupon.coupon.offerCode,
+    operatorHost,
+    accountId: props.coupon.coupon.accountId,
+  };
+});
+
+const isOperatorCouponLock = Vue.computed(() => {
+  return !!operatorCoupon.value;
+});
+
+const vaultLabel = Vue.computed(() => {
+  if (!hasCouponForVault.value) return 'Your vault';
+
+  const name = config.upstreamOperator?.name?.trim();
+  return name ? `${name}'s vault` : 'The vault';
+});
+
+const couponProviderLabel = Vue.computed(() => {
+  const name = config.upstreamOperator?.name?.trim();
+  return name || 'The vault operator';
+});
+
+const couponMaxBtcLabel = Vue.computed(() => {
+  if (!props.coupon) {
+    return numeral(currency.convertSatToBtc(lockSatoshis.value)).format('0,0.[00000000]');
+  }
+
+  return numeral(currency.convertSatToBtc(props.coupon.coupon.maxSatoshis)).format('0,0.[00000000]');
+});
+
 const neededMicrogons = Vue.computed(() => {
   if (securityFee.value <= 0n) return 0n;
   const buffer = 25_000n;
@@ -161,7 +242,7 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 const showFeePanel = Vue.computed(() => {
-  return !isVaultOperator.value && securityFee.value > 0n;
+  return !isVaultOperator.value && !isOperatorCouponLock.value && securityFee.value > 0n;
 });
 
 const handleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
@@ -172,18 +253,17 @@ let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
 
 function updateFeeEstimate() {
-  if (!props.vault || liquidityToReceiveMicrogons.value <= 0n || isVaultOperator.value) {
+  if (!props.vault || liquidityToReceiveMicrogons.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
     securityFee.value = 0n;
     return;
   }
   securityFee.value = props.vault.calculateBitcoinFee(liquidityToReceiveMicrogons.value);
 }
 
-async function initializeDefaultAmounts(liquidityMicrogons: bigint) {
-  const sats = await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
-  const btc = currency.convertSatToBtc(sats);
+function initializeDefaultAmounts(satoshis: bigint, liquidityMicrogons: bigint) {
+  const btc = currency.convertSatToBtc(satoshis);
 
-  lockSatoshis.value = sats;
+  lockSatoshis.value = satoshis;
   liquidityToReceiveMicrogons.value = liquidityMicrogons;
   bitcoinAmount.value = btc;
 
@@ -225,6 +305,7 @@ async function submitLiquidLock() {
 
   let satoshis = lockSatoshis.value;
   try {
+    await config.isLoadedPromise;
     isSaving.value = true;
     errorMessage.value = null;
     if (satoshis <= 0n && liquidityToReceiveMicrogons.value > 0n) {
@@ -238,6 +319,7 @@ async function submitLiquidLock() {
     await bitcoinLocks.initializeLock({
       satoshis,
       vault: props.vault,
+      operatorCoupon: operatorCoupon.value,
     });
     const createdLock = bitcoinLocks.data.pendingLocks.at(-1);
     if (createdLock) {
@@ -259,15 +341,28 @@ Vue.watch(
   () => props.maxLockLiquidityMicrogons,
   async liquidityMicrogons => {
     const syncId = ++availableLiquiditySyncId;
-    const nextLiquidityMicrogons = liquidityMicrogons ?? 0n;
-    const availableSatoshis = await bitcoinLocks.satoshisForArgonLiquidity(nextLiquidityMicrogons);
+    const nextVaultCapacityLiquidityMicrogons = liquidityMicrogons ?? 0n;
+    const nextVaultCapacitySatoshis = await bitcoinLocks.satoshisForArgonLiquidity(nextVaultCapacityLiquidityMicrogons);
+    let nextAvailableSatoshis = nextVaultCapacitySatoshis;
+
+    if (props.coupon && isOperatorCouponLock.value) {
+      nextAvailableSatoshis =
+        props.coupon.coupon.maxSatoshis < nextVaultCapacitySatoshis
+          ? props.coupon.coupon.maxSatoshis
+          : nextVaultCapacitySatoshis;
+    }
+
+    const nextLiquidityMicrogons = await vaults.getMarketRateInMicrogons(nextAvailableSatoshis);
+
     if (syncId !== availableLiquiditySyncId) return;
 
+    vaultCapacityLiquidityMicrogons.value = nextVaultCapacityLiquidityMicrogons;
+    vaultCapacityBtc.value = currency.convertSatToBtc(nextVaultCapacitySatoshis);
     availableLiquidityMicrogons.value = nextLiquidityMicrogons;
-    availableLiquidityBtc.value = currency.convertSatToBtc(availableSatoshis);
+    availableLiquidityBtc.value = currency.convertSatToBtc(nextAvailableSatoshis);
 
     if (!hasEditedAmounts.value || (liquidityToReceiveMicrogons.value === 0n && lockSatoshis.value === 0n)) {
-      await initializeDefaultAmounts(nextLiquidityMicrogons);
+      initializeDefaultAmounts(nextAvailableSatoshis, nextLiquidityMicrogons);
       if (syncId !== availableLiquiditySyncId) return;
     }
 
@@ -275,4 +370,8 @@ Vue.watch(
   },
   { immediate: true },
 );
+
+Vue.onMounted(async () => {
+  await config.isLoadedPromise;
+});
 </script>

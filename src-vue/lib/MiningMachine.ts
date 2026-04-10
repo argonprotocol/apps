@@ -160,7 +160,7 @@ export class MiningMachine {
 
     let progress = 60;
     while (true) {
-      const statusLink = createData.links.actions.find((x: IDropletActionLink) => x.rel === 'create');
+      const statusLink = createData.links.actions.find(x => x.rel === 'create');
       if (!statusLink) {
         throw new MiningMachineError('DigitalOcean did not return a droplet creation status link');
       }
@@ -308,7 +308,7 @@ export class MiningMachine {
   private static extractDigitalOceanServerDetails(droplet: IDroplet): IConfigServerDetails | null {
     if (droplet.status !== 'active') return null;
 
-    const publicNetwork = droplet.networks.v4.find((x: IDropletNetworkV4) => x.type === 'public');
+    const publicNetwork = droplet.networks.v4.find(x => x.type === 'public');
     if (!publicNetwork) return null;
 
     return {

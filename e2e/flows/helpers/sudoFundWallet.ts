@@ -9,8 +9,10 @@ import type { IE2EFlowRuntime } from '../types.ts';
 import { readClipboardWithRetries } from './readClipboardWithRetries.ts';
 
 export async function getWalletOverlayFundingNeeded(flow: IE2EFlowRuntime): Promise<ISudoFundWalletInput> {
-  const micronotsNeededRaw = await flow.getAttribute('WalletOverlay.micronotsNeeded', 'data-value');
   const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
+  const micronotsNeededRaw = await flow
+    .getAttribute('WalletOverlay.micronotsNeeded', 'data-value', { timeoutMs: 1_000 })
+    .catch(() => null);
   const address = await readClipboardWithRetries(
     flow,
     () => flow.click('walletAddress.copyContent()'),
@@ -20,19 +22,16 @@ export async function getWalletOverlayFundingNeeded(flow: IE2EFlowRuntime): Prom
     throw new Error('missing wallet address');
   }
 
-  if (!micronotsNeededRaw) {
-    throw new Error('missing micronotsNeeded');
-  }
   if (!microgonsNeededRaw) {
     throw new Error('missing microgonsNeeded');
   }
 
-  const micronots = BigInt(micronotsNeededRaw);
   const microgons = BigInt(microgonsNeededRaw);
+  const micronotsNeeded = BigInt(micronotsNeededRaw ?? '0');
 
   return {
     address,
     microgons,
-    micronots,
+    micronots: micronotsNeeded,
   };
 }

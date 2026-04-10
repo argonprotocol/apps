@@ -41,9 +41,7 @@ export default class LlbVaultSnapshot {
     this.profitFromInitialLock = vault.profitFromInitialLock;
     this.totalCashUnlocked = vault.totalCashUnlocked;
 
-    this.ratchetCount = vault.actions.filter(
-      (a: IAction) => a.type === 'ratchet-up' || a.type === 'ratchet-down',
-    ).length;
+    this.ratchetCount = vault.actions.filter(a => a.type === 'ratchet-up' || a.type === 'ratchet-down').length;
     this.shortCount = vault.shorts.length;
   }
 }

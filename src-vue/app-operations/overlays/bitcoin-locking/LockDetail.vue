@@ -80,7 +80,19 @@
           </div>
           <div class="text-xs text-slate-500">
             <div class="font-semibold text-slate-600">{{ timerLabel }}</div>
-            <div>{{ timerDetail }}</div>
+            <CountdownClock
+              v-if="isPendingFunding || isPendingCosign"
+              :time="isPendingCosign ? cosignDueTime : lockExpirationTime"
+              v-slot="{ days, hours, minutes, seconds, isFinished }">
+              <template v-if="isFinished">Expired</template>
+              <template v-else>
+                <template v-if="days > 0">{{ days }}d</template>
+                <template v-else-if="hours > 0">{{ hours }}h {{ minutes }}m</template>
+                <template v-else>{{ minutes }}m {{ seconds }}s</template>
+                remaining
+              </template>
+            </CountdownClock>
+            <div v-else>{{ timerDetail }}</div>
           </div>
         </div>
       </div>
@@ -106,36 +118,47 @@ import utc from 'dayjs/plugin/utc';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
+import { getConfig } from '../../../stores/config.ts';
+import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { getVaults } from '../../../stores/vaults.ts';
 import { getWalletKeys } from '../../../stores/wallets.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import BitcoinMempool from '../../../lib/BitcoinMempool.ts';
-import { ESPLORA_HOST } from '../../../lib/Env.ts';
+import { ESPLORA_HOST, IS_TREASURY_APP } from '../../../lib/Env.ts';
 import BitcoinIcon from '../../../assets/wallets/bitcoin.svg?component';
 import VaultIcon from '../../../assets/wallets/vault.svg?component';
 import Tooltip from '../../../components/Tooltip.vue';
+import CountdownClock from '../../../components/CountdownClock.vue';
+import type { IExternalBitcoinLock } from '../../../lib/MyVault.ts';
 
 dayjs.extend(utc);
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
+const config = getConfig();
+const miningFrames = getMiningFrames();
 const vaults = getVaults();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
-  lock: IBitcoinLockRecord;
+  lock: IBitcoinLockRecord | IExternalBitcoinLock;
   pendingCosign?: { dueFrame?: number };
+  isReleased?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'unlock'): void;
 }>();
 
-const isOwnLock = Vue.computed(() => props.lock.uuid != null);
+const localLock = Vue.computed(() => ('uuid' in props.lock ? props.lock : undefined));
+
+const externalLock = Vue.computed(() => ('uuid' in props.lock ? undefined : props.lock));
+
+const isOwnLock = Vue.computed(() => !!localLock.value?.uuid);
 
 const isMinting = Vue.computed(() => {
-  return props.lock.status === BitcoinLockStatus.LockedAndIsMinting;
+  return localLock.value?.status === BitcoinLockStatus.LockedAndIsMinting;
 });
 
 const isPendingCosign = Vue.computed(() => {
@@ -143,11 +166,26 @@ const isPendingCosign = Vue.computed(() => {
 });
 
 const isPendingFunding = Vue.computed(() => {
-  return props.lock.status === BitcoinLockStatus.LockPendingFunding;
+  return localLock.value?.status === BitcoinLockStatus.LockPendingFunding || externalLock.value?.isPending;
 });
 
 const isReleased = Vue.computed(() => {
-  return props.lock.status === BitcoinLockStatus.Released;
+  if (localLock.value) {
+    return localLock.value.status === BitcoinLockStatus.Released;
+  }
+
+  return !!props.isReleased;
+});
+
+const vaultLabel = Vue.computed(() => {
+  const upstreamOperator = config.upstreamOperator;
+  if (IS_TREASURY_APP && upstreamOperator) {
+    const name = upstreamOperator.name.trim();
+    if (name) return `${name}'s vault`;
+    return 'The vault';
+  }
+
+  return 'Your vault';
 });
 
 const statusMessage = Vue.computed(() => {
@@ -164,7 +202,7 @@ const statusMessage = Vue.computed(() => {
     return 'This lock is awaiting Bitcoin funding from the owner.';
   }
   if (isPendingCosign.value) {
-    return 'This lock has a pending release request. Your vault will cosign automatically.';
+    return `This lock has a pending release request. ${vaultLabel.value} will cosign automatically.`;
   }
   if (isMinting.value) {
     if (isOwnLock.value) {
@@ -176,7 +214,8 @@ const statusMessage = Vue.computed(() => {
 });
 
 const fundingUtxoRecord = Vue.computed(() => {
-  return bitcoinLocks.getAcceptedFundingRecord(props.lock);
+  if (!localLock.value) return undefined;
+  return bitcoinLocks.getAcceptedFundingRecord(localLock.value);
 });
 
 const mempool = new BitcoinMempool(ESPLORA_HOST);
@@ -191,15 +230,15 @@ const formattedBtc = Vue.computed(() => {
 });
 
 const mintedPct = Vue.computed(() => {
-  return bitcoinLocks.getMintPercent(props.lock);
+  if (!localLock.value) return 0;
+  return bitcoinLocks.getMintPercent(localLock.value);
 });
 
 const totalFees = Vue.computed(() => {
-  const ratchet = props.lock.ratchets?.[0];
+  const ratchet = localLock.value?.ratchets?.[0];
   if (ratchet) {
     return (ratchet.securityFee ?? 0n) + (ratchet.txFee ?? 0n);
   }
-  // External locks: read security fees directly from chain data
   return props.lock.lockDetails?.securityFees ?? 0n;
 });
 
@@ -210,25 +249,16 @@ const timerLabel = Vue.computed(() => {
 });
 
 const timerDetail = Vue.computed(() => {
-  if (isPendingFunding.value) {
-    const now = dayjs.utc();
-    const exp = lockExpirationTime.value;
-    const diff = exp.diff(now, 'minute');
-    if (diff <= 0) return 'Expired';
-    if (diff < 60) return `${diff}m remaining`;
-    const hours = Math.floor(diff / 60);
-    const mins = diff % 60;
-    if (hours < 24) return `${hours}h ${mins}m remaining`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ${hours % 24}h remaining`;
-  }
   if (isPendingCosign.value) {
     if (props.pendingCosign?.dueFrame) {
       return `Due frame #${props.pendingCosign.dueFrame}`;
     }
     return 'Cosign required';
   }
-  return `Expires ${lockExpirationTime.value.format('MMM D, YYYY')}`;
+  if (localLock.value) {
+    return `Expires ${lockExpirationTime.value.format('MMM D, YYYY')}`;
+  }
+  return 'Lock term in progress';
 });
 
 const timerColorClass = Vue.computed(() => {
@@ -237,68 +267,61 @@ const timerColorClass = Vue.computed(() => {
   return 'stroke-current text-argon-600';
 });
 
-const lockTermProgress = Vue.computed(() => {
-  const created = props.lock.lockDetails?.createdAtHeight ?? 0;
-  const expires = props.lock.lockDetails?.vaultClaimHeight ?? 0;
-  const current = bitcoinLocks.data.oracleBitcoinBlockHeight;
-  if (expires <= created) return 100;
-  const elapsed = Math.max(current - created, 0);
-  const total = expires - created;
-  return Math.min((elapsed / total) * 100, 100);
-});
-
-const fundingWindowProgress = Vue.computed(() => {
-  try {
-    const expTime = bitcoinLocks.verifyExpirationTime(props.lock);
-    if (expTime <= Date.now()) return 100;
-    const created = props.lock.lockDetails?.createdAtHeight ?? 0;
-    const current = bitcoinLocks.data.oracleBitcoinBlockHeight;
-    const windowBlocks = bitcoinLocks.config?.pendingConfirmationExpirationBlocks;
-    if (!windowBlocks) return 0;
-    const elapsed = Math.max(current - created, 0);
-    return Math.min((elapsed / windowBlocks) * 100, 100);
-  } catch {
-    return 0;
-  }
-});
-
 const termProgress = Vue.computed(() => {
-  if (isPendingFunding.value) return fundingWindowProgress.value;
-  return lockTermProgress.value;
+  if (isPendingFunding.value) return bitcoinLocks.getFundingWindowProgress(props.lock);
+
+  if (isPendingCosign.value) {
+    if (localLock.value) {
+      return bitcoinLocks.getRequestReleaseByVaultProgress(localLock.value, miningFrames);
+    }
+
+    return bitcoinLocks.getCosignDeadlineProgress(props.pendingCosign?.dueFrame, miningFrames);
+  }
+
+  return bitcoinLocks.getLockTermProgress(props.lock);
+});
+
+const cosignDueTime = Vue.computed(() => {
+  const dueFrame = props.pendingCosign?.dueFrame;
+  if (!dueFrame) return dayjs.utc();
+  return dayjs.utc(miningFrames.getFrameDate(dueFrame).getTime());
+});
+
+const lockExpirationTime = Vue.computed(() => {
+  if (isPendingFunding.value) {
+    try {
+      return dayjs.utc(bitcoinLocks.verifyExpirationTime(props.lock));
+    } catch {
+      return dayjs.utc();
+    }
+  }
+
+  if (!localLock.value) return dayjs.utc();
+
+  const expirationMillis = bitcoinLocks.unlockDeadlineTime(localLock.value);
+  return dayjs.utc(expirationMillis);
 });
 
 const btcMarketRate = Vue.ref(0n);
 const unlockPrice = Vue.ref(0n);
-const lockExpirationTime = Vue.ref(dayjs.utc());
 
 async function loadPrices() {
   btcMarketRate.value = await vaults.getMarketRateInMicrogons(fundingSatoshis.value).catch(() => 0n);
 
-  if (!bitcoinLocks.isLockedStatus(props.lock)) {
+  if (!localLock.value || !bitcoinLocks.isLockedStatus(localLock.value)) {
     unlockPrice.value = 0n;
     return;
   }
 
   const liquidLockingAddress = getWalletKeys().liquidLockingAddress;
   const unlockFee = await bitcoinLocks
-    .estimatedReleaseArgonTxFee({ lock: props.lock, liquidLockingAddress })
+    .estimatedReleaseArgonTxFee({ lock: localLock.value, liquidLockingAddress })
     .catch(() => 0n);
 
-  unlockPrice.value = (await vaults.getRedemptionRate(props.lock).catch(() => 0n)) + unlockFee;
+  unlockPrice.value = (await vaults.getRedemptionRate(localLock.value).catch(() => 0n)) + unlockFee;
 }
 
 Vue.onMounted(() => {
-  if (isPendingFunding.value) {
-    try {
-      const fundingExpMillis = bitcoinLocks.verifyExpirationTime(props.lock);
-      lockExpirationTime.value = dayjs.utc(fundingExpMillis);
-    } catch {
-      lockExpirationTime.value = dayjs.utc();
-    }
-  } else {
-    const expirationMillis = bitcoinLocks.unlockDeadlineTime(props.lock);
-    lockExpirationTime.value = dayjs.utc(expirationMillis);
-  }
   void loadPrices();
 });
 

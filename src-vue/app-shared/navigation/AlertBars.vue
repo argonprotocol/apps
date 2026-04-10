@@ -498,7 +498,6 @@ Vue.onUnmounted(() => {
   basicEmitter.off('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.off('closeAllOverlays', closeSharedOverlays);
   basicEmitter.off('resumeBitcoinFunding', markResumedFunding);
-  myVault.unsubscribe();
 });
 </script>
 <style scoped>

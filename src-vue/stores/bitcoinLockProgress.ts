@@ -137,7 +137,7 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
     };
     const error =
       currentLock.status === BitcoinLockStatus.LockIsProcessingOnArgon
-        ? myVault.getTxInfoByType(ExtrinsicType.BitcoinRequestLock)?.getStatus()?.error
+        ? bitcoinLocks.getLockProcessingError(currentLock)
         : '';
 
     if (shouldKeepKnownProgress(currentLock.utxoId, lockProcessingUtxoId, lockProcessingProgress.value, nextProgress)) {

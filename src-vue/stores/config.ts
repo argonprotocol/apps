@@ -15,6 +15,10 @@ let config: Vue.Reactive<Config>;
 export { NETWORK_NAME };
 export { type Config };
 
+export function getConfigIfInitialized(): Vue.Reactive<Config> | undefined {
+  return config;
+}
+
 export function getConfig(): Vue.Reactive<Config> {
   if (!config) {
     console.log('Initializing config');

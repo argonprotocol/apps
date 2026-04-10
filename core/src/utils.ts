@@ -87,6 +87,11 @@ export function bigNumberToBigInt(bn: BigNumber): bigint {
   return BigInt(bn.integerValue(BigNumber.ROUND_DOWN).toString());
 }
 
+export async function waitAtLeast<T>(timeoutMs: number, promise: Promise<T>): Promise<T> {
+  const [result] = await Promise.all([promise, new Promise(resolve => setTimeout(resolve, timeoutMs))]);
+  return result;
+}
+
 export function convertBigIntStringToNumber(bigIntStr: string | undefined): bigint | undefined {
   if (bigIntStr === undefined) return undefined;
   if (!bigIntStr) return 0n;

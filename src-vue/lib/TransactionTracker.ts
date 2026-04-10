@@ -1,14 +1,11 @@
 import {
-  ArgonClient,
   ExtrinsicError,
-  GenericEvent,
   hexToU8a,
   ISubmittableOptions,
   KeyringPair,
   SignedBlock,
   SubmittableExtrinsic,
   TxResult,
-  u8aToHex,
 } from '@argonprotocol/mainchain';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
 import * as Vue from 'vue';
@@ -19,9 +16,9 @@ import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';
 import {
+  type ITransactionStatusHistoryRecord,
   TransactionHistorySource,
   TransactionHistoryStatus,
-  type ITransactionStatusHistoryRecord,
   type TransactionStatusHistoryTable,
 } from './db/TransactionStatusHistoryTable.ts';
 
@@ -201,8 +198,12 @@ export class TransactionTracker {
     return deferred;
   }
 
-  public findLatestTxInfo(matcher: (txInfo: TransactionInfo) => boolean): TransactionInfo | undefined {
-    return this.data.txInfos.find(matcher);
+  public findLatestTxInfo<MetadataType = unknown>(
+    matcher: (txInfo: TransactionInfo<MetadataType>) => boolean,
+  ): TransactionInfo<MetadataType> | undefined {
+    return this.data.txInfos.find(txInfo => matcher(txInfo as TransactionInfo<MetadataType>)) as
+      | TransactionInfo<MetadataType>
+      | undefined;
   }
 
   public async getTxAttemptState(
@@ -348,74 +349,6 @@ export class TransactionTracker {
     this.#watchUnsubscribe = undefined;
   }
 
-  private async findTransactionInBlocks(
-    tx: ITransactionRecord,
-    maxBlocksToCheck: number,
-    bestBlockHeight: number,
-    searchStartBlockHeight: number = tx.submittedAtBlockHeight,
-  ): Promise<
-    | {
-        blockNumber: number;
-        blockHash: string;
-        blockTime: number;
-        extrinsicError?: ExtrinsicError;
-        extrinsicIndex: number;
-        txFeePlusTip: bigint;
-        tip: bigint;
-        transactionEvents: GenericEvent[];
-      }
-    | undefined
-  > {
-    const { extrinsicHash } = tx;
-    if (searchStartBlockHeight > bestBlockHeight) {
-      return undefined;
-    }
-
-    for (let i = 0; i <= maxBlocksToCheck; i++) {
-      const blockHeight = searchStartBlockHeight + i;
-      if (blockHeight > bestBlockHeight) {
-        return undefined;
-      }
-      const blockHeader = await this.blockWatch.getHeader(blockHeight);
-      const blockHash = blockHeader.blockHash;
-      const blockTime = blockHeader.blockTime;
-      const client = await this.blockWatch.getRpcClient(blockHeight);
-      const block = await this.getBlock(client, blockHash);
-      console.log(`[TransactionTracker] Searching block with ${block.block.extrinsics.length} extrinsics`, {
-        blockHeight,
-        blockHash,
-        searchStartBlockHeight,
-      });
-      for (const [index, extrinsic] of block.block.extrinsics.entries()) {
-        if (u8aToHex(extrinsic.hash) === extrinsicHash) {
-          const api = await client.at(blockHash);
-          const events = await api.query.system.events();
-          const result = await TransactionEvents.getErrorAndFeeForTransaction({
-            client,
-            extrinsicIndex: index,
-            events,
-          });
-
-          console.log(`[TransactionTracker] Found extrinsic`, {
-            blockHeight,
-            blockHash,
-            extrinsicHash,
-          });
-          return {
-            blockNumber: blockHeight,
-            blockHash,
-            extrinsicError: result.error,
-            txFeePlusTip: result.fee + result.tip,
-            tip: result.tip,
-            transactionEvents: result.extrinsicEvents,
-            extrinsicIndex: index,
-            blockTime,
-          };
-        }
-      }
-    }
-  }
-
   private async updatePendingStatuses(bestBlockInfo: IBlockHeaderInfo): Promise<void> {
     const table = await this.getTable();
     const { blockNumber: finalizedHeight, blockTime: finalizedBlockTime } = this.blockWatch.finalizedBlockHeader;
@@ -458,49 +391,43 @@ export class TransactionTracker {
           MAX_BLOCKS_TO_CHECK,
           Math.max(0, bestBlockInfo.blockNumber - searchStartBlockHeight),
         );
-        const findTransactionResult = await this.findTransactionInBlocks(
-          tx,
+        const findTransactionResult = await TransactionEvents.findByExtrinsicHash({
+          blockWatch: this.blockWatch,
+          extrinsicHash: tx.extrinsicHash,
           maxBlocksToCheck,
-          bestBlockInfo.blockNumber,
+          bestBlockHeight: bestBlockInfo.blockNumber,
           searchStartBlockHeight,
-        );
+          blockCache: this.#blockCache,
+        });
         if (findTransactionResult) {
           const originalBlockHash = tx.blockHash;
           if (originalBlockHash === findTransactionResult.blockHash) {
             // no change
-            const { transactionEvents, ...txResult } = findTransactionResult;
+            const { extrinsicEvents, ...txResult } = findTransactionResult;
             console.log('[TransactionTracker] No change in block', {
               id: tx.id,
               ...txResult,
-              transactionEvents: transactionEvents.map(x => x.toHuman()),
+              transactionEvents: extrinsicEvents.map(x => x.toHuman()),
             });
             continue;
           }
-          const {
-            blockHash,
-            blockNumber,
-            blockTime,
-            txFeePlusTip,
-            tip,
-            extrinsicError,
-            transactionEvents,
-            extrinsicIndex,
-          } = findTransactionResult;
+          const { blockHash, blockNumber, blockTime, fee, tip, error, extrinsicEvents, extrinsicIndex } =
+            findTransactionResult;
           const u8aBlockHash = hexToU8a(blockHash);
           await table.recordInBlock(tx, {
             blockNumber: blockNumber,
             blockHash,
             blockTime: new Date(blockTime),
-            feePlusTip: txFeePlusTip,
+            feePlusTip: fee + tip,
             tip: tip,
-            extrinsicError,
-            transactionEvents,
+            extrinsicError: error,
+            transactionEvents: extrinsicEvents,
             extrinsicIndex,
           });
           await txResult.setSeenInBlock({
             blockHash: u8aBlockHash,
             blockNumber: blockNumber,
-            events: transactionEvents,
+            events: extrinsicEvents,
             extrinsicIndex,
           });
 
@@ -557,16 +484,6 @@ export class TransactionTracker {
     // Start from the last finalized head we processed so a tx that reappears on
     // the canonical chain at that boundary is still rediscovered.
     return Math.max(tx.submittedAtBlockHeight, tx.finalizedHeadHeight);
-  }
-
-  private async getBlock(client: ArgonClient, blockHash: string): Promise<SignedBlock> {
-    const cached = this.#blockCache.get(blockHash);
-    if (cached) {
-      return cached;
-    }
-    const block = await client.rpc.chain.getBlock(blockHash);
-    this.#blockCache.set(blockHash, block);
-    return block;
   }
 
   private async recordSubmissionError(record: ITransactionRecord, error: Error) {

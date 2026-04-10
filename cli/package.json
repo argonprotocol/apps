@@ -16,14 +16,14 @@
   },
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.3-dev.0846f88a",
+    "@argonprotocol/mainchain": "1.4.3-dev.f22e7b4b",
     "@commander-js/extra-typings": "^13.1.0",
     "bignumber.js": "^9.3.1",
     "commander": "^13.1.0",
     "dotenv": "^17.2.1"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.0846f88a",
+    "@argonprotocol/testing": "1.4.3-dev.f22e7b4b",
     "docker-compose": "^1.2.0",
     "esbuild-plugin-wasm": "^1.1.0",
     "tsup": "^8.5.0",
