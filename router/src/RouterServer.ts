@@ -116,12 +116,24 @@ export class RouterServer {
       safeJsonRoute<ICreateTreasuryInviteResponse>(async req => {
         const body = requireBody<ITreasuryUserInviteCreateRequest>(req);
         const userInvite = inviteService.createInvite(body);
-        const bitcoinLockCoupon = await botCouponClient.createCoupon({
-          userId: userInvite.id,
-          vaultId: body.vaultId,
-          maxSatoshis: body.maxSatoshis,
-          expiresAfterTicks: body.expiresAfterTicks,
-        });
+
+        let bitcoinLockCoupon;
+        try {
+          bitcoinLockCoupon = await botCouponClient.createCoupon({
+            userId: userInvite.id,
+            vaultId: body.vaultId,
+            maxSatoshis: body.maxSatoshis,
+            expiresAfterTicks: body.expiresAfterTicks,
+          });
+        } catch (error) {
+          try {
+            inviteService.deleteInvitedUser(userInvite.id);
+          } catch (cleanupError) {
+            console.error('Failed to roll back invite after coupon creation error:', cleanupError);
+          }
+
+          throw error;
+        }
 
         return {
           invite: {
