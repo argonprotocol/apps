@@ -1,5 +1,6 @@
 import type { DriverClient } from '../driver/client.ts';
 import { captureE2EScreenshot, getE2EScreenshotMode } from './helpers/screenshotMode.ts';
+import { isRetryableAppConnectionError, sleep } from './helpers/utils.ts';
 import { runOperation } from './operations/index.ts';
 import type {
   E2ECommandArgs,
@@ -143,6 +144,25 @@ export async function executeFlow(
     setActiveOperation: (operationName?: string) => {
       activeOperationName = operationName?.trim() ?? '';
     },
+    getAppReloadMarker: () => driver.getAppReloadMarker(),
+    waitForReload: async (reloadMarker, options = {}) => {
+      const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`[E2E] Timed out waiting for app reload after ${timeoutMs}ms`));
+        }, timeoutMs);
+      });
+
+      try {
+        await Promise.race([driver.waitForApp(reloadMarker + 1), timeout]);
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+      await waitForAppUiReadyAfterReload(driver, withCommandMeta, timeoutMs);
+    },
     command: (command, args) => {
       if (command.startsWith('command.')) {
         throw new Error(`[E2E] '${command}' is reserved for runtime internals. Use a dedicated flow method instead.`);
@@ -281,6 +301,37 @@ export async function executeFlow(
 
 async function ensureRuntimeUiReady(runtime: IE2EFlowRuntime): Promise<void> {
   await runtime.waitFor({ selector: '#app' }, { state: 'exists', timeoutMs: 30_000 });
+}
+
+async function waitForAppUiReadyAfterReload(
+  driver: DriverClient,
+  withCommandMeta: (args?: E2ECommandArgs) => E2ECommandArgs,
+  timeoutMs: number,
+): Promise<void> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+
+    try {
+      await driver.command(
+        'ui.waitFor',
+        withCommandMeta({
+          selector: '#app',
+          state: 'exists',
+          timeoutMs: Math.min(15_000, Math.max(1_000, remainingMs)),
+        }),
+      );
+      return;
+    } catch (error) {
+      if (!isRetryableAppConnectionError(error)) {
+        throw error;
+      }
+      await sleep(250);
+    }
+  }
+
+  throw new Error(`[E2E] Timed out waiting for app UI after reload after ${timeoutMs}ms`);
 }
 
 export { type IE2EFlowDefinition, type E2ECommandArgs } from './types.ts';

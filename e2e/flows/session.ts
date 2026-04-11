@@ -6,6 +6,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { DriverClient } from '../driver/client.ts';
 import { type DriverServer, startDriverServer } from '../driver/server.ts';
+import { isRetryableAppConnectionError } from './helpers/utils.ts';
 import { getFlow, runFlow } from './index.ts';
 import {
   resolveTestSessionIdentity,
@@ -611,7 +612,7 @@ async function waitForInitialUiReady(driver: DriverClient, appProcess: ChildProc
       }
       return;
     } catch (error) {
-      if (!isRetryableStartupDriverError(error)) {
+      if (!isRetryableAppConnectionError(error)) {
         throw error;
       }
 
@@ -627,11 +628,6 @@ async function waitForInitialUiReady(driver: DriverClient, appProcess: ChildProc
   throw new Error(
     `[E2E] Timed out waiting for initial UI readiness after ${timeoutMs}ms (attempts=${attempt}, pid=${String(appProcess.pid ?? 'n/a')}, exitCode=${String(appProcess.exitCode)}, signal=${String(appProcess.signalCode)})`,
   );
-}
-
-function isRetryableStartupDriverError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
 }
 
 async function stopChild(child: ChildProcess | null): Promise<void> {

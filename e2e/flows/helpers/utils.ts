@@ -30,6 +30,11 @@ export async function pollEvery(
   });
 }
 
+export function isRetryableAppConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
+}
+
 export function normalizeAmountInput(value: unknown, label: string): string | null {
   if (value == null) return null;
 

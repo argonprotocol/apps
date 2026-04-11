@@ -1,6 +1,6 @@
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
-import { pollEvery } from '../helpers/utils.ts';
+import { isRetryableAppConnectionError, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 
 interface IAppFlowContext {
@@ -39,6 +39,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
       return;
     }
 
+    const appReloadMarker = flow.getAppReloadMarker();
     const mnemonic = mnemonicGenerate();
 
     await flow.click('WelcomeOverlay.startImportAccount()', { timeoutMs: 10_000 });
@@ -49,6 +50,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
 
     await flow.click('WelcomeOverlay.importFromMnemonic()', { timeoutMs: 10_000 });
 
+    let sawReloadError = false;
     await pollEvery(
       500,
       async () => {
@@ -56,7 +58,8 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
           const importButton = await flow.isVisible('WelcomeOverlay.importFromMnemonic()');
           return !importButton.exists || !importButton.visible;
         } catch (error) {
-          if (isRetryableReloadError(error)) {
+          if (isRetryableAppConnectionError(error)) {
+            sawReloadError = true;
             return false;
           }
           throw error;
@@ -67,10 +70,45 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
         timeoutMessage: 'Welcome overlay did not clear after mnemonic import.',
       },
     );
+
+    let reloadHandled = false;
+    let settledPolls = 0;
+    await pollEvery(
+      250,
+      async () => {
+        try {
+          if (!reloadHandled && (sawReloadError || flow.getAppReloadMarker() > appReloadMarker)) {
+            await flow.waitForReload(appReloadMarker, { timeoutMs: 30_000 });
+            reloadHandled = true;
+            sawReloadError = false;
+            settledPolls = 0;
+            return false;
+          }
+
+          const appState = await flow.queryApp<{ showWelcomeOverlay?: boolean }>(
+            'refs => ({ showWelcomeOverlay: refs.config.showWelcomeOverlay })',
+            { timeoutMs: 1_000 },
+          );
+          if (appState?.showWelcomeOverlay !== false) {
+            settledPolls = 0;
+            return false;
+          }
+
+          settledPolls += 1;
+          return settledPolls >= 5;
+        } catch (error) {
+          if (!isRetryableAppConnectionError(error)) {
+            throw error;
+          }
+          sawReloadError = true;
+          settledPolls = 0;
+          return false;
+        }
+      },
+      {
+        timeoutMs: 30_000,
+        timeoutMessage: 'App did not stabilize after mnemonic import.',
+      },
+    );
   },
 });
-
-function isRetryableReloadError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
-}
