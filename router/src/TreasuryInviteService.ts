@@ -19,12 +19,18 @@ export class TreasuryInviteService {
       throw new RouterError('A vault is required to create an invite.');
     }
 
-    const user = this.db.usersTable.insertUser({
-      role: TREASURY_USER_ROLE,
-      name,
-    });
+    return this.db.transaction(() => {
+      if (this.db.userInvitesTable.fetchByCode(inviteCode)) {
+        throw new RouterError('This invite code is already in use.', 409);
+      }
 
-    return this.db.userInvitesTable.insertInvite(user.id, inviteCode);
+      const user = this.db.usersTable.insertUser({
+        role: TREASURY_USER_ROLE,
+        name,
+      });
+
+      return this.db.userInvitesTable.insertInvite(user.id, inviteCode);
+    });
   }
 
   public openInvite(inviteCode: string, accountId: string): IUserInviteRecord | null {
@@ -44,5 +50,12 @@ export class TreasuryInviteService {
     }
 
     return this.db.userInvitesTable.openInvite(invite.id, trimmedAccountId);
+  }
+
+  public deleteInvitedUser(userId: number): void {
+    this.db.transaction(() => {
+      this.db.userInvitesTable.deleteByUserId(userId);
+      this.db.usersTable.deleteById(userId);
+    });
   }
 }

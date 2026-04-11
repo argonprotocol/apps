@@ -118,6 +118,17 @@ export class UsersTable extends BaseTable {
     ).map(record => this.mapUser(record));
   }
 
+  public deleteById(id: number): void {
+    this.db.sql
+      .prepare(
+        `
+        DELETE FROM Users
+        WHERE id = $id
+      `,
+      )
+      .run({ $id: id });
+  }
+
   private mapUser(record: SqlUserRow): IUserRecord {
     return convertFromSqliteFields<IUserRecord>(record, userFieldTypes);
   }

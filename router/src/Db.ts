@@ -39,6 +39,23 @@ export class Db {
     return this.#userInvitesTable;
   }
 
+  public transaction<T>(fn: () => T): T {
+    this.sql.exec('BEGIN IMMEDIATE');
+
+    try {
+      const result = fn();
+      if (result && typeof result === 'object' && 'then' in result) {
+        throw new Error('Db.transaction callback must be synchronous.');
+      }
+
+      this.sql.exec('COMMIT');
+      return result;
+    } catch (error) {
+      this.sql.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   public close(): void {
     this.sql.close();
   }

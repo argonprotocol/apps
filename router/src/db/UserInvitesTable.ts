@@ -172,6 +172,17 @@ export class UserInvitesTable extends BaseTable {
     return this.fetchById(id);
   }
 
+  public deleteByUserId(userId: number): void {
+    this.db.sql
+      .prepare(
+        `
+        DELETE FROM UserInvites
+        WHERE userId = $userId
+      `,
+      )
+      .run({ $userId: userId });
+  }
+
   private mapInvite(record: SqlUserRow): IUserInviteRecord {
     return convertFromSqliteFields<IUserInviteRecord>(record, userFieldTypes);
   }
