@@ -59,7 +59,7 @@ const errorMessage = Vue.ref('');
 const hasErrors = Vue.ref(false);
 const isImporting = Vue.ref(false);
 
-const emit = defineEmits(['close', 'goTo']);
+const emit = defineEmits(['close']);
 
 function fillMnemonicFromText(pastedText: string) {
   const words = pastedText

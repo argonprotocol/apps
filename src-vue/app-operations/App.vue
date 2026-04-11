@@ -41,7 +41,6 @@
     </template>
     <ServerOverlay />
     <TroubleshootingOverlay />
-    <ImportingAccountOverlay />
     <AppUpdatesOverlay />
   </div>
 </template>
@@ -69,7 +68,6 @@ import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from '../app-shared/overlays/AboutOverlay.vue';
 import JurisdictionOverlay from '../app-shared/overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from '../app-shared/overlays/Troubleshooting.vue';
-import ImportingAccountOverlay from './overlays/ImportingAccountOverlay.vue';
 import BootingOverlay from '../app-shared/overlays/BootingOverlay.vue';
 import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from '../app-shared/navigation/AlertBars.vue';

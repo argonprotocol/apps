@@ -12,7 +12,6 @@
       <SecuritySettingsMnemonics v-if="currentScreen === 'mnemonics'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsSSHAccess v-if="currentScreen === 'ssh'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsEncrypt v-if="currentScreen === 'encrypt'" @close="closeOverlay" @goTo="goTo" />
-      <ExportRecoveryFile v-if="currentScreen === 'export'" @close="closeOverlay" @goTo="goTo" />
     </div>
   </OverlayBase>
 </template>
@@ -24,14 +23,13 @@ import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
 import SecuritySettingsSSHAccess from './security-settings/SSHAccess.vue';
-import ExportRecoveryFile from './security-settings/ExportRecoveryFile.vue';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import { useBasics } from '../../stores/basics.ts';
 
 const basics = useBasics();
 
 const isOpen = Vue.ref(false);
-const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'export'>('overview');
+const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt'>('overview');
 const overlayWidth = Vue.ref(640);
 
 const title = Vue.computed(() => {
@@ -43,8 +41,6 @@ const title = Vue.computed(() => {
     return 'Connect to Mining Machine';
   } else if (currentScreen.value === 'mnemonics') {
     return 'Account Recovery Mnemonic';
-  } else if (currentScreen.value === 'export') {
-    return 'Export Account Backup File';
   }
   throw new Error('Invalid screen name');
 });
@@ -64,7 +60,7 @@ function goBack() {
   currentScreen.value = 'overview';
 }
 
-function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh' | 'export') {
+function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh') {
   currentScreen.value = screen;
   if (screen === 'overview') {
     overlayWidth.value = 640;
@@ -73,8 +69,6 @@ function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh' | 'export') {
   } else if (screen === 'mnemonics') {
     overlayWidth.value = 740;
   } else if (screen === 'ssh') {
-    overlayWidth.value = 740;
-  } else if (screen === 'export') {
     overlayWidth.value = 740;
   }
 }

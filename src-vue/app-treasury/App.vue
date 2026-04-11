@@ -28,7 +28,6 @@
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
     </template>
     <TroubleshootingOverlay />
-    <ImportingAccountOverlay />
     <AppUpdatesOverlay />
   </div>
 </template>
@@ -44,7 +43,6 @@ import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from '../app-shared/overlays/AboutOverlay.vue';
 import JurisdictionOverlay from '../app-shared/overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from '../app-shared/overlays/Troubleshooting.vue';
-import ImportingAccountOverlay from '../app-operations/overlays/ImportingAccountOverlay.vue';
 import AppUpdatesOverlay from '../app-operations/overlays/AppUpdatesOverlay.vue';
 import WelcomeOverlay from '../app-operations/overlays/WelcomeOverlay.vue';
 import BootingOverlay from '../app-shared/overlays/BootingOverlay.vue';

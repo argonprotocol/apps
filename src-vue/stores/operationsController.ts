@@ -1,12 +1,15 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import basicEmitter from '../emitters/basicEmitter';
-import { getConfig, type Config } from './config';
+import { type Config, getConfig } from './config';
 import { getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
+import { type IOperationalChainProgress, subscribeOperationalAccount } from '../lib/OperationalAccount.ts';
+import { getBitcoinLocks } from './bitcoin.ts';
+import { getTransactionTracker } from './transactions.ts';
 import BootstrapToNode from '../app-operations/overlays/operational/BootstrapToNode.vue';
 import BackupMnemonic from '../app-operations/overlays/operational/BackupMnemonic.vue';
 import ActivateVault from '../app-operations/overlays/operational/ActivateVault.vue';
@@ -14,7 +17,8 @@ import LiquidLock from '../app-operations/overlays/operational/LiquidLock.vue';
 import AcquireBonds from '../app-operations/overlays/operational/AcquireBonds.vue';
 import WinMiningSeats from '../app-operations/overlays/operational/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../app-operations/overlays/operational/WinMoreMiningSeats.vue';
-import { loadOperationalAccount } from '../lib/OperationalAccount.ts';
+import { VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 
 export enum OperationsTab {
   Home = 'Home',
@@ -80,12 +84,18 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
   },
 };
 
+const operationalStepIds = Object.keys(operationalSteps) as OperationalStepId[];
+
+type IOperationalStepStatus = 'not_started' | 'underway' | 'complete';
+
 export const useOperationsController = defineStore('operationsController', () => {
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
   const dbPromise = getDbPromise();
   const config = getConfig();
+  const bitcoinLocks = getBitcoinLocks();
+  const transactionTracker = getTransactionTracker();
   const walletKeys = getWalletKeys();
   const selectedTab = Vue.ref<OperationsTab>(OperationsTab.Home);
 
@@ -96,16 +106,126 @@ export const useOperationsController = defineStore('operationsController', () =>
   const stopSuggestingVaultTour = Vue.ref(true);
 
   const backButtonTriggersHome = Vue.ref(false);
+  const chainProgress = Vue.ref<IOperationalChainProgress>({
+    hasVault: false,
+    hasUniswapTransfer: false,
+    hasTreasuryBondParticipation: false,
+    hasFirstMiningSeat: false,
+    hasSecondMiningSeat: false,
+    hasBitcoinLock: false,
+  });
+  const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
+
+  const certificationStepCount = operationalStepIds.length;
+  const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
+    return Object.values(bitcoinLocks.data.locksByUtxoId).some(lock => {
+      const fundingRecord =
+        bitcoinLocks.getAcceptedFundingRecord(lock) ??
+        lock.fundingUtxoRecord ??
+        bitcoinLocks.utxoTracking.getPreferredFundingCandidateRecord(lock);
+
+      return !!(fundingRecord?.mempoolObservation || fundingRecord?.firstSeenBitcoinHeight);
+    });
+  });
+
+  const hasBondsUnderway = Vue.computed(() => {
+    const latestVaultTreasuryAllocation = transactionTracker.findLatestTxInfo<{
+      addedTreasuryMicrogons?: bigint;
+    }>(txInfo => {
+      return (
+        txInfo.tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation &&
+        (txInfo.tx.metadataJson?.addedTreasuryMicrogons ?? 0n) > 0n
+      );
+    });
+
+    const latestTreasuryBondPurchase = transactionTracker.findLatestTxInfo<{
+      newAmount?: bigint;
+      previousAmount?: bigint;
+    }>(txInfo => {
+      return (
+        txInfo.tx.extrinsicType === ExtrinsicType.TreasurySetAllocation &&
+        (txInfo.tx.metadataJson?.newAmount ?? 0n) > (txInfo.tx.metadataJson?.previousAmount ?? 0n)
+      );
+    });
+
+    return [latestVaultTreasuryAllocation, latestTreasuryBondPurchase].some(txInfo => {
+      if (!txInfo) return false;
+      if (txInfo.tx.submissionErrorJson || txInfo.tx.blockExtrinsicErrorJson) return false;
+      return txInfo.tx.status === TransactionStatus.Submitted || txInfo.tx.status === TransactionStatus.InBlock;
+    });
+  });
+
+  const isVaultActivationUnderway = Vue.computed(() => {
+    return (
+      config.vaultingSetupStatus === VaultingSetupStatus.Installing ||
+      config.vaultingSetupStatus === VaultingSetupStatus.Finished
+    );
+  });
+
+  const completedCertificationStepCount = Vue.computed(() => {
+    return operationalStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
+  });
+
+  const pendingCompletionNoticeStepId = Vue.computed(() => {
+    return completionNoticeQueue.value[0] ?? null;
+  });
+
+  let operationalAccountUnsubscribe: VoidFunction | undefined;
+  let previousCompletionByStepId: Record<OperationalStepId, boolean> | undefined;
 
   function isCertificationStepComplete(stepId: OperationalStepId) {
-    if (stepId === OperationalStepId.BootstrapFromNode) {
-      return true;
-    } else if (stepId === OperationalStepId.BackupMnemonic) {
+    if (stepId === OperationalStepId.BootstrapFromNode) return true;
+
+    if (stepId === OperationalStepId.BackupMnemonic) {
       return config.certificationDetails?.hasSavedMnemonic || false;
-    } else if (stepId === OperationalStepId.ActivateVault) {
-      return config.certificationDetails?.hasVault || false;
+    }
+    if (stepId === OperationalStepId.ActivateVault) {
+      return chainProgress.value.hasVault;
+    }
+    if (stepId === OperationalStepId.LiquidLock) {
+      return chainProgress.value.hasBitcoinLock;
+    }
+    if (stepId === OperationalStepId.AcquireBonds) {
+      return chainProgress.value.hasTreasuryBondParticipation;
+    }
+    if (stepId === OperationalStepId.FirstMiningSeat) {
+      return chainProgress.value.hasFirstMiningSeat;
+    }
+    if (stepId === OperationalStepId.MoreMiningSeats) {
+      return chainProgress.value.hasSecondMiningSeat;
     }
     return false;
+  }
+
+  function isCertificationStepUnderway(stepId: OperationalStepId) {
+    if (isCertificationStepComplete(stepId)) return false;
+    if ([OperationalStepId.FirstMiningSeat, OperationalStepId.MoreMiningSeats].includes(stepId)) return false;
+    if (activeGuideId.value === stepId) return true;
+
+    if (stepId === OperationalStepId.ActivateVault) {
+      return isVaultActivationUnderway.value;
+    }
+    if (stepId === OperationalStepId.LiquidLock) {
+      return hasBitcoinFundingSeenOnBitcoin.value;
+    }
+    if (stepId === OperationalStepId.AcquireBonds) {
+      return hasBondsUnderway.value;
+    }
+
+    return false;
+  }
+
+  function getCertificationStepStatus(stepId: OperationalStepId): IOperationalStepStatus {
+    if (isCertificationStepComplete(stepId)) return 'complete';
+    if (isCertificationStepUnderway(stepId)) return 'underway';
+    return 'not_started';
+  }
+
+  function getCertificationStepStatusLabel(stepId: OperationalStepId) {
+    const status = getCertificationStepStatus(stepId);
+    if (status === 'complete') return 'Completed';
+    if (status === 'underway') return 'Underway';
+    return 'Not completed';
   }
 
   function getCertificationBlocker(stepId: OperationalStepId) {
@@ -131,16 +251,54 @@ export const useOperationsController = defineStore('operationsController', () =>
 
   async function load() {
     await config.isLoadedPromise;
-    await loadOperationalAccount(config as Config, walletKeys);
+    if (operationalAccountUnsubscribe) return;
+    await Promise.all([
+      subscribeOperationalAccount(walletKeys, x => {
+        chainProgress.value = x;
+      })
+        .then(unsub => {
+          operationalAccountUnsubscribe = unsub;
+        })
+        .catch(error => {
+          console.error('[Operations Controller] Unable to subscribe to operational progress.', error);
+        }),
+      bitcoinLocks.load().catch(error => {
+        console.error('[Operations Controller] Unable to load bitcoin lock progress.', error);
+      }),
+    ]);
+
+    // detect newly completed steps and queue completion notices
+    Vue.watch(
+      () => {
+        return Object.fromEntries(
+          operationalStepIds.map(stepId => [stepId, isCertificationStepComplete(stepId)]),
+        ) as Record<OperationalStepId, boolean>;
+      },
+      nextCompletionByStepId => {
+        if (!previousCompletionByStepId) {
+          previousCompletionByStepId = nextCompletionByStepId;
+          return;
+        }
+
+        const newlyCompletedStepIds = operationalStepIds.filter(stepId => {
+          return !previousCompletionByStepId?.[stepId] && nextCompletionByStepId[stepId];
+        });
+        previousCompletionByStepId = nextCompletionByStepId;
+        if (!newlyCompletedStepIds.length) return;
+
+        for (const stepId of newlyCompletedStepIds) {
+          if (activeGuideId.value === stepId) {
+            activeGuideId.value = null;
+          }
+          if (completionNoticeQueue.value.includes(stepId)) continue;
+          completionNoticeQueue.value = [...completionNoticeQueue.value, stepId];
+        }
+      },
+      { immediate: true },
+    );
 
     isLoaded.value = true;
     isLoadedResolve();
-  }
-
-  async function importFromFile(dataRaw: string) {
-    isImporting.value = true;
-    const importer = new Importer(config as Config, walletKeys, dbPromise);
-    basicEmitter.emit('openImportingAccountOverlay', { importer, dataRaw });
   }
 
   async function importFromMnemonic(mnemonic: string) {
@@ -148,6 +306,14 @@ export const useOperationsController = defineStore('operationsController', () =>
     const importer = new Importer(config as Config, walletKeys, dbPromise);
     await importer.importFromMnemonic(mnemonic);
     isImporting.value = false;
+  }
+
+  function dismissCompletionNotice() {
+    completionNoticeQueue.value = completionNoticeQueue.value.slice(1);
+  }
+
+  function clearCompletionNotices() {
+    completionNoticeQueue.value = [];
   }
 
   load().catch(handleFatalError.bind('useOperationsController'));
@@ -161,10 +327,17 @@ export const useOperationsController = defineStore('operationsController', () =>
     stopSuggestingVaultTour,
     backButtonTriggersHome,
     activeGuideId,
-    importFromFile,
+    certificationStepCount,
+    completedCertificationStepCount,
+    pendingCompletionNoticeStepId,
     importFromMnemonic,
+    dismissCompletionNotice,
+    clearCompletionNotices,
     setScreenKey: setTab,
     isCertificationStepComplete: isCertificationStepComplete,
+    isCertificationStepUnderway,
+    getCertificationStepStatus,
+    getCertificationStepStatusLabel,
     getCertificationBlocker: getCertificationBlocker,
     isCertificationStepUnlocked,
   };
