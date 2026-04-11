@@ -11,6 +11,7 @@ interface PendingRequest {
 }
 
 interface IAppHelloWaiter {
+  minGeneration: number;
   resolve: (value: UnknownRecord) => void;
   reject: (error: Error) => void;
 }
@@ -75,6 +76,7 @@ export class DriverClient {
   private pending = new Map<string, PendingRequest>();
   private appHello: UnknownRecord | null = null;
   private appHelloError: Error | null = null;
+  private appHelloGeneration = 0;
   private appHelloWaiters: IAppHelloWaiter[] = [];
   private messageBuffer: UnknownRecord[] = [];
   private frontendErrors: string[] = [];
@@ -91,6 +93,10 @@ export class DriverClient {
 
   public getFrontendErrors(): string[] {
     return [...this.frontendErrors];
+  }
+
+  public getAppReloadMarker(): number {
+    return this.appHelloGeneration;
   }
 
   public async connect(): Promise<void> {
@@ -113,10 +119,18 @@ export class DriverClient {
       }
 
       if (payload.type === 'client.hello') {
+        this.appHelloGeneration += 1;
         this.appHello = payload;
         this.appHelloError = null;
-        this.appHelloWaiters.forEach(waiter => waiter.resolve(payload));
-        this.appHelloWaiters = [];
+        const remainingWaiters: IAppHelloWaiter[] = [];
+        for (const waiter of this.appHelloWaiters) {
+          if (this.appHelloGeneration >= waiter.minGeneration) {
+            waiter.resolve(payload);
+            continue;
+          }
+          remainingWaiters.push(waiter);
+        }
+        this.appHelloWaiters = remainingWaiters;
         console.info('[E2E] Received app hello');
         return;
       }
@@ -215,13 +229,13 @@ export class DriverClient {
     this.send({ type: 'driver.hello' });
   }
 
-  public async waitForApp(): Promise<UnknownRecord> {
-    if (this.appHello) return this.appHello;
+  public async waitForApp(minGeneration = 1): Promise<UnknownRecord> {
+    if (this.appHello && this.appHelloGeneration >= minGeneration) return this.appHello;
     if (this.appHelloError) {
       throw this.appHelloError;
     }
     return new Promise((resolve, reject) => {
-      this.appHelloWaiters.push({ resolve, reject });
+      this.appHelloWaiters.push({ minGeneration, resolve, reject });
     });
   }
 
