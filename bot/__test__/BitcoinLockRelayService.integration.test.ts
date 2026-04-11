@@ -115,6 +115,58 @@ describe.sequential('BitcoinLockRelayService integration', () => {
     }
   });
 
+  it('rejects invalid relay inputs without creating a relay row', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      vi.spyOn(service, 'startInternal').mockImplementation(async () => {
+        service.vaultId = 1;
+      });
+
+      const cases: Array<{
+        offerCode: string;
+        patch: Partial<IBitcoinLockRelayJobRequest>;
+        errorMatcher: string;
+      }> = [
+        {
+          offerCode: 'missing-account-id',
+          patch: { ownerAccountId: '   ' },
+          errorMatcher: 'owner account id',
+        },
+        {
+          offerCode: 'missing-pubkey',
+          patch: { ownerBitcoinPubkey: '   ' },
+          errorMatcher: 'owner bitcoin pubkey',
+        },
+        {
+          offerCode: 'below-minimum-sats',
+          patch: { requestedSatoshis: 1000n },
+          errorMatcher: 'greater than minimum satoshis',
+        },
+        {
+          offerCode: 'missing-price-quote',
+          patch: { microgonsPerBtc: 0n },
+          errorMatcher: 'current bitcoin price quote',
+        },
+      ];
+
+      for (const { offerCode, patch, errorMatcher } of cases) {
+        insertCoupon(harness.db, offerCode);
+        await expect(
+          harness.service.relayBitcoinLock({
+            ...createRelayRequest(offerCode),
+            ...patch,
+          }),
+        ).rejects.toThrow(errorMatcher);
+
+        expect(getCouponStatus(harness.db, offerCode)?.status).toBe('Open');
+      }
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it('marks pre-inclusion watch failures as failed', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService;

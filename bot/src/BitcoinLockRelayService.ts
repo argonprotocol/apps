@@ -85,11 +85,32 @@ export class BitcoinLockRelayService {
     await this.start();
 
     const { offerCode } = request;
+    const ownerAccountId = request.ownerAccountId?.trim();
+    const ownerBitcoinPubkey = request.ownerBitcoinPubkey?.trim();
 
     const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
     if (!coupon) {
       throw new HttpError('Bitcoin lock coupon not found.', 404);
     }
+
+    if (!ownerAccountId) {
+      throw new HttpError('An owner account id is required for this bitcoin lock.', 400);
+    }
+
+    if (!ownerBitcoinPubkey) {
+      throw new HttpError('An owner bitcoin pubkey is required for this bitcoin lock.', 400);
+    }
+
+    if (request.requestedSatoshis <= 1000n) {
+      throw new HttpError('Requested satoshis must be greater than minimum satoshis.', 400);
+    }
+
+    if (request.microgonsPerBtc == null || request.microgonsPerBtc <= 0n) {
+      throw new HttpError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
+    }
+
+    request.ownerAccountId = ownerAccountId;
+    request.ownerBitcoinPubkey = ownerBitcoinPubkey;
 
     const existingRelay = this.db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id);
     if (existingRelay) {

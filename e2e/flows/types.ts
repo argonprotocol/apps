@@ -56,6 +56,8 @@ export interface IE2EFlowRuntime {
   input: E2ECommandArgs;
   defaultTimeoutMs: number;
   setActiveOperation: (operationName?: string) => void;
+  getAppReloadMarker: () => number;
+  waitForReload: (reloadMarker: number, options?: IE2ETimeoutOptions) => Promise<void>;
   command: <T = unknown>(command: string, args?: E2ECommandArgs) => Promise<T>;
   run: {
     <Context, State>(
