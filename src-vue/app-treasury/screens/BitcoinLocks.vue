@@ -297,11 +297,10 @@ async function loadCurrentCoupon() {
   coupons.value = await UpstreamOperatorClient.getBitcoinLockCoupons(operatorHost, walletKeys.liquidLockingAddress);
 }
 
-Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async ([loaded, vaultId]) => {
+Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {
   if (!isLoaded.value || !config.upstreamOperator?.vaultId) return;
-  if (!loaded || !vaultId) return;
   unsubVault?.();
-  unsubVault = await vaults.subscribeToVault(vaultId, updateAvailableSpace);
+  unsubVault = await vaults.subscribeToVault(config.upstreamOperator?.vaultId, updateAvailableSpace);
 });
 
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {
