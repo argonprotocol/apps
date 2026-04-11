@@ -1,14 +1,15 @@
 <template>
   <svg
     :class="twMerge('block h-3.5 w-6', props.class)"
+    class="Component Arrow"
     viewBox="0 0 18 10"
     preserveAspectRatio="none"
     aria-hidden="true">
     <path
       d="M 0 10 L 9 0 L 18 10 Z"
-      :fill="fill"
       :stroke="stroke"
       :stroke-width="strokeWidth"
+      vector-effect="non-scaling-stroke"
       stroke-linejoin="round" />
   </svg>
 </template>
@@ -29,3 +30,9 @@ const props = withDefaults(
   },
 );
 </script>
+
+<style scoped>
+svg path {
+  fill: v-bind(fill);
+}
+</style>

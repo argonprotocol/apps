@@ -71,7 +71,7 @@
       <!-- Blank state -->
       <div
         v-else
-        class="flex grow flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-argon-300/60 bg-argon-20/40">
+        class="flex grow flex-col items-center justify-center gap-4">
         <div class="text-center">
           <div class="text-base font-medium text-argon-text-primary">No active bond</div>
           <div class="mt-1 text-sm text-slate-400">Buy bonds to earn treasury yield from Vault #{{ bonds.vaultId }}</div>

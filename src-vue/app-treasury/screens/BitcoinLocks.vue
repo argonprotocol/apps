@@ -300,7 +300,7 @@ async function loadCurrentCoupon() {
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {
   if (!isLoaded.value || !config.upstreamOperator?.vaultId) return;
   unsubVault?.();
-  unsubVault = await vaults.subscribeToVault(config.upstreamOperator.vaultId, updateAvailableSpace);
+  unsubVault = await vaults.subscribeToVault(config.upstreamOperator?.vaultId, updateAvailableSpace);
 });
 
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {

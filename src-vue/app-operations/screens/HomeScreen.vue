@@ -667,7 +667,7 @@ const totalNetWorth = Vue.computed(() => {
   if (!currency.isLoaded) {
     return ['--', '--'];
   }
-  const value = microgonToMoneyNm(wallets.totalNetWorth).format('0,0.00');
+  const value = microgonToMoneyNm(wallets.totalOperationalResources).format('0,0.00');
   return value.split('.');
 });
 
