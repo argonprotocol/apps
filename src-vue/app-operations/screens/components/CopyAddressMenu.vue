@@ -7,7 +7,7 @@
         class="w-7 h-7 flex flex-row items-center justify-center hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border rounded-md"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-transparent']"
       >
-        <GlobeIcon class="h-4 w-4 text-slate-800/50" />
+        <CopyIcon class="h-4 w-4 text-slate-800/50" />
       </DropdownMenuTrigger>
 
       <DropdownMenuPortal>
@@ -22,20 +22,16 @@
           <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem class="pt-1 pb-2">
               <CopyToClipboard :content="wallet.address" class="group relative cursor-pointer">
-                <div class="flex flex-col">
-                  <div class="flex flex-row items-center justify-end">
-                    <div class="text-slate-700 group-hover:text-argon-600">Copy Address</div>
-                    <CopyIcon class="ml-1 inline-block h-4 w-4 text-slate-600/80 group-hover:text-slate-600" />
-                  </div>
+                <div class="flex flex-col text-right">
+                  <div class="text-slate-700 group-hover:text-argon-600">Copy Address</div>
                   <div class="text-slate-600/60">
                     {{ abbreviateAddress(wallet.address, 10) }}
                   </div>
                 </div>
                 <template #copied>
-                  <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col">
-                    <div class="flex flex-row items-center justify-end">
+                  <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
+                    <div>
                       Copy Address
-                      <CopyIcon class="ml-1 inline-block h-4 w-4 " />
                     </div>
                     <div>
                       {{ abbreviateAddress(wallet.address, 10) }}
@@ -71,7 +67,7 @@ import { IWallet, WalletType } from '../../../lib/Wallet.ts';
 import { useWallets } from '../../../stores/wallets.ts';
 
 const props = defineProps<{
-  walletType: WalletType.miningHold | WalletType.vaulting;
+  walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment;
 }>();
 
 const wallets = useWallets();
@@ -83,6 +79,8 @@ const wallet = Vue.computed<IWallet>(() => {
     return wallets.miningHoldWallet;
   } else if (props.walletType === WalletType.vaulting) {
     return wallets.vaultingWallet;
+  } else if (props.walletType === WalletType.investment) {
+    return wallets.investmentWallet;
   }
   throw new Error(`Unknown wallet type: ${props.walletType}`);
 });

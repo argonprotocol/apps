@@ -169,6 +169,10 @@ Vue.onMounted(() => {
       console.log('Skipping mining wallet change - no created miner');
       return;
     }
+    if (wallet.type !== WalletType.miningHold && wallet.type !== WalletType.vaulting) {
+      console.log('Skipping wallet change - not mining or vaulting wallet');
+      return;
+    }
     if (balanceChange.microgonsAdded === 0n && balanceChange.micronotsAdded === 0n) {
       console.log('Skipping wallet change - no funds added');
       return;

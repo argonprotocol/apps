@@ -38,6 +38,8 @@ type IBasicEmitter = {
 
   openProfileOverlay: void;
 
+  openVaultsOverlay: void;
+
   openVaultCollect: void;
   openVaultInvitesOverlay: void;
   openVaultMembersOverlay: void;

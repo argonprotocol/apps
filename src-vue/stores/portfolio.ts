@@ -32,7 +32,7 @@ export const usePortfolio = defineStore('portfolio', () => {
   const miningExternalInvested = Vue.ref(0n);
 
   const originalCapitalRoi = Vue.computed(() => {
-    return calculateProfitPct(originalCapitalInvested.value, wallets.totalNetWorth) * 100;
+    return calculateProfitPct(originalCapitalInvested.value, wallets.totalOperationalResources) * 100;
   });
 
   const originalCapitalInvested = Vue.computed(() => {
@@ -40,7 +40,7 @@ export const usePortfolio = defineStore('portfolio', () => {
   });
 
   const projectedApy = Vue.computed(() => {
-    return calculateAPY(originalCapitalInvested.value, wallets.totalNetWorth, myMinerStats.activeFrames);
+    return calculateAPY(originalCapitalInvested.value, wallets.totalOperationalResources, myMinerStats.activeFrames);
   });
 
   async function updateExternalFunding() {

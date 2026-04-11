@@ -60,9 +60,9 @@ export const useBonds = defineStore('bonds', () => {
     const accountId = walletKeys.investmentAddress;
 
     Vue.watch(
-      () => config.upstreamOperator!.vaultId,
-      async () => {
-        vaultId.value = config.upstreamOperator!.vaultId;
+      () => config.upstreamOperator?.vaultId ?? 0,
+      async nextVaultId => {
+        vaultId.value = nextVaultId;
         unsubFunder?.();
         if (!vaultId.value) {
           funderState.value = null;
