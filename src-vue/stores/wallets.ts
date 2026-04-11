@@ -183,8 +183,12 @@ export const useWallets = defineStore('wallets', () => {
     );
   });
 
-  const totalNetWorth = Vue.computed(() => {
+  const totalOperationalResources = Vue.computed(() => {
     return totalMiningResources.value + totalVaultingResources.value;
+  });
+
+  const totalTreasuryResources = Vue.computed(() => {
+    return investmentWallet.availableMicrogons + investmentWallet.reservedMicrogons;
   });
 
   const totalWalletMicrogons = Vue.ref(0n);
@@ -255,6 +259,7 @@ export const useWallets = defineStore('wallets', () => {
     miningHoldWallet,
     miningBotWallet,
     vaultingWallet,
+    investmentWallet,
     liquidLockingWallet,
     miningHoldSpendableMicrogons,
     operationalWallet,
@@ -274,7 +279,9 @@ export const useWallets = defineStore('wallets', () => {
     totalVaultingMicrogons,
     totalMiningResources,
     totalVaultingResources,
-    totalNetWorth,
+    totalOperationalResources,
+
+    totalTreasuryResources,
 
     on<K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
       const unsub = walletBalances.events.on(event, cb);

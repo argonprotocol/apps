@@ -1,112 +1,66 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="h-full min-w-80 flex flex-col gap-y-1.5 select-none z-10">
-    <section DashBox class="px-4">
-      <header class="flex flex-row items-center pt-3 pb-2 opacity-50">
-        <MainchainIcon class="mr-2 h-4 w-4" />
-        <div>MAINCHAIN NETWORK</div>
-      </header>
-      <ul>
-        <li Divider />
-        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.MainchainSavings)" :Selected="controller.selectedTab === TreasuryTab.MainchainSavings || undefined">
-          <div>Inflation-Free Savings</div>
-          <div>{{ currency.symbol }}{{ formattedMainchain }}</div>
-          <div Selector>
-            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
-          </div>
-        </li>
-        <li Divider />
-        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.ArgonBonds)" :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined">
-          <div>Argon Bonds</div>
-          <div>{{ numeral(bonds.estimatedApy).format('0.00') }}%</div>
-          <div Selector>
-            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
-          </div>
-        </li>
-        <li Divider />
-        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)" :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined">
-          <div>Bitcoin Locks</div>
-          <div>0.00%</div>
-          <div Selector>
-            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
-          </div>
-        </li>
-        <li Divider />
-      </ul>
-
-      <header class="flex flex-row items-center pt-5 pb-2 opacity-50">
-        <P2pIcon class="mr-2 h-4 w-4" />
-        <div>PERSON-TO-PERSON</div>
-      </header>
-      <ul class="mt-2">
-        <li Divider />
-        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.P2pSavings)" :Selected="controller.selectedTab === TreasuryTab.P2pSavings || undefined">
-          <div>Ready Cash</div>
-          <div>{{currency.symbol}}0.00</div>
-          <div Selector>
-            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
-          </div>
-        </li>
-        <li Divider />
-        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.P2pTaxes)" :Selected="controller.selectedTab === TreasuryTab.P2pTaxes || undefined">
-          <div>Tax Revenue</div>
-          <div>{{currency.symbol}}0.00</div>
-          <div Selector>
-            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
-          </div>
-        </li>
-        <li Divider />
-      </ul>
-
-      <header class="flex flex-row items-center pt-5 pb-2 opacity-50">
-        <ExternalIcon class="mr-2 h-4 w-4" />
-        <div>EXTERNAL NETWORKS</div>
-      </header>
-      <ul class="pb-1.5">
-        <li Divider />
-        <li Clickable Item @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)" :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined">
-          <div>Ethereum Swaps</div>
-          <div>{{currency.symbol}}0.00</div>
-          <div Selector>
-            <div ArrowWrapper><Arrow fill="#ECE1EE" :strokeWidth="0" /></div>
-          </div>
-        </li>
-      </ul>
+  <div class="Navigation LeftBar h-full min-w-80 max-w-80 flex flex-col gap-y-1.5 select-none z-10">
+    <section
+      DashBox Item
+      @click="controller.setScreenKey(TreasuryTab.MainchainSavings)"
+      :Selected="controller.selectedTab === TreasuryTab.MainchainSavings || undefined"
+    >
+      <div>Argon Savings</div>
+      <div>{{ currency.symbol }}{{ formattedMainchain }}</div>
+      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
-    <section DashBox class="px-4">
-      <ul class="text-slate-900/60">
-        <li Item>
-          <div>Total Portfolio Value</div>
-          <div>{{ currency.symbol }}{{ formattedTotal }}</div>
-        </li>
-        <li Divider />
-        <li Item>
-          <div>Total Portfolio Change</div>
-          <div>+0.2</div>
-        </li>
-        <li Divider />
-        <li Item>
-          <div>Portfolio Return This Year</div>
-          <div>32%</div>
-        </li>
-        <li Divider />
-        <li Item>
-          <div>Projected APY</div>
-          <div>3,283%</div>
-        </li>
-      </ul>
+    <section
+      DashBox Item
+      @click="controller.setScreenKey(TreasuryTab.ArgonBonds)"
+      :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined"
+    >
+      <div>Argon Bonds</div>
+      <div>{{ currency.symbol }}0.00</div>
+      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
-    <section DashBox class="grow flex flex-row items-center justify-center gap-x-2 text-center">
-      <ul class="flex flex-col items-center gap-y-10">
-        <li>
-          <DiscordIcon class="h-7 w-7 inline-block" />
-          <div class="mt-1">Community</div>
+    <section
+      DashBox Item
+      @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)"
+      :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined"
+    >
+      <div>Bitcoin Locks</div>
+      <div>{{ currency.symbol }}0.00</div>
+      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+    </section>
+
+    <section
+      DashBox Item
+      @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)"
+      :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
+    >
+      <div>Ethereum Swaps</div>
+      <div>{{currency.symbol}}0.00</div>
+      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+    </section>
+
+    <section DashBox class="grow flex flex-col">
+      <div class="grow px-10 pb-[40%] flex flex-col justify-center text-justify text-slate-800/60">
+        <header class="font-bold">Did You Know?</header>
+        <p class="break-words leading-7">
+          The argon stablecoin is designed to never lose value. Unlike the dollar, it buys the same amount of goods
+          today as it will a century from now.
+        </p>
+      </div>
+      <ul class="flex flex-row w-full items-end px-3 pb-4 gap-x-3 text-center">
+        <li class="w-1/2 border-t border-slate-400/40 pt-3">
+          <div @click="() => void openLink('https://argon.network/docs')" class="cursor-pointer flex flex-col items-center gap-y-1 text-center text-argon-600 hover:text-argon-600/70">
+            <InstructionsIcon class="h-6 w-6" />
+            <div>Docs</div>
+          </div>
         </li>
-        <li>
-          <InstructionsIcon class="h-6 w-6 inline-block" />
-          <div class="mt-2">Documentation</div>
+        <li class="w-1/2 border-t border-slate-400/40 pt-3">
+          <div @click="() => void openLink('https://discord.gg/xDwwDgCYr9')" class="cursor-pointer flex flex-col items-center gap-y-1 text-center text-argon-600 hover:text-argon-600/70">
+            <DiscordIcon class="h-7 w-7 -mb-1" />
+            <div>Community</div>
+          </div>
         </li>
       </ul>
 
@@ -126,13 +80,11 @@ import { INSTANCE_NAME, NETWORK_NAME } from '../../lib/Env.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { TreasuryTab, useTreasuryController } from '../../stores/treasuryController.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import MainchainIcon from '../../assets/mainchain-icon.svg';
-import P2pIcon from '../../assets/p2p-icon.svg';
-import ExternalIcon from '../../assets/external-icon.svg';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
 import DiscordIcon from '../../assets/discord.svg';
 import InstructionsIcon from '../../assets/instructions.svg';
 import { useBonds } from '../../stores/bonds.ts';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const controller = useTreasuryController();
 const currency = getCurrency();
@@ -158,6 +110,10 @@ const tour = useTour();
 const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
 
 const instances = Vue.ref<IInstance[]>([]);
+
+function openLink(url: string) {
+  void tauriOpenUrl(url);
+}
 
 async function fetchInstances() {
   const configDir = await appConfigDir();
@@ -186,49 +142,47 @@ Vue.onMounted(async () => {
 });
 </script>
 
-<style scoped>
+<style>
 @reference "../../main.css";
 
-ul li[Item] {
-  @apply relative my-1 flex flex-row items-center py-1.5;
-  &[Clickable] {
-    @apply cursor-pointer;
-  }
-  div {
-    @apply relative z-10;
-  }
-  div:first-child {
-    @apply grow;
-  }
-  &[Selected] {
-    text-shadow: 1px 1px 1px white;
-    div[Selector] {
-      @apply block;
+.Navigation.LeftBar {
+  section[Item] {
+    @apply relative flex cursor-pointer flex-row items-center justify-between gap-x-2 px-4 py-4 whitespace-nowrap;
+    div:nth-child(1) {
+      @apply text-argon-600;
     }
-    /*
-      &:hover {
-        @apply border-transparent;
+    div:nth-child(2) {
+      @apply text-argon-800/40;
+    }
+    &:hover:not([Selected]) {
+      @apply bg-[var(--bg-color)];
+      [ArrowWrapper] {
+        @apply left-[calc(100%-12px)] block;
+        &::before {
+          @apply w-4;
+        }
+        .Component.Arrow path {
+          fill: var(--bg-color) !important;
+        }
       }
-    */
+    }
+    &[Selected] {
+      text-shadow: 1px 1px 1px white;
+      [ArrowWrapper] {
+        @apply block;
+      }
+    }
   }
 
-  div[Selector] {
-    @apply absolute top-[-5px] left-0 z-0 hidden h-[calc(100%+10px)] w-[calc(100%+20px)] border-y border-slate-400/40 bg-[#ECE1EE] shadow-md;
+  [ArrowWrapper] {
+    @apply absolute top-[-4px] left-[calc(100%-2px)] hidden aspect-square h-[calc(100%+8px)] overflow-hidden pr-[6px] pb-[8px];
     &::before {
       content: '';
-      @apply absolute -top-px -left-px h-[calc(100%+7px)] w-4/12 bg-gradient-to-r from-white to-transparent;
+      @apply absolute top-[3px] left-0 h-[calc(100%+2px)] w-1 bg-[var(--bg-color)];
+    }
+    svg {
+      @apply absolute top-[2px] left-[calc(25%-3px)] h-1/2 w-[calc(100%-10px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[2px_2px_2px_rgb(0_0_0/0.3)];
     }
   }
-}
-
-[ArrowWrapper] {
-  @apply absolute top-0 -right-full aspect-square h-[calc(100%+6px)] overflow-hidden pr-1.5 pb-1.5;
-  svg {
-    @apply absolute top-0 left-1/4 h-1/2 w-[calc(100%-6px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[1px_1px_1px_black];
-  }
-}
-
-ul li[Divider] {
-  @apply h-px border-t border-slate-400/40;
 }
 </style>
