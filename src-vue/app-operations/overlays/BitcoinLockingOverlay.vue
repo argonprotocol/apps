@@ -208,23 +208,48 @@ const isLoaded = Vue.ref(false);
 
 const createdLockUuid = Vue.ref<string | undefined>();
 const createdLock = Vue.ref<IBitcoinLockRecord | undefined>();
+let overlayRefreshInterval: ReturnType<typeof setInterval> | undefined;
+
+const trackedCreatedLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
+  if (!createdLockUuid.value) return undefined;
+
+  const matchingLocks = bitcoinLocks.getAllLocks().filter(lock => lock.uuid === createdLockUuid.value);
+  return matchingLocks.find(lock => lock.utxoId != null) ?? matchingLocks[0];
+});
 
 const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   if (props.personalLock) return props.personalLock;
-  if (!createdLockUuid.value) return undefined;
-  const found = bitcoinLocks.getActiveLocks().find(l => l.uuid === createdLockUuid.value);
-  if (found) {
-    createdLock.value = found;
-    return found;
+
+  if (trackedCreatedLock.value) {
+    return trackedCreatedLock.value;
   }
-  // During pending→finalized transition, the lock briefly disappears.
-  // Return the last known record to prevent the overlay from resetting.
+
+  if (createdLock.value?.utxoId != null) {
+    return bitcoinLocks.getLockByUtxoId(createdLock.value.utxoId) ?? createdLock.value;
+  }
+
+  // During pending->finalized transition, keep the last known record while the finalized
+  // utxo-backed record is still being wired back into the overlay.
   return createdLock.value;
 });
 
 function onLockCreated(lock: IBitcoinLockRecord) {
   createdLockUuid.value = lock.uuid;
   createdLock.value = lock;
+}
+
+async function resolveCreatedLockTransition() {
+  if (props.personalLock || !createdLockUuid.value) return;
+  if (trackedCreatedLock.value?.utxoId != null) return;
+
+  const table = await bitcoinLocks.getTable();
+  const utxoId = await table.getUtxoIdByUuid(createdLockUuid.value);
+  if (utxoId == null) return;
+
+  const finalizedLock = bitcoinLocks.getLockByUtxoId(utxoId) ?? (await table.getByUtxoId(utxoId));
+  if (!finalizedLock) return;
+
+  createdLock.value = finalizedLock;
 }
 
 const maxLockLiquidityMicrogons = Vue.computed(() => {
@@ -240,8 +265,6 @@ const lockProcessingDetails = Vue.ref({
   expectedConfirmations: 0,
   mismatchDetected: false,
 });
-
-let lockProcessingInterval: ReturnType<typeof setInterval> | undefined;
 
 function updateLockProcessingDetails() {
   const lock = personalLock.value;
@@ -331,16 +354,25 @@ Vue.onMounted(() => {
     isLoaded.value = true;
   }, 100);
 
+  void resolveCreatedLockTransition();
   updateLockProcessingDetails();
-  lockProcessingInterval = setInterval(updateLockProcessingDetails, 1_000);
+  overlayRefreshInterval = setInterval(() => {
+    void resolveCreatedLockTransition();
+    updateLockProcessingDetails();
+  }, 1_000);
+});
+
+Vue.watch(trackedCreatedLock, nextLock => {
+  if (!nextLock) return;
+  createdLock.value = nextLock;
 });
 
 Vue.watch(personalLock, updateLockProcessingDetails, { deep: true });
 
 Vue.onUnmounted(() => {
-  if (lockProcessingInterval) {
-    clearInterval(lockProcessingInterval);
-    lockProcessingInterval = undefined;
+  if (overlayRefreshInterval) {
+    clearInterval(overlayRefreshInterval);
+    overlayRefreshInterval = undefined;
   }
 });
 </script>

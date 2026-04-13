@@ -48,6 +48,7 @@ describe('RouterServer', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JsonExt.stringify({
         name: 'Casey',
+        fromName: 'OperatorOne',
         inviteCode: 'duplicate-safe-code',
         vaultId: 12,
         maxSatoshis: 25_000n,

@@ -216,12 +216,12 @@ const isOperatorCouponLock = Vue.computed(() => {
 const vaultLabel = Vue.computed(() => {
   if (!hasCouponForVault.value) return 'Your vault';
 
-  const name = config.upstreamOperator?.name?.trim();
+  const name = config.upstreamOperator?.name;
   return name ? `${name}'s vault` : 'The vault';
 });
 
 const couponProviderLabel = Vue.computed(() => {
-  const name = config.upstreamOperator?.name?.trim();
+  const name = config.upstreamOperator?.name;
   return name || 'The vault operator';
 });
 

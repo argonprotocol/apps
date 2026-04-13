@@ -114,9 +114,18 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
 
     try {
       const operatorVault = operatorHarness.myVault.createdVault!;
+      const operatorClient = await operatorHarness.clients.get(false);
+      const supportsVaultName = typeof operatorClient.tx.vaults.setName === 'function';
+      const expectedFromName = 'OperatorOne';
       const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateKeypair();
-      const delegateSetupTx = await operatorHarness.myVault.ensureDelegatedBitcoinSigner();
-      await delegateSetupTx?.txResult.waitForFinalizedBlock;
+
+      if (supportsVaultName) {
+        const delegateSetupTx = await operatorHarness.myVault.setupVaultInviteProfile(expectedFromName);
+        await delegateSetupTx?.txResult.waitForFinalizedBlock;
+      } else {
+        const delegateSetupTx = await operatorHarness.myVault.ensureDelegatedBitcoinSigner();
+        await delegateSetupTx?.txResult.waitForFinalizedBlock;
+      }
 
       await waitFor(45e3, 'bitcoin lock delegate ready', async () => {
         const client = await operatorHarness.clients.get(false);
@@ -161,7 +170,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
 
       routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
       routerDb.migrate();
-      routerDb.profileTable.save({ name: 'Operator One' });
 
       const botAddress = botServer.getAddress();
       routerServer = new RouterServer({
@@ -188,6 +196,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       // Operator issues the invite and should see it tracked immediately in the router api.
       const createdInvite = await ServerApiClient.createTreasuryAppInvite(routerAddress.host, {
         name: 'Casey',
+        fromName: expectedFromName,
         inviteCode,
         vaultId: operatorVault.vaultId,
         maxSatoshis: requestedSatoshis + 5_000n,
@@ -204,7 +213,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       // The operator overlays do not auto-poll today, so this test re-fetches the api directly after each step.
       const openedInvite = await UpstreamOperatorClient.openTreasuryAppInvite(operatorHost, inviteCode, accountId);
       const coupon = openedInvite.invite.bitcoinLockCoupon!;
-      expect(openedInvite.fromName).toBe('Operator One');
+      expect(openedInvite.fromName).toBe(expectedFromName);
       expect(coupon.coupon.expirationTick).toBeGreaterThan(0);
       expect(openedInvite.invite.accountId).toBe(accountId);
       expect(routerDb.userInvitesTable.fetchByCode(inviteCode)?.accountId).toBe(accountId);

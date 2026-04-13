@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
-import { type IBitcoinLockRelayRequest, JsonExt } from '@argonprotocol/apps-core';
+import { JsonExt } from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotCouponClient } from './BotCouponClient.ts';
@@ -9,6 +9,7 @@ import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import { TreasuryInviteService } from './TreasuryInviteService.ts';
 import type {
+  IBitcoinLockRelayRequest,
   IBitcoinLockStatusResponse,
   ICreateTreasuryInviteResponse,
   IListBitcoinLockCouponsResponse,
@@ -16,8 +17,6 @@ import type {
   IListTreasuryMembersResponse,
   IOpenTreasuryInviteRequest,
   IOpenTreasuryInviteResponse,
-  IRouterProfileResponse,
-  IRouterProfileUpdateRequest,
   ITreasuryUserInviteCreateRequest,
 } from './interfaces/index.ts';
 
@@ -150,7 +149,6 @@ export class RouterServer {
       express.text({ type: '*/*' }),
       safeJsonRoute<IOpenTreasuryInviteResponse>(async req => {
         const { accountId } = requireBody<IOpenTreasuryInviteRequest>(req);
-        const profile = db.profileTable.fetch();
         const userInvite = inviteService.openInvite(req.params.inviteCode, accountId);
         if (!userInvite) {
           throw new RouterError('Invite not found', 404);
@@ -161,7 +159,7 @@ export class RouterServer {
         });
 
         return {
-          fromName: profile.name,
+          fromName: userInvite.fromName,
           invite: {
             ...userInvite,
             vaultId: bitcoinLockCoupon.coupon.vaultId,
@@ -272,24 +270,6 @@ export class RouterServer {
       }),
     );
 
-    app.post(
-      '/profile',
-      express.text({ type: '*/*' }),
-      safeJsonRoute<IRouterProfileResponse>(req => {
-        const payload = requireBody<IRouterProfileUpdateRequest>(req);
-        const profile = db.profileTable.save(payload);
-        return { profile };
-      }),
-    );
-
-    app.get(
-      '/profile',
-      safeJsonRoute<IRouterProfileResponse>(async () => {
-        const profile = db.profileTable.fetch();
-        return { profile };
-      }),
-    );
-
     app.use((_req, res) => {
       res.status(404).send('Not Found');
     });
@@ -330,6 +310,7 @@ export class RouterServer {
       });
     });
   }
+
 }
 
 function sendJson(res: Response, data: unknown, status = 200): void {

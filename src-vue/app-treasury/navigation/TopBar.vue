@@ -22,9 +22,7 @@
         @click="openOverlay"
         class="group pointer-events-auto flex h-[30px] cursor-pointer flex-row items-center rounded-md border border-slate-400/50 px-3 font-semibold hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none">
         <div :class="config.upstreamOperator ? 'bg-argon-600' : 'bg-slate-400/50'" class="mr-2 h-3 w-3 rounded-full" />
-        <div v-if="config.upstreamOperator" class="text-argon-600/70">
-          Connected to {{ toPossessive(config.upstreamOperator.name) }} Vault
-        </div>
+        <div v-if="config.upstreamOperator" class="text-argon-600/70">{{ upstreamOperatorLabel }}</div>
         <div v-else class="group-hover:text-argon-600 text-slate-900/70">Connect Vault</div>
       </div>
       <div class="pointer-events-auto">
@@ -60,6 +58,17 @@ const wallets = useWallets();
 const controller = useTreasuryController();
 
 const instances = Vue.ref<IInstance[]>([]);
+const upstreamOperatorLabel = Vue.computed(() => {
+  const upstreamOperator = config.upstreamOperator;
+  if (!upstreamOperator) return '';
+
+  const name = upstreamOperator.name;
+  if (name) {
+    return `Connected to ${toPossessive(name)} Vault`;
+  }
+
+  return `Connected to Vault #${upstreamOperator.vaultId}`;
+});
 
 async function fetchInstances() {
   try {

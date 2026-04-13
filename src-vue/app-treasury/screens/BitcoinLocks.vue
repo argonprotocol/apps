@@ -199,14 +199,14 @@ const totalLiquidityCaptured = Vue.computed(() => {
 });
 
 const operatorVaultLabel = Vue.computed(() => {
-  const name = config.upstreamOperator?.name?.trim();
+  const name = config.upstreamOperator?.name;
   if (name) return `${name}'s vault`;
   if (config.upstreamOperator?.vaultId) return `Vault #${config.upstreamOperator.vaultId}`;
   return 'the vault';
 });
 
 const couponProviderLabel = Vue.computed(() => {
-  return config.upstreamOperator?.name?.trim() || 'the vault operator';
+  return config.upstreamOperator?.name || 'the vault operator';
 });
 
 const currentCoupon = Vue.computed(() => {

@@ -98,8 +98,6 @@ export class Config implements IConfig {
       isServerInstalled: Config.getDefault(dbFields.isServerInstalled) as boolean,
       isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
 
-      hasProfileName: Config.getDefault(dbFields.hasProfileName) as boolean,
-
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
@@ -381,13 +379,6 @@ export class Config implements IConfig {
     this.setField('isServerInstalling', value);
   }
 
-  public get hasProfileName(): boolean {
-    return this.getField('hasProfileName');
-  }
-  public set hasProfileName(value: boolean) {
-    this.setField('hasProfileName', value);
-  }
-
   public get certificationDetails(): IConfig['certificationDetails'] {
     return this.getField('certificationDetails');
   }
@@ -643,8 +634,6 @@ const dbFields = {
   isServerInstalled: 'isServerInstalled',
   isServerInstalling: 'isServerInstalling',
 
-  hasProfileName: 'hasProfileName',
-
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
   biddingRules: 'biddingRules',
@@ -699,8 +688,6 @@ const defaults: IConfigDefaults = {
 
   isServerInstalled: () => false,
   isServerInstalling: () => false,
-
-  hasProfileName: () => false,
 
   hasMiningSeats: () => false,
   hasMiningBids: () => false,

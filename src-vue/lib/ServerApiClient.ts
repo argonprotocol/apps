@@ -4,9 +4,6 @@ import type {
   IListTreasuryInvitesResponse,
   IListTreasuryMembersResponse,
   IRouterErrorResponse,
-  IRouterProfile,
-  IRouterProfileResponse,
-  IRouterProfileUpdateRequest,
   ITreasuryUserInvite,
   ITreasuryUserInviteCreateRequest,
 } from '@argonprotocol/apps-router';
@@ -52,22 +49,6 @@ interface IBitcoinLatestBlocks extends ILatestBlocks {
 }
 
 export class ServerApiClient {
-  public static async getProfile(serverIp: string): Promise<IRouterProfile> {
-    const body = await this.request<IRouterProfileResponse>(serverIp, '/profile');
-    return body.profile;
-  }
-
-  public static async saveProfile(serverIp: string, payload: IRouterProfileUpdateRequest): Promise<IRouterProfile> {
-    const body = await this.request<IRouterProfileResponse>(serverIp, '/profile', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JsonExt.stringify(payload),
-    });
-    return body.profile;
-  }
-
   public static async getTreasuryAppInvites(serverIp: string): Promise<ITreasuryUserInvite[]> {
     const body = await this.request<IListTreasuryInvitesResponse>(serverIp, '/treasury-users/invites');
     return body.invites;

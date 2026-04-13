@@ -133,9 +133,6 @@
                   <button @click="openVaultMembersOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
                     Manage Members
                   </button>
-                  <button @click="openVaultInvitesOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
-                    Manage Member Invites
-                  </button>
                   <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
                     Optimize Revenue
                   </button>
@@ -752,10 +749,6 @@ async function loadChartData(currentFrameId?: number) {
   const targetFrameId = currentFrameId ?? currentFrame.value.id;
   currentFrame.value =
     frameRecords.value.find(frame => frame.id === targetFrameId) ?? frameRecords.value.at(-1) ?? currentFrame.value;
-}
-
-function openVaultInvitesOverlay() {
-  basicEmitter.emit('openVaultInvitesOverlay');
 }
 
 function openVaultMembersOverlay() {

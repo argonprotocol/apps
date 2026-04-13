@@ -1,4 +1,4 @@
-import type { ApiDecoration, ArgonClient } from '@argonprotocol/mainchain';
+import type { ArgonClient } from '@argonprotocol/mainchain';
 import type { BlockWatch } from './BlockWatch.js';
 import { createTypedEventEmitter } from './utils.js';
 
@@ -57,7 +57,7 @@ export class MainchainCompat {
       return;
     }
 
-    const bondFullCapacityPerFrame = typeof (client.query.treasury as any).pendingUnlocksByFrame === 'function';
+    const bondFullCapacityPerFrame = typeof client.query.treasury.pendingUnlocksByFrame === 'function';
 
     if (bondFullCapacityPerFrame === this.bondFullCapacityPerFrame) {
       return;
@@ -68,7 +68,6 @@ export class MainchainCompat {
   }
 }
 
-export function supportsBitcoinLockDelegateSetup(client: ArgonClient | ApiDecoration<'promise'>): boolean {
-  const vaults = (client.tx as { vaults?: { setBitcoinLockDelegate?: unknown } }).vaults;
-  return typeof vaults?.setBitcoinLockDelegate === 'function';
+export function supportsBitcoinLockDelegateSetup(client: ArgonClient): boolean {
+  return typeof client.tx.vaults.setBitcoinLockDelegate === 'function';
 }
