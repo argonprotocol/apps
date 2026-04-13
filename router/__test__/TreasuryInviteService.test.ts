@@ -19,6 +19,7 @@ describe('TreasuryInviteService', () => {
     const service = new TreasuryInviteService(db);
     service.createInvite({
       name: 'Casey',
+      fromName: 'OperatorOne',
       inviteCode: 'shared-code',
       vaultId: 12,
       maxSatoshis: 25_000n,
@@ -28,6 +29,7 @@ describe('TreasuryInviteService', () => {
     expect(() =>
       service.createInvite({
         name: 'Jordan',
+        fromName: 'OperatorOne',
         inviteCode: 'shared-code',
         vaultId: 12,
         maxSatoshis: 30_000n,
@@ -37,5 +39,26 @@ describe('TreasuryInviteService', () => {
 
     expect(db.usersTable.fetchByRole('treasury_user')).toHaveLength(1);
     expect(db.userInvitesTable.fetchByRole('treasury_user')).toHaveLength(1);
+  });
+
+  it('requires a vault name when creating an invite', () => {
+    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'treasury-invite-service-')), 'router.sqlite'));
+    db.migrate();
+
+    const service = new TreasuryInviteService(db);
+
+    expect(() =>
+      service.createInvite({
+        name: 'Casey',
+        fromName: undefined as any,
+        inviteCode: 'shared-code',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        expiresAfterTicks: 60,
+      }),
+    ).toThrowError('A vault name is required to create an invite.');
+
+    expect(db.usersTable.fetchByRole('treasury_user')).toHaveLength(0);
+    expect(db.userInvitesTable.fetchByRole('treasury_user')).toHaveLength(0);
   });
 });

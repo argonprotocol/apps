@@ -9,7 +9,12 @@ export class TreasuryInviteService {
   constructor(private readonly db: Db) {}
 
   public createInvite(args: ITreasuryUserInviteCreateRequest): IUserInviteRecord {
+    if (typeof args.fromName !== 'string') {
+      throw new RouterError('A vault name is required to create an invite.');
+    }
+
     const name = args.name.trim();
+    const fromName = args.fromName.trim();
     const inviteCode = args.inviteCode.trim();
 
     if (args.expiresAfterTicks <= 0) {
@@ -17,6 +22,9 @@ export class TreasuryInviteService {
     }
     if (args.vaultId <= 0) {
       throw new RouterError('A vault is required to create an invite.');
+    }
+    if (!fromName) {
+      throw new RouterError('A vault name is required to create an invite.');
     }
 
     return this.db.transaction(() => {
@@ -29,7 +37,7 @@ export class TreasuryInviteService {
         name,
       });
 
-      return this.db.userInvitesTable.insertInvite(user.id, inviteCode);
+      return this.db.userInvitesTable.insertInvite(user.id, inviteCode, fromName);
     });
   }
 

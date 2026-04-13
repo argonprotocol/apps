@@ -1,13 +1,11 @@
-import type { IProfileRecord } from '../db/ProfileTable.ts';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
-export type IRouterProfile = IProfileRecord;
-export type IRouterProfileUpdateRequest = Partial<IRouterProfile>;
 export type IInitializeBitcoinLockRequest = IBitcoinLockRelayRequest;
 
 export interface ITreasuryUserInviteCreateRequest {
   name: string;
+  fromName: string;
   inviteCode: string;
   vaultId: number;
   maxSatoshis: bigint;
@@ -20,10 +18,6 @@ export interface IOpenTreasuryInviteRequest {
 
 export interface IRouterErrorResponse {
   error: string;
-}
-
-export interface IRouterProfileResponse {
-  profile: IRouterProfile;
 }
 
 export interface ICreateTreasuryInviteResponse {

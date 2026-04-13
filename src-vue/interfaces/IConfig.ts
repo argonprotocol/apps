@@ -185,8 +185,6 @@ export const ConfigSchema = z.object({
   isServerInstalled: z.boolean(), // is set once after first install
   isServerInstalling: z.boolean(), // is true whenever the Installer is running
 
-  hasProfileName: z.boolean(),
-
   hasMiningSeats: z.boolean(),
   hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
@@ -250,8 +248,6 @@ export interface IConfigDefaults {
 
   isServerInstalled: () => IConfig['isServerInstalled'];
   isServerInstalling: () => IConfig['isServerInstalling'];
-
-  hasProfileName: () => IConfig['hasProfileName'];
 
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];

@@ -34,7 +34,6 @@
       <AboutOverlay />
       <ProfileOverlay />
       <JurisdictionOverlay />
-      <VaultInvitesOverlay />
       <VaultMembersOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
@@ -60,7 +59,7 @@ import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
-import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
+import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
 import { getConfig } from '../stores/config.ts';
 import { useTour } from '../stores/tour.ts';
 import { getBot } from '../stores/bot.ts';
@@ -78,7 +77,6 @@ import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverla
 import Portfolio from '../panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays/MoveCapitalOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
-import VaultInvitesOverlay from './overlays/VaultInvitesOverlay.vue';
 import VaultMembersOverlay from './overlays/VaultMembersOverlay.vue';
 import OperationalOverlay from './overlays/OperationalOverlay.vue';
 import OperationalFinishOverlay from './overlays/OperationalFinishOverlay.vue';

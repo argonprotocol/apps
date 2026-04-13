@@ -40,7 +40,7 @@
           </thead>
           <tbody class="divide-y divide-slate-200 text-sm text-slate-700">
             <tr v-for="vault in vaultRows" :key="vault.vaultId">
-              <td class="px-4 py-3 font-medium text-slate-800">#{{ vault.name }}</td>
+              <td class="px-4 py-3 font-medium text-slate-800">{{ vault.name || 'Name not set' }}</td>
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ vault.operatorAccountId }}</td>
               <td class="px-4 py-3">
                 {{ currency.symbol }}{{ microgonToMoneyNm(vault.bitcoinBaseFee).format('0,0.00') }}
@@ -113,15 +113,6 @@ function closeOverlay() {
   basics.overlayIsOpen = false;
 }
 
-function extractName(id: string) {
-  return id.substring(0, 5);
-}
-
-function getVaultName(vault: { operatorAccountId: string }) {
-  const maybeNamedVault = vault as { name?: string };
-  return maybeNamedVault.name || extractName(vault.operatorAccountId);
-}
-
 async function loadVaults() {
   isLoading.value = true;
   loadError.value = '';
@@ -133,7 +124,7 @@ async function loadVaults() {
     vaultRows.value = Object.values(vaultStore.vaultsById)
       .filter(vault => vault.availableSecuritization() > 0n)
       .map(vault => ({
-        name: getVaultName(vault),
+        name: vault.name ?? '',
         vaultId: vault.vaultId,
         operatorAccountId: vault.operatorAccountId,
         bitcoinAnnualPercentRate: vault.terms.bitcoinAnnualPercentRate.toNumber(),

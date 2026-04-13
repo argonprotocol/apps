@@ -8,6 +8,7 @@ export interface IUserInviteRecord {
   id: number;
   role: Role;
   name: string;
+  fromName: string;
   inviteCode: string;
   firstClickedAt?: Date | null;
   lastClickedAt?: Date | null;
@@ -26,6 +27,7 @@ const selectInviteRecord = `
     Users.id AS id,
     Users.role AS role,
     Users.name AS name,
+    UserInvites.fromName AS fromName,
     UserInvites.inviteCode AS inviteCode,
     UserInvites.firstClickedAt AS firstClickedAt,
     UserInvites.lastClickedAt AS lastClickedAt,
@@ -40,16 +42,18 @@ export class UserInvitesTable extends BaseTable {
     super(db);
   }
 
-  public insertInvite(userId: number, inviteCode: string): IUserInviteRecord {
+  public insertInvite(userId: number, inviteCode: string, fromName: string): IUserInviteRecord {
     this.db.sql
       .prepare(
         `
         INSERT INTO UserInvites (
           userId,
-          inviteCode
+          inviteCode,
+          fromName
         ) VALUES (
           $userId,
-          $inviteCode
+          $inviteCode,
+          $fromName
         )
       `,
       )
@@ -57,6 +61,7 @@ export class UserInvitesTable extends BaseTable {
         toSqliteParams({
           userId,
           inviteCode,
+          fromName,
         }),
       );
 

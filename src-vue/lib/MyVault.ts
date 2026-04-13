@@ -249,6 +249,8 @@ export class MyVault {
         } else if (tx.extrinsicType === ExtrinsicType.VaultInitialAllocate) {
           void this.onInitialVaultAllocate(txInfo);
           this.#singleRunTransactions.set(tx.extrinsicType, Promise.resolve(txInfo));
+        } else if (tx.extrinsicType === ExtrinsicType.VaultSetBitcoinLockDelegate) {
+          this.#singleRunTransactions.set(tx.extrinsicType, Promise.resolve(txInfo));
         } else if (tx.extrinsicType === ExtrinsicType.VaultModifySettings) {
           void this.onModifySettings(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation) {
@@ -271,6 +273,12 @@ export class MyVault {
         const completedTxInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.VaultCreate];
         if (completedTxInfo) {
           this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, Promise.resolve(completedTxInfo));
+        }
+      }
+      if (!this.#singleRunTransactions.has(ExtrinsicType.VaultSetBitcoinLockDelegate)) {
+        const completedTxInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.VaultSetBitcoinLockDelegate];
+        if (completedTxInfo) {
+          this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, Promise.resolve(completedTxInfo));
         }
       }
 
@@ -477,6 +485,107 @@ export class MyVault {
     }
   }
 
+  public async setVaultName(vaultName?: string | null): Promise<TransactionInfo | undefined> {
+    if (!this.createdVault) return;
+
+    const currentVaultName = this.createdVault.name;
+    const nextVaultName = vaultName?.trim();
+    if (!nextVaultName) {
+      throw new Error('A vault name is required to enable member invites.');
+    }
+    if (!/^[A-Z][A-Za-z0-9]{0,17}$/.test(nextVaultName)) {
+      throw new Error('Vault name must start with a capital letter and use up to 18 letters or numbers.');
+    }
+    if (currentVaultName === nextVaultName) {
+      return;
+    }
+
+    return await this.#vaultQueue.add(async () => {
+      const client = await getMainchainClient(false);
+      const signer = await this.walletKeys.getVaultingKeypair();
+      const info = await this.#transactionTracker.submitAndWatch({
+        tx: client.tx.vaults.setName(nextVaultName),
+        signer,
+        extrinsicType: ExtrinsicType.VaultModifySettings,
+        metadata: {
+          vaultId: this.createdVault!.vaultId,
+          vaultName: nextVaultName,
+        },
+      });
+      void this.onModifySettings(info);
+      return info;
+    }).promise;
+  }
+
+  public async setupVaultInviteProfile(vaultName: string): Promise<TransactionInfo | undefined> {
+    if (!this.createdVault) return;
+
+    const currentVaultName = this.createdVault.name;
+    const nextVaultName = vaultName.trim();
+    if (!nextVaultName) {
+      throw new Error('A vault name is required to enable member invites.');
+    }
+    if (!/^[A-Z][A-Za-z0-9]{0,17}$/.test(nextVaultName)) {
+      throw new Error('Vault name must start with a capital letter and use up to 18 letters or numbers.');
+    }
+
+    return await this.#vaultQueue.add(async () => {
+      const existing = this.#singleRunTransactions.get(ExtrinsicType.VaultSetBitcoinLockDelegate);
+      if (existing) {
+        return await existing;
+      }
+
+      if (this.createdVault?.bitcoinLockDelegateAccount) {
+        throw new Error('Vault invite setup is already configured for this vault.');
+      }
+
+      const deferred = createDeferred<TransactionInfo>();
+      this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, deferred.promise);
+
+      try {
+        const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+        const client = await getMainchainClient(false);
+        const vaultId = this.createdVault!.vaultId;
+        const minimumBalance = 250_000n;
+        const feeBuffer = 100_000n;
+
+        const vaultBalance = await client.query.system
+          .account(this.createdVault!.operatorAccountId)
+          .then(x => x.data.free.toBigInt());
+        if (vaultBalance < minimumBalance + feeBuffer) {
+          throw new Error(
+            `Your vault account must have a minimum of ${minimumBalance + feeBuffer} balance to invite external members.`,
+          );
+        }
+
+        const transferTx = client.tx.balances.transferKeepAlive(delegateAddress, minimumBalance);
+        const delegateTx = client.tx.vaults.setBitcoinLockDelegate(delegateAddress);
+        const txs = [transferTx, delegateTx];
+        if (currentVaultName !== nextVaultName) {
+          txs.push(client.tx.vaults.setName(nextVaultName));
+        }
+
+        const signer = await this.walletKeys.getVaultingKeypair();
+        const txInfo = await this.#transactionTracker.submitAndWatch({
+          tx: client.tx.utility.batchAll(txs),
+          signer,
+          extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+          metadata: {
+            vaultId,
+            delegateAddress,
+            vaultName: nextVaultName,
+          },
+        });
+        deferred.resolve(txInfo);
+      } catch (error) {
+        deferred.reject(error as Error);
+        this.#singleRunTransactions.delete(ExtrinsicType.VaultSetBitcoinLockDelegate);
+      }
+
+      return await deferred.promise;
+    }).promise;
+  }
+
   public async ensureDelegatedBitcoinSigner(): Promise<TransactionInfo | undefined> {
     if (!this.createdVault) return;
 
@@ -484,59 +593,23 @@ export class MyVault {
     const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
     const vaultId = this.createdVault.vaultId;
     const minimumBalance = 250_000n;
-    const feeBuffer = 100_000n;
 
-    if (this.createdVault?.bitcoinLockDelegateAccount !== delegateAddress) {
-      const existing = await this.#singleRunTransactions.get(ExtrinsicType.VaultSetBitcoinLockDelegate);
-      if (existing && (existing.tx.metadataJson as { delegateAddress?: string }).delegateAddress === delegateAddress) {
-        return existing;
-      }
-
-      const vaultBalance = await client.query.system
-        .account(this.createdVault.operatorAccountId)
-        .then(x => x.data.free.toBigInt());
-      if (vaultBalance < minimumBalance + feeBuffer) {
-        // include a tx fee addition so we can send through this transaction
-        throw new Error(
-          `Your vault account must have a minimum of ${minimumBalance + feeBuffer} balance to invite external members.`,
-        );
-      }
-      const deferred = createDeferred<TransactionInfo>();
-      try {
-        this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, deferred.promise);
-        const transferTx = client.tx.balances.transferKeepAlive(delegateAddress, minimumBalance);
-        const delegateTx = client.tx.vaults.setBitcoinLockDelegate(vaultId, delegateAddress);
-        const signer = await this.walletKeys.getVaultingKeypair();
-        const txInfo = await this.#transactionTracker.submitAndWatch({
-          tx: client.tx.utility.batch([transferTx, delegateTx]),
-          signer,
-          extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
-          metadata: {
-            vaultId,
-            delegateAddress,
-          },
-        });
-        deferred.resolve(txInfo);
-      } catch (error) {
-        deferred.reject(error as Error);
-      }
-      return deferred.promise;
-    }
-
-    return this.#vaultQueue.add(async () => {
+    return await this.#vaultQueue.add(async () => {
       const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
-      if (delegateBalance < 100_000n) {
-        const signer = await this.walletKeys.getVaultingKeypair();
-        return await this.#transactionTracker.submitAndWatch({
-          tx: client.tx.balances.transferKeepAlive(delegateAddress, minimumBalance - delegateBalance),
-          signer,
-          extrinsicType: ExtrinsicType.VaultTopUpBitcoinLockDelegate,
-          metadata: {
-            vaultId,
-            delegateAddress,
-          },
-        });
+      if (delegateBalance >= 100_000n) {
+        return;
       }
+
+      const signer = await this.walletKeys.getVaultingKeypair();
+      return await this.#transactionTracker.submitAndWatch({
+        tx: client.tx.balances.transferKeepAlive(delegateAddress, minimumBalance - delegateBalance),
+        signer,
+        extrinsicType: ExtrinsicType.VaultTopUpBitcoinLockDelegate,
+        metadata: {
+          vaultId,
+          delegateAddress,
+        },
+      });
     }).promise;
   }
 
