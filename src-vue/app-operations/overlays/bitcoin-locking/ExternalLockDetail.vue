@@ -114,7 +114,7 @@ const isReleased = Vue.computed(() => props.isReleased);
 const vaultLabel = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
   if (IS_TREASURY_APP && upstreamOperator) {
-    const name = upstreamOperator.name.trim();
+    const name = upstreamOperator.name;
     if (name) return `${name}'s vault`;
     return 'The vault';
   }
