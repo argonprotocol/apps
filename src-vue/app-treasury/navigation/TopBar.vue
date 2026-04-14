@@ -98,7 +98,7 @@ function toPossessive(name: string): string {
 }
 
 function openOverlay() {
-  if (config.upstreamOperator) {
+  if (config.upstreamOperator?.vaultId) {
   } else {
     basicEmitter.emit('openVaultsOverlay');
   }

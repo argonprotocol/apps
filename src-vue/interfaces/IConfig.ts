@@ -129,8 +129,9 @@ export const ConfigBootstrapDetailsSchema = z.object({
 
 export const UpstreamOperatorSchema = z.object({
   name: z.string(),
-  vaultId: z.number(),
-  inviteCode: z.string(),
+  vaultId: z.number().optional(),
+  inviteSecret: z.string().optional(),
+  accountId: z.string().optional(),
 });
 
 export const ConfigSyncDetailsSchema = z.object({

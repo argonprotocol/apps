@@ -214,7 +214,7 @@ export class MoveCapital {
 
     if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) return;
 
-    return await this.move(
+    const txInfo = await this.move(
       MoveFrom.MiningHold,
       MoveTo.MiningBot,
       finalAssetsToMove,
@@ -224,6 +224,8 @@ export class MoveCapital {
       prependedTxs,
       client,
     );
+
+    return txInfo;
   }
   private async getSigner(moveFrom: MoveFrom) {
     const walletType = this.getWalletTypeFromMove(moveFrom);

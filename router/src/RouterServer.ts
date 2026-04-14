@@ -1,35 +1,36 @@
 import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
-import { JsonExt } from '@argonprotocol/apps-core';
+import { JsonExt, UserRole } from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotCouponClient } from './BotCouponClient.ts';
 import { BITCOIN_CONFIG, SERVER_ROOT } from './env.ts';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
-import { TreasuryInviteService } from './TreasuryInviteService.ts';
+import { UserInviteService } from './UserInviteService.ts';
 import type {
   IBitcoinLockRelayRequest,
   IBitcoinLockStatusResponse,
+  ICreateOperationalInviteResponse,
   ICreateTreasuryInviteResponse,
   IListBitcoinLockCouponsResponse,
+  IListOperationalInvitesResponse,
   IListTreasuryInvitesResponse,
-  IListTreasuryMembersResponse,
+  IOpenOperationalInviteRequest,
+  IOpenOperationalInviteResponse,
   IOpenTreasuryInviteRequest,
   IOpenTreasuryInviteResponse,
+  IOperationalUserInviteCreateRequest,
   ITreasuryUserInviteCreateRequest,
 } from './interfaces/index.ts';
 
 interface IRouterServerOptions {
   db: Db;
-  inviteService: TreasuryInviteService;
   botInternalUrl: string;
   port?: number | string;
   localNodeUrl?: string;
   mainNodeUrl?: string;
 }
-
-const TREASURY_USER_ROLE = 'treasury_user' as const;
 
 export class RouterServer {
   private server!: Server;
@@ -46,8 +47,9 @@ export class RouterServer {
 
   public start(): void {
     const app = express();
-    const { botInternalUrl, db, inviteService } = this.options;
+    const { botInternalUrl, db } = this.options;
     const botCouponClient = new BotCouponClient(botInternalUrl);
+    const inviteService = new UserInviteService(db);
 
     app.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -114,7 +116,18 @@ export class RouterServer {
       express.text({ type: '*/*' }),
       safeJsonRoute<ICreateTreasuryInviteResponse>(async req => {
         const body = requireBody<ITreasuryUserInviteCreateRequest>(req);
-        const userInvite = inviteService.createInvite(body);
+        if (body.expiresAfterTicks <= 0) {
+          throw new RouterError('Invite expiry must be greater than zero.');
+        }
+        if (body.vaultId <= 0) {
+          throw new RouterError('A vault is required to create an invite.');
+        }
+
+        const userInvite = inviteService.createInvite(UserRole.TreasuryUser, {
+          name: body.name,
+          fromName: body.fromName,
+          inviteCode: body.inviteCode,
+        });
 
         let bitcoinLockCoupon;
         try {
@@ -148,8 +161,13 @@ export class RouterServer {
       '/treasury-users/:inviteCode/open',
       express.text({ type: '*/*' }),
       safeJsonRoute<IOpenTreasuryInviteResponse>(async req => {
-        const { accountId } = requireBody<IOpenTreasuryInviteRequest>(req);
-        const userInvite = inviteService.openInvite(req.params.inviteCode, accountId);
+        const { accountId, inviteSignature } = requireBody<IOpenTreasuryInviteRequest>(req);
+        const userInvite = inviteService.openInvite(
+          UserRole.TreasuryUser,
+          req.params.inviteCode,
+          accountId,
+          inviteSignature,
+        );
         if (!userInvite) {
           throw new RouterError('Invite not found', 404);
         }
@@ -175,7 +193,7 @@ export class RouterServer {
         const couponsByUserId = await botCouponClient.listLatestCouponsByUserId();
 
         return {
-          invites: db.userInvitesTable.fetchByRole(TREASURY_USER_ROLE).map(user => {
+          invites: db.userInvitesTable.fetchByRole(UserRole.TreasuryUser).map(user => {
             const bitcoinLockCoupon = couponsByUserId.get(user.id);
             return {
               ...user,
@@ -187,20 +205,47 @@ export class RouterServer {
       }),
     );
 
-    app.get(
-      '/treasury-users/members',
-      safeJsonRoute<IListTreasuryMembersResponse>(async () => {
-        const couponsByUserId = await botCouponClient.listLatestCouponsByUserId();
+    app.post(
+      '/operational-users/create',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<ICreateOperationalInviteResponse>(async req => {
+        const body = requireBody<IOperationalUserInviteCreateRequest>(req);
+        const invite = inviteService.createInvite(UserRole.OperationalPartner, {
+          name: body.name,
+          fromName: body.fromName,
+          inviteCode: body.inviteCode,
+        });
+        return { invite };
+      }),
+    );
+
+    app.post(
+      '/operational-users/:inviteCode/open',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IOpenOperationalInviteResponse>(async req => {
+        const { accountId, inviteSignature } = requireBody<IOpenOperationalInviteRequest>(req);
+        const invite = inviteService.openInvite(
+          UserRole.OperationalPartner,
+          req.params.inviteCode,
+          accountId,
+          inviteSignature,
+        );
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
 
         return {
-          members: db.userInvitesTable.fetchOpenedByRole(TREASURY_USER_ROLE).map(user => {
-            const bitcoinLockCoupon = couponsByUserId.get(user.id);
-            return {
-              ...user,
-              vaultId: bitcoinLockCoupon?.coupon.vaultId,
-              bitcoinLockCoupon,
-            };
-          }),
+          fromName: invite.fromName,
+          invite,
+        };
+      }),
+    );
+
+    app.get(
+      '/operational-users/invites',
+      safeJsonRoute<IListOperationalInvitesResponse>(async () => {
+        return {
+          invites: db.userInvitesTable.fetchByRole(UserRole.OperationalPartner),
         };
       }),
     );
@@ -257,7 +302,7 @@ export class RouterServer {
     app.get(
       '/treasury-users/:accountId/bitcoin-lock-coupons',
       safeJsonRoute<IListBitcoinLockCouponsResponse>(async req => {
-        const user = db.userInvitesTable.fetchByAccountId(req.params.accountId, TREASURY_USER_ROLE);
+        const user = db.userInvitesTable.fetchByAccountId(req.params.accountId, UserRole.TreasuryUser);
         if (!user) {
           return {
             bitcoinLockCoupons: [],

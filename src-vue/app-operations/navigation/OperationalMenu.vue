@@ -167,7 +167,7 @@ const isShowingCompletionTooltip = Vue.computed(() => {
 
 const isShowingBonusTooltip = Vue.computed(() => {
   const showBonusTooltip = config.certificationDetails?.showBonusTooltip;
-  return showBonusTooltip && !isOpen.value && config.upstreamOperator && !completionNoticeStepId.value;
+  return showBonusTooltip && !isOpen.value && config.upstreamOperator?.inviteSecret && !completionNoticeStepId.value;
 });
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

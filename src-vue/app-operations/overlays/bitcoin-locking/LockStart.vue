@@ -194,15 +194,13 @@ const operatorCoupon = Vue.computed(() => {
     return undefined;
   }
 
-  const inviteCode = config.upstreamOperator?.inviteCode;
   const operatorHost = config.bootstrapDetails?.routerHost;
-  if (!inviteCode || !operatorHost) {
+  if (!operatorHost) {
     return undefined;
   }
 
   return {
     vaultId: props.coupon.coupon.vaultId,
-    inviteCode,
     offerCode: props.coupon.coupon.offerCode,
     operatorHost,
     accountId: props.coupon.coupon.accountId,

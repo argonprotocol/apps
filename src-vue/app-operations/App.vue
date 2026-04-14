@@ -34,6 +34,7 @@
       <AboutOverlay />
       <ProfileOverlay />
       <JurisdictionOverlay />
+      <OperationalInvitesOverlay />
       <VaultMembersOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
@@ -68,9 +69,9 @@ import AboutOverlay from '../app-shared/overlays/AboutOverlay.vue';
 import JurisdictionOverlay from '../app-shared/overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from '../app-shared/overlays/Troubleshooting.vue';
 import BootingOverlay from '../app-shared/overlays/BootingOverlay.vue';
+import WelcomeOverlay from '../app-shared/overlays/WelcomeOverlay.vue';
 import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from '../app-shared/navigation/AlertBars.vue';
-import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
@@ -83,6 +84,7 @@ import OperationalFinishOverlay from './overlays/OperationalFinishOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import ProfileOverlay from '../app-shared/overlays/ProfileOverlay.vue';
 import { checkInstallerIfCloseAllowed } from '../stores/installer.ts';
+import OperationalInvitesOverlay from './overlays/OperationalInvitesOverlay.vue';
 
 const controller = useOperationsController();
 const config = getConfig();

@@ -1,30 +1,25 @@
+import { InviteCodes } from '@argonprotocol/apps-core';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import type { IUserInviteRecord } from './db/UserInvitesTable.ts';
-import type { ITreasuryUserInviteCreateRequest } from './interfaces/index.ts';
+import type { Role } from './db/UsersTable.ts';
 
-const TREASURY_USER_ROLE = 'treasury_user' as const;
-
-export class TreasuryInviteService {
+export class UserInviteService {
   constructor(private readonly db: Db) {}
 
-  public createInvite(args: ITreasuryUserInviteCreateRequest): IUserInviteRecord {
-    if (typeof args.fromName !== 'string') {
-      throw new RouterError('A vault name is required to create an invite.');
-    }
-
+  public createInvite(role: Role, args: { name: string; fromName: string; inviteCode: string }): IUserInviteRecord {
     const name = args.name.trim();
     const fromName = args.fromName.trim();
     const inviteCode = args.inviteCode.trim();
 
-    if (args.expiresAfterTicks <= 0) {
-      throw new RouterError('Invite expiry must be greater than zero.');
-    }
-    if (args.vaultId <= 0) {
-      throw new RouterError('A vault is required to create an invite.');
+    if (!name) {
+      throw new RouterError('A name is required to create an invite.');
     }
     if (!fromName) {
-      throw new RouterError('A vault name is required to create an invite.');
+      throw new RouterError('A sender name is required to create an invite.');
+    }
+    if (!inviteCode) {
+      throw new RouterError('An invite code is required.');
     }
 
     return this.db.transaction(() => {
@@ -33,7 +28,7 @@ export class TreasuryInviteService {
       }
 
       const user = this.db.usersTable.insertUser({
-        role: TREASURY_USER_ROLE,
+        role,
         name,
       });
 
@@ -41,17 +36,31 @@ export class TreasuryInviteService {
     });
   }
 
-  public openInvite(inviteCode: string, accountId: string): IUserInviteRecord | null {
+  public openInvite(role: Role, inviteCode: string, accountId: string, inviteSignature: string): IUserInviteRecord | null {
     const trimmedInviteCode = inviteCode.trim();
     const trimmedAccountId = accountId.trim();
+    const trimmedInviteSignature = inviteSignature.trim();
 
     if (!trimmedAccountId) {
       throw new RouterError('An account id is required.');
     }
+    if (!trimmedInviteSignature) {
+      throw new RouterError('An invite signature is required.');
+    }
 
-    const invite = this.db.userInvitesTable.fetchByCode(trimmedInviteCode, TREASURY_USER_ROLE);
+    const invite = this.db.userInvitesTable.fetchByCode(trimmedInviteCode, role);
     if (!invite) {
       return null;
+    }
+    if (
+      !InviteCodes.verifyOpen({
+        inviteCode: trimmedInviteCode,
+        role,
+        accountId: trimmedAccountId,
+        signature: trimmedInviteSignature,
+      })
+    ) {
+      throw new RouterError('The invite signature is invalid.', 403);
     }
     if (invite.accountId && invite.accountId !== trimmedAccountId) {
       throw new RouterError('This invite is already claimed by a different account.', 409);

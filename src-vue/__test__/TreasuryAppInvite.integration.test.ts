@@ -8,6 +8,7 @@ import {
   BlockWatch,
   type IBotState,
   type IMiningFrameDetail,
+  InviteCodes,
   JsonExt,
   MainchainClients,
   NetworkConfig,
@@ -35,7 +36,6 @@ import { BitcoinLockRelayService } from '../../bot/src/BitcoinLockRelayService.t
 import { Db as BotDb } from '../../bot/src/Db.ts';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { RouterServer } from '../../router/src/RouterServer.ts';
-import { TreasuryInviteService } from '../../router/src/TreasuryInviteService.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -174,7 +174,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const botAddress = botServer.getAddress();
       routerServer = new RouterServer({
         db: routerDb,
-        inviteService: new TreasuryInviteService(routerDb),
         botInternalUrl: `http://${botAddress.host}:${botAddress.port}`,
         port: 0,
         localNodeUrl: network.archiveUrl,
@@ -191,7 +190,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const targetLiquidity = operatorVault.availableBitcoinSpace() / 4n;
       const requestedSatoshis = await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
       const accountId = treasuryHarness.walletKeys.liquidLockingAddress;
-      const inviteCode = 'treasury-app-flow';
+      const { inviteSecret, inviteCode } = InviteCodes.create();
 
       // Operator issues the invite and should see it tracked immediately in the router api.
       const createdInvite = await ServerApiClient.createTreasuryAppInvite(routerAddress.host, {
@@ -211,7 +210,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
 
       // Opening the invite should update click tracking on the operator api.
       // The operator overlays do not auto-poll today, so this test re-fetches the api directly after each step.
-      const openedInvite = await UpstreamOperatorClient.openTreasuryAppInvite(operatorHost, inviteCode, accountId);
+      const openedInvite = await UpstreamOperatorClient.openTreasuryAppInvite(operatorHost, inviteSecret, accountId);
       const coupon = openedInvite.invite.bitcoinLockCoupon!;
       expect(openedInvite.fromName).toBe(expectedFromName);
       expect(coupon.coupon.expirationTick).toBeGreaterThan(0);
@@ -221,7 +220,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       await expect(
         UpstreamOperatorClient.openTreasuryAppInvite(
           operatorHost,
-          inviteCode,
+          inviteSecret,
           operatorHarness.walletKeys.liquidLockingAddress,
         ),
       ).rejects.toThrow('already claimed by a different account');
@@ -234,13 +233,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         return invite;
       });
       expect(clickedInvite.lastClickedAt).toBeTruthy();
-
-      const clickedMember = await waitFor(30e3, 'router member click tracked', async () => {
-        const member = (await ServerApiClient.getTreasuryAppMembers(routerAddress.host)).find(x => x.name === 'Casey');
-        if (!member?.lastClickedAt) return;
-        return member;
-      });
-      expect(clickedMember.lastClickedAt).toBeTruthy();
 
       await expect(
         UpstreamOperatorClient.initializeBitcoinLock(operatorHost, coupon.coupon.offerCode, {
@@ -257,7 +249,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         vault: operatorVault,
         operatorCoupon: {
           vaultId: operatorVault.vaultId,
-          inviteCode,
           offerCode: coupon.coupon.offerCode,
           operatorHost,
           accountId,
