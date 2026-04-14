@@ -78,6 +78,7 @@ export class Config implements IConfig {
       version: packageJson.version,
       requiresPassword: false,
       ethereumRpcUrl: Config.getDefault(dbFields.ethereumRpcUrl) as IConfig['ethereumRpcUrl'],
+      upstreamOperator: Config.getDefault(dbFields.upstreamOperator) as IConfig['upstreamOperator'],
       serverDetails: {
         ipAddress: '',
         sshUser: '',

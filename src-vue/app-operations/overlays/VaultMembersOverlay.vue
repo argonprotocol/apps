@@ -115,7 +115,8 @@
               <div :class="statusClass(invite)" class="text-sm font-medium">{{ extractStatus(invite) }}</div>
 
               <CopyToClipboard
-                :content="`${NetworkConfig.get().websiteHost}/treasury-invite/${invite.inviteCode}`"
+                v-if="inviteEnvelopesByInviteCode[invite.inviteCode]"
+                :content="`${NetworkConfig.get().websiteHost}/treasury-invite/${inviteEnvelopesByInviteCode[invite.inviteCode]}`"
                 class="cursor-pointer">
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
                 <template #copied>
@@ -134,7 +135,6 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
-import { nanoid } from 'nanoid';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import InputNumber from '../../components/InputNumber.vue';
@@ -144,10 +144,10 @@ import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config.ts';
 import { SERVER_ENV_VARS } from '../../lib/Env.ts';
-import { VaultInvites } from '../../lib/VaultInvites.ts';
+import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { NetworkConfig, supportsBitcoinLockDelegateSetup } from '@argonprotocol/apps-core';
+import { InviteCodes, NetworkConfig, supportsBitcoinLockDelegateSetup, UserRole } from '@argonprotocol/apps-core';
 import { ServerApiClient } from '../../lib/ServerApiClient.ts';
 
 const config = getConfig();
@@ -165,6 +165,7 @@ const errorMessage = Vue.ref<string | null>(null);
 const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
 const invites = Vue.ref<ITreasuryUserInvite[]>([]);
+const inviteEnvelopesByInviteCode = Vue.ref<Record<string, string>>({});
 
 const ipAddress = Vue.computed(() => {
   return config.serverDetails.ipAddress;
@@ -305,10 +306,15 @@ async function createInvite() {
     await delegateSetupTx?.txResult.waitForInFirstBlock;
 
     const expiresAfterTicks = 10 * NetworkConfig.rewardTicksPerFrame;
-    const inviteAccessCode = nanoid(10);
-    const inviteCode = VaultInvites.encodeInviteCode(ipAddress.value, SERVER_ENV_VARS.ROUTER_PORT, inviteAccessCode);
+    const { inviteSecret, inviteCode } = InviteCodes.create();
+    const inviteEnvelope = InviteEnvelope.encode({
+      host: ipAddress.value,
+      port: SERVER_ENV_VARS.ROUTER_PORT,
+      role: UserRole.TreasuryUser,
+      secret: inviteSecret,
+    });
 
-    await ServerApiClient.createTreasuryAppInvite(ipAddress.value, {
+    const invite = await ServerApiClient.createTreasuryAppInvite(ipAddress.value, {
       name,
       fromName: currentVaultName.value,
       inviteCode,
@@ -316,6 +322,11 @@ async function createInvite() {
       maxSatoshis,
       expiresAfterTicks,
     });
+
+    inviteEnvelopesByInviteCode.value = {
+      ...inviteEnvelopesByInviteCode.value,
+      [invite.inviteCode]: inviteEnvelope,
+    };
 
     await loadInvites();
     toggleAddInvite();

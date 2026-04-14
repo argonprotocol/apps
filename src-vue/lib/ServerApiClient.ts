@@ -1,8 +1,11 @@
 import { JsonExt } from '@argonprotocol/apps-core';
 import type {
+  ICreateOperationalInviteResponse,
   ICreateTreasuryInviteResponse,
+  IListOperationalInvitesResponse,
+  IOperationalUserInvite,
+  IOperationalUserInviteCreateRequest,
   IListTreasuryInvitesResponse,
-  IListTreasuryMembersResponse,
   IRouterErrorResponse,
   ITreasuryUserInvite,
   ITreasuryUserInviteCreateRequest,
@@ -54,22 +57,24 @@ export class ServerApiClient {
     return body.invites;
   }
 
-  public static async getTreasuryAppMembers(serverIp: string): Promise<ITreasuryUserInvite[]> {
-    const body = await this.request<IListTreasuryMembersResponse>(serverIp, '/treasury-users/members');
-    return body.members;
+  public static async getOperationalInvites(serverIp: string): Promise<IOperationalUserInvite[]> {
+    const body = await this.request<IListOperationalInvitesResponse>(serverIp, '/operational-users/invites');
+    return body.invites;
   }
 
   public static async createTreasuryAppInvite(
     serverIp: string,
     payload: ITreasuryUserInviteCreateRequest,
   ): Promise<ITreasuryUserInvite> {
-    const body = await this.request<ICreateTreasuryInviteResponse>(serverIp, '/treasury-users/create', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JsonExt.stringify(payload),
-    });
+    const body = await this.postJson<ICreateTreasuryInviteResponse>(serverIp, '/treasury-users/create', payload);
+    return body.invite;
+  }
+
+  public static async createOperationalInvite(
+    serverIp: string,
+    payload: IOperationalUserInviteCreateRequest,
+  ): Promise<IOperationalUserInvite> {
+    const body = await this.postJson<ICreateOperationalInviteResponse>(serverIp, '/operational-users/create', payload);
     return body.invite;
   }
 
@@ -168,5 +173,18 @@ export class ServerApiClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private static postJson<T>(serverIp: string, path: string, payload: unknown, timeoutMs?: number): Promise<T> {
+    return this.request<T>(
+      serverIp,
+      path,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JsonExt.stringify(payload),
+      },
+      timeoutMs,
+    );
   }
 }

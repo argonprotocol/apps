@@ -1,11 +1,13 @@
-import { JsonExt } from '@argonprotocol/apps-core';
+import { InviteCodes, JsonExt, UserRole } from '@argonprotocol/apps-core';
 import type {
   BitcoinLockRelayStatus,
   IBitcoinLockCouponStatus,
   IBitcoinLockStatusResponse,
   IInitializeBitcoinLockRequest,
   IListBitcoinLockCouponsResponse,
+  IOpenOperationalInviteResponse,
   IOpenTreasuryInviteResponse,
+  IOperationalUserInvite,
   IRouterErrorResponse,
   ITreasuryUserInvite,
 } from '@argonprotocol/apps-router';
@@ -13,19 +15,33 @@ import type {
 export class UpstreamOperatorClient {
   public static async openTreasuryAppInvite(
     operatorHost: string,
-    inviteCode: string,
+    inviteSecret: string,
     accountId: string,
   ): Promise<{ fromName: string; invite: ITreasuryUserInvite }> {
-    const body = await this.request<IOpenTreasuryInviteResponse>(
+    const inviteCode = InviteCodes.getCode(inviteSecret);
+    const inviteSignature = InviteCodes.signOpen(inviteSecret, UserRole.TreasuryUser, accountId);
+    const body = await this.postJson<IOpenTreasuryInviteResponse>(
       operatorHost,
       `/treasury-users/${encodeURIComponent(inviteCode)}/open`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JsonExt.stringify({ accountId }),
-      },
+      { accountId, inviteSignature },
+    );
+    return {
+      fromName: body.fromName,
+      invite: body.invite,
+    };
+  }
+
+  public static async openOperationalInvite(
+    operatorHost: string,
+    inviteSecret: string,
+    accountId: string,
+  ): Promise<{ fromName: string; invite: IOperationalUserInvite }> {
+    const inviteCode = InviteCodes.getCode(inviteSecret);
+    const inviteSignature = InviteCodes.signOpen(inviteSecret, UserRole.OperationalPartner, accountId);
+    const body = await this.postJson<IOpenOperationalInviteResponse>(
+      operatorHost,
+      `/operational-users/${encodeURIComponent(inviteCode)}/open`,
+      { accountId, inviteSignature },
     );
     return {
       fromName: body.fromName,
@@ -38,16 +54,10 @@ export class UpstreamOperatorClient {
     offerCode: string,
     payload: IInitializeBitcoinLockRequest,
   ): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
-    const body = await this.request<IBitcoinLockStatusResponse>(
+    const body = await this.postJson<IBitcoinLockStatusResponse>(
       operatorHost,
       `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JsonExt.stringify(payload),
-      },
+      payload,
     );
     return body.bitcoinLock as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
   }
@@ -89,5 +99,13 @@ export class UpstreamOperatorClient {
     }
 
     return body as T;
+  }
+
+  private static postJson<T>(operatorHost: string, path: string, payload: unknown): Promise<T> {
+    return this.request<T>(operatorHost, path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JsonExt.stringify(payload),
+    });
   }
 }

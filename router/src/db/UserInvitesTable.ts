@@ -134,21 +134,6 @@ export class UserInvitesTable extends BaseTable {
     ).map(record => this.mapInvite(record));
   }
 
-  public fetchOpenedByRole(role: Role): IUserInviteRecord[] {
-    return (
-      this.db.sql
-        .prepare(
-          `
-        ${selectInviteRecord}
-        WHERE Users.role = $role
-          AND UserInvites.lastClickedAt IS NOT NULL
-        ORDER BY COALESCE(UserInvites.lastClickedAt, UserInvites.createdAt) DESC, Users.id DESC
-      `,
-        )
-        .all({ $role: role }) as SqlUserRow[]
-    ).map(record => this.mapInvite(record));
-  }
-
   public openInvite(id: number, accountId: string, clickedAt = new Date()): IUserInviteRecord | null {
     this.db.usersTable.updateAccountId(id, accountId);
 
@@ -176,7 +161,6 @@ export class UserInvitesTable extends BaseTable {
 
     return this.fetchById(id);
   }
-
   public deleteByUserId(userId: number): void {
     this.db.sql
       .prepare(

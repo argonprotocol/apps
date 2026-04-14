@@ -1,18 +1,17 @@
 import {
   ArgonClient,
   getOfflineRegistry,
-  hexToU8a,
   Keyring,
   type KeyringPair,
   type SubmittableExtrinsic,
   u8aToHex,
 } from '@argonprotocol/mainchain';
+import { createDeferred } from '@argonprotocol/apps-core';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { createDeferred } from '@argonprotocol/apps-core';
 
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
@@ -43,19 +42,16 @@ function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAd
   };
 }
 
-function createAccessCodeProof(accessCode: string, operationalAddr: string) {
-  const accessCodePair = new Keyring({ type: 'sr25519' }).addFromSeed(hexToU8a(accessCode));
+function createAccessCodeProof(inviteSecret: string, operationalAddr: string) {
+  const invitePair = new Keyring({ type: 'sr25519' }).addFromMnemonic(inviteSecret);
+  const domainBytes = stringToU8a('access_code_claim');
   const payload = getOfflineRegistry()
-    .createType('([u8;17],[u8;32],AccountId)', [
-      stringToU8a('access_code_claim'),
-      accessCodePair.publicKey,
-      operationalAddr,
-    ])
+    .createType('(Bytes,Bytes,AccountId)', [u8aToHex(domainBytes), u8aToHex(invitePair.publicKey), operationalAddr])
     .toU8a();
   const payloadHash = blake2AsU8a(payload, 256);
   return {
-    public: accessCodePair.publicKey,
-    signature: accessCodePair.sign(payloadHash),
+    public: invitePair.publicKey,
+    signature: invitePair.sign(payloadHash),
   };
 }
 
@@ -73,7 +69,7 @@ export async function buildOperatorAccountRegistrationTx(args: {
   const configuredVaultingAddr = walletKeys.vaultingAddress;
   const configuredMiningHoldAddr = walletKeys.miningHoldAddress;
   const configuredMiningBotAddr = walletKeys.miningBotAddress;
-  const inviteCodeKey = config.upstreamOperator?.inviteCode?.trim();
+  const inviteSecret = config.upstreamOperator?.inviteSecret?.trim();
 
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningHoldAccount, miningBotAccount] =
     await Promise.all([
@@ -134,7 +130,7 @@ export async function buildOperatorAccountRegistrationTx(args: {
       vaultAccountProof: { signature: vaultAccountProof.signature },
       miningFundingAccountProof: { signature: miningFundingAccountProof.signature },
       miningBotAccountProof: { signature: miningBotAccountProof.signature },
-      accessCode: inviteCodeKey ? createAccessCodeProof(inviteCodeKey, operationalAddr) : null,
+      accessCode: inviteSecret ? createAccessCodeProof(inviteSecret, operationalAddr) : null,
     },
   });
 }

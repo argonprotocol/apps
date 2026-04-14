@@ -59,6 +59,12 @@
         <a href="https://argon.network/docs/operator-certification" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
           Learn more about the Argon's Operator Certification.
         </a>
+        <button
+          @click="openOperationalInvites()"
+          class="text-argon-600! border border-argon-600 mt-4 inline-flex flex-row items-center justify-center rounded-lg px-6 py-2 font-bold hover:bg-argon-300/10 cursor-pointer"
+        >
+          Manage Sponsor Invites
+        </button>
       </div>
     </div>
     <div v-else class="px-5 pt-5 pb-6">
@@ -177,6 +183,11 @@ function cancelTask() {
 
 function openDocumentationLink(link: string) {
   window.open(link, '_blank', 'noopener,noreferrer');
+}
+
+function openOperationalInvites() {
+  closeOverlay();
+  basicEmitter.emit('openOperationalInvitesOverlay');
 }
 
 basicEmitter.on('openOperationalOverlay', async (stepId: OperationalStepId) => {

@@ -157,7 +157,8 @@ async function selectVault(vault: VaultRow) {
     config.upstreamOperator = {
       name: vault.name,
       vaultId: vault.vaultId,
-      inviteCode: config.upstreamOperator?.inviteCode ?? '',
+      inviteSecret: config.upstreamOperator?.inviteSecret,
+      accountId: config.upstreamOperator?.accountId,
     };
     await config.save();
     closeOverlay();

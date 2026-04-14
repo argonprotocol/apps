@@ -1,7 +1,9 @@
+import type { UserRole } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
-import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
+import type { IOperationalUserInvite, ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
 export type IInitializeBitcoinLockRequest = IBitcoinLockRelayRequest;
+export type InviteRole = UserRole;
 
 export interface ITreasuryUserInviteCreateRequest {
   name: string;
@@ -12,9 +14,19 @@ export interface ITreasuryUserInviteCreateRequest {
   expiresAfterTicks: number;
 }
 
-export interface IOpenTreasuryInviteRequest {
-  accountId: string;
+export interface IOperationalUserInviteCreateRequest {
+  name: string;
+  fromName: string;
+  inviteCode: string;
 }
+
+export interface IUserInviteOpenRequest {
+  accountId: string;
+  inviteSignature: string;
+}
+
+export type IOpenTreasuryInviteRequest = IUserInviteOpenRequest;
+export type IOpenOperationalInviteRequest = IUserInviteOpenRequest;
 
 export interface IRouterErrorResponse {
   error: string;
@@ -28,8 +40,12 @@ export interface IListTreasuryInvitesResponse {
   invites: ITreasuryUserInvite[];
 }
 
-export interface IListTreasuryMembersResponse {
-  members: ITreasuryUserInvite[];
+export interface ICreateOperationalInviteResponse {
+  invite: IOperationalUserInvite;
+}
+
+export interface IListOperationalInvitesResponse {
+  invites: IOperationalUserInvite[];
 }
 
 export interface IListBitcoinLockCouponsResponse {
@@ -39,6 +55,11 @@ export interface IListBitcoinLockCouponsResponse {
 export interface IOpenTreasuryInviteResponse {
   fromName: string;
   invite: ITreasuryUserInvite;
+}
+
+export interface IOpenOperationalInviteResponse {
+  fromName: string;
+  invite: IOperationalUserInvite;
 }
 
 export interface IBitcoinLockStatusResponse {

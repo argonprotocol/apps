@@ -46,6 +46,7 @@ type IBasicEmitter = {
 
   openServerOverlay: void;
   openOperationalOverlay: OperationalStepId;
+  openOperationalInvitesOverlay: void;
   openOperationalFinishOverlay: void;
 };
 

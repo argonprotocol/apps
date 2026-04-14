@@ -127,7 +127,6 @@ export type IBitcoinVaultUnlockStateDetails = {
 
 export interface IOperatorBitcoinLockCouponRoute {
   vaultId: number;
-  inviteCode: string;
   offerCode: string;
   operatorHost: string;
   accountId?: string;

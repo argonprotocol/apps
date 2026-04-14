@@ -1,9 +1,10 @@
 import type { SQLOutputValue } from 'node:sqlite';
+import type { UserRole } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqliteParams } from '@argonprotocol/apps-core';
 import type { Db } from '../Db.ts';
 import { BaseTable } from './BaseTable.ts';
 
-export type Role = 'treasury_user' | 'operational_partner';
+export type Role = UserRole;
 
 export interface IUserRecord {
   id: number;

@@ -94,16 +94,17 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
+import { UserRole } from '@argonprotocol/apps-core';
+import { DialogTitle } from 'reka-ui';
+import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../../stores/config.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import { APP_NAME, IS_OPERATIONS_APP, IS_TREASURY_APP } from '../../lib/Env.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 import { BootstrapType } from '../../interfaces/IConfig.ts';
-import { DialogTitle } from 'reka-ui';
-import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
-import { VaultInvites } from '../../lib/VaultInvites.ts';
-import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
+import ImportAccountFromMnemonic from '../../app-operations/overlays/import-account/FromMnemonic.vue';
+import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
+import type { IOperationalUserInvite, ITreasuryUserInvite } from '@argonprotocol/apps-router';
 import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 
 const config = getConfig();
@@ -128,7 +129,7 @@ function extractInviteCodeFromUrl(input: string): string {
     return trimmed;
   }
 
-  const match = parsedUrl.pathname.match(/^\/treasury-invite\/([^/?#]+)/);
+  const match = parsedUrl.pathname.match(/^\/(?:treasury|operational)-invite\/([^/?#]+)/);
   if (!match?.[1]) return trimmed;
   try {
     return decodeURIComponent(match[1]);
@@ -176,19 +177,38 @@ async function connectToNetwork() {
     return;
   }
 
-  const meta = VaultInvites.decodeInviteCode(inviteCode.value);
+  const meta = InviteEnvelope.decode(inviteCode.value);
   if (meta.hasError || meta.isEmpty) {
     formError.value = 'The access code you provided is invalid.';
     return;
   }
 
-  let body: { fromName: string; invite: ITreasuryUserInvite };
+  const operatorHost = [meta.host, meta.port].filter(Boolean).join(':');
+
   try {
-    body = await UpstreamOperatorClient.openTreasuryAppInvite(
-      [meta.ipAddress, meta.port].filter(Boolean).join(':'),
-      inviteCode.value.trim(),
-      walletKeys.liquidLockingAddress,
-    );
+    if (IS_TREASURY_APP) {
+      if (meta.role !== UserRole.TreasuryUser || !meta.secret) {
+        throw new Error('This access code is for the Operations app.');
+      }
+
+      const body = await UpstreamOperatorClient.openTreasuryAppInvite(
+        operatorHost,
+        meta.secret,
+        walletKeys.liquidLockingAddress,
+      );
+      await connectTreasuryInvite(body, operatorHost, meta.secret);
+    } else if (IS_OPERATIONS_APP) {
+      if (meta.role !== UserRole.OperationalPartner || !meta.secret) {
+        throw new Error('This access code is for the Treasury app.');
+      }
+
+      const body = await UpstreamOperatorClient.openOperationalInvite(
+        operatorHost,
+        meta.secret,
+        walletKeys.operationalAddress,
+      );
+      await connectOperationalInvite(body, operatorHost, meta.secret);
+    }
   } catch (error) {
     formError.value =
       error instanceof Error && error.message
@@ -197,36 +217,6 @@ async function connectToNetwork() {
     return;
   }
 
-  if (!body?.fromName || !body.invite?.vaultId) {
-    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
-    return;
-  }
-
-  const invite = body.invite;
-  const bitcoinLockCoupon = invite.bitcoinLockCoupon;
-  if (!bitcoinLockCoupon) {
-    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
-    return;
-  }
-  const operatorHost = [meta.ipAddress, meta.port].filter(x => x).join(':');
-  const vaultId = invite.vaultId;
-  if (!vaultId) {
-    formError.value = 'Unable to connect with that access code. Please verify it and try again.';
-    return;
-  }
-
-  config.upstreamOperator = {
-    name: body.fromName,
-    vaultId,
-    inviteCode: inviteCode.value.trim(),
-  };
-
-  config.bootstrapDetails = {
-    type: BootstrapType.Private,
-    routerHost: operatorHost,
-  };
-
-  await config.save();
   isOpen.value = false;
 }
 
@@ -237,7 +227,7 @@ Vue.watch(inviteCode, () => {
     return;
   }
 
-  const decoded = VaultInvites.decodeInviteCode(normalizedInviteCode);
+  const decoded = InviteEnvelope.decode(normalizedInviteCode);
   formError.value = '';
   hasValidInviteCode.value = true;
   if (decoded.hasError) {
@@ -245,4 +235,50 @@ Vue.watch(inviteCode, () => {
     hasValidInviteCode.value = false;
   }
 });
+
+async function connectTreasuryInvite(
+  body: { fromName: string; invite: ITreasuryUserInvite },
+  operatorHost: string,
+  inviteSecret: string,
+) {
+  if (!body?.fromName || !body.invite?.vaultId || !body.invite.bitcoinLockCoupon) {
+    throw new Error('Unable to connect with that access code. Please verify it and try again.');
+  }
+
+  config.upstreamOperator = {
+    ...config.upstreamOperator,
+    name: body.fromName,
+    vaultId: body.invite.vaultId,
+    inviteSecret,
+  };
+  config.bootstrapDetails = {
+    type: BootstrapType.Private,
+    routerHost: operatorHost,
+  };
+
+  await config.save();
+}
+
+async function connectOperationalInvite(
+  body: { fromName: string; invite: IOperationalUserInvite },
+  operatorHost: string,
+  inviteSecret: string,
+) {
+  if (!body?.fromName) {
+    throw new Error('Unable to connect with that access code. Please verify it and try again.');
+  }
+
+  config.upstreamOperator = {
+    ...config.upstreamOperator,
+    name: body.fromName,
+    inviteSecret,
+    accountId: body.invite.accountId ?? walletKeys.operationalAddress,
+  };
+  config.bootstrapDetails = {
+    type: BootstrapType.Private,
+    routerHost: operatorHost,
+  };
+
+  await config.save();
+}
 </script>

@@ -24,6 +24,8 @@ export * from './Vaults.js';
 export * from './Currency.js';
 export * from './SingleFileQueue.js';
 export * from './JsonExt.js';
+export * from './UserRole.js';
+export * from './InviteCodes.js';
 export * from './SqliteMigrations.js';
 export * from './SqliteUtils.js';
 export * from './GlobalVaultingStats.js';
