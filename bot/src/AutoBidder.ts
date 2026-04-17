@@ -2,6 +2,7 @@ import {
   type Accountset,
   CohortBidder,
   type IBidderParams,
+  type IManualBidRequest,
   type IBiddingRules,
   MainchainClients,
   Mining,
@@ -131,6 +132,14 @@ export class AutoBidder {
 
     await this.biddingCalculator.load();
     await this.reloadActiveCohort();
+  }
+
+  public async submitManualBid(request: IManualBidRequest): Promise<void> {
+    const bidder = this.currentBidder;
+    if (!bidder) {
+      throw new Error('There is no active bidding cohort right now.');
+    }
+    await bidder.submitManualBid(request);
   }
 
   private async createBidderParams(cohortActivationFrameId: number): Promise<IBidderParams> {

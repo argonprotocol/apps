@@ -5,6 +5,11 @@ import type { IBidsFile } from './IBidsFile.ts';
 import type { IEarningsFile } from './IEarningsFile.ts';
 import type { IMiningFrameDetail } from './IMiningFrameDetail.ts';
 
+export interface IManualBidRequest {
+  microgonsPerSeat: bigint;
+  seats: number;
+}
+
 export interface IBotApiSpec {
   '/state': () => Promise<IBotState | IBotStateStarting>;
   '/bitcoin-recent-blocks': () => Promise<IBitcoinBlockMeta[]>;
@@ -12,6 +17,7 @@ export interface IBotApiSpec {
   '/mining-frame': (frameId: number) => Promise<IMiningFrameDetail>;
   '/bids': (cohortBiddingFrameId?: number) => Promise<IBidsFile>;
   '/earnings': (frameId: number) => Promise<IEarningsFile>;
+  '/manual-bid': (request: IManualBidRequest) => Promise<null>;
   '/heartbeat': () => Promise<null>;
 }
 

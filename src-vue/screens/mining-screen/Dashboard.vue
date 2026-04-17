@@ -84,7 +84,7 @@
                   Settings
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <button @click="openBiddingPanel" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Bidding Bot
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
@@ -360,7 +360,7 @@ const avgMicronotsPerWinningBid = Vue.computed<bigint | null>(() => {
 });
 
 const countdownNextBidAt = Vue.computed(() => {
-  const nextBidTick = liveNextBid.value?.atTick ?? null;
+  const nextBidTick = liveNextBid.value?.bidAtTick ?? null;
   if (!nextBidTick) return null;
   return dayjs.utc((nextBidTick + 1) * TICK_MILLIS);
 });
@@ -417,6 +417,10 @@ const currentFrameEndDate = Vue.computed(() => {
 
 function openBotEditOverlay() {
   basicEmitter.emit('openBotEditOverlay');
+}
+
+function openBiddingPanel() {
+  basicEmitter.emit('openBiddingPanel');
 }
 
 function loadChartData() {

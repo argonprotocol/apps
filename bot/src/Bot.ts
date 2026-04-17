@@ -15,6 +15,7 @@ import {
   createDeferred,
   FatalError,
   getRange,
+  type IManualBidRequest,
   type IBiddingRules,
   type IBidReductionReason,
   type IBotState,
@@ -147,7 +148,7 @@ export default class Bot {
     const finalizedFrameId = this.getFinalizedFrameId();
     const nextBid = currentBidder?.nextBid
       ? {
-          atTick: currentBidder.nextBid.bidAtTick,
+          bidAtTick: currentBidder.nextBid.bidAtTick,
           microgonsPerSeat: currentBidder.nextBid.microgonsPerSeat,
           alreadyWinningSeats: currentBidder.nextBid.alreadyWinningSeats,
           seats: currentBidder.nextBid.subaccounts.length,
@@ -345,6 +346,18 @@ export default class Bot {
     } finally {
       this.isStarting = false;
     }
+  }
+
+  public async manualBid(request: IManualBidRequest): Promise<null> {
+    if (!this.isReady) {
+      throw new Error('The mining bot is not ready yet.');
+    }
+    if (!this.autobidder.currentBidder) {
+      throw new Error('There is no active bidding cohort right now.');
+    }
+
+    await this.autobidder.submitManualBid(request);
+    return null;
   }
 
   public async shutdown() {

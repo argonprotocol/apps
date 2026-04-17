@@ -46,6 +46,7 @@ type IBasicEmitter = {
   openCheckForAppUpdatesOverlay: void;
   openWelcomeOverlay: void;
 
+  openBiddingPanel: void;
   openPortfolioPanel: PortfolioTab;
 
   openImportAccountOverlay: void;
