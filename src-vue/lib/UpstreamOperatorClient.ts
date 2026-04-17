@@ -11,6 +11,7 @@ import type {
   IRouterErrorResponse,
   ITreasuryUserInvite,
 } from '@argonprotocol/apps-router';
+import type { IOperationalReferral } from '../interfaces/IConfig.ts';
 
 export class UpstreamOperatorClient {
   public static async openTreasuryAppInvite(
@@ -35,13 +36,14 @@ export class UpstreamOperatorClient {
     operatorHost: string,
     inviteSecret: string,
     accountId: string,
+    operationalReferral: IOperationalReferral,
   ): Promise<{ fromName: string; invite: IOperationalUserInvite }> {
     const inviteCode = InviteCodes.getCode(inviteSecret);
     const inviteSignature = InviteCodes.signOpen(inviteSecret, UserRole.OperationalPartner, accountId);
     const body = await this.postJson<IOpenOperationalInviteResponse>(
       operatorHost,
       `/operational-users/${encodeURIComponent(inviteCode)}/open`,
-      { accountId, inviteSignature },
+      { accountId, inviteSignature, ...operationalReferral },
     );
     return {
       fromName: body.fromName,

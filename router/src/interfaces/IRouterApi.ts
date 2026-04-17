@@ -18,6 +18,9 @@ export interface IOperationalUserInviteCreateRequest {
   name: string;
   fromName: string;
   inviteCode: string;
+  sponsor: string;
+  expiresAtFrame: number;
+  sponsorSignature: string;
 }
 
 export interface IUserInviteOpenRequest {
@@ -26,7 +29,11 @@ export interface IUserInviteOpenRequest {
 }
 
 export type IOpenTreasuryInviteRequest = IUserInviteOpenRequest;
-export type IOpenOperationalInviteRequest = IUserInviteOpenRequest;
+export interface IOpenOperationalInviteRequest extends IUserInviteOpenRequest {
+  sponsor: string;
+  expiresAtFrame: number;
+  sponsorSignature: string;
+}
 
 export interface IRouterErrorResponse {
   error: string;

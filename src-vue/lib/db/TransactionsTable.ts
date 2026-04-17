@@ -16,6 +16,7 @@ export enum ExtrinsicType {
   VaultCollect = 'VaultCollect',
   VaultSetBitcoinLockDelegate = 'VaultSetBitcoinLockDelegate',
   VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
+  OperationalClaimRewards = 'OperationalClaimRewards',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
   BitcoinRequestRelease = 'BitcoinRequestRelease', // funding UTXO enters release lifecycle on Argon
@@ -26,7 +27,8 @@ export enum ExtrinsicType {
 
   Transfer = 'Transfer',
 
-  TreasurySetAllocation = 'TreasurySetAllocation',
+  TreasuryBuyBonds = 'TreasuryBuyBonds',
+  TreasuryReleaseBondLot = 'TreasuryReleaseBondLot',
 }
 
 export enum TransactionStatus {

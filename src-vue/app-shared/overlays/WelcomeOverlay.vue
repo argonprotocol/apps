@@ -102,6 +102,7 @@ import { getWalletKeys } from '../../stores/wallets.ts';
 import { APP_NAME, IS_OPERATIONS_APP, IS_TREASURY_APP } from '../../lib/Env.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 import { BootstrapType } from '../../interfaces/IConfig.ts';
+import type { IOperationalReferral } from '../../interfaces/IConfig.ts';
 import ImportAccountFromMnemonic from '../../app-operations/overlays/import-account/FromMnemonic.vue';
 import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import type { IOperationalUserInvite, ITreasuryUserInvite } from '@argonprotocol/apps-router';
@@ -198,7 +199,7 @@ async function connectToNetwork() {
       );
       await connectTreasuryInvite(body, operatorHost, meta.secret);
     } else if (IS_OPERATIONS_APP) {
-      if (meta.role !== UserRole.OperationalPartner || !meta.secret) {
+      if (meta.role !== UserRole.OperationalPartner || !meta.secret || !meta.operationalReferral) {
         throw new Error('This access code is for the Treasury app.');
       }
 
@@ -206,8 +207,12 @@ async function connectToNetwork() {
         operatorHost,
         meta.secret,
         walletKeys.operationalAddress,
+        meta.operationalReferral,
       );
-      await connectOperationalInvite(body, operatorHost, meta.secret);
+      await connectOperationalInvite(body, operatorHost, {
+        inviteSecret: meta.secret,
+        operationalReferral: meta.operationalReferral,
+      });
     }
   } catch (error) {
     formError.value =
@@ -262,7 +267,7 @@ async function connectTreasuryInvite(
 async function connectOperationalInvite(
   body: { fromName: string; invite: IOperationalUserInvite },
   operatorHost: string,
-  inviteSecret: string,
+  invite: { inviteSecret: string; operationalReferral: IOperationalReferral },
 ) {
   if (!body?.fromName) {
     throw new Error('Unable to connect with that access code. Please verify it and try again.');
@@ -271,7 +276,8 @@ async function connectOperationalInvite(
   config.upstreamOperator = {
     ...config.upstreamOperator,
     name: body.fromName,
-    inviteSecret,
+    inviteSecret: invite.inviteSecret,
+    operationalReferral: invite.operationalReferral,
     accountId: body.invite.accountId ?? walletKeys.operationalAddress,
   };
   config.bootstrapDetails = {

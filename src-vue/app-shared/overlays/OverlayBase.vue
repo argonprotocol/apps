@@ -31,12 +31,12 @@
               :class="twMerge(
                 'absolute z-50 bg-white border border-black/40 rounded-lg pointer-events-auto shadow-2xl min-h-40 w-6/12 focus:outline-none',
                 props.class,
-                props.overflowScroll ? 'overflow-scroll' : '',
+                props.overflowScroll ? 'flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden' : '',
               )"
             >
               <h2
                 :class="[props.showGoBack ? 'pb-4 px-3' : 'pb-3 pl-2 pr-3']"
-                class="flex flex-row justify-between items-center pt-5 pb-3 px-3 mx-2 text-2xl font-bold text-slate-800/70 border-b border-slate-300 select-none"
+                class="z-20 flex flex-row items-center justify-between border-b border-slate-300 bg-white px-3 pt-5 pb-3 mx-2 text-2xl font-bold text-slate-800/70 select-none shrink-0"
                 @mousedown="draggable.onMouseDown($event)"
               >
                 <span v-if="props.showGoBack" @click="goBack()" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
@@ -53,7 +53,9 @@
                   <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
                 </DialogClose>
               </h2>
-              <slot />
+              <div :class="props.overflowScroll ? 'min-h-0 grow overflow-y-auto overflow-x-hidden' : ''">
+                <slot />
+              </div>
             </div>
           </Motion>
         </DialogContent>

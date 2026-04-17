@@ -47,6 +47,14 @@ export function fromSqliteBoolean(num: number): boolean {
   return num === 1;
 }
 
+export function clampProgressValue<T extends bigint | number>(current: T, target: T): T {
+  return current > target ? target : current;
+}
+
+export function getCappedPercent(current: bigint | number, target: bigint | number): number {
+  return Math.max(0, Math.min(getPercent(current, target), 100));
+}
+
 export function toSqliteBigInt(num: bigint): number {
   return Number(num);
 }

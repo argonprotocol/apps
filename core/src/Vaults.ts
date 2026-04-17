@@ -1,5 +1,5 @@
 import {
-  type AccountId32,
+  type ArgonClient,
   BitcoinLock,
   type PalletVaultsVaultFrameRevenue,
   u128,
@@ -22,7 +22,7 @@ import {
 import BigNumber from 'bignumber.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
-import { TreasuryPool } from './TreasuryPool.js';
+import { TreasuryBonds } from './TreasuryBonds.js';
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
@@ -79,34 +79,6 @@ export class Vaults {
       };
       onUpdate(this.vaultsById[vaultId]);
     });
-  }
-
-  public async getVaultPoolsByFrameForAccountId(accountIdFilter: string) {
-    const client = await this.mainchainClients.get(false);
-    const vaultPoolsByFrame = await client.query.treasury.vaultPoolsByFrame.entries();
-    const balanceByFrameId: { [key: number]: bigint } = {};
-
-    for (const [frameIdRaw, vaultPoolsRaw] of vaultPoolsByFrame) {
-      const frameId = Number(((frameIdRaw.toHuman() as any) || [])[0]);
-      const vaultPools = vaultPoolsRaw.entries();
-      balanceByFrameId[frameId] = balanceByFrameId[frameId] ?? 0n;
-
-      for (const [_, pool] of vaultPools) {
-        const bondHolders = pool?.bondHolders;
-        for (const bondHolder of bondHolders) {
-          const [bondHolderIdRaw, bondHolderBalance] = bondHolder as [AccountId32, { startingBalance: u128 } | u128];
-          const bondHolderId = bondHolderIdRaw.toHuman();
-          if (bondHolderId !== accountIdFilter) continue;
-
-          const startingBalance =
-            'startingBalance' in bondHolderBalance
-              ? bondHolderBalance.startingBalance.toBigInt()
-              : bondHolderBalance.toBigInt();
-          balanceByFrameId[frameId] += startingBalance;
-        }
-      }
-    }
-    return balanceByFrameId;
   }
 
   public async updateVaultRevenue(vaultId: number, frameRevenues: PalletVaultsVaultFrameRevenue[], skipSaving = false) {
@@ -450,11 +422,11 @@ export class Vaults {
     return undefined;
   }
 
-  public static async getPreviousEpochTreasuryPoolPayout(
+  public static async getPreviousEpochTreasuryPayout(
     clients: MainchainClients,
   ): Promise<{ totalPoolRewards: bigint; totalActivatedCapital: bigint; participatingVaults: number }> {
     const client = await clients.prunedClientOrArchivePromise;
-    const bidPoolPercentForVaults = TreasuryPool.getBidPoolPercentForVaults(client);
+    const bidPoolPercentForVaults = TreasuryBonds.getBidPoolPercentForVaults(client);
     const totalMicrogonsBid = await new Mining(clients).fetchAggregateBidCosts();
     const vaultRevenue = await client.query.vaults.revenuePerFrameByVault.entries();
     let totalActivatedCapital = 0n;
@@ -479,4 +451,8 @@ export class Vaults {
       participatingVaults,
     };
   }
+}
+
+export function supportsBitcoinLockDelegateSetup(client: ArgonClient): boolean {
+  return typeof client.tx.vaults.setBitcoinLockDelegate === 'function';
 }

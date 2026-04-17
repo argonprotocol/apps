@@ -209,7 +209,7 @@
         Treasury Bonds
         <template #icon><ArgonotIcon class="h-7 w-7" /></template>
         <template #value>
-          {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.treasuryTotalValue).format('0,0.00') }}
+          {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.treasuryBondMicrogons).format('0,0.00') }}
         </template>
 
         <template #tooltip>
@@ -224,29 +224,30 @@
         :height="itemHeight"
         :spacerWidth="spacerWidth"
         :align="props.align"
-        :moveFrom="MoveFrom.VaultingTreasury"
-        :moveToken="MoveToken.ARGN"
+        :actionLabel="breakdown.treasuryBondMicrogons ? 'View' : 'Buy'"
+        @action="openTreasuryBondsOverlay"
       >
         <div class="flex flex-row items-center w-full">
           <div class="grow">
-            {{ microgonToArgonNm(breakdown.treasuryMicrogons).format('0,0.[00]') }} ARGN
+            {{ microgonToArgonNm(breakdown.treasuryBondMicrogons).format('0,0.[00]') }} ARGN
           </div>
-          <div v-if="breakdown.treasuryMicrogonsTotalActivatedPct < 98" class="flex flex-row items-center gap-x-1">
+          <div v-if="breakdown.treasuryBondCapacityUsedPct < 98" class="flex flex-row items-center gap-x-1">
             <ExclamationTriangleIcon class="size-5 text-yellow-600" aria-hidden="true" />
             LOW
           </div>
-          <div class="opacity-60" v-else>{{ numeral(breakdown.treasuryMicrogonsTotalActivatedPct).format('0,0.[00]')}}%</div>
+          <div class="opacity-60" v-else>{{ numeral(breakdown.treasuryBondCapacityUsedPct).format('0,0.[00]')}}%</div>
         </div>
         <template #tooltip>
           <div class="break-words whitespace-normal">
-            <p v-if="breakdown.treasuryMicrogons">
+            <p v-if="breakdown.treasuryBondMicrogons">
               These are the argons that have been allocated to Treasury Bonds.
-              <template v-if="breakdown.treasuryMicrogonsMaxCapacity > breakdown.treasuryMicrogons">
+              <template v-if="breakdown.treasuryBondCapacityMicrogons > breakdown.treasuryActiveBondMicrogons">
                 You can add more argons here to increase your vault's yield. The maximum amount you can allocate
-                is {{ microgonToArgonNm(breakdown.treasuryMicrogonsMaxCapacity).format('0,0.[00]') }} ARGN,
+                is {{ microgonToArgonNm(breakdown.treasuryBondCapacityMicrogons).format('0,0.[00]') }} ARGN,
                 which is determined by the bitcoin value in your vault.
               </template>
               <template v-else>The amount cannot exceed the bitcoin value in your vault.</template>
+              Bond lots must be liquidated individually from the Treasury Bonds view.
             </p>
             <p v-else>
               You have no argons allocated to Treasury Bonds.
@@ -304,10 +305,11 @@ import Header from '../../../components/asset-breakdown/Header.vue';
 import SubItem from '../../../components/asset-breakdown/SubItem.vue';
 import Expenses from '../../../components/asset-breakdown/Expenses.vue';
 import Total from '../../../components/asset-breakdown/Total.vue';
-import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { getMyVault, getVaults } from '../../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
+import basicEmitter from '../../../emitters/basicEmitter.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -343,4 +345,8 @@ const breakdown = useVaultingAssetBreakdown();
 const itemHeight = Vue.computed(() => {
   return 'auto' as const;
 });
+
+function openTreasuryBondsOverlay() {
+  basicEmitter.emit('openTreasuryBondsOverlay');
+}
 </script>

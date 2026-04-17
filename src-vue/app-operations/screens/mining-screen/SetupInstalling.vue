@@ -29,20 +29,28 @@ import { stepLabels, type IStepLabel } from '../../../lib/InstallerStep.ts';
 import { InstallStepStatus, MiningSetupStatus } from '../../../interfaces/IConfig.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import MiningIcon from '../../../assets/mining.svg?component';
+import { useWallets, getWalletKeys } from '../../../stores/wallets.ts';
 import { getTransactionTracker } from '../../../stores/transactions.ts';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
-import type { ITransactionMoveMetadata } from '../../../lib/MoveCapital.ts';
+import { MoveCapital, type ITransactionMoveMetadata } from '../../../lib/MoveCapital.ts';
 import { ExtrinsicType } from '../../../lib/db/TransactionsTable.ts';
 import type { TransactionInfo } from '../../../lib/TransactionInfo.ts';
+import { getMyVault } from '../../../stores/vaults.ts';
+import type { Config } from '../../../lib/Config.ts';
 
 const config = getConfig();
+const wallets = useWallets();
+const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
+const myVault = getMyVault();
+const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 
 const transactionErrorMessage = Vue.ref('');
 const progressPct = Vue.ref(0);
 const txProgressPct = Vue.ref(0);
 const txProgressLabel = Vue.ref('Preparing capital transfer...');
 const trackedTxId = Vue.ref<number | null>(null);
+const isEnsuringSetupTransfer = Vue.ref(false);
 
 const installerErrorMessage = Vue.computed(() => config.serverInstaller.errorMessage ?? '');
 const errorMessage = Vue.computed(() => transactionErrorMessage.value || installerErrorMessage.value);
@@ -97,6 +105,7 @@ const progressLabel = Vue.computed(() => {
 
 let unsubscribeTxProgress: (() => void) | null = null;
 const isFinalizingSetup = Vue.ref(false);
+let lastEnsureSetupTransferAt = 0;
 
 function getStepStatus(stepLabel: IStepLabel, index: number): InstallStepStatus {
   let stepStatus = config.serverInstaller[stepLabel.key].status;
@@ -144,6 +153,7 @@ function trackTxInfo(txInfo: TransactionInfo) {
   unsubscribeTxProgress?.();
   unsubscribeTxProgress = null;
   trackedTxId.value = txInfo.tx.id;
+  transactionErrorMessage.value = '';
 
   txProgressLabel.value = 'Submitting capital transfer...';
   const currentStatus = txInfo.getStatus();
@@ -156,13 +166,36 @@ function trackTxInfo(txInfo: TransactionInfo) {
     if (args.progressPct === 100 && error) {
       transactionErrorMessage.value = error.message;
     }
+
+    void ensureTrackedSetupTransfer();
   });
 }
 
-function ensureTrackedSetupTransfer() {
+async function ensureTrackedSetupTransfer(force = false) {
   const txInfo = findLatestSetupTransferTxInfo();
   if (txInfo) {
     trackTxInfo(txInfo);
+  }
+
+  if (!hasEnteredTransactionPhase.value || !wallets.isLoaded || isEnsuringSetupTransfer.value) return;
+
+  const now = Date.now();
+  if (!force && now - lastEnsureSetupTransferAt < 3_000) return;
+
+  isEnsuringSetupTransfer.value = true;
+  lastEnsureSetupTransferAt = now;
+
+  try {
+    const ensuredTxInfo = await moveCapital.moveAvailableMiningHoldToBot(
+      wallets.miningHoldWallet,
+      walletKeys,
+      config as Config,
+    );
+    if (ensuredTxInfo) {
+      trackTxInfo(ensuredTxInfo);
+    }
+  } finally {
+    isEnsuringSetupTransfer.value = false;
   }
 }
 
@@ -191,20 +224,20 @@ Vue.watch(
   () => transactionTracker.data.txInfos.length,
   () => {
     if (hasEnteredTransactionPhase.value) {
-      ensureTrackedSetupTransfer();
+      void ensureTrackedSetupTransfer(true);
     }
   },
 );
 
 Vue.watch(hasEnteredTransactionPhase, isInTxPhase => {
   if (isInTxPhase) {
-    ensureTrackedSetupTransfer();
+    void ensureTrackedSetupTransfer(true);
   }
 });
 
 Vue.onMounted(async () => {
   await transactionTracker.load();
-  ensureTrackedSetupTransfer();
+  await ensureTrackedSetupTransfer(true);
 });
 
 Vue.onUnmounted(() => {

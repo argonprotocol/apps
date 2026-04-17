@@ -2,9 +2,9 @@ import {
   ExtrinsicError,
   hexToU8a,
   ISubmittableOptions,
-  KeyringPair,
   SignedBlock,
   SubmittableExtrinsic,
+  type TxSigningAccount,
   TxResult,
 } from '@argonprotocol/mainchain';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
@@ -149,24 +149,29 @@ export class TransactionTracker {
   public async submitAndWatch<T>(
     args: {
       tx: SubmittableExtrinsic;
-      signer: KeyringPair;
+      txSigner: TxSigningAccount;
       extrinsicType: ExtrinsicType;
       metadata?: T;
     } & ISubmittableOptions,
   ): Promise<TransactionInfo<T>> {
-    const { tx, signer, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
+    const { tx, txSigner, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
     const client = await getMainchainClient(false);
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
     const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
     if (useLatestNonce && apiOptions.nonce === undefined) {
-      apiOptions.nonce = await client.rpc.system.accountNextIndex(signer.address);
+      apiOptions.nonce = await client.rpc.system.accountNextIndex(txSigner.address);
     }
-    const signedTx = await tx.signAsync(signer, apiOptions);
+
+    const signedTx =
+      'signer' in txSigner
+        ? await tx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
+        : await tx.signAsync(txSigner, apiOptions);
+
     const txResultExtrinsic = {
       signedHash: signedTx.hash.toHex(),
       method: signedTx.method.toHuman(),
       nonce: signedTx.nonce.toNumber(),
-      accountAddress: signer.address,
+      accountAddress: txSigner.address,
       submittedTime: new Date(),
       submittedAtBlockNumber: submittedAtBlockHeight,
     };

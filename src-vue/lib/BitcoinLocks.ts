@@ -16,8 +16,8 @@ import {
   formatArgons,
   hexToU8a,
   type IBitcoinLockConfig,
-  KeyringPair,
   type SubmittableExtrinsic,
+  type TxSigningAccount,
   TxResult,
   u8aToHex,
   Vault,
@@ -481,10 +481,10 @@ export default class BitcoinLocks {
 
   private async canPayMinimumFee(args: {
     vault: Vault;
-    argonKeyring: KeyringPair;
+    txSigner: TxSigningAccount;
     tip?: bigint;
   }): Promise<{ canAfford: boolean; txFeePlusTip: bigint; securityFee: bigint }> {
-    const { vault, argonKeyring, tip = 0n } = args;
+    const { vault, txSigner, tip = 0n } = args;
     const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(
       `m/1018'/0'/${vault.vaultId}'/0/0'`,
       this.bitcoinNetwork,
@@ -497,7 +497,7 @@ export default class BitcoinLocks {
       vault,
       priceIndex: this.#currency.priceIndex,
       ownerBitcoinPubkey,
-      argonKeyring,
+      txSigner,
       tip,
       satoshis: await this.minimumSatoshiPerLock(),
     });
@@ -515,7 +515,7 @@ export default class BitcoinLocks {
     operatorCoupon?: IOperatorBitcoinLockCouponRoute;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
     const { vault, satoshis, tip, operatorCoupon } = args;
-    const argonKeyring = await this.walletKeys.getLiquidLockingKeypair();
+    const txSigner = await this.walletKeys.getLiquidLockingKeypair();
 
     const minimumSatoshis = await this.minimumSatoshiPerLock();
     if (satoshis < minimumSatoshis) {
@@ -531,21 +531,21 @@ export default class BitcoinLocks {
       if (operatorCoupon.vaultId !== vault.vaultId) {
         throw new Error('This bitcoin lock coupon is for a different vault.');
       }
-      if (operatorCoupon.accountId && operatorCoupon.accountId !== argonKeyring.address) {
+      if (operatorCoupon.accountId && operatorCoupon.accountId !== txSigner.address) {
         throw new Error(
           `This invite is claimed by ${operatorCoupon.accountId}. Import or switch to that account before continuing.`,
         );
       }
 
       return await this.initializeOperatorCouponLock({
-        argonKeyring,
+        txSigner,
         vault,
         satoshis,
         operatorCoupon,
       });
     }
 
-    const basicFeeCapability = await this.canPayMinimumFee({ ...args, argonKeyring });
+    const basicFeeCapability = await this.canPayMinimumFee({ ...args, txSigner });
     if (!basicFeeCapability.canAfford) {
       const { txFeePlusTip, securityFee } = basicFeeCapability;
       throw new Error(
@@ -562,7 +562,7 @@ export default class BitcoinLocks {
       vault,
       priceIndex: this.#currency.priceIndex,
       ownerBitcoinPubkey,
-      argonKeyring,
+      txSigner,
       microgonsPerBtc,
       satoshis,
       tip,
@@ -570,7 +570,7 @@ export default class BitcoinLocks {
     const bitcoinUuid = BitcoinLocksTable.createUuid();
     const txInfo = await this.#transactionTracker.submitAndWatch({
       tx,
-      signer: argonKeyring,
+      txSigner,
       extrinsicType: ExtrinsicType.BitcoinRequestLock,
       metadata: {
         bitcoin: {
@@ -593,7 +593,7 @@ export default class BitcoinLocks {
   }
 
   private async initializeOperatorCouponLock(args: {
-    argonKeyring: KeyringPair;
+    txSigner: TxSigningAccount;
     vault: Vault;
     satoshis: bigint;
     operatorCoupon: IOperatorBitcoinLockCouponRoute;
@@ -607,7 +607,7 @@ export default class BitcoinLocks {
     const relay = await this.requestBitcoinLockInitialization({
       offerCode,
       operatorHost,
-      ownerAccountId: args.argonKeyring.address,
+      ownerAccountId: args.txSigner.address,
       ownerBitcoinPubkey: u8aToHex(ownerBitcoinPubkey),
       requestedSatoshis: args.satoshis,
       microgonsPerBtc,
@@ -998,7 +998,7 @@ export default class BitcoinLocks {
     return Math.round(Number(((totalMint - totalPending) * 100n) / totalMint));
   }
 
-  public async ratchet(lock: IBitcoinLockRecord, argonKeyring: KeyringPair, tip = 0n) {
+  public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
     return await this.runInQueueForUtxo(lock, 180e3, async () => {
       const table = await this.getTable();
       if (!this.isLockedStatus(lock)) {
@@ -1014,7 +1014,7 @@ export default class BitcoinLocks {
         client: await getMainchainClient(false),
         priceIndex: this.#currency.priceIndex,
         microgonsPerBtc,
-        argonKeyring,
+        txSigner,
         tip,
         vault: vaults.vaultsById[lock.vaultId],
       });
@@ -1650,7 +1650,7 @@ export default class BitcoinLocks {
           toScriptPubkey: addressBytesHex(args.toScriptPubkey, this.bitcoinNetwork),
           bitcoinNetworkFee: args.bitcoinNetworkFee,
         },
-        argonKeyring: await this.walletKeys.getLiquidLockingKeypair(),
+        txSigner: await this.walletKeys.getLiquidLockingKeypair(),
         disableAutomaticTxTracking: true,
       });
 
@@ -1846,11 +1846,11 @@ export default class BitcoinLocks {
       lock,
       candidateRecord,
     });
-    const signer = await this.walletKeys.getLiquidLockingKeypair();
+    const txSigner = await this.walletKeys.getLiquidLockingKeypair();
 
     return await this.#transactionTracker.submitAndWatch({
       tx,
-      signer,
+      txSigner,
       extrinsicType: ExtrinsicType.BitcoinOrphanedUtxoUseAsFunding,
       metadata: {
         utxoId: lock.utxoId,
@@ -1925,10 +1925,10 @@ export default class BitcoinLocks {
       });
       record = candidateRecord;
 
-      const signer = await this.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await this.walletKeys.getLiquidLockingKeypair();
       const txInfo = await this.#transactionTracker.submitAndWatch({
         tx,
-        signer,
+        txSigner,
         extrinsicType: ExtrinsicType.BitcoinOrphanedUtxoRelease,
         metadata: {
           releaseKind: 'Orphan',

@@ -304,17 +304,6 @@ const maxAmountToMove = Vue.computed(() => {
     } else if (moveToken.value === MoveToken.ARGNOT) {
       max = vaultingBreakdown.securityMicronotsUnused;
     }
-  } else if (moveFrom.value === MoveFrom.VaultingTreasury) {
-    if (moveToken.value === MoveToken.ARGN) {
-      max = vaultingBreakdown.treasuryMicrogonsUnused;
-    }
-  }
-
-  if (moveTo.value === MoveTo.VaultingTreasury && moveToken.value === MoveToken.ARGN) {
-    max =
-      max < vaultingBreakdown.treasuryMicrogonsNextFrameAvailable
-        ? max
-        : vaultingBreakdown.treasuryMicrogonsNextFrameAvailable;
   }
 
   if (props.maxAmount !== undefined && props.maxAmount < max) {
@@ -338,7 +327,6 @@ const moveFromOptions = Vue.computed(() => {
     return [
       { name: 'Inflation-Free Savings', value: MoveFrom.VaultingHold },
       { name: 'Bitcoin Security', value: MoveFrom.VaultingSecurity },
-      { name: 'Treasury Bonds', value: MoveFrom.VaultingTreasury },
     ];
   }
   return [];
@@ -375,10 +363,8 @@ function getMoveToOptions(moveFromValue: MoveFrom) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.MiningHold });
   } else if (moveFromValue === MoveFrom.VaultingHold) {
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
-    options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
   } else if (moveFromValue === MoveFrom.VaultingSecurity) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
-    options.push({ name: 'Treasury Bonds', value: MoveTo.VaultingTreasury });
   } else if (moveFromValue === MoveFrom.VaultingTreasury) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
   }

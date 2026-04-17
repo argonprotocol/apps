@@ -63,7 +63,7 @@
           @click="openOperationalInvites()"
           class="text-argon-600! border border-argon-600 mt-4 inline-flex flex-row items-center justify-center rounded-lg px-6 py-2 font-bold hover:bg-argon-300/10 cursor-pointer"
         >
-          Manage Sponsor Invites
+          Manage Invite Codes
         </button>
       </div>
     </div>
@@ -187,7 +187,7 @@ function openDocumentationLink(link: string) {
 
 function openOperationalInvites() {
   closeOverlay();
-  basicEmitter.emit('openOperationalInvitesOverlay');
+  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'overview' });
 }
 
 basicEmitter.on('openOperationalOverlay', async (stepId: OperationalStepId) => {

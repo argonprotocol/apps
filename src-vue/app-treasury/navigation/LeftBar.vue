@@ -83,16 +83,16 @@ import { useWallets } from '../../stores/wallets.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import DiscordIcon from '../../assets/discord.svg';
 import InstructionsIcon from '../../assets/instructions.svg';
-import { useBonds } from '../../stores/bonds.ts';
+import { useMyBonds } from '../../stores/myBonds.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const controller = useTreasuryController();
 const currency = getCurrency();
 const wallets = useWallets();
-const bonds = useBonds();
+const myBonds = useMyBonds();
 
 const mainchainBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
-const totalValue = Vue.computed(() => mainchainBalance.value + bonds.heldPrincipal);
+const totalValue = Vue.computed(() => mainchainBalance.value + myBonds.bondTotals.totalBondMicrogons);
 
 const formattedMainchain = Vue.computed(() => {
   if (!currency.isLoaded) return '0.00';
@@ -138,7 +138,7 @@ tour.registerPositionCheck('currencyMenu', () => {
 
 Vue.onMounted(async () => {
   await fetchInstances();
-  await bonds.load();
+  await myBonds.load();
 });
 </script>
 

@@ -98,7 +98,7 @@ export class AccountEventsFilter {
         }
 
         if (this.type === 'vaulting' && this.vaultId !== undefined) {
-          if (client.events.treasury.BidPoolDistributed.is(event)) {
+          if (AccountEventsFilter.isTreasuryEarningsEvent(event)) {
             isMine = true;
           } else if (client.events.vaults.VaultCollected.is(event)) {
             const { revenue, vaultId } = event.data;
@@ -153,6 +153,10 @@ export class AccountEventsFilter {
       method: event.method,
       data: event.data.toHuman(),
     };
+  }
+
+  private static isTreasuryEarningsEvent(event: GenericEvent): boolean {
+    return event.section === 'treasury' && ['FrameEarningsDistributed', 'BidPoolDistributed'].includes(event.method);
   }
 
   private isAccountIdMe(accountId: AccountId32): boolean {

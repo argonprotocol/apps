@@ -2,11 +2,13 @@
 <template>
   <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
-    <main v-if="controller.isLoaded && !controller.isImporting" class="grow relative h-full overflow-scroll">
+    <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
       <AlertBars />
-      <HomeScreen v-if="controller.selectedTab === OperationsTab.Home" />
-      <MiningScreen v-if="controller.selectedTab === OperationsTab.Mining" />
-      <VaultingScreen v-else-if="controller.selectedTab === OperationsTab.Vaulting" />
+      <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
+        <HomeScreen v-if="controller.selectedTab === OperationsTab.Home" />
+        <MiningScreen v-if="controller.selectedTab === OperationsTab.Mining" />
+        <VaultingScreen v-else-if="controller.selectedTab === OperationsTab.Vaulting" />
+      </div>
     </main>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
@@ -23,10 +25,12 @@
       <WalletOverlay />
       <OnboardingWalletOverlay />
       <MoveCapitalOverlay />
+      <TreasuryBondsOverlay />
       <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <OperationalOverlay />
       <OperationalFinishOverlay />
+      <OperationalRewardsOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
       <BotEditOverlay />
@@ -34,7 +38,6 @@
       <AboutOverlay />
       <ProfileOverlay />
       <JurisdictionOverlay />
-      <OperationalInvitesOverlay />
       <VaultMembersOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
@@ -77,14 +80,15 @@ import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
 import Portfolio from '../panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays/MoveCapitalOverlay.vue';
+import TreasuryBondsOverlay from './overlays/TreasuryBondsOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
 import VaultMembersOverlay from './overlays/VaultMembersOverlay.vue';
 import OperationalOverlay from './overlays/OperationalOverlay.vue';
 import OperationalFinishOverlay from './overlays/OperationalFinishOverlay.vue';
+import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import ProfileOverlay from '../app-shared/overlays/ProfileOverlay.vue';
 import { checkInstallerIfCloseAllowed } from '../stores/installer.ts';
-import OperationalInvitesOverlay from './overlays/OperationalInvitesOverlay.vue';
 
 const controller = useOperationsController();
 const config = getConfig();

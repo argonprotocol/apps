@@ -209,10 +209,11 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import Restarter from '../../lib/Restarter.ts';
 import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import { getInstaller } from '../../stores/installer.ts';
-import { getMainchainClients } from '../../stores/mainchain.ts';
+import { getMainchainClient, getMainchainClients } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMyVault } from '../../stores/vaults.ts';
+import { getBondMarket } from '../../stores/myBonds.ts';
 import BitcoinIcon from '../../assets/wallets/bitcoin-alert.svg?component';
 import VaultCollectOverlay from '../../app-operations/overlays/VaultCollectOverlay.vue';
 import BitcoinLockingOverlay from '../../app-operations/overlays/BitcoinLockingOverlay.vue';
@@ -236,6 +237,7 @@ const clients = getMainchainClients();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
+const bondMarket = getBondMarket();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isRestarting = Vue.ref(false);
@@ -247,6 +249,8 @@ const showBitcoinUnlockingOverlay = Vue.ref(false);
 const selectedBitcoinLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const selectedUnlockLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const resumedFundingByLockUtxoId = Vue.ref<{ [lockUtxoId: number]: true }>({});
+
+let unsubscribeBondMarketVault: VoidFunction | undefined;
 
 const vaultAlert = Vue.computed(() => getVaultAlertNotice(myVault, bitcoinLocks));
 const bitcoinAlerts = Vue.computed(() => getBitcoinAlertNotices(bitcoinLocks));
@@ -448,11 +452,31 @@ async function loadAttentionData() {
   }
 }
 
+async function subscribeBondMarketVault() {
+  const vault = myVault.createdVault;
+  const vaultId = myVault.vaultId;
+  if (!vault || vaultId == null) return;
+
+  const client = await getMainchainClient(false);
+  await bondMarket.subscribeGlobal(client);
+
+  unsubscribeBondMarketVault?.();
+  unsubscribeBondMarketVault = await bondMarket.subscribeVault(
+    {
+      vaultId,
+      operatorAddress: vault.operatorAccountId,
+      accountId: myVault.walletKeys.vaultingAddress,
+    },
+    client,
+  );
+}
+
 Vue.watch(
   () => myVault.createdVault?.vaultId,
   vaultId => {
     if (!vaultId) return;
     void myVault.subscribe().catch(() => undefined);
+    void subscribeBondMarketVault().catch(() => undefined);
   },
   { immediate: true },
 );
@@ -493,6 +517,8 @@ Vue.onMounted(() => {
 });
 
 Vue.onUnmounted(() => {
+  unsubscribeBondMarketVault?.();
+
   basicEmitter.off('openVaultCollect', openVaultCollect);
   basicEmitter.off('openBitcoinLock', openBitcoinLock);
   basicEmitter.off('openBitcoinUnlock', openBitcoinUnlock);
