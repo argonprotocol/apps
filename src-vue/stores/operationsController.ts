@@ -1,13 +1,20 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
+import type { IOperationalUserInvite } from '@argonprotocol/apps-router';
 import basicEmitter from '../emitters/basicEmitter';
 import { type Config, getConfig } from './config';
 import { getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
-import { createDeferred } from '@argonprotocol/apps-core';
+import { createDeferred, MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
-import { type IOperationalChainProgress, subscribeOperationalAccount } from '../lib/OperationalAccount.ts';
+import {
+  getOperationalRewardConfig,
+  type IOperationalChainProgress,
+  type IOperationalRewardConfig,
+  subscribeOperationalAccount,
+} from '../lib/OperationalAccount.ts';
+import { ServerApiClient } from '../lib/ServerApiClient.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getTransactionTracker } from './transactions.ts';
 import BootstrapToNode from '../app-operations/overlays/operational/BootstrapToNode.vue';
@@ -89,6 +96,9 @@ const operationalStepIds = Object.keys(operationalSteps) as OperationalStepId[];
 type IOperationalStepStatus = 'not_started' | 'underway' | 'complete';
 
 export const useOperationsController = defineStore('operationsController', () => {
+  const defaultRewardAmount = 500n * BigInt(MICROGONS_PER_ARGON);
+  const defaultBonusRewardAmount = 5_000n * BigInt(MICROGONS_PER_ARGON);
+
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
@@ -113,8 +123,27 @@ export const useOperationsController = defineStore('operationsController', () =>
     hasFirstMiningSeat: false,
     hasSecondMiningSeat: false,
     hasBitcoinLock: false,
+    bitcoinAccrual: 0n,
+    miningSeatAccrual: 0,
+    operationalReferralsCount: 0,
+    referralPending: false,
+    availableReferrals: 0,
+    unactivatedReferrals: 0,
+    rewardsEarnedCount: 0,
+    rewardsEarnedAmount: 0n,
+    rewardsCollectedAmount: 0n,
+    isOperational: false,
+  });
+  const rewardConfig = Vue.ref<IOperationalRewardConfig>({
+    operationalReferralReward: defaultRewardAmount,
+    referralBonusReward: defaultBonusRewardAmount,
+    referralBonusEveryXOperationalSponsees: 5,
+    bitcoinLockSizeForReferral: 5_000n * BigInt(MICROGONS_PER_ARGON),
+    miningSeatsPerReferral: 5,
+    maxAvailableReferrals: 3,
   });
   const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
+  const operationalInvites = Vue.ref<IOperationalUserInvite[]>([]);
 
   const certificationStepCount = operationalStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
@@ -139,12 +168,11 @@ export const useOperationsController = defineStore('operationsController', () =>
     });
 
     const latestTreasuryBondPurchase = transactionTracker.findLatestTxInfo<{
-      newAmount?: bigint;
-      previousAmount?: bigint;
+      bondPurchaseMicrogons?: bigint;
     }>(txInfo => {
       return (
-        txInfo.tx.extrinsicType === ExtrinsicType.TreasurySetAllocation &&
-        (txInfo.tx.metadataJson?.newAmount ?? 0n) > (txInfo.tx.metadataJson?.previousAmount ?? 0n)
+        txInfo.tx.extrinsicType === ExtrinsicType.TreasuryBuyBonds &&
+        (txInfo.tx.metadataJson?.bondPurchaseMicrogons ?? 0n) > 0n
       );
     });
 
@@ -165,9 +193,24 @@ export const useOperationsController = defineStore('operationsController', () =>
   const completedCertificationStepCount = Vue.computed(() => {
     return operationalStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
   });
+  const isFullyOperational = Vue.computed(() => {
+    return completedCertificationStepCount.value === certificationStepCount || chainProgress.value.isOperational;
+  });
 
   const pendingCompletionNoticeStepId = Vue.computed(() => {
     return completionNoticeQueue.value[0] ?? null;
+  });
+  const inviteSlotProgress = Vue.computed<IOperationalChainProgress>(() => {
+    const unactivatedReferrals = operationalInvites.value.filter(invite => !invite.lastClickedAt).length;
+
+    return {
+      ...chainProgress.value,
+      unactivatedReferrals,
+    };
+  });
+  const pendingRewardsAmount = Vue.computed(() => {
+    const pending = inviteSlotProgress.value.rewardsEarnedAmount - inviteSlotProgress.value.rewardsCollectedAmount;
+    return pending > 0n ? pending : 0n;
   });
 
   let operationalAccountUnsubscribe: VoidFunction | undefined;
@@ -252,6 +295,8 @@ export const useOperationsController = defineStore('operationsController', () =>
   async function load() {
     await config.isLoadedPromise;
     if (operationalAccountUnsubscribe) return;
+    rewardConfig.value = await getOperationalRewardConfig();
+
     await Promise.all([
       subscribeOperationalAccount(walletKeys, x => {
         chainProgress.value = x;
@@ -308,6 +353,21 @@ export const useOperationsController = defineStore('operationsController', () =>
     isImporting.value = false;
   }
 
+  async function loadOperationalInvites() {
+    if (!config.serverDetails.ipAddress) {
+      operationalInvites.value = [];
+      return [];
+    }
+
+    const invites = await ServerApiClient.getOperationalInvites(config.serverDetails.ipAddress);
+    operationalInvites.value = invites;
+    return invites;
+  }
+
+  function setOperationalInvites(invites: IOperationalUserInvite[]) {
+    operationalInvites.value = invites;
+  }
+
   function dismissCompletionNotice() {
     completionNoticeQueue.value = completionNoticeQueue.value.slice(1);
   }
@@ -329,10 +389,18 @@ export const useOperationsController = defineStore('operationsController', () =>
     activeGuideId,
     certificationStepCount,
     completedCertificationStepCount,
+    chainProgress,
+    rewardConfig,
+    inviteSlotProgress,
+    pendingRewardsAmount,
+    operationalInvites,
+    isFullyOperational,
     pendingCompletionNoticeStepId,
     importFromMnemonic,
     dismissCompletionNotice,
     clearCompletionNotices,
+    loadOperationalInvites,
+    setOperationalInvites,
     setScreenKey: setTab,
     isCertificationStepComplete: isCertificationStepComplete,
     isCertificationStepUnderway,

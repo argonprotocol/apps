@@ -8,6 +8,11 @@ it('round-trips an operational invite envelope', () => {
     port: '9944',
     role: UserRole.OperationalPartner,
     secret: '0x1234abcd',
+    operationalReferral: {
+      sponsor: '5F3sa2TJAWMqDhXG6jhV4N8ko9G4vYQ1N1gH1mLNz5nKfY7Y',
+      expiresAtFrame: 1234,
+      sponsorSignature: '0x1234',
+    },
   });
 
   expect(InviteEnvelope.decode(encoded)).toEqual({
@@ -16,6 +21,11 @@ it('round-trips an operational invite envelope', () => {
     ipAddress: '127.0.0.1',
     port: '9944',
     secret: '0x1234abcd',
+    operationalReferral: {
+      sponsor: '5F3sa2TJAWMqDhXG6jhV4N8ko9G4vYQ1N1gH1mLNz5nKfY7Y',
+      expiresAtFrame: 1234,
+      sponsorSignature: '0x1234',
+    },
   });
 });
 

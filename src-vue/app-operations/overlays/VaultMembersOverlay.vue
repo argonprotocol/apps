@@ -1,5 +1,10 @@
 <template>
-  <OverlayBase :isOpen="isOpen" :overflowScroll="false" @close="closeOverlay" @esc="closeOverlay" class="w-7/12 pb-5">
+  <OverlayBase
+    :isOpen="isOpen"
+    :overflowScroll="true"
+    @close="closeOverlay"
+    @esc="closeOverlay"
+    class="max-h-[calc(100vh-2rem)] w-7/12 pb-5">
     <template #title>
       <div class="grow text-2xl font-bold">Manage Members</div>
     </template>
@@ -77,7 +82,7 @@
             </button>
             <button
               type="button"
-              :disabled="isCreatingInvite"
+              :disabled="isCreatingInvite || !inviteName.trim()"
               class="border-argon-700 bg-argon-600 rounded border px-4 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-50"
               @click="createInvite">
               {{ isCreatingInvite ? 'Creating...' : 'Create Invite' }}

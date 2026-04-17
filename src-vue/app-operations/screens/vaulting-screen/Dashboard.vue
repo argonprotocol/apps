@@ -32,7 +32,7 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBonds).format('0,0.00') }}</span>
+              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0.00') }}</span>
               <label>External Treasury Bonds</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
@@ -43,7 +43,7 @@
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
               <span>
-                {{ currency.symbol}}{{ microgonToMoneyNm(totalTreasuryPoolBonds).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                {{ currency.symbol}}{{ microgonToMoneyNm(totalTreasuryBondMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}
               </span>
               <label>Total Treasury Bonds</label>
             </TooltipTrigger>
@@ -192,7 +192,7 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryMicrogonsMaxCapacity).format('0,0.00') }} In Potential Bond Buys</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryBondCapacityMicrogons).format('0,0.00') }} In Potential Bond Buys</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         The total treasury bond capacity available for purchase, based on your active bitcoin locks.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -213,7 +213,7 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryMicrogonsTotalActivatedPct).format('0,0.[00]')}}% of Allowed Bonds Are Secured</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryBondCapacityUsedPct).format('0,0.[00]')}}% of Allowed Bonds Are Secured</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         The percentage of your vault's treasury bond capacity that has been purchased by all investors.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -250,8 +250,9 @@
     />
 
     <BondDetailOverlay
-      v-if="showBondDetailOverlay && selectedBondHolder"
-      :holder="selectedBondHolder"
+      v-if="showBondDetailOverlay && selectedFrameBondLot"
+      :bondLot="selectedFrameBondLot"
+      :bondFrame="currentTreasuryBondFrame"
       @close="closeBondDetailOverlay"
     />
 
@@ -293,7 +294,7 @@ import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import numeral from '../../../lib/numeral.ts';
 import { getMyVault, getVaults } from '../../../stores/vaults.ts';
-import type { IExternalBitcoinLock, IFrameBondHolder } from '../../../lib/MyVault.ts';
+import type { IExternalBitcoinLock } from '../../../lib/MyVault.ts';
 import { getConfig } from '../../../stores/config.ts';
 import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../../lib/Env.ts';
@@ -302,10 +303,10 @@ import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vu
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
 import AssetMenu from '../components/AssetMenu.vue';
 import ConfigIcon from '../../../assets/config.svg?component';
-import { NetworkConfig, bigIntMin, calculateAPY, MoveTo, TreasuryPool } from '@argonprotocol/apps-core';
+import { BondLot, NetworkConfig, calculateAPY, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
 import { BigNumber } from 'bignumber.js';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import { getMiningFrames } from '../../../stores/mainchain.ts';
+import { getMainchainClient, getMiningFrames } from '../../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
 import RoiIcon from '../../../assets/roi.svg';
@@ -316,6 +317,8 @@ import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { WalletType } from '../../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../../stores/vaultingAssetBreakdown.ts';
+import { getBondMarket } from '../../../stores/myBonds.ts';
+import type { IVaultBondState } from '../../../lib/BondMarket.ts';
 import TreemapChart, { type TileStatus } from '../../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
 import { OperationalStepId, OperationsTab, useOperationsController } from '../../../stores/operationsController.ts';
@@ -329,6 +332,7 @@ const controller = useOperationsController();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const currency = getCurrency();
+const bondMarket = getBondMarket();
 
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
@@ -340,16 +344,26 @@ const latestFrameId = Vue.computed(() => {
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const totalTreasuryPoolBonds = Vue.computed(() => {
-  return TreasuryPool.totalBondedCapital(myVault.data.bondFunders);
+const vaultBondState = Vue.computed<IVaultBondState | undefined>(() => {
+  const vaultId = myVault.vaultId;
+  return vaultId == null ? undefined : bondMarket.data.vaultsById[vaultId];
 });
 
-const internalTreasuryPoolBonds = Vue.computed(() => {
-  return vaultingBreakdown.treasuryMicrogons;
+const currentTreasuryBondFrame = Vue.computed(() => ({
+  frameId: vaultBondState.value?.currentFrame.frameId ?? bondMarket.data.currentFrameId,
+  distributableBidPool: bondMarket.data.distributableBidPool,
+  globalBonds: bondMarket.data.totalActiveBonds,
+  vaultBonds: vaultBondState.value?.currentFrame.vaultBonds ?? 0,
+  sharingPct: vaultBondState.value?.currentFrame.sharingPct ?? 0,
+  bondLots: vaultBondState.value?.currentFrame.bondLots ?? [],
+}));
+
+const totalTreasuryBondMicrogons = Vue.computed(() => {
+  return BondLot.getTotals(vaultBondState.value?.bondLots ?? []).activeBondMicrogons;
 });
 
-const externalTreasuryBonds = Vue.computed(() => {
-  return TreasuryPool.externalBondedCapital(myVault.data.bondFunders);
+const externalTreasuryBondMicrogons = Vue.computed(() => {
+  return BondLot.bondsToMicrogons(TreasuryBonds.externalActiveBonds(vaultBondState.value?.bondLots ?? []));
 });
 
 const bitcoinLockedValue = Vue.computed<bigint>(() => {
@@ -370,26 +384,28 @@ const revenueMicrogons = Vue.computed(() => {
 const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
-  const { distributableBidPool, globalCapital, myVaultCapital } = myVault.data.currentFrameBondData;
+  const bondFrame = currentTreasuryBondFrame.value;
 
-  return TreasuryPool.potentialDailyRevenue({
-    distributableBidPool,
-    globalActiveCapital: globalCapital,
-    myActiveCapital: myVaultCapital,
-    fullTreasuryCapacity: vaultingBreakdown.treasuryMicrogonsBondPurchaseCapacity,
+  return TreasuryBonds.potentialDailyRevenue({
+    distributableBidPool: bondFrame.distributableBidPool,
+    globalActiveBonds: bondFrame.globalBonds,
+    myActiveBonds: bondFrame.vaultBonds,
+    fullTreasuryBondCapacity: vaultingBreakdown.treasuryBondPurchaseCapacityBonds,
     operatorKeepPct: 100 - (rules.profitSharingPct ?? 0),
   });
 });
 
 const revenueCapturedPct = Vue.computed(() => {
   const allFunds =
-    vaultingBreakdown.sidelinedMicrogons + vaultingBreakdown.treasuryMicrogons + vaultingBreakdown.securityMicrogons;
+    vaultingBreakdown.sidelinedMicrogons +
+    vaultingBreakdown.treasuryBondMicrogons +
+    vaultingBreakdown.securityMicrogons;
   if (allFunds <= 0n) return 0;
 
   const securityFactor = BigNumber(vaultingBreakdown.securityMicrogonsActivated).dividedBy(BigNumber(allFunds));
 
-  const totalCapacity = vaultingBreakdown.securityMicrogons + vaultingBreakdown.treasuryMicrogonsMaxCapacity;
-  const activated = vaultingBreakdown.securityMicrogonsActivated + vaultingBreakdown.treasuryMicrogonsTotalActivated;
+  const totalCapacity = vaultingBreakdown.securityMicrogons + vaultingBreakdown.treasuryBondCapacityMicrogons;
+  const activated = vaultingBreakdown.securityMicrogonsActivated + vaultingBreakdown.treasuryBondCapacityUsedMicrogons;
   const utilizationFactor =
     totalCapacity > 0n ? BigNumber(activated).dividedBy(BigNumber(totalCapacity)) : BigNumber(0);
 
@@ -446,17 +462,13 @@ const localLocksByUuid = Vue.computed(() => {
 
 function handleBondTileClick(key: string) {
   if (key === '__remainder__') {
-    basicEmitter.emit('openMoveCapitalOverlay', {
-      walletType: WalletType.vaulting,
-      moveTo: MoveTo.VaultingTreasury,
-    });
+    basicEmitter.emit('openTreasuryBondsOverlay');
     return;
   }
-  if (key.startsWith('funder:')) {
-    const accountId = key.slice(7);
-    const holder = myVault.data.currentFrameBondData.bondHolders.find(h => h.accountId === accountId);
-    if (holder) {
-      selectedBondHolder.value = holder;
+  if (key.startsWith('lot:') || key.startsWith('account:')) {
+    const bondLot = currentTreasuryBondFrame.value.bondLots.find(bondLot => bondLot.id === key);
+    if (bondLot) {
+      selectedFrameBondLot.value = bondLot;
       showBondDetailOverlay.value = true;
     }
     return;
@@ -555,71 +567,72 @@ const bitcoinMapRemainder = Vue.computed(() => {
 const bondMapTotal = Vue.computed(() => {
   const used = bondMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
 
-  // Keep current holder tiles truthful to the current frame. The remainder alone carries
+  // Keep current bond lot tiles truthful to the current frame. The remainder alone carries
   // the tomorrow projection, so reduced next-frame capacity only affects the available block.
-  return used + vaultingBreakdown.treasuryMicrogonsNextFrameAvailable;
+  return used + vaultingBreakdown.treasuryBondMicrogonsAvailable;
 });
 
-const treasuryBondsActivated = Vue.computed(() => {
-  return bigIntMin(vaultingBreakdown.treasuryMicrogons, vaultingBreakdown.treasuryMicrogonsMaxCapacity);
+const internalTreasuryBondMicrogonsSecured = Vue.computed(() => {
+  return vaultingBreakdown.treasuryBondCapacityUsedMicrogons;
 });
 
 const bondMapItems = Vue.computed((): MapItem[] => {
   // Historical frames: fall back to aggregated internal/external tiles
   if (!currentFrameIsActive.value) {
     const items: MapItem[] = [];
-    if (treasuryBondsActivated.value > 0n) {
+    if (internalTreasuryBondMicrogonsSecured.value > 0n) {
       items.push({
         id: 'internal-bonds',
         label: 'Treasury Bonds',
-        amount: treasuryBondsActivated.value,
-        displayValue: formatMoney(treasuryBondsActivated.value),
+        amount: internalTreasuryBondMicrogonsSecured.value,
+        displayValue: formatMoney(internalTreasuryBondMicrogonsSecured.value),
         emphasis: 'strong',
       });
     }
-    if (externalTreasuryBonds.value > 0n) {
+    if (externalTreasuryBondMicrogons.value > 0n) {
       items.push({
         id: 'external-bonds',
         label: 'External Treasury Bonds',
-        amount: externalTreasuryBonds.value,
-        displayValue: formatMoney(externalTreasuryBonds.value),
+        amount: externalTreasuryBondMicrogons.value,
+        displayValue: formatMoney(externalTreasuryBondMicrogons.value),
       });
     }
     return items;
   }
 
-  // Current frame: per-holder tiles from vaultPoolsByFrame
-  const holders = myVault.data.currentFrameBondData.bondHolders;
+  // Current frame: bond lot tiles from the runtime bond snapshot.
+  const frameBondLots = currentTreasuryBondFrame.value.bondLots;
   const items: MapItem[] = [];
 
-  for (const holder of holders) {
-    if (holder.bondedAmount > 0n) {
+  for (const bondLot of frameBondLots) {
+    if (bondLot.bonds > 0) {
+      const bondMicrogons = BondLot.bondsToMicrogons(bondLot.bonds);
       items.push({
-        id: `funder:${holder.accountId}`,
-        label: formatMoney(holder.bondedAmount),
-        amount: holder.bondedAmount,
-        emphasis: holder.isOperator ? 'strong' : 'default',
+        id: bondLot.id,
+        label: formatMoney(bondMicrogons),
+        amount: bondMicrogons,
+        emphasis: bondLot.isOperator ? 'strong' : 'default',
       });
     }
   }
 
   // If no frame data yet, fall back to aggregated data
-  if (holders.length === 0) {
-    if (treasuryBondsActivated.value > 0n) {
+  if (frameBondLots.length === 0) {
+    if (internalTreasuryBondMicrogonsSecured.value > 0n) {
       items.push({
         id: 'internal-bonds',
         label: 'Treasury Bonds',
-        amount: treasuryBondsActivated.value,
-        displayValue: formatMoney(treasuryBondsActivated.value),
+        amount: internalTreasuryBondMicrogonsSecured.value,
+        displayValue: formatMoney(internalTreasuryBondMicrogonsSecured.value),
         emphasis: 'strong',
       });
     }
-    if (externalTreasuryBonds.value > 0n) {
+    if (externalTreasuryBondMicrogons.value > 0n) {
       items.push({
         id: 'external-bonds',
         label: 'External Treasury Bonds',
-        amount: externalTreasuryBonds.value,
-        displayValue: formatMoney(externalTreasuryBonds.value),
+        amount: externalTreasuryBondMicrogons.value,
+        displayValue: formatMoney(externalTreasuryBondMicrogons.value),
       });
     }
   }
@@ -636,7 +649,7 @@ const showEditOverlay = Vue.ref(false);
 const showLockDetailOverlay = Vue.ref(false);
 const showBondDetailOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockRecord | IExternalBitcoinLock | undefined>(undefined);
-const selectedBondHolder = Vue.ref<IFrameBondHolder | undefined>(undefined);
+const selectedFrameBondLot = Vue.ref<IFrameBondLot | undefined>(undefined);
 
 function openLockingOverlay(lock?: IBitcoinLockRecord) {
   basicEmitter.emit('openBitcoinLock', { lock });
@@ -654,7 +667,7 @@ function closeLockDetailOverlay() {
 
 function closeBondDetailOverlay() {
   showBondDetailOverlay.value = false;
-  selectedBondHolder.value = undefined;
+  selectedFrameBondLot.value = undefined;
 }
 
 function onUnlockFromDetail(lock: IBitcoinLockRecord) {
@@ -751,6 +764,21 @@ async function loadChartData(currentFrameId?: number) {
     frameRecords.value.find(frame => frame.id === targetFrameId) ?? frameRecords.value.at(-1) ?? currentFrame.value;
 }
 
+async function refreshCurrentFrameBonds() {
+  if (myVault.vaultId == null || !myVault.createdVault) return;
+
+  const client = await getMainchainClient(false);
+  await bondMarket.refreshVault(
+    {
+      vaultId: myVault.vaultId,
+      operatorAddress: myVault.createdVault.operatorAccountId,
+      accountId: myVault.walletKeys.vaultingAddress,
+      frameId: currentFrame.value.id,
+    },
+    client,
+  );
+}
+
 function openVaultMembersOverlay() {
   basicEmitter.emit('openVaultMembersOverlay');
 }
@@ -771,13 +799,18 @@ Vue.onMounted(async () => {
 
   onFrameSubscription = miningFrames.onFrameId(async frameId => {
     await loadChartData(frameId);
+    await refreshCurrentFrameBonds();
   });
 
   onTickSubscription = miningFrames.onTick(() => {
     void updateLatestFrameProgress();
   });
 
+  const client = await getMainchainClient(false);
+  await bondMarket.subscribeGlobal(client);
+
   await loadChartData();
+  await refreshCurrentFrameBonds();
 });
 
 Vue.onUnmounted(() => {

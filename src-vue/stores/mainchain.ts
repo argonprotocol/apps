@@ -1,10 +1,8 @@
-import * as Vue from 'vue';
 import {
   ArgonClient,
   BiddingCalculator,
   BiddingCalculatorData,
   type IBiddingRules,
-  MainchainCompat,
   MainchainClients,
   Mining,
   MiningFrames,
@@ -25,7 +23,6 @@ let mainchainClients: MainchainClients;
 let mining: Mining;
 let miningFrames: MiningFrames;
 let blockWatch: BlockWatch;
-let mainchainCompat: MainchainCompat | undefined;
 let biddingCalculator: BiddingCalculator;
 let biddingCalculatorData: BiddingCalculatorData;
 let vaultCalculator: VaultCalculator;
@@ -92,33 +89,6 @@ export function getBlockWatch(): BlockWatch {
   const clients = getMainchainClients();
   blockWatch = new BlockWatch(clients);
   return blockWatch;
-}
-
-export function getMainchainCompat(): MainchainCompat {
-  if (mainchainCompat) {
-    return mainchainCompat;
-  }
-
-  mainchainCompat = new MainchainCompat(getBlockWatch());
-  void mainchainCompat.start().catch(error => {
-    console.error('[Mainchain Compat] Failed to start', error);
-  });
-  return mainchainCompat;
-}
-
-export function useMainchainCompat() {
-  const compat = getMainchainCompat();
-  const bondFullCapacityPerFrame = Vue.ref(compat.bondFullCapacityPerFrame);
-
-  const stopCompatSubscription = compat.events.on('changed', value => {
-    bondFullCapacityPerFrame.value = value;
-  });
-
-  Vue.onScopeDispose(stopCompatSubscription);
-
-  return {
-    bondFullCapacityPerFrame: Vue.readonly(bondFullCapacityPerFrame),
-  };
 }
 
 export function getMiningFrames(): MiningFrames {

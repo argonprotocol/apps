@@ -6,6 +6,7 @@ import {
   MainchainClients,
   MiningFrames,
   NetworkConfig,
+  TreasuryBonds,
 } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
@@ -219,8 +220,13 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         updatedAt: undefined,
       });
 
-      const treasuryFunder = await MyVault.fetchAllocatedMicrogonsForTreasuryPool(recoveredVault);
-      expect(treasuryFunder).toBeNull();
+      const client = await clients.get(false);
+      const treasuryBondLots = await TreasuryBonds.getBondLots(
+        client,
+        recoveredVault.vaultId,
+        recoveredVault.operatorAccountId,
+      );
+      expect(treasuryBondLots).toEqual([]);
     },
   );
 

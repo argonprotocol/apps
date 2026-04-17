@@ -40,13 +40,16 @@ type IBasicEmitter = {
 
   openVaultCollect: void;
   openVaultMembersOverlay: void;
+  openTreasuryBondsOverlay: void;
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
   resumeBitcoinFunding: IBitcoinLockRecord;
 
   openServerOverlay: void;
   openOperationalOverlay: OperationalStepId;
-  openOperationalInvitesOverlay: void;
+  openOperationalRewardsOverlay:
+    | { screen?: 'congratulations' | 'overview' | 'claim'; section?: 'create' | 'unlock' | 'outbound' }
+    | undefined;
   openOperationalFinishOverlay: void;
 };
 

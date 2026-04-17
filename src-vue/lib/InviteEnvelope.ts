@@ -1,6 +1,7 @@
 import { UserRole } from '@argonprotocol/apps-core';
 import * as pako from 'pako';
 import type { InviteRole } from '@argonprotocol/apps-router';
+import type { IOperationalReferral } from '../interfaces/IConfig.ts';
 
 type IInviteEnvelopePayload = {
   v: 1;
@@ -8,6 +9,7 @@ type IInviteEnvelopePayload = {
   host: string;
   port: string;
   secret: string;
+  operationalReferral?: IOperationalReferral;
 };
 
 type IDecodedInviteEnvelope = {
@@ -16,6 +18,7 @@ type IDecodedInviteEnvelope = {
   ipAddress?: string;
   port?: string;
   secret?: string;
+  operationalReferral?: IOperationalReferral;
   hasError?: boolean;
   isEmpty?: boolean;
 };
@@ -23,7 +26,13 @@ type IDecodedInviteEnvelope = {
 const inviteRoles = new Set<InviteRole>([UserRole.TreasuryUser, UserRole.OperationalPartner]);
 
 export class InviteEnvelope {
-  public static encode(args: { host: string; port: string; role: InviteRole; secret: string }): string {
+  public static encode(args: {
+    host: string;
+    port: string;
+    role: InviteRole;
+    secret: string;
+    operationalReferral?: IOperationalReferral;
+  }): string {
     const payload: IInviteEnvelopePayload = {
       v: 1,
       role: args.role,
@@ -31,6 +40,8 @@ export class InviteEnvelope {
       port: args.port,
       secret: args.secret,
     };
+    if (args.operationalReferral) payload.operationalReferral = args.operationalReferral;
+
     const out = pako.deflate(JSON.stringify(payload));
     const hex = Array.from(out, byte => byte.toString(16).padStart(2, '0')).join('');
     return `0x${hex}`;
@@ -58,15 +69,30 @@ export class InviteEnvelope {
         return { hasError: true };
       }
 
-      return {
+      const result: IDecodedInviteEnvelope = {
         role: payload.role,
         host: payload.host,
         ipAddress: payload.host,
         port: payload.port,
         secret: payload.secret,
       };
+      if (isOperationalReferral(payload.operationalReferral)) {
+        result.operationalReferral = payload.operationalReferral;
+      }
+      return result;
     } catch {
       return { hasError: true };
     }
   }
+}
+
+function isOperationalReferral(value: unknown): value is IOperationalReferral {
+  if (!value || typeof value !== 'object') return false;
+
+  const referral = value as Partial<IOperationalReferral>;
+  return (
+    typeof referral.sponsor === 'string' &&
+    typeof referral.expiresAtFrame === 'number' &&
+    typeof referral.sponsorSignature === 'string'
+  );
 }

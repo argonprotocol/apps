@@ -4,7 +4,7 @@
     <TooltipTrigger
       as="div"
       class="Row SubItem Component flex flex-row"
-      :class="[{ShowMoveButton : showMoveButton, IsOpen: moveIsOpen }, twMerge(props.class)]"
+      :class="[{ShowMoveButton : showActionButton, IsOpen: moveIsOpen }, twMerge(props.class)]"
       :style="{ height }"
     >
       <div class="SubItemWrapper flex w-full h-full items-center group">
@@ -12,10 +12,20 @@
         <div class="Text relative group pointer-events-none flex-row" :class="[paddingClass]">
           <slot />
           <div
+            v-if="showActionButton"
             :class="moveIsOpen ? '' : 'opacity-0 group-hover:opacity-100'"
             class="transition-opacity duration-300 absolute top-1/2 right-0 -translate-y-1/2 bg-white rounded"
           >
+            <button
+              v-if="props.actionLabel"
+              type="button"
+              class="border-argon-600/50 text-argon-600/80 pointer-events-auto cursor-pointer rounded border bg-white px-3 font-bold hover:bg-slate-50"
+              @click.stop="emit('action')"
+            >
+              {{ props.actionLabel }}
+            </button>
             <MoveCapitalButton
+              v-else
               @updatedOpen="updateMoveOpen"
               :moveFrom="moveFrom"
               :moveToken="moveToken"
@@ -61,13 +71,18 @@ const props = withDefaults(
     tooltipSide?: 'right' | 'top';
     moveFrom?: MoveFrom;
     moveToken?: MoveToken;
+    actionLabel?: string;
     hideConnector?: boolean;
   }>(),
   {},
 );
 
+const emit = defineEmits<{
+  (e: 'action'): void;
+}>();
+
 const contentRef = Vue.ref();
-const showMoveButton = Vue.ref(!!props.moveFrom);
+const showActionButton = Vue.computed(() => !!props.moveFrom || !!props.actionLabel);
 const height = Vue.computed(() => (props.height === 'auto' ? 'auto' : `${props.height}%`));
 const paddingClass = Vue.computed(() => (props.height === 'auto' ? 'py-2' : ''));
 const moveIsOpen = Vue.ref(false);

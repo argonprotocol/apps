@@ -12,10 +12,10 @@
         </div>
       </div>
       <button
-        v-if="hasBond"
+        v-if="myBonds.bondLots.length > 0 && vaultAvailableCapacity > 0n"
         @click="showOverlay = true"
         class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-5 py-2 text-base font-bold text-white">
-        Adjust Bonds
+        Buy Bonds
       </button>
     </header>
 
@@ -26,10 +26,10 @@
     <template v-else>
       <!-- Pending return banner -->
       <div
-        v-if="hasPendingReturn"
+        v-if="myBonds.bondTotals.returningBonds > 0"
         class="rounded-lg border border-amber-200 bg-amber-50 px-5 py-3 flex flex-row items-center gap-3">
         <div class="text-sm text-amber-700">
-          <span class="font-semibold">{{ currency.symbol }}{{ microgonToMoneyNm(pendingReturnAmount).format('0,0.00') }}</span>
+          <span class="font-semibold">{{ currency.symbol }}{{ microgonToMoneyNm(myBonds.bondTotals.returningBondMicrogons).format('0,0.00') }}</span>
           is being returned to your wallet
           <template v-if="bondsReturnedDate">
             by
@@ -48,12 +48,12 @@
       </div>
 
       <!-- Active bond stats -->
-      <div v-if="hasBond" class="rounded-lg border border-slate-300/50 bg-white px-6 py-4 shadow-sm">
+      <div v-if="myBonds.bondTotals.activeBonds > 0" class="rounded-lg border border-slate-300/50 bg-white px-6 py-4 shadow-sm">
         <div class="flex flex-row gap-8 items-stretch">
           <div class="shrink-0">
             <div class="text-xs font-medium uppercase tracking-wide text-slate-400">Bonds Held</div>
             <div class="mt-1 text-3xl font-bold text-argon-text-primary font-mono">
-              {{ currency.symbol }}{{ microgonToMoneyNm(funderState!.targetPrincipal).format('0,0.00') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(myBonds.bondTotals.activeBondMicrogons).format('0,0.00') }}
             </div>
           </div>
 
@@ -62,10 +62,61 @@
           <div class="shrink-0">
             <div class="text-xs font-medium uppercase tracking-wide text-slate-400">Est. APY</div>
             <div class="mt-1 text-2xl font-bold text-slate-700 font-mono">
-              {{ numeral(estimatedApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%
+              {{ numeral(myBonds.estimatedApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%
             </div>
           </div>
         </div>
+      </div>
+
+      <div v-if="myBonds.bondLots.length > 0" class="overflow-hidden rounded-lg border border-slate-300/50 bg-white shadow-sm">
+        <table class="w-full text-left">
+          <thead class="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <tr>
+              <th class="px-6 py-2.5">Bond Lot</th>
+              <th class="px-6 py-2.5">Principal</th>
+              <th class="px-6 py-2.5">Returns</th>
+              <th class="px-6 py-2.5 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="lot in myBonds.bondLots" :key="lot.id" class="border-b border-slate-50 last:border-0">
+              <td class="px-6 py-3">
+                <div class="text-sm font-semibold text-slate-700">Lot #{{ lot.id }}</div>
+                <div class="mt-0.5 text-xs text-slate-400">
+                  {{ lot.canRelease ? `Created frame ${lot.createdFrame}` : 'Legacy bond position' }}
+                </div>
+              </td>
+              <td class="px-6 py-3 font-mono text-sm font-medium text-slate-800">
+                {{ currency.symbol }}{{ microgonToMoneyNm(lot.bondMicrogons).format('0,0.00') }}
+              </td>
+              <td class="px-6 py-3">
+                <div class="font-mono text-sm font-medium text-slate-700">
+                  +{{ currency.symbol }}{{ microgonToMoneyNm(lot.lifetimeEarnings).format('0,0.00') }}
+                </div>
+                <div v-if="lot.lastEarningsFrame != null" class="mt-0.5 text-xs text-slate-400">
+                  Last paid frame {{ lot.lastEarningsFrame }}
+                </div>
+              </td>
+              <td class="px-6 py-3">
+                <div class="flex items-center justify-end gap-3">
+                  <span
+                    class="rounded-full px-2.5 py-1 text-xs font-semibold"
+                    :class="lot.isReleasing ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'">
+                    {{ lot.isReleasing ? 'Returning' : 'Active' }}
+                  </span>
+                  <button
+                    v-if="lot.canRelease && !lot.isReleasing"
+                    type="button"
+                    :disabled="!!releasingLotIds[lot.id]"
+                    class="rounded border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-default disabled:opacity-40"
+                    @click="releaseBondLot(lot)">
+                    {{ releasingLotIds[lot.id] ? 'Liquidating...' : 'Liquidate' }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- Blank state -->
@@ -74,7 +125,9 @@
         class="flex grow flex-col items-center justify-center gap-4">
         <div class="text-center">
           <div class="text-base font-medium text-argon-text-primary">No active bond</div>
-          <div class="mt-1 text-sm text-slate-400">Buy bonds to earn treasury yield from Vault #{{ bonds.vaultId }}</div>
+          <div class="mt-1 text-sm text-slate-400">
+            Buy bonds to earn treasury yield from Vault #{{ myBonds.vaultId }}
+          </div>
         </div>
         <button
           @click="showOverlay = true"
@@ -83,60 +136,14 @@
         </button>
       </div>
 
-      <!-- Bond history table -->
-      <div v-if="frameHistory.length > 0" class="text-xs font-semibold uppercase tracking-wide text-slate-400 px-1 -mb-2">{{ showAllHistory ? 'All History' : 'Last 10 Days' }}</div>
-      <div v-if="frameHistory.length > 0" class="flex flex-col overflow-hidden rounded-lg border border-slate-300/50 bg-white shadow-sm">
-        <div class="grid grid-cols-3 border-b border-slate-100 px-6 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <div>Date</div>
-          <div>Bonds</div>
-          <div>Earnings</div>
-        </div>
-        <TransitionGroup tag="div" name="frame-row" class="overflow-y-auto">
-          <div
-            v-for="row in visibleHistory"
-            :key="row.frameId"
-            class="grid grid-cols-3 border-b border-slate-50 px-6 py-3 last:border-0 hover:bg-slate-50/60">
-            <div class="text-sm text-slate-500" :title="`Frame #${row.frameId}`">{{ formatDate(row.date) }}</div>
-            <div class="font-mono text-sm font-medium text-slate-800">
-              {{ currency.symbol }}{{ microgonToMoneyNm(row.balance).format('0,0.00') }}
-            </div>
-            <div class="font-mono text-sm font-medium text-slate-700 flex items-center gap-2">
-              <template v-if="row.frameId === miningFrames.currentFrameId">
-                +{{ currency.symbol }}{{ microgonToMoneyNm(projectedFrameEarnings > 0n ? projectedFrameEarnings : row.earnings).format('0,0.00') }}
-                <Tooltip :asChild="true" :content="`Projected earnings from bid pool (${Math.round(frameProgressPct)}% of mining auction complete)`">
-                  <svg viewBox="0 0 36 36" class="h-5 w-5 shrink-0 -rotate-90 cursor-help">
-                    <circle cx="18" cy="18" r="15" pathLength="100" fill="none" stroke-width="3" class="stroke-slate-200" />
-                    <circle cx="18" cy="18" r="15" pathLength="100"
-                      :stroke-dasharray="`${frameProgressPct} 100`"
-                      fill="none" stroke="currentColor" stroke-width="6" class="text-argon-600" />
-                  </svg>
-                </Tooltip>
-              </template>
-              <template v-else>
-                +{{ currency.symbol }}{{ microgonToMoneyNm(row.earnings).format('0,0.00') }}
-              </template>
-            </div>
-          </div>
-        </TransitionGroup>
-        <div
-          v-if="frameHistory.length > 10 && !showAllHistory"
-          class="border-t border-slate-100 px-6 py-2 text-center">
-          <button
-            @click="showAllHistory = true"
-            class="text-sm text-argon-600 hover:text-argon-700 cursor-pointer">
-            Show more
-          </button>
-        </div>
-      </div>
     </template>
 
-      <AdjustBondOverlay
-        v-if="showOverlay"
-        :vaultId="bonds.vaultId"
-        :currentAmount="funderState?.targetPrincipal ?? 0n"
-        :walletBalance="walletBalance"
-        :availableVaultSpace="vaultAvailableCapacity"
-        @close="showOverlay = false"
+    <BuyBondsOverlay
+      v-if="showOverlay"
+      :vaultId="myBonds.vaultId"
+      :walletBalance="wallets.liquidLockingWallet.availableMicrogons"
+      :availableVaultSpace="vaultAvailableCapacity"
+      @close="showOverlay = false"
       @submitted="onSubmitted"
     />
   </div>
@@ -149,15 +156,17 @@ import utc from 'dayjs/plugin/utc';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getVaults } from '../../stores/vaults.ts';
-import { useWallets } from '../../stores/wallets.ts';
-import { getMainchainClient, getMiningFrames, useMainchainCompat } from '../../stores/mainchain.ts';
+import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getConfig } from '../../stores/config.ts';
-import { type IBondTargetAllocation, NetworkConfig, TreasuryPool } from '@argonprotocol/apps-core';
-import { type IFrameEarningsRow, useBonds } from '../../stores/bonds.ts';
-import AdjustBondOverlay from '../../app-operations/overlays/AdjustBondOverlay.vue';
+import { BondLot, NetworkConfig, TreasuryBonds } from '@argonprotocol/apps-core';
+import { getBondMarket, type IFrameEarningsRow, useMyBonds } from '../../stores/myBonds.ts';
+import BuyBondsOverlay from '../../app-shared/overlays/BuyBondsOverlay.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
 import Tooltip from '../../components/Tooltip.vue';
 import { TICK_MILLIS } from '../../lib/Env.ts';
+import { getTransactionTracker } from '../../stores/transactions.ts';
+import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 
 dayjs.extend(utc);
 
@@ -168,164 +177,128 @@ interface IFrameRow extends IFrameEarningsRow {
 const currency = getCurrency();
 const vaults = getVaults();
 const wallets = useWallets();
+const walletKeys = getWalletKeys();
 const miningFrames = getMiningFrames();
 const config = getConfig();
-const bonds = useBonds();
-const { bondFullCapacityPerFrame } = useMainchainCompat();
+const myBonds = useMyBonds();
+const bondMarket = getBondMarket();
+const transactionTracker = getTransactionTracker();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.ref(false);
 const showOverlay = Vue.ref(false);
-const showAllHistory = Vue.ref(false);
-const funderState = Vue.computed(() => bonds.funderState);
 const vaultTotalCapacity = Vue.ref(0n);
-const distributableBidPool = Vue.ref(0n);
-const globalActiveCapital = Vue.ref(0n);
-const vaultActiveCapital = Vue.ref(0n);
-const bondFunders = Vue.ref<IBondTargetAllocation[]>([]);
+const releasingLotIds = Vue.ref<Record<number, boolean>>({});
 
-const hasBond = Vue.computed(() => bonds.targetPrincipal > 0n);
+const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[myBonds.vaultId]);
+const vaultBondLots = Vue.computed(() => vaultBondState.value?.bondLots ?? []);
 
 const nextFrameBondAvailability = Vue.computed(() => {
-  return TreasuryPool.calculateNextFrameBondAvailability(
+  return TreasuryBonds.calculateNextFrameBondAvailability(
     vaultTotalCapacity.value,
-    bondFunders.value,
-    bondFullCapacityPerFrame.value,
+    vaultBondLots.value,
+    bondMarket.data.bondFullCapacityPerFrame,
   );
 });
 
 const vaultAvailableCapacity = Vue.computed(() => {
-  return nextFrameBondAvailability.value.nextFrameAvailable;
+  return BondLot.bondsToMicrogons(nextFrameBondAvailability.value.nextFrameAvailableBonds);
 });
-
-const frameHistory = Vue.computed<IFrameRow[]>(() => {
-  return bonds.frameHistory
-    .filter(row => row.frameId > 0)
-    .map(row => {
-      let date: Date;
-      if (miningFrames.framesById[row.frameId]) {
-        date = miningFrames.getFrameDate(row.frameId);
-      } else {
-        const frameDiff = miningFrames.currentFrameId - row.frameId;
-        date = new Date(Date.now() - frameDiff * TICK_MILLIS);
-      }
-      return { ...row, date };
-    });
-});
-
-const walletBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
-
-const hasPendingReturn = Vue.computed(() => bonds.funderState?.hasPendingReturn ?? false);
-
-const pendingReturnAmount = Vue.computed(() => bonds.funderState?.pendingReturnAmount ?? 0n);
 
 const bondsReturnedDate = Vue.computed(() => {
-  const pendingReturnAtFrame = bonds.funderState?.pendingReturnAtFrame;
-  if (pendingReturnAtFrame == null) return null;
-  return dayjs.utc(miningFrames.getFrameDate(pendingReturnAtFrame));
+  const returningBondFrame = myBonds.bondTotals.returningBondFrame;
+  if (returningBondFrame == null) return null;
+  return dayjs.utc(miningFrames.getFrameDate(returningBondFrame));
 });
-
-const estimatedApy = bonds.estimatedApy;
-
-const progressTick = Vue.ref(0);
-const frameProgressPct = Vue.computed(() => {
-  void progressTick.value; // reactive dependency on tick updates
-  const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;
-  const elapsed = ticksPerFrame - miningFrames.getFrameRewardTicksRemaining();
-  return Math.min((elapsed / ticksPerFrame) * 100, 100);
-});
-
-const currentFrameRow = Vue.computed(() => {
-  return frameHistory.value.find(r => r.frameId === miningFrames.currentFrameId);
-});
-
-const projectedFrameEarnings = Vue.computed(() => {
-  const row = currentFrameRow.value;
-  if (!row || row.balance <= 0n) return 0n;
-  return TreasuryPool.projectedFrameEarnings({
-    funderBondedAmount: row.balance,
-    vaultActiveCapital: vaultActiveCapital.value,
-    globalActiveCapital: globalActiveCapital.value,
-    distributableBidPool: distributableBidPool.value,
-    earningsSharePct: row.sharingPct,
-  });
-});
-
-function updateFrameProgress() {
-  progressTick.value++;
-}
-
-const visibleHistory = Vue.computed(() => {
-  return showAllHistory.value ? frameHistory.value : frameHistory.value.slice(0, 10);
-});
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 async function onSubmitted() {
   showOverlay.value = false;
-  showAllHistory.value = false;
-  await bonds.refreshFrameHistory();
-  await refreshBondData();
+  await myBonds.refreshFrameHistory();
+  await refreshMarketData();
 }
 
-async function refreshBondData() {
-  if (!bonds.vaultId) return;
+async function releaseBondLot(lot: BondLot) {
+  if (releasingLotIds.value[lot.id]) return;
+
+  releasingLotIds.value = { ...releasingLotIds.value, [lot.id]: true };
+  try {
+    const client = await getMainchainClient(false);
+    const signer = await walletKeys.getInvestmentKeypair();
+    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLot: lot });
+    const info = await transactionTracker.submitAndWatch({
+      tx,
+      txSigner: signer,
+      extrinsicType: ExtrinsicType.TreasuryReleaseBondLot,
+      metadata: {
+        bondLotId: lot.id,
+        releasedBondMicrogons: lot.bondMicrogons,
+      },
+    });
+
+    info.subscribeToProgress((args, error) => {
+      if (args.progressPct >= 100 && !error) {
+        void onSubmitted();
+      }
+      if (error) {
+        releasingLotIds.value = { ...releasingLotIds.value, [lot.id]: false };
+      }
+    });
+  } catch {
+    releasingLotIds.value = { ...releasingLotIds.value, [lot.id]: false };
+  }
+}
+
+async function refreshMarketData() {
+  if (!myBonds.vaultId) return;
 
   const client = await getMainchainClient(false);
-  const [capital, funders] = await Promise.all([
-    TreasuryPool.getActiveCapital(client, bonds.vaultId),
-    TreasuryPool.getBondFunders(client, bonds.vaultId, wallets.liquidLockingWallet.address),
-  ]);
+  const vault = vaults.vaultsById[myBonds.vaultId];
+  if (!vault) return;
 
-  vaultActiveCapital.value = capital.vaultActivatedCapital;
-  globalActiveCapital.value = capital.totalActivatedCapital;
-  bondFunders.value = funders;
+  vaultBondSubscription?.();
+  vaultBondSubscription = await bondMarket.subscribeVault(
+    {
+      vaultId: myBonds.vaultId,
+      operatorAddress: vault.operatorAccountId,
+      accountId: walletKeys.investmentAddress,
+    },
+    client,
+  );
 }
 
 let unsubVault: (() => void) | undefined;
-let unsubBidPool: (() => void) | undefined;
-let unsubTick: { unsubscribe: () => void } | undefined;
 let unsubFrameId: { unsubscribe: () => void } | undefined;
+let vaultBondSubscription: (() => void) | undefined;
 
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
-  await bonds.load();
+  await myBonds.load();
 
   const client = await getMainchainClient(false);
 
-  unsubVault = await vaults.subscribeToVault(bonds.vaultId, () => {
-    const vault = vaults.vaultsById[bonds.vaultId];
+  unsubVault = await vaults.subscribeToVault(myBonds.vaultId, () => {
+    const vault = vaults.vaultsById[myBonds.vaultId];
     if (vault) {
       vaultTotalCapacity.value = vault.securitization;
     }
 
-    void refreshBondData();
+    void refreshMarketData();
   });
 
-  unsubBidPool = await TreasuryPool.subscribeBidPool(client, bidPool => {
-    distributableBidPool.value = bidPool;
-  });
-
-  await refreshBondData();
+  await bondMarket.subscribeGlobal(client);
+  await refreshMarketData();
 
   isLoaded.value = true;
 
   unsubFrameId = miningFrames.onFrameId(() => {
-    void refreshBondData();
-  });
-
-  unsubTick = miningFrames.onTick(() => {
-    updateFrameProgress();
+    void refreshMarketData();
   });
 });
 
 Vue.onUnmounted(() => {
   unsubVault?.();
-  unsubBidPool?.();
+  vaultBondSubscription?.();
   unsubFrameId?.unsubscribe();
-  unsubTick?.unsubscribe();
 });
 </script>
 

@@ -130,3 +130,15 @@ html[data-e2e-no-motion='1'] *::after {
 [DashBox] {
   @apply rounded border-[1px] border-slate-400/40 bg-white shadow-md;
 }
+
+[StatsBox][box] {
+  @apply rounded border-[1px] border-slate-400/30 bg-white py-2 shadow-[0_1px_0_rgba(15,23,42,0.03)];
+}
+
+[StatsBox] [StatWrapper] {
+  @apply flex flex-col justify-center gap-y-1;
+}
+
+[StatsBox] [Stat] {
+  @apply text-argon-600 font-mono font-extrabold;
+}

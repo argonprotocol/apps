@@ -14,7 +14,7 @@ import { getSpendableMiningHoldMicrogons, IWallet, WalletType } from './Wallet.t
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { TransactionTracker } from './TransactionTracker.ts';
+import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
 import { Config } from './Config.ts';
 
@@ -24,6 +24,7 @@ export interface IAssetsToMove {
 }
 
 let pendingMiningHoldSweepPromise: Promise<TransactionInfo | undefined> | undefined;
+const MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
 export class MoveCapital {
   public transactionError: string = '';
@@ -90,10 +91,10 @@ export class MoveCapital {
     } else {
       const transaction = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
       const { tx, metadata } = transaction;
-      const signer = await this.getSigner(moveFrom);
+      const txSigner = await this.getSigner(moveFrom);
       return await this.transactionTracker.submitAndWatch({
         tx,
-        signer,
+        txSigner,
         metadata,
         extrinsicType: ExtrinsicType.Transfer,
       });
@@ -126,6 +127,35 @@ export class MoveCapital {
     walletKeys: WalletKeys,
     config: Config,
   ): Promise<TransactionInfo | undefined> {
+    await this.transactionTracker.load();
+
+    const latestMiningHoldSweepTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(txInfo => {
+      const metadata = txInfo.tx.metadataJson;
+      return (
+        txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
+        metadata?.moveFrom === MoveFrom.MiningHold &&
+        metadata?.moveTo === MoveTo.MiningBot
+      );
+    });
+
+    const latestMiningHoldSweepAttempt = latestMiningHoldSweepTxInfo
+      ? {
+          txInfo: latestMiningHoldSweepTxInfo,
+          txAttemptState: await this.transactionTracker.getTxAttemptState(
+            latestMiningHoldSweepTxInfo,
+            MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+          ),
+        }
+      : undefined;
+
+    if (
+      latestMiningHoldSweepAttempt &&
+      (latestMiningHoldSweepAttempt.txAttemptState === TxAttemptState.Follow ||
+        latestMiningHoldSweepAttempt.txAttemptState === TxAttemptState.Finalized)
+    ) {
+      return latestMiningHoldSweepAttempt.txInfo;
+    }
+
     const assetsToMove: IAssetsToMove = {};
     const spendableMicrogons = getSpendableMiningHoldMicrogons(wallet.availableMicrogons);
 
@@ -214,19 +244,38 @@ export class MoveCapital {
 
     if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) return;
 
-    const txInfo = await this.move(
+    const { tx, metadata } = await this.buildTransaction(
       MoveFrom.MiningHold,
       MoveTo.MiningBot,
       finalAssetsToMove,
-      wallet,
       this.walletKeys.miningBotAddress,
-      false,
       prependedTxs,
       client,
     );
+    const txSigner = await this.getSigner(MoveFrom.MiningHold);
+    const followOnTx =
+      latestMiningHoldSweepAttempt?.txAttemptState === TxAttemptState.Replace &&
+      latestMiningHoldSweepAttempt.txInfo &&
+      !latestMiningHoldSweepAttempt.txInfo.tx.followOnTxId
+        ? this.transactionTracker.createIntentForFollowOnTx(latestMiningHoldSweepAttempt.txInfo)
+        : undefined;
 
-    return txInfo;
+    try {
+      const txInfo = await this.transactionTracker.submitAndWatch({
+        tx,
+        txSigner,
+        useLatestNonce: true,
+        extrinsicType: ExtrinsicType.Transfer,
+        metadata,
+      });
+      followOnTx?.resolve(txInfo);
+      return txInfo;
+    } catch (error) {
+      followOnTx?.reject(error);
+      throw error;
+    }
   }
+
   private async getSigner(moveFrom: MoveFrom) {
     const walletType = this.getWalletTypeFromMove(moveFrom);
     switch (walletType) {
@@ -292,9 +341,7 @@ export class MoveCapital {
       );
       txs.push(tx);
     } else if (moveFrom === MoveFrom.VaultingTreasury && assetsToMove.ARGN) {
-      const newAmount = this.myVault.data.treasury.targetPrincipal - assetsToMove[MoveToken.ARGN];
-      const tx = await this.myVault.buildTreasuryAllocationTx(newAmount);
-      txs.push(tx);
+      throw new Error('Treasury bonds are liquidated from individual bond lots.');
     }
 
     /// 2. Transfer the argons / argonots

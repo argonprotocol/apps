@@ -44,7 +44,7 @@ import AboutOverlay from '../app-shared/overlays/AboutOverlay.vue';
 import JurisdictionOverlay from '../app-shared/overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from '../app-shared/overlays/Troubleshooting.vue';
 import AppUpdatesOverlay from '../app-operations/overlays/AppUpdatesOverlay.vue';
-import WelcomeOverlay from '../app-operations/overlays/WelcomeOverlay.vue';
+import WelcomeOverlay from '../app-shared/overlays/WelcomeOverlay.vue';
 import BootingOverlay from '../app-shared/overlays/BootingOverlay.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import TopBar from './navigation/TopBar.vue';

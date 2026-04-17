@@ -1,40 +1,44 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { BondFunder, TreasuryPool } from '@argonprotocol/apps-core';
+import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import { getConfig } from './config.ts';
 import { getWalletKeys } from './wallets.ts';
-import { getVaults } from './vaults.ts';
 import { getMainchainClient, getMiningFrames } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
+import { BondMarket } from '../lib/BondMarket.ts';
 
 export interface IFrameEarningsRow {
   frameId: number;
-  balance: bigint;
+  bonds: number;
   earnings: bigint;
-  sharingPct: number;
 }
 
-export const useBonds = defineStore('bonds', () => {
+const bondMarket = new BondMarket();
+bondMarket.data = Vue.reactive(bondMarket.data) as BondMarket['data'];
+
+export function getBondMarket(): BondMarket {
+  return bondMarket;
+}
+
+export const useMyBonds = defineStore('myBonds', () => {
   const config = getConfig();
   const walletKeys = getWalletKeys();
-  const vaults = getVaults();
   const miningFrames = getMiningFrames();
   const currency = getCurrency();
 
-  const funderState = Vue.ref<BondFunder | null>(null);
+  const bondLots = Vue.ref<BondLot[]>([]);
   const frameHistory = Vue.ref<IFrameEarningsRow[]>([]);
   const isLoaded = Vue.ref(false);
   const vaultId = Vue.ref(0);
 
+  const bondTotals = Vue.computed(() => BondLot.getTotals(bondLots.value));
+
   const estimatedApy = Vue.computed(() => {
-    if (!funderState.value || funderState.value.heldPrincipal <= 0n) return 0;
-    return funderState.value.getAPY(miningFrames.currentFrameId);
+    if (bondTotals.value.activeBonds <= 0) return 0;
+    return BondLot.getAPY(bondLots.value);
   });
 
-  const heldPrincipal = Vue.computed(() => funderState.value?.heldPrincipal ?? 0n);
-  const targetPrincipal = Vue.computed(() => funderState.value?.targetPrincipal ?? 0n);
-
-  let unsubFunder: (() => void) | undefined;
+  let unsubBondLots: (() => void) | undefined;
   let unsubFrame: { unsubscribe: () => void } | undefined;
 
   Vue.watch(
@@ -52,7 +56,6 @@ export const useBonds = defineStore('bonds', () => {
     await currency.isLoadedPromise;
     if (!config.upstreamOperator?.vaultId) return;
     await miningFrames.load();
-    await vaults.load();
 
     vaultId.value = config.upstreamOperator.vaultId;
 
@@ -63,15 +66,15 @@ export const useBonds = defineStore('bonds', () => {
       () => config.upstreamOperator?.vaultId ?? 0,
       async nextVaultId => {
         vaultId.value = nextVaultId;
-        unsubFunder?.();
+        unsubBondLots?.();
         if (!vaultId.value) {
-          funderState.value = null;
+          bondLots.value = [];
           frameHistory.value = [];
           return;
         }
 
-        unsubFunder = await TreasuryPool.subscribeFunderState(client, vaultId.value, accountId, false, state => {
-          funderState.value = state;
+        unsubBondLots = await TreasuryBonds.subscribeBondLots(client, vaultId.value, accountId, lots => {
+          bondLots.value = lots;
         });
         await refreshFrameHistory();
       },
@@ -81,27 +84,31 @@ export const useBonds = defineStore('bonds', () => {
     isLoaded.value = true;
 
     unsubFrame = miningFrames.onFrameId(() => {
+      void refreshBondLots();
       void refreshFrameHistory();
     });
+  }
+
+  async function refreshBondLots() {
+    const client = await getMainchainClient(false);
+    bondLots.value = await TreasuryBonds.getBondLots(client, vaultId.value, walletKeys.investmentAddress);
   }
 
   async function refreshFrameHistory() {
     const client = await getMainchainClient(false);
     const accountId = walletKeys.investmentAddress;
-    const vault = vaults.vaultsById[vaultId.value];
-    const operatorAddr = vault?.operatorAccountId ?? '';
-    frameHistory.value = await TreasuryPool.getBondFrameHistory(client, vaultId.value, accountId, operatorAddr);
+    frameHistory.value = await TreasuryBonds.getBondFrameHistory(client, vaultId.value, accountId);
   }
 
   return {
     vaultId,
-    funderState,
+    bondLots,
     frameHistory,
+    bondTotals,
     estimatedApy,
-    heldPrincipal,
-    targetPrincipal,
     isLoaded,
     load,
+    refreshBondLots,
     refreshFrameHistory,
   };
 });

@@ -321,10 +321,10 @@
       </thead>
       <tbody>
         <tr>
-          <td>{{ microgonToArgonNm(treasuryBondedMicrogons).format('0,0.[00]') }} ARGN Bonded</td>
+          <td>{{ microgonToArgonNm(treasuryBondMicrogons).format('0,0.[00]') }} ARGN in Treasury Bonds</td>
           <td>Locked for 10 days.</td>
           <td class="text-right">
-            {{ currency.symbol }}{{ microgonToMoneyNm(treasuryBondedMicrogons).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(treasuryBondMicrogons).format('0,0.00') }}
           </td>
           <td class="text-right">
             <MoveCapitalButton
@@ -377,13 +377,14 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import MoveCapitalButton from '../../app-operations/overlays/MoveCapitalButton.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
-import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
+import { BondLot, MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import { useMiningAssetBreakdown } from '../../stores/miningAssetBreakdown.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getMyVault } from '../../stores/vaults.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
+import { getMyVault } from '../../stores/vaults.ts';
+import { getBondMarket } from '../../stores/myBonds.ts';
 
 dayjs.extend(utc);
 
@@ -392,21 +393,27 @@ const vaultingAssets = useVaultingAssetBreakdown();
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
 const myVault = getMyVault();
+const bondMarket = getBondMarket();
 
 const { microgonToArgonNm, micronotToArgonotNm, microgonToMoneyNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 
-const treasuryPendingReturnMicrogons = Vue.computed(() => {
-  return myVault.data.treasury.pendingReturnAmount;
+const treasuryBondTotals = Vue.computed(() => {
+  const vaultId = myVault.vaultId;
+  return BondLot.getTotals(vaultId == null ? [] : (bondMarket.data.vaultsById[vaultId]?.bondLots ?? []));
 });
 
-const treasuryBondedMicrogons = Vue.computed(() => {
-  return myVault.data.treasury.targetPrincipal;
+const treasuryPendingReturnMicrogons = Vue.computed(() => {
+  return treasuryBondTotals.value.returningBondMicrogons;
+});
+
+const treasuryBondMicrogons = Vue.computed(() => {
+  return treasuryBondTotals.value.activeBondMicrogons;
 });
 
 const treasuryPendingReturnDate = Vue.computed(() => {
-  const pendingReturnAtFrame = myVault.data.treasury.pendingReturnAtFrame;
-  if (pendingReturnAtFrame == null) return null;
-  return dayjs.utc(miningFrames.getFrameDate(pendingReturnAtFrame));
+  const returningBondFrame = treasuryBondTotals.value.returningBondFrame;
+  if (returningBondFrame == null) return null;
+  return dayjs.utc(miningFrames.getFrameDate(returningBondFrame));
 });
 </script>
 

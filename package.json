@@ -50,8 +50,8 @@
     "@actions/github": "^6.0.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.3-dev.836d58f7",
-    "@argonprotocol/mainchain": "1.4.3-dev.836d58f7",
+    "@argonprotocol/bitcoin": "1.4.3-dev.1f0d7a33",
+    "@argonprotocol/mainchain": "1.4.3-dev.1f0d7a33",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
     "@ethereumjs/trie": "^6.2.1",
@@ -156,9 +156,9 @@
     "@argonprotocol/bitcoin": "portal:../mainchain/bitcoin/nodejs"
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.3-dev.836d58f7",
-    "@argonprotocol/testing": "1.4.3-dev.836d58f7",
-    "@argonprotocol/bitcoin": "1.4.3-dev.836d58f7",
+    "@argonprotocol/mainchain": "1.4.3-dev.1f0d7a33",
+    "@argonprotocol/testing": "1.4.3-dev.1f0d7a33",
+    "@argonprotocol/bitcoin": "1.4.3-dev.1f0d7a33",
     "axios": "^1.12.1",
     "form-data": "^2.5.4",
     "request": "^2.88.2",

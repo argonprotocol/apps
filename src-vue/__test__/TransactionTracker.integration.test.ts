@@ -52,7 +52,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const keypair = new Keyring({ type: 'sr25519' }).addFromMnemonic(newMnemonic);
     const { tx, txResult } = await transactionTracker.submitAndWatch({
       tx: client.tx.balances.transferAllowDeath(alice.address, 1_000_000n),
-      signer: keypair,
+      txSigner: keypair,
       metadata: { testId: 1 },
       extrinsicType: ExtrinsicType.VaultCreate,
     });
@@ -87,7 +87,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     {
       const { tx } = await transactionTracker.submitAndWatch({
         tx: client.tx.balances.transferAllowDeath(bob.address, 1_000_000n),
-        signer: alice,
+        txSigner: alice,
         metadata: { testId: 2 },
         extrinsicType: ExtrinsicType.Transfer,
       });
@@ -161,7 +161,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
     const { tx, txResult } = await transactionTracker.submitAndWatch({
       tx: client.tx.balances.transferAllowDeath(bob.address, 1_000_000n),
-      signer: alice,
+      txSigner: alice,
       metadata: { testId: 2 },
       extrinsicType: ExtrinsicType.Transfer,
     });

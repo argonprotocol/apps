@@ -29,6 +29,7 @@
         </div>
       </div>
     </div>
+
     <div v-else-if="isShowingBonusTooltip" class="z-50 absolute top-6 right-[46px] pt-[12px]">
       <Arrow
         class="absolute top-0 right-6 w-6 h-3.5"
@@ -51,20 +52,36 @@
             </button>
           </div>
           <p class="text-argon-600 mt-1">
-            A bonus of ₳500 has been set aside in Argon's Treasury for your benefit. It will be released once your account
-            becomes fully operational. Open the menu above to learn more.
+            A bonus of {{ operationalReferralRewardLabel }} has been set aside in Argon's Treasury for your benefit. It
+            will be claimable once your account becomes fully operational. Open the menu above to learn more.
           </p>
         </div>
       </div>
     </div>
+
     <div ref="rootRef" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
       <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
         <DropdownMenuTrigger
           Trigger
-          class="flex flex-row items-center justify-center text-[16.5px] font-semibold font-mono overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
-          :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+          :aria-label="controller.isFullyOperational ? 'Operational rewards' : 'Operational progress'"
+          class="flex flex-row items-center justify-center overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
+          :class="[
+            isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50',
+            controller.isFullyOperational ? 'w-[42px]' : 'font-mono text-base font-semibold',
+          ]"
         >
-          <div class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
+          <template v-if="controller.isFullyOperational">
+            <div class="relative flex h-full w-full items-center justify-center">
+              <div class="menu-moon">
+                <div class="menu-moon-crater left-[3px] top-[5px]" />
+                <div class="menu-moon-crater h-[2.5px] w-[2.5px] right-[4px] bottom-[5px]" />
+                <div v-if="hasInviteMoonBase" class="menu-moon-base" />
+              </div>
+              <RocketIcon class="menu-moon-rocket" aria-hidden="true" />
+            </div>
+          </template>
+
+          <div v-else class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
             <RocketIcon class="h-[17px] relative top-[2px] mr-[5px] -rotate-45" aria-hidden="true" />
             {{ controller.completedCertificationStepCount }}/{{ controller.certificationStepCount }}
           </div>
@@ -82,10 +99,72 @@
           >
             <div class="relative">
               <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                <div class="max-w-160 pt-4 pb-2">
+                <div v-if="controller.isFullyOperational" class="w-[26rem] px-4 pt-4 pb-4">
+                  <div class="border-b border-slate-300/50 pb-2.5">
+                    <div class="text-lg font-bold text-slate-700">Operator Referrals</div>
+                    <div class="mt-0.5 text-sm text-slate-500">
+                      Earn {{ operationalReferralRewardLabel }} for both you and each referral who completes the operational checklist. Every
+                      {{ controller.rewardConfig.referralBonusEveryXOperationalSponsees }} referred triggers a
+                      {{ referralBonusRewardLabel }} bonus!
+                    </div>
+                  </div>
+
+                  <OperationalInviteSlots
+                    class="mt-3"
+                    mode="menu"
+                    :progress="controller.inviteSlotProgress"
+                    :rewardConfig="controller.rewardConfig"
+                    :invites="controller.operationalInvites"
+                    @select="openInviteHub"
+                  />
+
+                  <div class="mt-4 ">
+                    <div StatsBox box class="mt-2 grid grid-cols-3 overflow-hidden text-center">
+                      <Tooltip
+                        v-for="stat in referralStats"
+                        :key="stat.label"
+                        asChild
+                        side="bottom"
+                        :content="stat.tooltip">
+                        <div StatWrapper class="border-r border-slate-200/70 px-3 py-2.5 last:border-r-0">
+                          <div Stat class="text-2xl! leading-none">{{ stat.value }}</div>
+                          <div class="mt-1.5 text-xs font-semibold tracking-widest text-slate-400 uppercase">{{ stat.label }}</div>
+                        </div>
+                      </Tooltip>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="hasUnclaimedRewards"
+                    class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-slate-800">{{ pendingReferralRewardLabel }} unclaimed</div>
+                      <div class="text-xs text-slate-500">Choose where to send rewards.</div>
+                    </div>
+                    <button
+                      type="button"
+                      class="text-argon-700 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:border-slate-400"
+                      @click="openRewardsClaim()"
+                    >
+                      Claim
+                    </button>
+                  </div>
+
+                  <div class="mt-4 flex items-center justify-end border-t border-slate-300/50 pt-3">
+                    <button
+                      type="button"
+                      class="text-argon-700 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:border-slate-400 hover:bg-white"
+                      @click="openInviteHub()"
+                    >
+                      Manage Referral Codes
+                    </button>
+                  </div>
+                </div>
+
+                <div v-else class="max-w-160 pt-4 pb-2">
                   <p class="font-light px-5 ">
                     Complete the following seven steps, and you'll earn
-                    (along with your sponsor) a ₳500 bonus from the Argon Treasury.
+                    (along with your sponsor) a {{ operationalReferralRewardLabel }} bonus from the Argon Treasury.
                   </p>
                   <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
                     <li
@@ -136,6 +215,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import {
   DropdownMenuArrow,
   DropdownMenuContent,
@@ -148,12 +228,19 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import RocketIcon from '../../assets/rocket.svg?component';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
+import { getCurrency } from '../../stores/currency.ts';
 import Checkbox from '../../components/Checkbox.vue';
 import Arrow from '../../components/Arrow.vue';
-import { useOperationsController, operationalSteps, OperationalStepId } from '../../stores/operationsController.ts';
+import Tooltip from '../../components/Tooltip.vue';
+import OperationalInviteSlots from '../components/OperationalInviteSlots.vue';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { OperationalStepId, operationalSteps, useOperationsController } from '../../stores/operationsController.ts';
 
 const config = getConfig();
 const controller = useOperationsController();
+const currency = getCurrency();
+
+const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -162,14 +249,66 @@ const completionNoticeStepTitle = Vue.computed(() => {
   return completionNoticeStepId.value ? operationalSteps[completionNoticeStepId.value].title : '';
 });
 const isShowingCompletionTooltip = Vue.computed(() => {
-  return !!completionNoticeStepId.value && !isOpen.value;
+  return !!completionNoticeStepId.value && !isOpen.value && !controller.isFullyOperational;
 });
-
 const isShowingBonusTooltip = Vue.computed(() => {
   const showBonusTooltip = config.certificationDetails?.showBonusTooltip;
-  return showBonusTooltip && !isOpen.value && config.upstreamOperator?.inviteSecret && !completionNoticeStepId.value;
+  return (
+    showBonusTooltip &&
+    !isOpen.value &&
+    !!config.upstreamOperator?.inviteSecret &&
+    !completionNoticeStepId.value &&
+    !controller.isFullyOperational
+  );
 });
-
+const operationalReferralRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.rewardConfig.operationalReferralReward);
+});
+const referralBonusRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.rewardConfig.referralBonusReward);
+});
+const earnedReferralRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.inviteSlotProgress.rewardsEarnedAmount);
+});
+const claimedReferralRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.inviteSlotProgress.rewardsCollectedAmount);
+});
+const pendingReferralRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.pendingRewardsAmount);
+});
+const hasUnclaimedRewards = Vue.computed(() => {
+  return controller.pendingRewardsAmount > 0n;
+});
+const referralBonusProgressLabel = Vue.computed(() => {
+  const bonusEvery = Math.max(controller.rewardConfig.referralBonusEveryXOperationalSponsees, 1);
+  return `${controller.inviteSlotProgress.operationalReferralsCount % bonusEvery}/${bonusEvery}`;
+});
+const referralStats = Vue.computed(() => {
+  return [
+    {
+      label: 'Earned',
+      value: earnedReferralRewardLabel.value,
+      tooltip: `${claimedReferralRewardLabel.value} has been claimed. ${pendingReferralRewardLabel.value} is unclaimed.`,
+    },
+    {
+      label: 'Next Bonus',
+      value: referralBonusRewardLabel.value,
+      tooltip: `Every ${controller.rewardConfig.referralBonusEveryXOperationalSponsees} referred operators earns this bonus.`,
+    },
+    {
+      label: 'Bonus Progress',
+      value: referralBonusProgressLabel.value,
+      tooltip: 'Your progress toward the next referral bonus.',
+    },
+  ];
+});
+const hasInviteMoonBase = Vue.computed(() => {
+  return (
+    controller.inviteSlotProgress.unactivatedReferrals > 0 ||
+    controller.inviteSlotProgress.operationalReferralsCount > 0 ||
+    controller.inviteSlotProgress.referralPending
+  );
+});
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function dismissCompletionNotice() {
@@ -185,6 +324,7 @@ function onMouseEnter() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
   }
+
   mouseLeaveTimeoutId = undefined;
   controller.clearCompletionNotices();
   isOpen.value = true;
@@ -194,6 +334,7 @@ function onMouseLeave() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
   }
+
   mouseLeaveTimeoutId = setTimeout(() => {
     isOpen.value = false;
   }, 100);
@@ -230,13 +371,30 @@ function openOperationalOverlay(stepId: OperationalStepId) {
   basicEmitter.emit('openOperationalOverlay', stepId);
 }
 
+function openInviteHub(section?: 'create' | 'unlock' | 'outbound') {
+  isOpen.value = false;
+  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'overview', section });
+}
+
+function openRewardsClaim() {
+  isOpen.value = false;
+  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
+}
+
 Vue.watch(isOpen, value => {
   if (value) {
     controller.clearCompletionNotices();
+    if (controller.isFullyOperational) {
+      void controller.loadOperationalInvites().catch(() => undefined);
+    }
   }
 });
 
-// Expose the root element to parent components
+function formatArgon(amount: bigint) {
+  const wholeArgon = BigInt(MICROGONS_PER_ARGON);
+  return `₳${microgonToArgonNm(amount).format(amount % wholeArgon === 0n ? '0,0' : '0,0.00')}`;
+}
+
 defineExpose({
   $el: rootRef,
 });
@@ -255,5 +413,21 @@ defineExpose({
   [ItemWrapper] {
     @apply font-bold whitespace-nowrap text-gray-900;
   }
+}
+
+.menu-moon {
+  @apply relative h-[17px] w-[17px] rounded-full border border-slate-400/40 bg-linear-to-br from-slate-100 to-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)];
+}
+
+.menu-moon-crater {
+  @apply absolute h-[3px] w-[3px] rounded-full bg-slate-500/20;
+}
+
+.menu-moon-base {
+  @apply bg-argon-700/35 absolute bottom-[2px] left-1/2 h-[3px] w-[9px] -translate-x-1/2 rounded-full;
+}
+
+.menu-moon-rocket {
+  @apply text-argon-600 absolute top-[3px] left-1/2 h-[13px] w-[13px] -translate-x-1/2 -rotate-18;
 }
 </style>
