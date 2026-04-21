@@ -1,3 +1,4 @@
+<!-- prettier-ignore -->
 <template>
   <OverlayBase
     :isOpen="true"
@@ -5,24 +6,30 @@
     :data-e2e-state="lockStep"
     @close="closeOverlay"
     @esc="closeOverlay"
-    class="BitcoinLockingOverlay min-h-60 w-240">
+    class="BitcoinLockingOverlay min-h-60 w-240"
+  >
     <template #title>
       <TooltipProvider v-if="isLoaded" :disableHoverableContent="true">
         <div class="mr-6 flex w-full flex-col gap-2">
-          <div class="flex w-full flex-row items-center">
+          <div v-if="lockStep === LockStep.SelectVault">
+            Select Vault for Locking
+          </div>
+          <div v-else class="flex w-full flex-row items-center">
             <TooltipRoot :delayDuration="100">
               <TooltipTrigger class="flex w-[calc(33.333333%+3rem)] flex-row items-center">
                 <BitcoinIcon
                   :class="lockStep === LockStep.Start ? 'text-argon-600/80' : 'text-black/20'"
-                  class="relative left-1 mr-2 h-10" />
+                  class="relative left-1 mr-2 h-10"
+                />
                 <div
                   :class="
                     lockStep === LockStep.Start
                       ? 'text-argon-600 border-argon-600 bg-slate-400/10'
                       : 'border-slate-600/20 bg-white text-black/20'
                   "
-                  class="relative grow border-y px-2 py-1 text-center text-base font-bold">
-                  Choose Amount
+                  class="relative grow border-y px-1 py-1 text-center text-base font-bold whitespace-nowrap"
+                >
+                  Specify Amount
                   <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.Start" />
                   <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="lockStep === LockStep.Start" />
                 </div>
@@ -32,7 +39,8 @@
                 :sideOffset="-10"
                 align="start"
                 :collisionPadding="9"
-                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl"
+              >
                 Choose how much BTC you want to lock. The more you lock, the more Argons you'll receive.
                 <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
               </TooltipContent>
@@ -41,22 +49,23 @@
             <TooltipRoot :delayDuration="100">
               <TooltipTrigger asChild>
                 <Arrows
-                  :class="
-                    lockStep === LockStep.IsProcessingOnArgon ? 'text-argon-600/80 processing-active' : 'text-black/10'
-                  "
-                  class="ml-5 min-h-[34px] pr-3" />
+                  :class="lockStep === LockStep.IsProcessingOnArgon ? 'text-argon-600/80 processing-active' : 'text-black/10'"
+                  class="ml-5 min-h-[34px] pr-3"
+                />
               </TooltipTrigger>
               <TooltipContent
-                side="bottom"
                 :sideOffset="-7"
-                align="center"
                 :collisionPadding="9"
-                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                side="bottom"
+                align="center"
+                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl"
+              >
                 Your request is submitted to the Argon network and validated by participating miners.
                 <TooltipArrow
                   :width="27"
                   :height="15"
-                  class="-mt-px ml-4 fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                  class="-mt-px ml-4 fill-white stroke-gray-800/20 stroke-[0.5px]"
+                />
               </TooltipContent>
             </TooltipRoot>
 
@@ -68,18 +77,20 @@
                       ? 'text-argon-600 border-argon-600 bg-slate-400/10'
                       : 'border-slate-600/20 bg-white text-black/20'
                   "
-                  class="relative z-0 w-1/3 grow border-y px-2 py-1 text-center text-base font-bold">
-                  Lock Bitcoin
+                  class="relative z-0 w-1/3 grow border-y px-1 py-1 text-center text-base font-bold whitespace-nowrap"
+                >
+                  Initiate Bitcoin
                   <RoundCap class="absolute top-0 left-0" :isSelected="isLockBitcoinStep" />
                   <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="isLockBitcoinStep" />
                 </div>
               </TooltipTrigger>
               <TooltipContent
-                side="bottom"
                 :sideOffset="-7"
-                align="center"
                 :collisionPadding="9"
-                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                side="bottom"
+                align="center"
+                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl"
+              >
                 You must move your chosen Bitcoin amount to the multisig address provided by Argon.
                 <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
               </TooltipContent>
@@ -89,19 +100,22 @@
               <TooltipTrigger asChild>
                 <Arrows
                   :class="isLockToCollectTransition ? 'text-argon-600/80 processing-active' : 'text-black/10'"
-                  class="ml-5 min-h-[34px] pr-3" />
+                  class="ml-5 min-h-[34px] pr-3"
+                />
               </TooltipTrigger>
               <TooltipContent
-                side="bottom"
                 :sideOffset="-7"
-                align="center"
                 :collisionPadding="9"
-                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                side="bottom"
+                align="center"
+                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center leading-5.5 font-light text-slate-900/60 shadow-2xl"
+              >
                 Argon will monitor the Bitcoin network to verify your multisig transaction completed.
                 <TooltipArrow
                   :width="27"
                   :height="15"
-                  class="-mt-px ml-4 fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                  class="-mt-px ml-4 fill-white stroke-gray-800/20 stroke-[0.5px]"
+                />
               </TooltipContent>
             </TooltipRoot>
 
@@ -113,13 +127,15 @@
                       ? 'text-argon-600 border-argon-600 bg-slate-100'
                       : 'border-slate-600/20 bg-white text-black/20'
                   "
-                  class="relative w-1/3 grow rounded-r border-y px-2 py-1 text-center text-base font-bold">
+                  class="relative w-1/3 grow rounded-r border-y px-1 py-1 text-center text-base font-bold whitespace-nowrap"
+                >
                   Collect Argons
                   <RoundCap class="absolute top-0 left-0" :isSelected="lockStep === LockStep.Minting" />
                   <RoundCap
+                    :isSelected="lockStep === LockStep.Minting"
                     align="end"
                     class="absolute top-0 right-[2px]"
-                    :isSelected="lockStep === LockStep.Minting" />
+                  />
                 </div>
               </TooltipTrigger>
               <TooltipContent
@@ -127,7 +143,8 @@
                 :sideOffset="-7"
                 align="end"
                 :collisionPadding="9"
-                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-right leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-right leading-5.5 font-light text-slate-900/60 shadow-2xl"
+              >
                 You will be awarded the full market value of your Bitcoin as unencumbered Argon stablecoins.
                 <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
               </TooltipContent>
@@ -137,12 +154,12 @@
       </TooltipProvider>
     </template>
 
+    <SelectAVault v-if="lockStep === LockStep.SelectVault" @load="handleVaultsLoaded" @select="handleVaultSelected" />
     <LockStart
-      v-if="lockStep === LockStep.Start"
+      v-else-if="lockStep === LockStep.Start"
       :coupon="props.coupon"
       :currentTick="props.currentTick"
-      :maxLockLiquidityMicrogons="maxLockLiquidityMicrogons"
-      :vault="props.vault"
+      :vault="vault as Vault"
       @close="closeOverlay"
       @lockCreated="onLockCreated" />
     <LockIsProcessingOnArgon v-else-if="lockStep === LockStep.IsProcessingOnArgon" :personalLock="personalLock!" />
@@ -159,6 +176,7 @@
 
 <script lang="ts">
 enum LockStep {
+  SelectVault = 'SelectVault',
   Start = 'Start',
   IsProcessingOnArgon = 'IsProcessingOnArgon',
   ReadyForBitcoin = 'ReadyForBitcoin',
@@ -188,6 +206,7 @@ import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
+import SelectAVault from '../../components/SelectAVault.vue';
 
 const bitcoinLocks = getBitcoinLocks();
 const myVault = getMyVault();
@@ -196,8 +215,7 @@ const props = defineProps<{
   coupon?: IBitcoinLockCouponStatus;
   currentTick?: number;
   personalLock?: IBitcoinLockRecord;
-  maxLockLiquidityMicrogons?: bigint;
-  vault: Vault;
+  vault?: Vault;
 }>();
 
 const emit = defineEmits<{
@@ -205,6 +223,8 @@ const emit = defineEmits<{
 }>();
 
 const isLoaded = Vue.ref(false);
+const hasDefaultVault = Vue.ref(!!props.vault);
+const vault = Vue.ref<Vault | undefined>(props.vault);
 
 const createdLockUuid = Vue.ref<string | undefined>();
 const createdLock = Vue.ref<IBitcoinLockRecord | undefined>();
@@ -233,59 +253,12 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
   return createdLock.value;
 });
 
-function onLockCreated(lock: IBitcoinLockRecord) {
-  createdLockUuid.value = lock.uuid;
-  createdLock.value = lock;
-}
-
-async function resolveCreatedLockTransition() {
-  if (props.personalLock || !createdLockUuid.value) return;
-  if (trackedCreatedLock.value?.utxoId != null) return;
-
-  const table = await bitcoinLocks.getTable();
-  const utxoId = await table.getUtxoIdByUuid(createdLockUuid.value);
-  if (utxoId == null) return;
-
-  const finalizedLock = bitcoinLocks.getLockByUtxoId(utxoId) ?? (await table.getByUtxoId(utxoId));
-  if (!finalizedLock) return;
-
-  createdLock.value = finalizedLock;
-}
-
-const maxLockLiquidityMicrogons = Vue.computed(() => {
-  if (props.maxLockLiquidityMicrogons != null) {
-    return props.maxLockLiquidityMicrogons;
-  }
-  return myVault.createdVault?.availableBitcoinSpace() ?? 0n;
-});
-
 const lockProcessingDetails = Vue.ref({
   progressPct: 0,
   confirmations: -1,
   expectedConfirmations: 0,
   mismatchDetected: false,
 });
-
-function updateLockProcessingDetails() {
-  const lock = personalLock.value;
-  if (!lock || !bitcoinLocks.isLockProcessingStatus(lock)) {
-    lockProcessingDetails.value = {
-      progressPct: 0,
-      confirmations: -1,
-      expectedConfirmations: 0,
-      mismatchDetected: false,
-    };
-    return;
-  }
-
-  const details = bitcoinLocks.getLockProcessingDetails(lock);
-  lockProcessingDetails.value = {
-    progressPct: details.progressPct,
-    confirmations: details.confirmations,
-    expectedConfirmations: details.expectedConfirmations,
-    mismatchDetected: details.isInvalidAmount === true,
-  };
-}
 
 const mismatchView = Vue.computed(() => {
   if (!personalLock.value) return undefined;
@@ -294,7 +267,11 @@ const mismatchView = Vue.computed(() => {
 
 const lockStep = Vue.computed<LockStep>(() => {
   const lock = personalLock.value;
-  if (!lock || bitcoinLocks.isInactiveForVaultDisplay(lock)) {
+
+  if (!lock && !vault.value) {
+    return LockStep.SelectVault;
+  } else if (!lock || bitcoinLocks.isInactiveForVaultDisplay(lock)) {
+    console.log('VAULT = ', vault.value);
     return LockStep.Start;
   }
 
@@ -333,6 +310,46 @@ const isLockToCollectTransition = Vue.computed(() => {
   return lockStep.value === LockStep.ProcessingOnBitcoin;
 });
 
+function updateLockProcessingDetails() {
+  const lock = personalLock.value;
+  if (!lock || !bitcoinLocks.isLockProcessingStatus(lock)) {
+    lockProcessingDetails.value = {
+      progressPct: 0,
+      confirmations: -1,
+      expectedConfirmations: 0,
+      mismatchDetected: false,
+    };
+    return;
+  }
+
+  const details = bitcoinLocks.getLockProcessingDetails(lock);
+  lockProcessingDetails.value = {
+    progressPct: details.progressPct,
+    confirmations: details.confirmations,
+    expectedConfirmations: details.expectedConfirmations,
+    mismatchDetected: details.isInvalidAmount === true,
+  };
+}
+
+function onLockCreated(lock: IBitcoinLockRecord) {
+  createdLockUuid.value = lock.uuid;
+  createdLock.value = lock;
+}
+
+async function resolveCreatedLockTransition() {
+  if (props.personalLock || !createdLockUuid.value) return;
+  if (trackedCreatedLock.value?.utxoId != null) return;
+
+  const table = await bitcoinLocks.getTable();
+  const utxoId = await table.getUtxoIdByUuid(createdLockUuid.value);
+  if (utxoId == null) return;
+
+  const finalizedLock = bitcoinLocks.getLockByUtxoId(utxoId) ?? (await table.getByUtxoId(utxoId));
+  if (!finalizedLock) return;
+
+  createdLock.value = finalizedLock;
+}
+
 async function acknowledgeExpiredIfNeeded() {
   const lock = personalLock.value;
   if (!lock || lock.status !== BitcoinLockStatus.LockExpiredWaitingForFunding) return;
@@ -347,6 +364,13 @@ async function closeOverlay() {
 async function startNewLocking() {
   await acknowledgeExpiredIfNeeded();
   emit('close', true);
+}
+
+function handleVaultsLoaded() {}
+
+function handleVaultSelected(v: Vault) {
+  console.log('SELECTED VAULT = ', v);
+  vault.value = v;
 }
 
 Vue.onMounted(() => {

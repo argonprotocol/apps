@@ -58,6 +58,7 @@ export const useWallets = defineStore('wallets', () => {
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
   const operationalWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.operationalAddress });
   const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
+  const ethereumWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.ethereumAddress });
 
   const liquidLockingWallet = Vue.computed(() => {
     return IS_TREASURY_APP ? investmentWallet : vaultingWallet;
@@ -258,6 +259,7 @@ export const useWallets = defineStore('wallets', () => {
     miningBotWallet,
     vaultingWallet,
     investmentWallet,
+    ethereumWallet,
     liquidLockingWallet,
     miningHoldSpendableMicrogons,
     operationalWallet,

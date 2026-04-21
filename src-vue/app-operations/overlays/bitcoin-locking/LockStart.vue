@@ -6,7 +6,7 @@
         }}{{ microgonToMoneyNm(vaultCapacityLiquidityMicrogons).format('0,0.00') }} of bitcoin liquidity, which
         currently corresponds to {{ numeral(vaultCapacityBtc).format('0,0.[00000000]') }} BTC. As part of this process,
         you'll receive the full market value of your bitcoin in the form of fully liquid, unencumbered Argon
-        stablecoins. We call this process "Liquid Locking".
+        stablecoins.
       </p>
 
       <div
@@ -142,7 +142,6 @@ import type { IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
 const props = defineProps<{
   coupon?: IBitcoinLockCouponStatus;
   currentTick?: number;
-  maxLockLiquidityMicrogons: bigint;
   vault: Vault;
 }>();
 
@@ -206,7 +205,7 @@ const isOperatorCouponLock = Vue.computed(() => {
 });
 
 const vaultLabel = Vue.computed(() => {
-  if (!hasCouponForVault.value) return 'Your vault';
+  if (!hasCouponForVault.value) return 'This vault';
 
   const name = config.upstreamOperator?.name;
   return name ? `${name}'s vault` : 'The vault';
@@ -329,41 +328,38 @@ function closeOverlay() {
   emit('close');
 }
 
-Vue.watch(
-  () => props.maxLockLiquidityMicrogons,
-  async liquidityMicrogons => {
-    const syncId = ++availableLiquiditySyncId;
-    const nextVaultCapacityLiquidityMicrogons = liquidityMicrogons ?? 0n;
-    const nextVaultCapacitySatoshis = await bitcoinLocks.satoshisForArgonLiquidity(nextVaultCapacityLiquidityMicrogons);
-    let nextAvailableSatoshis = nextVaultCapacitySatoshis;
+async function setLiquidityVariables() {
+  const syncId = ++availableLiquiditySyncId;
+  const nextVaultCapacityLiquidityMicrogons = props.vault.availableBitcoinSpace() ?? 0n;
+  const nextVaultCapacitySatoshis = await bitcoinLocks.satoshisForArgonLiquidity(nextVaultCapacityLiquidityMicrogons);
+  let nextAvailableSatoshis = nextVaultCapacitySatoshis;
 
-    if (props.coupon && isOperatorCouponLock.value) {
-      nextAvailableSatoshis =
-        props.coupon.coupon.maxSatoshis < nextVaultCapacitySatoshis
-          ? props.coupon.coupon.maxSatoshis
-          : nextVaultCapacitySatoshis;
-    }
+  if (props.coupon && isOperatorCouponLock.value) {
+    nextAvailableSatoshis =
+      props.coupon.coupon.maxSatoshis < nextVaultCapacitySatoshis
+        ? props.coupon.coupon.maxSatoshis
+        : nextVaultCapacitySatoshis;
+  }
 
-    const nextLiquidityMicrogons = await vaults.getMarketRateInMicrogons(nextAvailableSatoshis);
+  const nextLiquidityMicrogons = await vaults.getMarketRateInMicrogons(nextAvailableSatoshis);
 
+  if (syncId !== availableLiquiditySyncId) return;
+
+  vaultCapacityLiquidityMicrogons.value = nextVaultCapacityLiquidityMicrogons;
+  vaultCapacityBtc.value = currency.convertSatToBtc(nextVaultCapacitySatoshis);
+  availableLiquidityMicrogons.value = nextLiquidityMicrogons;
+  availableLiquidityBtc.value = currency.convertSatToBtc(nextAvailableSatoshis);
+
+  if (!hasEditedAmounts.value || (liquidityToReceiveMicrogons.value === 0n && lockSatoshis.value === 0n)) {
+    initializeDefaultAmounts(nextAvailableSatoshis, nextLiquidityMicrogons);
     if (syncId !== availableLiquiditySyncId) return;
+  }
 
-    vaultCapacityLiquidityMicrogons.value = nextVaultCapacityLiquidityMicrogons;
-    vaultCapacityBtc.value = currency.convertSatToBtc(nextVaultCapacitySatoshis);
-    availableLiquidityMicrogons.value = nextLiquidityMicrogons;
-    availableLiquidityBtc.value = currency.convertSatToBtc(nextAvailableSatoshis);
-
-    if (!hasEditedAmounts.value || (liquidityToReceiveMicrogons.value === 0n && lockSatoshis.value === 0n)) {
-      initializeDefaultAmounts(nextAvailableSatoshis, nextLiquidityMicrogons);
-      if (syncId !== availableLiquiditySyncId) return;
-    }
-
-    updateFeeEstimate();
-  },
-  { immediate: true },
-);
+  updateFeeEstimate();
+}
 
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
+  await setLiquidityVariables();
 });
 </script>

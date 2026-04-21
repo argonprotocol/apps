@@ -45,13 +45,17 @@
                 <slot name="title">
                   <DialogTitle class="grow pt-1">{{ title }}</DialogTitle>
                 </slot>
-                <DialogClose
-                  v-if="props.showCloseIcon"
-                  @click="closeOverlay"
-                  class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
-                >
-                  <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
-                </DialogClose>
+                <span class="flex flex-row justify-end items-center gap-x-3">
+                  <slot name="icons" />
+                  <DialogClose
+                    NotDraggable
+                    v-if="props.showCloseIcon"
+                    @click="closeOverlay"
+                    class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
+                  >
+                    <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4 pointer-events-none" />
+                  </DialogClose>
+                </span>
               </h2>
               <div :class="props.overflowScroll ? 'min-h-0 grow overflow-y-auto overflow-x-hidden' : ''">
                 <slot />

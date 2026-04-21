@@ -4,12 +4,15 @@ import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import { OperationalStepId } from '../stores/operationsController.ts';
 import { MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import type { SignClientTypes } from '@walletconnect/types';
 
 type IBasicEmitter = {
   openWalletOverlay: {
     walletType: WalletType.miningHold | WalletType.vaulting;
     screen: 'receive' | 'receive-onboarding';
   };
+  openWallet2Overlay: void;
+  openSigningOverlay: SignClientTypes.EventArguments['session_request'];
   openMoveCapitalOverlay: {
     walletType: WalletType.miningHold | WalletType.vaulting;
     moveTo?: MoveTo;

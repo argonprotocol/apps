@@ -8,8 +8,6 @@
         <ArgonSavings v-if="controller.selectedTab === TreasuryTab.MainchainSavings" />
         <ArgonBondsScreen v-if="controller.selectedTab === TreasuryTab.ArgonBonds" />
         <BitcoinLocksScreen v-if="controller.selectedTab === TreasuryTab.BitcoinLocks" />
-        <P2PSavingsScreen v-if="controller.selectedTab === TreasuryTab.P2pSavings" />
-        <P2PTaxesScreen v-if="controller.selectedTab === TreasuryTab.P2pTaxes" />
         <StableSwapsScreen v-if="controller.selectedTab === TreasuryTab.EthereumSwaps" />
       </main>
     </div>
@@ -24,6 +22,8 @@
       <ImportAccountOverlay />
       <AboutOverlay />
       <VaultsOverlay />
+      <WalletOverlay />
+      <SigningOverlay />
       <JurisdictionOverlay />
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
     </template>
@@ -49,13 +49,13 @@ import BootingOverlay from '../app-shared/overlays/BootingOverlay.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import TopBar from './navigation/TopBar.vue';
 import ArgonSavings from './screens/ArgonSavings.vue';
-import P2PSavingsScreen from './screens/P2pSavingsScreen.vue';
-import P2PTaxesScreen from './screens/P2pTaxesScreen.vue';
 import BitcoinLocksScreen from './screens/BitcoinLocks.vue';
 import ArgonBondsScreen from './screens/ArgonBonds.vue';
 import StableSwapsScreen from './screens/StableSwaps.vue';
 import { TreasuryTab, useTreasuryController } from '../stores/treasuryController.ts';
 import VaultsOverlay from './overlays/VaultsOverlay.vue';
+import WalletOverlay from './overlays/WalletOverlay.vue';
+import SigningOverlay from './overlays/SigningOverlay.vue';
 
 const controller = useTreasuryController();
 const config = getConfig();

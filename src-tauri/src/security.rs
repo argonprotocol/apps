@@ -7,6 +7,7 @@ use bip32::{ExtendedKey, Prefix, XPrv};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::montgomery::MontgomeryPoint;
 use hkdf::Hkdf;
+use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
 use secrecy::SecretString;
 use sha2::{Digest, Sha256, Sha512};
 use sp_core::crypto::AddressUri;
@@ -483,14 +484,58 @@ impl Security {
     }
 
     fn derive_ethereum_address(mnemonic: &str) -> Result<String> {
-        let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
-        let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0")?;
-        let hd_key: XPrv = bip32::XPrv::derive_from_path(seed, &path)?;
+        let hd_key = Self::derive_ethereum_hd_key(mnemonic)?;
         let public_key = hd_key.private_key().verifying_key();
         let encoded = public_key.to_encoded_point(false);
         let public_key_bytes = encoded.as_bytes();
         let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
         Ok(Self::to_checksummed_ethereum_address(&hash[12..]))
+    }
+
+    pub fn sign_ethereum_personal_message(app: &AppHandle, message: &str) -> Result<String> {
+        let mnemonic = Self::expose_mnemonic(app)?;
+        Self::sign_ethereum_personal_message_with_mnemonic(&mnemonic, message)
+    }
+
+    fn derive_ethereum_hd_key(mnemonic: &str) -> Result<XPrv> {
+        let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
+        let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0")?;
+        Ok(bip32::XPrv::derive_from_path(seed, &path)?)
+    }
+
+    fn sign_ethereum_personal_message_with_mnemonic(
+        mnemonic: &str,
+        message: &str,
+    ) -> Result<String> {
+        let hd_key = Self::derive_ethereum_hd_key(mnemonic)?;
+        let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+        let message_bytes = Self::decode_ethereum_message(message)?;
+        let digest = Self::ethereum_personal_message_digest(&message_bytes);
+        let signature = Secp256k1::new()
+            .sign_ecdsa_recoverable(&Secp256k1Message::from_digest(digest), &secret_key);
+        let (recovery_id, compact) = signature.serialize_compact();
+
+        let mut signature_bytes = [0u8; 65];
+        signature_bytes[..64].copy_from_slice(&compact);
+        signature_bytes[64] = recovery_id.to_i32() as u8 + 27;
+
+        Ok(format!("0x{}", hex::encode(signature_bytes)))
+    }
+
+    fn decode_ethereum_message(message: &str) -> Result<Vec<u8>> {
+        let trimmed = message.trim();
+        if let Some(hex_value) = trimmed.strip_prefix("0x") {
+            return Ok(hex::decode(hex_value)?);
+        }
+
+        Ok(trimmed.as_bytes().to_vec())
+    }
+
+    fn ethereum_personal_message_digest(message: &[u8]) -> [u8; 32] {
+        let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
+        let mut payload = prefix.into_bytes();
+        payload.extend_from_slice(message);
+        sp_core::hashing::keccak_256(&payload)
     }
 
     fn to_checksummed_ethereum_address(address_bytes: &[u8]) -> String {
@@ -726,6 +771,20 @@ mod tests {
         assert_eq!(
             ethereum_address,
             "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        );
+    }
+
+    #[test]
+    fn sign_ethereum_personal_message_matches_known_vector() {
+        let mnemonic = "test test test test test test test test test test test junk";
+
+        let signature =
+            Security::sign_ethereum_personal_message_with_mnemonic(mnemonic, "hello world")
+                .expect("ethereum signature should derive");
+
+        assert_eq!(
+            signature,
+            "0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b"
         );
     }
 
