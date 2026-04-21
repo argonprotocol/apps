@@ -3,6 +3,7 @@ import { WalletKeys } from '../../lib/WalletKeys.ts';
 import { vi } from 'vitest';
 import { bip39, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { miniSecretFromUri } from '@argonprotocol/apps-core';
+import { mnemonicToAccount } from 'viem/accounts';
 
 export function createTestWallet(mnemonic?: string) {
   mnemonic ??= mnemonicGenerate();
@@ -12,6 +13,7 @@ export function createTestWallet(mnemonic?: string) {
   const vaultingAccount = keypair.derive('//vaulting');
   const investmentAccount = keypair.derive('//investment');
   const operationalAccount = keypair.derive('//operational');
+  const ethereumAccount = mnemonicToAccount(mnemonic, { accountIndex: 0 });
   return {
     mnemonic,
     miningHoldAccount,
@@ -27,6 +29,7 @@ export function createTestWallet(mnemonic?: string) {
         vaultingAddress: vaultingAccount.address,
         investmentAddress: investmentAccount.address,
         operationalAddress: operationalAccount.address,
+        ethereumAddress: ethereumAccount.address,
       },
       () => Promise.resolve(false),
     ),

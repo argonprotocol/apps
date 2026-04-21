@@ -29,6 +29,7 @@ pub struct Security {
     pub vaulting_address: String,
     pub investment_address: String,
     pub operational_address: String,
+    pub ethereum_address: String,
     pub ssh_public_key: String,
 }
 
@@ -402,6 +403,7 @@ impl Security {
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
         let investment_account = Self::sr_derive_from_mnemonic(mnemonic, "//investment")?;
         let operational_account = Self::sr_derive_from_mnemonic(mnemonic, "//operational")?;
+        let ethereum_address = Self::derive_ethereum_address(mnemonic)?;
 
         Ok(Self {
             mining_hold_address: mining_hold_account.0.public().to_ss58check(),
@@ -409,6 +411,7 @@ impl Security {
             vaulting_address: vaulting_account.0.public().to_ss58check(),
             investment_address: investment_account.0.public().to_ss58check(),
             operational_address: operational_account.0.public().to_ss58check(),
+            ethereum_address,
             ssh_public_key: public_key.to_string(),
         })
     }
@@ -416,6 +419,40 @@ impl Security {
     pub fn create(app: &AppHandle) -> Result<Self> {
         let (_pair, phrase, _seed) = ed25519::Pair::generate_with_phrase(None);
         Self::save_with_mnemonic(app, &phrase)
+    }
+
+    fn derive_ethereum_address(mnemonic: &str) -> Result<String> {
+        let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
+        let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0")?;
+        let hd_key: XPrv = bip32::XPrv::derive_from_path(seed, &path)?;
+        let public_key = hd_key.private_key().verifying_key();
+        let encoded = public_key.to_encoded_point(false);
+        let public_key_bytes = encoded.as_bytes();
+        let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
+        Ok(Self::to_checksummed_ethereum_address(&hash[12..]))
+    }
+
+    fn to_checksummed_ethereum_address(address_bytes: &[u8]) -> String {
+        let address_hex = hex::encode(address_bytes);
+        let hash_hex = hex::encode(sp_core::hashing::keccak_256(address_hex.as_bytes()));
+        let mut checksummed = String::with_capacity(42);
+        checksummed.push_str("0x");
+
+        for (address_char, hash_char) in address_hex.chars().zip(hash_hex.chars()) {
+            if address_char.is_ascii_digit() {
+                checksummed.push(address_char);
+                continue;
+            }
+
+            let nibble = hash_char.to_digit(16).unwrap_or_default();
+            if nibble >= 8 {
+                checksummed.push(address_char.to_ascii_uppercase());
+            } else {
+                checksummed.push(address_char);
+            }
+        }
+
+        checksummed
     }
 }
 
