@@ -655,4 +655,17 @@ mod tests {
             "decryption should fail when using the wrong counterparty public key"
         );
     }
+
+    #[test]
+    fn derive_ethereum_address_matches_known_eip55_vector() {
+        let mnemonic = "test test test test test test test test test test test junk";
+
+        let ethereum_address =
+            Security::derive_ethereum_address(mnemonic).expect("ethereum address should derive");
+
+        assert_eq!(
+            ethereum_address,
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        );
+    }
 }
