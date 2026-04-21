@@ -28,6 +28,9 @@ export class WalletKeys {
    * Operational account for ongoing app operations.
    */
   public operationalAddress: string;
+  /**
+   * Ethereum-compatible address used for EVM/Ethereum integrations tied to this wallet.
+   */
   public ethereumAddress: string;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
