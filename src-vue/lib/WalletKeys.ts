@@ -28,6 +28,10 @@ export class WalletKeys {
    * Operational account for ongoing app operations.
    */
   public operationalAddress: string;
+  /**
+   * Ethereum-compatible address used for EVM/Ethereum integrations tied to this wallet.
+   */
+  public ethereumAddress: string;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
 
@@ -41,6 +45,7 @@ export class WalletKeys {
     this.vaultingAddress = security.vaultingAddress;
     this.investmentAddress = security.investmentAddress;
     this.operationalAddress = security.operationalAddress;
+    this.ethereumAddress = security.ethereumAddress;
     console.log('WalletKeys initialized with mining address:', this.miningBotAddress, security);
   }
 

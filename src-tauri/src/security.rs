@@ -29,6 +29,7 @@ pub struct Security {
     pub vaulting_address: String,
     pub investment_address: String,
     pub operational_address: String,
+    pub ethereum_address: String,
     pub ssh_public_key: String,
 }
 
@@ -38,6 +39,30 @@ pub struct Security {
 struct WalletFile {
     encrypted_mnemonic: String,
     meta: Security,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WalletMnemonicFile {
+    encrypted_mnemonic: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WalletFileCompat {
+    meta: SecurityCompat,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SecurityCompat {
+    mining_hold_address: String,
+    mining_bot_address: String,
+    vaulting_address: String,
+    investment_address: String,
+    operational_address: String,
+    ethereum_address: Option<String>,
+    ssh_public_key: String,
 }
 
 struct X25519Keypair {
@@ -138,7 +163,7 @@ impl Security {
 
     pub fn expose_mnemonic(app: &AppHandle) -> Result<String> {
         let raw = fs::read_to_string(Self::wallet_path(app))?;
-        let wallet: WalletFile = serde_json::from_str(&raw)?;
+        let wallet: WalletMnemonicFile = serde_json::from_str(&raw)?;
         let key = Self::encryption_key(app)?;
         Self::decrypt_mnemonic(&key, &wallet.encrypted_mnemonic)
     }
@@ -179,6 +204,47 @@ impl Security {
         fs::rename(&tmp_path, &wallet_path)?;
 
         Ok(security)
+    }
+
+    fn compat_meta_to_security(meta: SecurityCompat, mnemonic: &str) -> Result<Security> {
+        let ethereum_address = match meta.ethereum_address {
+            Some(address) if !address.is_empty() => address,
+            _ => Self::derive_ethereum_address(mnemonic)?,
+        };
+
+        Ok(Security {
+            mining_hold_address: meta.mining_hold_address,
+            mining_bot_address: meta.mining_bot_address,
+            vaulting_address: meta.vaulting_address,
+            investment_address: meta.investment_address,
+            operational_address: meta.operational_address,
+            ethereum_address,
+            ssh_public_key: meta.ssh_public_key,
+        })
+    }
+
+    fn migrate_wallet_file(app: &AppHandle) -> Result<Option<Security>> {
+        let wallet_path = Self::wallet_path(app);
+        if !wallet_path.exists() {
+            return Ok(None);
+        }
+
+        let raw = fs::read_to_string(&wallet_path)?;
+        let wallet: WalletFileCompat = serde_json::from_str(&raw)?;
+        let needs_ethereum_backfill = wallet
+            .meta
+            .ethereum_address
+            .as_deref()
+            .is_none_or(str::is_empty);
+
+        if needs_ethereum_backfill {
+            let mnemonic = Self::expose_mnemonic(app)?;
+            let security = Self::write_wallet_file(app, &mnemonic)?;
+            log::info!("Backfilled ethereumAddress in wallet.json");
+            Ok(Some(security))
+        } else {
+            Ok(Some(Self::compat_meta_to_security(wallet.meta, "")?))
+        }
     }
 
     pub fn sr_derive(app: &AppHandle, suri: &str) -> Result<(sr25519::Pair, [u8; 32])> {
@@ -375,12 +441,8 @@ impl Security {
         }
 
         Self::migrate_legacy_mnemonic(app)?;
-
-        let wallet_path = Self::wallet_path(app);
-        if wallet_path.exists() {
-            let raw = fs::read_to_string(&wallet_path)?;
-            let wallet: WalletFile = serde_json::from_str(&raw)?;
-            Ok(wallet.meta)
+        if let Some(security) = Self::migrate_wallet_file(app)? {
+            Ok(security)
         } else {
             Security::create(app)
         }
@@ -402,6 +464,7 @@ impl Security {
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
         let investment_account = Self::sr_derive_from_mnemonic(mnemonic, "//investment")?;
         let operational_account = Self::sr_derive_from_mnemonic(mnemonic, "//operational")?;
+        let ethereum_address = Self::derive_ethereum_address(mnemonic)?;
 
         Ok(Self {
             mining_hold_address: mining_hold_account.0.public().to_ss58check(),
@@ -409,6 +472,7 @@ impl Security {
             vaulting_address: vaulting_account.0.public().to_ss58check(),
             investment_address: investment_account.0.public().to_ss58check(),
             operational_address: operational_account.0.public().to_ss58check(),
+            ethereum_address,
             ssh_public_key: public_key.to_string(),
         })
     }
@@ -416,6 +480,40 @@ impl Security {
     pub fn create(app: &AppHandle) -> Result<Self> {
         let (_pair, phrase, _seed) = ed25519::Pair::generate_with_phrase(None);
         Self::save_with_mnemonic(app, &phrase)
+    }
+
+    fn derive_ethereum_address(mnemonic: &str) -> Result<String> {
+        let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
+        let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0")?;
+        let hd_key: XPrv = bip32::XPrv::derive_from_path(seed, &path)?;
+        let public_key = hd_key.private_key().verifying_key();
+        let encoded = public_key.to_encoded_point(false);
+        let public_key_bytes = encoded.as_bytes();
+        let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
+        Ok(Self::to_checksummed_ethereum_address(&hash[12..]))
+    }
+
+    fn to_checksummed_ethereum_address(address_bytes: &[u8]) -> String {
+        let address_hex = hex::encode(address_bytes);
+        let hash_hex = hex::encode(sp_core::hashing::keccak_256(address_hex.as_bytes()));
+        let mut checksummed = String::with_capacity(42);
+        checksummed.push_str("0x");
+
+        for (address_char, hash_char) in address_hex.chars().zip(hash_hex.chars()) {
+            if address_char.is_ascii_digit() {
+                checksummed.push(address_char);
+                continue;
+            }
+
+            let nibble = hash_char.to_digit(16).unwrap_or_default();
+            if nibble >= 8 {
+                checksummed.push(address_char.to_ascii_uppercase());
+            } else {
+                checksummed.push(address_char);
+            }
+        }
+
+        checksummed
     }
 }
 
@@ -474,7 +572,7 @@ fn generate_wallet_key_hex() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::Security;
+    use super::{Security, SecurityCompat};
     use sp_core::Pair;
 
     #[test]
@@ -615,6 +713,62 @@ mod tests {
         assert!(
             result.is_err(),
             "decryption should fail when using the wrong counterparty public key"
+        );
+    }
+
+    #[test]
+    fn derive_ethereum_address_matches_known_eip55_vector() {
+        let mnemonic = "test test test test test test test test test test test junk";
+
+        let ethereum_address =
+            Security::derive_ethereum_address(mnemonic).expect("ethereum address should derive");
+
+        assert_eq!(
+            ethereum_address,
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        );
+    }
+
+    #[test]
+    fn compat_meta_to_security_preserves_existing_ethereum_address() {
+        let meta = SecurityCompat {
+            mining_hold_address: "hold".to_string(),
+            mining_bot_address: "bot".to_string(),
+            vaulting_address: "vault".to_string(),
+            investment_address: "investment".to_string(),
+            operational_address: "operational".to_string(),
+            ethereum_address: Some("0x1234567890abcdef1234567890abcdef12345678".to_string()),
+            ssh_public_key: "ssh-ed25519 AAAA".to_string(),
+        };
+
+        let security =
+            Security::compat_meta_to_security(meta, "").expect("meta should convert to security");
+
+        assert_eq!(
+            security.ethereum_address,
+            "0x1234567890abcdef1234567890abcdef12345678"
+        );
+    }
+
+    #[test]
+    fn compat_meta_to_security_derives_missing_ethereum_address() {
+        let mnemonic = "test test test test test test test test test test test junk";
+        let meta = SecurityCompat {
+            mining_hold_address: "hold".to_string(),
+            mining_bot_address: "bot".to_string(),
+            vaulting_address: "vault".to_string(),
+            investment_address: "investment".to_string(),
+            operational_address: "operational".to_string(),
+            ethereum_address: None,
+            ssh_public_key: "ssh-ed25519 AAAA".to_string(),
+        };
+
+        let security = Security::compat_meta_to_security(meta, mnemonic)
+            .expect("meta should convert to security");
+
+        assert_eq!(
+            security.ethereum_address,
+            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
         );
     }
 }
