@@ -116,6 +116,7 @@
   ],
   "devDependencies": {
     "@argonprotocol/testing": "1.4.3-dev.836d58f7",
+    "@scure/bip39": "^2.0.1",
     "@tauri-apps/cli": "^2.8.2",
     "@types/bun": "^1.2.22",
     "@types/d3": "^7",
