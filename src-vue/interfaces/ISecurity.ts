@@ -5,4 +5,5 @@ export default interface ISecurity {
   vaultingAddress: string;
   investmentAddress: string;
   operationalAddress: string;
+  ethereumAddress: string;
 }
