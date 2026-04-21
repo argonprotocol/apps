@@ -29,6 +29,7 @@ pub struct Security {
     pub vaulting_address: String,
     pub investment_address: String,
     pub operational_address: String,
+    #[serde(default)]
     pub ethereum_address: String,
     pub ssh_public_key: String,
 }
