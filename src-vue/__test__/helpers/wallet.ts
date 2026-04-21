@@ -3,7 +3,7 @@ import { WalletKeys } from '../../lib/WalletKeys.ts';
 import { vi } from 'vitest';
 import { bip39, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { miniSecretFromUri } from '@argonprotocol/apps-core';
-import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
+import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english.js';
 import { mnemonicToAccount } from 'viem/accounts';
 
 const DEFAULT_TEST_MNEMONIC = 'test test test test test test test test test test test junk';
