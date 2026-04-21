@@ -36,17 +36,17 @@
       @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)"
       :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
     >
-      <div>Ethereum Swaps</div>
+      <div>Stable Swaps</div>
       <div>{{currency.symbol}}0.00</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
     <section DashBox class="grow flex flex-col">
-      <div class="grow px-10 pb-[40%] flex flex-col justify-center text-justify text-slate-800/60">
+      <div class="grow pl-8 pr-10 pb-[40%] flex flex-col justify-center text-justify text-slate-800/60">
         <header class="font-bold">Did You Know?</header>
         <p class="break-words leading-7">
-          The argon stablecoin is designed to never lose value. Unlike the dollar, it buys the same amount of goods
-          today as it will a century from now.
+          This Argon Treasury app is fully decentralized and open-source, which means there is no company behind it. All the code runs on your
+          computer, and all the data stays with you.
         </p>
       </div>
       <ul class="flex flex-row w-full items-end px-3 pb-4 gap-x-3 text-center">
@@ -157,7 +157,7 @@ Vue.onMounted(async () => {
     &:hover:not([Selected]) {
       @apply bg-[var(--bg-color)];
       [ArrowWrapper] {
-        @apply left-[calc(100%-12px)] block;
+        @apply left-[calc(100%-2px)] block;
         &::before {
           @apply w-4;
         }

@@ -76,7 +76,7 @@ export const useTreasuryController = defineStore('treasuryController', () => {
   }
 
   Vue.watch(
-    () => config.upstreamOperator?.vaultId ?? 0,
+    () => (config.isLoaded ? (config.upstreamOperator?.vaultId ?? 0) : 0),
     vaultId => {
       selectedVaultSubscriptionKey += 1;
       const subscriptionKey = selectedVaultSubscriptionKey;

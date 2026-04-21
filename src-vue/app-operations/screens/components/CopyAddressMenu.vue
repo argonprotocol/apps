@@ -23,18 +23,38 @@
             <DropdownMenuItem class="pt-1 pb-2">
               <CopyToClipboard :content="wallet.address" class="group relative cursor-pointer">
                 <div class="flex flex-col text-right">
-                  <div class="text-slate-700 group-hover:text-argon-600">Copy Address</div>
+                  <div class="text-slate-700 group-hover:text-argon-600">Address to Send From Argon</div>
                   <div class="text-slate-600/60">
-                    {{ abbreviateAddress(wallet.address, 10) }}
+                    {{ abbreviateAddress(wallet.address, 15) }}
                   </div>
                 </div>
                 <template #copied>
                   <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
                     <div>
-                      Copy Address
+                      Address to Send From Argon
                     </div>
                     <div>
-                      {{ abbreviateAddress(wallet.address, 10) }}
+                      {{ abbreviateAddress(wallet.address, 15) }}
+                    </div>
+                  </div>
+                </template>
+              </CopyToClipboard>
+            </DropdownMenuItem>
+            <DropdownMenuItem class="pt-1 pb-2">
+              <CopyToClipboard :content="wallet.address" class="group relative cursor-pointer">
+                <div class="flex flex-col text-right">
+                  <div class="text-slate-700 group-hover:text-argon-600">Address to Send From Ethereum</div>
+                  <div class="text-slate-600/60">
+                    {{ abbreviateAddress(wallet.address, 15) }}
+                  </div>
+                </div>
+                <template #copied>
+                  <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
+                    <div>
+                      Address to Send From Ethereum
+                    </div>
+                    <div>
+                      {{ abbreviateAddress(wallet.address, 15) }}
                     </div>
                   </div>
                 </template>
