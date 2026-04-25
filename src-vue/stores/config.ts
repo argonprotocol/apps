@@ -10,7 +10,15 @@ import { getWalletBalances, getWalletKeys } from './wallets.ts';
 import { WalletRecovery } from '../lib/WalletRecovery.ts';
 import { getMainchainClients, getMiningFrames } from './mainchain.ts';
 
-let config: Vue.Reactive<Config>;
+// Preserve the singleton Config instance across Vite HMR reloads so dev hot updates
+// do not trip Config's ensureOnlyOneInstance guard.
+let config: Vue.Reactive<Config> | undefined = import.meta.hot?.data.config;
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(data => {
+    data.config = config;
+  });
+}
 
 export { NETWORK_NAME };
 export { type Config };
@@ -36,7 +44,7 @@ export function getConfig(): Vue.Reactive<Config> {
         // Ensure any unsaved changes are saved when the window is closed
         console.info('Config loaded');
         void getCurrentWindow().onCloseRequested(async () => {
-          await config.save();
+          await config?.save();
         });
       })
       .catch(handleFatalError.bind('useConfig'));

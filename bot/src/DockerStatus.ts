@@ -1,12 +1,12 @@
 import type { IBitcoinBlockMeta, IBitcoinLatestBlocks, IBlockNumbers, ILatestBlocks } from '@argonprotocol/apps-core';
 import { requireEnv } from './utils.js';
 
-const statusApi = requireEnv('STATUS_URL');
+const routerApi = process.env.ROUTER_URL ?? requireEnv('ROUTER_URL');
 
 export class DockerStatus {
   public static async getArgonBlockNumbers(): Promise<IBlockNumbers> {
     try {
-      const result = await fetch(`${statusApi}/argon/latestblocks`).then(res => res.json());
+      const result = await fetch(`${routerApi}/argon/latestblocks`).then(res => res.json());
       const { localNodeBlockNumber, mainNodeBlockNumber } = result as ILatestBlocks;
       return {
         localNode: localNodeBlockNumber,
@@ -20,7 +20,7 @@ export class DockerStatus {
 
   public static async isArgonMinerReady(): Promise<boolean> {
     try {
-      const result = await fetch(`${statusApi}/argon/iscomplete`).then(res => res.text());
+      const result = await fetch(`${routerApi}/argon/iscomplete`).then(res => res.text());
       return result === 'true';
     } catch (e) {
       console.error('isArgonMinerReady Error:', e);
@@ -30,7 +30,7 @@ export class DockerStatus {
 
   public static async getBitcoinBlockNumbers(): Promise<IBlockNumbers & { localNodeBlockTime: number }> {
     try {
-      const result = await fetch(`${statusApi}/bitcoin/latestblocks`).then(
+      const result = await fetch(`${routerApi}/bitcoin/latestblocks`).then(
         res => res.json() as Promise<IBitcoinLatestBlocks>,
       );
 
@@ -48,7 +48,7 @@ export class DockerStatus {
 
   public static async getBitcoinLatestBlocks(): Promise<IBitcoinBlockMeta[]> {
     try {
-      return await fetch(`${statusApi}/bitcoin/recentblocks?blockCount=10`).then(
+      return await fetch(`${routerApi}/bitcoin/recentblocks?blockCount=10`).then(
         res => res.json() as Promise<IBitcoinBlockMeta[]>,
       );
     } catch (e) {

@@ -20,7 +20,7 @@
               <h2
                 class="relative flex flex-row pt-5 pb-4 pl-3 text-left text-3xl font-bold whitespace-nowrap text-[#672D73]"
                 style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)">
-                <DialogTitle as="div" class="relative z-10 w-1/3 min-w-fit pr-10">Connect a Cloud Server</DialogTitle>
+                <DialogTitle as="div" class="relative z-10 w-1/3 min-w-fit pr-10">Connect a Cloud Machine</DialogTitle>
                 <TabsList
                   class="relative -ml-3 flex w-1/3 min-w-fit divide-x divide-slate-400/60 rounded-lg border border-slate-400/60 text-base text-slate-400/80"
                 >
@@ -211,7 +211,6 @@ async function connect() {
 
     if (config.serverAdd.customServer?.hasRunningBot) {
       config.serverDetails = await MiningMachine.setup(config as Config, walletKeys);
-      config.hasReadMiningInstructions = true;
       config.miningSetupStatus = MiningSetupStatus.Finished;
     }
 

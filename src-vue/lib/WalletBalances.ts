@@ -43,6 +43,7 @@ export class WalletBalances {
   public miningHoldWallet: Wallet;
   public miningBotWallet: Wallet;
   public vaultingWallet: Wallet;
+  public operationalWallet: Wallet;
   public investmentWallet: Wallet;
 
   public bestBlock?: IBlockHeaderInfo;
@@ -67,7 +68,13 @@ export class WalletBalances {
   private unsubscribe?: () => void;
 
   public get wallets(): Wallet[] {
-    return [this.miningHoldWallet, this.miningBotWallet, this.vaultingWallet, this.investmentWallet];
+    return [
+      this.miningHoldWallet,
+      this.miningBotWallet,
+      this.vaultingWallet,
+      this.operationalWallet,
+      this.investmentWallet,
+    ];
   }
 
   public get addresses(): string[] {
@@ -88,6 +95,7 @@ export class WalletBalances {
     this.miningHoldWallet = new Wallet(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
     this.miningBotWallet = new Wallet(walletKeys.miningBotAddress, 'miningBot', dbPromise);
     this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
+    this.operationalWallet = new Wallet(walletKeys.operationalAddress, 'operational', dbPromise);
     this.investmentWallet = new Wallet(walletKeys.investmentAddress, 'investment', dbPromise);
     this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
@@ -152,6 +160,9 @@ export class WalletBalances {
       return;
     }
     await this.blockQueue.add(async () => {
+      if (this.isClosed) {
+        return;
+      }
       ///// UPDATE FINALIZED
       const finalizedBlock = this.blockWatch.finalizedBlockHeader;
       const finalizedBlockNumber = finalizedBlock.blockNumber;
@@ -212,6 +223,9 @@ export class WalletBalances {
         }
         if (this.isClosed) break;
       }
+      if (this.isClosed) {
+        return;
+      }
       await db.walletLedgerTable.markFinalizedUpToBlock(finalizedBlockNumber);
       await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
         blockNumber: finalizedBlock.blockNumber,
@@ -264,7 +278,7 @@ export class WalletBalances {
   public async resyncBlock(blockNumber: number): Promise<void> {
     const blockHeader = await this.blockWatch.getHeader(blockNumber);
     const { balances, client, api } = await this.readBalances(this.addresses, blockHeader);
-    const events = await api.query.system.events();
+    const events = await this.blockWatch.getEvents(blockHeader);
     const prices = await new CurrencyBase(this.blockWatch.clients).fetchMainchainRates(api);
     for (let i = 0; i < this.addresses.length; i++) {
       const wallet = this.wallets[i];
@@ -405,7 +419,7 @@ export class WalletBalances {
     client: ArgonClient;
   }> {
     const client = await this.blockWatch.getRpcClient(block.blockNumber);
-    const api = await client.at(block.blockHash);
+    const api = await this.blockWatch.getApi(block);
     const microgons = await api.query.system.account.multi(addresses).then(x => x.map(acc => acc.data));
     const micronots = await api.query.ownership.account.multi(addresses);
 
@@ -436,7 +450,7 @@ export class WalletBalances {
 
       const hasChange = wallet.addDiffs(entry);
       if (hasChange) {
-        events ??= await api.query.system.events();
+        events ??= await this.blockWatch.getEvents(block);
         const filter = new AccountEventsFilter(
           wallet.address,
           wallet.type,

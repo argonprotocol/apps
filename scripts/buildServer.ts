@@ -1,8 +1,8 @@
 import * as tar from 'tar';
 import * as fs from 'node:fs';
 import * as Path from 'path';
+import * as os from 'node:os';
 import { createHash } from 'crypto';
-import { pipeline } from 'stream/promises';
 import { version as packageVersion } from '../package.json';
 
 (async () => {
@@ -16,23 +16,26 @@ import { version as packageVersion } from '../package.json';
   const version = `${packageVersion}`;
   const fileName = `server-${version}.tar.gz`;
   const filePath = Path.join('resources', fileName);
-  await tar.create(
-    {
-      gzip: { mtime: 0 } as any,
-      portable: true,
-      noMtime: true, // need for deterministic hashes
-      file: filePath,
-      cwd: './server',
-    },
-    [''],
-  );
+  const stagingDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'argon-server-bundle-'));
+  const serverSourceDir = Path.join(dirname, '../server');
+  try {
+    fs.cpSync(serverSourceDir, stagingDir, { recursive: true });
+    await tar.create(
+      {
+        gzip: { mtime: 0 } as any,
+        portable: true,
+        noMtime: true, // need for deterministic hashes
+        file: filePath,
+        cwd: stagingDir,
+      },
+      [''],
+    );
 
-  // Compute SHA256 checksum
-  const hash = createHash('sha256');
-  const fileStream = fs.createReadStream(filePath);
-  await pipeline(fileStream, hash);
-
-  const checksum = hash.digest('hex');
-  console.log(`SHA256: ${checksum}`);
-  fs.writeFileSync(Path.join(resourcesDir, 'SHASUM256'), `${checksum}  ${fileName}\n`);
+    // Compute SHA256 checksum
+    const checksum = createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+    console.log(`SHA256: ${checksum}`);
+    fs.writeFileSync(Path.join(resourcesDir, 'SHASUM256'), `${checksum}  ${fileName}\n`);
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
 })();

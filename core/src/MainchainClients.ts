@@ -1,6 +1,8 @@
-import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import { type ApiDecoration, type ArgonClient, getClient } from '@argonprotocol/mainchain';
 import { wrapApi } from './ClientWrapper.js';
 import { createTypedEventEmitter } from './utils.js';
+
+export type ArgonQueryClient = ArgonClient | ApiDecoration<'promise'>;
 
 interface ILastErrorInfo {
   errors: Error[];
@@ -67,18 +69,35 @@ export class MainchainClients {
     if (this.prunedUrl === url && this.prunedClientPromise) {
       return this.prunedClientPromise;
     }
+
+    const previousClientPromise = this.prunedClientPromise;
     const client = await getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'pruned'));
     this.prunedClientPromise = Promise.resolve(client);
     this.prunedUrl = url;
     this.events.emit('on-pruned-client', client, url);
+    void previousClientPromise?.then(previousClient => previousClient.disconnect()).catch(() => undefined);
     return this.prunedClientPromise;
   }
 
-  public get(needsHistoricalBlocks: boolean): Promise<ArgonClient> {
-    if (needsHistoricalBlocks) {
-      return this.archiveClientPromise;
+  public clearPrunedClient(): void {
+    const previousClientPromise = this.prunedClientPromise;
+    if (!previousClientPromise) return;
+
+    this.prunedClientPromise = undefined;
+    this.prunedUrl = undefined;
+    void previousClientPromise.then(previousClient => previousClient.disconnect()).catch(() => undefined);
+  }
+
+  public async get(needsHistoricalBlocks: boolean): Promise<ArgonClient & { clientType: 'archive' | 'pruned' }> {
+    let client: ArgonClient;
+    if (needsHistoricalBlocks || !this.prunedClientPromise) {
+      client = await this.archiveClientPromise;
+      Object.assign(client, { clientType: 'archive' });
+      return client as ArgonClient & { clientType: 'archive' };
     }
-    return this.prunedClientPromise ?? this.archiveClientPromise;
+    client = await this.prunedClientPromise;
+    Object.assign(client, { clientType: 'pruned' });
+    return client as ArgonClient & { clientType: 'pruned' };
   }
 
   public async disconnect() {

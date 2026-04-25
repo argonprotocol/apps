@@ -8,6 +8,7 @@ import {
   JsonExt,
   JsonRpcResponse,
 } from '@argonprotocol/apps-core';
+import type { ServerApiClient } from './ServerApiClient.ts';
 
 export class BotWsClient {
   public events = createTypedEventEmitter<{
@@ -23,8 +24,7 @@ export class BotWsClient {
   public connectDeferred = createDeferred<void>();
 
   private requestIdCounter = 0;
-  private readonly url: string;
-  private webSocket!: WebSocket;
+  private webSocket?: WebSocket;
   private messageWaiters: Map<number, IDeferred<any>> = new Map();
 
   // Temporary behavior: disable automatic reconnect attempts.
@@ -44,16 +44,28 @@ export class BotWsClient {
   private readonly heartbeatStaleAfterMs = 75_000;
   private readonly heartbeatWatchdogIntervalMs = 10_000;
 
-  constructor(url: string) {
-    this.url = url;
+  constructor(private readonly serverApiClient: ServerApiClient) {
+    this.preventUnhandledConnectRejection();
     this.beginConnect();
+  }
+
+  public static async connectToServerGateway(serverApiClient: ServerApiClient): Promise<BotWsClient> {
+    const client = new BotWsClient(serverApiClient);
+    await client.connectDeferred.promise;
+    return client;
+  }
+
+  private preventUnhandledConnectRejection(): void {
+    void this.connectDeferred.promise.catch(() => {
+      // Connection failures are surfaced to explicit awaiters; this prevents noisy unhandled rejections meanwhile.
+    });
   }
 
   private startHeartbeatWatchdog(): void {
     if (this.heartbeatWatchdogTimer) return;
 
     this.heartbeatWatchdogTimer = setInterval(() => {
-      if (this.webSocket.readyState !== WebSocket.OPEN) return;
+      if (this.webSocket?.readyState !== WebSocket.OPEN) return;
       if (!this.lastHeartbeatAt) return;
 
       const now = Date.now();
@@ -62,7 +74,7 @@ export class BotWsClient {
       // Force-close so our normal reconnect logic runs.
       this.emitConnectionLostOnce({ source: 'heartbeat-timeout' });
       try {
-        this.webSocket.close();
+        this.webSocket?.close();
       } catch {
         // ignore
       }
@@ -90,6 +102,7 @@ export class BotWsClient {
     // New connection attempt -> new deferred for callers waiting on readiness.
     if (this.connectDeferred.isSettled) {
       this.connectDeferred = createDeferred<void>();
+      this.preventUnhandledConnectRejection();
     }
 
     // Clear any scheduled reconnect because we're connecting now.
@@ -99,8 +112,24 @@ export class BotWsClient {
     }
 
     this.stopHeartbeatWatchdog();
+    void this.openWebSocket();
+  }
 
-    this.webSocket = new WebSocket(this.url);
+  private async openWebSocket(): Promise<void> {
+    try {
+      await this.serverApiClient.ensureAdminOperatorSession({ forceVerify: true });
+    } catch (error) {
+      if (!this.connectDeferred.isSettled) {
+        this.connectDeferred.reject(error);
+      }
+      console.warn('BotWsClient auth check failed before connect:', error);
+      if (this.hasEverConnected) {
+        this.scheduleReconnect();
+      }
+      return;
+    }
+
+    this.webSocket = new WebSocket(this.serverApiClient.getGatewayWebsocketUrl('/bot/'));
 
     this.webSocket.addEventListener('open', event => {
       this.reconnectAttempt = 0;
@@ -155,7 +184,7 @@ export class BotWsClient {
       this.scheduleReconnect();
     });
 
-    this.webSocket.addEventListener('message', (event: MessageEvent) => {
+    this.webSocket.addEventListener('message', event => {
       try {
         const response: JsonRpcResponse = JsonExt.parse(event.data);
         if ('id' in response && this.messageWaiters.has(response.id)) {
@@ -201,15 +230,16 @@ export class BotWsClient {
     this.reconnectAttempt += 1;
 
     // If callers are awaiting readiness, make sure they are awaiting a fresh deferred.
-    if (this.connectDeferred.isSettled && this.webSocket.readyState !== WebSocket.OPEN) {
+    if (this.connectDeferred.isSettled && this.webSocket?.readyState !== WebSocket.OPEN) {
       this.connectDeferred = createDeferred<void>();
+      this.preventUnhandledConnectRejection();
     }
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
 
       // If we already reconnected in the meantime, do nothing.
-      if (this.webSocket.readyState === WebSocket.OPEN || this.webSocket.readyState === WebSocket.CONNECTING) {
+      if (this.webSocket?.readyState === WebSocket.OPEN || this.webSocket?.readyState === WebSocket.CONNECTING) {
         return;
       }
 
@@ -218,15 +248,19 @@ export class BotWsClient {
   }
 
   private async ensureConnected(): Promise<void> {
-    if (this.webSocket.readyState === WebSocket.OPEN) return;
+    if (this.webSocket?.readyState === WebSocket.OPEN) return;
 
     // If we're closed or closing, nudge the reconnect loop.
-    if (this.webSocket.readyState === WebSocket.CLOSED || this.webSocket.readyState === WebSocket.CLOSING) {
+    if (
+      !this.webSocket ||
+      this.webSocket.readyState === WebSocket.CLOSED ||
+      this.webSocket.readyState === WebSocket.CLOSING
+    ) {
       this.scheduleReconnect();
     }
 
     // If connectDeferred has already been rejected/settled, replace it so awaiting doesn't immediately throw.
-    if (this.connectDeferred.isSettled && this.webSocket.readyState !== WebSocket.OPEN) {
+    if (this.connectDeferred.isSettled && this.webSocket?.readyState !== WebSocket.OPEN) {
       this.connectDeferred = createDeferred<void>();
       this.scheduleReconnect();
     }
@@ -240,8 +274,9 @@ export class BotWsClient {
   ): Promise<Awaited<ReturnType<IBotApiSpec[K]>>> {
     await this.ensureConnected();
 
-    if (this.webSocket.readyState !== WebSocket.OPEN) {
-      throw new Error(`BotWsClient WebSocket is not open (readyState: ${this.webSocket.readyState})`);
+    const webSocket = this.webSocket;
+    if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+      throw new Error(`BotWsClient WebSocket is not open (readyState: ${webSocket?.readyState ?? 'none'})`);
     }
 
     const requestId = this.requestIdCounter++;
@@ -259,7 +294,7 @@ export class BotWsClient {
     this.messageWaiters.set(requestId, deferred);
 
     try {
-      this.webSocket.send(JsonExt.stringify(requestPayload));
+      webSocket.send(JsonExt.stringify(requestPayload));
     } catch (error) {
       this.messageWaiters.delete(requestId);
       deferred.reject(error instanceof Error ? error : new Error(String(error)));

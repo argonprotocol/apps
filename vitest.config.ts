@@ -48,8 +48,17 @@ export default defineConfig({
           include: ['bot/__test__/**/*.test.ts'],
           exclude: [INTEGRATION_TEST_GLOB],
           env: {
-            STATUS_URL: 'na',
+            ROUTER_URL: 'na',
           },
+        },
+      },
+      {
+        test: {
+          name: 'router',
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+          include: ['router/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
         },
       },
       {
@@ -66,7 +75,7 @@ export default defineConfig({
             shuffle: false,
           },
           env: {
-            STATUS_URL: 'na',
+            ROUTER_URL: 'na',
           },
         },
       },

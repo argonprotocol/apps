@@ -1,4 +1,11 @@
-import { getPercent, IVaultFrameStats, MiningFrames, percentOf, TreasuryPool } from '@argonprotocol/apps-core';
+import {
+  BondLot,
+  getPercent,
+  IVaultFrameStats,
+  MiningFrames,
+  percentOf,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
 import dayjs from 'dayjs';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { MyVault } from './MyVault.ts';
@@ -94,30 +101,34 @@ export class ProfitAnalysis {
       if (frameId === this.currentFrameId && this.myVault.createdVault) {
         record.progress = this.miningFrames.getCurrentFrameProgress();
         const client = await getMainchainClient(false);
-        record.totalTreasuryPayout = await TreasuryPool.getTreasuryPayoutPotential(client);
+        record.totalTreasuryPayout = await TreasuryBonds.getTreasuryPayoutPotential(client);
         const securitization = this.myVault.createdVault.securitization;
         const activatedSecuritization = this.myVault.createdVault.activatedSecuritization();
-        const { vaultActivatedCapital, totalActivatedCapital } = await TreasuryPool.getActiveCapital(
+        const { vaultActiveBonds, totalActiveBonds } = await TreasuryBonds.getActiveBonds(
           client,
           this.myVault.createdVault.vaultId ?? 0,
         );
-        record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, totalActivatedCapital);
+
+        const vaultActiveBondMicrogons = BondLot.bondsToMicrogons(vaultActiveBonds);
+        const totalActiveBondMicrogons = BondLot.bondsToMicrogons(totalActiveBonds);
+
+        record.myTreasuryPercentTake = getPercent(vaultActiveBondMicrogons, totalActiveBondMicrogons);
         record.myTreasuryPayout = percentOf(record.totalTreasuryPayout, record.myTreasuryPercentTake);
 
         bitcoinPercentUsed =
           activatedSecuritization > 0n
             ? getPercent(activatedSecuritization - this.myVault.createdVault.getRelockCapacity(), securitization)
             : 0;
-        treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
+        treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActiveBondMicrogons, securitization);
         record.frameProfitPercent = getPercent(
           record.myTreasuryPayout + (myFrameRevenue?.bitcoinFeeRevenue ?? 0n),
-          securitization + vaultActivatedCapital,
+          securitization + vaultActiveBondMicrogons,
         );
 
         record.bitcoinChangeMicrogons = myFrameRevenue?.microgonLiquidityAdded ?? 0n;
         if (rollingTreasuryCapital !== undefined) {
           record.treasuryChangeMicrogons =
-            trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
+            trailingTreasuryCapitalTotal + vaultActiveBondMicrogons - rollingTreasuryCapital;
         }
         // NOTE: don't add to trailing capital since this is still being updated
       } else if (myFrameRevenue) {
@@ -134,23 +145,23 @@ export class ProfitAnalysis {
             vaultEarnings: poolVaultEarnings,
           },
         } = myFrameRevenue;
-        const vaultActivatedCapital = poolExternalCapital + poolVaultCapital;
+        const vaultActiveBondMicrogons = poolExternalCapital + poolVaultCapital;
         bitcoinPercentUsed = getPercent(securitizationActivated - (securitizationRelockable ?? 0n), securitization);
-        treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActivatedCapital, securitization);
+        treasuryPercentActivated = getPercent(trailingTreasuryCapitalTotal + vaultActiveBondMicrogons, securitization);
 
         record.myTreasuryPayout = poolTotalEarnings;
-        record.myTreasuryPercentTake = getPercent(vaultActivatedCapital, treasuryAtFrame.capitalRaised);
+        record.myTreasuryPercentTake = getPercent(vaultActiveBondMicrogons, treasuryAtFrame.capitalRaised);
         record.bitcoinChangeMicrogons = microgonLiquidityAdded;
         if (rollingTreasuryCapital !== undefined) {
           record.treasuryChangeMicrogons =
-            trailingTreasuryCapitalTotal + vaultActivatedCapital - rollingTreasuryCapital;
+            trailingTreasuryCapitalTotal + vaultActiveBondMicrogons - rollingTreasuryCapital;
         }
         record.frameProfitPercent = getPercent(
           poolVaultEarnings + bitcoinFeeRevenue,
-          securitization + vaultActivatedCapital,
+          securitization + vaultActiveBondMicrogons,
         );
 
-        trailingTreasuryCapitalAmounts.unshift([vaultActivatedCapital, frameId]);
+        trailingTreasuryCapitalAmounts.unshift([vaultActiveBondMicrogons, frameId]);
         if (trailingTreasuryCapitalAmounts.length > 10) {
           trailingTreasuryCapitalAmounts.length = 10;
         }

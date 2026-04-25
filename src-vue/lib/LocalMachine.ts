@@ -1,4 +1,4 @@
-import { DOCKER_COMPOSE_PROJECT_NAME } from './Server.ts';
+import { DOCKER_COMPOSE_PROJECT_NAME } from './ServerAdmin.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { message } from '@tauri-apps/plugin-dialog';
 
@@ -19,7 +19,7 @@ export class LocalMachine {
     console.log(`Finding blocked (needed) ports for local machine`);
     const neededPorts = await invokeWithTimeout<number[]>('check_needed_ports', {}, 10_000);
     if (neededPorts.length) {
-      console.log(`Local machine is blocked on SSH ports: [${neededPorts.join(',')}]`);
+      console.log(`Local machine is blocked on ports: [${neededPorts.join(',')}]`);
     }
     return neededPorts;
   }

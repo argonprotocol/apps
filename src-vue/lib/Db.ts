@@ -16,6 +16,9 @@ import { VaultRevenueEventsTable } from './db/VaultRevenueEventsTable.ts';
 import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
 import { BitcoinUtxosTable } from './db/BitcoinUtxosTable.ts';
 import { TransactionStatusHistoryTable } from './db/TransactionStatusHistoryTable.ts';
+import { StableSwapSyncStateTable } from './db/StableSwapSyncStateTable.ts';
+import { StableSwapMarketStateTable } from './db/StableSwapMarketStateTable.ts';
+import { StableSwapPurchasesTable } from './db/StableSwapPurchasesTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -34,6 +37,9 @@ export class Db {
   public walletLedgerTable: WalletLedgerTable;
   public walletTransfersTable: WalletTransfersTable;
   public bitcoinUtxosTable: BitcoinUtxosTable;
+  public stableSwapSyncStateTable: StableSwapSyncStateTable;
+  public stableSwapMarketStateTable: StableSwapMarketStateTable;
+  public stableSwapPurchasesTable: StableSwapPurchasesTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -54,6 +60,9 @@ export class Db {
     this.walletLedgerTable = new WalletLedgerTable(this);
     this.walletTransfersTable = new WalletTransfersTable(this);
     this.bitcoinUtxosTable = new BitcoinUtxosTable(this);
+    this.stableSwapSyncStateTable = new StableSwapSyncStateTable(this);
+    this.stableSwapMarketStateTable = new StableSwapMarketStateTable(this);
+    this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {

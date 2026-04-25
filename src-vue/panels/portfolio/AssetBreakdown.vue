@@ -321,12 +321,10 @@
       </thead>
       <tbody>
         <tr>
-          <td>
-            {{ microgonToArgonNm(vaultingAssets.treasuryMicrogonsUnused).format('0,0.[00') }} ARGN Waiting for Use
-          </td>
-          <td>Can move instantaneously</td>
+          <td>{{ microgonToArgonNm(treasuryBondMicrogons).format('0,0.[00]') }} ARGN in Treasury Bonds</td>
+          <td>Locked for 10 days.</td>
           <td class="text-right">
-            {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.treasuryMicrogonsUnused).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(treasuryBondMicrogons).format('0,0.00') }}
           </td>
           <td class="text-right">
             <MoveCapitalButton
@@ -336,18 +334,26 @@
               side="left" />
           </td>
         </tr>
-        <tr v-for="treasuryBalance in treasuryBalances" :key="treasuryBalance.frameId">
+        <tr v-if="treasuryPendingReturnMicrogons > 0n">
+          <td>{{ microgonToArgonNm(treasuryPendingReturnMicrogons).format('0,0.[00]') }} ARGN Pending Return</td>
           <td>
-            {{ microgonToArgonNm(treasuryBalance.balance).format('0,0.[00]') }} ARGN Locked In Frame
-            {{ treasuryBalance.frameId }}
-          </td>
-          <td>
-            Locked for {{ 10 - (currentFrameId - treasuryBalance.frameId) }} day{{
-              10 - (currentFrameId - treasuryBalance.frameId) === 1 ? '' : 's'
-            }}
+            <template v-if="treasuryPendingReturnDate">
+              Returning to your wallet
+              <CountdownClock :time="treasuryPendingReturnDate" v-slot="{ hours, minutes, seconds, days }">
+                in
+                <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+                <template v-else-if="hours > 0">
+                  <span>{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+                  <span v-if="minutes > 0">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                </template>
+                <span v-else-if="minutes > 0">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+                <span v-else>{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
+              </CountdownClock>
+            </template>
+            <template v-else>Returning to your wallet as soon as it is unlocked.</template>
           </td>
           <td class="text-right">
-            {{ currency.symbol }}{{ microgonToMoneyNm(treasuryBalance.balance).format('0,0.00') }}
+            {{ currency.symbol }}{{ microgonToMoneyNm(treasuryPendingReturnMicrogons).format('0,0.00') }}
           </td>
           <td class="text-right">
             <MoveCapitalButton
@@ -367,42 +373,47 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import MoveCapitalButton from '../../overlays-operations/MoveCapitalButton.vue';
-import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import MoveCapitalButton from '../../app-operations/overlays/MoveCapitalButton.vue';
+import CountdownClock from '../../components/CountdownClock.vue';
+import { BondLot, MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import { useMiningAssetBreakdown } from '../../stores/miningAssetBreakdown.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getVaults } from '../../stores/vaults.ts';
-import { useWallets } from '../../stores/wallets.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
+import { getMyVault } from '../../stores/vaults.ts';
+import { getBondMarket } from '../../stores/myBonds.ts';
+
+dayjs.extend(utc);
 
 const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
 const currency = getCurrency();
-const wallets = useWallets();
-const vaults = getVaults();
 const miningFrames = getMiningFrames();
+const myVault = getMyVault();
+const bondMarket = getBondMarket();
 
 const { microgonToArgonNm, micronotToArgonotNm, microgonToMoneyNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 
-const treasuryBalances = Vue.ref<{ frameId: number; balance: bigint }[]>();
-const currentFrameId = Vue.ref(0);
+const treasuryBondTotals = Vue.computed(() => {
+  const vaultId = myVault.vaultId;
+  return BondLot.getTotals(vaultId == null ? [] : (bondMarket.data.vaultsById[vaultId]?.bondLots ?? []));
+});
 
-Vue.onMounted(async () => {
-  await miningFrames.load();
-  const accountId = wallets.vaultingWallet.address;
-  const balanceByFrameId = await vaults.getVaultPoolsByFrameForAccountId(accountId);
+const treasuryPendingReturnMicrogons = Vue.computed(() => {
+  return treasuryBondTotals.value.returningBondMicrogons;
+});
 
-  currentFrameId.value = miningFrames.currentFrameId;
-  treasuryBalances.value = Object.entries(balanceByFrameId)
-    .map((x: [id: string, balance: bigint]) => {
-      const frameId = Number(x[0]);
-      const balance = x[1];
-      return { frameId, balance };
-    })
-    .filter(x => x.frameId > currentFrameId.value - 10)
-    .sort((a, b) => a.frameId - b.frameId);
+const treasuryBondMicrogons = Vue.computed(() => {
+  return treasuryBondTotals.value.activeBondMicrogons;
+});
+
+const treasuryPendingReturnDate = Vue.computed(() => {
+  const returningBondFrame = treasuryBondTotals.value.returningBondFrame;
+  if (returningBondFrame == null) return null;
+  return dayjs.utc(miningFrames.getFrameDate(returningBondFrame));
 });
 </script>
 

@@ -3,6 +3,7 @@ import { Db } from './Db';
 import {
   ConfigSchema,
   IConfig,
+  IConfigCertificationDetailsSchema,
   IConfigDefaults,
   IConfigStringified,
   InstallStepKey,
@@ -27,13 +28,19 @@ import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { ensureOnlyOneInstance } from './Utils';
 import { UnitOfMeasurement } from './Currency';
 import { getUserJurisdiction } from './Countries';
-import { IS_TEST, NETWORK_NAME } from './Env.ts';
+import { IS_STABLE_BUILD, IS_TEST, NETWORK_NAME, NETWORK_URL } from './Env.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { ZodAny } from 'zod';
 import { WalletKeys } from './WalletKeys.ts';
 import { WalletRecoveryFn } from './WalletRecovery.ts';
+
+const BOOTSTRAP_NETWORK_PLACEHOLDER = 'ARGON_NETWORK_NAME';
+
+function stripSocketProtocol(value: string): string {
+  return value.replace(/^[a-z]+:\/\//i, '');
+}
 
 export class Config implements IConfig {
   public readonly version: string = packageJson.version;
@@ -70,7 +77,8 @@ export class Config implements IConfig {
     this._loadedData = {
       version: packageJson.version,
       requiresPassword: false,
-      showWelcomeOverlay: false,
+      ethereumRpcUrl: Config.getDefault(dbFields.ethereumRpcUrl) as IConfig['ethereumRpcUrl'],
+      upstreamOperator: Config.getDefault(dbFields.upstreamOperator) as IConfig['upstreamOperator'],
       serverDetails: {
         ipAddress: '',
         sshUser: '',
@@ -88,11 +96,8 @@ export class Config implements IConfig {
         dbFields.miningBotAccountPreviousHistory,
       ) as IConfig['miningBotAccountPreviousHistory'],
 
-      hasReadMiningInstructions: Config.getDefault(dbFields.hasReadMiningInstructions) as boolean,
       isServerInstalled: Config.getDefault(dbFields.isServerInstalled) as boolean,
       isServerInstalling: Config.getDefault(dbFields.isServerInstalling) as boolean,
-
-      hasReadVaultingInstructions: Config.getDefault(dbFields.hasReadVaultingInstructions) as boolean,
 
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
@@ -108,17 +113,18 @@ export class Config implements IConfig {
         latitude: '',
         longitude: '',
       },
+      certificationDetails: Config.getDefault(dbFields.certificationDetails) as IConfig['certificationDetails'],
     };
   }
 
   public async restoreToConnection(sql: PluginSql): Promise<void> {
     const preserveFields: (keyof IConfig)[] = [
+      'upstreamOperator',
+      'bootstrapDetails',
       'serverAdd',
       'serverDetails',
       'biddingRules',
       'vaultingRules',
-      'hasReadVaultingInstructions',
-      'hasReadMiningInstructions',
       'oldestFrameIdToSync',
       'defaultCurrencyKey',
       'requiresPassword',
@@ -157,9 +163,29 @@ export class Config implements IConfig {
 
       for (const [key, value] of Object.entries(defaults)) {
         let rawValue = dbRawData[key as keyof typeof dbRawData];
+        if (key === dbFields.bootstrapDetails && rawValue !== undefined && rawValue !== '') {
+          const bootstrapDetails = JsonExt.parse(rawValue as string);
+          const resolvedIpAddress =
+            bootstrapDetails?.routerHost === BOOTSTRAP_NETWORK_PLACEHOLDER
+              ? stripSocketProtocol(NETWORK_URL)
+              : stripSocketProtocol(bootstrapDetails?.routerHost ?? '');
+          if (bootstrapDetails && bootstrapDetails.routerHost !== resolvedIpAddress) {
+            bootstrapDetails.routerHost = resolvedIpAddress;
+            rawValue = JsonExt.stringify(bootstrapDetails, 2);
+            dbRawData[key as keyof typeof dbRawData] = rawValue as any;
+            rawData[key as keyof typeof rawData] = rawValue;
+            fieldsToSave.add(key);
+          }
+        }
         const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
         if (schemaField && rawValue !== undefined && rawValue !== '') {
           const data = JsonExt.parse(rawValue as string);
+          if (key === dbFields.serverDetails && data && typeof data === 'object' && 'port' in data) {
+            data.sshPort ??= data.port;
+            delete data.port;
+            rawValue = JsonExt.stringify(data, 2);
+            fieldsToSave.add(key);
+          }
           const isValid = schemaField.safeParse(data);
           if (!isValid?.success) {
             console.warn(`ConfigSchema validation error: ${key}`);
@@ -207,11 +233,11 @@ export class Config implements IConfig {
       const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
       if (isLocalComputer && !loadedData.isServerInstalling) {
         const { sshPort } = await LocalMachine.activate();
-        if (!IS_TEST) {
+        if (!IS_TEST && IS_STABLE_BUILD) {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
         }
         loadedData.serverDetails.ipAddress = `127.0.0.1`;
-        loadedData.serverDetails.port = sshPort;
+        loadedData.serverDetails.sshPort = sshPort;
         fieldsToSave.add(dbFields.serverDetails);
         rawData[dbFields.serverDetails] = JsonExt.stringify(loadedData.serverDetails, 2);
       }
@@ -284,11 +310,23 @@ export class Config implements IConfig {
     this.setField('requiresPassword', value);
   }
 
-  public get showWelcomeOverlay(): boolean {
-    return this.getField('showWelcomeOverlay') && !this.isRestarting;
+  public get ethereumRpcUrl(): IConfig['ethereumRpcUrl'] {
+    return this.getField('ethereumRpcUrl');
   }
-  public set showWelcomeOverlay(value: boolean) {
-    this.setField('showWelcomeOverlay', value);
+  public set ethereumRpcUrl(value: IConfig['ethereumRpcUrl']) {
+    this.setField('ethereumRpcUrl', value);
+  }
+
+  public get showWelcomeOverlay(): boolean {
+    const bootstrapDetails = this.getField('bootstrapDetails');
+    return !bootstrapDetails && !this.isRestarting;
+  }
+
+  public get bootstrapDetails(): IConfig['bootstrapDetails'] {
+    return this.getField('bootstrapDetails');
+  }
+  public set bootstrapDetails(value: IConfig['bootstrapDetails']) {
+    this.setField('bootstrapDetails', value);
   }
 
   public get serverAdd(): IConfig['serverAdd'] {
@@ -326,13 +364,6 @@ export class Config implements IConfig {
     this.setField('latestFrameIdProcessed', value);
   }
 
-  public get hasReadMiningInstructions(): boolean {
-    return this.getField('hasReadMiningInstructions');
-  }
-  public set hasReadMiningInstructions(value: boolean) {
-    this.setField('hasReadMiningInstructions', value);
-  }
-
   public get isServerInstalled(): boolean {
     return this.getField('isServerInstalled');
   }
@@ -355,12 +386,25 @@ export class Config implements IConfig {
     this.setField('isServerInstalling', value);
   }
 
-  public get hasReadVaultingInstructions(): boolean {
-    return this.getField('hasReadVaultingInstructions');
+  public get certificationDetails(): IConfig['certificationDetails'] {
+    return this.getField('certificationDetails');
   }
 
-  public set hasReadVaultingInstructions(value: boolean) {
-    this.setField('hasReadVaultingInstructions', value);
+  public set certificationDetails(value: IConfig['certificationDetails']) {
+    this.setField('certificationDetails', value);
+  }
+
+  public setCertificationDetails(
+    certificationDetails: Partial<IConfigCertificationDetailsSchema>,
+  ): IConfigCertificationDetailsSchema {
+    this.certificationDetails = {
+      hasSavedMnemonic: false,
+      showBonusTooltip: true,
+      showRewardsCelebration: true,
+      ...(this.certificationDetails || {}),
+      ...certificationDetails,
+    };
+    return this.certificationDetails;
   }
 
   public get hasMiningSeats(): boolean {
@@ -393,6 +437,14 @@ export class Config implements IConfig {
 
   public set vaultingRules(value: IConfig['vaultingRules']) {
     this.setField('vaultingRules', value, false);
+  }
+
+  public get upstreamOperator(): IConfig['upstreamOperator'] {
+    return this.getField('upstreamOperator');
+  }
+
+  public set upstreamOperator(value: IConfig['upstreamOperator']) {
+    this.setField('upstreamOperator', value);
   }
 
   public get defaultCurrencyKey(): ICurrencyKey {
@@ -490,9 +542,7 @@ export class Config implements IConfig {
     fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
 
     if (walletHadPreviousLife) {
-      loadedData.showWelcomeOverlay = false;
-      stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false, 2);
-      fieldsToSave.add(dbFields.showWelcomeOverlay);
+      // TODO: Need to set bootstrapDetails
     }
   }
 
@@ -527,7 +577,6 @@ export class Config implements IConfig {
       }
       this.miningBotAccountPreviousHistory = miningHistory;
       this.miningSetupStatus = MiningSetupStatus.Checklist;
-      this.hasReadMiningInstructions = miningHistory.length > 0;
       if (this.serverDetails.ipAddress) {
         this.miningSetupStatus = MiningSetupStatus.Finished;
         this.miningBotAccountPreviousHistory = null;
@@ -537,13 +586,13 @@ export class Config implements IConfig {
     if (this.serverDetails.ipAddress) {
       this.isServerInstalled = true;
       this.isServerInstalling = false;
+      this.setCertificationDetails({ showBonusTooltip: false });
     }
 
     if (vaultingRules) {
       console.log('Config: Previous vaulting rules found');
       this.vaultingRules = vaultingRules;
       this.vaultingSetupStatus = VaultingSetupStatus.Finished;
-      this.hasReadVaultingInstructions = true;
 
       this._tryFieldsToSave(dbFields.vaultingRules, vaultingRules);
     }
@@ -577,7 +626,9 @@ const dbFields = {
   vaultingSetupStatus: 'vaultingSetupStatus',
 
   requiresPassword: 'requiresPassword',
-  showWelcomeOverlay: 'showWelcomeOverlay',
+  ethereumRpcUrl: 'ethereumRpcUrl',
+  bootstrapDetails: 'bootstrapDetails',
+  upstreamOperator: 'upstreamOperator',
 
   serverAdd: 'serverAdd',
   serverDetails: 'serverDetails',
@@ -588,11 +639,8 @@ const dbFields = {
   walletAccountsHadPreviousLife: 'walletAccountsHadPreviousLife',
   walletPreviousLifeRecovered: 'walletPreviousLifeRecovered',
 
-  hasReadMiningInstructions: 'hasReadMiningInstructions',
   isServerInstalled: 'isServerInstalled',
   isServerInstalling: 'isServerInstalling',
-
-  hasReadVaultingInstructions: 'hasReadVaultingInstructions',
 
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
@@ -600,6 +648,7 @@ const dbFields = {
   vaultingRules: 'vaultingRules',
   defaultCurrencyKey: 'defaultCurrencyKey',
   userJurisdiction: 'userJurisdiction',
+  certificationDetails: 'certificationDetails',
 } as const;
 
 const defaults: IConfigDefaults = {
@@ -607,7 +656,9 @@ const defaults: IConfigDefaults = {
   vaultingSetupStatus: () => VaultingSetupStatus.None,
 
   requiresPassword: () => false,
-  showWelcomeOverlay: () => true,
+  ethereumRpcUrl: () => undefined,
+  bootstrapDetails: () => undefined,
+  upstreamOperator: () => undefined,
 
   serverAdd: () => undefined,
   serverDetails: () => {
@@ -643,11 +694,8 @@ const defaults: IConfigDefaults = {
   walletAccountsHadPreviousLife: () => false,
   walletPreviousLifeRecovered: () => false,
 
-  hasReadMiningInstructions: () => false,
   isServerInstalled: () => false,
   isServerInstalling: () => false,
-
-  hasReadVaultingInstructions: () => false,
 
   hasMiningSeats: () => false,
   hasMiningBids: () => false,
@@ -690,8 +738,8 @@ const defaults: IConfigDefaults = {
   },
   vaultingRules: () => {
     return {
-      capitalForSecuritizationPct: 50,
-      capitalForTreasuryPct: 50,
+      capitalForSecuritizationPct: 100,
+      capitalForTreasuryPct: 0,
       securitizationRatio: 1,
       profitSharingPct: 10,
       btcFlatFee: 2n * BigInt(MICROGONS_PER_ARGON),
@@ -703,7 +751,7 @@ const defaults: IConfigDefaults = {
       poolUtilizationPctMin: 50,
       poolUtilizationPctMax: 100,
 
-      personalBtcPct: 100,
+      personalBtcPct: 0,
 
       baseMicrogonCommitment: 2_000n * BigInt(MICROGONS_PER_ARGON),
       baseMicronotCommitment: 0n,
@@ -726,4 +774,5 @@ const defaults: IConfigDefaults = {
       };
     }
   },
+  certificationDetails: () => undefined,
 };

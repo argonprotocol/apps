@@ -104,7 +104,7 @@ export default new Operation<IBitcoinFlowContext, IReturnMismatchAndResumeState>
                 }
                 return true;
               }
-              await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+              await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
               mineBitcoinSingleBlock(minerAddress);
               return false;
             },
@@ -128,7 +128,7 @@ export default new Operation<IBitcoinFlowContext, IReturnMismatchAndResumeState>
               return true;
             }
             if (!latest.returnPanelVisible) {
-              await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+              await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
             }
             mineBitcoinSingleBlock(minerAddress);
             return false;
@@ -156,14 +156,14 @@ export default new Operation<IBitcoinFlowContext, IReturnMismatchAndResumeState>
         }
         if (latest.resumeReady) {
           if (!latest.resumeVisible) {
-            await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+            await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
             await flow.waitFor('LockFundingMismatch.resumeFunding()', { timeoutMs: 5_000 });
           }
           return true;
         }
         if (['returningOnArgon', 'returningOnBitcoin', 'returned'].includes(latest.chainState.phase)) {
           if (!latest.mismatchPanelVisible) {
-            await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+            await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
             await flow.waitFor('LockFundingMismatch', { timeoutMs: 5_000 });
           }
         }
@@ -179,7 +179,7 @@ export default new Operation<IBitcoinFlowContext, IReturnMismatchAndResumeState>
 
     const latest = await flow.inspect(bitcoinEnsureMismatchActionPanel);
     if (!latest.resumeVisible) {
-      await clickIfVisible(flow, 'PersonalBitcoin.showLockingOverlay()');
+      await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
       await flow.waitFor('LockFundingMismatch.resumeFunding()', { timeoutMs: 5_000 });
     }
     await flow.click('LockFundingMismatch.resumeFunding()', { timeoutMs: 60_000 });
@@ -199,3 +199,14 @@ export default new Operation<IBitcoinFlowContext, IReturnMismatchAndResumeState>
     );
   },
 });
+
+async function clickDashboardLockEntry(
+  flow: IBitcoinFlowContext['flow'],
+  options: { timeoutMs?: number } = {},
+): Promise<boolean> {
+  return await clickIfVisible(
+    flow,
+    { selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 },
+    options,
+  );
+}

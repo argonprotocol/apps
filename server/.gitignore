@@ -4,5 +4,6 @@ tars
 /.idea
 data
 /bot/src/
+/router/src/
 !scripts/conf/*
 bitcoin-data/splits/*

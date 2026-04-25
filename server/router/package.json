@@ -1,0 +1,7 @@
+{
+  "name": "argon-apps-router",
+  "private": true,
+  "version": "0.1.0-rc1",
+  "type": "module",
+  "module": "src/index.js"
+}

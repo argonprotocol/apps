@@ -1,0 +1,416 @@
+import { parse as parseEnv } from 'dotenv';
+import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
+import { SSHConnection } from './SSHConnection';
+import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
+import { KeyringPair$Json } from '@argonprotocol/mainchain';
+import { SSH } from './SSH';
+import { IConfigServerDetails, InstallStepKey } from '../interfaces/IConfig';
+import { join, tempDir } from '@tauri-apps/api/path';
+import { LocalMachine } from './LocalMachine.ts';
+import { getInstanceConfigDir } from './Utils.ts';
+
+export enum InstallStepStatusType {
+  Pending = 'Pending',
+  Started = 'Started',
+  Finished = 'Finished',
+  Failed = 'Failed',
+}
+
+export interface IInstallStepStatuses {
+  [key: string]: InstallStepStatusType;
+}
+
+const installStepStatusPriorityByType: Record<InstallStepStatusType, number> = {
+  [InstallStepStatusType.Pending]: 0,
+  [InstallStepStatusType.Started]: 1,
+  [InstallStepStatusType.Finished]: 2,
+  [InstallStepStatusType.Failed]: 3,
+};
+export const DOCKER_COMPOSE_PROJECT_NAME = toComposeProjectName(INSTANCE_NAME, NETWORK_NAME);
+
+export class ServerAdmin {
+  private readonly connection: SSHConnection;
+  private readonly serverDetails: IConfigServerDetails;
+
+  constructor(connection: SSHConnection, serverDetails: IConfigServerDetails) {
+    this.connection = connection;
+    this.serverDetails = serverDetails;
+  }
+
+  private get workDir() {
+    return this.serverDetails.workDir;
+  }
+
+  private get installerScriptPath() {
+    return `${this.workDir}/server/scripts/installer.sh`;
+  }
+
+  public static async virtualMachineFolder(): Promise<string> {
+    let path = await join(await getInstanceConfigDir(), 'virtual-machine');
+    // On Windows, convert to Docker-compatible path: replace backslashes, convert drive letter to /c/ form.
+    if (typeof process !== 'undefined' && process.platform === 'win32') {
+      // Replace backslashes with forward slashes
+      path = path.replace(/\\/g, '/');
+      // If starts with drive letter, e.g., C:/, convert to /c/
+      path = path.replace(/^([A-Z]):\//i, (_m, drive: string) => `/${drive.toLowerCase()}/`);
+    }
+    return path;
+  }
+
+  public async isConnected(): Promise<boolean> {
+    const [output] = await this.connection.runCommandWithTimeout('pwd', 10e3);
+    return !!output;
+  }
+
+  public async createWorkdir(): Promise<void> {
+    const username = this.connection.username;
+    await this.connection.runCommandWithTimeout(
+      `if [ ! -d "${this.workDir}" ]; then sudo mkdir -p "${this.workDir}" && sudo chown -R "${username}" "${this.workDir}"; fi`,
+      10e3,
+    );
+  }
+
+  public async uploadAccountAddress(address: string): Promise<void> {
+    await this.connection.uploadFileWithTimeout(address, `${this.workDir}/account`, 10e3);
+  }
+
+  public async downloadTroubleshootingPackage(onProgress: (progress: number) => void): Promise<string> {
+    let totalProgress = 5;
+    onProgress(totalProgress);
+    const [output] = await this.connection.runCommandWithTimeout(
+      `sudo ${this.workDir}/server/scripts/create_troubleshooting_gz.sh`,
+      20e3,
+    );
+    const file = output.match(/Bundle ready: (.+\.tar\.gz)/);
+    if (!file || !file[1]) {
+      console.error('Failed to create troubleshooting package:', output);
+      throw new Error('Failed to create troubleshooting package');
+    }
+    totalProgress += 20;
+    onProgress(totalProgress);
+    const filename = file[1].trim();
+    const tmp = await tempDir();
+    const downloadPath = await join(tmp, filename);
+    console.info(`Downloading troubleshooting package: ${filename} to ${tmp}`);
+    await this.connection.downloadFileWithTimeout(
+      file[1],
+      downloadPath,
+      x => {
+        const downloadPercent = Math.min(75, x * 0.75);
+        onProgress(25 + downloadPercent); // 25% for creation, 75% for download
+      },
+      60e3,
+    );
+    return downloadPath;
+  }
+
+  public async downloadAccountAddress(): Promise<string> {
+    const [address] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/account 2>/dev/null || true`,
+      10e3,
+    );
+    return address.trim();
+  }
+
+  public async uploadBiddingRules(biddingRules: IBiddingRules): Promise<void> {
+    const biddingRulesStr = JsonExt.stringify(biddingRules, 2);
+    await this.connection.uploadFileWithTimeout(biddingRulesStr, `${this.workDir}/config/biddingRules.json`, 20e3);
+  }
+
+  public async downloadBiddingRules(): Promise<IBiddingRules | undefined> {
+    const [biddingRulesRaw] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/config/biddingRules.json 2>/dev/null || true`,
+      20e3,
+    );
+    return biddingRulesRaw ? JsonExt.parse(biddingRulesRaw) : undefined;
+  }
+
+  public async uploadEnvState(envState: {
+    oldestFrameIdToSync: number;
+    vaultOperatorAddress: string;
+    operatorAccountId: string;
+  }): Promise<void> {
+    const envStateStr =
+      `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}\n` +
+      `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}\n` +
+      `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}\n`;
+    await this.connection.uploadFileWithTimeout(envStateStr, `${this.workDir}/config/.env.state`, 10e3);
+  }
+
+  public async downloadEnvState(): Promise<{ oldestFrameIdToSync: number }> {
+    const [envStateRaw] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/config/.env.state 2>/dev/null || true`,
+      10e3,
+    );
+    const envState = envStateRaw ? parseEnv(envStateRaw) : {};
+    return {
+      oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0'),
+    };
+  }
+
+  public async getDataDir(service: string): Promise<string> {
+    const [dataDir] = await this.runComposeCommand(
+      `config ${service} --format json | jq -r '.services.["${service}"].volumes[0].source'`,
+      10e3,
+    );
+    return dataDir.trim();
+  }
+
+  public async cleanDirectory(directory: string): Promise<void> {
+    if (!directory || directory === '/') {
+      throw new Error('Invalid directory to clean');
+    }
+    console.info(`Cleaning directory: ${directory}`);
+    await this.connection.runCommandWithTimeout(`set -euo pipefail && sudo rm -rf -- "${directory}"/*`, 10e3);
+  }
+
+  public async stopMiningDockers(): Promise<void> {
+    await this.runComposeCommand(`stop argon-miner `);
+  }
+
+  public async startMiningDockers(): Promise<void> {
+    await this.runComposeCommand(`up argon-miner -d`, 60e3);
+  }
+
+  public async resyncMiner(): Promise<void> {
+    const dataDir = await this.getDataDir('argon-miner').catch(() => null);
+    if (dataDir) {
+      await this.stopMiningDockers();
+      console.info(`Wiping Argon Miner data directory: ${dataDir}`);
+      await this.cleanDirectory(dataDir);
+    }
+    await this.removeLogStep(InstallStepKey.ArgonInstall);
+    await this.startMiningDockers();
+  }
+
+  public async stopBitcoinDocker(): Promise<void> {
+    await this.runComposeCommand(`stop bitcoin-node`, 60e3);
+  }
+
+  public async startBitcoinDocker(): Promise<void> {
+    await this.runComposeCommand(`up bitcoin-node -d`, 60e3);
+  }
+
+  public async resyncBitcoin(): Promise<void> {
+    const dataDir = await this.getDataDir('bitcoin-node').catch(() => null);
+    if (dataDir) {
+      await this.stopBitcoinDocker();
+      console.info(`Wiping Bitcoin data directory: ${dataDir}`);
+      await this.cleanDirectory(dataDir);
+    }
+    await this.removeLogStep(InstallStepKey.BitcoinInstall);
+    await this.startBitcoinDocker();
+  }
+
+  public async stopBotDocker(): Promise<void> {
+    await this.runComposeCommand(`stop bot`, 10e3);
+  }
+
+  public async startBotDocker(): Promise<void> {
+    // do a restart to load the mounted file
+    await this.runComposeCommand(`restart bot`, 10e3);
+  }
+
+  public async restartDocker(): Promise<void> {
+    await this.runComposeCommand(`restart argon-miner bitcoin-node bot`, 10e3);
+  }
+
+  public async uploadEnvSecurity(envSecurity: { sessionMiniSecret: string }): Promise<void> {
+    const envSecurityStr = `SESSION_MINI_SECRET="${envSecurity.sessionMiniSecret}"\n`;
+    await this.connection.uploadFileWithTimeout(envSecurityStr, `${this.workDir}/config/.env.security`, 10e3);
+  }
+
+  public async uploadMiningBotWallet(miningBotWalletJson: KeyringPair$Json): Promise<void> {
+    const miningBotWalletStringified = JsonExt.stringify(miningBotWalletJson, 2);
+    await this.connection.uploadFileWithTimeout(
+      miningBotWalletStringified,
+      `${this.workDir}/config/walletMiningBot.json`,
+      10e3,
+    );
+  }
+
+  public async uploadVaultDelegateWallet(delegateWalletJson: KeyringPair$Json): Promise<void> {
+    const delegateWalletStringified = JsonExt.stringify(delegateWalletJson, 2);
+    await this.connection.uploadFileWithTimeout(
+      delegateWalletStringified,
+      `${this.workDir}/config/walletVaultDelegate.json`,
+      10e3,
+    );
+  }
+
+  public async removeAllLogFiles(): Promise<void> {
+    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/*`, 10e3);
+  }
+
+  public async removeLogStep(stepKey: string): Promise<void> {
+    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/step-${stepKey}.*`, 10e3);
+  }
+
+  public async startInstallerScript(): Promise<void> {
+    const remoteScriptPath = this.installerScriptPath;
+    const remoteScriptLogPath = `${this.workDir}/logs/installer.log`;
+
+    let prepareEnvCommand = `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env && echo "COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}" >> .env`;
+
+    if (this.connection.isDockerHostProxy) {
+      prepareEnvCommand += ` && echo "GATEWAY_PORT=0" >> .env`;
+    } else {
+      if (this.serverDetails.ipAddress) {
+        prepareEnvCommand += ` && echo "GATEWAY_CERTBOT_ENABLED=true" >> .env`;
+        prepareEnvCommand += ` && echo "GATEWAY_CERT_IP=${this.serverDetails.ipAddress}" >> .env`;
+        prepareEnvCommand += ` && echo "GATEWAY_CERTBOT_HTTP_PORT=80" >> .env`;
+      }
+      if (typeof this.serverDetails.gatewayPort === 'number') {
+        prepareEnvCommand += ` && echo "GATEWAY_PORT=${this.serverDetails.gatewayPort}" >> .env`;
+      }
+    }
+
+    await this.connection.runCommandWithTimeout(prepareEnvCommand, 10e3);
+
+    if (this.connection.isDockerHostProxy) {
+      const fullVmPath = await ServerAdmin.virtualMachineFolder();
+      // sed replace all instances of ../ with the fullPath
+      const sedCommand = `sed -i -e 's|^ROOT=.*|ROOT="${fullVmPath}/app"|' ${this.workDir}/server/.env`;
+      await this.connection.runCommandWithTimeout(sedCommand, 10e3);
+    }
+
+    if (await this.isInstallerScriptRunning()) {
+      console.log('Restart the installer script: stopping existing one first');
+      await this.killInstallerScript();
+      // wait a bit to ensure it's stopped
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    const shellCommand = `IS_DOCKER_HOST_PROXY=${this.connection.isDockerHostProxy} ARGON_CHAIN=${NETWORK_NAME} nohup ${remoteScriptPath} > ${remoteScriptLogPath} 2>&1 &`;
+    await this.connection.runCommandWithTimeout(shellCommand, 10e3);
+
+    console.info(`started: ${shellCommand}`);
+    const pid = await this.getInstallerPid();
+    console.info('Installer PID:', pid);
+  }
+
+  public async createConfigDir(): Promise<void> {
+    await this.connection.runCommandWithTimeout(`mkdir -p ${this.workDir}/config`, 10e3);
+  }
+
+  public async createLogsDir(): Promise<void> {
+    await this.connection.runCommandWithTimeout(`mkdir -p ${this.workDir}/logs`, 10e3);
+  }
+
+  public async downloadRemoteShasum(): Promise<string> {
+    const [version] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/server/SHASUM256 2>/dev/null || true`,
+      10e3,
+    );
+    return version.trim();
+  }
+
+  public async isInstallerScriptRunning(): Promise<boolean> {
+    return (await this.getInstallerPid()) !== undefined;
+  }
+
+  public async getInstallerPid(): Promise<string | undefined> {
+    try {
+      const [pid] = await this.connection.runCommandWithTimeout(
+        `pid=$(cat /tmp/installer.lock 2>/dev/null || true); ps -p "$pid" >/dev/null 2>&1 && echo "$pid"`,
+        10e3,
+      );
+      return pid?.trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async waitForGatewayPort(timeoutMs = 10 * 60e3): Promise<number | undefined> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const [endpoint, code] = await this.runComposeCommand('port nginx 443', 10e3).catch(() => ['', 1] as const);
+      if (code === 0) {
+        const port = endpoint
+          .split('\n')
+          .map(x => x.trim())
+          .filter(Boolean)
+          .at(-1)
+          ?.match(/:(\d+)$/)?.[1];
+
+        if (port) return Number(port);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  public async killInstallerScript(): Promise<void> {
+    try {
+      const pid = await this.getInstallerPid();
+      if (pid) {
+        await this.connection.runCommandWithTimeout(`sudo kill -9 ${pid}`, 10e3);
+        await this.connection.runCommandWithTimeout(`sudo rm /tmp/installer.lock`, 10e3);
+      }
+    } catch (error) {
+      console.error('Error killing installer script:', error);
+    }
+  }
+
+  public async downloadInstallStepStatuses(): Promise<IInstallStepStatuses> {
+    const stepStatuses: IInstallStepStatuses = {};
+    const [output, code] = await SSH.runCommand(`ls ${this.workDir}/logs/step-*`);
+    if (code !== 0) {
+      return stepStatuses;
+    }
+
+    stepStatuses[InstallStepKey.ServerConnect] = InstallStepStatusType.Finished;
+
+    for (const filename of output.split('\n').filter(s => s)) {
+      const [, key, newStatus] = filename.match(/step-(.+)\.(.+)/) || [];
+      const prevStatus = stepStatuses[key] || InstallStepStatusType.Pending;
+      if (!key || !newStatus) {
+        continue;
+      }
+
+      const newStatusNumber = installStepStatusPriorityByType[newStatus as InstallStepStatusType];
+      const prevStatusNumber = installStepStatusPriorityByType[prevStatus];
+
+      if (newStatusNumber > prevStatusNumber) {
+        stepStatuses[key] = newStatus as InstallStepStatusType;
+      }
+    }
+
+    return stepStatuses;
+  }
+
+  public async extractInstallStepFailureMessage(stepKey: InstallStepKey): Promise<string> {
+    const stepName = InstallStepKey[stepKey];
+    const [output, code] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/logs/step-${stepName}.failed`,
+      10e3,
+    );
+    if (code === 0) {
+      return output.trim();
+    }
+    return '';
+  }
+
+  public async deleteBotStorageFiles(): Promise<void> {
+    await this.connection.runCommandWithTimeout(`sudo rm -rf ${this.workDir}/data/bot-*`, 10e3);
+  }
+
+  public async completelyWipeEverything(): Promise<void> {
+    const shellCommand = `sudo ${this.workDir}/server/scripts/wipe_server.sh `;
+
+    try {
+      await this.connection.runCommandWithTimeout(shellCommand, 60e3);
+    } catch (error) {
+      console.error('Error wiping server:', error);
+    }
+    if (this.connection.isDockerHostProxy) {
+      await LocalMachine.remove();
+    }
+  }
+
+  private async runComposeCommand(command: string, timeoutMs = 60e3): Promise<[string, number]> {
+    return await this.connection.runCommandWithTimeout(
+      `cd ${this.workDir}/server && sudo docker compose ${command}`,
+      timeoutMs,
+    );
+  }
+}

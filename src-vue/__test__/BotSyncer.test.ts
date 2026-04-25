@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BotWsClient } from '../lib/BotWsClient.ts';
 import { BotStatus, BotSyncer, type IBotFns } from '../lib/BotSyncer.ts';
 
 type IBotSyncerTestTarget = {
@@ -6,11 +7,29 @@ type IBotSyncerTestTarget = {
   updateBotState(state: { currentFrameId: number }): Promise<void>;
 };
 
-vi.mock('../stores/mainchain', () => ({
-  getMining: vi.fn(() => ({})),
-}));
-
 describe('BotSyncer', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('backs off websocket auth failures instead of starting a new client each loop', async () => {
+    const { syncer } = createSyncer();
+    const connect = vi.spyOn(BotWsClient, 'connectToServerGateway').mockRejectedValue(new Error('auth failed'));
+
+    await expect(syncer.getClient()).rejects.toThrow('auth failed');
+    await expect(syncer.getClient()).rejects.toThrow('waiting before retrying');
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes a stale local gateway port before opening the websocket', async () => {
+    const { syncer, installer } = createSyncer({ gatewayReady: false });
+    vi.spyOn(BotWsClient, 'connectToServerGateway').mockRejectedValue(new Error('auth failed'));
+
+    await expect(syncer.getClient()).rejects.toThrow('auth failed');
+
+    expect(installer.refreshLocalGatewayPort).toHaveBeenCalledTimes(1);
+  });
+
   it('does not mark the bot broken for transient rpc errors', async () => {
     const { syncer, botFns } = createSyncer();
     const testSyncer = syncer as unknown as IBotSyncerTestTarget;
@@ -73,7 +92,7 @@ describe('BotSyncer', () => {
   });
 });
 
-function createSyncer() {
+function createSyncer(options: { gatewayReady?: boolean } = {}) {
   const botFns: IBotFns = {
     onEvent: vi.fn(),
     setStatus: vi.fn(),
@@ -81,14 +100,23 @@ function createSyncer() {
     setDbSyncProgress: vi.fn(),
     setBotState: vi.fn(),
   };
+  const installer = {
+    isLoadedPromise: Promise.resolve(),
+    refreshLocalGatewayPort: vi.fn(),
+  };
+  const serverApiClient = {
+    isGatewayReady: vi.fn().mockResolvedValue(options.gatewayReady ?? true),
+  };
 
   const syncer = new BotSyncer(
     { isServerInstalled: true } as any,
     {} as any,
-    { isLoadedPromise: Promise.resolve() } as any,
+    installer as any,
+    serverApiClient as any,
     { load: vi.fn() } as any,
+    {} as any,
     botFns,
   );
 
-  return { syncer, botFns };
+  return { syncer, botFns, installer, serverApiClient };
 }

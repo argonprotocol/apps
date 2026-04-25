@@ -6,6 +6,7 @@ import { NetworkConfig, NetworkConfigSettings } from '@argonprotocol/apps-core';
 import os from 'node:os';
 import { promises as Fs } from 'node:fs';
 import { startServer } from './server.ts';
+import { Db } from './Db.ts';
 
 let oldestFrameIdToSync: number | undefined;
 
@@ -13,16 +14,13 @@ if (process.env.OLDEST_FRAME_ID_TO_SYNC) {
   oldestFrameIdToSync = parseInt(process.env.OLDEST_FRAME_ID_TO_SYNC, 10);
 }
 
-// Load keypair
-let pair: KeyringPair;
-{
-  const path = requireEnv('KEYPAIR_PATH').replace('~', os.homedir());
-  const json = JSON.parse(await Fs.readFile(path, 'utf-8'));
-  // wait for crypto wasm to be loaded
-  await waitForLoad();
-  pair = new Keyring().createFromJson(json);
-  pair.decodePkcs8(process.env.KEYPAIR_PASSPHRASE);
-}
+await waitForLoad();
+
+const datadir = requireEnv('DATADIR');
+const bidderKeypair = await loadKeypair(requireEnv('BIDDER_KEYPAIR_PATH'));
+const bitcoinInitializerDelegateKeypair = await loadKeypair(requireEnv('VAULT_DELEGATE_KEYPAIR_PATH'));
+const db = new Db(datadir);
+db.migrate();
 
 // Load network config
 {
@@ -44,14 +42,17 @@ let pair: KeyringPair;
   }
 }
 const bot = new Bot({
+  db,
   oldestFrameIdToSync: oldestFrameIdToSync,
+  bitcoinInitializerDelegateKeypair,
   ...requireAll({
-    datadir: process.env.DATADIR!,
-    pair,
-    biddingRulesPath: process.env.BIDDING_RULES_PATH,
+    datadir,
+    bidderKeypair,
     archiveRpcUrl: process.env.ARCHIVE_NODE_URL,
     localRpcUrl: process.env.LOCAL_RPC_URL,
+    vaultOperatorAddress: process.env.VAULT_OPERATOR_ADDRESS,
     sessionMiniSecret: process.env.SESSION_MINI_SECRET,
+    biddingRulesPath: process.env.BIDDING_RULES_PATH,
   }),
 });
 onExit(() => bot.shutdown());
@@ -85,4 +86,11 @@ try {
     server.startupError = `An unknown error occurred while starting the bot -> ${String(e)}`;
   }
   bot.history.handleError(e as Error);
+}
+
+async function loadKeypair(path: string): Promise<KeyringPair> {
+  const json = JSON.parse(await Fs.readFile(path.replace('~', os.homedir()), 'utf-8'));
+  const pair = new Keyring().createFromJson(json);
+  pair.decodePkcs8('');
+  return pair;
 }

@@ -1,0 +1,69 @@
+<svg width="900" height="360" viewBox="0 0 900 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="360" rx="18" fill="#F6F1F7"/>
+  <rect x="22" y="22" width="856" height="56" rx="12" fill="#FFFFFF" stroke="#D8CDD9" stroke-width="2"/>
+
+  <rect x="332" y="38" width="112" height="32" rx="7" fill="#EEEAF0" stroke="#BDB3BF"/>
+  <text x="388" y="59" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#A8A0AF">Mining</text>
+
+  <rect x="441" y="38" width="112" height="32" rx="7" fill="#FFFFFF" stroke="#8A7F8D" stroke-width="1.5"/>
+  <text x="497" y="59" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#A012C8">Vaulting</text>
+
+  <g filter="url(#shadow)">
+    <path d="M572 38H734C739.523 38 744 42.4772 744 48V60C744 65.5228 739.523 70 734 70H572L547 54L572 38Z" fill="#FFF8FF" stroke="#B100DE" stroke-width="2"/>
+    <text x="650" y="59" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#B100DE">Why Here?</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <circle cx="760" cy="54" r="17" fill="#B100DE"/>
+    <circle cx="760" cy="54" r="16" stroke="#D86AF4" stroke-opacity="0.55" stroke-width="2"/>
+    <text x="760" y="60" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#FFFFFF">i</text>
+  </g>
+
+  <path d="M760 71V89" stroke="#C57AD9" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="4 5"/>
+
+  <g filter="url(#cardShadow)">
+    <rect x="594" y="94" width="250" height="170" rx="14" fill="#FFF9FF" stroke="#E3B8ED" stroke-width="2"/>
+    <path d="M748 94L760 81L772 94" fill="#FFF9FF" stroke="#E3B8ED" stroke-width="2"/>
+  </g>
+
+  <text x="618" y="126" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="700" fill="#8D17B3">Start In Vaulting</text>
+  <text x="618" y="154" font-family="Inter, Arial, sans-serif" font-size="15" fill="#5F4A67">This tab is where vault setup begins.</text>
+  <text x="618" y="176" font-family="Inter, Arial, sans-serif" font-size="15" fill="#5F4A67">Open the checklist, follow the steps,</text>
+  <text x="618" y="198" font-family="Inter, Arial, sans-serif" font-size="15" fill="#5F4A67">and return here when you're ready to launch.</text>
+
+  <rect x="618" y="219" width="118" height="32" rx="9" fill="#B100DE"/>
+  <text x="677" y="240" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#FFFFFF">Open Checklist</text>
+
+  <rect x="744" y="219" width="76" height="32" rx="9" fill="#FFF9FF" stroke="#D7B2E2" stroke-width="1.5"/>
+  <text x="782" y="240" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#9E4FB7">Dismiss</text>
+
+  <text x="618" y="285" font-family="Inter, Arial, sans-serif" font-size="12" letter-spacing="0.08em" fill="#C08BCD">GUIDED STEP 1 OF 3</text>
+
+  <rect x="84" y="122" width="460" height="170" rx="18" fill="#FFFFFF" fill-opacity="0.45" stroke="#DDD2DF" stroke-width="2"/>
+  <text x="118" y="170" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700" fill="#4E2C57">Start Vaulting In Three Steps</text>
+  <text x="118" y="206" font-family="Inter, Arial, sans-serif" font-size="18" fill="#6A5C72">The guide opens context for the control it points at,</text>
+  <text x="118" y="232" font-family="Inter, Arial, sans-serif" font-size="18" fill="#6A5C72">without overloading the arrow label itself.</text>
+
+  <defs>
+    <filter id="shadow" x="540" y="31" width="238" height="48" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="2"/>
+      <feGaussianBlur stdDeviation="3"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.694 0 0 0 0 0 0 0 0 0 0.871 0 0 0 0.24 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1" result="shape"/>
+    </filter>
+    <filter id="cardShadow" x="584" y="75" width="270" height="199" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="6"/>
+      <feGaussianBlur stdDeviation="5"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.58 0 0 0 0 0.24 0 0 0 0 0.69 0 0 0 0.16 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_2"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_2" result="shape"/>
+    </filter>
+  </defs>
+</svg>

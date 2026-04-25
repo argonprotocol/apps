@@ -136,8 +136,8 @@ async function readFundLockMismatchUiState(flow: IE2EFlowRuntime): Promise<{
   fundingEntryVisible: boolean;
   mismatchPanelVisible: boolean;
 }> {
-  const [lockingEntry, lockOverlay, fundingBip21, mismatchPanel] = await Promise.all([
-    flow.isVisible('PersonalBitcoin.showLockingOverlay()'),
+  const [lockingEntryVisible, lockOverlay, fundingBip21, mismatchPanel] = await Promise.all([
+    hasDashboardLockEntry(flow),
     flow.isVisible('BitcoinLockingOverlay'),
     flow.isVisible('fundingBip21.copyContent()'),
     flow.isVisible('LockFundingMismatch'),
@@ -147,9 +147,7 @@ async function readFundLockMismatchUiState(flow: IE2EFlowRuntime): Promise<{
     : null;
   return {
     fundingEntryVisible:
-      lockingEntry.visible ||
-      fundingBip21.visible ||
-      (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin'),
+      lockingEntryVisible || fundingBip21.visible || (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin'),
     mismatchPanelVisible: mismatchPanel.visible || (lockOverlay.visible && lockingOverlayState === 'FundingMismatch'),
   };
 }
@@ -183,4 +181,9 @@ function calculateMismatchedAmount(
   }
   const lowerAmount = expectedAmountSatoshis - mismatchOffsetSatoshis;
   return lowerAmount > 0n ? lowerAmount : expectedAmountSatoshis + mismatchOffsetSatoshis;
+}
+
+async function hasDashboardLockEntry(flow: IE2EFlowRuntime): Promise<boolean> {
+  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
+    .visible;
 }

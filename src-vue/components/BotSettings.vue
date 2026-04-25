@@ -260,7 +260,7 @@
             MainWrapper
             @click="openEditBoxOverlay('cloudMachine')"
             class="flex h-full w-full flex-col items-center justify-center px-8">
-            <div StatHeader>Cloud Server</div>
+            <div StatHeader>Cloud Machine</div>
             <div MainRule class="flex w-full flex-row items-center justify-center tracking-widest">
               <span>{{ config.serverDetails.ipAddress || '0.0.0.0' }}</span>
               <EditIcon EditIcon />
@@ -289,7 +289,7 @@ import {
   type IBiddingRules,
   SeatGoalType,
 } from '@argonprotocol/apps-core';
-import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../overlays-operations/EditBoxOverlay.vue';
+import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../app-operations/overlays/EditBoxOverlay.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import { bigIntAbs } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain';

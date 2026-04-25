@@ -1,3 +1,4 @@
+import { clickIfVisible } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -127,6 +128,7 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
 
     await flow.click('ServerConnectPanel.connect()', { timeoutMs: 8_000 });
     await flow.waitFor({ selector: '.ConnectOverlay' }, { state: 'missing', timeoutMs: 30_000 });
+    await clickIfVisible(flow, 'ServerOverlay.closeOverlay()', { timeoutMs: 5_000 });
   },
 });
 

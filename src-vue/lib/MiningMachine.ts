@@ -4,7 +4,7 @@ import { Config } from './Config';
 import { LocalMachine } from './LocalMachine';
 import { ITryServerData, SSH } from './SSH';
 import { invokeWithTimeout } from './tauriApi';
-import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env';
+import { INSTANCE_NAME, IS_STABLE_BUILD, IS_TEST, NETWORK_NAME } from './Env';
 import { WalletKeys } from './WalletKeys.ts';
 
 export class MiningMachineError extends Error {
@@ -160,7 +160,7 @@ export class MiningMachine {
 
     let progress = 60;
     while (true) {
-      const statusLink = createData.links.actions.find((x: IDropletActionLink) => x.rel === 'create');
+      const statusLink = createData.links.actions.find(x => x.rel === 'create');
       if (!statusLink) {
         throw new MiningMachineError('DigitalOcean did not return a droplet creation status link');
       }
@@ -308,14 +308,14 @@ export class MiningMachine {
   private static extractDigitalOceanServerDetails(droplet: IDroplet): IConfigServerDetails | null {
     if (droplet.status !== 'active') return null;
 
-    const publicNetwork = droplet.networks.v4.find((x: IDropletNetworkV4) => x.type === 'public');
+    const publicNetwork = droplet.networks.v4.find(x => x.type === 'public');
     if (!publicNetwork) return null;
 
     return {
       type: ServerType.DigitalOcean,
       sshUser: 'root',
       ipAddress: publicNetwork.ip_address,
-      port: 22,
+      sshPort: 22,
       workDir: '~',
     };
   }
@@ -348,7 +348,7 @@ export class MiningMachine {
     const newServerDetails: IConfigServerDetails = {
       type: ServerType.LocalComputer,
       ipAddress: `127.0.0.1`,
-      port: 0,
+      sshPort: 0,
       sshUser: 'argon',
       workDir: '/app',
     };
@@ -365,14 +365,14 @@ export class MiningMachine {
     progressFn?.(25);
     try {
       const { sshPort } = await LocalMachine.create(sshPublicKey);
-      newServerDetails.port = sshPort;
+      newServerDetails.sshPort = sshPort;
     } catch (err) {
       throw new MiningMachineError(
         `Something went wrong trying to create your local Docker server. Try restarting Docker.`,
       );
     }
     progressFn?.(75);
-    if (!IS_TEST) {
+    if (!IS_TEST && IS_STABLE_BUILD) {
       await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
       await enableAutostart();
     }
@@ -389,7 +389,7 @@ export class MiningMachine {
     const { port, sshUser, ipAddress, hasRunningBot } = customServer;
     const newServerDetails: IConfigServerDetails = {
       type: ServerType.CustomServer,
-      port,
+      sshPort: port,
       sshUser: sshUser,
       ipAddress: ipAddress,
       workDir: '~',

@@ -53,6 +53,7 @@ dependencies = [
  "time",
  "tokio",
  "walkdir",
+ "webkit2gtk",
  "window-vibrancy",
  "xcap",
  "zip 6.0.0",

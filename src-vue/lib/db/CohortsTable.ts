@@ -224,4 +224,11 @@ export class CohortsTable extends BaseTable {
     const [result] = await this.db.select<[{ count: number }]>('SELECT COUNT(*) as count FROM Cohorts');
     return result.count;
   }
+
+  public async fetchSeatCountWonTotal(): Promise<number> {
+    const [result] = await this.db.select<[{ seatCountWonTotal: number }]>(
+      'SELECT COALESCE(SUM(seatCountWon), 0) as seatCountWonTotal FROM Cohorts',
+    );
+    return result.seatCountWonTotal;
+  }
 }

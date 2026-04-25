@@ -20,7 +20,7 @@ export class SSHConnection {
 
   constructor(sshConfig: ISSHConfig) {
     this.host = sshConfig.ipAddress;
-    this.port = sshConfig.port ?? 22;
+    this.port = sshConfig.sshPort ?? 22;
     this.username = sshConfig.sshUser;
     this.isDockerHostProxy = sshConfig.type === ServerType.LocalComputer;
   }

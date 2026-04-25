@@ -11,7 +11,8 @@ import {
 } from '../interfaces/IConfig';
 import { Config } from './Config';
 import Installer from './Installer';
-import { IInstallStepStatuses, InstallStepStatusType, Server } from './Server';
+import { IInstallStepStatuses, InstallStepStatusType, ServerAdmin } from './ServerAdmin';
+import { ServerApiClient } from './ServerApiClient.ts';
 
 dayjs.extend(utc);
 
@@ -20,7 +21,7 @@ export class InstallerCheck {
 
   private hasCachedInstallSteps = false;
 
-  private server!: Server;
+  private server!: ServerAdmin;
   private installer: Installer;
   private config: Config;
   private cachedInstallStepStatuses: IInstallStepStatuses = {};
@@ -57,7 +58,7 @@ export class InstallerCheck {
     });
   }
 
-  public activateServer(server: Server): void {
+  public activateServer(server: ServerAdmin): void {
     this.server = server;
   }
 
@@ -218,9 +219,17 @@ export class InstallerCheck {
     } else if (stepName === InstallStepKey.FileUpload) {
       return this.installer.fileUploadProgress;
     } else if (stepName === InstallStepKey.BitcoinInstall) {
-      return await this.server.fetchBitcoinInstallProgress();
+      if (!this.config.serverDetails.ipAddress) return stepPending.progress;
+      return await ServerApiClient.getBitcoinInstallProgress(this.config.serverDetails).catch(async () => {
+        await this.installer.refreshLocalGatewayPort().catch(() => undefined);
+        return stepPending.progress;
+      });
     } else if (stepName === InstallStepKey.ArgonInstall) {
-      return await this.server.fetchArgonInstallProgress();
+      if (!this.config.serverDetails.ipAddress) return stepPending.progress;
+      return await ServerApiClient.getArgonInstallProgress(this.config.serverDetails).catch(async () => {
+        await this.installer.refreshLocalGatewayPort().catch(() => undefined);
+        return stepPending.progress;
+      });
     }
 
     const startDate = dayjs.utc(stepPending.startDate);

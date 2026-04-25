@@ -1,3 +1,4 @@
+import { TransactionEvents } from '@argonprotocol/apps-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts';
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -8,12 +9,6 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 
 type ITransactionTrackerTestApi = {
-  findTransactionInBlocks: (
-    tx: ITransactionRecord,
-    maxBlocksToCheck: number,
-    bestBlockHeight: number,
-    searchStartBlockHeight?: number,
-  ) => Promise<unknown>;
   updatePendingStatuses: (bestBlockInfo: { blockNumber: number }) => Promise<void>;
 };
 
@@ -172,11 +167,18 @@ describe('TransactionTracker', () => {
       finalizedHeight: 121,
     });
     const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
-    const findSpy = vi.spyOn(trackerApi, 'findTransactionInBlocks').mockResolvedValueOnce(undefined);
+    const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
 
     await trackerApi.updatePendingStatuses({ blockNumber: 125 });
 
-    expect(findSpy).toHaveBeenCalledWith(tx, 5, 125, 120);
+    expect(findSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicHash: tx.extrinsicHash,
+        searchStartBlockHeight: 120,
+        bestBlockHeight: 125,
+        maxBlocksToCheck: 5,
+      }),
+    );
     expect(table.markFinalized).not.toHaveBeenCalled();
     expect(table.updateFinalizedHead).toHaveBeenCalledWith(tx, expect.objectContaining({ blockNumber: 121 }));
   });
@@ -193,7 +195,7 @@ describe('TransactionTracker', () => {
       finalizedHeight: 125,
     });
     const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
-    const findSpy = vi.spyOn(trackerApi, 'findTransactionInBlocks');
+    const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHash');
 
     await trackerApi.updatePendingStatuses({ blockNumber: 132 });
 
@@ -228,11 +230,18 @@ describe('TransactionTracker', () => {
       ]),
     });
     const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
-    const findSpy = vi.spyOn(trackerApi, 'findTransactionInBlocks').mockResolvedValueOnce(undefined);
+    const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
 
     await trackerApi.updatePendingStatuses({ blockNumber: 132 });
 
-    expect(findSpy).toHaveBeenCalledWith(tx, 11, 132, 121);
+    expect(findSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicHash: tx.extrinsicHash,
+        searchStartBlockHeight: 121,
+        bestBlockHeight: 132,
+        maxBlocksToCheck: 11,
+      }),
+    );
   });
 });
 

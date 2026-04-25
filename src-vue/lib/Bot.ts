@@ -2,13 +2,21 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { createDeferred, type IBidsFile, IBotState, MiningFrames } from '@argonprotocol/apps-core';
+import {
+  createDeferred,
+  type IBidsFile,
+  IBotState,
+  type Mining,
+  MiningFrames,
+  waitAtLeast,
+} from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
 import { BotWsClient } from './BotWsClient';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
+import type { ServerApiClient } from './ServerApiClient.ts';
 
 export type IBotEmitter = {
   'updated-cohort-data': number;
@@ -30,7 +38,11 @@ export class Bot {
   private botSyncer!: BotSyncer;
   private loadDeferred = createDeferred<void>(false);
 
-  constructor(config: Config, dbPromise: Promise<Db>) {
+  constructor(
+    config: Config,
+    dbPromise: Promise<Db>,
+    private readonly serverApiClient: ServerApiClient,
+  ) {
     ensureOnlyOneInstance(this.constructor);
 
     this.syncProgress = 0;
@@ -46,23 +58,23 @@ export class Bot {
     return this.botSyncer.getClient();
   }
 
-  public async load(installer: Installer, miningFrames: MiningFrames): Promise<void> {
+  public async load(installer: Installer, mining: Mining, miningFrames: MiningFrames): Promise<void> {
     if (this.loadDeferred.isSettled || this.loadDeferred.isRunning) {
       return this.loadDeferred.promise;
     }
     this.loadDeferred.setIsRunning(true);
     try {
       const db = await this.dbPromise;
-      this.botSyncer = new BotSyncer(this.config, db, installer, miningFrames, {
-        onEvent: (type: keyof IBotEmitter, payload?: any) => botEmitter.emit(type, payload),
-        setStatus: (x: BotStatus) => {
+      this.botSyncer = new BotSyncer(this.config, db, installer, this.serverApiClient, mining, miningFrames, {
+        onEvent: (type, payload) => botEmitter.emit(type, payload),
+        setStatus: x => {
           if (this.status === x) return;
           this.status = x;
           botEmitter.emit('status-changed', x);
         },
         setBotState: x => (this.state = x),
-        setServerSyncProgress: (x: number) => (this.syncProgress = x * 0.9),
-        setDbSyncProgress: (x: number) => (this.syncProgress = 90 + x * 0.1),
+        setServerSyncProgress: x => (this.syncProgress = x * 0.9),
+        setDbSyncProgress: x => (this.syncProgress = 90 + x * 0.1),
       });
 
       await this.botSyncer.load();
@@ -82,7 +94,7 @@ export class Bot {
   }
 
   public async restart(): Promise<void> {
-    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     this.botSyncer.isPaused = true;
     await server.stopBotDocker();
     await server.startBotDocker();
@@ -91,7 +103,7 @@ export class Bot {
 
   public async loadServerBiddingRules(): Promise<void> {
     if (this.config.miningSetupStatus !== MiningSetupStatus.Finished) return;
-    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     const remoteRules = await server.downloadBiddingRules();
     if (!remoteRules) return;
     this.config.biddingRules = remoteRules;
@@ -99,14 +111,12 @@ export class Bot {
   }
 
   public async resyncBiddingRules(): Promise<void> {
-    const server = new Server(await SSH.getOrCreateConnection(), this.config.serverDetails);
+    const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     try {
       this.status = BotStatus.ServerSyncing;
-      this.syncProgress = 25;
-      this.botSyncer.isPaused = true;
-      await server.uploadBiddingRules(this.config.biddingRules);
       this.syncProgress = 50;
-      await server.startBotDocker();
+      this.botSyncer.isPaused = true;
+      await waitAtLeast(1000, server.uploadBiddingRules(this.config.biddingRules));
       this.syncProgress = 100;
       this.status = BotStatus.Ready;
     } catch (err) {

@@ -19,6 +19,8 @@ import {
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
+import { Db } from '../src/Db.ts';
+import { BitcoinLockRelayService } from '../src/BitcoinLockRelayService.ts';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
@@ -103,14 +105,20 @@ it.skipIf(skipE2E)(
         localNodeBlockTime: 0,
       };
     });
+    vi.spyOn(BitcoinLockRelayService.prototype, 'start').mockResolvedValue();
 
+    const db = new Db(botDataDir);
+    db.migrate();
     const bot = new Bot({
-      pair: sudo(),
+      db,
+      bitcoinInitializerDelegateKeypair: sudo(),
+      bidderKeypair: sudo(),
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
       biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),
       datadir: botDataDir,
       sessionMiniSecret: mnemonicGenerate(),
+      vaultOperatorAddress: sudo().address,
       shouldSkipDockerSync: true,
     });
     runOnTeardown(async () => {
@@ -229,13 +237,18 @@ it.skipIf(skipE2E)(
     // try to recover from blocks
 
     const path2 = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot2-'));
+    const restartDb = new Db(path2);
+    restartDb.migrate();
     const botRestart = new Bot({
-      pair: sudo(),
+      db: restartDb,
+      bitcoinInitializerDelegateKeypair: sudo(),
+      bidderKeypair: sudo(),
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
       biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),
       datadir: path2,
       sessionMiniSecret: mnemonicGenerate(),
+      vaultOperatorAddress: sudo().address,
       oldestFrameIdToSync: 0,
       shouldSkipDockerSync: true,
     });

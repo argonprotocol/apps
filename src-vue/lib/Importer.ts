@@ -1,19 +1,18 @@
-import { JsonExt } from '@argonprotocol/apps-core';
 import { type Config } from './Config';
 import Restarter from './Restarter';
 import { Db } from './Db';
 import { invokeWithTimeout } from './tauriApi';
 import { ITryServerData, SSH } from './SSH';
-import { IConfigServerDetails } from '../interfaces/IConfig';
-import { IRecoveryFile } from '../interfaces/IRecoveryFile.ts';
+import { BootstrapType, IConfigServerDetails } from '../interfaces/IConfig';
 import { SECURITY } from './Env.ts';
 import { WalletKeys } from './WalletKeys.ts';
+import { getWalletBalances } from '../stores/wallets.ts';
+import { getBlockWatch } from '../stores/mainchain.ts';
 
 export default class Importer {
   private readonly config: Config;
   private readonly walletKeys: WalletKeys;
   private readonly dbPromise: Promise<Db>;
-  private data!: IRecoveryFile;
 
   public failureToReadData: boolean;
 
@@ -25,55 +24,29 @@ export default class Importer {
     this.failureToReadData = false;
   }
 
-  public async importFromFile(dataRaw: string) {
-    try {
-      this.data = JsonExt.parse(dataRaw);
-    } catch (error) {
-      console.error(error);
-      this.failureToReadData = true;
-      return;
-    }
-
+  public async importFromMnemonic(mnemonic: string) {
+    await this.shutdownBackgroundSync();
     const restarter = new Restarter(this.dbPromise, this.config);
     await restarter.deleteAndCreateLocalDatabase();
-    const security = await invokeWithTimeout(
-      'overwrite_mnemonic',
-      { mnemonic: this.data.security.masterMnemonic },
-      10_000,
-    );
-    Object.assign(SECURITY, security);
-    await this.config.load(true);
+    const db = await this.dbPromise;
+    await db.reconnect();
 
-    this.config.oldestFrameIdToSync = this.data.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
-    this.config.defaultCurrencyKey = this.data.defaultCurrencyKey ?? this.config.defaultCurrencyKey;
-    this.config.requiresPassword = this.data.requiresPassword ?? this.config.requiresPassword;
-    this.config.userJurisdiction = this.data.userJurisdiction ?? this.config.userJurisdiction;
-    if (this.data.vaultingRules) {
-      this.config.vaultingRules = this.data.vaultingRules;
-    }
-    if (this.data.serverDetails?.ipAddress) {
-      this.config.serverDetails = this.data.serverDetails;
-      const serverData = await this.fetchServerData(this.data.serverDetails);
-
-      if (serverData?.walletAddress !== this.walletKeys.miningBotAddress) {
-        throw new Error('Wallet address mismatch');
-      }
-
-      if (serverData.biddingRules) {
-        this.config.biddingRules = serverData.biddingRules;
-      }
-
-      this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
-    }
-    await this.config.save();
-  }
-
-  public async importFromMnemonic(mnemonic: string) {
-    const restarter = new Restarter(this.dbPromise, this.config);
     const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
     Object.assign(SECURITY, security);
-    await restarter.deleteAndCreateLocalDatabase();
+
+    await this.config.load(true);
+    this.config.bootstrapDetails = {
+      type: BootstrapType.Public,
+      routerHost: 'LOADING',
+    };
+    await this.config.save();
+
     restarter.restart();
+  }
+
+  private async shutdownBackgroundSync() {
+    await getWalletBalances().close();
+    getBlockWatch().stop();
   }
 
   public async importFromServer(ipAddress: string) {
@@ -82,7 +55,7 @@ export default class Importer {
       sshUser: this.config.serverDetails.sshUser,
       type: this.config.serverDetails.type,
       workDir: this.config.serverDetails.workDir,
-      port: this.config.serverDetails.port,
+      sshPort: this.config.serverDetails.sshPort,
     };
 
     const serverData = await this.fetchServerData(serverDetails);

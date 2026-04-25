@@ -14,6 +14,10 @@ const CurrencyKeySchema = z
       val === UnitOfMeasurement.INR,
   );
 
+const HostOrIpSchema = z
+  .string()
+  .refine(value => value === '' || !/^[a-z]+:\/\//i.test(value), 'Must not include a protocol prefix');
+
 export enum InstallStepKey {
   ServerConnect = 'ServerConnect',
   FileUpload = 'FileUpload',
@@ -64,6 +68,11 @@ export enum ServerType {
   LocalComputer = 'LocalComputer',
 }
 
+export enum BootstrapType {
+  Private = 'Private',
+  Public = 'Public',
+}
+
 export const ConfigServerAddDigitalOceanSchema = z.object({
   apiKey: z.string(),
 });
@@ -83,10 +92,17 @@ export const ConfigServerAddSchema = z.object({
 
 export const ConfigServerDetailsSchema = z.object({
   ipAddress: z.string().ip().or(z.literal('')),
-  port: z.number().optional(),
+  sshPort: z.number().optional(),
+  gatewayPort: z.number().optional(),
   sshUser: z.string(),
   type: z.nativeEnum(ServerType),
   workDir: z.string(),
+});
+
+export const ConfigCertificationDetailsSchema = z.object({
+  hasSavedMnemonic: z.boolean(),
+  showBonusTooltip: z.boolean().optional(),
+  showRewardsCelebration: z.boolean().optional(),
 });
 
 export const ConfigInstallerStep = z.object({
@@ -106,6 +122,25 @@ export const ConfigServerInstallerSchema = z.object({
   errorType: z.nativeEnum(InstallStepErrorType).nullable(),
   errorMessage: z.string().nullable(),
   isRunning: z.boolean(),
+});
+
+export const ConfigBootstrapDetailsSchema = z.object({
+  type: z.nativeEnum(BootstrapType),
+  routerHost: HostOrIpSchema,
+});
+
+export const OperationalReferralSchema = z.object({
+  sponsor: z.string(),
+  expiresAtFrame: z.number(),
+  sponsorSignature: z.string(),
+});
+
+export const UpstreamOperatorSchema = z.object({
+  name: z.string(),
+  vaultId: z.number().optional(),
+  inviteSecret: z.string().optional(),
+  operationalReferral: OperationalReferralSchema.optional(),
+  accountId: z.string().optional(),
 });
 
 export const ConfigSyncDetailsSchema = z.object({
@@ -139,7 +174,10 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 export const ConfigSchema = z.object({
   version: z.string(),
   requiresPassword: z.boolean(),
-  showWelcomeOverlay: z.boolean(),
+  ethereumRpcUrl: z.string().optional(),
+
+  bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
+  upstreamOperator: UpstreamOperatorSchema.optional(),
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
@@ -154,14 +192,11 @@ export const ConfigSchema = z.object({
   walletPreviousLifeRecovered: z.boolean(),
   miningBotAccountPreviousHistory: z.array(MiningAccountPreviousHistoryRecordSchema).nullable(),
 
-  hasReadMiningInstructions: z.boolean(),
   isServerInstalled: z.boolean(), // is set once after first install
   isServerInstalling: z.boolean(), // is true whenever the Installer is running
 
-  hasReadVaultingInstructions: z.boolean(),
-
-  hasMiningSeats: z.boolean(), // hasMiningSeats
-  hasMiningBids: z.boolean(), // hasMiningBids
+  hasMiningSeats: z.boolean(),
+  hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
   vaultingRules: VaultingRulesSchema,
 
@@ -175,6 +210,7 @@ export const ConfigSchema = z.object({
     latitude: z.string(),
     longitude: z.string(),
   }),
+  certificationDetails: ConfigCertificationDetailsSchema.optional(),
 });
 
 // ---- Optional Type Inference ---- //
@@ -188,19 +224,26 @@ export type IConfigServerAddLocalComputer = z.infer<typeof ConfigServerAddLocalC
 export type IConfigServerAddCustomServer = z.infer<typeof ConfigServerAddCustomServerSchema>;
 export type IConfigServerAdd = z.infer<typeof ConfigServerAddSchema>;
 
+export type IConfigCertificationDetailsSchema = z.infer<typeof ConfigCertificationDetailsSchema>;
+
 export type IConfigServerDetails = z.infer<typeof ConfigServerDetailsSchema>;
 export type IConfigServerInstallDetails = z.infer<typeof ConfigServerInstallerSchema>;
 export type IConfigInstallStep = z.infer<typeof ConfigInstallerStep>;
 export type IConfigSyncDetails = z.infer<typeof ConfigSyncDetailsSchema>;
+export type IOperationalReferral = z.infer<typeof OperationalReferralSchema>;
 export type IConfig = z.infer<typeof ConfigSchema>;
 
 export type IConfigStringified = {
   [K in keyof IConfig]: string;
 };
 
+export type IConnectedVault = z.infer<typeof UpstreamOperatorSchema>;
+
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
-  showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
+  ethereumRpcUrl: () => IConfig['ethereumRpcUrl'];
+  bootstrapDetails: () => IConfig['bootstrapDetails'];
+  upstreamOperator: () => IConfig['upstreamOperator'];
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
@@ -214,11 +257,8 @@ export interface IConfigDefaults {
   walletPreviousLifeRecovered: () => IConfig['walletPreviousLifeRecovered'];
   miningBotAccountPreviousHistory: () => IConfig['miningBotAccountPreviousHistory'];
 
-  hasReadMiningInstructions: () => IConfig['hasReadMiningInstructions'];
   isServerInstalled: () => IConfig['isServerInstalled'];
   isServerInstalling: () => IConfig['isServerInstalling'];
-
-  hasReadVaultingInstructions: () => IConfig['hasReadVaultingInstructions'];
 
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];
@@ -226,4 +266,5 @@ export interface IConfigDefaults {
   vaultingRules: () => IConfig['vaultingRules'];
   defaultCurrencyKey: () => IConfig['defaultCurrencyKey'];
   userJurisdiction: () => Promise<IConfig['userJurisdiction']>;
+  certificationDetails: () => IConfig['certificationDetails'];
 }

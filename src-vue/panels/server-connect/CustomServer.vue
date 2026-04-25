@@ -164,10 +164,12 @@ const config = getConfig();
 const { textarea } = useTextareaAutosize();
 
 const copyToClipboard = Vue.ref<typeof CopyToClipboard>();
+
 const publicPorts = Vue.computed<number[]>(() => {
   return Object.entries(SERVER_ENV_VARS)
     .filter(([name]) => name.endsWith('P2P_PORT'))
     .map(([, port]) => parseInt(port, 10))
+    .concat([80, 443])
     .sort((a, b) => a - b);
 });
 
@@ -215,7 +217,9 @@ async function connect(): Promise<IConfigServerAddCustomServer> {
   };
   const newServerDetails = {
     type: ServerType.CustomServer,
-    ...serverAdd,
+    sshPort: serverAdd.port,
+    sshUser: serverAdd.sshUser,
+    ipAddress: serverAdd.ipAddress,
     workDir: '~',
   };
 

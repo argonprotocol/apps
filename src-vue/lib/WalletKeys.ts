@@ -3,6 +3,7 @@ import { Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol
 import { BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
+import { IS_TREASURY_APP } from './Env.ts';
 
 export class WalletKeys {
   public sshPublicKey: string;
@@ -23,8 +24,17 @@ export class WalletKeys {
    * Investment account for liquid locking and external treasury management.
    */
   public investmentAddress: string;
+  /**
+   * Operational account for ongoing app operations.
+   */
+  public operationalAddress: string;
+  /**
+   * Ethereum-compatible address used for EVM/Ethereum integrations tied to this wallet.
+   */
+  public ethereumAddress: string;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
+  private upstreamOperatorAuthKeypair?: KeyringPair;
 
   constructor(
     security: ISecurity,
@@ -35,6 +45,8 @@ export class WalletKeys {
     this.miningBotAddress = security.miningBotAddress;
     this.vaultingAddress = security.vaultingAddress;
     this.investmentAddress = security.investmentAddress;
+    this.operationalAddress = security.operationalAddress;
+    this.ethereumAddress = security.ethereumAddress;
     console.log('WalletKeys initialized with mining address:', this.miningBotAddress, security);
   }
 
@@ -86,9 +98,53 @@ export class WalletKeys {
   }
 
   // TODO: move signing to backend instead of passing around key
+  public async getOperationalKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//operational` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public async getUpstreamOperatorAuthKeypair(): Promise<KeyringPair> {
+    if (this.upstreamOperatorAuthKeypair) return this.upstreamOperatorAuthKeypair;
+
+    const account = await invokeWithTimeout<Uint8Array>(
+      'derive_sr25519_seed',
+      { suri: '//upstream-operator-auth' },
+      60e3,
+    );
+    const keypair = new Keyring({ type: 'sr25519' }).addFromSeed(account);
+    this.upstreamOperatorAuthKeypair = keypair;
+    return keypair;
+  }
+
+  public async getVaultDelegateKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting//delegate` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public async getOperationalEncryptionKeypair(): Promise<Uint8Array> {
+    return await invokeWithTimeout<Uint8Array>('derive_x25519_public_key', { suri: `//operational//encrypt` }, 60e3);
+  }
+
+  // TODO: move signing to backend instead of passing around key
   public async getMiningBotKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public get liquidLockingAddress(): string {
+    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
+  }
+
+  public async getLiquidLockingKeypair(): Promise<KeyringPair> {
+    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+  }
+
+  public get treasuryAddress(): string {
+    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
+  }
+
+  public async getTreasuryKeypair(): Promise<KeyringPair> {
+    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {

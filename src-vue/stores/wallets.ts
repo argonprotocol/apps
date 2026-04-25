@@ -7,8 +7,8 @@ import { createDeferred, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
-import { SECURITY } from '../lib/Env.ts';
-import { getSpendableMiningHoldMicrogons, IWallet } from '../lib/Wallet.ts';
+import { IS_TREASURY_APP, IS_OPERATIONS_APP, SECURITY } from '../lib/Env.ts';
+import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons, IWallet } from '../lib/Wallet.ts';
 import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
@@ -26,7 +26,10 @@ export function getWalletKeys() {
 
 let walletBalances: WalletBalances;
 export function getWalletBalances() {
-  walletBalances ??= new WalletBalances(getWalletKeys(), getDbPromise(), getBlockWatch(), getMyVault());
+  if (!walletBalances) {
+    const myVault = IS_OPERATIONS_APP ? getMyVault() : undefined;
+    walletBalances = new WalletBalances(getWalletKeys(), getDbPromise(), getBlockWatch(), myVault);
+  }
   return walletBalances;
 }
 
@@ -53,7 +56,12 @@ export const useWallets = defineStore('wallets', () => {
   const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningHoldAddress });
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
   const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
+  const operationalWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.operationalAddress });
   const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
+
+  const liquidLockingWallet = Vue.computed(() => {
+    return IS_TREASURY_APP ? investmentWallet : vaultingWallet;
+  });
 
   const miningHoldSpendableMicrogons = Vue.computed(() => {
     return getSpendableMiningHoldMicrogons(miningHoldWallet.availableMicrogons);
@@ -175,8 +183,12 @@ export const useWallets = defineStore('wallets', () => {
     );
   });
 
-  const totalNetWorth = Vue.computed(() => {
+  const totalOperationalResources = Vue.computed(() => {
     return totalMiningResources.value + totalVaultingResources.value;
+  });
+
+  const totalTreasuryResources = Vue.computed(() => {
+    return investmentWallet.availableMicrogons + investmentWallet.reservedMicrogons;
   });
 
   const totalWalletMicrogons = Vue.ref(0n);
@@ -186,6 +198,7 @@ export const useWallets = defineStore('wallets', () => {
     miningHold: miningHoldWallet,
     miningBot: miningBotWallet,
     vaulting: vaultingWallet,
+    operational: operationalWallet,
     investment: investmentWallet,
   };
 
@@ -237,8 +250,6 @@ export const useWallets = defineStore('wallets', () => {
     isLoadedReject();
   });
 
-  const existentialDepositMicrogons = 10_000n;
-
   return {
     isLoaded,
     isLoadedPromise,
@@ -246,7 +257,10 @@ export const useWallets = defineStore('wallets', () => {
     miningHoldWallet,
     miningBotWallet,
     vaultingWallet,
+    investmentWallet,
+    liquidLockingWallet,
     miningHoldSpendableMicrogons,
+    operationalWallet,
     miningHoldDisplayedMicrogons,
     totalWalletMicrogons,
     totalWalletMicronots,
@@ -263,9 +277,11 @@ export const useWallets = defineStore('wallets', () => {
     totalVaultingMicrogons,
     totalMiningResources,
     totalVaultingResources,
-    totalNetWorth,
+    totalOperationalResources,
 
-    on: function <K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
+    totalTreasuryResources,
+
+    on<K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
       const unsub = walletBalances.events.on(event, cb);
       // re-emit any load events that happened before we subscribed
       if (!walletBalances.deferredLoading.isSettled) {

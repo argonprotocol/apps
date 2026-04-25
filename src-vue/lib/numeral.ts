@@ -23,12 +23,12 @@ export default function numeral(input?: any): Numeral {
   return numeralOriginal(input);
 }
 
-numeralOriginal.fn.formatIfElse = function (condition: ICondition, ifFormat: string, elseFormat: string) {
+numeralOriginal.fn.formatIfElse = function (condition, ifFormat, elseFormat) {
   const format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);
   return this.format(format);
 };
 
-numeralOriginal.fn.formatCapped = function (format: string, max: number) {
+numeralOriginal.fn.formatCapped = function (format, max) {
   if (this._value > max) {
     this._value = max;
     // if (!format.includes('%')) {
@@ -41,12 +41,7 @@ numeralOriginal.fn.formatCapped = function (format: string, max: number) {
   return this.format(format);
 };
 
-numeralOriginal.fn.formatIfElseCapped = function (
-  condition: ICondition,
-  ifFormat: string,
-  elseFormat: string,
-  max: number,
-) {
+numeralOriginal.fn.formatIfElseCapped = function (condition, ifFormat, elseFormat, max) {
   const format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);
 
   if (this._value > max) {
@@ -59,16 +54,16 @@ numeralOriginal.fn.formatIfElseCapped = function (
 
 export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>) {
   return {
-    microgonToMoneyNm(this: void, microgons: bigint): Numeral {
+    microgonToMoneyNm(microgons: bigint): Numeral {
       return numeral(currency.convertMicrogonTo(microgons, currency.key));
     },
-    microgonToArgonNm(this: void, microgons: bigint): Numeral {
+    microgonToArgonNm(microgons: bigint): Numeral {
       return numeral(currency.convertMicrogonTo(microgons, UnitOfMeasurement.ARGN));
     },
-    microgonToBtcNm(this: void, microgons: bigint): Numeral {
+    microgonToBtcNm(microgons: bigint): Numeral {
       return numeral(currency.convertMicrogonTo(microgons, UnitOfMeasurement.BTC));
     },
-    microgonToNm(this: void, microgons: bigint, toUnit: UnitOfMeasurement): Numeral {
+    microgonToNm(microgons: bigint, toUnit: UnitOfMeasurement): Numeral {
       return numeral(currency.convertMicrogonTo(microgons, toUnit));
     },
 
@@ -83,6 +78,17 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
     },
     micronotToNm(this: void, micronots: bigint, toUnit: UnitOfMeasurement): Numeral {
       return numeral(currency.convertMicronotTo(micronots, toUnit));
+    },
+
+    satoshiToMoneyNm(this: void, satoshis: bigint): Numeral {
+      const btc = currency.convertSatToBtc(satoshis);
+      const microgons = currency.convertBtcToMicrogon(btc);
+      return numeral(currency.convertMicrogonTo(microgons, currency.key));
+    },
+    satoshiToNm(this: void, satoshis: bigint, toUnit: UnitOfMeasurement): Numeral {
+      const btc = currency.convertSatToBtc(satoshis);
+      const microgons = currency.convertBtcToMicrogon(btc);
+      return numeral(currency.convertMicrogonTo(microgons, toUnit));
     },
   };
 }

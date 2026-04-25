@@ -12,9 +12,9 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { ensureOnlyOneInstance, resetOnlyOneInstance } from './Utils';
 import { createDeferred, type IDeferred } from '@argonprotocol/apps-core';
-import { message as tauriMessage, ask as tauriAsk } from '@tauri-apps/plugin-dialog';
+import { ask as tauriAsk, message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -35,6 +35,10 @@ export enum ReasonsToSkipInstall {
   ServerError = 'ServerError',
   MinersAreSyncing = 'MinersAreSyncing',
 }
+
+type InstallerFns = {
+  refreshPrunedClient?: () => void;
+};
 
 export default class Installer {
   public isLoaded: boolean = false;
@@ -63,9 +67,13 @@ export default class Installer {
   private readonly config: Config;
   private readonly walletKeys: WalletKeys;
 
-  private _server?: Server;
+  private _server?: ServerAdmin;
 
-  constructor(config: Config, walletKeys: WalletKeys) {
+  constructor(
+    config: Config,
+    walletKeys: WalletKeys,
+    private readonly fns: InstallerFns = {},
+  ) {
     ensureOnlyOneInstance(this.constructor);
 
     this.isRunning = false;
@@ -240,8 +248,16 @@ export default class Installer {
       this.isRunningInBackground = true;
       this.installerCheck.shouldUseCachedInstallSteps = false;
 
+      void this.saveLocalGatewayPortWhenReady(server, { updateExisting: true })
+        .then(() => this.fns.refreshPrunedClient?.())
+        .catch(error => {
+          console.warn('Unable to save local gateway port', error);
+        });
+
       console.info('Waiting for install to complete');
       await this.installerCheck.noThrowWaitForInstallToComplete();
+      await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 30e3, updateExisting: true });
+      this.fns.refreshPrunedClient?.();
 
       console.info('Confirming all install flags');
       this.remoteFilesNeedUpdating = false;
@@ -289,23 +305,39 @@ export default class Installer {
     void this.run();
   }
 
-  public async ensureIpAddressIsWhitelisted(): Promise<void> {
-    // we don't have anything to connect to yet!
-    if (!this.config.serverDetails.ipAddress) return;
-    const ipResponse = await fetch('https://api.ipify.org?format=json');
-    const { ip: ipAddress } = await ipResponse.json();
-    await SSH.runCommand(`sudo ufw status | grep ${ipAddress} || sudo ufw allow from ${ipAddress}`);
+  public async refreshLocalGatewayPort(timeoutMs = 5e3): Promise<void> {
+    if (this.config.serverDetails.type !== ServerType.LocalComputer) return;
+
+    const server = await this.getServer();
+    await this.saveLocalGatewayPortWhenReady(server, { timeoutMs, updateExisting: true });
+    this.fns.refreshPrunedClient?.();
   }
 
-  private async getServer(retries?: number): Promise<Server> {
+  private async getServer(retries?: number): Promise<ServerAdmin> {
     // We were getting into issues where server hadn't been created yet. I decided to just force
     // getting it in every function that needs it.
     if (!this._server) {
       const connection = await SSH.getOrCreateConnection(retries);
-      this._server = new Server(connection, this.config.serverDetails);
-      await this.ensureIpAddressIsWhitelisted();
+      this._server = new ServerAdmin(connection, this.config.serverDetails);
     }
     return this._server;
+  }
+
+  private async saveLocalGatewayPortWhenReady(
+    server: ServerAdmin,
+    options: { timeoutMs?: number; updateExisting?: boolean } = {},
+  ): Promise<void> {
+    if (this.config.serverDetails.type !== ServerType.LocalComputer) return;
+    if (this.config.serverDetails.gatewayPort && !options.updateExisting) return;
+
+    const gatewayPort = await server.waitForGatewayPort(options.timeoutMs).catch(() => undefined);
+    if (gatewayPort && gatewayPort !== this.config.serverDetails.gatewayPort) {
+      this.config.serverDetails = {
+        ...this.config.serverDetails,
+        gatewayPort,
+      };
+      await this.config.save();
+    }
   }
 
   private async calculateIsReadyToRun(waitForLoaded: boolean = true): Promise<boolean> {
@@ -333,6 +365,10 @@ export default class Installer {
     this.remoteFilesNeedUpdating = remoteFilesNeedUpdating;
 
     if (isServerInstallComplete && !remoteFilesNeedUpdating) {
+      const server = await this.getServer();
+      await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 5e3, updateExisting: true });
+      this.fns.refreshPrunedClient?.();
+
       console.info('Remote files ARE up to date');
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerUpToDate;
@@ -416,6 +452,8 @@ export default class Installer {
 
     this.isRunning = true;
     this.config.isServerInstalling = true;
+    this.fns.refreshPrunedClient?.();
+
     const server = await this.getServer();
     this.installerCheck.activateServer(server);
     this.installerCheck.start();
@@ -423,6 +461,10 @@ export default class Installer {
 
     console.info('Waiting for install to complete');
     await this.installerCheck.noThrowWaitForInstallToComplete();
+    if (!this.installerCheck.hasError) {
+      await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 30e3, updateExisting: true });
+      this.fns.refreshPrunedClient?.();
+    }
 
     this.isRunning = false;
     this.remoteFilesNeedUpdating = false;
@@ -522,7 +564,7 @@ export default class Installer {
 
     try {
       console.log(`Uploading server to ${remoteDir}`);
-      await SSH.uploadEmbeddedFile(localServerTar, `${workDir}/${serverTar}`, (progress: number) => {
+      await SSH.uploadEmbeddedFile(localServerTar, `${workDir}/${serverTar}`, progress => {
         totalProgress += progress;
         progressFn?.(totalCount, totalProgress);
       });
@@ -563,17 +605,23 @@ export default class Installer {
     const server = await this.getServer();
     await server.createConfigDir();
     const miningBotAccount = await this.walletKeys.exportMiningBotAccountJson('');
+    const delegateAccount = (await this.walletKeys.getVaultDelegateKeypair()).toJson('');
     await server.uploadMiningBotWallet(miningBotAccount);
-    progressFn?.(4, 1);
+    progressFn?.(5, 1);
+    await server.uploadVaultDelegateWallet(delegateAccount);
+    progressFn?.(5, 2);
     await server.uploadBiddingRules(this.config.biddingRules);
-    progressFn?.(4, 2);
-    await server.uploadEnvState({ oldestFrameIdToSync: this.config.oldestFrameIdToSync });
-    progressFn?.(4, 3);
+    progressFn?.(5, 3);
+    await server.uploadEnvState({
+      oldestFrameIdToSync: this.config.oldestFrameIdToSync,
+      vaultOperatorAddress: this.walletKeys.vaultingAddress,
+      operatorAccountId: this.walletKeys.operationalAddress,
+    });
+    progressFn?.(5, 4);
     await server.uploadEnvSecurity({
       sessionMiniSecret: await this.walletKeys.getMiningSessionMiniSecret(),
-      keypairPassphrase: '',
     });
-    progressFn?.(4, 4);
+    progressFn?.(5, 5);
   }
 
   private async clearStepFiles(

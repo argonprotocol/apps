@@ -4,15 +4,19 @@ import express from 'express';
 import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
 import type {
+  IActivateBitcoinLockCouponRequest,
+  IBitcoinLockRelayJobRequest,
   IBotApiMethod,
   IBotApiResponse,
   IBotApiSpec,
+  ICreateBitcoinLockCouponRequest,
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@argonprotocol/apps-core';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
+import { HttpError } from './HttpError.ts';
 
 export class BotServer {
   public startupError = '';
@@ -52,12 +56,63 @@ export class BotServer {
     const app = express();
     const wss = new WebSocketServer({ noServer: true });
     const bot = this.bot;
+    const relayService = bot.relayService;
     this.wss = wss;
 
     app.use(cors({ origin: true, methods: ['GET'] }));
 
     app.get('/is-ready', async (_req, res) => {
       res.status(200).type('application/json').send(bot.isReady);
+    });
+
+    app.post('/bitcoin-lock-coupons', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        if (!req.body) {
+          throw new HttpError('Missing JSON body', 400);
+        }
+
+        return await relayService.createCoupon(JsonExt.parse<ICreateBitcoinLockCouponRequest>(String(req.body)));
+      });
+    });
+
+    app.post('/bitcoin-lock-coupons/activate', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        if (!req.body) {
+          throw new HttpError('Missing JSON body', 400);
+        }
+
+        return await relayService.activateLatestCoupon(
+          JsonExt.parse<IActivateBitcoinLockCouponRequest>(String(req.body)),
+        );
+      });
+    });
+
+    app.post('/bitcoin-lock-coupons/initialize', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        if (!req.body) {
+          throw new HttpError('Missing JSON body', 400);
+        }
+
+        return await relayService.relayBitcoinLock(JsonExt.parse<IBitcoinLockRelayJobRequest>(String(req.body)));
+      });
+    });
+
+    app.get('/bitcoin-lock-coupons', async (_req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await relayService.getBitcoinLockCouponStatuses();
+      });
+    });
+
+    app.get('/bitcoin-lock-coupons/by-user/:userId', async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await relayService.getBitcoinLockCouponsByUserId(Number(req.params.userId));
+      });
+    });
+
+    app.get('/bitcoin-lock-coupons/:offerCode', async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        return await relayService.getBitcoinLockCouponStatus(req.params.offerCode);
+      });
     });
 
     wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
@@ -213,4 +268,18 @@ export function startServer(bot: Bot, port: number | string = 0, heartbeatInterv
   const server = new BotServer(bot, port, heartbeatIntervalMs);
   server.start();
   return server;
+}
+
+async function safeJsonRoute(res: express.Response, handler: () => Promise<unknown>): Promise<void> {
+  try {
+    sendJson(res, await handler());
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 500;
+    const message = error instanceof Error ? error.message : String(error);
+    sendJson(res, { error: message }, status);
+  }
+}
+
+function sendJson(res: express.Response, data: unknown, status = 200): void {
+  res.status(status).type('application/json').send(JsonExt.stringify(data));
 }

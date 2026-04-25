@@ -16,7 +16,7 @@ export * from './NetworkConfig.js';
 export * from './Deferred.js';
 export * from './Accountset.js';
 export * from './AccountMiners.js';
-export * from './TreasuryPool.js';
+export * from './TreasuryBonds.js';
 export * from './CohortBidder.js';
 export * from './StorageFinder.js';
 export * from './TransactionEvents.js';
@@ -24,9 +24,14 @@ export * from './Vaults.js';
 export * from './Currency.js';
 export * from './SingleFileQueue.js';
 export * from './JsonExt.js';
+export * from './UserRole.js';
+export * from './InviteCodes.js';
+export * from './RouterAuth.js';
+export * from './SqliteMigrations.js';
+export * from './SqliteUtils.js';
 export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
-export * from './MainchainCompat.js';
+export * from './BondLot.js';
 
 export * from './utils.js';
 

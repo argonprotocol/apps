@@ -1,11 +1,11 @@
 import {
   type AccountId32,
-  type ApiDecoration,
   type ArgonClient,
   type FrameSystemEventRecord,
   type GenericEvent,
   type u32,
 } from '@argonprotocol/mainchain';
+import type { ArgonQueryClient } from './MainchainClients.js';
 
 export type IEventInfo = {
   pallet: string;
@@ -38,7 +38,7 @@ export class AccountEventsFilter {
 
   constructor(
     public readonly address: string,
-    public type: 'miningHold' | 'miningBot' | 'vaulting' | 'investment',
+    public type: 'miningHold' | 'miningBot' | 'vaulting' | 'operational' | 'investment',
     public myOtherAddresses: string[],
     public vaultId?: number,
   ) {}
@@ -98,7 +98,7 @@ export class AccountEventsFilter {
         }
 
         if (this.type === 'vaulting' && this.vaultId !== undefined) {
-          if (client.events.treasury.BidPoolDistributed.is(event)) {
+          if (AccountEventsFilter.isTreasuryEarningsEvent(event)) {
             isMine = true;
           } else if (client.events.vaults.VaultCollected.is(event)) {
             const { revenue, vaultId } = event.data;
@@ -155,6 +155,10 @@ export class AccountEventsFilter {
     };
   }
 
+  private static isTreasuryEarningsEvent(event: GenericEvent): boolean {
+    return event.section === 'treasury' && ['FrameEarningsDistributed', 'BidPoolDistributed'].includes(event.method);
+  }
+
   private isAccountIdMe(accountId: AccountId32): boolean {
     const address = accountId.toHuman();
     return address === this.address;
@@ -184,7 +188,7 @@ export class AccountEventsFilter {
   }
 
   public static hasArgonotTransfer(
-    client: ArgonClient | ApiDecoration<'promise'>,
+    client: ArgonQueryClient,
     extrinsicEvents: GenericEvent[],
     toAccount: string,
     amount: bigint,
@@ -201,7 +205,7 @@ export class AccountEventsFilter {
   }
 
   public static isTransfer(data: {
-    client: ArgonClient | ApiDecoration<'promise'>;
+    client: ArgonQueryClient;
     event: GenericEvent;
     extrinsicEvents: GenericEvent[];
     extrinsicIndex?: number;

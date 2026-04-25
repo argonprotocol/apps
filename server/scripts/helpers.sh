@@ -154,6 +154,17 @@ run_compose() {
     command_exit_status=${PIPESTATUS[0]}
 
     if [ $command_exit_status -ne 0 ]; then
+        if grep -q "no configuration file provided: not found" "$stdout_file"; then
+            rm "$stdout_file"
+            failed "no configuration file provided: not found"
+        fi
+
+        if [[ "$allow_run_command_fail" = "1" ]]; then
+            cat "$stdout_file"
+            rm "$stdout_file"
+            return
+        fi
+
         rm "$stdout_file"
         failed "Command \"$command\" failed with exit status $command_exit_status"
     fi
@@ -164,6 +175,21 @@ run_compose() {
     # Return the captured output
     cat "$stdout_file"
     rm "$stdout_file"
+}
+
+compose_host_port() {
+    local service="$1"
+    local port="$2"
+    local endpoint host_port
+
+    endpoint=$(run_compose "sudo docker compose port $service $port" | tail -n 1)
+    host_port="${endpoint##*:}"
+
+    if [[ -z "$host_port" || "$host_port" == "$endpoint" ]]; then
+        failed "Could not resolve docker compose port for $service:$port"
+    fi
+
+    echo "$host_port"
 }
 
 run_command() {

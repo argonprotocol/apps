@@ -25,6 +25,7 @@ export type IWallet = {
   totalMicronots: bigint;
 };
 
+export const existentialDepositMicrogons = 10_000n;
 export const miningHoldOperationalReserveMicrogons = 250_000n;
 
 export function getSpendableMiningHoldMicrogons(availableMicrogons: bigint): bigint {
@@ -35,6 +36,7 @@ export enum WalletType {
   miningHold = 'miningHold',
   miningBot = 'miningBot',
   vaulting = 'vaulting',
+  operational = 'operational',
   investment = 'investment',
 }
 

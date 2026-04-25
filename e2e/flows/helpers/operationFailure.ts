@@ -47,20 +47,16 @@ export async function logDefaultAppFailureDiagnostics(
     openDialogTestId,
     openDialogClass,
     openDialogText,
-    personalHiddenCount,
-    personalInertCount,
   ] = await Promise.all([
     flow.isVisible('MiningScreen').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('VaultingScreen').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('MiningDashboard').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('VaultingDashboard').catch(() => ({ visible: false, exists: false, enabled: false })),
+    flow.isVisible('SetupChecklist').catch(() => ({ visible: false, exists: false, enabled: false })),
+    flow.isVisible('SetupChecklist').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
-      .isVisible('SetupChecklist.openHowMiningWorksOverlay()')
+      .isVisible({ selector: '[data-testid="WelcomeOverlay"]' })
       .catch(() => ({ visible: false, exists: false, enabled: false })),
-    flow
-      .isVisible('SetupChecklist.openHowVaultingWorksOverlay()')
-      .catch(() => ({ visible: false, exists: false, enabled: false })),
-    flow.isVisible('WelcomeOverlay.closeOverlay()').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow
       .isVisible('WalletFundingReceivedOverlay.closeOverlay()')
       .catch(() => ({ visible: false, exists: false, enabled: false })),
@@ -79,8 +75,6 @@ export async function logDefaultAppFailureDiagnostics(
       .getText({ selector: '[role="dialog"][data-state="open"]' }, { timeoutMs: 1_000 })
       .then(text => text.slice(0, 240))
       .catch(() => null),
-    flow.count({ selector: '[aria-hidden="true"] [data-testid="PersonalBitcoin"]' }).catch(() => -1),
-    flow.count({ selector: '[inert] [data-testid="PersonalBitcoin"]' }).catch(() => -1),
   ]);
 
   const appState = {
@@ -106,8 +100,6 @@ export async function logDefaultAppFailureDiagnostics(
     openDialogTestId,
     openDialogClass,
     openDialogText,
-    personalHiddenCount,
-    personalInertCount,
   };
 
   const payload = {

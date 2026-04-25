@@ -376,6 +376,28 @@ async fn e2e_capture_main_window_screenshot(
     }
 }
 
+#[cfg(all(target_os = "linux", feature = "e2e-insecure-gateway-certs"))]
+fn allow_e2e_insecure_gateway_certs(window: &WebviewWindow) {
+    if let Err(error) = window.with_webview(|webview| {
+        use webkit2gtk::{TLSErrorsPolicy, WebContextExt, WebViewExt, WebsiteDataManagerExt};
+
+        let webview = webview.inner();
+        if let Some(context) = webview.context() {
+            if let Some(data_manager) = context.website_data_manager() {
+                data_manager.set_tls_errors_policy(TLSErrorsPolicy::Ignore);
+                log::warn!("Linux WebKitGTK e2e mode is ignoring gateway certificate errors");
+            } else {
+                context.set_tls_errors_policy(TLSErrorsPolicy::Ignore);
+                log::warn!("Linux WebKitGTK e2e mode is ignoring gateway certificate errors on the web context");
+            }
+        } else {
+            log::warn!("Unable to enable Linux WebKitGTK e2e certificate bypass: webview has no context");
+        }
+    }) {
+        log::warn!("Unable to enable Linux WebKitGTK e2e certificate bypass: {error}");
+    }
+}
+
 ////////////////////////////////////////////////////////////
 
 fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_log::Builder {
@@ -504,11 +526,7 @@ pub fn run() {
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
         .map_or("null".to_string(), |v| v.to_string());
 
-    let mut updater_target = tauri_plugin_updater::target().unwrap_or_default();
-    if cfg!(debug_assertions) {
-        updater_target += "-debug";
-    }
-
+    let updater_target = tauri_plugin_updater::target().unwrap_or_default();
     println!("Updater target = {updater_target}");
     let app_name_clone = app_name.clone();
     let network_config_override_json_clone = network_config_override_json.clone();
@@ -587,6 +605,10 @@ pub fn run() {
             migrations::backup_current_instance_database(handle).map_err(|e| e.to_string())?;
 
             let window = app.get_webview_window("main").unwrap();
+
+            #[cfg(all(target_os = "linux", feature = "e2e-insecure-gateway-certs"))]
+            allow_e2e_insecure_gateway_certs(&window);
+
             let reload_window = window.clone();
             window.on_window_event(move |event| {
                 if matches!(event, tauri::WindowEvent::Focused(true)) {

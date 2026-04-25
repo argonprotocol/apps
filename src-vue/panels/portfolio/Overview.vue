@@ -102,7 +102,7 @@
       </div>
       <div class="w-px h-full bg-argon-300/30" />
       <div StatWrapper class="w-1/3">
-        <div Stat>{{ currency.symbol }}{{ microgonToMoneyNm(wallets.totalNetWorth).format('0,0.00') }}</div>
+        <div Stat>{{ currency.symbol }}{{ microgonToMoneyNm(wallets.totalOperationalResources).format('0,0.00') }}</div>
         <label>Total Value</label>
       </div>
       <div class="w-px h-full bg-argon-300/30" />
@@ -172,13 +172,13 @@ const emit = defineEmits<{
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 
 const miningPct = Vue.computed(() => {
-  if (!wallets.totalNetWorth) return 0;
-  return BigNumber(wallets.totalMiningResources).div(wallets.totalNetWorth).toNumber() * 100;
+  if (!wallets.totalOperationalResources) return 0;
+  return BigNumber(wallets.totalMiningResources).div(wallets.totalOperationalResources).toNumber() * 100;
 });
 
 const vaultingPct = Vue.computed(() => {
-  if (!wallets.totalNetWorth) return 0;
-  return BigNumber(wallets.totalVaultingResources).div(wallets.totalNetWorth).toNumber() * 100;
+  if (!wallets.totalOperationalResources) return 0;
+  return BigNumber(wallets.totalVaultingResources).div(wallets.totalOperationalResources).toNumber() * 100;
 });
 
 const rotation = Vue.computed(() => {

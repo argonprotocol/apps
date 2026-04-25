@@ -289,7 +289,7 @@ export class History {
       const frameId = ((activity as IBotActivity).frameId ??= this.cohortStartingFrameId);
       this.lastActivityTick = Math.max(this.lastActivityTick, activity.tick);
       void this.queue.add(() =>
-        this.storage.historyFile(frameId).mutate((history: IHistoryFile) => {
+        this.storage.historyFile(frameId).mutate(history => {
           history.activities.push(...(activities as IBotActivity[]));
         }),
       );

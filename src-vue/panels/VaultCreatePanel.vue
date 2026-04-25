@@ -62,7 +62,7 @@
                         <tooltip content="This includes everything, even transaction fees">total capital need</tooltip> of
                       </div>
                       <div class="flex flex-row items-center justify-center grow relative h-26 font-bold font-mono text-argon-600">
-                        <InputMoney v-model="rules.baseMicrogonCommitment" :min="1_000_000_000n" :minDecimals="0" class="focus:outline-none" />
+                        <InputMoney v-model="rules.baseMicrogonCommitment" :min="2_000_000_000n" :minDecimals="0" class="focus:outline-none" />
                         <CapitalOverlay align="end">
                           <div class="relative ml-1 w-10 h-10">
                             <PiechartIcon PiechartIcon class="absolute top-0 left-0 w-10 h-10 text-gray-300 hover:!text-argon-600 pointer-events-none" />
@@ -72,7 +72,7 @@
                       <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full mx-auto">
                         <tooltip content="The amount shown is what you're are committing">This capital</tooltip> will allow you to
                         <tooltip content="The total amount of bitcoin your vault can lock">secure {{ numeral(btcSpaceAvailable).format('0,0.[00000000]') }} in BTC</tooltip><br/>
-                        with a
+                        with
                         <tooltip content="This is funded by revenue from mining auctions">treasury pool</tooltip> investment <tooltip content="You are not required to participate in the treasury">options</tooltip> of
                         <tooltip content="This can be invested by yourself or third parties">{{ microgonToArgonNm(poolSpace).format('0,0.[00]') }} argons</tooltip>.
                       </div>
@@ -134,8 +134,8 @@
                 </button>
                 <Tooltip asChild :calculateWidth="() => calculateElementWidth(saveButtonElement)" side="top" content="Clicking this button does not commit you to anything.">
                   <button @click="saveRules" ref="saveButtonElement" class="bg-argon-button text-xl font-bold text-white px-7 py-1 rounded-md cursor-pointer">
-                    <span v-if="!isSaving">{{ isBrandNew ? 'Initialize' : 'Update' }} Rules</span>
-                    <span v-else>{{ isBrandNew ? 'Initializing' : 'Updating' }} Rules...</span>
+                    <span v-if="!isSaving">{{ isBrandNew ? 'Confirm' : 'Update' }} Rules</span>
+                    <span v-else>{{ isBrandNew ? 'Saving' : 'Updating' }} Rules...</span>
                   </button>
                 </Tooltip>
               </div>
@@ -172,9 +172,9 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import InputMoney from '../components/InputMoney.vue';
-import ExistingNetworkVaultsOverlayButton from '../overlays-operations/ExistingNetworkVaultsOverlayButton.vue';
-import CapitalOverlay from '../overlays-operations/vault/VaultCapital.vue';
-import ReturnsOverlay from '../overlays-operations/vault/VaultReturns.vue';
+import ExistingNetworkVaultsOverlayButton from '../app-operations/overlays/ExistingNetworkVaultsOverlayButton.vue';
+import CapitalOverlay from '../app-operations/overlays/vault/VaultCapital.vue';
+import ReturnsOverlay from '../app-operations/overlays/vault/VaultReturns.vue';
 import VaultTour from './vault-create-tour/Base.vue';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';

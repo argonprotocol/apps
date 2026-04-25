@@ -3,7 +3,7 @@ import { IConfigServerDetails } from '../interfaces/IConfig';
 import { InvokeTimeout } from './tauriApi';
 import { SSHConnection } from './SSHConnection';
 import { IBiddingRules } from '@argonprotocol/apps-core';
-import { Server } from './Server';
+import { ServerAdmin } from './ServerAdmin';
 
 export interface ITryServerData {
   walletAddress: string | undefined;
@@ -19,7 +19,7 @@ export class SSH {
     this.config = config;
     if (
       this.connection &&
-      this.connection.host !== `${this.config.serverDetails.ipAddress}:${this.config.serverDetails.port ?? 22}`
+      this.connection.address !== `${this.config.serverDetails.ipAddress}:${this.config.serverDetails.sshPort ?? 22}`
     ) {
       void this.closeConnection();
     }
@@ -46,7 +46,7 @@ export class SSH {
   public static async tryConnection(serverDetails: IConfigServerDetails): Promise<ITryServerData> {
     const connection = new SSHConnection({ ...serverDetails });
     await connection.connect(0);
-    const server = new Server(connection, serverDetails);
+    const server = new ServerAdmin(connection, serverDetails);
     const walletAddress = await server.downloadAccountAddress();
     if (this.connection) {
       void this.connection.close(true);

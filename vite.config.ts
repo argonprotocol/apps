@@ -16,7 +16,7 @@ const require = createRequire(__filename);
 const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 const defaultOperationsPortString = '1420';
-const defaultCapitalPortString = '1430';
+const defaultTreasuryPortString = '1430';
 
 // Function to check if a port is available
 function isPortAvailable(port: number): Promise<boolean> {
@@ -71,7 +71,7 @@ export default defineConfig(async ({ mode }) => {
 
   const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
   const app = process.env.ARGON_APP || 'operations';
-  const defaultPort = app.startsWith('i') ? defaultCapitalPortString : defaultOperationsPortString;
+  const defaultPort = app.startsWith('treasury') ? defaultTreasuryPortString : defaultOperationsPortString;
 
   const instancePort = parseInt(instance[1] || defaultPort, 10);
 
@@ -92,6 +92,7 @@ export default defineConfig(async ({ mode }) => {
     resolve: {
       alias: {
         '@argonprotocol/bitcoin': require.resolve('@argonprotocol/bitcoin/browser'),
+        events: require.resolve('events/'),
       },
     },
     plugins: [

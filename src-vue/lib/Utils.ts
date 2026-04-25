@@ -1,10 +1,10 @@
 import { getPercent, JsonExt, percentOf } from '@argonprotocol/apps-core';
-import { IFieldTypes } from './db/BaseTable.ts';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 
 export { getPercent, percentOf };
+export { convertFromSqliteFields } from '@argonprotocol/apps-core';
 
 export function isInt(n: any) {
   if (typeof n === 'string') return !n.includes('.');
@@ -47,12 +47,26 @@ export function fromSqliteBoolean(num: number): boolean {
   return num === 1;
 }
 
+export function clampProgressValue<T extends bigint | number>(current: T, target: T): T {
+  return current > target ? target : current;
+}
+
+export function getCappedPercent(current: bigint | number, target: bigint | number): number {
+  return Math.max(0, Math.min(getPercent(current, target), 100));
+}
+
 export function toSqliteBigInt(num: bigint): number {
   return Number(num);
 }
 
-export function fromSqliteBigInt(num: number): bigint {
+export function fromSqliteBigInt(num: number | string | bigint): bigint {
   try {
+    if (typeof num === 'string') {
+      return BigInt(num);
+    }
+    if (typeof num === 'bigint') {
+      return num;
+    }
     return BigInt(Math.floor(num));
   } catch (e) {
     console.log('num', num);
@@ -95,59 +109,6 @@ export function convertSqliteBigInts<T = any>(obj: any, bigIntFields: string[]):
   }, obj) as T;
 }
 
-export function convertFromSqliteFields<T = any>(obj: any, fields: Partial<Record<keyof IFieldTypes, string[]>>): T {
-  // Handle array of objects
-  if (Array.isArray(obj)) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return obj.map(item => convertFromSqliteFields(item, fields)) as T;
-  }
-
-  // Handle single object
-  for (const [type, fieldNames] of Object.entries(fields)) {
-    for (const fieldName of fieldNames) {
-      if (!(fieldName in obj)) continue;
-      const value = obj[fieldName];
-      if (value === null || value === undefined) continue;
-      if (type === 'bigint') {
-        obj[fieldName] = fromSqliteBigInt(value);
-      } else if (type === 'boolean') {
-        obj[fieldName] = fromSqliteBoolean(value);
-      } else if (type === 'bigintJson' || type === 'json') {
-        obj[fieldName] = JsonExt.parse(value);
-      } else if (type === 'date') {
-        // Note: we historically stored dates as "YYYY-MM-DD HH:MM:SS" in UTC in SQLite.
-        // Only normalize that specific format to an ISO-like UTC string; otherwise, parse as-is.
-        if (typeof value === 'string') {
-          const hasExplicitOffset = /[+-]\d{2}:?\d{2}$/.test(value);
-          const isLegacyUtcFormat = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value);
-
-          if (value.endsWith('Z') || hasExplicitOffset) {
-            obj[fieldName] = new Date(value);
-          } else if (isLegacyUtcFormat) {
-            // Convert "YYYY-MM-DD HH:MM:SS" (assumed UTC) to "YYYY-MM-DDTHH:MM:SSZ"
-            const isoUtc = value.replace(' ', 'T') + 'Z';
-            obj[fieldName] = new Date(isoUtc);
-          } else {
-            // Fallback: let Date parse the string without forcing UTC
-            obj[fieldName] = new Date(value);
-          }
-        } else {
-          obj[fieldName] = new Date(value);
-        }
-      } else if (type === 'uint8array') {
-        if (typeof value === 'string' && value.startsWith('0x')) {
-          obj[fieldName] = hexToU8a(value);
-        } else if (Array.isArray(value)) {
-          obj[fieldName] = Uint8Array.from(value);
-        }
-      } else {
-        throw new Error(`${fieldName} has unknown type: ${type}`);
-      }
-    }
-  }
-  return obj as T;
-}
-
 export const instanceChecks = new WeakSet<any>();
 
 export function ensureOnlyOneInstance(constructor: any) {
@@ -160,6 +121,7 @@ export function ensureOnlyOneInstance(constructor: any) {
 }
 
 export function resetOnlyOneInstance(constructor: any) {
+  instanceChecks.delete(constructor);
   constructor.isInitialized = false;
 }
 
