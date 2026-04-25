@@ -55,7 +55,7 @@ export default class Importer {
       sshUser: this.config.serverDetails.sshUser,
       type: this.config.serverDetails.type,
       workDir: this.config.serverDetails.workDir,
-      port: this.config.serverDetails.port,
+      sshPort: this.config.serverDetails.sshPort,
     };
 
     const serverData = await this.fetchServerData(serverDetails);

@@ -4,6 +4,7 @@ import { execFileSync, spawn } from 'child_process';
 import { config as loadDotEnv } from 'dotenv';
 import { NetworkConfig, type INetworkConfig } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
+import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
@@ -37,6 +38,8 @@ async function main(): Promise<void> {
 
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   if (network === 'dev-docker') {
+    await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
+
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
     if (inheritedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = inheritedOverride;
@@ -58,8 +61,8 @@ async function main(): Promise<void> {
   console.log(baseConfig);
   const tauriArgs = ['tauri', 'dev', '--config', configJson];
   if (readNonEmpty(tauriEnv.ARGON_DRIVER_WS)) {
-    tauriArgs.push('--features', 'e2e-screenshots');
-    console.log('[tauri-dev] Enabling e2e screenshot feature (ARGON_DRIVER_WS detected)');
+    tauriArgs.push('--features', 'e2e-screenshots,e2e-insecure-gateway-certs');
+    console.log('[tauri-dev] Enabling e2e features (ARGON_DRIVER_WS detected)');
   }
 
   const child = spawn('yarn', tauriArgs, {

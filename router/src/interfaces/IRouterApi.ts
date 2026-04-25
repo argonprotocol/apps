@@ -1,4 +1,4 @@
-import type { UserRole } from '@argonprotocol/apps-core';
+import type { IRouterAuthChallenge, RouterAuthRole, UserRole } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
 import type { IOperationalUserInvite, ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
@@ -25,7 +25,25 @@ export interface IOperationalUserInviteCreateRequest {
 
 export interface IUserInviteOpenRequest {
   accountId: string;
+  authAccountId: string;
+  authBindingExpiresAt: number;
+  authBindingSignature: string;
   inviteSignature: string;
+}
+
+export interface IRouterAuthChallengeRequest {
+  authAccountId: string;
+  role?: RouterAuthRole;
+}
+
+export interface IRouterAuthSessionRequest extends IRouterAuthChallenge {
+  signature: string;
+}
+
+export interface IRouterAuthSessionResponse {
+  expiresAt: string;
+  accountId: string;
+  role: RouterAuthRole;
 }
 
 export type IOpenTreasuryInviteRequest = IUserInviteOpenRequest;

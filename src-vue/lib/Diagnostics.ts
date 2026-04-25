@@ -64,22 +64,14 @@ export class Diagnostics {
   }
 
   public async healthOfBitcoinNode() {
-    const { ipAddress } = this.config.serverDetails;
-    if (!ipAddress) {
-      throw new Error('No server IP address configured');
-    }
-    const info = await ServerApiClient.getBitcoinBlockChainInfo(ipAddress);
+    const info = await ServerApiClient.getBitcoinBlockChainInfo(this.config.serverDetails);
     return {
       info,
     };
   }
 
   public async healthOfArgonNode() {
-    const { ipAddress } = this.config.serverDetails;
-    if (!ipAddress) {
-      throw new Error('No server IP address configured');
-    }
-    const info = await ServerApiClient.getArgonBlockChainInfo(ipAddress);
+    const info = await ServerApiClient.getArgonBlockChainInfo(this.config.serverDetails);
     return {
       info,
     };

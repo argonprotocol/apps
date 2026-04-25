@@ -11,6 +11,7 @@ export interface IUserRecord {
   role: Role;
   name: string;
   accountId?: string | null;
+  authAccountId?: string | null;
   createdAt: Date;
 }
 
@@ -84,13 +85,36 @@ export class UsersTable extends BaseTable {
     return record ? this.mapUser(record) : null;
   }
 
-  public updateAccountId(id: number, accountId: string): IUserRecord | null {
+  public fetchByAuthAccountId(authAccountId: string, role?: Role): IUserRecord | null {
+    const record = this.db.sql
+      .prepare(
+        `
+        SELECT *
+        FROM Users
+        WHERE authAccountId = $authAccountId
+          AND ($role IS NULL OR role = $role)
+        ORDER BY createdAt DESC, id DESC
+        LIMIT 1
+      `,
+      )
+      .get({
+        $authAccountId: authAccountId,
+        $role: role ?? null,
+      }) as SqlUserRow | undefined;
+
+    return record ? this.mapUser(record) : null;
+  }
+
+  public claimAccount(id: number, accountId: string, authAccountId: string): IUserRecord | null {
     const record = this.db.sql
       .prepare(
         `
         UPDATE Users
-        SET accountId = COALESCE(accountId, $accountId)
+        SET
+          accountId = COALESCE(accountId, $accountId),
+          authAccountId = $authAccountId
         WHERE id = $id
+          AND (accountId IS NULL OR accountId = $accountId)
         RETURNING *
       `,
       )
@@ -98,6 +122,7 @@ export class UsersTable extends BaseTable {
         toSqliteParams({
           id,
           accountId,
+          authAccountId,
         }),
       ) as SqlUserRow | undefined;
 

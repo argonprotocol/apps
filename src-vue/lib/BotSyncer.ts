@@ -7,16 +7,15 @@ import {
   type IBotStateStarting,
   IEarningsFile,
   type IFrameEarningsRollup,
+  type Mining,
   MiningFrames,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
-import { getMining } from '../stores/mainchain';
 import { IBotEmitter } from './Bot';
 import Installer from './Installer';
 import { IBidEntry } from './db/FrameBidsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
-import { SERVER_ENV_VARS } from './Env.ts';
-import { SSH } from './SSH.ts';
+import type { ServerApiClient } from './ServerApiClient.ts';
 
 export enum BotStatus {
   Starting = 'Starting',
@@ -45,17 +44,25 @@ export class BotSyncer {
   private isLoaded: boolean = false;
   private isSyncingThePast: boolean = false;
 
-  private mainchain = getMining();
   private miningFrames: MiningFrames;
   private botWsClient: BotWsClient | undefined;
-  private lastIpWhitelistedTime: number = 0;
+  private botWsClientPromise: Promise<BotWsClient> | undefined;
+  private nextBotWsClientAttemptAt: number = 0;
   private lastStateRefreshAt: number = 0;
   private pendingState: IBotState | IBotStateStarting | undefined;
   private syncInFlight: Promise<void> | undefined;
 
   private bidsFileCacheByActivationFrameId: Record<number, [number, IBidsFile]> = {};
 
-  constructor(config: Config, db: Db, installer: Installer, miningFrames: MiningFrames, botFn: IBotFns) {
+  constructor(
+    config: Config,
+    db: Db,
+    installer: Installer,
+    private readonly serverApiClient: ServerApiClient,
+    private readonly mainchain: Mining,
+    miningFrames: MiningFrames,
+    botFn: IBotFns,
+  ) {
     this.config = config;
     this.db = db;
     this.installer = installer;
@@ -76,23 +83,44 @@ export class BotSyncer {
   }
 
   public async getClient(): Promise<BotWsClient> {
-    if (!this.botWsClient) {
-      const ipAddress = await SSH.getIpAddress();
-      const url = `ws://${ipAddress}:${SERVER_ENV_VARS.BOT_PORT}`;
-      const client = new BotWsClient(url);
-      await client.connectDeferred.promise;
-      this.botWsClient = client;
-
-      client.events.on('/state', state => {
-        this.pendingState = state;
-        this.lastStateRefreshAt = Date.now();
-        void this.drainSyncQueue();
-      });
-      client.events.on('ws:disconnected', () => {
-        this.lastStateRefreshAt = 0;
-      });
+    if (this.botWsClient) return this.botWsClient;
+    if (Date.now() < this.nextBotWsClientAttemptAt) {
+      throw new Error('Bot websocket connection is waiting before retrying.');
     }
-    return this.botWsClient;
+    if (this.botWsClientPromise) {
+      return await this.botWsClientPromise;
+    }
+
+    await this.config.isLoadedPromise;
+    if (!(await this.serverApiClient.isGatewayReady())) {
+      await this.installer.refreshLocalGatewayPort();
+    }
+
+    this.botWsClientPromise = BotWsClient.connectToServerGateway(this.serverApiClient)
+      .then(client => {
+        this.botWsClient = client;
+        this.nextBotWsClientAttemptAt = 0;
+
+        client.events.on('/state', state => {
+          this.pendingState = state;
+          this.lastStateRefreshAt = Date.now();
+          void this.drainSyncQueue();
+        });
+        client.events.on('ws:disconnected', () => {
+          this.lastStateRefreshAt = 0;
+        });
+
+        return client;
+      })
+      .catch(error => {
+        this.nextBotWsClientAttemptAt = Date.now() + 10_000;
+        throw error;
+      })
+      .finally(() => {
+        this.botWsClientPromise = undefined;
+      });
+
+    return await this.botWsClientPromise;
   }
 
   public async refresh(): Promise<void> {
@@ -115,12 +143,8 @@ export class BotSyncer {
           }
 
           await this.drainSyncQueue();
-        } catch (error) {
-          // try to whitelist IP again if connection fails, but only ever once every 10 minutes
-          if (!this.lastIpWhitelistedTime || Date.now() - this.lastIpWhitelistedTime >= 10 * 60e3) {
-            await this.installer.ensureIpAddressIsWhitelisted();
-            this.lastIpWhitelistedTime = Date.now();
-          }
+        } catch {
+          // Connection retries are throttled in getClient.
         }
       }
     } catch (e) {

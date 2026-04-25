@@ -7,6 +7,7 @@ export const InitialMigration: ISqliteMigration = db => {
       role TEXT NOT NULL,
       name TEXT NOT NULL,
       accountId TEXT,
+      authAccountId TEXT,
       createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -22,5 +23,6 @@ export const InitialMigration: ISqliteMigration = db => {
 
     CREATE INDEX idx_users_role ON Users(role);
     CREATE INDEX idx_users_account_id ON Users(accountId);
+    CREATE INDEX idx_users_auth_account_id ON Users(authAccountId);
   `);
 };

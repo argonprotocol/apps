@@ -13,6 +13,7 @@ import type { Db } from '../../lib/Db.ts';
 import type IVaultingRules from '../../interfaces/IVaultingRules.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../lib/MyVault.ts';
 import { TransactionTracker } from '../../lib/TransactionTracker.ts';
+import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import { Vaults } from '../../lib/Vaults.ts';
 import type { WalletKeys } from '../../lib/WalletKeys.ts';
 import { setDbPromise } from '../../stores/helpers/dbPromise.ts';
@@ -54,8 +55,9 @@ export async function createBitcoinLocksClientHarness(args: {
   archiveUrl: string;
   esploraHost: string;
   network: string;
+  upstreamOperatorClient?: UpstreamOperatorClient;
 }): Promise<BitcoinLocksClientHarness> {
-  const { archiveUrl, esploraHost } = args;
+  const { archiveUrl, esploraHost, upstreamOperatorClient } = args;
 
   const clients = new MainchainClients(archiveUrl);
   setMainchainClients(clients);
@@ -77,6 +79,7 @@ export async function createBitcoinLocksClientHarness(args: {
     currency,
     transactionTracker,
     new BitcoinMempool(esploraHost),
+    upstreamOperatorClient,
   );
   await bitcoinLocks.load();
 

@@ -184,7 +184,8 @@ async function connectToNetwork() {
     return;
   }
 
-  const operatorHost = [meta.host, meta.port].filter(Boolean).join(':');
+  const operatorAddress = [meta.host, meta.port].filter(Boolean).join(':');
+  const operatorHost = `https://${operatorAddress}`;
 
   try {
     if (IS_TREASURY_APP) {
@@ -192,22 +193,18 @@ async function connectToNetwork() {
         throw new Error('This access code is for the Operations app.');
       }
 
-      const body = await UpstreamOperatorClient.openTreasuryAppInvite(
-        operatorHost,
-        meta.secret,
-        walletKeys.liquidLockingAddress,
-      );
+      const body = await UpstreamOperatorClient.claimTreasuryAppInvite(operatorHost, meta.secret, walletKeys);
       await connectTreasuryInvite(body, operatorHost, meta.secret);
     } else if (IS_OPERATIONS_APP) {
       if (meta.role !== UserRole.OperationalPartner || !meta.secret || !meta.operationalReferral) {
         throw new Error('This access code is for the Treasury app.');
       }
 
-      const body = await UpstreamOperatorClient.openOperationalInvite(
+      const body = await UpstreamOperatorClient.claimOperationalInvite(
         operatorHost,
         meta.secret,
-        walletKeys.operationalAddress,
         meta.operationalReferral,
+        walletKeys,
       );
       await connectOperationalInvite(body, operatorHost, {
         inviteSecret: meta.secret,
@@ -257,8 +254,7 @@ async function connectTreasuryInvite(
     inviteSecret,
   };
   config.bootstrapDetails = {
-    type: BootstrapType.Private,
-    routerHost: operatorHost,
+    ...UpstreamOperatorClient.getBootstrapDetails(operatorHost, BootstrapType.Private),
   };
 
   await config.save();
@@ -281,8 +277,7 @@ async function connectOperationalInvite(
     accountId: body.invite.accountId ?? walletKeys.operationalAddress,
   };
   config.bootstrapDetails = {
-    type: BootstrapType.Private,
-    routerHost: operatorHost,
+    ...UpstreamOperatorClient.getBootstrapDetails(operatorHost, BootstrapType.Private),
   };
 
   await config.save();

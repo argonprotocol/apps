@@ -1,6 +1,13 @@
-import { type ArgonClient } from '@argonprotocol/mainchain';
-import { BondLot, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
-import { getBlockWatch, getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
+import { type ArgonClient, type FrameSystemEventRecord } from '@argonprotocol/mainchain';
+import {
+  type ArgonQueryClient,
+  type BlockWatch,
+  BondLot,
+  type IBlockHeaderInfo,
+  type IFrameBondLot,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
+import { getMainchainClient } from '../stores/mainchain.ts';
 
 export interface IVaultBondState {
   bondLots: BondLot[];
@@ -36,33 +43,29 @@ export class BondMarket {
   };
 
   #globalSubscriptions: VoidFunction[] = [];
-  #vaultSubscriptions = new Map<number, VoidFunction[]>();
   #vaultSubscriptionArgs = new Map<number, IVaultBondSubscription>();
+
+  constructor(private readonly blockWatch: BlockWatch) {}
 
   public async subscribeGlobal(client?: ArgonClient): Promise<void> {
     if (this.#globalSubscriptions.length) return;
 
     client ??= await getMainchainClient(false);
-    const miningFrames = getMiningFrames();
-    const blockWatch = getBlockWatch();
 
-    await blockWatch.start();
+    await this.blockWatch.start();
+    if (this.blockWatch.bestBlockHeader.frameId != null) {
+      this.data.currentFrameId = this.blockWatch.bestBlockHeader.frameId;
+    }
+
     this.refreshRuntimeSupport(client);
+    await this.refreshBidPool(client);
 
-    const frameSubscription = miningFrames.onFrameId(frameId => {
-      this.data.currentFrameId = frameId;
-      void this.refreshSubscribedVaults(client);
+    const blockSubscription = this.blockWatch.events.on('best-blocks', blocks => {
+      this.refreshRuntimeSupport(this.blockWatch.subscriptionClient);
+      void this.onNewBestBlocks(blocks);
     });
 
-    const runtimeSubscription = blockWatch.events.on('best-blocks', () => {
-      this.refreshRuntimeSupport(blockWatch.subscriptionClient);
-    });
-
-    const bidPoolSubscription = await TreasuryBonds.subscribeBidPool(client, bidPool => {
-      this.data.distributableBidPool = bidPool;
-    });
-
-    this.#globalSubscriptions.push(() => frameSubscription.unsubscribe(), runtimeSubscription, bidPoolSubscription);
+    this.#globalSubscriptions.push(blockSubscription);
   }
 
   public async subscribeVault(args: IVaultBondSubscription, client?: ArgonClient): Promise<() => void> {
@@ -72,21 +75,10 @@ export class BondMarket {
     this.#vaultSubscriptionArgs.set(args.vaultId, args);
 
     await this.refreshVault(args, client);
-
-    const bondLotsSubscription = await TreasuryBonds.subscribeBondLots(
-      client,
-      args.vaultId,
-      args.accountId ?? args.operatorAddress,
-      () => {
-        void this.refreshVault(args, client);
-      },
-    );
-
-    this.#vaultSubscriptions.set(args.vaultId, [bondLotsSubscription]);
     return () => this.unsubscribeVault(args.vaultId);
   }
 
-  public async refreshVault(args: IVaultBondSubscription, client?: ArgonClient): Promise<void> {
+  public async refreshVault(args: IVaultBondSubscription, client?: ArgonQueryClient): Promise<void> {
     client ??= await getMainchainClient(false);
 
     const vault = this.getVaultBonds(args.vaultId);
@@ -110,11 +102,6 @@ export class BondMarket {
   }
 
   public unsubscribeVault(vaultId: number): void {
-    for (const unsubscribe of this.#vaultSubscriptions.get(vaultId) ?? []) {
-      unsubscribe();
-    }
-
-    this.#vaultSubscriptions.delete(vaultId);
     this.#vaultSubscriptionArgs.delete(vaultId);
   }
 
@@ -123,11 +110,8 @@ export class BondMarket {
       unsubscribe();
     }
 
-    for (const vaultId of [...this.#vaultSubscriptions.keys()]) {
-      this.unsubscribeVault(vaultId);
-    }
-
     this.#globalSubscriptions.length = 0;
+    this.#vaultSubscriptionArgs.clear();
   }
 
   public getVaultBonds(vaultId: number): IVaultBondState {
@@ -143,7 +127,65 @@ export class BondMarket {
     });
   }
 
-  private async refreshSubscribedVaults(client: ArgonClient): Promise<void> {
+  private async refreshBidPool(client: ArgonQueryClient): Promise<void> {
+    this.data.distributableBidPool = await TreasuryBonds.getDistributableBidPool(client);
+  }
+
+  private async onNewBestBlocks(blocks: IBlockHeaderInfo[]): Promise<void> {
+    const latestBlock = blocks.at(-1);
+    if (!latestBlock) return;
+
+    let refreshAll = false;
+    let refreshBidPool = false;
+    const vaultIds = new Set<number>();
+    let latestRefreshBlock: IBlockHeaderInfo | undefined;
+
+    for (const block of blocks) {
+      if (block.frameId != null) {
+        this.data.currentFrameId = block.frameId;
+      }
+
+      const refreshScope = await getTreasuryBondRefreshScope(await this.blockWatch.getEvents(block));
+      if (refreshScope.refreshBidPool) {
+        refreshBidPool = true;
+      }
+
+      if (refreshScope.refreshAll || block.isNewFrame) {
+        refreshAll = true;
+      }
+
+      for (const vaultId of refreshScope.vaultIds) {
+        vaultIds.add(vaultId);
+      }
+
+      if (refreshScope.refreshAll || refreshScope.vaultIds.size > 0 || block.isNewFrame) {
+        latestRefreshBlock = block;
+      }
+    }
+
+    if (refreshBidPool) {
+      await this.refreshBidPool(await this.blockWatch.getApi(latestBlock));
+    }
+
+    if (!latestRefreshBlock) return;
+
+    const blockClient = await this.blockWatch.getApi(latestRefreshBlock);
+    if (refreshAll) {
+      await this.refreshSubscribedVaults(blockClient);
+      return;
+    }
+
+    const refreshes: Promise<void>[] = [];
+    for (const vaultId of vaultIds) {
+      const args = this.#vaultSubscriptionArgs.get(vaultId);
+      if (args) {
+        refreshes.push(this.refreshVault(args, blockClient));
+      }
+    }
+    await Promise.all(refreshes);
+  }
+
+  private async refreshSubscribedVaults(client: ArgonQueryClient): Promise<void> {
     await Promise.all(
       [...this.#vaultSubscriptionArgs.values()].map(args => {
         const nextArgs = args.frameId === undefined ? { ...args, frameId: this.data.currentFrameId } : args;
@@ -152,9 +194,51 @@ export class BondMarket {
     );
   }
 
-  private refreshRuntimeSupport(client: ArgonClient): void {
+  private refreshRuntimeSupport(client: ArgonQueryClient): void {
     const bondFullCapacityPerFrame = TreasuryBonds.hasFullCapacityPerFrame(client);
     TreasuryBonds.bondFullCapacityPerFrame = bondFullCapacityPerFrame;
     this.data.bondFullCapacityPerFrame = bondFullCapacityPerFrame;
   }
+}
+
+export async function getTreasuryBondRefreshScope(events: FrameSystemEventRecord[]) {
+  const typeClient = await getMainchainClient(false);
+  const vaultIds = new Set<number>();
+  let refreshAll = false;
+  let refreshBidPool = false;
+
+  for (const { event } of events) {
+    if (typeClient.events.miningSlot.SlotBidderAdded.is(event) && event.data.bidAmount.toBigInt() > 0n) {
+      refreshBidPool = true;
+      continue;
+    }
+
+    if (typeClient.events.miningSlot.SlotBidderDropped.is(event)) {
+      refreshBidPool = true;
+      continue;
+    }
+
+    if (typeClient.events.treasury.FrameEarningsDistributed.is(event)) {
+      refreshAll = true;
+      if (event.data.bidPoolDistributed.toBigInt() > 0n) {
+        refreshBidPool = true;
+      }
+      continue;
+    }
+
+    if (typeClient.events.treasury.FrameVaultCapitalLocked.is(event)) {
+      refreshAll = true;
+      continue;
+    }
+
+    if (
+      typeClient.events.treasury.BondLotPurchased.is(event) ||
+      typeClient.events.treasury.BondLotReleaseScheduled.is(event) ||
+      typeClient.events.treasury.BondLotReleased.is(event)
+    ) {
+      vaultIds.add(event.data.vaultId.toNumber());
+    }
+  }
+
+  return { refreshAll, refreshBidPool, vaultIds };
 }

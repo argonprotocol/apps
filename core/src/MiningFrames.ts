@@ -138,9 +138,7 @@ export class MiningFrames {
   }
 
   public async clientAt(block: { blockHash: string; blockNumber: number }): Promise<ApiDecoration<'promise'>> {
-    const isPruneSafe = this.blockWatch.isSafeForPrunedClient(block.blockNumber);
-    const client = await (isPruneSafe ? this.clients.prunedClientOrArchivePromise : this.clients.archiveClientPromise);
-    return client.at(block.blockHash);
+    return await this.blockWatch.getApi(block);
   }
 
   private async onBestBlocks(headers: IBlockHeaderInfo[]): Promise<void> {

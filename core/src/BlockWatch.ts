@@ -1,5 +1,7 @@
 import {
+  type ApiDecoration,
   type ArgonClient,
+  type FrameSystemEventRecord,
   getAuthorFromHeader,
   getFrameInfoFromHeader,
   getOfflineRegistry,
@@ -47,6 +49,8 @@ export class BlockWatch {
   public finalizedHashes: { [blockNumber: number]: string } = {};
   public isLoaded = createDeferred(false);
   private processingQueue = new SingleFileQueue();
+  private apiByBlockHash = new Map<string, Promise<ApiDecoration<'promise'>>>();
+  private eventsByBlockHash = new Map<string, Promise<FrameSystemEventRecord[]>>();
 
   public subscriptionClient!: ArgonClient;
 
@@ -243,6 +247,60 @@ export class BlockWatch {
   public async getBlockTime(blockNumber: number): Promise<Date> {
     const header = await this.getHeader(blockNumber);
     return new Date(header.blockTime);
+  }
+
+  public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ApiDecoration<'promise'>> {
+    const cached = this.apiByBlockHash.get(block.blockHash);
+    if (cached) return await cached;
+
+    const promise = this.readWithArchiveRetry(block.blockNumber, `getApi(${block.blockNumber})`, client =>
+      client.at(block.blockHash),
+    );
+    this.apiByBlockHash.set(block.blockHash, promise);
+    this.trimBlockCaches();
+
+    try {
+      return await promise;
+    } catch (error) {
+      if (this.apiByBlockHash.get(block.blockHash) === promise) {
+        this.apiByBlockHash.delete(block.blockHash);
+      }
+      throw error;
+    }
+  }
+
+  public async getEvents(
+    block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
+  ): Promise<FrameSystemEventRecord[]> {
+    const cached = this.eventsByBlockHash.get(block.blockHash);
+    if (cached) return await cached;
+
+    const promise = this.getApi(block).then(api => api.query.system.events() as Promise<FrameSystemEventRecord[]>);
+    this.eventsByBlockHash.set(block.blockHash, promise);
+    this.trimBlockCaches();
+
+    try {
+      return await promise;
+    } catch (error) {
+      if (this.eventsByBlockHash.get(block.blockHash) === promise) {
+        this.eventsByBlockHash.delete(block.blockHash);
+      }
+      throw error;
+    }
+  }
+
+  private trimBlockCaches(): void {
+    while (this.apiByBlockHash.size > 10) {
+      const oldestKey = this.apiByBlockHash.keys().next().value;
+      if (!oldestKey) break;
+      this.apiByBlockHash.delete(oldestKey);
+    }
+
+    while (this.eventsByBlockHash.size > 10) {
+      const oldestKey = this.eventsByBlockHash.keys().next().value;
+      if (!oldestKey) break;
+      this.eventsByBlockHash.delete(oldestKey);
+    }
   }
 
   private async setFinalizedHeader(header: Header): Promise<void> {

@@ -24,6 +24,8 @@ import {
   bigIntMax,
   BondLot,
   createDeferred,
+  IBlockHeaderInfo,
+  ArgonQueryClient,
   IDeferred,
   IVaultStats,
   MiningFrames,
@@ -296,7 +298,6 @@ export class MyVault {
         const nextVault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
         this.vaults.vaultsById[vaultId] = nextVault;
         this.data.createdVault = nextVault;
-        void this.refreshExternalLocks(client);
       });
 
       const sub2 = await client.query.vaults.revenuePerFrameByVault(vaultId, async x => {
@@ -307,18 +308,23 @@ export class MyVault {
       const sub3 = await client.query.vaults.pendingCosignByVaultId(vaultId, async x => {
         const updateSeq = ++this.#pendingCosignUpdateSeq;
         await this.recordPendingCosignUtxos(x, updateSeq, client);
-        void this.refreshExternalLocks(client);
       });
       const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
         this.updateCollectDueDate();
       });
 
-      const sub5 = await client.query.miningSlot.nextFrameId(frameId => {
-        this.data.currentFrameId = frameId.toNumber() - 1;
+      const { unsubscribe: sub5 } = this.miningFrames.onFrameId(frameId => {
+        this.data.currentFrameId = frameId;
         this.updateCollectDueDate();
       });
 
-      const sub8 = clients.events.on('on-pruned-client', () => {
+      const sub6 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
+        void this.refreshExternalLocksFromBlockEvents(headers).catch(x =>
+          console.error(`Error updating external locks from block events`, x),
+        );
+      });
+
+      const sub7 = clients.events.on('on-pruned-client', () => {
         if (client.clientType === 'archive') {
           this.unsubscribe();
           void this.subscribe();
@@ -331,9 +337,38 @@ export class MyVault {
         }
       });
 
-      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub8);
+      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7);
     } finally {
       this.#isSubscribing = false;
+    }
+  }
+
+  private async refreshExternalLocksFromBlockEvents(headers: IBlockHeaderInfo[]): Promise<void> {
+    const vaultId = this.vaultId;
+    if (vaultId == null) return;
+
+    const typeClient = await getMainchainClient(false);
+    let latestApiClient: ApiDecoration<'promise'> | undefined;
+    for (const header of headers) {
+      const events = await this.miningFrames.blockWatch.getEvents(header);
+      for (const { event } of events) {
+        if (
+          typeClient.events.bitcoinLocks.BitcoinLockCreated.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinLockRatcheted.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinUtxoCosignRequested.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinUtxoCosigned.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinCosignPastDue.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinLockBurned.is(event)
+        ) {
+          if (vaultId === event.data.vaultId.toNumber()) {
+            latestApiClient = await this.miningFrames.clientAt(header);
+            break;
+          }
+        }
+      }
+    }
+    if (latestApiClient) {
+      await this.refreshExternalLocks(latestApiClient);
     }
   }
 
@@ -922,7 +957,7 @@ export class MyVault {
   }
 
   private async buildPendingOrphanCosignTxs(args: {
-    finalizedClient: ArgonClient | ApiDecoration<'promise'>;
+    finalizedClient: ArgonQueryClient;
     submitClient: ArgonClient;
     vaultId: number;
   }): Promise<{ tx: SubmittableExtrinsic; metadata: ICollectOrphanCosignMetadata }[]> {
@@ -1286,7 +1321,7 @@ export class MyVault {
     this.#subscriptions.length = 0;
   }
 
-  public async refreshExternalLocks(clientArg?: ArgonClient): Promise<void> {
+  public async refreshExternalLocks(clientArg?: ArgonQueryClient): Promise<void> {
     const vaultId = this.vaultId;
     if (vaultId == null) return;
     const updateSeq = ++this.#externalLocksUpdateSeq;

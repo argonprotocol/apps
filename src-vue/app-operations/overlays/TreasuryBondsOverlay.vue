@@ -1,11 +1,38 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-7/12">
+  <OverlayBase
+    :isOpen="isOpen"
+    @close="closeOverlay"
+    @esc="closeOverlay"
+    class="w-7/12">
     <template #title>
       <div class="grow text-2xl font-bold">Treasury Bonds</div>
     </template>
 
-    <div class="space-y-5 px-6 py-5 text-slate-700">
+    <div v-if="currentScreen === 'buy'" class="space-y-5 px-6 py-5 text-slate-700">
+      <div class="text-sm font-semibold text-slate-800">
+        Buy Bonds
+      </div>
+
+      <div class="text-sm leading-6 text-slate-500">
+        Buy bonds to allocate Treasury Bonds to this vault.
+        <template v-if="availableBondMicrogons > 0n">
+          You can buy up to {{ microgonToArgonNm(availableBondMicrogons).format('0,0.[00]') }} ARGN more for this vault.
+        </template>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 bg-white px-5 py-5">
+        <BuyBondsForm
+          :vaultId="vaultId"
+          :walletBalance="wallets.vaultingWallet.availableMicrogons"
+          :availableVaultSpace="availableBondMicrogons"
+          @close="goBack"
+          @submitted="onBuySubmitted"
+        />
+      </div>
+    </div>
+
+    <div v-else class="space-y-5 px-6 py-5 text-slate-700">
       <div class="flex items-start justify-between gap-5">
         <div>
           <div class="text-sm font-semibold text-slate-800">
@@ -23,7 +50,7 @@
           type="button"
           :disabled="availableBondMicrogons <= 0n"
           class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded-md px-5 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
-          @click="showBuyOverlay = true">
+          @click="goToBuy">
           Buy Bonds
         </button>
       </div>
@@ -128,22 +155,13 @@
       </div>
     </div>
   </OverlayBase>
-
-  <BuyBondsOverlay
-    v-if="showBuyOverlay && vaultId"
-    :vaultId="vaultId"
-    :walletBalance="wallets.vaultingWallet.availableMicrogons"
-    :availableVaultSpace="availableBondMicrogons"
-    @close="showBuyOverlay = false"
-    @submitted="onBuySubmitted"
-  />
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
-import BuyBondsOverlay from '../../app-shared/overlays/BuyBondsOverlay.vue';
+import BuyBondsForm from '../../app-shared/overlays/BuyBondsForm.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBondMarket } from '../../stores/myBonds.ts';
@@ -168,7 +186,7 @@ const vaultingBreakdown = useVaultingAssetBreakdown();
 const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
-const showBuyOverlay = Vue.ref(false);
+const currentScreen = Vue.ref<'overview' | 'buy'>('overview');
 
 const liquidatingLotId = Vue.ref<number>();
 const liquidationProgressActive = Vue.ref(false);
@@ -199,11 +217,19 @@ const liquidationProgressTitle = Vue.computed(() => {
 
 function closeOverlay() {
   isOpen.value = false;
-  showBuyOverlay.value = false;
+  currentScreen.value = 'overview';
+}
+
+function goBack() {
+  currentScreen.value = 'overview';
+}
+
+function goToBuy() {
+  currentScreen.value = 'buy';
 }
 
 async function onBuySubmitted() {
-  showBuyOverlay.value = false;
+  currentScreen.value = 'overview';
   await refreshBondLots();
 }
 
@@ -269,6 +295,7 @@ async function refreshBondLots() {
 
 basicEmitter.on('openTreasuryBondsOverlay', () => {
   isOpen.value = true;
+  currentScreen.value = 'overview';
   void refreshBondLots();
 });
 

@@ -92,7 +92,8 @@ export const ConfigServerAddSchema = z.object({
 
 export const ConfigServerDetailsSchema = z.object({
   ipAddress: z.string().ip().or(z.literal('')),
-  port: z.number().optional(),
+  sshPort: z.number().optional(),
+  gatewayPort: z.number().optional(),
   sshUser: z.string(),
   type: z.nativeEnum(ServerType),
   workDir: z.string(),

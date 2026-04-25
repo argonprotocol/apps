@@ -13,6 +13,7 @@ export interface IUserInviteRecord {
   firstClickedAt?: Date | null;
   lastClickedAt?: Date | null;
   accountId?: string | null;
+  authAccountId?: string | null;
   createdAt: Date;
 }
 
@@ -32,6 +33,7 @@ const selectInviteRecord = `
     UserInvites.firstClickedAt AS firstClickedAt,
     UserInvites.lastClickedAt AS lastClickedAt,
     Users.accountId AS accountId,
+    Users.authAccountId AS authAccountId,
     UserInvites.createdAt AS createdAt
   FROM UserInvites
   JOIN Users ON Users.id = UserInvites.userId
@@ -134,8 +136,14 @@ export class UserInvitesTable extends BaseTable {
     ).map(record => this.mapInvite(record));
   }
 
-  public openInvite(id: number, accountId: string, clickedAt = new Date()): IUserInviteRecord | null {
-    this.db.usersTable.updateAccountId(id, accountId);
+  public claimInvite(
+    id: number,
+    accountId: string,
+    authAccountId: string,
+    clickedAt = new Date(),
+  ): IUserInviteRecord | null {
+    const user = this.db.usersTable.claimAccount(id, accountId, authAccountId);
+    if (!user) return null;
 
     const updatedInvite = this.db.sql
       .prepare(

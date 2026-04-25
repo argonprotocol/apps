@@ -219,13 +219,17 @@ export class InstallerCheck {
     } else if (stepName === InstallStepKey.FileUpload) {
       return this.installer.fileUploadProgress;
     } else if (stepName === InstallStepKey.BitcoinInstall) {
-      const { ipAddress } = this.config.serverDetails;
-      if (!ipAddress) return stepPending.progress;
-      return await ServerApiClient.getBitcoinInstallProgress(ipAddress);
+      if (!this.config.serverDetails.ipAddress) return stepPending.progress;
+      return await ServerApiClient.getBitcoinInstallProgress(this.config.serverDetails).catch(async () => {
+        await this.installer.refreshLocalGatewayPort().catch(() => undefined);
+        return stepPending.progress;
+      });
     } else if (stepName === InstallStepKey.ArgonInstall) {
-      const { ipAddress } = this.config.serverDetails;
-      if (!ipAddress) return stepPending.progress;
-      return await ServerApiClient.getArgonInstallProgress(ipAddress);
+      if (!this.config.serverDetails.ipAddress) return stepPending.progress;
+      return await ServerApiClient.getArgonInstallProgress(this.config.serverDetails).catch(async () => {
+        await this.installer.refreshLocalGatewayPort().catch(() => undefined);
+        return stepPending.progress;
+      });
     }
 
     const startDate = dayjs.utc(stepPending.startDate);

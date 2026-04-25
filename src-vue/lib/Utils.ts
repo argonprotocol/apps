@@ -121,6 +121,7 @@ export function ensureOnlyOneInstance(constructor: any) {
 }
 
 export function resetOnlyOneInstance(constructor: any) {
+  instanceChecks.delete(constructor);
   constructor.isInitialized = false;
 }
 

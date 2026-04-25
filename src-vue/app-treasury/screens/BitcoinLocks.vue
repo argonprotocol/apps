@@ -151,7 +151,7 @@ import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import BitcoinLockingOverlay from '../../app-operations/overlays/BitcoinLockingOverlay.vue';
 import BitcoinLockDetailOverlay from '../../app-operations/overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../../app-operations/overlays/BitcoinUnlockingOverlay.vue';
-import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
+import { getUpstreamOperatorClient } from '../../stores/upstreamOperator.ts';
 
 const currency = getCurrency();
 const config = getConfig();
@@ -288,13 +288,13 @@ function updateAvailableSpace(rawVault: Vault) {
 }
 
 async function loadCurrentCoupon() {
-  const operatorHost = config.bootstrapDetails?.routerHost;
-  if (!operatorHost || !config.upstreamOperator?.vaultId) {
+  const upstreamOperatorClient = getUpstreamOperatorClient();
+  if (!upstreamOperatorClient.operatorHost || !config.upstreamOperator?.vaultId) {
     coupons.value = [];
     return;
   }
 
-  coupons.value = await UpstreamOperatorClient.getBitcoinLockCoupons(operatorHost, walletKeys.liquidLockingAddress);
+  coupons.value = await upstreamOperatorClient.getBitcoinLockCoupons(walletKeys.liquidLockingAddress);
 }
 
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {

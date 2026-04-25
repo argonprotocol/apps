@@ -152,6 +152,8 @@ if ! (already_ran "UbuntuCheck"); then
     else
         run_command "sudo ufw allow 22/tcp"
     fi
+    run_command "sudo ufw allow 80/tcp"
+    run_command "sudo ufw allow 443/tcp"
 
     run_command "sudo ufw --force enable"
 
@@ -256,6 +258,20 @@ if ! (already_ran "DockerInstall"); then
     run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || sudo docker network create ${network_name}"
     run_compose "sudo docker compose up router -d --build"
 
+    echo "-----------------------------------------------------------------"
+    echo "PREPARING GATEWAY CERTIFICATES"
+
+    if [ "${GATEWAY_CERTBOT_ENABLED:-false}" = "true" ]; then
+      run_compose "sudo docker compose up gateway-certbot -d --build --wait"
+    fi
+
+    echo "-----------------------------------------------------------------"
+    echo "VALIDATING GATEWAY CONFIG"
+
+    run_compose "sudo docker compose build nginx"
+    run_compose "sudo docker compose run --rm --no-deps nginx nginx -t"
+    run_compose "sudo docker compose up nginx -d --build --wait"
+
     finish "DockerInstall" "$command_output"
 fi
 
@@ -296,11 +312,12 @@ if ! (already_ran "BitcoinInstall"); then
     fi
 
     # Loop until syncstatus is >= 100%
+    router_port=$(compose_host_port router 8080)
     failures=0
     while true; do
         sleep 1
         allow_run_command_fail=1
-        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${ROUTER_PORT}/bitcoin/syncstatus" )
+        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${router_port}/bitcoin/syncstatus")
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
@@ -364,11 +381,12 @@ if ! (already_ran "ArgonInstall"); then
     fi
 
     # Loop until syncstatus is >= 100%
+    router_port=$(compose_host_port router 8080)
     failures=0
     while true; do
         sleep 1
         allow_run_command_fail=1
-        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${ROUTER_PORT}/argon/syncstatus")
+        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${router_port}/argon/syncstatus")
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
@@ -417,7 +435,9 @@ fi
 
 while true; do
     sleep 1
-    RESPONSE=$(curl -s -w "\n%{http_code}" "http://${LOCALHOST}:${BOT_PORT}/is-ready" || echo -e "\n000")
+    allow_run_command_fail=1
+    RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready")
+    unset allow_run_command_fail
     echo "$RESPONSE"
     status=${RESPONSE##*$'\n'}        # last line
     json=${RESPONSE%$'\n'*}           # all but last line
@@ -426,6 +446,30 @@ while true; do
       break;
     fi
     echo "Bot is not ready, waiting..."
+done
+
+echo "-----------------------------------------------------------------"
+echo "REMOVING LEGACY PUBLIC ACCESS"
+
+legacy_direct_ports=(3260 3261 9944 9945)
+for legacy_port in "${legacy_direct_ports[@]}"; do
+  if [ "$legacy_port" = "${BITCOIN_P2P_PORT:-}" ] || \
+     [ "$legacy_port" = "${ARGON_P2P_PORT:-}" ] || \
+     [ "$legacy_port" = "${GATEWAY_PORT:-443}" ]; then
+    continue
+  fi
+
+  allow_run_command_fail=1
+  run_command "yes | sudo ufw delete allow ${legacy_port}/tcp"
+  run_command "yes | sudo ufw delete allow ${legacy_port}"
+  unset allow_run_command_fail
+done
+
+allow_run_command_fail=1
+broad_ufw_rule_numbers=$(run_command "sudo ufw status numbered | sed -nE 's/^\[[[:space:]]*([0-9]+)\][[:space:]]+Anywhere( \(v6\))?[[:space:]]+ALLOW IN[[:space:]]+([^[:space:]]+).*$/\1 \3/p' | awk '\$2 != \"Anywhere\" { print \$1 }' | sort -rn")
+unset allow_run_command_fail
+for broad_ufw_rule_number in $broad_ufw_rule_numbers; do
+  run_command "yes | sudo ufw delete $broad_ufw_rule_number"
 done
 
 finish "MiningLaunch"

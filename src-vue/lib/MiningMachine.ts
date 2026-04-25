@@ -315,7 +315,7 @@ export class MiningMachine {
       type: ServerType.DigitalOcean,
       sshUser: 'root',
       ipAddress: publicNetwork.ip_address,
-      port: 22,
+      sshPort: 22,
       workDir: '~',
     };
   }
@@ -348,7 +348,7 @@ export class MiningMachine {
     const newServerDetails: IConfigServerDetails = {
       type: ServerType.LocalComputer,
       ipAddress: `127.0.0.1`,
-      port: 0,
+      sshPort: 0,
       sshUser: 'argon',
       workDir: '/app',
     };
@@ -365,7 +365,7 @@ export class MiningMachine {
     progressFn?.(25);
     try {
       const { sshPort } = await LocalMachine.create(sshPublicKey);
-      newServerDetails.port = sshPort;
+      newServerDetails.sshPort = sshPort;
     } catch (err) {
       throw new MiningMachineError(
         `Something went wrong trying to create your local Docker server. Try restarting Docker.`,
@@ -389,7 +389,7 @@ export class MiningMachine {
     const { port, sshUser, ipAddress, hasRunningBot } = customServer;
     const newServerDetails: IConfigServerDetails = {
       type: ServerType.CustomServer,
-      port,
+      sshPort: port,
       sshUser: sshUser,
       ipAddress: ipAddress,
       workDir: '~',

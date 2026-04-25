@@ -1,6 +1,8 @@
 export const LOCAL_NODE_URL = process.env.ARGON_LOCAL_NODE;
 export const MAIN_NODE_URL = process.env.ARGON_ARCHIVE_NODE;
 export const VAULT_OPERATOR_ADDRESS = process.env.VAULT_OPERATOR_ADDRESS;
+export const ADMIN_OPERATOR_ACCOUNT_ID = process.env.OPERATOR_ACCOUNT_ID;
+export const ROUTER_AUTH_SESSION_TTL_SECONDS = process.env.ROUTER_AUTH_SESSION_TTL_SECONDS;
 export const PORT = process.env.PORT || 8080;
 
 export const ARGON_CHAIN = process.env.ARGON_CHAIN;

@@ -34,6 +34,7 @@ export class WalletKeys {
   public ethereumAddress: string;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
+  private upstreamOperatorAuthKeypair?: KeyringPair;
 
   constructor(
     security: ISecurity,
@@ -100,6 +101,19 @@ export class WalletKeys {
   public async getOperationalKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//operational` }, 60e3);
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public async getUpstreamOperatorAuthKeypair(): Promise<KeyringPair> {
+    if (this.upstreamOperatorAuthKeypair) return this.upstreamOperatorAuthKeypair;
+
+    const account = await invokeWithTimeout<Uint8Array>(
+      'derive_sr25519_seed',
+      { suri: '//upstream-operator-auth' },
+      60e3,
+    );
+    const keypair = new Keyring({ type: 'sr25519' }).addFromSeed(account);
+    this.upstreamOperatorAuthKeypair = keypair;
+    return keypair;
   }
 
   public async getVaultDelegateKeypair(): Promise<KeyringPair> {

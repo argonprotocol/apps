@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises';
+import * as Http from 'node:http';
+import * as Https from 'node:https';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { BITCOIN_RPC_URL } from './env';
 import type { IJsonRpcResponse } from './interfaces/IJsonRpcResponse';
@@ -8,7 +10,7 @@ let requestId = 1;
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type',
 };
 
 export function getRoundedPercent(num: number, decimals = 1): number {
@@ -102,19 +104,48 @@ export async function callArgonRpc<T = unknown>(
   method: string,
   params: any[] = [],
 ): Promise<IJsonRpcResponse<T>> {
+  const rpcUrl = new URL(url);
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: requestId++,
     method,
     params,
   });
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
+
+  const localServicePort = rpcUrl.port || (rpcUrl.protocol === 'https:' ? '443' : '80');
+  const localServiceHostHeader = rpcUrl.hostname === 'argon-miner' ? `localhost:${localServicePort}` : undefined;
+  const request = rpcUrl.protocol === 'https:' ? Https.request : Http.request;
+  const path = `${rpcUrl.pathname || '/'}${rpcUrl.search}`;
+
+  const response = await new Promise<Http.IncomingMessage>((resolve, reject) => {
+    const req = request(
+      {
+        hostname: rpcUrl.hostname,
+        port: rpcUrl.port,
+        path,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          ...(localServiceHostHeader ? { Host: localServiceHostHeader } : {}),
+        },
+      },
+      resolve,
+    );
+    req.on('error', reject);
+    req.end(body);
   });
-  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-  return (await res.json()) as IJsonRpcResponse<T>;
+  const chunks: Buffer[] = [];
+  for await (const chunk of response) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+
+  if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`HTTP error ${response.statusCode}`);
+  }
+
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return JsonExt.parse<IJsonRpcResponse<T>>(raw);
 }
 
 export async function readTextFileOrDefault(path: string, defaultValue = '0'): Promise<string> {

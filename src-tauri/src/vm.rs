@@ -93,7 +93,21 @@ impl Vm {
         work_dir: PathBuf,
         mut env_text: String,
     ) -> anyhow::Result<Vm, String> {
+        let nginx_certs_dir = work_dir.join("config").join("nginx-certs");
+        let tmp_nginx_certs_dir = vm_path.with_file_name("nginx-certs.tmp");
+
         if vm_path.exists() {
+            if nginx_certs_dir.exists() {
+                fs::rename(&nginx_certs_dir, &tmp_nginx_certs_dir).map_err(|e| {
+                    format!(
+                        "Error moving nginx cert directory {} to {}: {}",
+                        nginx_certs_dir.display(),
+                        tmp_nginx_certs_dir.display(),
+                        e
+                    )
+                })?;
+            }
+
             std::fs::remove_dir_all(&vm_path)
                 .map_err(|e| format!("Error removing VM directory {}: {}", vm_path.display(), e))?;
         }
@@ -120,6 +134,24 @@ impl Vm {
             fs::create_dir_all(&work_dir)
                 .map_err(|e| format!("Error creating directory {}: {}", work_dir.display(), e))?;
         }
+        if tmp_nginx_certs_dir.exists() {
+            fs::create_dir_all(nginx_certs_dir.parent().unwrap()).map_err(|e| {
+                format!(
+                    "Error creating nginx config directory for {}: {}",
+                    nginx_certs_dir.display(),
+                    e
+                )
+            })?;
+            fs::rename(&tmp_nginx_certs_dir, &nginx_certs_dir).map_err(|e| {
+                format!(
+                    "Error restoring nginx cert directory {} to {}: {}",
+                    tmp_nginx_certs_dir.display(),
+                    nginx_certs_dir.display(),
+                    e
+                )
+            })?;
+        }
+
         Self::run_compose_command(&vm_path, &["up", "--build", "-d", "--wait"])?;
         Self::get_vm(&vm_path)
     }

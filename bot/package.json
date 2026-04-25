@@ -11,7 +11,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.3-dev.1f0d7a33",
+    "@argonprotocol/mainchain": "1.4.3-dev.42131ea6",
     "bignumber.js": "^9.3.1",
     "cors": "^2.8.5",
     "express": "^5.2.0",
@@ -21,7 +21,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.1f0d7a33",
+    "@argonprotocol/testing": "1.4.3-dev.42131ea6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/ws": "^8.18.1",

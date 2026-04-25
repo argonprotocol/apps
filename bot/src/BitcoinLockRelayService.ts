@@ -465,8 +465,6 @@ export class BitcoinLockRelayService {
       const finalizedHeight = this.blockWatch.finalizedBlockHeader.blockNumber;
 
       for (const relay of this.db.bitcoinLockRelaysTable.fetchNonTerminal()) {
-        if (this.relayWatchUnsubscribes.has(relay.id)) continue;
-
         if (relay.status === 'Submitted') {
           const inBlock = await TransactionEvents.findByExtrinsicHash({
             blockWatch: this.blockWatch,
