@@ -125,10 +125,15 @@ export class ServerAdmin {
     return biddingRulesRaw ? JsonExt.parse(biddingRulesRaw) : undefined;
   }
 
-  public async uploadEnvState(envState: { oldestFrameIdToSync: number; vaultOperatorAddress: string }): Promise<void> {
+  public async uploadEnvState(envState: {
+    oldestFrameIdToSync: number;
+    vaultOperatorAddress: string;
+    operatorAccountId: string;
+  }): Promise<void> {
     const envStateStr =
       `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}\n` +
-      `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}\n`;
+      `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}\n` +
+      `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}\n`;
     await this.connection.uploadFileWithTimeout(envStateStr, `${this.workDir}/config/.env.state`, 10e3);
   }
 
@@ -211,7 +216,7 @@ export class ServerAdmin {
   }
 
   public async uploadEnvSecurity(envSecurity: { sessionMiniSecret: string }): Promise<void> {
-    const envSecurityStr = `SESSION_MINI_SECRET="${envSecurity.sessionMiniSecret}"`;
+    const envSecurityStr = `SESSION_MINI_SECRET="${envSecurity.sessionMiniSecret}"\n`;
     await this.connection.uploadFileWithTimeout(envSecurityStr, `${this.workDir}/config/.env.security`, 10e3);
   }
 
@@ -244,17 +249,31 @@ export class ServerAdmin {
   public async startInstallerScript(): Promise<void> {
     const remoteScriptPath = this.installerScriptPath;
     const remoteScriptLogPath = `${this.workDir}/logs/installer.log`;
-    await this.connection.runCommandWithTimeout(
-      `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env && echo "COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}" >> .env`,
-      10e3,
-    );
+
+    let prepareEnvCommand = `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env && echo "COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}" >> .env`;
+
+    if (this.connection.isDockerHostProxy) {
+      prepareEnvCommand += ` && echo "GATEWAY_PORT=0" >> .env`;
+    } else {
+      if (this.serverDetails.ipAddress) {
+        prepareEnvCommand += ` && echo "GATEWAY_CERTBOT_ENABLED=true" >> .env`;
+        prepareEnvCommand += ` && echo "GATEWAY_CERT_IP=${this.serverDetails.ipAddress}" >> .env`;
+        prepareEnvCommand += ` && echo "GATEWAY_CERTBOT_HTTP_PORT=80" >> .env`;
+      }
+      if (typeof this.serverDetails.gatewayPort === 'number') {
+        prepareEnvCommand += ` && echo "GATEWAY_PORT=${this.serverDetails.gatewayPort}" >> .env`;
+      }
+    }
+
+    await this.connection.runCommandWithTimeout(prepareEnvCommand, 10e3);
+
     if (this.connection.isDockerHostProxy) {
       const fullVmPath = await ServerAdmin.virtualMachineFolder();
       // sed replace all instances of ../ with the fullPath
       const sedCommand = `sed -i -e 's|^ROOT=.*|ROOT="${fullVmPath}/app"|' ${this.workDir}/server/.env`;
       await this.connection.runCommandWithTimeout(sedCommand, 10e3);
-      await this.connection.runCommandWithTimeout(`sedCommand`, 10e3);
     }
+
     if (await this.isInstallerScriptRunning()) {
       console.log('Restart the installer script: stopping existing one first');
       await this.killInstallerScript();
@@ -298,6 +317,25 @@ export class ServerAdmin {
       return pid?.trim() || undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  public async waitForGatewayPort(timeoutMs = 10 * 60e3): Promise<number | undefined> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const [endpoint, code] = await this.runComposeCommand('port nginx 443', 10e3).catch(() => ['', 1] as const);
+      if (code === 0) {
+        const port = endpoint
+          .split('\n')
+          .map(x => x.trim())
+          .filter(Boolean)
+          .at(-1)
+          ?.match(/:(\d+)$/)?.[1];
+
+        if (port) return Number(port);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 

@@ -1,6 +1,5 @@
 import {
   type AccountId32,
-  type ApiDecoration,
   type ArgonClient,
   FIXED_U128_DECIMALS,
   fromFixedNumber,
@@ -16,6 +15,7 @@ import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
 import BigNumber from 'bignumber.js';
 import { BondLot, type IBondLotSource, type V146TreasuryFunderState } from './BondLot.js';
+import type { ArgonQueryClient } from './MainchainClients.js';
 
 export interface IFrameBondLot {
   id: string;
@@ -45,12 +45,12 @@ export interface INextFrameBondAvailability {
 export class TreasuryBonds {
   public static bondFullCapacityPerFrame = false;
 
-  public static hasFullCapacityPerFrame(client: ArgonClient | ApiDecoration<'promise'>): boolean {
+  public static hasFullCapacityPerFrame(client: ArgonQueryClient): boolean {
     return typeof client.query.treasury.pendingBondReleasesByFrame === 'function';
   }
 
   public static async getActiveBonds(
-    client: ArgonClient,
+    client: ArgonQueryClient,
     vaultId: number,
   ): Promise<{
     totalActiveBonds: number;
@@ -106,12 +106,16 @@ export class TreasuryBonds {
     };
   }
 
-  public static getBidPoolPercentForVaults(client: ArgonClient | ApiDecoration<'promise'>): number {
+  public static getBidPoolPercentForVaults(client: ArgonQueryClient): number {
     const percent = client.consts.treasury.percentForTreasuryReserves.toNumber();
     return (100 - percent) / 100;
   }
 
-  public static async getTreasuryPayoutPotential(client: ArgonClient): Promise<bigint> {
+  public static async getTreasuryPayoutPotential(client: ArgonQueryClient): Promise<bigint> {
+    return this.getDistributableBidPool(client);
+  }
+
+  public static async getDistributableBidPool(client: ArgonQueryClient): Promise<bigint> {
     const bidPoolAccountId = TreasuryBonds.getBidPoolAccountId(client);
     const accountInfo = await client.query.system.account(bidPoolAccountId);
     const revenue = accountInfo.data.free.toBigInt();
@@ -119,7 +123,7 @@ export class TreasuryBonds {
     return bigNumberToBigInt(BigNumber(revenue).times(percentForVaults));
   }
 
-  public static getBidPoolAccountId(client: ArgonClient | ApiDecoration<'promise'>): Uint8Array {
+  public static getBidPoolAccountId(client: ArgonQueryClient): Uint8Array {
     const palletId = client.consts.treasury.palletId.toU8a();
     const raw = u8aConcat(stringToU8a('modl'), palletId, new Uint8Array(32 - 4 - palletId.length));
     return client.registry.createType('AccountId32', raw).toU8a();
@@ -186,7 +190,7 @@ export class TreasuryBonds {
     return bondLots.reduce((sum, lot) => sum + lot.activeBonds, 0);
   }
 
-  public static async getBondLots(client: ArgonClient, vaultId: number, ownAddress?: string): Promise<BondLot[]> {
+  public static async getBondLots(client: ArgonQueryClient, vaultId: number, ownAddress?: string): Promise<BondLot[]> {
     if (typeof client.query.treasury.bondLotsByVault !== 'function') {
       const entries = await (
         client.query.treasury as unknown as {
@@ -229,7 +233,7 @@ export class TreasuryBonds {
   }
 
   public static async getCurrentFrameBondLots(
-    client: ArgonClient,
+    client: ArgonQueryClient,
     vaultId: number,
     operatorAddress: string,
     frameId?: number,
@@ -374,7 +378,7 @@ export class TreasuryBonds {
   }
 
   public static async getBondFrameHistory(
-    client: ArgonClient,
+    client: ArgonQueryClient,
     vaultId: number,
     accountId: string,
   ): Promise<Array<{ frameId: number; bonds: number; earnings: bigint }>> {
@@ -395,18 +399,6 @@ export class TreasuryBonds {
     }
 
     return result.sort((a, b) => b.frameId - a.frameId);
-  }
-
-  public static async subscribeBidPool(
-    client: ArgonClient,
-    onUpdate: (distributableBidPool: bigint) => void,
-  ): Promise<() => void> {
-    const vaultPercent = TreasuryBonds.getBidPoolPercentForVaults(client);
-    const bidPoolAccountId = TreasuryBonds.getBidPoolAccountId(client);
-    return await client.query.system.account(bidPoolAccountId, account => {
-      const free = account.data.free.toBigInt();
-      onUpdate(bigNumberToBigInt(BigNumber(free).times(vaultPercent)));
-    });
   }
 
   public static async buildBuyBondTx(args: {
@@ -489,7 +481,7 @@ export class TreasuryBonds {
     });
   }
 
-  private static async getBondLotsForVault(client: ArgonClient, vaultId: number): Promise<IBondLotSource[]> {
+  private static async getBondLotsForVault(client: ArgonQueryClient, vaultId: number): Promise<IBondLotSource[]> {
     const summaries = await client.query.treasury.bondLotsByVault(vaultId);
     const ids = summaries.map(summary => summary.bondLotId.toNumber());
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
@@ -501,7 +493,7 @@ export class TreasuryBonds {
   }
 
   private static async getBondLotsById(
-    client: ArgonClient,
+    client: ArgonQueryClient,
     ids: number[],
   ): Promise<Map<number, IBondLotSource['lot']>> {
     if (ids.length === 0) return new Map();

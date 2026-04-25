@@ -148,16 +148,17 @@ import CountdownClock from '../../components/CountdownClock.vue';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config.ts';
-import { SERVER_ENV_VARS } from '../../lib/Env.ts';
 import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { InviteCodes, NetworkConfig, supportsBitcoinLockDelegateSetup, UserRole } from '@argonprotocol/apps-core';
-import { ServerApiClient } from '../../lib/ServerApiClient.ts';
+import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
+import { getServerApiClient } from '../../stores/server.ts';
 
 const config = getConfig();
 const myVault = getMyVault();
 const currency = getCurrency();
+const serverApiClient = getServerApiClient();
 
 const { satoshiToMoneyNm } = createNumeralHelpers(currency);
 
@@ -171,10 +172,6 @@ const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
 const invites = Vue.ref<ITreasuryUserInvite[]>([]);
 const inviteEnvelopesByInviteCode = Vue.ref<Record<string, string>>({});
-
-const ipAddress = Vue.computed(() => {
-  return config.serverDetails.ipAddress;
-});
 
 const currentVaultName = Vue.computed(() => {
   return myVault.createdVault?.name ?? '';
@@ -237,13 +234,13 @@ function extractStatus(invite: ITreasuryUserInvite): string {
 
 async function loadInvites() {
   errorMessage.value = null;
-  if (!ipAddress.value) {
+  if (!config.serverDetails.ipAddress) {
     invites.value = [];
     return;
   }
 
   try {
-    invites.value = await ServerApiClient.getTreasuryAppInvites(ipAddress.value);
+    invites.value = await serverApiClient.getTreasuryAppInvites();
   } catch {
     invites.value = [];
     errorMessage.value = 'Unable to load invites right now. Please try again.';
@@ -303,7 +300,7 @@ async function createInvite() {
     if (!vaultId) {
       throw new Error('No vault is available to create an invite.');
     }
-    if (!ipAddress.value) {
+    if (!config.serverDetails.ipAddress) {
       throw new Error('No server is available to create an invite.');
     }
 
@@ -313,13 +310,12 @@ async function createInvite() {
     const expiresAfterTicks = 10 * NetworkConfig.rewardTicksPerFrame;
     const { inviteSecret, inviteCode } = InviteCodes.create();
     const inviteEnvelope = InviteEnvelope.encode({
-      host: ipAddress.value,
-      port: SERVER_ENV_VARS.ROUTER_PORT,
+      ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
       role: UserRole.TreasuryUser,
       secret: inviteSecret,
     });
 
-    const invite = await ServerApiClient.createTreasuryAppInvite(ipAddress.value, {
+    const invite = await serverApiClient.createTreasuryAppInvite({
       name,
       fromName: currentVaultName.value,
       inviteCode,

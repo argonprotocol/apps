@@ -7,6 +7,9 @@ export const sshMockFn = () => {
         Promise.resolve({
           runCommandWithTimeout: vi.fn((command: string, timeout: number) => {
             console.log('SSH.runCommandWithTimeout', command, timeout);
+            if (command.includes('docker compose port nginx 443')) {
+              return Promise.resolve(['0.0.0.0:3443', 0]);
+            }
             return Promise.resolve(['', 0]);
           }),
           uploadFileWithTimeout: vi.fn(),

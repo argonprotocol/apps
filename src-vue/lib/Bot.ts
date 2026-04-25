@@ -2,13 +2,21 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import { createDeferred, type IBidsFile, IBotState, MiningFrames, waitAtLeast } from '@argonprotocol/apps-core';
+import {
+  createDeferred,
+  type IBidsFile,
+  IBotState,
+  type Mining,
+  MiningFrames,
+  waitAtLeast,
+} from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
 import { ServerAdmin } from './ServerAdmin';
 import { BotWsClient } from './BotWsClient';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
+import type { ServerApiClient } from './ServerApiClient.ts';
 
 export type IBotEmitter = {
   'updated-cohort-data': number;
@@ -30,7 +38,11 @@ export class Bot {
   private botSyncer!: BotSyncer;
   private loadDeferred = createDeferred<void>(false);
 
-  constructor(config: Config, dbPromise: Promise<Db>) {
+  constructor(
+    config: Config,
+    dbPromise: Promise<Db>,
+    private readonly serverApiClient: ServerApiClient,
+  ) {
     ensureOnlyOneInstance(this.constructor);
 
     this.syncProgress = 0;
@@ -46,14 +58,14 @@ export class Bot {
     return this.botSyncer.getClient();
   }
 
-  public async load(installer: Installer, miningFrames: MiningFrames): Promise<void> {
+  public async load(installer: Installer, mining: Mining, miningFrames: MiningFrames): Promise<void> {
     if (this.loadDeferred.isSettled || this.loadDeferred.isRunning) {
       return this.loadDeferred.promise;
     }
     this.loadDeferred.setIsRunning(true);
     try {
       const db = await this.dbPromise;
-      this.botSyncer = new BotSyncer(this.config, db, installer, miningFrames, {
+      this.botSyncer = new BotSyncer(this.config, db, installer, this.serverApiClient, mining, miningFrames, {
         onEvent: (type, payload) => botEmitter.emit(type, payload),
         setStatus: x => {
           if (this.status === x) return;

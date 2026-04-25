@@ -39,7 +39,7 @@ import { WalletRecoveryFn } from './WalletRecovery.ts';
 const BOOTSTRAP_NETWORK_PLACEHOLDER = 'ARGON_NETWORK_NAME';
 
 function stripSocketProtocol(value: string): string {
-  return value.replace(/^wss?:\/\//i, '');
+  return value.replace(/^[a-z]+:\/\//i, '');
 }
 
 export class Config implements IConfig {
@@ -180,6 +180,12 @@ export class Config implements IConfig {
         const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
         if (schemaField && rawValue !== undefined && rawValue !== '') {
           const data = JsonExt.parse(rawValue as string);
+          if (key === dbFields.serverDetails && data && typeof data === 'object' && 'port' in data) {
+            data.sshPort ??= data.port;
+            delete data.port;
+            rawValue = JsonExt.stringify(data, 2);
+            fieldsToSave.add(key);
+          }
           const isValid = schemaField.safeParse(data);
           if (!isValid?.success) {
             console.warn(`ConfigSchema validation error: ${key}`);
@@ -231,7 +237,7 @@ export class Config implements IConfig {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
         }
         loadedData.serverDetails.ipAddress = `127.0.0.1`;
-        loadedData.serverDetails.port = sshPort;
+        loadedData.serverDetails.sshPort = sshPort;
         fieldsToSave.add(dbFields.serverDetails);
         rawData[dbFields.serverDetails] = JsonExt.stringify(loadedData.serverDetails, 2);
       }

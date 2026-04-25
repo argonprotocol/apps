@@ -34,13 +34,10 @@
       "identifier": "http:default",
       "allow": [
         {
-          "url": "http://*:3261/*"
+          "url": "https://indexer.testnet.argonprotocol.org/*"
         },
         {
-          "url": "https://*.argonprotocol.org/*"
-        },
-        {
-          "url": "https://*.argon.network/*"
+          "url": "https://indexer.testnet.argon.network/*"
         }
       ],
       "deny": []

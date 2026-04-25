@@ -160,12 +160,11 @@ export class TransactionEvents {
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) !== extrinsicHash) continue;
 
-        const api = await client.at(header.blockHash);
-        const events = await api.query.system.events();
+        const events = await blockWatch.getEvents(header);
         const txEvents = await this.getErrorAndFeeForTransaction({
           client,
           extrinsicIndex: index,
-          events: events as unknown as FrameSystemEventRecord[],
+          events,
         });
 
         return {

@@ -107,8 +107,8 @@
           </div>
         </div>
 
-        <div class="flex flex-col grow gap-y-2">
-          <section box class="flex flex-col grow text-center px-2">
+        <div class="flex min-h-0 flex-col grow gap-y-2">
+          <section box class="flex min-h-0 flex-col grow px-2 text-center">
             <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                 <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
@@ -126,7 +126,7 @@
                 {{ numeral(currentFrame.progress).format('0.0') }}%
               </div>
             </header>
-            <div class="flex flex-col h-full">
+            <div class="flex min-h-0 grow flex-col">
               <div class="flex flex-row items-center w-full gap-x-3 text-base my-4 px-2.5">
                 <div class="text-slate-700/80">Grow revenue by expanding your network</div>
                 <div class="grow flex flex-row gap-x-3 text-argon-600">
@@ -138,8 +138,8 @@
                   </button>
                 </div>
               </div>
-              <div class="flex flex-row items-stretch gap-x-2 w-full grow px-2">
-                <div BitcoinMap class="w-1/2 relative">
+              <div class="flex min-h-0 w-full grow flex-row items-stretch gap-x-2 px-2">
+                <div BitcoinMap class="relative min-h-0 w-1/2">
                   <TreemapChart
                     :total="bitcoinMapTotal"
                     :items="bitcoinMapItems"
@@ -155,7 +155,7 @@
                     guidance="Click the vaulting tab to begin."
                   />
                 </div>
-                <div BondMap class="w-1/2">
+                <div BondMap class="min-h-0 w-1/2">
                   <TreemapChart
                     v-if="bondMapTotal"
                     :total="bondMapTotal"

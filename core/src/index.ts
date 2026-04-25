@@ -26,6 +26,7 @@ export * from './SingleFileQueue.js';
 export * from './JsonExt.js';
 export * from './UserRole.js';
 export * from './InviteCodes.js';
+export * from './RouterAuth.js';
 export * from './SqliteMigrations.js';
 export * from './SqliteUtils.js';
 export * from './GlobalVaultingStats.js';

@@ -10,7 +10,7 @@ import {
   MoveToken,
 } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
-import { getSpendableMiningHoldMicrogons, IWallet, WalletType } from './Wallet.ts';
+import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons, IWallet, WalletType } from './Wallet.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -148,11 +148,7 @@ export class MoveCapital {
         }
       : undefined;
 
-    if (
-      latestMiningHoldSweepAttempt &&
-      (latestMiningHoldSweepAttempt.txAttemptState === TxAttemptState.Follow ||
-        latestMiningHoldSweepAttempt.txAttemptState === TxAttemptState.Finalized)
-    ) {
+    if (latestMiningHoldSweepAttempt?.txAttemptState === TxAttemptState.Follow) {
       return latestMiningHoldSweepAttempt.txInfo;
     }
 
@@ -206,12 +202,12 @@ export class MoveCapital {
     let finalAssetsToMove: IAssetsToMove = {};
     const remainingMicrogons = bigIntMax((assetsToMove[MoveToken.ARGN] ?? 0n) - fee, 0n);
 
-    if (remainingMicrogons > 0n) {
+    if (remainingMicrogons >= existentialDepositMicrogons) {
       finalAssetsToMove[MoveToken.ARGN] = remainingMicrogons;
     }
 
     if (assetsToMove[MoveToken.ARGNOT]) {
-      if (!remainingMicrogons && assetsToMove[MoveToken.ARGN]) {
+      if (remainingMicrogons < existentialDepositMicrogons && assetsToMove[MoveToken.ARGN]) {
         finalAssetsToMove = { [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] };
         fee = await this.calculateFee(
           MoveFrom.MiningHold,

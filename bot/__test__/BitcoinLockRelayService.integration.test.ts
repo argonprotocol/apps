@@ -27,6 +27,7 @@ type TestRelayService = {
   checkRelayCapacity(coupon: unknown, request: IBitcoinLockRelayJobRequest): Promise<unknown>;
   handleSubmissionUpdate(relayId: number, client: unknown, result: ISubmittableResult): Promise<void>;
   reconcileNonTerminalRelays(): Promise<void>;
+  relayWatchUnsubscribes: Map<number, () => void>;
 };
 
 afterEach(() => {
@@ -290,6 +291,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
         txSubmittedAtBlockHeight: 8,
         txExpiresAtBlockHeight: 16,
       });
+      service.relayWatchUnsubscribes.set(relay.id, () => undefined);
 
       vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue({
         blockNumber: 12,
@@ -334,6 +336,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
         txInBlockHash: '0xnew-block',
         utxoId: 42,
       });
+      service.relayWatchUnsubscribes.set(relay.id, () => undefined);
 
       await service.reconcileNonTerminalRelays();
 

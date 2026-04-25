@@ -54,7 +54,6 @@ it('should install if all conditions are met', async () => {
   await config.load();
 
   const installer = new Installer(config, walletKeys);
-  installer.ensureIpAddressIsWhitelisted = vi.fn().mockResolvedValue(null);
   await installer.load();
 
   config.miningSetupStatus = MiningSetupStatus.None;
@@ -92,7 +91,7 @@ it('should run through entire install process', async () => {
   MiningMachine.setupLocalComputer = vi.fn().mockResolvedValue({
     type: ServerType.LocalComputer,
     ipAddress: `127.0.0.1`,
-    port: 25,
+    sshPort: 25,
     sshUser: 'root',
     workDir: '/app',
   });
@@ -112,8 +111,6 @@ it('should run through entire install process', async () => {
     [InstallStepKey.MiningLaunch, InstallStepStatusType.Finished],
   ];
   const installStepStatusCompleted: IInstallStepStatuses = {};
-
-  installer.ensureIpAddressIsWhitelisted = vi.fn().mockResolvedValue(null);
 
   // @ts-ignore
   installer.installerCheck.fetchInstallStepStatuses = vi.fn(() => {

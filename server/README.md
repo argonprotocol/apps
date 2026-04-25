@@ -3,6 +3,7 @@
 This folder contains the dockerized services installed onto a server.
 
 The main architectural idea is:
+
 - keep one small, easy-to-boot HTTP surface for installation and operational checks
 - keep long-running chain watchers and worker processes out of that edge layer
 - avoid exploding the stack into many tiny services
@@ -12,6 +13,8 @@ Today, `router` is that bootable edge service. `bot` is the main long-running wo
 ## Current Runtime Topology
 
 The stack currently consists of:
+
+- `nginx`
 - `router`
 - `bot`
 - `argon-miner`
@@ -19,6 +22,8 @@ The stack currently consists of:
 - `bitcoin-data` as an optional helper image
 
 At a high level:
+
+- `nginx` is the HTTPS gateway into the stack
 - `router` is the first HTTP surface we can depend on during startup
 - `bot` is the always-on background process
 - `argon-miner` and `bitcoin-node` are the local chain services
@@ -28,18 +33,20 @@ At a high level:
 The router is not just an application API. It is also the operational entrypoint for the server.
 
 That matters because the installer needs something simple it can talk to while the rest of the stack is still booting or syncing. The router is a good fit for that because it:
+
 - boots quickly
 - exposes basic HTTP endpoints
 - can report on the state of internal services
-- can later act as the authenticated gateway for the rest of the stack
+- acts as the authenticated policy layer for the nginx gateway
 
-Because of that, routing and proxying through the router makes sense.
+Because of that, using the router for policy and narrow HTTP entrypoints makes sense.
 
 ## Why Bot Exists
 
 The bot is already more than a bidding process. It is the main long-running daemon in the stack.
 
 Today it already owns:
+
 - mining block sync
 - mining history
 - block watching
@@ -48,6 +55,7 @@ Today it already owns:
 - persistent worker state under `/data`
 
 So conceptually, the bot is the right home for stateful background services that:
+
 - poll chain state
 - watch blocks continuously
 - maintain queues
@@ -59,6 +67,7 @@ So conceptually, the bot is the right home for stateful background services that
 ### Router
 
 Current router responsibilities:
+
 - provide a stable bootstrap HTTP surface
 - expose basic Argon and Bitcoin status over HTTP
 - support installer and service readiness checks
@@ -69,6 +78,7 @@ Current router responsibilities:
 ### Bot
 
 Current bot responsibilities:
+
 - run the mining sync pipeline
 - persist mining worker state
 - expose bot state/history/bids over its service API
@@ -77,23 +87,26 @@ Current bot responsibilities:
 - own delegated bitcoin lock relay execution and recovery
 
 Important nuance:
+
 - the bot is always deployed and started in docker
 - today it still assumes bidding rules exist at startup, so it is not yet a perfectly clean dormant multi-service daemon
 
 ## Intended Direction
 
 The architecture we want is not "one new service per feature." It is:
-- `router` as the bootable edge, gateway, and policy layer
+
+- `router` as the bootable edge and policy layer behind nginx
 - `bot` as the internal daemon that hosts long-running worker services
 
 That means the likely future shape is:
 
-### Router as edge/gateway
+### Router as operational edge/policy
 
 Router should be the place for:
+
 - bootstrap and health endpoints
 - stable external HTTP entrypoints
-- authenticated routing when we add that
+- authenticated routing
 - lightweight policy decisions
 - user, invite, and permission ownership
 - treasury invite and bitcoin lock coupon ownership
@@ -104,6 +117,7 @@ Router should be the place for:
 Bot should grow from "mining bot" into "server worker daemon."
 
 That means it can reasonably host multiple internal worker-style services, for example:
+
 - mining services
 - transaction relay services
 - chain polling and reconciliation services
@@ -116,6 +130,7 @@ The important rule is that these are daemon-like responsibilities, not public ed
 As a rule of thumb:
 
 ### Put it on `router` if it is mostly:
+
 - easy-to-boot HTTP
 - installation/readiness/status reporting
 - authentication or authorization
@@ -125,6 +140,7 @@ As a rule of thumb:
 - proxying to an internal service
 
 ### Put it on `bot` if it is mostly:
+
 - a long-running watcher
 - queue management
 - retry/recovery logic
@@ -141,17 +157,19 @@ We likely want two different persistence styles in this stack.
 ### Router persistence
 
 Router is a good home for lighter application state, such as:
+
 - profiles
 - invites
 - bitcoin lock coupons
 - access and permission state
-- lightweight gateway-side records
+- lightweight router auth and session records
 
 ### Bot persistence
 
 Bot already persists worker state under `/data`.
 
 For more execution-oriented services, a relational store in the bot is likely a better fit than ad hoc JSON files. Worker domains that have:
+
 - queues
 - reservations
 - retries
@@ -178,6 +196,7 @@ This ordering is important and should be preserved.
 ## Treasury Coupon Boundary
 
 For treasury flows, the split is:
+
 - `router` owns treasury users, invites, permissions, and bitcoin lock coupon records
 - `router` decides whether a coupon or invite can be used
 - `bot` is the better home for any long-running bitcoin lock relay worker behavior
@@ -186,47 +205,46 @@ That means the coupon itself belongs with the invite and access model on `router
 
 This keeps the user and permission source of truth in one place and avoids splitting coupon lifecycle ownership across services.
 
-## Future Public Routing Boundary
+## Gateway Routing
 
-The likely long-term public network shape is:
-- `nginx` is the only public listener
-- `router` remains the bootstrap HTTP service and policy layer behind it
-- `bot` stays private and is reached through routed internal paths
-- Argon exposes two RPC surfaces: one safe external RPC surface and one private unsafe/local RPC surface
+This section describes the server bundle wiring.
 
-That split matters because the app and the bot do not need the same kind of RPC access.
+Public host ports:
 
-The operations app uses:
-- normal chain queries
-- subscriptions
-- signed transaction submission and watch flows
+- `nginx` publishes `${GATEWAY_PORT:-443}:443` as the public HTTPS gateway
+- `argon-miner` publishes only `${ARGON_P2P_PORT}:${ARGON_P2P_PORT}`
+- `bitcoin-node` publishes only `${BITCOIN_P2P_PORT}:${BITCOIN_P2P_PORT}`
 
-The bot also needs local unsafe RPC for mining key registration. In this repository that happens through `Accountset`, which uses `author.insertKey` and `author.hasKey`.
+Internal Docker-network endpoints:
 
-So the intended boundary is:
-- authenticated app traffic reaches the safe external RPC surface
-- local worker services like `bot` use the unsafe/local RPC surface
-- the unsafe RPC surface is not part of the public entrypoint
+- `router` listens as `router:8080`
+- `bot` listens as `bot:8080`
+- `argon-miner` unsafe RPC listens as `argon-miner:9944`
+- `argon-miner` safe RPC listens as `argon-miner:9945`
+- Bitcoin RPC stays internal to the Docker network
 
-This document is describing the target boundary, not committing this PR to the nginx or auth rollout itself.
+nginx routes:
 
-## Future State
+- `/auth/*` and `/` proxy to `router:8080`
+- `/bot/*` requires `/auth/verify/bot`, then proxies websocket traffic to `bot:8080`
+- `/substrate/*` requires `/auth/verify/substrate`, then proxies safe websocket traffic to `argon-miner:9945`
 
-The useful long-term direction is:
-- router remains the operational and external gateway
-- bot becomes the host for background worker services beyond mining
-- internal services stay private behind the router
-- the stack stays small even as responsibilities grow
+The bot uses `LOCAL_RPC_URL=ws://argon-miner:9944` because mining key registration still needs unsafe RPC methods such
+as `author.insertKey` and `author.hasKey`. App traffic uses the nginx-routed safe RPC endpoint instead.
 
-We may later add stronger auth and proxy infrastructure in front of or inside the router, but the core service split above should still hold.
+Certificate material is prepared before nginx starts and copied into `config/nginx-certs`, which compose mounts at
+`/etc/nginx/certs`. Local development uses `yarn dev:gateway-certs` to generate the localhost certificate into that
+folder. Production certificate provisioning uses Certbot standalone to write `fullchain.pem` and `privkey.pem` for nginx
+to serve.
 
-## Non-Goals For Now
+When a script needs the router's host-local port, it should ask Docker for the selected mapping:
 
-This document is not committing us to immediate implementation of:
-- nginx in front of the stack
-- full JWT or role rollout right now
-- many new standalone services
-- moving all state into one service or one database
+```sh
+docker compose port router 8080
+```
+
+Leaving `ROUTER_PORT` unset, or setting it to `0`, lets Docker choose a free loopback port for local development and CI.
+Set `ROUTER_PORT` only when local diagnostics need a stable host-local router port.
 
 ## Fresh Server Notes
 

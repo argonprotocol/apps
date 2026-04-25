@@ -99,7 +99,7 @@ const windowsCommand = Vue.computed(() => {
 function getServerDetails() {
   const details = config.serverDetails;
   const host = details.ipAddress;
-  const port = details.port ?? 22;
+  const port = details.sshPort ?? 22;
   const username = details.sshUser;
   const address = `${host}:${port}`;
   return { host, port, username, address };

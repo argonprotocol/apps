@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import type { Vault } from '@argonprotocol/mainchain';
 import basicEmitter from '../emitters/basicEmitter';
-import { getConfig, type Config } from './config';
+import { type Config, getConfig } from './config';
 import { getWalletBalances, getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '@argonprotocol/apps-core';
@@ -76,7 +76,7 @@ export const useTreasuryController = defineStore('treasuryController', () => {
   }
 
   Vue.watch(
-    () => config.upstreamOperator?.vaultId ?? 0,
+    () => (config.isLoaded ? (config.upstreamOperator?.vaultId ?? 0) : 0),
     vaultId => {
       selectedVaultSubscriptionKey += 1;
       const subscriptionKey = selectedVaultSubscriptionKey;

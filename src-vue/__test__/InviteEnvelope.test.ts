@@ -32,7 +32,7 @@ it('round-trips an operational invite envelope', () => {
 it('round-trips a treasury invite envelope', () => {
   const encoded = InviteEnvelope.encode({
     host: '10.0.0.4',
-    port: '3000',
+    port: '443',
     role: UserRole.TreasuryUser,
     secret: 'treasury-code',
   });
@@ -41,7 +41,7 @@ it('round-trips a treasury invite envelope', () => {
     role: UserRole.TreasuryUser,
     host: '10.0.0.4',
     ipAddress: '10.0.0.4',
-    port: '3000',
+    port: '443',
     secret: 'treasury-code',
   });
 });

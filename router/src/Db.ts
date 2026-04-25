@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { runSqliteMigrations } from '@argonprotocol/apps-core';
+import { SessionsTable } from './db/SessionsTable.ts';
 import { migrations } from './db/migrations/index.ts';
 import { UsersTable } from './db/UsersTable.ts';
 import { UserInvitesTable } from './db/UserInvitesTable.ts';
@@ -10,6 +11,7 @@ export { ROUTER_DB_PATH } from './env.ts';
 
 export class Db {
   public readonly sql: DatabaseSync;
+  #sessionsTable?: SessionsTable;
   #usersTable?: UsersTable;
   #userInvitesTable?: UserInvitesTable;
 
@@ -25,6 +27,11 @@ export class Db {
   public get usersTable(): UsersTable {
     this.#usersTable ??= new UsersTable(this);
     return this.#usersTable;
+  }
+
+  public get sessionsTable(): SessionsTable {
+    this.#sessionsTable ??= new SessionsTable(this);
+    return this.#sessionsTable;
   }
 
   public get userInvitesTable(): UserInvitesTable {

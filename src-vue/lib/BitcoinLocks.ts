@@ -128,7 +128,6 @@ export type IBitcoinVaultUnlockStateDetails = {
 export interface IOperatorBitcoinLockCouponRoute {
   vaultId: number;
   offerCode: string;
-  operatorHost: string;
   accountId?: string;
 }
 
@@ -210,6 +209,7 @@ export default class BitcoinLocks {
     currency: CurrencyBase,
     transactionTracker: TransactionTracker,
     mempool: BitcoinMempool = new BitcoinMempool(ESPLORA_HOST),
+    private readonly upstreamOperatorClient = new UpstreamOperatorClient(),
   ) {
     this.#currency = currency;
     this.#transactionTracker = transactionTracker;
@@ -598,15 +598,17 @@ export default class BitcoinLocks {
     satoshis: bigint;
     operatorCoupon: IOperatorBitcoinLockCouponRoute;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
-    const { offerCode, operatorHost } = args.operatorCoupon;
+    const { offerCode } = args.operatorCoupon;
+    const operatorHost = this.upstreamOperatorClient.operatorHost;
+    if (!operatorHost) {
+      throw new Error('No upstream operator host configured.');
+    }
 
     const microgonsPerBtc = this.#currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN);
     const liquidityPromised = this.#currency.priceIndex.getBtcMicrogonPrice(args.satoshis);
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey({ vault: args.vault });
 
-    const relay = await this.requestBitcoinLockInitialization({
-      offerCode,
-      operatorHost,
+    const relay = await this.upstreamOperatorClient.initializeBitcoinLock(offerCode, {
       ownerAccountId: args.txSigner.address,
       ownerBitcoinPubkey: u8aToHex(ownerBitcoinPubkey),
       requestedSatoshis: args.satoshis,
@@ -626,24 +628,6 @@ export default class BitcoinLocks {
 
     await this.syncRelayBackedPendingLock(pendingLock, relay);
     return { pendingLock };
-  }
-
-  private async requestBitcoinLockInitialization(args: {
-    offerCode: string;
-    operatorHost: string;
-    ownerAccountId: string;
-    ownerBitcoinPubkey: string;
-    requestedSatoshis: bigint;
-    microgonsPerBtc: bigint;
-  }): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
-    const { offerCode, operatorHost, ownerAccountId, ownerBitcoinPubkey, requestedSatoshis, microgonsPerBtc } = args;
-
-    return await UpstreamOperatorClient.initializeBitcoinLock(operatorHost, offerCode, {
-      ownerAccountId,
-      ownerBitcoinPubkey,
-      requestedSatoshis,
-      microgonsPerBtc,
-    });
   }
 
   private async fetchRelayStatus(

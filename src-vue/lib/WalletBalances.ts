@@ -278,7 +278,7 @@ export class WalletBalances {
   public async resyncBlock(blockNumber: number): Promise<void> {
     const blockHeader = await this.blockWatch.getHeader(blockNumber);
     const { balances, client, api } = await this.readBalances(this.addresses, blockHeader);
-    const events = await api.query.system.events();
+    const events = await this.blockWatch.getEvents(blockHeader);
     const prices = await new CurrencyBase(this.blockWatch.clients).fetchMainchainRates(api);
     for (let i = 0; i < this.addresses.length; i++) {
       const wallet = this.wallets[i];
@@ -419,7 +419,7 @@ export class WalletBalances {
     client: ArgonClient;
   }> {
     const client = await this.blockWatch.getRpcClient(block.blockNumber);
-    const api = await client.at(block.blockHash);
+    const api = await this.blockWatch.getApi(block);
     const microgons = await api.query.system.account.multi(addresses).then(x => x.map(acc => acc.data));
     const micronots = await api.query.ownership.account.multi(addresses);
 
@@ -450,7 +450,7 @@ export class WalletBalances {
 
       const hasChange = wallet.addDiffs(entry);
       if (hasChange) {
-        events ??= await api.query.system.events();
+        events ??= await this.blockWatch.getEvents(block);
         const filter = new AccountEventsFilter(
           wallet.address,
           wallet.type,

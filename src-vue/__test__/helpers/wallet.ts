@@ -3,7 +3,7 @@ import { WalletKeys } from '../../lib/WalletKeys.ts';
 import { vi } from 'vitest';
 import { bip39, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { miniSecretFromUri } from '@argonprotocol/apps-core';
-import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english.js';
+import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
 import { mnemonicToAccount } from 'viem/accounts';
 
 const DEFAULT_TEST_MNEMONIC = 'test test test test test test test test test test test junk';
@@ -52,6 +52,7 @@ export function createMockWalletKeys(mnemonic?: string) {
   const { miningBotAccount, vaultingAccount, walletKeys, operationalAccount, miningHoldAccount } =
     createTestWallet(substrateSecret);
   const delegateAccount = vaultingAccount.derive('//delegate');
+  const upstreamOperatorAuthAccount = operationalAccount.derive('//upstream-operator-auth');
   vi.spyOn(walletKeys, 'getBitcoinChildXpriv').mockImplementation(async (path, networks) => {
     const xpriv = await bip39.mnemonicToSeed(masterMnemonic);
     const version = getBip32Version(networks);
@@ -65,6 +66,7 @@ export function createMockWalletKeys(mnemonic?: string) {
   );
   vi.spyOn(walletKeys, 'getVaultingKeypair').mockImplementation(async () => vaultingAccount);
   vi.spyOn(walletKeys, 'getVaultDelegateKeypair').mockImplementation(async () => delegateAccount);
+  vi.spyOn(walletKeys, 'getUpstreamOperatorAuthKeypair').mockImplementation(async () => upstreamOperatorAuthAccount);
   vi.spyOn(walletKeys, 'exposeMasterMnemonic').mockImplementation(async () => masterMnemonic);
   vi.spyOn(walletKeys, 'getMiningSessionMiniSecret').mockImplementation(async () => {
     return miniSecretFromUri(`${substrateSecret}//mining//session`);

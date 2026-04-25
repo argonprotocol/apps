@@ -194,15 +194,9 @@ const operatorCoupon = Vue.computed(() => {
     return undefined;
   }
 
-  const operatorHost = config.bootstrapDetails?.routerHost;
-  if (!operatorHost) {
-    return undefined;
-  }
-
   return {
     vaultId: props.coupon.coupon.vaultId,
     offerCode: props.coupon.coupon.offerCode,
-    operatorHost,
     accountId: props.coupon.coupon.accountId,
   };
 });

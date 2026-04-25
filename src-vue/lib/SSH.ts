@@ -19,7 +19,7 @@ export class SSH {
     this.config = config;
     if (
       this.connection &&
-      this.connection.host !== `${this.config.serverDetails.ipAddress}:${this.config.serverDetails.port ?? 22}`
+      this.connection.address !== `${this.config.serverDetails.ipAddress}:${this.config.serverDetails.sshPort ?? 22}`
     ) {
       void this.closeConnection();
     }

@@ -14,8 +14,8 @@ import {
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
 } from '../lib/OperationalAccount.ts';
-import { ServerApiClient } from '../lib/ServerApiClient.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
+import { getServerApiClient } from './server.ts';
 import { getTransactionTracker } from './transactions.ts';
 import BootstrapToNode from '../app-operations/overlays/operational/BootstrapToNode.vue';
 import BackupMnemonic from '../app-operations/overlays/operational/BackupMnemonic.vue';
@@ -359,7 +359,7 @@ export const useOperationsController = defineStore('operationsController', () =>
       return [];
     }
 
-    const invites = await ServerApiClient.getOperationalInvites(config.serverDetails.ipAddress);
+    const invites = await getServerApiClient().getOperationalInvites();
     operationalInvites.value = invites;
     return invites;
   }

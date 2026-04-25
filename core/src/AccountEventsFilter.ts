@@ -1,11 +1,11 @@
 import {
   type AccountId32,
-  type ApiDecoration,
   type ArgonClient,
   type FrameSystemEventRecord,
   type GenericEvent,
   type u32,
 } from '@argonprotocol/mainchain';
+import type { ArgonQueryClient } from './MainchainClients.js';
 
 export type IEventInfo = {
   pallet: string;
@@ -188,7 +188,7 @@ export class AccountEventsFilter {
   }
 
   public static hasArgonotTransfer(
-    client: ArgonClient | ApiDecoration<'promise'>,
+    client: ArgonQueryClient,
     extrinsicEvents: GenericEvent[],
     toAccount: string,
     amount: bigint,
@@ -205,7 +205,7 @@ export class AccountEventsFilter {
   }
 
   public static isTransfer(data: {
-    client: ArgonClient | ApiDecoration<'promise'>;
+    client: ArgonQueryClient;
     event: GenericEvent;
     extrinsicEvents: GenericEvent[];
     extrinsicIndex?: number;

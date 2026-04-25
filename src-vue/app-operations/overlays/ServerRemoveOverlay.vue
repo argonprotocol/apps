@@ -71,7 +71,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import BgOverlay from '../../components/BgOverlay.vue';
 import { getConfig } from '../../stores/config.ts';
 import { Config } from '../../lib/Config.ts';
-import { type IConfigServerInstallDetails, ServerType } from '../../interfaces/IConfig.ts';
+import { type IConfigServerDetails, type IConfigServerInstallDetails, ServerType } from '../../interfaces/IConfig.ts';
 import { SSH } from '../../lib/SSH.ts';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { LocalMachine } from '../../lib/LocalMachine.ts';
@@ -101,7 +101,7 @@ async function removeServer() {
   config.isServerInstalled = false;
   config.isServerInstalling = false;
   config.serverAdd = undefined;
-  config.serverDetails = { ...config.serverDetails, ipAddress: '', port: undefined };
+  config.serverDetails = Config.getDefault('serverDetails') as IConfigServerDetails;
   config.serverInstaller = Config.getDefault('serverInstaller') as IConfigServerInstallDetails;
   await config.save();
   if (isLocalDocker) {

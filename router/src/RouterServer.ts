@@ -4,9 +4,10 @@ import { JsonExt, UserRole } from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotCouponClient } from './BotCouponClient.ts';
-import { BITCOIN_CONFIG, SERVER_ROOT } from './env.ts';
+import { ADMIN_OPERATOR_ACCOUNT_ID, BITCOIN_CONFIG, ROUTER_AUTH_SESSION_TTL_SECONDS, SERVER_ROOT } from './env.ts';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
+import { RouterAuthService, type IRouterAuthServiceOptions } from './RouterAuthService.ts';
 import { UserInviteService } from './UserInviteService.ts';
 import type {
   IBitcoinLockRelayRequest,
@@ -21,6 +22,9 @@ import type {
   IOpenTreasuryInviteRequest,
   IOpenTreasuryInviteResponse,
   IOperationalUserInviteCreateRequest,
+  IRouterAuthChallengeRequest,
+  IRouterAuthSessionRequest,
+  IRouterAuthSessionResponse,
   ITreasuryUserInviteCreateRequest,
 } from './interfaces/index.ts';
 
@@ -30,6 +34,7 @@ interface IRouterServerOptions {
   port?: number | string;
   localNodeUrl?: string;
   mainNodeUrl?: string;
+  auth?: IRouterAuthServiceOptions;
 }
 
 export class RouterServer {
@@ -50,11 +55,25 @@ export class RouterServer {
     const { botInternalUrl, db } = this.options;
     const botCouponClient = new BotCouponClient(botInternalUrl);
     const inviteService = new UserInviteService(db);
+    const routerAuth = new RouterAuthService({
+      db,
+      adminOperatorAccountId: ADMIN_OPERATOR_ACCOUNT_ID,
+      sessionTtlSeconds: ROUTER_AUTH_SESSION_TTL_SECONDS ? Number(ROUTER_AUTH_SESSION_TTL_SECONDS) : undefined,
+      ...this.options.auth,
+    });
+    routerAuth.pruneInactiveSessions();
+
+    const requireAdminOperatorAuth = routerAuth.requireAdminOperator();
 
     app.use((req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      const requestOrigin = req.headers.origin;
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin ?? '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      if (requestOrigin) {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Vary', 'Origin');
+      }
 
       if (req.method === 'OPTIONS') {
         res.sendStatus(204);
@@ -72,8 +91,48 @@ export class RouterServer {
         mainNodeUrl: this.options.mainNodeUrl,
         bitcoinConfig: BITCOIN_CONFIG,
         serverRoot: SERVER_ROOT,
+        authEnabled: routerAuth.isEnabled,
       })),
     );
+
+    app.post(
+      '/auth/challenge',
+      express.text({ type: '*/*' }),
+      safeJsonRoute(async req => {
+        const { authAccountId, role } = requireBody<IRouterAuthChallengeRequest>(req);
+        return routerAuth.createChallenge(authAccountId, role);
+      }),
+    );
+
+    app.post(
+      '/auth/login',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IRouterAuthSessionResponse>(async (req, res) => {
+        const { sessionId, ...session } = routerAuth.createSession(requireBody<IRouterAuthSessionRequest>(req));
+        routerAuth.setSessionCookie(res, { sessionId });
+        return session;
+      }),
+    );
+
+    app.get('/auth/verify/admin', (req, res) => {
+      routerAuth.handleVerify(req, res, [UserRole.AdminOperator]);
+    });
+
+    app.get('/auth/verify/bot', (req, res) => {
+      routerAuth.handleVerify(req, res, [UserRole.AdminOperator]);
+    });
+
+    app.get('/auth/verify/substrate', (req, res) => {
+      routerAuth.handleVerify(req, res, [UserRole.AdminOperator, UserRole.TreasuryUser, UserRole.OperationalPartner]);
+    });
+
+    app.get('/auth/verify/treasury-coupon', (req, res) => {
+      routerAuth.handleVerify(req, res, [UserRole.TreasuryUser]);
+    });
+
+    app.get('/auth/verify/operational', (req, res) => {
+      routerAuth.handleVerify(req, res, [UserRole.OperationalPartner]);
+    });
 
     app.get(
       '/argon/iscomplete',
@@ -113,6 +172,7 @@ export class RouterServer {
 
     app.post(
       '/treasury-users/create',
+      requireAdminOperatorAuth,
       express.text({ type: '*/*' }),
       safeJsonRoute<ICreateTreasuryInviteResponse>(async req => {
         const body = requireBody<ITreasuryUserInviteCreateRequest>(req);
@@ -161,13 +221,23 @@ export class RouterServer {
       '/treasury-users/:inviteCode/open',
       express.text({ type: '*/*' }),
       safeJsonRoute<IOpenTreasuryInviteResponse>(async req => {
-        const { accountId, inviteSignature } = requireBody<IOpenTreasuryInviteRequest>(req);
-        const userInvite = inviteService.openInvite(
-          UserRole.TreasuryUser,
-          req.params.inviteCode,
+        const { accountId, authAccountId, authBindingExpiresAt, authBindingSignature, inviteSignature } =
+          requireBody<IOpenTreasuryInviteRequest>(req);
+        const inviteCode = req.params.inviteCode;
+        const userInvite = inviteService.claimInvite({
+          role: UserRole.TreasuryUser,
+          inviteCode,
           accountId,
           inviteSignature,
-        );
+          authBinding: {
+            role: UserRole.TreasuryUser,
+            accountId,
+            authAccountId,
+            inviteCode,
+            expiresAt: authBindingExpiresAt,
+          },
+          authBindingSignature,
+        });
         if (!userInvite) {
           throw new RouterError('Invite not found', 404);
         }
@@ -189,6 +259,7 @@ export class RouterServer {
 
     app.get(
       '/treasury-users/invites',
+      requireAdminOperatorAuth,
       safeJsonRoute<IListTreasuryInvitesResponse>(async () => {
         const couponsByUserId = await botCouponClient.listLatestCouponsByUserId();
 
@@ -207,6 +278,7 @@ export class RouterServer {
 
     app.post(
       '/operational-users/create',
+      requireAdminOperatorAuth,
       express.text({ type: '*/*' }),
       safeJsonRoute<ICreateOperationalInviteResponse>(async req => {
         const body = requireBody<IOperationalUserInviteCreateRequest>(req);
@@ -223,13 +295,23 @@ export class RouterServer {
       '/operational-users/:inviteCode/open',
       express.text({ type: '*/*' }),
       safeJsonRoute<IOpenOperationalInviteResponse>(async req => {
-        const { accountId, inviteSignature } = requireBody<IOpenOperationalInviteRequest>(req);
-        const invite = inviteService.openInvite(
-          UserRole.OperationalPartner,
-          req.params.inviteCode,
+        const { accountId, authAccountId, authBindingExpiresAt, authBindingSignature, inviteSignature } =
+          requireBody<IOpenOperationalInviteRequest>(req);
+        const inviteCode = req.params.inviteCode;
+        const invite = inviteService.claimInvite({
+          role: UserRole.OperationalPartner,
+          inviteCode,
           accountId,
           inviteSignature,
-        );
+          authBinding: {
+            role: UserRole.OperationalPartner,
+            accountId,
+            authAccountId,
+            inviteCode,
+            expiresAt: authBindingExpiresAt,
+          },
+          authBindingSignature,
+        });
         if (!invite) {
           throw new RouterError('Invite not found', 404);
         }
@@ -243,6 +325,7 @@ export class RouterServer {
 
     app.get(
       '/operational-users/invites',
+      requireAdminOperatorAuth,
       safeJsonRoute<IListOperationalInvitesResponse>(async () => {
         return {
           invites: db.userInvitesTable.fetchByRole(UserRole.OperationalPartner),
@@ -252,6 +335,7 @@ export class RouterServer {
 
     app.get(
       '/bitcoin-lock-coupons',
+      requireAdminOperatorAuth,
       safeJsonRoute<IListBitcoinLockCouponsResponse>(async () => {
         return {
           bitcoinLockCoupons: await botCouponClient.listCoupons(),
@@ -273,6 +357,8 @@ export class RouterServer {
       express.text({ type: '*/*' }),
       safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
         const body = requireBody<IBitcoinLockRelayRequest>(req);
+        routerAuth.requireTreasuryUserSession(req, body.ownerAccountId);
+
         if (body.microgonsPerBtc == null) {
           throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
         }
@@ -302,6 +388,8 @@ export class RouterServer {
     app.get(
       '/treasury-users/:accountId/bitcoin-lock-coupons',
       safeJsonRoute<IListBitcoinLockCouponsResponse>(async req => {
+        routerAuth.requireTreasuryUserSession(req, req.params.accountId);
+
         const user = db.userInvitesTable.fetchByAccountId(req.params.accountId, UserRole.TreasuryUser);
         if (!user) {
           return {
@@ -355,7 +443,6 @@ export class RouterServer {
       });
     });
   }
-
 }
 
 function sendJson(res: Response, data: unknown, status = 200): void {

@@ -159,18 +159,18 @@ import { InviteCodes, MICROGONS_PER_ARGON, NetworkConfig, UserRole } from '@argo
 import Tooltip from '../../../components/Tooltip.vue';
 import OperationalInviteSlots from '../../components/OperationalInviteSlots.vue';
 import basicEmitter from '../../../emitters/basicEmitter.ts';
-import { SERVER_ENV_VARS } from '../../../lib/Env.ts';
 import { getConfig } from '../../../stores/config.ts';
 import { getMyVault } from '../../../stores/vaults.ts';
 import { InviteEnvelope } from '../../../lib/InviteEnvelope.ts';
-import { ServerApiClient } from '../../../lib/ServerApiClient.ts';
 import { useOperationsController } from '../../../stores/operationsController.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getMainchainClient } from '../../../stores/mainchain.ts';
+import { getServerApiClient } from '../../../stores/server.ts';
 import { getWalletKeys } from '../../../stores/wallets.ts';
 import { clampProgressValue, getCappedPercent } from '../../../lib/Utils.ts';
 import { signReferralSponsorGrant } from '../../../lib/OperationalAccount.ts';
+import { UpstreamOperatorClient } from '../../../lib/UpstreamOperatorClient.ts';
 
 type OperationalRewardsSection = 'create' | 'unlock' | 'outbound';
 type IInviteStatus = {
@@ -194,6 +194,7 @@ const myVault = getMyVault();
 const controller = useOperationsController();
 
 const currency = getCurrency();
+const serverApiClient = getServerApiClient();
 const walletKeys = getWalletKeys();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
@@ -213,10 +214,6 @@ const inviteEnvelopesByInviteCode = Vue.ref<Record<string, string>>({});
 const inviteStatusesByCode = Vue.ref<Record<string, IInviteStatus>>({});
 
 let scrollAnimationFrame: number | undefined;
-
-const ipAddress = Vue.computed(() => {
-  return config.serverDetails.ipAddress;
-});
 
 const currentVaultName = Vue.computed(() => {
   return myVault.createdVault?.name ?? '';
@@ -371,7 +368,7 @@ function isActiveInvite(invite: IOperationalUserInvite) {
 
 async function loadInvites() {
   errorMessage.value = null;
-  if (!ipAddress.value) {
+  if (!config.serverDetails.ipAddress) {
     invites.value = [];
     controller.setOperationalInvites([]);
     inviteStatusesByCode.value = {};
@@ -456,7 +453,7 @@ async function createInvite({ slotNumber, name }: { slotNumber: number; name: st
     errorMessage.value = 'Enter a name for the invite.';
     return;
   }
-  if (!ipAddress.value) {
+  if (!config.serverDetails.ipAddress) {
     errorMessage.value = 'No server is available to create an invite.';
     return;
   }
@@ -497,14 +494,13 @@ async function createInvite({ slotNumber, name }: { slotNumber: number; name: st
     };
 
     const inviteEnvelope = InviteEnvelope.encode({
-      host: ipAddress.value,
-      port: SERVER_ENV_VARS.ROUTER_PORT,
+      ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
       role: UserRole.OperationalPartner,
       secret: inviteSecret,
       operationalReferral,
     });
 
-    const invite = await ServerApiClient.createOperationalInvite(ipAddress.value, {
+    const invite = await serverApiClient.createOperationalInvite({
       name,
       fromName,
       inviteCode,

@@ -19,7 +19,7 @@ export class LocalMachine {
     console.log(`Finding blocked (needed) ports for local machine`);
     const neededPorts = await invokeWithTimeout<number[]>('check_needed_ports', {}, 10_000);
     if (neededPorts.length) {
-      console.log(`Local machine is blocked on SSH ports: [${neededPorts.join(',')}]`);
+      console.log(`Local machine is blocked on ports: [${neededPorts.join(',')}]`);
     }
     return neededPorts;
   }

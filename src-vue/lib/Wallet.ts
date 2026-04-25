@@ -25,6 +25,7 @@ export type IWallet = {
   totalMicronots: bigint;
 };
 
+export const existentialDepositMicrogons = 10_000n;
 export const miningHoldOperationalReserveMicrogons = 250_000n;
 
 export function getSpendableMiningHoldMicrogons(availableMicrogons: bigint): bigint {
