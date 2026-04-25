@@ -15,6 +15,7 @@ if [ "$IS_DOCKER_HOST_PROXY" = "true" ]; then
   echo "Local install detected, skipping some setup steps"
   NEEDS_FULL_SETUP=false
   LOCALHOST=host.docker.internal
+  export ROUTER_BIND_ADDRESS=0.0.0.0
 fi
 
 # Prevent recursive execution

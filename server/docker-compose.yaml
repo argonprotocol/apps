@@ -37,7 +37,7 @@ services:
       start_period: 30s
       retries: 12
     ports:
-      - '127.0.0.1:${ROUTER_PORT:-0}:8080'
+      - '${ROUTER_BIND_ADDRESS:-127.0.0.1}:${ROUTER_PORT:-0}:8080'
 
   gateway-certbot:
     <<: *common-config

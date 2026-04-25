@@ -159,7 +159,9 @@
   "resolutions": {
     "@argonprotocol/mainchain": "1.4.3-dev.42131ea6",
     "@argonprotocol/testing": "1.4.3-dev.42131ea6",
-    "@argonprotocol/bitcoin": "1.4.3-dev.42131ea6"
+    "@argonprotocol/bitcoin": "1.4.3-dev.42131ea6",
+    "axios": "^1.12.1",
+    "follow-redirects": "^1.16.0"
   },
   "packageManager": "yarn@4.10.3"
 }
