@@ -200,7 +200,8 @@ export class FramesTable extends BaseTable {
   ): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
       id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, 
-      seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, progress
+      seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonFeesCollectedTotal,
+      microgonsMinedTotal, microgonsMintedTotal, progress
       FROM Frames ORDER BY id DESC LIMIT 365
       `);
     await miningFrames.load();

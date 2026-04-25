@@ -72,6 +72,7 @@ export default defineConfig({
           maxWorkers: 1,
           sequence: {
             concurrent: false,
+            groupOrder: 1,
             shuffle: false,
           },
           env: {
@@ -88,6 +89,7 @@ export default defineConfig({
           maxWorkers: 1,
           sequence: {
             concurrent: false,
+            groupOrder: 2,
             shuffle: false,
           },
           hookTimeout: 10 * 60_000,

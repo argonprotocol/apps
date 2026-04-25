@@ -305,10 +305,10 @@ if ! (already_ran "BitcoinInstall"); then
       if ! echo "$command_output" | grep -q "bitcoin-node"; then
           failed "bitcoin image was not found"
       fi
-      run_compose "sudo docker compose up bitcoin-node -d --force-recreate"
+      run_compose "sudo docker compose up bitcoin-node -d --force-recreate --wait"
     else
       echo "Bitcoin config unchanged → reusing container"
-      run_compose "sudo docker compose up bitcoin-node -d --no-recreate"
+      run_compose "sudo docker compose up bitcoin-node -d --no-recreate --wait"
     fi
 
     # Loop until syncstatus is >= 100%

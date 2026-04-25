@@ -387,8 +387,7 @@ fn allow_e2e_insecure_gateway_certs(window: &WebviewWindow) {
                 data_manager.set_tls_errors_policy(TLSErrorsPolicy::Ignore);
                 log::warn!("Linux WebKitGTK e2e mode is ignoring gateway certificate errors");
             } else {
-                context.set_tls_errors_policy(TLSErrorsPolicy::Ignore);
-                log::warn!("Linux WebKitGTK e2e mode is ignoring gateway certificate errors on the web context");
+                log::warn!("Unable to enable Linux WebKitGTK e2e certificate bypass: web context has no data manager");
             }
         } else {
             log::warn!("Unable to enable Linux WebKitGTK e2e certificate bypass: webview has no context");

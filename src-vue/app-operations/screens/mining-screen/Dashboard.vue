@@ -683,10 +683,11 @@ function prefetchHistoricalFrameDetail(frameId: number) {
 async function updateSliderFrame(newFrameIndex: number) {
   const lastIndex = Math.max(stats.frames.length - 1, 0);
   const nextFrameIndex = Math.min(Math.max(newFrameIndex, 0), lastIndex);
+  const nextFrame = stats.frames[nextFrameIndex];
+  if (!nextFrame) return;
 
-  currentFrame.value = stats.frames[nextFrameIndex];
-  const frameId = currentFrame.value?.id;
-  if (frameId === undefined) return;
+  currentFrame.value = nextFrame;
+  const frameId = currentFrame.value.id;
 
   stats.selectFrameId(frameId, true);
 
