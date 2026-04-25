@@ -10,11 +10,9 @@ HOME_DIR="$SERVER_DIR/.."
 NEEDS_FULL_SETUP=true
 logs_dir="$HOME_DIR/logs"
 export DOCKER_BUILDKIT=1
-LOCALHOST=127.0.0.1
 if [ "$IS_DOCKER_HOST_PROXY" = "true" ]; then
   echo "Local install detected, skipping some setup steps"
   NEEDS_FULL_SETUP=false
-  LOCALHOST=host.docker.internal
   export ROUTER_BIND_ADDRESS=0.0.0.0
 fi
 
@@ -108,6 +106,11 @@ fi
 
 # Source the helpers file
 source "$SCRIPTS_DIR/helpers.sh"
+
+read_router_syncstatus() {
+    local path="$1"
+    run_compose "sudo docker compose exec -T router curl -s http://127.0.0.1:8080${path}"
+}
 
 ########################################################################################
 reset "FileUpload"
@@ -313,12 +316,11 @@ if ! (already_ran "BitcoinInstall"); then
     fi
 
     # Loop until syncstatus is >= 100%
-    router_port=$(compose_host_port router 8080)
     failures=0
     while true; do
         sleep 1
         allow_run_command_fail=1
-        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${router_port}/bitcoin/syncstatus")
+        command_output=$(read_router_syncstatus "/bitcoin/syncstatus")
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
@@ -382,12 +384,11 @@ if ! (already_ran "ArgonInstall"); then
     fi
 
     # Loop until syncstatus is >= 100%
-    router_port=$(compose_host_port router 8080)
     failures=0
     while true; do
         sleep 1
         allow_run_command_fail=1
-        command_output=$(run_command "sudo curl -s http://${LOCALHOST}:${router_port}/argon/syncstatus")
+        command_output=$(read_router_syncstatus "/argon/syncstatus")
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
