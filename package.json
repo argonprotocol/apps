@@ -98,7 +98,7 @@
     "pinia": "^3.0.3",
     "qrcode": "^1.5.4",
     "qrcode-vue": "^1.2.0",
-    "reka-ui": "^2.5.0",
+    "reka-ui": "^2.9.6",
     "sass-embedded": "^1.90.0",
     "semver": "^7.7.3",
     "tailwind-merge": "^3.3.1",
@@ -147,8 +147,8 @@
     "vite": "^8.0.5",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.5.0",
-    "vite-svg-loader": "^5.1.0",
-    "vitest": "^4.0.5",
+    "vite-svg-loader": "^5.1.1",
+    "vitest": "^4.1.5",
     "vue-tsc": "^2.2.12"
   },
   "resolutions_disabled": {
@@ -160,8 +160,7 @@
     "@argonprotocol/mainchain": "1.4.3-dev.42131ea6",
     "@argonprotocol/testing": "1.4.3-dev.42131ea6",
     "@argonprotocol/bitcoin": "1.4.3-dev.42131ea6",
-    "axios": "^1.12.1",
-    "follow-redirects": "^1.16.0"
+    "axios": "^1.15.0"
   },
   "packageManager": "yarn@4.10.3"
 }
