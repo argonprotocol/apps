@@ -7,7 +7,7 @@ import {
   Mining,
   MiningFrames,
 } from '../src/index.ts';
-import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
+import { startArgonTestNetwork, waitForQueryableClient } from './startArgonTestNetwork.ts';
 import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
@@ -459,6 +459,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const bobPort = await network.getPort('miner-1', 9944);
     const bobAddress = `ws://localhost:${bobPort}`;
+    await waitForQueryableClient(bobAddress, { label: bobAddress });
 
     const bob = new Accountset({
       client: aliceClient,
