@@ -48,7 +48,6 @@ type IRelayEventData = {
 };
 
 const RELAY_FINALIZATION_CONFIRMATIONS = 4;
-const RELAY_MORTALITY_BLOCKS = 8;
 
 export class BitcoinLockRelayService {
   private readonly blockCache = new Map<string, SignedBlock>();
@@ -279,11 +278,12 @@ export class BitcoinLockRelayService {
       );
       const txSubmittedAtBlockHeight = this.blockWatch.bestBlockHeader.blockNumber;
       const txSubmittedAtTime = new Date();
-      const txExpiresAtBlockHeight = txSubmittedAtBlockHeight + RELAY_MORTALITY_BLOCKS;
+      const relayMortalityBlocks = getRelayMortalityBlocks();
+      const txExpiresAtBlockHeight = txSubmittedAtBlockHeight + relayMortalityBlocks;
       const txNonce = await this.getNextNonce(client);
       const signedTx = await tx.signAsync(this.bitcoinInitializerDelegateKeypair, {
         nonce: txNonce,
-        era: RELAY_MORTALITY_BLOCKS,
+        era: relayMortalityBlocks,
       });
 
       const submittedRelay = this.db.bitcoinLockRelaysTable.insertRelay({
@@ -694,6 +694,10 @@ function extractCreatedLockEvent(client: ArgonClient, events: GenericEvent[]) {
   if (!createdEvent) return undefined;
 
   return createdEvent.data.utxoId.toNumber();
+}
+
+function getRelayMortalityBlocks(): number {
+  return NetworkConfig.canFrameBeZero() ? 32 : 8;
 }
 
 function isMissingVaultError(error: unknown): boolean {

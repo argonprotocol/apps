@@ -14,6 +14,7 @@ import { inspect } from 'util';
 import { getAuthorFromHeader, getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import Path from 'path';
 import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.ts';
+import { sudoFundWallet } from './helpers/sudoFundWallet.ts';
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;
@@ -448,18 +449,13 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     });
     await alice.registerKeys(network.archiveUrl);
     console.log('Alice set up');
-    // wait for bob to have ownership tokens
-    await new Promise(async resolve => {
-      const unsub = await alice.client.query.ownership.account(bobRing.address, x => {
-        if (x.free.toBigInt() > 100_000n) {
-          resolve(true);
-          unsub();
-        } else {
-          console.log(`Waiting for bob to have ownership tokens`);
-        }
-      });
+    await sudoFundWallet({
+      address: bobRing.address,
+      microgons: Argons(75),
+      micronots: 500_000n,
+      archiveUrl: network.archiveUrl,
     });
-    console.log('Bob has ownership tokens');
+    console.log('Bob funding is ready');
 
     const bobPort = await network.getPort('miner-1', 9944);
     const bobAddress = `ws://localhost:${bobPort}`;
