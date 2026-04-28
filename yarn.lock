@@ -42,8 +42,8 @@ __metadata:
   resolution: "@argonprotocol/apps-bot@workspace:bot"
   dependencies:
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
-    "@argonprotocol/testing": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
+    "@argonprotocol/testing": "npm:1.4.3-dev.6cdce319"
     "@types/cors": "npm:^2.8.19"
     "@types/express": "npm:^5.0.3"
     "@types/ws": "npm:^8.18.1"
@@ -66,8 +66,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@argonprotocol/apps-core@workspace:core"
   dependencies:
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
-    "@argonprotocol/testing": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
+    "@argonprotocol/testing": "npm:1.4.3-dev.6cdce319"
     "@hyperbridge/sdk": "npm:^1.5.0"
     bignumber.js: "npm:^9.3.1"
     dayjs: "npm:^1.11.13"
@@ -83,7 +83,7 @@ __metadata:
   resolution: "@argonprotocol/apps-e2e@workspace:e2e"
   dependencies:
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
     "@types/ws": "npm:^8.5.13"
     docker-compose: "npm:^1.2.0"
     tsx: "npm:^4.20.5"
@@ -97,8 +97,8 @@ __metadata:
   resolution: "@argonprotocol/apps-indexer@workspace:indexer"
   dependencies:
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
-    "@argonprotocol/testing": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
+    "@argonprotocol/testing": "npm:1.4.3-dev.6cdce319"
     "@types/express": "npm:^5.0.3"
     bignumber.js: "npm:^9.3.1"
     cors: "npm:^2.8.5"
@@ -116,7 +116,7 @@ __metadata:
   resolution: "@argonprotocol/apps-router@workspace:router"
   dependencies:
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
     "@polkadot/util": "npm:^14.0.1"
     "@polkadot/util-crypto": "npm:^14.0.1"
     "@types/express": "npm:^5.0.3"
@@ -129,17 +129,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/bitcoin@npm:1.4.3-dev.42131ea6":
-  version: 1.4.3-dev.42131ea6
-  resolution: "@argonprotocol/bitcoin@npm:1.4.3-dev.42131ea6"
+"@argonprotocol/bitcoin@npm:1.4.3-dev.6cdce319":
+  version: 1.4.3-dev.6cdce319
+  resolution: "@argonprotocol/bitcoin@npm:1.4.3-dev.6cdce319"
   dependencies:
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
     "@noble/secp256k1": "npm:^2.3.0"
     "@scure/bip32": "npm:^1.7.0"
     "@scure/bip39": "npm:^1.6.0"
     "@scure/btc-signer": "npm:^1.8.1"
     bignumber.js: "npm:^9.3.1"
-  checksum: 10c0/c7aa0a25b8a6cea14c70f167cf4c40bca4f74bc59c2af61701d1fd9dcc55bdfb226a43511af0e4d7627a953288906fe5bfb1b44ef44a7e8f822cb294e04ce37a
+  checksum: 10c0/0a023b3d903cf32ecf60919bccc5e455dc39dea71f938a97806c7e99be92e49b21aecd6f63a4c9ec5ba0f89c7e4e0c349be4e972edd06b5beda256bb72599d0c
   languageName: node
   linkType: hard
 
@@ -148,8 +148,8 @@ __metadata:
   resolution: "@argonprotocol/cli@workspace:cli"
   dependencies:
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
-    "@argonprotocol/testing": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
+    "@argonprotocol/testing": "npm:1.4.3-dev.6cdce319"
     "@commander-js/extra-typings": "npm:^13.1.0"
     bignumber.js: "npm:^9.3.1"
     commander: "npm:^13.1.0"
@@ -163,9 +163,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/mainchain@npm:1.4.3-dev.42131ea6":
-  version: 1.4.3-dev.42131ea6
-  resolution: "@argonprotocol/mainchain@npm:1.4.3-dev.42131ea6"
+"@argonprotocol/mainchain@npm:1.4.3-dev.6cdce319":
+  version: 1.4.3-dev.6cdce319
+  resolution: "@argonprotocol/mainchain@npm:1.4.3-dev.6cdce319"
   dependencies:
     "@polkadot/api": "npm:^16.4.4"
     "@polkadot/api-base": "npm:^16.4.4"
@@ -178,15 +178,15 @@ __metadata:
     "@polkadot/util-crypto": "npm:^13.5.5"
     bignumber.js: "npm:^9.3.1"
     bs58check: "npm:^4.0.0"
-  checksum: 10c0/6963f61dc14b075d8754e512f5474b2df65e222f6fb2897f677ac4b9aab0757e97e6abcb9277c9273f70a64851ee4e9a21b0dfa72d810c9b7c83e14bf6a5928f
+  checksum: 10c0/645c253a351042582e81ae353657bd9c742b2f2dbbce7e8e016dc8e3cd55ec3268eebc0882d862ad7964a68fd05ce14c9250fbb3a976028da959f2adef0aa1b5
   languageName: node
   linkType: hard
 
-"@argonprotocol/testing@npm:1.4.3-dev.42131ea6":
-  version: 1.4.3-dev.42131ea6
-  resolution: "@argonprotocol/testing@npm:1.4.3-dev.42131ea6"
+"@argonprotocol/testing@npm:1.4.3-dev.6cdce319":
+  version: 1.4.3-dev.6cdce319
+  resolution: "@argonprotocol/testing@npm:1.4.3-dev.6cdce319"
   dependencies:
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
     detect-port: "npm:^2.1.0"
     docker-compose: "npm:^1.2.0"
     http-proxy: "npm:^1.18.1"
@@ -194,7 +194,7 @@ __metadata:
     pg: "npm:^8.16.3"
     proper-lockfile: "npm:^4.1.2"
     vitest: "npm:^4.0.5"
-  checksum: 10c0/91d1dc2e0760901b96d9cbb411a123abd0f398575133f54c8860cbbf84238f5662696e2bb406a288c8bcc9683fc81df37391d66fa6833930e53dfcc38e080e97
+  checksum: 10c0/781e745702e3281c7717508f474c33aa5619cd92362e8af466a0864431b5a73e5cbe22fb0541b5866e6c5b118a567177815be76f42d2b7a6cdc5ec1795ae64a5
   languageName: node
   linkType: hard
 
@@ -4753,9 +4753,9 @@ __metadata:
     "@actions/github": "npm:^6.0.1"
     "@argonprotocol/apps-bot": "workspace:*"
     "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/bitcoin": "npm:1.4.3-dev.42131ea6"
-    "@argonprotocol/mainchain": "npm:1.4.3-dev.42131ea6"
-    "@argonprotocol/testing": "npm:1.4.3-dev.42131ea6"
+    "@argonprotocol/bitcoin": "npm:1.4.3-dev.6cdce319"
+    "@argonprotocol/mainchain": "npm:1.4.3-dev.6cdce319"
+    "@argonprotocol/testing": "npm:1.4.3-dev.6cdce319"
     "@chenfengyuan/vue-countdown": "npm:^2.1.3"
     "@ethereumjs/rlp": "npm:^10.1.1"
     "@ethereumjs/trie": "npm:^6.2.1"

@@ -52,8 +52,8 @@
     "@actions/github": "^6.0.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.3-dev.42131ea6",
-    "@argonprotocol/mainchain": "1.4.3-dev.42131ea6",
+    "@argonprotocol/bitcoin": "1.4.3-dev.6cdce319",
+    "@argonprotocol/mainchain": "1.4.3-dev.6cdce319",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
     "@ethereumjs/trie": "^6.2.1",
@@ -117,7 +117,7 @@
     "e2e"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.42131ea6",
+    "@argonprotocol/testing": "1.4.3-dev.6cdce319",
     "@scure/bip39": "^2.0.1",
     "@tauri-apps/cli": "^2.8.2",
     "@types/bun": "^1.2.22",
@@ -157,9 +157,9 @@
     "@argonprotocol/bitcoin": "portal:../mainchain/bitcoin/nodejs"
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.3-dev.42131ea6",
-    "@argonprotocol/testing": "1.4.3-dev.42131ea6",
-    "@argonprotocol/bitcoin": "1.4.3-dev.42131ea6",
+    "@argonprotocol/mainchain": "1.4.3-dev.6cdce319",
+    "@argonprotocol/testing": "1.4.3-dev.6cdce319",
+    "@argonprotocol/bitcoin": "1.4.3-dev.6cdce319",
     "axios": "^1.15.0"
   },
   "packageManager": "yarn@4.10.3"
