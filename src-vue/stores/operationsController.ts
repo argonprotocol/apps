@@ -9,12 +9,14 @@ import { createDeferred, MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
 import Importer from '../lib/Importer';
 import {
+  getOperationalChainProgressFromAccount,
   getOperationalRewardConfig,
   type IOperationalChainProgress,
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
 } from '../lib/OperationalAccount.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
+import { getMainchainClient } from './mainchain.ts';
 import { getServerApiClient } from './server.ts';
 import { getTransactionTracker } from './transactions.ts';
 import BootstrapToNode from '../app-operations/overlays/operational/BootstrapToNode.vue';
@@ -94,6 +96,13 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
 const operationalStepIds = Object.keys(operationalSteps) as OperationalStepId[];
 
 type IOperationalStepStatus = 'not_started' | 'underway' | 'complete';
+export type IOperationalInviteStatusLabel = 'Not opened' | 'Opened' | 'Registered' | 'Became operational' | 'Expired';
+export type IOperationalInviteStatus = {
+  label: IOperationalInviteStatusLabel;
+  showRewardNote: boolean;
+  completedCertificationSteps?: number;
+  certificationStepCount?: number;
+};
 
 export const useOperationsController = defineStore('operationsController', () => {
   const defaultRewardAmount = 500n * BigInt(MICROGONS_PER_ARGON);
@@ -138,12 +147,15 @@ export const useOperationsController = defineStore('operationsController', () =>
     operationalReferralReward: defaultRewardAmount,
     referralBonusReward: defaultBonusRewardAmount,
     referralBonusEveryXOperationalSponsees: 5,
+    operationalMinimumVaultLockTicks: 365n * 24n * 60n,
+    operationalMinimumVaultSecuritization: 1_000n * BigInt(MICROGONS_PER_ARGON),
     bitcoinLockSizeForReferral: 5_000n * BigInt(MICROGONS_PER_ARGON),
     miningSeatsPerReferral: 5,
     maxAvailableReferrals: 3,
   });
   const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
   const operationalInvites = Vue.ref<IOperationalUserInvite[]>([]);
+  const operationalInviteStatusesByCode = Vue.ref<Record<string, IOperationalInviteStatus>>({});
 
   const certificationStepCount = operationalStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
@@ -193,19 +205,44 @@ export const useOperationsController = defineStore('operationsController', () =>
   const completedCertificationStepCount = Vue.computed(() => {
     return operationalStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
   });
+  const isCertificationChecklistComplete = Vue.computed(() => {
+    return completedCertificationStepCount.value === certificationStepCount;
+  });
   const isFullyOperational = Vue.computed(() => {
-    return completedCertificationStepCount.value === certificationStepCount || chainProgress.value.isOperational;
+    return chainProgress.value.isOperational;
+  });
+  const isOperationalActivationReady = Vue.computed(() => {
+    if (!isCertificationChecklistComplete.value) return false;
+
+    const progress = chainProgress.value;
+    if (progress.isOperational) return false;
+
+    return (
+      progress.hasUniswapTransfer &&
+      progress.hasVault &&
+      progress.hasBitcoinLock &&
+      progress.hasTreasuryBondParticipation &&
+      progress.hasFirstMiningSeat &&
+      progress.hasSecondMiningSeat
+    );
+  });
+  const isOperationalRewardsFlowActive = Vue.computed(() => {
+    return isFullyOperational.value || isOperationalActivationReady.value;
   });
 
   const pendingCompletionNoticeStepId = Vue.computed(() => {
     return completionNoticeQueue.value[0] ?? null;
   });
+  const activeOperationalInvites = Vue.computed(() => {
+    return operationalInvites.value.filter(isActiveOperationalInvite);
+  });
+  const activeOperationalInviteCount = Vue.computed(() => {
+    return activeOperationalInvites.value.length;
+  });
   const inviteSlotProgress = Vue.computed<IOperationalChainProgress>(() => {
-    const unactivatedReferrals = operationalInvites.value.filter(invite => !invite.lastClickedAt).length;
-
     return {
       ...chainProgress.value,
-      unactivatedReferrals,
+      unactivatedReferrals: activeOperationalInviteCount.value,
     };
   });
   const pendingRewardsAmount = Vue.computed(() => {
@@ -356,16 +393,131 @@ export const useOperationsController = defineStore('operationsController', () =>
   async function loadOperationalInvites() {
     if (!config.serverDetails.ipAddress) {
       operationalInvites.value = [];
+      operationalInviteStatusesByCode.value = {};
       return [];
     }
 
     const invites = await getServerApiClient().getOperationalInvites();
     operationalInvites.value = invites;
+
+    await refreshOperationalInviteStatuses(invites);
+
     return invites;
   }
 
   function setOperationalInvites(invites: IOperationalUserInvite[]) {
     operationalInvites.value = invites;
+    setOperationalInviteStatuses(invites);
+  }
+
+  async function refreshOperationalInviteStatuses(invites = operationalInvites.value) {
+    let operationalInviteProgressByCode: Map<string, IOperationalChainProgress> | undefined;
+
+    try {
+      const client = await getMainchainClient(false);
+      const accountInvites = invites.filter(invite => invite.accountId);
+      const operationalAccounts = accountInvites.length
+        ? await client.query.operationalAccounts.operationalAccounts.multi(
+            accountInvites.map(invite => invite.accountId!),
+          )
+        : [];
+
+      operationalInviteProgressByCode = new Map(
+        accountInvites.map((invite, index) => [
+          invite.inviteCode,
+          getOperationalChainProgressFromAccount(operationalAccounts[index]),
+        ]),
+      );
+    } catch (error) {
+      console.warn('[Operations Controller] Unable to refresh operational invite chain statuses.', error);
+    }
+
+    setOperationalInviteStatuses(invites, operationalInviteProgressByCode);
+  }
+
+  function setOperationalInviteStatuses(
+    invites: IOperationalUserInvite[],
+    operationalInviteProgressByCode?: Map<string, IOperationalChainProgress>,
+  ) {
+    const operationalInviteCodesToUse = operationalInviteProgressByCode
+      ? new Set(
+          Array.from(operationalInviteProgressByCode.entries())
+            .filter(([_inviteCode, progress]) => progress.isOperational)
+            .map(([inviteCode]) => inviteCode),
+        )
+      : new Set(
+          Object.entries(operationalInviteStatusesByCode.value)
+            .filter(([_inviteCode, status]) => status.label === 'Became operational')
+            .map(([inviteCode]) => inviteCode),
+        );
+
+    operationalInviteStatusesByCode.value = Object.fromEntries(
+      invites.map(invite => [
+        invite.inviteCode,
+        getOperationalInviteStatus(
+          invite,
+          operationalInviteCodesToUse,
+          operationalInviteProgressByCode?.get(invite.inviteCode),
+        ),
+      ]),
+    );
+  }
+
+  function getOperationalInviteStatus(
+    invite: IOperationalUserInvite,
+    operationalInviteCodes = new Set<string>(),
+    chainProgress?: IOperationalChainProgress,
+  ): IOperationalInviteStatus {
+    if (operationalInviteCodes.has(invite.inviteCode)) {
+      return {
+        label: 'Became operational',
+        showRewardNote: true,
+      };
+    }
+
+    if (invite.accountId) {
+      const certificationProgress = chainProgress ? getInviteCertificationProgress(chainProgress) : undefined;
+
+      return {
+        label: 'Registered',
+        showRewardNote: false,
+        completedCertificationSteps: certificationProgress?.completed,
+        certificationStepCount: certificationProgress?.total,
+      };
+    }
+
+    if (invite.lastClickedAt) {
+      return {
+        label: 'Opened',
+        showRewardNote: false,
+      };
+    }
+
+    return {
+      label: 'Not opened',
+      showRewardNote: false,
+    };
+  }
+
+  function getInviteCertificationProgress(progress: IOperationalChainProgress) {
+    const completed = [
+      progress.hasUniswapTransfer,
+      progress.hasVault,
+      progress.hasBitcoinLock,
+      progress.hasTreasuryBondParticipation,
+      progress.hasFirstMiningSeat,
+      progress.hasSecondMiningSeat,
+    ].filter(Boolean).length;
+
+    return {
+      completed,
+      total: 6,
+    };
+  }
+
+  function isActiveOperationalInvite(invite: IOperationalUserInvite) {
+    const status = operationalInviteStatusesByCode.value[invite.inviteCode];
+    return status?.label !== 'Became operational' && status?.label !== 'Expired';
   }
 
   function dismissCompletionNotice() {
@@ -389,18 +541,25 @@ export const useOperationsController = defineStore('operationsController', () =>
     activeGuideId,
     certificationStepCount,
     completedCertificationStepCount,
+    isCertificationChecklistComplete,
     chainProgress,
     rewardConfig,
     inviteSlotProgress,
     pendingRewardsAmount,
     operationalInvites,
+    operationalInviteStatusesByCode,
+    activeOperationalInvites,
+    activeOperationalInviteCount,
     isFullyOperational,
+    isOperationalActivationReady,
+    isOperationalRewardsFlowActive,
     pendingCompletionNoticeStepId,
     importFromMnemonic,
     dismissCompletionNotice,
     clearCompletionNotices,
     loadOperationalInvites,
     setOperationalInvites,
+    refreshOperationalInviteStatuses,
     setScreenKey: setTab,
     isCertificationStepComplete: isCertificationStepComplete,
     isCertificationStepUnderway,

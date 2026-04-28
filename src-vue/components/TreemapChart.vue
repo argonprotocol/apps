@@ -290,13 +290,10 @@ function getRectStyle(rect: IRectNode) {
 
 .treemap[data-theme='btc'] .treemap__tile--item {
   background: rgba(232, 185, 35, 0.52);
-  //background: rgba(247, 147, 26, 0.32);
 }
 
 .treemap[data-theme='btc'] .treemap__tile--strong {
   background: rgba(232, 185, 35, 0.36);
-
-  //background: rgba(247, 147, 26, 0.96);
 }
 
 .treemap[data-theme='argon'] .treemap__tile--item {

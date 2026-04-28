@@ -101,6 +101,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(testNetwork.networkConfigOverride);
       process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
       const composeEnv = testNetwork.composeEnv;
+      tauriEnv.JOIN_COMPOSE_NETWORK = composeEnv.COMPOSE_PROJECT_NAME;
 
       // Keep helper commands (btc-cli, funding RPC) pointed at the same ephemeral compose project.
       process.env.COMPOSE_PROJECT_NAME = composeEnv.COMPOSE_PROJECT_NAME;

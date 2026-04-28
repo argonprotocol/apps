@@ -63,14 +63,14 @@
       <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
         <DropdownMenuTrigger
           Trigger
-          :aria-label="controller.isFullyOperational ? 'Operational rewards' : 'Operational progress'"
+          :aria-label="controller.isOperationalRewardsFlowActive ? 'Operational rewards' : 'Operational progress'"
           class="flex flex-row items-center justify-center overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
           :class="[
             isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50',
-            controller.isFullyOperational ? 'w-[42px]' : 'font-mono text-base font-semibold',
+            controller.isOperationalRewardsFlowActive ? 'w-[42px]' : 'font-mono text-base font-semibold',
           ]"
         >
-          <template v-if="controller.isFullyOperational">
+          <template v-if="controller.isOperationalRewardsFlowActive">
             <div class="relative flex h-full w-full items-center justify-center">
               <div class="menu-moon">
                 <div class="menu-moon-crater left-[3px] top-[5px]" />
@@ -99,8 +99,25 @@
           >
             <div class="relative">
               <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                <div v-if="controller.isFullyOperational" class="w-[26rem] px-4 pt-4 pb-4">
-                  <div class="border-b border-slate-300/50 pb-2.5">
+                <div v-if="controller.isOperationalRewardsFlowActive" class="w-[26rem] px-4 pt-4 pb-4">
+                  <div v-if="controller.isOperationalActivationReady" class="space-y-3">
+                    <div class="border-b border-slate-300/50 pb-2.5">
+                      <div class="text-lg font-bold text-slate-700">Claim your Rewards</div>
+                      <div class="mt-0.5 text-sm leading-5 text-slate-500">
+                        You've finished the Argon Operational Certification Process! Open to claim your {{ operationalReferralRewardLabel }} reward.
+                      </div>
+                      <button
+                        type="button"
+                        class="bg-argon-button hover:bg-argon-button-hover mt-3 rounded-lg px-3 py-1.5 text-sm font-semibold text-white"
+                        @click="openRewardsActivation()"
+                      >
+                        Open
+                      </button>
+                    </div>
+                  </div>
+
+                  <template v-else>
+                    <div class="border-b border-slate-300/50 pb-2.5">
                     <div class="text-lg font-bold text-slate-700">Operator Referrals</div>
                     <div class="mt-0.5 text-sm text-slate-500">
                       Earn {{ operationalReferralRewardLabel }} for both you and each referral who completes the operational checklist. Every
@@ -115,6 +132,7 @@
                     :progress="controller.inviteSlotProgress"
                     :rewardConfig="controller.rewardConfig"
                     :invites="controller.operationalInvites"
+                    :inviteStatusesByCode="controller.operationalInviteStatusesByCode"
                     @select="openInviteHub"
                   />
 
@@ -159,6 +177,7 @@
                       Manage Referral Codes
                     </button>
                   </div>
+                  </template>
                 </div>
 
                 <div v-else class="max-w-160 pt-4 pb-2">
@@ -249,7 +268,7 @@ const completionNoticeStepTitle = Vue.computed(() => {
   return completionNoticeStepId.value ? operationalSteps[completionNoticeStepId.value].title : '';
 });
 const isShowingCompletionTooltip = Vue.computed(() => {
-  return !!completionNoticeStepId.value && !isOpen.value && !controller.isFullyOperational;
+  return !!completionNoticeStepId.value && !isOpen.value && !controller.isOperationalRewardsFlowActive;
 });
 const isShowingBonusTooltip = Vue.computed(() => {
   const showBonusTooltip = config.certificationDetails?.showBonusTooltip;
@@ -258,7 +277,7 @@ const isShowingBonusTooltip = Vue.computed(() => {
     !isOpen.value &&
     !!config.upstreamOperator?.inviteSecret &&
     !completionNoticeStepId.value &&
-    !controller.isFullyOperational
+    !controller.isOperationalRewardsFlowActive
   );
 });
 const operationalReferralRewardLabel = Vue.computed(() => {
@@ -304,6 +323,7 @@ const referralStats = Vue.computed(() => {
 });
 const hasInviteMoonBase = Vue.computed(() => {
   return (
+    controller.operationalInvites.length > 0 ||
     controller.inviteSlotProgress.unactivatedReferrals > 0 ||
     controller.inviteSlotProgress.operationalReferralsCount > 0 ||
     controller.inviteSlotProgress.referralPending
@@ -328,6 +348,12 @@ function onMouseEnter() {
   mouseLeaveTimeoutId = undefined;
   controller.clearCompletionNotices();
   isOpen.value = true;
+
+  if (controller.isOperationalRewardsFlowActive) {
+    void controller.loadOperationalInvites().catch(error => {
+      console.warn('[OperationalMenu] Unable to refresh operational invites.', error);
+    });
+  }
 }
 
 function onMouseLeave() {
@@ -379,6 +405,11 @@ function openInviteHub(section?: 'create' | 'unlock' | 'outbound') {
 function openRewardsClaim() {
   isOpen.value = false;
   basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
+}
+
+function openRewardsActivation() {
+  isOpen.value = false;
+  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
 }
 
 Vue.watch(isOpen, value => {

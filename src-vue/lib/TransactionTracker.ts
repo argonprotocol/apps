@@ -358,6 +358,7 @@ export class TransactionTracker {
     const table = await this.getTable();
     const { blockNumber: finalizedHeight, blockTime: finalizedBlockTime } = this.blockWatch.finalizedBlockHeader;
     const bestBlockNumber = bestBlockInfo.blockNumber;
+    const checkedTxIds = new Set<number>();
 
     for (const txInfo of this.data.txInfos) {
       const { tx, txResult } = txInfo;
@@ -380,11 +381,13 @@ export class TransactionTracker {
                 blockTime: new Date(finalizedBlockTime),
               });
               txResult.setFinalized();
+              checkedTxIds.add(tx.id);
               continue;
             }
           } else if (!shouldRescanBestBlockTx) {
             // The tx is already in a best block. Wait for finalization before attempting
             // expensive relocation scans across the recent chain window.
+            checkedTxIds.add(tx.id);
             continue;
           }
         }
@@ -414,6 +417,7 @@ export class TransactionTracker {
               ...txResult,
               transactionEvents: extrinsicEvents.map(x => x.toHuman()),
             });
+            checkedTxIds.add(tx.id);
             continue;
           }
           const { blockHash, blockNumber, blockTime, fee, tip, error, extrinsicEvents, extrinsicIndex } =
@@ -454,12 +458,14 @@ export class TransactionTracker {
             await table.markExpiredWaitingForBlock(tx);
           }
         }
+        checkedTxIds.add(tx.id);
       } catch (error) {
         console.error(`[TransactionTracker] Error updating pending transaction #${tx.id} status:`, error);
       }
     }
     for (const txInfo of this.data.txInfos) {
       if (txInfo.tx.status === TransactionStatus.Finalized || txInfo.tx.status === TransactionStatus.Error) continue;
+      if (!checkedTxIds.has(txInfo.tx.id)) continue;
       await table.updateFinalizedHead(txInfo.tx, {
         blockNumber: finalizedHeight,
         blockTime: new Date(finalizedBlockTime),

@@ -243,6 +243,27 @@ describe('TransactionTracker', () => {
       }),
     );
   });
+
+  it('does not advance finalized head when a pending status scan fails', async () => {
+    const tx = createTransaction({
+      id: 9,
+      blockHeight: 100,
+      blockHash: '0xpending-block',
+      finalizedHeadHeight: 101,
+    });
+    const { tracker, table, blockWatch } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 125,
+    });
+    const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
+    blockWatch.getFinalizedHash.mockRejectedValueOnce(new Error('WebSocket is not connected'));
+
+    await trackerApi.updatePendingStatuses({ blockNumber: 132 });
+
+    expect(table.markFinalized).not.toHaveBeenCalled();
+    expect(table.updateFinalizedHead).not.toHaveBeenCalled();
+    expect(tx.finalizedHeadHeight).toBe(101);
+  });
 });
 
 async function createTracker(args: {

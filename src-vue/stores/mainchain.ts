@@ -186,9 +186,20 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
   }
 
   const serverApiClient = getServerApiClient();
-  if (config.isServerInstalled && config.serverDetails.ipAddress && (await serverApiClient.isGatewayReady())) {
-    await serverApiClient.ensureAdminOperatorSession({ forceVerify: true });
-    await mainchainClients.setPrunedClient(serverApiClient.getGatewayWebsocketUrl('/substrate'));
+  if (config.isServerInstalled && config.serverDetails.ipAddress) {
+    if (!(await serverApiClient.isGatewayReady())) {
+      mainchainClients.clearPrunedClient();
+      return;
+    }
+
+    try {
+      await serverApiClient.ensureAdminOperatorSession({ forceVerify: true });
+      await mainchainClients.setPrunedClient(serverApiClient.getGatewayWebsocketUrl('/substrate'));
+    } catch (error) {
+      mainchainClients.clearPrunedClient();
+      throw error;
+    }
+
     return;
   }
 

@@ -25,12 +25,15 @@ export class RouterAuthService {
   private readonly challengesByNonce = new Map<string, IRouterAuthChallenge>();
   private readonly db?: Db;
   private readonly adminOperatorAccountId?: string;
+  private readonly sessionCookieName: string;
   private readonly sessionTtlSeconds: number;
   private readonly challengeTtlMs: number;
 
   constructor(options: IRouterAuthServiceOptions = {}) {
     this.db = options.db;
     this.adminOperatorAccountId = options.adminOperatorAccountId?.trim() || undefined;
+    this.sessionCookieName = `argon_session_${this.adminOperatorAccountId}`;
+
     this.sessionTtlSeconds = options.sessionTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
     this.challengeTtlMs = options.challengeTtlMs ?? DEFAULT_CHALLENGE_TTL_MS;
     this.ensureAdminOperatorUser();
@@ -164,12 +167,12 @@ export class RouterAuthService {
 
     res.setHeader(
       'Set-Cookie',
-      `argon_router_session=${sessionId}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${this.sessionTtlSeconds}`,
+      `${this.sessionCookieName}=${sessionId}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${this.sessionTtlSeconds}`,
     );
   }
 
   private getRequestUser(req: Request): IUserRecord | null {
-    const sessionId = getCookie(req, 'argon_router_session');
+    const sessionId = getCookie(req, this.sessionCookieName);
     if (!sessionId) return null;
 
     const session = this.db!.sessionsTable.fetchBySessionId(sessionId);

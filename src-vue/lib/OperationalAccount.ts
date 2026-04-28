@@ -6,6 +6,8 @@ import {
   hexToU8a,
   Keyring,
   type KeyringPair,
+  type Option,
+  type PalletOperationalAccountsOperationalAccount,
   type SubmittableExtrinsic,
   type u128,
   type u32,
@@ -25,11 +27,14 @@ const MINING_FUNDING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_funding';
 const MINING_BOT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_bot';
 const REFERRAL_CLAIM_PROOF_MESSAGE_KEY = 'referral_claim';
 const REFERRAL_SPONSOR_GRANT_MESSAGE_KEY = 'referral_sponsor_grant';
+const OPERATIONAL_REWARDS_UPGRADE_ERROR = 'Reward claims cannot be submitted until the next Argon upgrade is active.';
 
 export type IOperationalRewardConfig = {
   operationalReferralReward: bigint;
   referralBonusReward: bigint;
   referralBonusEveryXOperationalSponsees: number;
+  operationalMinimumVaultLockTicks: bigint;
+  operationalMinimumVaultSecuritization: bigint;
   bitcoinLockSizeForReferral: bigint;
   miningSeatsPerReferral: number;
   maxAvailableReferrals: number;
@@ -55,6 +60,7 @@ export type IOperationalChainProgress = {
 };
 
 export type IOperationalRewardsClaimAvailability = {
+  canClaimRewards: boolean;
   pendingRewards: bigint;
   treasuryReserves?: bigint;
   claimableNow: bigint;
@@ -206,10 +212,30 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
     operationalReferralReward: consts.operationalReferralReward.toBigInt(),
     referralBonusReward: consts.operationalReferralBonusReward.toBigInt(),
     referralBonusEveryXOperationalSponsees: consts.referralBonusEveryXOperationalSponsees.toNumber(),
+    operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
+    operationalMinimumVaultSecuritization: (
+      consts.operationalMinimumVaultSecuritization ?? client.consts.vaults.operationalMinimumVaultSecuritization
+    ).toBigInt(),
     bitcoinLockSizeForReferral: (consts.bitcoinLockSizeForReferral ?? consts.bitcoinLockSizeForAccessCode).toBigInt(),
     miningSeatsPerReferral: (consts.miningSeatsPerReferral ?? consts.miningSeatsPerAccessCode).toNumber(),
     maxAvailableReferrals: (consts.maxAvailableReferrals ?? consts.maxUnactivatedAccessCodes).toNumber(),
   };
+}
+
+export async function buildOperationalActivationRewardClaimTx(
+  amount: bigint,
+  client?: ArgonClient,
+): Promise<SubmittableExtrinsic> {
+  client ??= await getMainchainClient(false);
+
+  if (!('claimRewards' in client.tx.operationalAccounts)) {
+    throw new Error(OPERATIONAL_REWARDS_UPGRADE_ERROR);
+  }
+
+  return client.tx.utility.batchAll([
+    client.tx.operationalAccounts.activate(),
+    client.tx.operationalAccounts.claimRewards(amount),
+  ]);
 }
 
 export async function getOperationalRewardsClaimAvailability(
@@ -224,12 +250,16 @@ export async function getOperationalRewardsClaimAvailability(
     ? account.rewardsEarnedAmount.toBigInt() - account.rewardsCollectedAmount.toBigInt()
     : 0n;
   const pendingRewards = rawPendingRewards > 0n ? rawPendingRewards : 0n;
-  const treasuryReserves = await getTreasuryReserveBalance(client);
+  const canClaimRewards = 'claimRewards' in client.tx.operationalAccounts;
+  const treasuryReserves = canClaimRewards ? await getTreasuryReserveBalance(client) : undefined;
   const availableRewards =
-    treasuryReserves === undefined || treasuryReserves > pendingRewards ? pendingRewards : treasuryReserves;
+    canClaimRewards && (treasuryReserves === undefined || treasuryReserves > pendingRewards)
+      ? pendingRewards
+      : (treasuryReserves ?? 0n);
   const wholeArgon = BigInt(MICROGONS_PER_ARGON);
 
   return {
+    canClaimRewards,
     pendingRewards,
     treasuryReserves,
     claimableNow: availableRewards - (availableRewards % wholeArgon),
@@ -244,7 +274,7 @@ export async function buildOperationalRewardsClaimTx(
   client ??= await getMainchainClient(false);
 
   if (!('claimRewards' in client.tx.operationalAccounts)) {
-    throw new Error('Reward claims require the upcoming mainchain runtime upgrade.');
+    throw new Error(OPERATIONAL_REWARDS_UPGRADE_ERROR);
   }
 
   return client.tx.operationalAccounts.claimRewards(amount);
@@ -260,52 +290,7 @@ export async function subscribeOperationalAccount(
   const unsubscribe = await client.query.operationalAccounts.operationalAccounts(
     walletKeys.operationalAddress,
     accountRaw => {
-      const entry = {
-        hasVault: false,
-        hasUniswapTransfer: false,
-        hasTreasuryBondParticipation: false,
-        hasFirstMiningSeat: false,
-        hasSecondMiningSeat: false,
-        hasBitcoinLock: false,
-        bitcoinAccrual: 0n,
-        miningSeatAccrual: 0,
-        operationalReferralsCount: 0,
-        referralPending: false,
-        availableReferrals: 0,
-        unactivatedReferrals: 0,
-        rewardsEarnedCount: 0,
-        rewardsEarnedAmount: 0n,
-        rewardsCollectedAmount: 0n,
-        isOperational: false,
-      };
-      if (accountRaw.isSome) {
-        const account = accountRaw.unwrap();
-        const bitcoinAccrual = account.bitcoinAccrual.toBigInt();
-        const bitcoinAppliedTotal = account.bitcoinAppliedTotal.toBigInt();
-        const miningSeatAccrual = account.miningSeatAccrual.toBigInt();
-        const miningSeatAppliedTotal = account.miningSeatAppliedTotal.toBigInt();
-        const referralAccount = account as typeof account & V146OperationalAccount;
-
-        Object.assign(entry, {
-          hasVault: account.vaultCreated.toPrimitive(),
-          hasUniswapTransfer: account.hasUniswapTransfer.toPrimitive(),
-          hasTreasuryBondParticipation: account.hasTreasuryPoolParticipation.toPrimitive(),
-          hasFirstMiningSeat: miningSeatAccrual + miningSeatAppliedTotal >= 1n,
-          hasSecondMiningSeat: miningSeatAccrual + miningSeatAppliedTotal >= 2n,
-          hasBitcoinLock: bitcoinAccrual + bitcoinAppliedTotal > 0n,
-          bitcoinAccrual,
-          miningSeatAccrual: account.miningSeatAccrual.toNumber(),
-          operationalReferralsCount: account.operationalReferralsCount.toNumber(),
-          referralPending: (referralAccount.referralPending ?? referralAccount.referralAccessCodePending).toPrimitive(),
-          availableReferrals: (referralAccount.availableReferrals ?? referralAccount.issuableAccessCodes).toNumber(),
-          unactivatedReferrals: referralAccount.unactivatedAccessCodes?.toNumber() ?? 0,
-          rewardsEarnedCount: account.rewardsEarnedCount.toNumber(),
-          rewardsEarnedAmount: account.rewardsEarnedAmount.toBigInt(),
-          rewardsCollectedAmount: account.rewardsCollectedAmount.toBigInt(),
-          isOperational: account.isOperational.toPrimitive(),
-        });
-      }
-      onUpdate(entry);
+      onUpdate(getOperationalChainProgressFromAccount(accountRaw));
 
       if (!deferred.isResolved) {
         deferred.resolve();
@@ -315,6 +300,57 @@ export async function subscribeOperationalAccount(
 
   await deferred.promise;
   return unsubscribe;
+}
+
+export function getOperationalChainProgressFromAccount(
+  accountRaw: Option<PalletOperationalAccountsOperationalAccount>,
+): IOperationalChainProgress {
+  const entry: IOperationalChainProgress = {
+    hasVault: false,
+    hasUniswapTransfer: false,
+    hasTreasuryBondParticipation: false,
+    hasFirstMiningSeat: false,
+    hasSecondMiningSeat: false,
+    hasBitcoinLock: false,
+    bitcoinAccrual: 0n,
+    miningSeatAccrual: 0,
+    operationalReferralsCount: 0,
+    referralPending: false,
+    availableReferrals: 0,
+    unactivatedReferrals: 0,
+    rewardsEarnedCount: 0,
+    rewardsEarnedAmount: 0n,
+    rewardsCollectedAmount: 0n,
+    isOperational: false,
+  };
+
+  if (!accountRaw.isSome) return entry;
+
+  const account = accountRaw.unwrap();
+  const bitcoinAccrual = account.bitcoinAccrual.toBigInt();
+  const bitcoinAppliedTotal = account.bitcoinAppliedTotal.toBigInt();
+  const miningSeatAccrual = account.miningSeatAccrual.toBigInt();
+  const miningSeatAppliedTotal = account.miningSeatAppliedTotal.toBigInt();
+  const referralAccount = account as typeof account & V146OperationalAccount;
+
+  return {
+    hasVault: account.vaultCreated.toPrimitive(),
+    hasUniswapTransfer: account.hasUniswapTransfer.toPrimitive(),
+    hasTreasuryBondParticipation: account.hasTreasuryPoolParticipation.toPrimitive(),
+    hasFirstMiningSeat: miningSeatAccrual + miningSeatAppliedTotal >= 1n,
+    hasSecondMiningSeat: miningSeatAccrual + miningSeatAppliedTotal >= 2n,
+    hasBitcoinLock: bitcoinAccrual + bitcoinAppliedTotal > 0n,
+    bitcoinAccrual,
+    miningSeatAccrual: account.miningSeatAccrual.toNumber(),
+    operationalReferralsCount: account.operationalReferralsCount.toNumber(),
+    referralPending: (referralAccount.referralPending ?? referralAccount.referralAccessCodePending).toPrimitive(),
+    availableReferrals: (referralAccount.availableReferrals ?? referralAccount.issuableAccessCodes).toNumber(),
+    unactivatedReferrals: referralAccount.unactivatedAccessCodes?.toNumber() ?? 0,
+    rewardsEarnedCount: account.rewardsEarnedCount.toNumber(),
+    rewardsEarnedAmount: account.rewardsEarnedAmount.toBigInt(),
+    rewardsCollectedAmount: account.rewardsCollectedAmount.toBigInt(),
+    isOperational: account.isOperational.toPrimitive(),
+  };
 }
 
 async function getTreasuryReserveBalance(client: ArgonClient): Promise<bigint | undefined> {
@@ -329,6 +365,7 @@ type V146OperationalAccountConsts = {
   bitcoinLockSizeForAccessCode: u128;
   miningSeatsPerAccessCode: u32;
   maxUnactivatedAccessCodes: u32;
+  operationalMinimumVaultSecuritization?: u128;
 };
 
 type V146OperationalAccount = {

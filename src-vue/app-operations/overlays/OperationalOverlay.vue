@@ -191,6 +191,12 @@ function openOperationalInvites() {
 }
 
 basicEmitter.on('openOperationalOverlay', async (stepId: OperationalStepId) => {
+  if (controller.isOperationalActivationReady) {
+    closeOverlay();
+    basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
+    return;
+  }
+
   isOpen.value = true;
   currentStepId.value = stepId;
   basics.overlayIsOpen = true;

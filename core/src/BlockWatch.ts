@@ -5,6 +5,7 @@ import {
   getAuthorFromHeader,
   getFrameInfoFromHeader,
   getOfflineRegistry,
+  type SignedBlock,
   getTickFromHeader,
   type Header,
 } from '@argonprotocol/mainchain';
@@ -110,13 +111,44 @@ export class BlockWatch {
       this.finalizedAheadRecoveryFailures = 0;
       console.time('[BlockWatch] start');
       const generation = ++this.subscriptionGeneration;
+      try {
+        await this.startSubscription(source, generation);
+      } catch (error) {
+        if (source !== 'pruned' || this.forcePrunedClientSubscriptions) {
+          throw error;
+        }
+
+        console.warn('[BlockWatch]: Failed to start with pruned client, falling back to archive', { error });
+        this.processingQueue.clear();
+        this.latestHeaders.length = 1;
+        this.finalizedAheadRecoveryFailures = 0;
+        await this.startSubscription('archive', ++this.subscriptionGeneration);
+      }
+    } catch (err) {
+      this.isLoaded.reject(err);
+      throw err;
+    }
+    console.timeEnd('[BlockWatch] start');
+    this.isLoaded.resolve();
+    return this.isLoaded.promise;
+  }
+
+  private async startSubscription(source: ISubscriptionSource, generation: number): Promise<void> {
+    let unsub1: (() => void) | undefined;
+    let unsub2: (() => void) | undefined;
+
+    try {
       const { client, source: activeSource } = await this.getSubscriptionClient(source);
       this.activeSource = activeSource;
       this.subscriptionClient = client;
       const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
-      this.latestHeaders = [BlockWatch.readHeader(finalizedHeader)];
-      const hasBlockData = createDeferred();
-      const unsub1 = await client.rpc.chain.subscribeNewHeads(async header => {
+      const finalizedBlock = BlockWatch.readHeader(finalizedHeader);
+      this.latestHeaders = [finalizedBlock];
+      const bestHeader = await client.rpc.chain.getHeader();
+      const bestTail = await this.fillNewHeadGap(finalizedBlock, bestHeader);
+      this.latestHeaders = [finalizedBlock, ...bestTail];
+
+      unsub1 = await client.rpc.chain.subscribeNewHeads(async header => {
         if (generation !== this.subscriptionGeneration) {
           return;
         }
@@ -128,15 +160,13 @@ export class BlockWatch {
           const newBlocks = gap.filter(x => !this.latestHeaders.some(y => y.blockHash === x.blockHash));
           this.latestHeaders = [this.finalizedBlockHeader, ...gap];
           this.finalizedAheadRecoveryFailures = 0;
-          hasBlockData.resolve();
           if (newBlocks.length) {
             this.events.emit('best-blocks', newBlocks as [...any, IBlockHeaderInfo]);
           }
         });
       });
-      await hasBlockData.promise;
 
-      const unsub2 = await client.rpc.chain.subscribeFinalizedHeads(async header => {
+      unsub2 = await client.rpc.chain.subscribeFinalizedHeads(async header => {
         // slight delay to allow newHeads to process first
         await new Promise(resolve => setTimeout(resolve, 100));
         if (generation !== this.subscriptionGeneration) {
@@ -151,16 +181,14 @@ export class BlockWatch {
       });
 
       this.unsubscribe = () => {
-        unsub1();
-        unsub2();
+        unsub1?.();
+        unsub2?.();
       };
-    } catch (err) {
-      this.isLoaded.reject(err);
-      throw err;
+    } catch (error) {
+      unsub1?.();
+      unsub2?.();
+      throw error;
     }
-    console.timeEnd('[BlockWatch] start');
-    this.isLoaded.resolve();
-    return this.isLoaded.promise;
   }
 
   public stop(): void {
@@ -287,6 +315,12 @@ export class BlockWatch {
       }
       throw error;
     }
+  }
+
+  public async getBlock(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<SignedBlock> {
+    return await this.readWithArchiveRetry(block.blockNumber, `getBlock(${block.blockNumber})`, client =>
+      client.rpc.chain.getBlock(block.blockHash),
+    );
   }
 
   private trimBlockCaches(): void {
@@ -436,6 +470,8 @@ export class BlockWatch {
     return (
       (message.includes('4003') &&
         (message.includes('state already discarded') || message.includes('unknown block'))) ||
+      message.includes('unable to retrieve header and parent from supplied hash') ||
+      message.includes('websocket is not connected') ||
       message.includes('no response received from rpc endpoint') ||
       message.includes('abnormal closure') ||
       message.includes('disconnected from ws://') ||

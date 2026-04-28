@@ -9,6 +9,13 @@ static ENV_DOCKER: &str = include_str!("../../server/.env.dev-docker");
 static ENV_LOCAL: &str = include_str!("../../server/.env.localnet");
 static ENV_MAINNET: &str = include_str!("../../server/.env.mainnet");
 static ENV_TESTNET: &str = include_str!("../../server/.env.testnet");
+static DEV_DOCKER_SERVER_ENV_PASSTHROUGH: &[&str] = &[
+    "ARGON_ARCHIVE_NODE",
+    "ARGON_BOOTNODES",
+    "BITCOIN_ADDNODE",
+    "NOTEBOOK_ARCHIVE_HOSTS",
+    "NOTARY_ALIAS_CONTAINER_ID",
+];
 
 pub struct Utils;
 
@@ -25,7 +32,8 @@ impl Utils {
     }
 
     pub fn get_server_env_vars(app_id: &str) -> Result<HashMap<String, String>, String> {
-        let env_text = match Self::get_network_name(app_id).as_str() {
+        let network_name = Self::get_network_name(app_id);
+        let env_text = match network_name.as_str() {
             "dev-docker" => ENV_DOCKER,
             "localnet" => ENV_LOCAL,
             "mainnet" => ENV_MAINNET,
@@ -37,6 +45,16 @@ impl Utils {
         let mut result = HashMap::new();
         for (key, value) in env_vars.flatten() {
             result.insert(key, value);
+        }
+        if network_name == "dev-docker" {
+            for key in DEV_DOCKER_SERVER_ENV_PASSTHROUGH {
+                if let Ok(value) = std::env::var(key) {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        result.insert(key.to_string(), value.to_string());
+                    }
+                }
+            }
         }
         Ok(result)
     }

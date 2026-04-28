@@ -84,7 +84,7 @@ pub async fn ssh_access_activate(
     ssh.run_command(add_cmd).await.map_err(|e| e.to_string())?;
 
     *state.access.lock().await = Some(SshAccessSession {
-        private_key: SecretString::new(private_key_openssh.clone()),
+        private_key: SecretString::new(private_key_openssh.clone().into()),
         public_key: public_key_openssh.clone(),
     });
 

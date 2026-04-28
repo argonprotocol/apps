@@ -22,6 +22,7 @@ import type {
   IOpenTreasuryInviteRequest,
   IOpenTreasuryInviteResponse,
   IOperationalUserInviteCreateRequest,
+  IOperationalUserInviteRegenerateRequest,
   IRouterAuthChallengeRequest,
   IRouterAuthSessionRequest,
   IRouterAuthSessionResponse,
@@ -286,6 +287,20 @@ export class RouterServer {
           name: body.name,
           fromName: body.fromName,
           inviteCode: body.inviteCode,
+        });
+        return { invite };
+      }),
+    );
+
+    app.post(
+      '/operational-users/:inviteCode/regenerate',
+      requireAdminOperatorAuth,
+      express.text({ type: '*/*' }),
+      safeJsonRoute<ICreateOperationalInviteResponse>(async req => {
+        const body = requireBody<IOperationalUserInviteRegenerateRequest>(req);
+        const invite = inviteService.regenerateInvite(UserRole.OperationalPartner, {
+          inviteCode: req.params.inviteCode,
+          newInviteCode: body.inviteCode,
         });
         return { invite };
       }),

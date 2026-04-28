@@ -23,6 +23,10 @@ export interface IOperationalUserInviteCreateRequest {
   sponsorSignature: string;
 }
 
+export interface IOperationalUserInviteRegenerateRequest {
+  inviteCode: string;
+}
+
 export interface IUserInviteOpenRequest {
   accountId: string;
   authAccountId: string;

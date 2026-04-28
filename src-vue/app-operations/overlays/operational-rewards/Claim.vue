@@ -4,23 +4,27 @@
       <div class="rounded-2xl border border-slate-200 bg-white px-5 py-4">
         <div class="text-lg font-semibold text-slate-800">Claim Operational Rewards</div>
         <div class="mt-2 text-sm leading-6 text-slate-500">
-          You can claim up to {{ claimableRewardLabel }} of your rewards from the Argon Treasury Reserves right now.
+          You can claim up to ₳{{ microgonToArgonNm(claimableNow).format('0,0.[00]') }} of your rewards from the Argon
+          Treasury Reserves right now.
         </div>
       </div>
 
       <div StatsBox box class="grid grid-cols-3 overflow-hidden text-center">
         <div StatWrapper class="border-r border-slate-200/70 px-4 py-4">
-          <div Stat class="text-3xl! leading-none">{{ pendingRewardLabel }}</div>
+          <div Stat class="text-3xl! leading-none">₳{{ microgonToArgonNm(pendingRewards).format('0,0.[00]') }}</div>
           <div class="mt-2 text-xs font-semibold tracking-widest text-slate-400 uppercase">Pending</div>
         </div>
 
         <div StatWrapper class="border-r border-slate-200/70 px-4 py-4">
-          <div Stat class="text-3xl! leading-none">{{ treasuryReserveLabel }}</div>
+          <div Stat class="text-3xl! leading-none">
+            <template v-if="treasuryReserves === undefined">Pending</template>
+            <template v-else>₳{{ microgonToArgonNm(treasuryReserves).format('0,0.[00]') }}</template>
+          </div>
           <div class="mt-2 text-xs font-semibold tracking-widest text-slate-400 uppercase">Treasury Reserves</div>
         </div>
 
         <div StatWrapper class="px-4 py-4">
-          <div Stat class="text-3xl! leading-none">{{ claimableRewardLabel }}</div>
+          <div Stat class="text-3xl! leading-none">₳{{ microgonToArgonNm(claimableNow).format('0,0.[00]') }}</div>
           <div class="mt-2 text-xs font-semibold tracking-widest text-slate-400 uppercase">Claimable Now</div>
         </div>
       </div>
@@ -32,8 +36,8 @@
         <div
           v-if="hasClaimFeeShortfall"
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800">
-          This account needs ~{{ formatArgon(claimFeeEstimate ?? 0n) }} available to pay the network fee. Choose a
-          different account or add funds before claiming.
+          This account needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay the
+          network fee. Choose a different account or add funds before claiming.
         </div>
       </div>
 
@@ -76,7 +80,7 @@
           :disabled="!canClaim"
           class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
           @click="claimRewards">
-          Claim {{ claimableRewardLabel }}
+          Claim ₳{{ microgonToArgonNm(claimableNow).format('0,0.[00]') }}
         </button>
       </div>
     </div>
@@ -154,6 +158,7 @@ const currency = getCurrency();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
+
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const claimAccount = Vue.ref<ClaimAccount>('miningHold');
@@ -161,6 +166,7 @@ const claimAccount = Vue.ref<ClaimAccount>('miningHold');
 const pendingRewards = Vue.ref(0n);
 const treasuryReserves = Vue.ref<bigint>();
 const claimableNow = Vue.ref(0n);
+const canClaimRewards = Vue.ref(true);
 
 const claimFeeEstimate = Vue.ref<bigint>();
 const nextReserveRefreshAt = Vue.ref<Dayjs>();
@@ -185,14 +191,6 @@ const selectedClaimAccount = Vue.computed(() => {
   return wallets.miningHoldWallet;
 });
 
-const pendingRewardLabel = Vue.computed(() => formatArgon(pendingRewards.value));
-
-const treasuryReserveLabel = Vue.computed(() => {
-  return treasuryReserves.value === undefined ? 'Pending' : formatArgon(treasuryReserves.value);
-});
-
-const claimableRewardLabel = Vue.computed(() => formatArgon(claimableNow.value));
-
 const hasTreasuryReserveShortfall = Vue.computed(() => {
   return treasuryReserves.value !== undefined && treasuryReserves.value < pendingRewards.value;
 });
@@ -202,7 +200,12 @@ const hasClaimFeeShortfall = Vue.computed(() => {
 });
 
 const canClaim = Vue.computed(() => {
-  return !isProcessing.value && !hasClaimFeeShortfall.value && claimableNow.value >= BigInt(MICROGONS_PER_ARGON);
+  return (
+    canClaimRewards.value &&
+    !isProcessing.value &&
+    !hasClaimFeeShortfall.value &&
+    claimableNow.value >= BigInt(MICROGONS_PER_ARGON)
+  );
 });
 
 const isClaimComplete = Vue.computed(() => {
@@ -222,10 +225,10 @@ async function loadAvailability() {
   pendingRewards.value = availability.pendingRewards;
   treasuryReserves.value = availability.treasuryReserves;
   claimableNow.value = availability.claimableNow;
-  runtimeNotice.value =
-    availability.treasuryReserves === undefined
-      ? 'This feature will be activated with the next mainchain runtime upgrade.'
-      : '';
+  canClaimRewards.value = availability.canClaimRewards;
+  runtimeNotice.value = availability.canClaimRewards
+    ? ''
+    : 'Reward claims cannot be submitted until the next Argon upgrade is active.';
 
   nextReserveRefreshAt.value = undefined;
   if (hasTreasuryReserveShortfall.value) {
@@ -301,11 +304,6 @@ Vue.onUnmounted(() => {
   unsubscribeProgress?.();
 });
 
-function formatArgon(amount: bigint) {
-  const wholeArgon = BigInt(MICROGONS_PER_ARGON);
-  return `₳${microgonToArgonNm(amount).format(amount % wholeArgon === 0n ? '0,0' : '0,0.00')}`;
-}
-
 async function getClaimSigner() {
   if (claimAccount.value === 'vaulting') return await walletKeys.getVaultingKeypair();
   return await walletKeys.getMiningHoldKeypair();
@@ -315,7 +313,12 @@ async function updateClaimFeeEstimate() {
   const runId = ++feeEstimateRunId;
   claimFeeEstimate.value = undefined;
 
-  if (!props.isActive || claimableNow.value < BigInt(MICROGONS_PER_ARGON) || !selectedClaimAccount.value.address) {
+  if (
+    !props.isActive ||
+    !canClaimRewards.value ||
+    claimableNow.value < BigInt(MICROGONS_PER_ARGON) ||
+    !selectedClaimAccount.value.address
+  ) {
     return;
   }
 

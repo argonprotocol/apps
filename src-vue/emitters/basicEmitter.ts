@@ -48,7 +48,7 @@ type IBasicEmitter = {
   openServerOverlay: void;
   openOperationalOverlay: OperationalStepId;
   openOperationalRewardsOverlay:
-    | { screen?: 'congratulations' | 'overview' | 'claim'; section?: 'create' | 'unlock' | 'outbound' }
+    | { screen?: 'activate' | 'congratulations' | 'overview' | 'claim'; section?: 'create' | 'unlock' | 'outbound' }
     | undefined;
   openOperationalFinishOverlay: void;
 };

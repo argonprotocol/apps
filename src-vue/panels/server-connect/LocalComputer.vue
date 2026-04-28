@@ -1,31 +1,19 @@
 <template>
   <div class="mx-5 flex h-full grow flex-col p-3">
-    <DialogDescription :class="[blockedPorts.length ? 'opacity-30' : 'opacity-80']" class="mt-4 pr-10 font-light">
+    <DialogDescription class="mt-4 pr-10 font-light opacity-80">
       This app allows you to use your laptop or desktop computer as a server. In many ways this is the easiest and
       cheapest way to get started, but it comes with some caveats. It requires you to keep this app running and
       connected to the internet at all times. It also requires you to install Docker.
     </DialogDescription>
 
-    <div v-if="blockedPorts.length" Warning data-testid="ServerConnectOverlay.local.warning">
-      <strong>INELIGIBLE:</strong>
-      This option requires that port{{ blockedPorts.length === 1 ? '' : 's' }}
-      <strong data-testid="ServerConnectOverlay.local.blockedPorts" class="font-bold">
-        {{ formatPorts(blockedPorts) }}
-      </strong>
-      be available for Argon's mining machine. It seems that some other application is using these ports. Please release
-      these ports on your computer or use another server option.
-    </div>
-
-    <div v-else Warning data-testid="ServerConnectOverlay.local.warning">
+    <div Warning data-testid="ServerConnectOverlay.local.warning">
       <strong>WARNING:</strong>
       You should ONLY proceed if you can keep this app running and connected to the internet at all times. If this app
       closes for any reason, you will lose all revenue while its closed, and you will not be able to claw it back. This
       is because blocks are only distributed to active miners.
     </div>
 
-    <div
-      :class="{ 'opacity-30': blockedPorts.length }"
-      class="mx-auto flex w-7/12 min-w-[630px] grow flex-col justify-center">
+    <div class="mx-auto flex w-7/12 min-w-[630px] grow flex-col justify-center">
       <section class="-mt-5 flex w-full flex-row content-start items-start">
         <div class="relative mt-0.5 mr-4 w-14">
           <div
@@ -110,7 +98,6 @@ import { IS_TEST } from '../../lib/Env.ts';
 const emit = defineEmits(['ready']);
 
 const isDockerStarted = Vue.ref(false);
-const blockedPorts = Vue.ref([] as number[]);
 
 const isCheckingDiskSpace = Vue.ref(true);
 const hasEnoughDiskSpace = Vue.ref(false);
@@ -121,7 +108,6 @@ let checkDockerInterval: number | undefined;
 async function checkDockerDependencies() {
   const dockerChecks = await MiningMachine.runDockerChecks();
   isDockerStarted.value = dockerChecks.isDockerStarted;
-  blockedPorts.value = dockerChecks.blockedPorts;
   calculateIsReady();
 
   if (!isDockerStarted.value) {
@@ -130,18 +116,11 @@ async function checkDockerDependencies() {
 }
 
 function calculateIsReady() {
-  if (hasEnoughDiskSpace.value && isDockerStarted.value && !blockedPorts.value.length) {
+  if (hasEnoughDiskSpace.value && isDockerStarted.value) {
     emit('ready', true);
   } else {
     emit('ready', false);
   }
-}
-
-function formatPorts(ports: number[]): string {
-  if (ports.length === 0) return '';
-  if (ports.length === 1) return ports[0].toString();
-  if (ports.length === 2) return `${ports[0]} and ${ports[1]}`;
-  return `${ports.slice(0, -1).join(', ')}, and ${ports[ports.length - 1]}`;
 }
 
 function openDockerInstallLink() {
