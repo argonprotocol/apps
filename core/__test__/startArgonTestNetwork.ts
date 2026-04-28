@@ -245,6 +245,48 @@ export async function startArgonTestNetwork(
   }
 }
 
+export async function waitForQueryableClient(
+  url: string,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+    label?: string;
+  } = {},
+): Promise<void> {
+  const startedAt = Date.now();
+  let lastLogAt = Date.now();
+  const timeoutMs = Math.max(
+    1,
+    Number.isFinite(options.timeoutMs ?? NaN) ? Number(options.timeoutMs) : DEFAULT_CHAIN_START_TIMEOUT_MS,
+  );
+  const pollMs = Math.max(
+    10,
+    Number.isFinite(options.pollMs ?? NaN) ? Number(options.pollMs) : DEFAULT_CHAIN_START_POLL_MS,
+  );
+  const label = options.label ?? url;
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    let client: ArgonClient | undefined;
+    try {
+      client = await getClient(url);
+      await client.query.ticks.genesisTick();
+      return;
+    } catch (_error) {
+      // Wait for fresh-client state queries to become usable.
+    } finally {
+      await client?.disconnect().catch(() => undefined);
+    }
+
+    if (Date.now() - lastLogAt >= 10_000) {
+      console.info(`[E2E] Waiting for queryable client at ${label}`);
+      lastLogAt = Date.now();
+    }
+    await new Promise(res => setTimeout(res, pollMs));
+  }
+
+  throw new Error(`[E2E] client at ${label} never became queryable within ${timeoutMs}ms`);
+}
+
 async function waitForFirstMainchainBlock(
   client: ArgonClient,
   archiveUrl: string,
@@ -266,9 +308,16 @@ async function waitForFirstMainchainBlock(
     try {
       const header = await client.rpc.chain.getHeader();
       const blockNumber = header.number.toNumber();
-      if (blockNumber > 0) return;
+      if (blockNumber > 0) {
+        await waitForQueryableClient(archiveUrl, {
+          timeoutMs: Math.max(1, timeoutMs - (Date.now() - startedAt)),
+          pollMs,
+          label: archiveUrl,
+        });
+        return;
+      }
     } catch (_error) {
-      // Wait for chain websocket to become usable.
+      // Wait for chain websocket and fresh-client state queries to become usable.
     }
     if (Date.now() - lastLogAt >= 10_000) {
       console.info(
