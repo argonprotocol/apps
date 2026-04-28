@@ -53,6 +53,19 @@
                   {{ slot.status.label }}
                 </div>
               </div>
+
+              <div v-if="hasSentInviteChecklistProgress(slot)" class="mt-2">
+                <div
+                  v-if="mode === 'overlay'"
+                  class="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
+                  <span>Certification checklist</span>
+                  <span>{{ sentInviteProgressLabel(slot) }}</span>
+                </div>
+                <ProgressBar
+                  :progress="sentInviteProgressPct(slot)"
+                  class="my-2"
+                  :title="`${sentInviteName(slot)} has completed ${sentInviteProgressLabel(slot)}.`" />
+              </div>
             </template>
 
             <template v-else-if="slot.type === 'ready'">
@@ -107,14 +120,24 @@
           </template>
 
           <template v-else-if="mode === 'overlay' && slot.type === 'sent'">
-            <CopyToClipboard v-if="slot.inviteLink" :content="slot.inviteLink" class="shrink-0" @click.stop>
+            <CopyToClipboard
+              v-if="slot.inviteLink && !slot.invite?.accountId"
+              :content="slot.inviteLink"
+              class="shrink-0"
+              @click.stop>
               <button type="button" class="text-argon-700 text-sm font-semibold">Copy link</button>
               <template #copied>
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copied</button>
               </template>
             </CopyToClipboard>
-            <button v-else type="button" disabled class="shrink-0 text-sm font-semibold text-slate-400">
-              Link unavailable
+            <button
+              v-else-if="canRegenerateLink(slot)"
+              type="button"
+              :disabled="isCreating"
+              class="text-argon-700 hover:text-argon-800 inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold disabled:cursor-default disabled:text-slate-400"
+              @click.stop="regenerateInvite(slot)">
+              <ArrowPathIcon class="h-4 w-4" />
+              Regenerate
             </button>
           </template>
 
@@ -130,19 +153,22 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import type { IOperationalUserInvite } from '@argonprotocol/apps-router';
-import { ChevronRightIcon, PlusIcon } from '@heroicons/vue/24/outline';
+import { ArrowPathIcon, ChevronRightIcon, PlusIcon } from '@heroicons/vue/24/outline';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import Tooltip from '../../components/Tooltip.vue';
 import type { IOperationalChainProgress, IOperationalRewardConfig } from '../../lib/OperationalAccount.ts';
 import { getCappedPercent } from '../../lib/Utils.ts';
+import ProgressBar from '../../components/ProgressBar.vue';
 
 type IInviteSlotSection = 'create' | 'unlock' | 'outbound';
 
 type IInviteRecordStatus = {
   label: string;
+  completedCertificationSteps?: number;
+  certificationStepCount?: number;
 };
 
-type IInviteRecord = Pick<IOperationalUserInvite, 'inviteCode' | 'name' | 'lastClickedAt'>;
+type IInviteRecord = Pick<IOperationalUserInvite, 'inviteCode' | 'name' | 'lastClickedAt' | 'accountId'>;
 
 type IInviteSlot =
   | {
@@ -184,6 +210,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   create: [{ slotNumber: number; name: string }];
+  regenerate: [{ inviteCode: string }];
   select: [IInviteSlotSection];
   'update:draftNamesBySlot': [Record<number, string>];
 }>();
@@ -214,6 +241,14 @@ function createInvite(slotNumber: number) {
   });
 }
 
+function regenerateInvite(slot: Extract<IInviteSlot, { type: 'sent' }>) {
+  if (!slot.invite || !canRegenerateLink(slot)) return;
+
+  emit('regenerate', {
+    inviteCode: slot.invite.inviteCode,
+  });
+}
+
 function sentInviteName(slot: Extract<IInviteSlot, { type: 'sent' }>) {
   return slot.invite?.name.trim() || 'Sent';
 }
@@ -224,6 +259,24 @@ function readySlotName(slot: Extract<IInviteSlot, { type: 'ready' }>) {
 
 function hasInviteName(slotNumber: number) {
   return !!props.draftNamesBySlot[slotNumber]?.trim();
+}
+
+function canRegenerateLink(slot: Extract<IInviteSlot, { type: 'sent' }>) {
+  if (!slot.invite || slot.inviteLink) return false;
+  if (slot.invite.lastClickedAt || slot.invite.accountId) return false;
+  return slot.status.label === 'Not opened';
+}
+
+function hasSentInviteChecklistProgress(slot: Extract<IInviteSlot, { type: 'sent' }>) {
+  return slot.status.label === 'Registered' && !!slot.status.certificationStepCount;
+}
+
+function sentInviteProgressPct(slot: Extract<IInviteSlot, { type: 'sent' }>) {
+  return getCappedPercent(slot.status.completedCertificationSteps ?? 0, slot.status.certificationStepCount ?? 1);
+}
+
+function sentInviteProgressLabel(slot: Extract<IInviteSlot, { type: 'sent' }>) {
+  return `${slot.status.completedCertificationSteps ?? 0}/${slot.status.certificationStepCount ?? 0} steps`;
 }
 
 function slotKey(slot: IInviteSlot) {
@@ -245,15 +298,20 @@ function slotTooltip(slot: IInviteSlot) {
   if (slot.type === 'progress') {
     return 'You can earn another referral code by adding more BTC lock, winning more mining seats, or successful referrals.';
   }
-  if (slot.invite?.lastClickedAt) {
-    return `${slot.invite.name} has opened this referral code. It no longer counts as waiting to be activated.`;
+  if (slot.status.label === 'Registered') {
+    const progress = hasSentInviteChecklistProgress(slot) ? ` They've completed ${sentInviteProgressLabel(slot)}.` : '';
+    return `${slot.invite?.name ?? 'This recruit'} registered from your referral link.${progress} They still need to complete the Argon Operational Certification.`;
+  }
+  if (slot.status.label === 'Opened' || slot.invite?.lastClickedAt) {
+    return `${slot.invite?.name ?? 'This recruit'} opened the referral link. They still need to complete the Argon Operational Certification.`;
   }
 
   return `This referral code is waiting for ${sentInviteName(slot) === 'Sent' ? 'the recruit' : sentInviteName(slot)} to open the link.`;
 }
 
 function statusClass(label: string) {
-  if (label === 'Activated') return 'border border-amber-200 bg-amber-50 text-amber-700';
+  if (label === 'Opened') return 'border border-amber-200 bg-amber-50 text-amber-700';
+  if (label === 'Registered') return 'border border-sky-200 bg-sky-50 text-sky-700';
   if (label === 'Became operational') return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
   if (label === 'Expired') return 'border border-slate-200 bg-slate-100 text-slate-500';
   return 'border border-slate-200 bg-slate-100 text-slate-600';
@@ -311,36 +369,44 @@ function getProgressSource(current: bigint | number, target: bigint | number) {
   const progressPct = getCappedPercent(current, target);
 
   return {
-    progressLabel: progressPct >= 100 ? 'ready' : `${progressPct}%`,
+    progressLabel: progressPct >= 100 ? 'ready' : `${Math.round(progressPct)}%`,
     progressPct,
   };
 }
 
-function getInviteStatus(invite?: Pick<IOperationalUserInvite, 'inviteCode' | 'lastClickedAt'>): IInviteRecordStatus {
+function getInviteStatus(
+  invite?: Pick<IOperationalUserInvite, 'inviteCode' | 'lastClickedAt' | 'accountId'>,
+): IInviteRecordStatus {
   if (!invite) {
     return {
-      label: 'Not activated',
+      label: 'Not opened',
     };
   }
 
   const status = props.inviteStatusesByCode[invite.inviteCode];
+  if (status?.label === 'Became operational' || status?.label === 'Expired') return status;
+
+  if (invite.accountId) {
+    return status ?? { label: 'Registered' };
+  }
+
   if (status) return status;
 
   if (invite.lastClickedAt) {
     return {
-      label: 'Activated',
+      label: 'Opened',
     };
   }
 
   return {
-    label: 'Not activated',
+    label: 'Not opened',
   };
 }
 
 function isActiveInvite(invite: Pick<IOperationalUserInvite, 'inviteCode' | 'lastClickedAt'>) {
   const status = props.inviteStatusesByCode[invite.inviteCode]?.label;
-  if (status) return status === 'Not activated';
-  return !invite.lastClickedAt;
+  if (status) return status !== 'Became operational' && status !== 'Expired';
+  return true;
 }
 </script>
 

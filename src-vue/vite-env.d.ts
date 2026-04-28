@@ -21,6 +21,11 @@ declare const __ARGON_DRIVER_WS__: string;
 declare const __ARGON_E2E_SCREENSHOT_MODE__: string;
 declare let __LOG_DEBUG__: boolean;
 declare const __SERVER_ENV_VARS__: {
+  ARGON_ARCHIVE_NODE?: string;
+  ARGON_BOOTNODES?: string;
   BITCOIN_VERSION: string;
+  BITCOIN_ADDNODE?: string;
   ARGON_VERSION: string;
+  NOTEBOOK_ARCHIVE_HOSTS?: string;
+  NOTARY_ALIAS_CONTAINER_ID?: string;
 };

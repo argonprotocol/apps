@@ -36,6 +36,37 @@ export class UserInviteService {
     });
   }
 
+  public regenerateInvite(role: Role, args: { inviteCode: string; newInviteCode: string }): IUserInviteRecord {
+    const inviteCode = args.inviteCode.trim();
+    const newInviteCode = args.newInviteCode.trim();
+
+    if (!inviteCode) {
+      throw new RouterError('An invite code is required.');
+    }
+    if (!newInviteCode) {
+      throw new RouterError('A new invite code is required.');
+    }
+
+    return this.db.transaction(() => {
+      const invite = this.db.userInvitesTable.fetchByCode(inviteCode, role);
+      if (!invite) {
+        throw new RouterError('Invite not found', 404);
+      }
+      if (invite.lastClickedAt || invite.accountId || invite.authAccountId) {
+        throw new RouterError('This invite link has already been opened.', 409);
+      }
+      if (this.db.userInvitesTable.fetchByCode(newInviteCode)) {
+        throw new RouterError('This invite code is already in use.', 409);
+      }
+
+      const updatedInvite = this.db.userInvitesTable.updateInviteCode(invite.id, newInviteCode);
+      if (!updatedInvite) {
+        throw new RouterError('Invite not found', 404);
+      }
+      return updatedInvite;
+    });
+  }
+
   public claimInvite(args: {
     role: Role;
     inviteCode: string;

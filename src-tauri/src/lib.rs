@@ -697,7 +697,7 @@ pub fn run() {
             vm::activate_local_vm,
             vm::remove_local_vm,
             vm::is_docker_running,
-            vm::check_needed_ports,
+            vm::find_available_port,
             derive_sr25519_seed,
             derive_sr25519_address,
             derive_ed25519_seed,

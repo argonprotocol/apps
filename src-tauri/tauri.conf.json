@@ -31,29 +31,66 @@
     ],
     "security": {
       "csp": {
-        "base-uri": ["'self'"],
-        "frame-src": ["'none'"],
-        "object-src": ["'none'"],
-        "script-src": ["'self'", "'wasm-unsafe-eval'"],
-        "style-src": ["'self'", "'unsafe-inline'"]
+        "base-uri": [
+          "'self'"
+        ],
+        "frame-src": [
+          "'none'"
+        ],
+        "object-src": [
+          "'none'"
+        ],
+        "script-src": [
+          "'self'",
+          "'wasm-unsafe-eval'"
+        ],
+        "style-src": [
+          "'self'",
+          "'unsafe-inline'"
+        ]
       },
       "devCsp": {
-        "base-uri": ["'self'"],
-        "frame-src": ["'none'"],
-        "object-src": ["'none'"],
-        "script-src": ["'self'", "'wasm-unsafe-eval'", "'unsafe-eval'"],
-        "style-src": ["'self'", "'unsafe-inline'"]
+        "base-uri": [
+          "'self'"
+        ],
+        "frame-src": [
+          "'none'"
+        ],
+        "object-src": [
+          "'none'"
+        ],
+        "script-src": [
+          "'self'",
+          "'wasm-unsafe-eval'",
+          "'unsafe-eval'"
+        ],
+        "style-src": [
+          "'self'",
+          "'unsafe-inline'"
+        ]
       },
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "resources": ["../resources/*"],
+    "resources": [
+      "../resources/*"
+    ],
     "category": "DeveloperTool",
     "createUpdaterArtifacts": true,
-    "targets": ["nsis", "app", "dmg", "appimage", "deb"],
-    "icon": ["icons/icon.png"]
+    "targets": [
+      "nsis",
+      "app",
+      "dmg",
+      "appimage",
+      "deb"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ]
   },
   "plugins": {
     "updater": {
@@ -62,7 +99,9 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["argon-treasury"]
+        "schemes": [
+          "argon-treasury"
+        ]
       }
     }
   }

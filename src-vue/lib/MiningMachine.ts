@@ -323,17 +323,9 @@ export class MiningMachine {
   public static async runDockerChecks() {
     const response = {
       isDockerStarted: false,
-      blockedPorts: [] as number[],
     };
     try {
       response.isDockerStarted = await LocalMachine.isDockerRunning();
-    } catch (e) {
-      /* no action */
-    }
-
-    // check for blocked ports
-    try {
-      response.blockedPorts = await LocalMachine.checkBlockedPorts();
     } catch (e) {
       /* no action */
     }
@@ -357,11 +349,8 @@ export class MiningMachine {
     const dockerChecks = await this.runDockerChecks();
     if (!dockerChecks.isDockerStarted) {
       throw new MiningMachineError('Docker is not running');
-    } else if (dockerChecks.blockedPorts.length) {
-      throw new MiningMachineError(
-        `Required ports are in use by other applications: ${String(dockerChecks.blockedPorts.join(', '))})`,
-      );
     }
+
     progressFn?.(25);
     try {
       const { sshPort } = await LocalMachine.create(sshPublicKey);

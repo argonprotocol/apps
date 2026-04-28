@@ -20,20 +20,16 @@ pub fn is_docker_running(_app: AppHandle) -> bool {
 }
 
 #[tauri::command]
-pub fn check_needed_ports(app: AppHandle) -> Result<Vec<u16>, String> {
-    let mut blocked_ports = vec![];
-    let env_vars = Utils::get_server_env_vars(&app.config().identifier)?;
-    for (key, value) in env_vars {
-        if key.ends_with("_PORT") {
-            if let Ok(port) = value.parse::<u16>() {
-                let is_in_use = TcpListener::bind(("0.0.0.0", port)).is_err();
-                if is_in_use {
-                    blocked_ports.push(port);
-                }
-            }
+pub fn find_available_port(starting_port: u16) -> Result<u16, String> {
+    for port in starting_port..u16::MAX {
+        if TcpListener::bind(("0.0.0.0", port)).is_ok() {
+            return Ok(port);
         }
     }
-    Ok(blocked_ports)
+
+    Err(format!(
+        "No available port found starting at {starting_port}"
+    ))
 }
 
 #[tauri::command]

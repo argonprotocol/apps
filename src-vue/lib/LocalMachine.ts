@@ -15,13 +15,8 @@ export class LocalMachine {
     return { sshPort };
   }
 
-  public static async checkBlockedPorts(): Promise<number[]> {
-    console.log(`Finding blocked (needed) ports for local machine`);
-    const neededPorts = await invokeWithTimeout<number[]>('check_needed_ports', {}, 10_000);
-    if (neededPorts.length) {
-      console.log(`Local machine is blocked on ports: [${neededPorts.join(',')}]`);
-    }
-    return neededPorts;
+  public static async findAvailablePort(startingPort: number): Promise<number> {
+    return await invokeWithTimeout<number>('find_available_port', { startingPort }, 10_000);
   }
 
   public static async isDockerRunning(): Promise<boolean> {

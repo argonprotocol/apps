@@ -5,5 +5,9 @@ if [ ! -d /data ]; then
     exit 1
 fi
 
+if [ -n "${BITCOIN_ADDNODE:-}" ] && [[ "$1" == "bitcoind" || "$1" == */bitcoind ]]; then
+    set -- "$@" "-addnode=${BITCOIN_ADDNODE}"
+fi
+
 echo "Running cmd: $@"
 exec "$@"

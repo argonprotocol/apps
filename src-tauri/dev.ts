@@ -40,12 +40,19 @@ async function main(): Promise<void> {
   if (network === 'dev-docker') {
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
 
+    const composePorts = await resolveDevDockerComposePorts();
+    if (composePorts) {
+      Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
+    } else {
+      console.warn('[tauri-dev] Server env override unavailable, falling back to static server config');
+    }
+
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
     if (inheritedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = inheritedOverride;
       console.log('[tauri-dev] Using preconfigured network override from parent environment');
     } else {
-      const override = await resolveDevDockerNetworkConfigOverride();
+      const override = composePorts ? await resolveDevDockerNetworkConfigOverride(composePorts) : null;
       if (override) {
         tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(override);
         console.log(
@@ -102,30 +109,112 @@ function loadBaseConfig(configFileName: string, configFilePath: string): any {
 type RuntimeChainConfig = Awaited<ReturnType<typeof NetworkConfig.loadConfigs>>;
 type RuntimeNetworkConfigOverride = Partial<INetworkConfig>;
 
-async function resolveDevDockerNetworkConfigOverride(): Promise<RuntimeNetworkConfigOverride | null> {
+interface DevDockerComposePorts {
+  archivePort: string;
+  archiveP2pPort: string;
+  bitcoinP2pPort: string;
+  esploraPort: string;
+  indexerPort?: string;
+  notaryAliasContainerId: string;
+  notaryArchiveHost?: string;
+}
+
+async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | null> {
   const composeDir = path.resolve(__dirname, '..', 'e2e', 'argon');
   const dotenvPath = path.join(composeDir, '.env');
   const dotenvEnv = loadDotEnv({ path: dotenvPath }).parsed ?? {};
+  const joinComposeNetwork =
+    readNonEmpty(process.env.JOIN_COMPOSE_NETWORK) ?? readNonEmpty(dotenvEnv.COMPOSE_PROJECT_NAME);
   const composeEnv: NodeJS.ProcessEnv = { ...dotenvEnv, ...process.env };
-  const composeProjectName =
-    readNonEmpty(process.env.COMPOSE_PROJECT_NAME) ?? readNonEmpty(dotenvEnv.COMPOSE_PROJECT_NAME);
+  delete composeEnv.COMPOSE_PROJECT_NAME;
+  if (joinComposeNetwork) {
+    composeEnv.COMPOSE_PROJECT_NAME = joinComposeNetwork;
+  }
 
   let archivePort: string;
+  let archiveP2pPort: string;
+  let bitcoinP2pPort: string;
   let esploraPort: string;
   let indexerPort: string | undefined;
+  let notaryAliasContainerId: string;
+  let notaryArchiveHost: string | undefined;
 
   try {
-    archivePort = await readComposePortWithRetry(composeDir, composeEnv, composeProjectName, 'archive-node', 9944);
-    esploraPort = await readComposePortWithRetry(composeDir, composeEnv, composeProjectName, 'bitcoin-electrs', 3002);
-    indexerPort = await readComposePortWithRetry(composeDir, composeEnv, composeProjectName, 'indexer', 3262, {
+    archivePort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 9944);
+    archiveP2pPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 30334);
+    bitcoinP2pPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin', 18444);
+    esploraPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin-electrs', 3002);
+    indexerPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'indexer', 3262, {
       optional: true,
     });
+    notaryAliasContainerId = readComposeContainerId(composeDir, composeEnv, joinComposeNetwork, 'notary');
+    const notebookArchivePort = await readComposePortWithRetry(
+      composeDir,
+      composeEnv,
+      joinComposeNetwork,
+      'minio',
+      9000,
+    );
+    const notaryPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'notary', 9925);
+    // then after resolving ports:
+    notaryArchiveHost = await resolveNotaryArchiveHost(notaryPort, notebookArchivePort);
   } catch (error) {
     console.warn(`[tauri-dev] Failed to resolve compose ports: ${(error as Error).message}`);
     return null;
   }
 
-  const archiveUrl = `ws://127.0.0.1:${archivePort}`;
+  return {
+    archivePort,
+    archiveP2pPort,
+    bitcoinP2pPort,
+    esploraPort,
+    indexerPort,
+    notaryAliasContainerId,
+    notaryArchiveHost,
+  };
+}
+
+function getDevDockerServerEnvVars(ports: DevDockerComposePorts): NodeJS.ProcessEnv {
+  return {
+    ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archivePort}`,
+    ARGON_BOOTNODES: `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn`,
+    BITCOIN_ADDNODE: `host.docker.internal:${ports.bitcoinP2pPort}`,
+    NOTEBOOK_ARCHIVE_HOSTS: ports.notaryArchiveHost,
+    NOTARY_ALIAS_CONTAINER_ID: ports.notaryAliasContainerId,
+  };
+}
+
+async function resolveNotaryArchiveHost(notaryPort: string, minioPort: string): Promise<string | undefined> {
+  return new Promise(resolve => {
+    const ws = new WebSocket(`ws://127.0.0.1:${notaryPort}`);
+    const timeout = setTimeout(() => {
+      ws.close();
+      resolve(undefined);
+    }, 5_000);
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'system_getArchiveBaseUrl', params: [] }));
+    });
+    ws.addEventListener('message', ({ data }) => {
+      clearTimeout(timeout);
+      ws.close();
+      try {
+        const url = new URL(JSON.parse(String(data)).result);
+        resolve(`http://host.docker.internal:${minioPort}${url.pathname}`);
+      } catch {
+        resolve(undefined);
+      }
+    });
+    ws.addEventListener('error', () => {
+      clearTimeout(timeout);
+      resolve(undefined);
+    });
+  });
+}
+
+async function resolveDevDockerNetworkConfigOverride(
+  ports: DevDockerComposePorts,
+): Promise<RuntimeNetworkConfigOverride | null> {
+  const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
   let runtimeConfig: RuntimeChainConfig;
   try {
     runtimeConfig = await loadRuntimeConfig(archiveUrl);
@@ -138,10 +227,10 @@ async function resolveDevDockerNetworkConfigOverride(): Promise<RuntimeNetworkCo
     ...runtimeConfig,
     archiveUrl,
     bitcoinBlockMillis: runtimeConfig.tickMillis * 10,
-    esploraHost: `http://localhost:${esploraPort}`,
+    esploraHost: `http://localhost:${ports.esploraPort}`,
   };
-  if (indexerPort) {
-    override.indexerHost = `http://localhost:${indexerPort}`;
+  if (ports.indexerPort) {
+    override.indexerHost = `http://localhost:${ports.indexerPort}`;
   }
   return override;
 }
@@ -210,6 +299,32 @@ function readComposePort(
     throw new Error(`Could not parse mapped port from "${endpoint}" for ${service}:${port}`);
   }
   return matchedPort;
+}
+
+function readComposeContainerId(
+  composeDir: string,
+  composeEnv: NodeJS.ProcessEnv,
+  composeProjectName: string | undefined,
+  service: string,
+): string {
+  const args = [
+    'compose',
+    ...(composeProjectName ? ['--project-name', composeProjectName] : []),
+    ...COMPOSE_FILES.flatMap(file => ['-f', file]),
+    'ps',
+    '-q',
+    service,
+  ];
+
+  const containerId = execFileSync('docker', args, {
+    cwd: composeDir,
+    encoding: 'utf-8',
+    env: composeEnv,
+  }).trim();
+  if (!containerId) {
+    throw new Error(`No docker compose container id found for ${service}`);
+  }
+  return containerId;
 }
 
 async function loadRuntimeConfig(archiveUrl: string): Promise<RuntimeChainConfig> {

@@ -155,7 +155,9 @@ export class TransactionEvents {
       if (!header) continue;
 
       const client = await blockWatch.getRpcClient(blockHeight);
-      const block = await this.getBlock(client, header.blockHash, blockCache);
+
+      const block = blockCache?.get(header.blockHash) ?? (await blockWatch.getBlock(header));
+      blockCache?.set(header.blockHash, block);
 
       for (const [index, extrinsic] of block.block.extrinsics.entries()) {
         if (u8aToHex(extrinsic.hash) !== extrinsicHash) continue;
@@ -181,18 +183,5 @@ export class TransactionEvents {
     }
 
     return undefined;
-  }
-
-  private static async getBlock(
-    client: ArgonClient,
-    blockHash: string,
-    blockCache?: IBlockCache,
-  ): Promise<SignedBlock> {
-    const cached = blockCache?.get(blockHash);
-    if (cached) return cached;
-
-    const block = await client.rpc.chain.getBlock(blockHash);
-    blockCache?.set(blockHash, block);
-    return block;
   }
 }

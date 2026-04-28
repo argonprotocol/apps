@@ -74,7 +74,7 @@ impl Security {
     pub fn expose_private_key_openssh(app: &AppHandle) -> anyhow::Result<SecretString> {
         let mnemonic = Self::expose_mnemonic(app)?;
         let (private_key, _public_key) = Self::derive_ssh_key(&mnemonic)?;
-        Ok(SecretString::new(private_key))
+        Ok(SecretString::new(private_key.into()))
     }
 
     fn wallet_path(app: &AppHandle) -> PathBuf {

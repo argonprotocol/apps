@@ -169,6 +169,24 @@ export class UserInvitesTable extends BaseTable {
 
     return this.fetchById(id);
   }
+
+  public updateInviteCode(userId: number, inviteCode: string): IUserInviteRecord | null {
+    this.db.sql
+      .prepare(
+        `
+        UPDATE UserInvites
+        SET inviteCode = $inviteCode
+        WHERE userId = $userId
+      `,
+      )
+      .run({
+        $userId: userId,
+        $inviteCode: inviteCode,
+      });
+
+    return this.fetchById(userId);
+  }
+
   public deleteByUserId(userId: number): void {
     this.db.sql
       .prepare(

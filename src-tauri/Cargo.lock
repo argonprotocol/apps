@@ -27,10 +27,9 @@ dependencies = [
  "rand 0.9.3",
  "reqwest",
  "russh",
- "secrecy",
+ "secrecy 0.10.3",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2 0.10.9",
  "sp-core",
  "sqlx",
@@ -7425,6 +7424,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
+dependencies = [
+ "zeroize",
+]
+
+[[package]]
 name = "security-framework"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7634,19 +7642,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
-]
-
-[[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap 2.12.1",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
 ]
 
 [[package]]
@@ -7953,7 +7948,7 @@ dependencies = [
  "scale-info",
  "schnorrkel",
  "secp256k1 0.28.2",
- "secrecy",
+ "secrecy 0.8.0",
  "serde",
  "sha2 0.10.9",
  "sp-crypto-hashing",
@@ -9629,12 +9624,6 @@ dependencies = [
  "crypto-common",
  "subtle",
 ]
-
-[[package]]
-name = "unsafe-libyaml"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

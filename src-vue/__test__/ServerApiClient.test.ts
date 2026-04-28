@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ServerType } from '../interfaces/IConfig.ts';
 import { ServerApiClient } from '../lib/ServerApiClient.ts';
 
 describe('ServerApiClient', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('uses localhost for local loopback gateway urls', () => {
     const serverDetails = {
       type: ServerType.LocalComputer,
@@ -24,5 +28,20 @@ describe('ServerApiClient', () => {
         gatewayPort: 443,
       }),
     ).toBe('https://203.0.113.10');
+  });
+
+  it('surfaces non-json server errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Not Found', { status: 404 })),
+    );
+
+    await expect(
+      ServerApiClient.getArgonInstallProgress({
+        type: ServerType.CustomServer,
+        ipAddress: '203.0.113.10',
+        gatewayPort: 443,
+      }),
+    ).rejects.toThrow('Not Found');
   });
 });

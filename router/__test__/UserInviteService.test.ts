@@ -39,6 +39,63 @@ describe('UserInviteService operational invite behavior', () => {
     expect(db.userInvitesTable.fetchByRole(UserRole.OperationalPartner)).toHaveLength(1);
   });
 
+  it('regenerates an unclicked invite code without creating another user', () => {
+    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'operational-invite-regenerate-')), 'router.sqlite'));
+    db.migrate();
+
+    const service = new UserInviteService(db);
+    const original = InviteCodes.create();
+    const replacement = InviteCodes.create();
+    const invite = service.createInvite(UserRole.OperationalPartner, {
+      name: 'Casey',
+      fromName: 'Operator One',
+      inviteCode: original.inviteCode,
+    });
+
+    const regenerated = service.regenerateInvite(UserRole.OperationalPartner, {
+      inviteCode: original.inviteCode,
+      newInviteCode: replacement.inviteCode,
+    });
+
+    expect(regenerated.id).toBe(invite.id);
+    expect(regenerated.inviteCode).toBe(replacement.inviteCode);
+    expect(db.userInvitesTable.fetchByCode(original.inviteCode)).toBeNull();
+    expect(db.usersTable.fetchByRole(UserRole.OperationalPartner)).toHaveLength(1);
+  });
+
+  it('does not regenerate an invite after it has been opened', () => {
+    db = new Db(
+      Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'operational-invite-regenerate-opened-')), 'router.sqlite'),
+    );
+    db.migrate();
+
+    const service = new UserInviteService(db);
+    const { inviteSecret, inviteCode } = InviteCodes.create();
+    const replacement = InviteCodes.create();
+    const account = new Keyring({ type: 'sr25519' }).addFromUri('//InviteUser');
+    service.createInvite(UserRole.OperationalPartner, {
+      name: 'Casey',
+      fromName: 'Operator One',
+      inviteCode,
+    });
+    service.claimInvite(
+      createClaimInviteArgs(
+        UserRole.OperationalPartner,
+        inviteCode,
+        inviteSecret,
+        account,
+        account.derive('//upstream-operator-auth'),
+      ),
+    );
+
+    expect(() =>
+      service.regenerateInvite(UserRole.OperationalPartner, {
+        inviteCode,
+        newInviteCode: replacement.inviteCode,
+      }),
+    ).toThrowError('This invite link has already been opened.');
+  });
+
   it('binds an invite to the claiming account, allows auth rebinding, and rejects a different account', () => {
     db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'operational-invite-open-')), 'router.sqlite'));
     db.migrate();

@@ -5,6 +5,7 @@ import type {
   IListOperationalInvitesResponse,
   IOperationalUserInvite,
   IOperationalUserInviteCreateRequest,
+  IOperationalUserInviteRegenerateRequest,
   IListTreasuryInvitesResponse,
   IRouterErrorResponse,
   ITreasuryUserInvite,
@@ -117,6 +118,21 @@ export class ServerApiClient {
       timeoutMs: 10e3,
       adminOperatorAuth: true,
     });
+    return body.invite;
+  }
+
+  public async regenerateOperationalInvite(
+    inviteCode: string,
+    payload: IOperationalUserInviteRegenerateRequest,
+  ): Promise<IOperationalUserInvite> {
+    const body = await this.postJson<ICreateOperationalInviteResponse>(
+      `/operational-users/${encodeURIComponent(inviteCode)}/regenerate`,
+      payload,
+      {
+        timeoutMs: 10e3,
+        adminOperatorAuth: true,
+      },
+    );
     return body.invite;
   }
 
@@ -250,7 +266,15 @@ export class ServerApiClient {
         signal: options.init?.signal ?? abortController.signal,
       });
       const rawBody = await response.text();
-      const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
+      let body: T | IRouterErrorResponse | string | undefined;
+      if (rawBody) {
+        try {
+          body = JsonExt.parse<T | IRouterErrorResponse>(rawBody);
+        } catch (error) {
+          if (response.ok) throw error;
+          body = rawBody;
+        }
+      }
       const error =
         body != null &&
         typeof body === 'object' &&
@@ -258,7 +282,9 @@ export class ServerApiClient {
         'error' in body &&
         typeof body.error === 'string'
           ? body.error
-          : undefined;
+          : !response.ok && typeof body === 'string'
+            ? body
+            : undefined;
 
       if (!response.ok || error) {
         throw new Error(error || `Server API request failed (${response.status}).`);

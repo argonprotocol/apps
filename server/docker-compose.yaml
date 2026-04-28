@@ -117,6 +117,8 @@ services:
       - BITCOIN_VERSION=${BITCOIN_VERSION} # needs to be here to detect upgrades
       - BITCOIN_CONFIG=${BITCOIN_CONFIG}
       - BITCOIN_CHAIN=${BITCOIN_CHAIN}
+      - BITCOIN_P2P_PORT=${BITCOIN_P2P_PORT}
+      - BITCOIN_ADDNODE=${BITCOIN_ADDNODE:-}
     volumes:
       - $BITCOIN_DATA_FOLDER:/data
       - $ROOT/server/bitcoin:/etc/bitcoin:ro

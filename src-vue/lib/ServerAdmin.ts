@@ -1,7 +1,7 @@
 import { parse as parseEnv } from 'dotenv';
 import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
-import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
+import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
 import { SSH } from './SSH';
 import { IConfigServerDetails, InstallStepKey } from '../interfaces/IConfig';
@@ -27,6 +27,12 @@ const installStepStatusPriorityByType: Record<InstallStepStatusType, number> = {
   [InstallStepStatusType.Failed]: 3,
 };
 export const DOCKER_COMPOSE_PROJECT_NAME = toComposeProjectName(INSTANCE_NAME, NETWORK_NAME);
+const DEV_DOCKER_SERVER_ENV_KEYS = [
+  'ARGON_ARCHIVE_NODE',
+  'ARGON_BOOTNODES',
+  'BITCOIN_ADDNODE',
+  'NOTEBOOK_ARCHIVE_HOSTS',
+] as const;
 
 export class ServerAdmin {
   private readonly connection: SSHConnection;
@@ -250,10 +256,44 @@ export class ServerAdmin {
     const remoteScriptPath = this.installerScriptPath;
     const remoteScriptLogPath = `${this.workDir}/logs/installer.log`;
 
-    let prepareEnvCommand = `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env && echo "COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}" >> .env`;
+    let prepareEnvCommand =
+      `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env` +
+      ` && echo "COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}" >> .env`;
 
     if (this.connection.isDockerHostProxy) {
+      const [existingEnv] = await this.connection.runCommandWithTimeout(
+        `cat ${this.workDir}/server/.env 2>/dev/null || true`,
+        10e3,
+      );
+      const existingEnvVars = parseEnv(existingEnv);
+      const existingBitcoinP2pPort = Number(existingEnvVars.BITCOIN_P2P_PORT);
+      const existingArgonP2pPort = Number(existingEnvVars.ARGON_P2P_PORT);
+
+      const bitcoinP2pPort =
+        Number.isInteger(existingBitcoinP2pPort) && existingBitcoinP2pPort > 0 && existingBitcoinP2pPort <= 65_535
+          ? existingBitcoinP2pPort
+          : await LocalMachine.findAvailablePort(18445);
+      const argonP2pPort =
+        Number.isInteger(existingArgonP2pPort) && existingArgonP2pPort > 0 && existingArgonP2pPort <= 65_535
+          ? existingArgonP2pPort
+          : await LocalMachine.findAvailablePort(Math.max(30337, bitcoinP2pPort + 1));
+
       prepareEnvCommand += ` && echo "GATEWAY_PORT=0" >> .env`;
+      prepareEnvCommand += ` && echo "BITCOIN_P2P_PORT=${bitcoinP2pPort}" >> .env`;
+      prepareEnvCommand += ` && echo "ARGON_P2P_PORT=${argonP2pPort}" >> .env`;
+
+      if (NETWORK_NAME === 'dev-docker') {
+        for (const key of DEV_DOCKER_SERVER_ENV_KEYS) {
+          const value = SERVER_ENV_VARS[key];
+          if (!value) {
+            throw new Error(
+              `Missing ${key}. Start dev-docker through yarn dev:docker so upstream ports can be resolved.`,
+            );
+          }
+
+          prepareEnvCommand += ` && echo "${key}=${value}" >> .env`;
+        }
+      }
     } else {
       if (this.serverDetails.ipAddress) {
         prepareEnvCommand += ` && echo "GATEWAY_CERTBOT_ENABLED=true" >> .env`;
@@ -286,6 +326,22 @@ export class ServerAdmin {
     console.info(`started: ${shellCommand}`);
     const pid = await this.getInstallerPid();
     console.info('Installer PID:', pid);
+
+    if (this.connection.isDockerHostProxy && NETWORK_NAME === 'dev-docker') {
+      await this.ensureNotaryNetworkAlias();
+    }
+  }
+
+  private async ensureNotaryNetworkAlias(): Promise<void> {
+    const notaryContainerId = SERVER_ENV_VARS.NOTARY_ALIAS_CONTAINER_ID?.trim();
+    if (!notaryContainerId) return;
+
+    const networkName = `${DOCKER_COMPOSE_PROJECT_NAME}-net`;
+    const command =
+      `sudo docker network create ${networkName} >/dev/null 2>&1 || true` +
+      ` && sudo docker network connect --alias notary.localhost ${networkName} ${notaryContainerId} >/dev/null 2>&1 || true`;
+
+    await this.connection.runCommandWithTimeout(command, 180e3);
   }
 
   public async createConfigDir(): Promise<void> {

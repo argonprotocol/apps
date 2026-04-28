@@ -84,6 +84,7 @@ export function resolveTestSessionCommandEnv(options: TestSessionCommandEnvOptio
     ARGON_NETWORK_NAME: identity.composeNetwork,
     ARGON_APP_INSTANCE: appInstance,
     COMPOSE_PROJECT_NAME: identity.composeProjectName,
+    JOIN_COMPOSE_NETWORK: identity.composeProjectName,
   };
   return {
     composeNetwork: identity.composeNetwork,

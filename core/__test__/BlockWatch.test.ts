@@ -67,6 +67,81 @@ describe('BlockWatch archive recovery', () => {
     expect(result).toBe(historicalHeader);
   });
 
+  it('retries block api lookup on archive when pruned cannot decorate the supplied hash', async () => {
+    const blockApi = { query: { system: { events: vi.fn() } } };
+    const prunedClient = {
+      at: vi.fn().mockRejectedValue(new Error('Unable to retrieve header and parent from supplied hash')),
+    };
+    const archiveClient = {
+      at: vi.fn().mockResolvedValue(blockApi),
+    };
+    const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+    getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+    const result = await blockWatch.getApi(createHeaderInfo(110, '0xblock', '0xparent'));
+
+    expect(prunedClient.at).toHaveBeenCalledWith('0xblock');
+    expect(archiveClient.at).toHaveBeenCalledWith('0xblock');
+    expect(result).toBe(blockApi);
+  });
+
+  it('retries signed block lookup on archive when the selected client disconnects', async () => {
+    const signedBlock = { block: { extrinsics: [] } };
+    const prunedClient = {
+      rpc: {
+        chain: {
+          getBlock: vi.fn().mockRejectedValue(new Error('WebSocket is not connected')),
+        },
+      },
+    };
+    const archiveClient = {
+      rpc: {
+        chain: {
+          getBlock: vi.fn().mockResolvedValue(signedBlock),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+    getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+    const result = await blockWatch.getBlock(createHeaderInfo(110, '0xblock', '0xparent'));
+
+    expect(prunedClient.rpc.chain.getBlock).toHaveBeenCalledWith('0xblock');
+    expect(archiveClient.rpc.chain.getBlock).toHaveBeenCalledWith('0xblock');
+    expect(result).toBe(signedBlock);
+  });
+
+  it('retries header lookup on archive when the pruned websocket drops mid-query', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const parentHeader = createHeaderInfo(109, '0xparent', '0xgrandparent');
+    const prunedClient = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn().mockRejectedValue(new Error('WebSocket is not connected')),
+        },
+      },
+    };
+    const archiveClient = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn().mockResolvedValue({ __info: parentHeader }),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+    getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+    const result = await blockWatch.getParentHeader(createHeaderInfo(110, '0xchild', '0xparent'));
+
+    expect(prunedClient.rpc.chain.getHeader).toHaveBeenCalledWith('0xparent');
+    expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith('0xparent');
+    expect(result).toBe(parentHeader);
+  });
+
   it('retries gap recovery on archive when the selected client times out', async () => {
     vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
 
@@ -104,6 +179,29 @@ describe('BlockWatch archive recovery', () => {
     expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith('0x100');
     expect(blockWatch.bestBlockHeader.blockNumber).toBe(101);
     expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(101);
+  });
+
+  it('starts on archive when the pruned client fails during startup', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const finalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+    const prunedClient = {
+      rpc: {
+        chain: {
+          getFinalizedHead: vi.fn().mockRejectedValue(new Error('WebSocket is not connected')),
+        },
+      },
+    };
+    const archiveClient = createSubscriptionClient(finalizedHeader);
+    const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+
+    await blockWatch.start('pruned');
+
+    expect(prunedClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce();
+    expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce();
+    expect(archiveClient.rpc.chain.subscribeNewHeads).toHaveBeenCalledOnce();
+    expect(getInternalBlockWatch(blockWatch).activeSource).toBe('archive');
+    expect(blockWatch.finalizedBlockHeader).toBe(finalizedHeader);
   });
 
   it('queues a follow-up restart requested during an active restart', async () => {
@@ -174,6 +272,19 @@ function createHeader({ blockHash, blockNumber }: IBlockHeaderInfo) {
   return {
     hash: { toHex: () => blockHash },
     number: { toNumber: () => blockNumber },
+  };
+}
+
+function createSubscriptionClient(finalizedHeader: IBlockHeaderInfo) {
+  return {
+    rpc: {
+      chain: {
+        getFinalizedHead: vi.fn().mockResolvedValue(finalizedHeader.blockHash),
+        getHeader: vi.fn().mockResolvedValue({ __info: finalizedHeader }),
+        subscribeNewHeads: vi.fn(async () => vi.fn()),
+        subscribeFinalizedHeads: vi.fn(async () => vi.fn()),
+      },
+    },
   };
 }
 
