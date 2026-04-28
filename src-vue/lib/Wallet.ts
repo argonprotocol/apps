@@ -38,16 +38,18 @@ export enum WalletType {
   vaulting = 'vaulting',
   operational = 'operational',
   investment = 'investment',
+  ethereum = 'ethereum',
 }
 
 export type IWalletType = keyof typeof WalletType;
+export type IArgonWalletType = Exclude<IWalletType, 'ethereum'>;
 
 export class Wallet implements IWallet {
   public balanceHistory: IBalanceChange[];
 
   constructor(
     public address: string,
-    public type: IWalletType,
+    public type: IArgonWalletType,
     private db: Promise<Db>,
   ) {
     this.balanceHistory = [];

@@ -139,7 +139,7 @@
             </div>
             <div v-else class="relative text-argon-600 font-bold text-xl leading-8">
               This feature is disabled until your<br />
-              <span class="underline cursor-pointer hover:text-argon-600/80">argon wallet</span> is funded.
+              <span @click="openArgonWallet" class="underline cursor-pointer hover:text-argon-600/80">argon wallet</span> is funded.
             </div>
           </div>
         </div>
@@ -179,6 +179,8 @@ import BondIcon from '../../assets/bond.svg?component';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 
 dayjs.extend(utc);
 
@@ -296,6 +298,10 @@ async function refreshMarketData() {
     },
     client,
   );
+}
+
+function openArgonWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
 }
 
 let unsubVault: (() => void) | undefined;

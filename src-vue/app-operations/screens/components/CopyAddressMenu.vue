@@ -5,7 +5,7 @@
       <DropdownMenuTrigger
         Trigger
         NotDraggable
-        class="w-[30px] h-[30px] flex flex-row items-center justify-center hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border rounded-md"
+        class="w-[34px] h-[34px] flex flex-row items-center justify-center hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border rounded-md"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : (showBorder ? 'border-slate-400/60' : 'border-transparent')]"
       >
         <CopyIcon class="h-4 w-4 text-slate-800/50 pointer-events-none" />
@@ -19,13 +19,13 @@
           :align="'end'"
           :alignOffset="0"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all">
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[2000] data-[state=open]:transition-all">
           <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem class="pt-1 pb-2">
               <CopyToClipboard :content="wallet.address" class="group relative cursor-pointer">
                 <div class="flex flex-col text-right">
                   <div class="text-slate-700 group-hover:text-argon-600">
-                    Argon Wallet Address
+                    {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
                   </div>
                   <div class="text-slate-600/60 font-mono">
                     {{ abbreviateAddress(wallet.address, 15) }}
@@ -34,7 +34,7 @@
                 <template #copied>
                   <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
                     <div>
-                      Argon Wallet Address
+                      {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
                     </div>
                     <div class="font-mono">
                       {{ abbreviateAddress(wallet.address, 15) }}
@@ -43,11 +43,11 @@
                 </template>
               </CopyToClipboard>
             </DropdownMenuItem>
-            <DropdownMenuItem v-if="walletType === WalletType.investment" class="pt-1 pb-2 border-t border-slate-400/30">
+            <DropdownMenuItem v-if="walletType === WalletType.investment && !props.showSingleAddress" class="pt-1 pb-2 border-t border-slate-400/30">
               <CopyToClipboard :content="wallets.ethereumWallet.address" class="group relative cursor-pointer">
                 <div class="flex flex-col text-right">
                   <div class="text-slate-700 group-hover:text-argon-600">
-                    Ethereum Portal Address
+                    Ethereum Wallet Address
                   </div>
                   <div class="text-slate-600/60 font-mono">
                     {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
@@ -56,7 +56,7 @@
                 <template #copied>
                   <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
                     <div>
-                      Ethereum Portal Address
+                      Ethereum Wallet Address
                     </div>
                     <div class="font-mono">
                       {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
@@ -92,8 +92,9 @@ import { IWallet, WalletType } from '../../../lib/Wallet.ts';
 import { useWallets } from '../../../stores/wallets.ts';
 
 const props = defineProps<{
-  walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment;
+  walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
   showBorder?: boolean;
+  showSingleAddress?: boolean;
 }>();
 
 const wallets = useWallets();
@@ -107,6 +108,8 @@ const wallet = Vue.computed<IWallet>(() => {
     return wallets.vaultingWallet;
   } else if (props.walletType === WalletType.investment) {
     return wallets.investmentWallet;
+  } else if (props.walletType === WalletType.ethereum) {
+    return wallets.ethereumWallet;
   }
   throw new Error(`Unknown wallet type: ${props.walletType}`);
 });

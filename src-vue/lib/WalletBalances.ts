@@ -9,7 +9,7 @@ import {
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import { WalletKeys } from './WalletKeys.ts';
-import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
+import { IArgonWalletType, IBalanceChange, Wallet } from './Wallet.ts';
 import { Db } from './Db.ts';
 import { ApiDecoration, ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import { MyVault } from './MyVault.ts';
@@ -26,7 +26,7 @@ export interface IBlockToProcess {
 }
 
 export interface IWalletEvents {
-  'balance-change': (balanceChange: IBalanceChange, type: IWalletType) => void;
+  'balance-change': (balanceChange: IBalanceChange, type: IArgonWalletType) => void;
   'transfer-in': (wallet: Wallet, balanceChange: IBalanceChange) => void;
   'block-deleted': (block: IBlockToProcess) => void;
   'sync:best-block': (block: IBlockHeaderInfo) => void;

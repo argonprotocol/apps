@@ -29,14 +29,17 @@
                 cursor: draggable.isDragging ? 'grabbing' : 'default',
               }"
               :class="twMerge(
-                'absolute z-50 bg-white border border-black/40 rounded-lg pointer-events-auto shadow-2xl min-h-40 w-6/12 focus:outline-none',
-                props.class,
+                'absolute z-50 pointer-events-auto min-h-40 w-6/12 focus:outline-none',
+                IS_TREASURY_APP ? 'ml-[160px]' : '',
+                props.leaveBlank ? '' : 'bg-white border border-black/40 rounded-lg shadow-2xl',
                 props.overflowScroll ? 'flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden' : '',
+                props.class,
               )"
             >
               <h2
-                :class="[props.showGoBack ? 'pb-4 px-3' : 'pb-3 pl-2 pr-3']"
-                class="z-20 flex flex-row items-center justify-between border-b border-slate-300 bg-white px-3 pt-5 pb-3 mx-2 text-2xl font-bold text-slate-800/70 select-none shrink-0"
+                v-if="!props.leaveBlank"
+                :class="[props.showGoBack ? 'pb-4 px-3' : 'pb-3 pl-2 pr-3', props.hasHeaderBorder ? 'border-b' : '']"
+                class="z-20 flex flex-row items-center justify-between border-slate-300 pt-5 mx-2 gap-x-3 text-2xl font-bold text-slate-800/70 select-none shrink-0"
                 @mousedown="draggable.onMouseDown($event)"
               >
                 <span v-if="props.showGoBack" @click="goBack()" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
@@ -45,13 +48,12 @@
                 <slot name="title">
                   <DialogTitle class="grow pt-1">{{ title }}</DialogTitle>
                 </slot>
-                <span class="flex flex-row justify-end items-center gap-x-3">
-                  <slot name="icons" />
+                <span class="flex flex-row justify-end items-center">
                   <DialogClose
                     NotDraggable
                     v-if="props.showCloseIcon"
                     @click="closeOverlay"
-                    class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
+                    class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[34px] h-[34px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
                   >
                     <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4 pointer-events-none" />
                   </DialogClose>
@@ -78,6 +80,7 @@ import { twMerge } from 'tailwind-merge';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DialogClose } from 'reka-ui';
 import { AnimatePresence, Motion, MotionGlobalConfig } from 'motion-v';
 import { ChevronLeftIcon, XMarkIcon } from '@heroicons/vue/24/outline';
+import { IS_TREASURY_APP } from '../../lib/Env.ts';
 import BgOverlay from '../../components/BgOverlay.vue';
 import Draggable from '../../app-operations/overlays/helpers/Draggable.ts';
 
@@ -94,11 +97,14 @@ const props = withDefaults(
     showGoBack?: boolean;
     disallowClose?: boolean;
     overflowScroll?: boolean;
+    leaveBlank?: boolean;
+    hasHeaderBorder?: boolean;
   }>(),
   {
     showCloseIcon: true,
     showGoBack: false,
     overflowScroll: true,
+    hasHeaderBorder: true,
   },
 );
 
@@ -125,9 +131,8 @@ const draggable = Vue.reactive(new Draggable());
 
 function closeOverlay() {
   if (props.disallowClose) {
-    return;
+    openZIndexes.value.delete(zIndex.value);
   }
-  openZIndexes.value.delete(zIndex.value);
   emit('close');
 }
 
@@ -139,4 +144,8 @@ function handleEscapeKeyDown() {
   emit('esc');
   closeOverlay();
 }
+
+defineExpose({
+  draggable,
+});
 </script>

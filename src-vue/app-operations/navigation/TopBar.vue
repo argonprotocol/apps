@@ -25,13 +25,13 @@
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
     >
       <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
-        <CurrencyMenu ref="currencyMenuRef" />
-      </div>
-      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
         <ServerMenu ref="serverMenuRef" />
       </div>
       <div class="pointer-events-auto">
         <OperationalMenu ref="operationalMenuRef" />
+      </div>
+      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <CurrencyMenu ref="currencyMenuRef" />
       </div>
       <div
         :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"

@@ -354,7 +354,7 @@ function openBotCreateOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive-onboarding' });
+  basicEmitter.emit('openWalletOverlayOld', { walletType: WalletType.miningHold, screen: 'receive-onboarding' });
 }
 
 function openServerConnectPanel() {

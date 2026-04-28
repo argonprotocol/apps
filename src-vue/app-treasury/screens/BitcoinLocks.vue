@@ -128,7 +128,7 @@
             </div>
             <div v-else class="relative text-argon-600 font-bold text-xl leading-8">
               This feature is disabled until your<br />
-              <span class="underline cursor-pointer hover:text-argon-600/80">argon wallet</span> is funded.
+              <span @click="openArgonWallet" class="underline cursor-pointer hover:text-argon-600/80">argon wallet</span> is funded.
             </div>
           </div>
         </div>
@@ -180,6 +180,8 @@ import BitcoinLockDetailOverlay from '../../app-operations/overlays/BitcoinLockD
 import BitcoinUnlockingOverlay from '../../app-operations/overlays/BitcoinUnlockingOverlay.vue';
 import { getUpstreamOperatorClient } from '../../stores/upstreamOperator.ts';
 import CurvedArrow from '../../components/CurvedArrow.vue';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 
 const currency = getCurrency();
 const config = getConfig();
@@ -319,6 +321,10 @@ async function loadCurrentCoupon() {
   }
 
   coupons.value = await upstreamOperatorClient.getBitcoinLockCoupons(walletKeys.liquidLockingAddress);
+}
+
+function openArgonWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
 }
 
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {

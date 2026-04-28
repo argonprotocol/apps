@@ -27,7 +27,7 @@
       </ul>
 
       <div class="flex flex-row justify-center mt-12">
-        <button @click="openWalletOverlay" class="w-7/12 border bg-argon-button border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-12 py-2 rounded-md cursor-pointer focus:outline-none">
+        <button @click="openArgonWallet" class="w-7/12 border bg-argon-button border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-12 py-2 rounded-md cursor-pointer focus:outline-none">
           Open Your Argon Wallet
         </button>
       </div>
@@ -66,7 +66,7 @@ const totalNetWorth = Vue.computed(() => {
   return value.split('.');
 });
 
-function openWalletOverlay() {
-  basicEmitter.emit('openWallet2Overlay');
+function openArgonWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
 }
 </script>

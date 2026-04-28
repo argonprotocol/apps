@@ -8,7 +8,12 @@ import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { IS_TREASURY_APP, IS_OPERATIONS_APP, SECURITY } from '../lib/Env.ts';
-import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons, IWallet } from '../lib/Wallet.ts';
+import {
+  existentialDepositMicrogons,
+  getSpendableMiningHoldMicrogons,
+  IArgonWalletType,
+  IWallet,
+} from '../lib/Wallet.ts';
 import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
@@ -201,7 +206,7 @@ export const useWallets = defineStore('wallets', () => {
     vaulting: vaultingWallet,
     operational: operationalWallet,
     investment: investmentWallet,
-  };
+  } satisfies Record<IArgonWalletType, IWallet>;
 
   //////////////////////////////////////////////////////////////////////////////
   walletBalances.events.on('balance-change', (entry, type) => {

@@ -24,8 +24,10 @@
           </p>
           <span class="relative">
             <button
-              class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md px-12 py-2.5 text-base font-bold text-white">
-              Activate Stable Swaps Feature
+              :class="walletBalance ? '' : 'pointer-events-none bg-slate-600 opacity-40'"
+              class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md px-12 py-2.5 text-base font-bold text-white"
+            >
+              Activate Stable Swaps
             </button>
             <CurvedArrow class="pointer-events-none absolute top-14 left-full h-22 translate-y-1 text-slate-400/80" />
           </span>
@@ -41,12 +43,15 @@
                     rgba(255, 254, 220, 0.45) 62%,
                     rgba(255, 255, 255, 0) 78%
                   );
-                " />
+                "
+              />
             </div>
             <div class="text-argon-600 relative text-xl leading-8 font-bold">
               This feature is disabled until your
               <br />
-              <span class="hover:text-argon-600/80 cursor-pointer underline">ethereum wallet</span>
+              <span @click="openEthereumWallet" class="hover:text-argon-600/80 cursor-pointer underline">
+                ethereum wallet
+              </span>
               is funded.
             </div>
           </div>
@@ -282,6 +287,9 @@ import CurvedArrow from '../../components/CurvedArrow.vue';
 import EthereumIcon from '../../assets/ethereum.svg';
 import ArgonIcon from '../../assets/resources/argon.svg';
 import SwapIcon from '../../assets/swap.svg';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import { WalletType } from '../../lib/Wallet.ts';
+import { bigIntAbs } from '@argonprotocol/apps-core';
 
 const currency = getCurrency();
 const stableSwaps = useStableSwaps();
@@ -289,6 +297,8 @@ const stableSwaps = useStableSwaps();
 const ZERO_BIGINT = BigInt(0);
 const walletInput = Vue.ref('');
 const isLoaded = Vue.ref(true);
+
+const walletBalance = Vue.ref(0n);
 
 const currentPriceDisplay = Vue.computed(() => {
   return stableSwaps.marketSnapshot
@@ -312,7 +322,7 @@ const targetOffsetDisplay = Vue.computed(() => {
 
   const offset = snapshot.currentPriceMicrogons - snapshot.targetPriceMicrogons;
   const prefix = offset >= ZERO_BIGINT ? '+' : '-';
-  return `${prefix}${currency.symbol}${formatMoneyMicrogons(absBigInt(offset), '0,0.[0000]')}`;
+  return `${prefix}${currency.symbol}${formatMoneyMicrogons(bigIntAbs(offset), '0,0.[0000]')}`;
 });
 
 const targetOffsetClasses = Vue.computed(() => {
@@ -381,7 +391,7 @@ function formatOptionalMoneyMicrogons(value?: bigint) {
 
 function formatSignedMoneyMicrogons(value: bigint) {
   const prefix = value >= ZERO_BIGINT ? '+' : '-';
-  return `${prefix}${currency.symbol}${formatMoneyMicrogons(absBigInt(value))}`;
+  return `${prefix}${currency.symbol}${formatMoneyMicrogons(bigIntAbs(value))}`;
 }
 
 function formatMoneyMicrogons(value: bigint, format = '0,0.00') {
@@ -392,8 +402,8 @@ async function openPurchaseTx(txHash: string) {
   await tauriOpenUrl(`https://etherscan.io/tx/${txHash}`);
 }
 
-function absBigInt(value: bigint) {
-  return value >= ZERO_BIGINT ? value : -value;
+function openEthereumWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
 }
 
 Vue.watch(

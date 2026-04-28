@@ -8,5 +8,13 @@
   "htmlWhitespaceSensitivity": "ignore",
   "plugins": ["prettier-plugin-tailwindcss"],
   "endOfLine": "lf",
-  "bracketSameLine": true
+  "bracketSameLine": true,
+  "overrides": [
+    {
+      "files": ["*.vue", "*.html"],
+      "options": {
+        "bracketSameLine": false
+      }
+    }
+  ]
 }

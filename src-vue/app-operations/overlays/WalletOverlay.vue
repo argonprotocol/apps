@@ -237,7 +237,7 @@ function closeOverlay() {
   basics.overlayIsOpen = false;
 }
 
-basicEmitter.on('openWalletOverlay', async data => {
+basicEmitter.on('openWalletOverlayOld', async data => {
   if (data.screen !== 'receive') return;
 
   walletId.value = data.walletType;

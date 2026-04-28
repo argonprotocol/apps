@@ -491,12 +491,12 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlayOld', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlayOld', { walletType: WalletType.vaulting, screen: 'receive' });
 }
 
 function openBotCreateOverlay() {

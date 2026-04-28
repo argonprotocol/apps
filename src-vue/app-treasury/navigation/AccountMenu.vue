@@ -42,6 +42,25 @@
             <DropdownMenuSub>
               <DropdownMenuSubTrigger class="relative py-2">
                 <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                <header>Wallets</header>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent class="relative -top-1 min-w-50">
+                <div
+                  class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+                  <DropdownMenuItem class="py-2" @click="openArgonWallet">
+                    <header>Argon Wallet</header>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+                  <DropdownMenuItem class="py-2" @click="openEthereumWallet">
+                    <header>Ethereum Wallet</header>
+                  </DropdownMenuItem>
+                </div>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger class="relative py-2">
+                <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
                 <header>Helpful Resources</header>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent class="relative -top-1 min-w-50">
@@ -100,6 +119,7 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../../stores/tour.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { WalletType } from '../../lib/Wallet.ts';
 
 const tour = useTour();
 
@@ -182,6 +202,16 @@ function openTroubleshooting() {
 
 function takeTheTour() {
   tour.start();
+  isOpen.value = false;
+}
+
+function openArgonWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
+  isOpen.value = false;
+}
+
+function openEthereumWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
   isOpen.value = false;
 }
 </script>

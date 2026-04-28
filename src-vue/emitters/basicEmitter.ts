@@ -7,11 +7,13 @@ import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import type { SignClientTypes } from '@walletconnect/types';
 
 type IBasicEmitter = {
-  openWalletOverlay: {
+  openWalletOverlayOld: {
     walletType: WalletType.miningHold | WalletType.vaulting;
     screen: 'receive' | 'receive-onboarding';
   };
-  openWallet2Overlay: void;
+  openWalletOverlay: {
+    walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
+  };
   openSigningOverlay: SignClientTypes.EventArguments['session_request'];
   openMoveCapitalOverlay: {
     walletType: WalletType.miningHold | WalletType.vaulting;
