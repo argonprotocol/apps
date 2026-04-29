@@ -8,18 +8,21 @@
       :nextId="editBoxOverlayNextId"
       @close="closeEditBoxOverlay"
       @goTo="(id: any) => openEditBoxOverlay(id)"
-      @update:data="updateAPYs" />
+      @update:data="updateAPYs"
+    />
     <section class="my-2 flex h-1/2 grow flex-row">
       <div MainWrapperParent ref="startingBidParent" :class="[includeProjections ? 'w-1/3' : 'w-1/2']">
         <tooltip
           asChild
           :calculateWidth="() => calculateElementWidth(startingBidParent)"
           side="top"
-          content="This is your starting bid price. Don't put it too low or you'll be forced to pay unneeded transaction fees in order to submit a rebid.">
+          content="This is your starting bid price. Don't put it too low or you'll be forced to pay unneeded transaction fees in order to submit a rebid."
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('startingBid')"
-            class="flex h-full w-full flex-col items-center justify-center px-8">
+            class="flex h-full w-full flex-col items-center justify-center px-8"
+          >
             <div StatHeader>Starting Bid</div>
             <div v-if="startingBidAmountOverride" MainRule class="flex w-full flex-row items-center justify-center">
               <div class="flex flex-row items-center justify-center space-x-2">
@@ -43,7 +46,8 @@
                   v-if="
                     rules.startingBidAdjustmentType === BidAmountAdjustmentType.Absolute &&
                     rules.startingBidAdjustAbsolute
-                  ">
+                  "
+                >
                   {{ rules.startingBidAdjustAbsolute > 0 ? '+' : '-' }}{{ currency.symbol
                   }}{{
                     microgonToMoneyNm(
@@ -70,11 +74,13 @@
           asChild
           :calculateWidth="() => calculateElementWidth(maximumBidParent)"
           side="top"
-          content="Your mining bot will never submit a bid above this price. If other bidders go higher than this, you will be knocked out of contention.">
+          content="Your mining bot will never submit a bid above this price. If other bidders go higher than this, you will be knocked out of contention."
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('maximumBid')"
-            class="flex h-full w-full flex-col items-center justify-center px-8">
+            class="flex h-full w-full flex-col items-center justify-center px-8"
+          >
             <div StatHeader>Maximum Bid</div>
             <div v-if="maximumBidAmountOverride" MainRule class="flex w-full flex-row items-center justify-center">
               <div class="flex flex-row items-center justify-center space-x-2">
@@ -98,7 +104,8 @@
                   v-if="
                     rules.maximumBidAdjustmentType === BidAmountAdjustmentType.Absolute &&
                     rules.maximumBidAdjustAbsolute
-                  ">
+                  "
+                >
                   {{ rules.maximumBidAdjustAbsolute > 0 ? '+' : '-' }}{{ currency.symbol
                   }}{{ microgonToMoneyNm(bigIntAbs(rules.maximumBidAdjustAbsolute)).format('0.00') }}
                 </span>
@@ -119,16 +126,19 @@
           MainWrapperParent
           ref="rebiddingStrategyParent"
           :class="[includeProjections ? 'w-1/3' : 'w-full']"
-          class="relative flex h-full flex-col items-center justify-center">
+          class="relative flex h-full flex-col items-center justify-center"
+        >
           <tooltip
             asChild
             :calculateWidth="() => calculateElementWidth(rebiddingStrategyParent)"
             side="top"
-            :content="`If your bids get knocked out of contention, your bot will wait ${rules.rebiddingDelay} minute${rules.rebiddingDelay === 1 ? '' : 's'} before submitting a new bid at ${currency.symbol}${microgonToMoneyNm(rules.rebiddingIncrementBy).format('0.00')} above the current winning bid.`">
+            :content="`If your bids get knocked out of contention, your bot will wait ${rules.rebiddingDelay} minute${rules.rebiddingDelay === 1 ? '' : 's'} before submitting a new bid at ${currency.symbol}${microgonToMoneyNm(rules.rebiddingIncrementBy).format('0.00')} above the current winning bid.`"
+          >
             <div
               MainWrapper
               @click="openEditBoxOverlay('rebiddingStrategy')"
-              class="flex h-full w-full flex-col items-center justify-center px-8">
+              class="flex h-full w-full flex-col items-center justify-center px-8"
+            >
               <div StatHeader>Rebidding Strategy</div>
               <div MainRule class="flex w-full flex-row items-center justify-center">
                 <span>+{{ currency.symbol }}{{ microgonToMoneyNm(rules.rebiddingIncrementBy).format('0.00') }}</span>
@@ -156,7 +166,8 @@
         v-if="!props.includeProjections"
         id="expectedGrowthParent"
         :class="[includeProjections ? 'w-1/3' : 'w-1/2']"
-        class="relative flex flex-row items-center justify-center" />
+        class="relative flex flex-row items-center justify-center"
+      />
 
       <div v-if="!props.includeProjections" class="mx-2 w-[1px] bg-slate-300/80" />
 
@@ -164,16 +175,19 @@
         MainWrapperParent
         ref="capitalAllocationParent"
         :class="[includeProjections ? 'w-1/3' : 'w-1/2']"
-        class="relative flex flex-col items-center justify-center">
+        class="relative flex flex-col items-center justify-center"
+      >
         <tooltip
           asChild
           :calculateWidth="() => calculateElementWidth(capitalAllocationParent)"
           side="top"
-          :content="`This is your bot's goal, not its ceiling. If the bot can snag more than ${seatGoalText()}, it will do so. If it fails to achieve its goal, it will alert you in the app.`">
+          :content="`This is your bot's goal, not its ceiling. If the bot can snag more than ${seatGoalText()}, it will do so. If it fails to achieve its goal, it will alert you in the app.`"
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('capitalAllocation')"
-            class="flex h-full w-full flex-col items-center justify-center px-8">
+            class="flex h-full w-full flex-col items-center justify-center px-8"
+          >
             <div StatHeader>Capital Allocation</div>
             <div MainRule v-if="rules.seatGoalType === SeatGoalType.Max && rules.seatGoalCount === 0" class="w-full">
               Disabled
@@ -183,7 +197,8 @@
               v-else-if="
                 rules.seatGoalType === SeatGoalType.MaxPercent || rules.seatGoalType === SeatGoalType.MinPercent
               "
-              class="w-full">
+              class="w-full"
+            >
               <span>
                 {{ String(rules.seatGoalType).replace('Percent', '') }} {{ rules.seatGoalPercent }}% Seats Per
                 {{ rules.seatGoalInterval }}
@@ -209,16 +224,19 @@
         v-if="props.includeProjections"
         MainWrapperParent
         ref="expectedGrowthParent"
-        class="relative flex w-1/3 flex-col items-center justify-center">
+        class="relative flex w-1/3 flex-col items-center justify-center"
+      >
         <tooltip
           asChild
           :calculateWidth="() => calculateElementWidth(expectedGrowthParent)"
           side="top"
-          content="These numbers don't affect your bot's decisions; they only factor into the Estimated APY shown above. Argons is growth in circulation; Argonots is change in token price. Both are factored annually.">
+          content="These numbers don't affect your bot's decisions; they only factor into the Estimated APY shown above. Argons is growth in circulation; Argonots is change in token price. Both are factored annually."
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('expectedGrowth')"
-            class="flex h-full w-full flex-col items-center justify-center">
+            class="flex h-full w-full flex-col items-center justify-center"
+          >
             <div StatHeader>Ecosystem Growth</div>
             <div class="flex w-full flex-row items-center justify-center px-8 text-center font-mono">
               <div MainRule class="flex w-5/12 flex-row items-center justify-center">
@@ -250,16 +268,19 @@
         v-if="props.includeProjections"
         MainWrapperParent
         ref="cloudMachineParent"
-        class="relative flex w-1/3 flex-col items-center justify-center">
+        class="relative flex w-1/3 flex-col items-center justify-center"
+      >
         <tooltip
           asChild
           :calculateWidth="() => calculateElementWidth(cloudMachineParent)"
           side="top"
-          content="You can leave this server configuration box as-is for now. Later in the process, we'll guide you through the step-by-step flow of how to set up a new Mining Machine. Don't worry, it's easy.">
+          content="You can leave this server configuration box as-is for now. Later in the process, we'll guide you through the step-by-step flow of how to set up a new Mining Machine. Don't worry, it's easy."
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('cloudMachine')"
-            class="flex h-full w-full flex-col items-center justify-center px-8">
+            class="flex h-full w-full flex-col items-center justify-center px-8"
+          >
             <div StatHeader>Cloud Machine</div>
             <div MainRule class="flex w-full flex-row items-center justify-center tracking-widest">
               <span>{{ config.serverDetails.ipAddress || '0.0.0.0' }}</span>

@@ -10,7 +10,8 @@ import {
   MoveToken,
 } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
-import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons, IWallet, WalletType } from './Wallet.ts';
+import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons } from './WalletForArgon.ts';
+import { IWallet, WalletType } from './Wallet.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';

@@ -46,7 +46,13 @@
                 "
               />
             </div>
-            <div class="text-argon-600 relative text-xl leading-8 font-bold">
+            <div v-if="walletBalance" class="text-argon-600 relative text-xl leading-8 font-bold">
+              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings
+              that is
+              <br />
+              ready for immediate deployment.
+            </div>
+            <div v-else class="text-argon-600 relative text-xl leading-8 font-bold">
               This feature is disabled until your
               <br />
               <span @click="openEthereumWallet" class="hover:text-argon-600/80 cursor-pointer underline">
@@ -277,10 +283,9 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
-import numeral from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { formatUnits } from 'viem';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import { getCurrency } from '../../stores/currency.ts';
 import { useStableSwaps } from '../../stores/stableSwaps.ts';
 import CurvedArrow from '../../components/CurvedArrow.vue';
@@ -288,17 +293,31 @@ import EthereumIcon from '../../assets/ethereum.svg';
 import ArgonIcon from '../../assets/resources/argon.svg';
 import SwapIcon from '../../assets/swap.svg';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
-import { bigIntAbs } from '@argonprotocol/apps-core';
+import { type IOtherToken, WalletType } from '../../lib/Wallet.ts';
+import { bigIntAbs, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { useWallets } from '../../stores/wallets.ts';
 
 const currency = getCurrency();
 const stableSwaps = useStableSwaps();
+const wallets = useWallets();
+
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const ZERO_BIGINT = BigInt(0);
 const walletInput = Vue.ref('');
 const isLoaded = Vue.ref(true);
 
-const walletBalance = Vue.ref(0n);
+const walletBalance = Vue.computed(() => {
+  const microgonValue = wallets.ethereumWallet.availableMicrogons;
+  const micronotValue = currency.convertMicronotTo(
+    wallets.ethereumWallet.availableMicronots,
+    UnitOfMeasurement.Microgon,
+  );
+  const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
+    return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
+  }, 0n);
+  return microgonValue + micronotValue + otherTokenValue;
+});
 
 const currentPriceDisplay = Vue.computed(() => {
   return stableSwaps.marketSnapshot

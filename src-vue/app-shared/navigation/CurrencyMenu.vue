@@ -111,12 +111,7 @@ const totalNetWorth = Vue.computed(() => {
   if (!currency.isLoaded) {
     return ['--', '--'];
   }
-  let rawValue: bigint;
-  if (IS_OPERATIONS_APP) {
-    rawValue = wallets.totalOperationalResources;
-  } else {
-    rawValue = wallets.totalTreasuryResources;
-  }
+  const rawValue = IS_OPERATIONS_APP ? wallets.totalOperationalResources : wallets.totalTreasuryResources;
   const value = microgonToMoneyNm(rawValue).format('0,0.00');
   return value.split('.');
 });

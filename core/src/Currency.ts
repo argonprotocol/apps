@@ -24,6 +24,10 @@ export enum UnitOfMeasurement {
   GBP = 'GBP',
   INR = 'INR',
   BTC = 'BTC',
+  USDC = 'USDC',
+  USDT = 'USDT',
+  USDE = 'USDE',
+  ETH = 'ETH',
 }
 
 export type ICurrencyKey =
@@ -42,6 +46,7 @@ export interface ICurrencyRecord {
 export type IMicrogonsPer = Record<UnitOfMeasurement, bigint>;
 
 type IRawFiatRates = Record<string, number> | null;
+type IRawEthRates = Record<string, number> | null;
 
 export type IMainchainRates = Record<UnitOfMeasurement.ARGNOT | UnitOfMeasurement.USD | UnitOfMeasurement.BTC, bigint>;
 
@@ -57,6 +62,12 @@ export const defaultMicrogonsPer: IMicrogonsPer = {
   GBP: BigInt(MICROGONS_PER_ARGON),
   INR: BigInt(MICROGONS_PER_ARGON),
   BTC: BigInt(MICROGONS_PER_ARGON),
+
+  USDC: BigInt(MICROGONS_PER_ARGON),
+  USDT: BigInt(MICROGONS_PER_ARGON),
+  USDE: BigInt(MICROGONS_PER_ARGON),
+
+  ETH: BigInt(MICROGONS_PER_ARGON),
 };
 
 // Promise<ApiDecoration<'promise'>>
@@ -162,13 +173,18 @@ export class Currency {
     }
   }
 
-  public convertSatToBtc(satoshis: bigint): number {
-    if (!satoshis) return 0;
-    return Number(satoshis) / Number(SATOSHIS_PER_BITCOIN);
+  public convertSatToBtc(sats: bigint): number {
+    if (!sats) return 0;
+    return Number(sats) / Number(SATOSHIS_PER_BITCOIN);
   }
 
   public convertBtcToMicrogon(bitcoins: number): bigint {
     const microgonsBn = BigNumber(bitcoins).multipliedBy(this.microgonsPer.BTC);
+    return BigInt(Math.floor(microgonsBn.toNumber()));
+  }
+
+  public convertOtherUnitizedTokenToMicrogon(unitizedToken: number, unit: UnitOfMeasurement): bigint {
+    const microgonsBn = BigNumber(unitizedToken).multipliedBy(this.microgonsPer[unit]);
     return BigInt(Math.floor(microgonsBn.toNumber()));
   }
 
@@ -204,7 +220,8 @@ export class Currency {
         this.microgonsPer.ARGNOT = this.microgonsPer.ARGNOT / 10n;
       }
 
-      await this.updateFiatRates(ignoreCache);
+      await Promise.all([this.updateFiatRates(ignoreCache), this.updateEthTokenPrices(ignoreCache)]);
+      this.updateFiatStablecoinPrices();
       this.updateTargetOffset(this.priceIndex.argonUsdPrice, this.priceIndex.argonUsdTargetPrice);
     }
 
@@ -251,6 +268,22 @@ export class Currency {
     }
   }
 
+  private updateFiatStablecoinPrices(): void {
+    this.microgonsPer.USDC = this.microgonsPer.USD;
+    this.microgonsPer.USDT = this.microgonsPer.USD;
+    this.microgonsPer.USDE = this.microgonsPer.USD;
+  }
+
+  private async updateEthTokenPrices(ignoreCache = true): Promise<void> {
+    const rawRates = await fetchRawEthRates(ignoreCache);
+    if (!rawRates) return;
+
+    if (rawRates?.ETH) {
+      this.microgonsPer.ETH = this.convertRawFiatExchangeRateToMicrogons(1 / rawRates.ETH);
+      console.log('ETH price updated to', rawRates.ETH, this.microgonsPer.ETH);
+    }
+  }
+
   private convertRawFiatExchangeRateToMicrogons(otherExchangeRate: number): bigint {
     const dollarsRequiredBn = BigNumber(1).dividedBy(otherExchangeRate);
     const microgonsRequiredBn = dollarsRequiredBn.multipliedBy(this.microgonsPer.USD);
@@ -278,4 +311,58 @@ async function fetchRawFiatRates(ignoreCache = true): Promise<IRawFiatRates> {
     }
   }
   return fiatRatesCache;
+}
+
+let ethRatesCache: Record<string, number> = {};
+let lastEthCheckTime: number | undefined;
+
+async function fetchRawEthRates(ignoreCache = true): Promise<IRawEthRates> {
+  if (ignoreCache || !lastEthCheckTime || Date.now() - lastEthCheckTime >= TWENTY_FOUR_HOURS_IN_MILLISECONDS) {
+    try {
+      const ethRate = (await fetchCoinbaseEthUsdPrice()) ?? (await fetchKrakenEthUsdPrice());
+      if (ethRate) {
+        ethRatesCache = { ETH: ethRate };
+        lastEthCheckTime = Date.now();
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+  return ethRatesCache;
+}
+
+async function fetchCoinbaseEthUsdPrice(): Promise<number | null> {
+  try {
+    const response = await fetch('https://api.exchange.coinbase.com/products/ETH-USD/ticker');
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as { price?: string };
+    return parsePositiveNumber(payload.price);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchKrakenEthUsdPrice(): Promise<number | null> {
+  try {
+    const response = await fetch('https://api.kraken.com/0/public/Ticker?pair=ETHUSD');
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as {
+      error?: string[];
+      result?: Record<string, { c?: [string, string] }>;
+    };
+
+    if (payload.error?.length || !payload.result) return null;
+
+    const ticker = Object.values(payload.result)[0];
+    return parsePositiveNumber(ticker?.c?.[0]);
+  } catch {
+    return null;
+  }
+}
+
+function parsePositiveNumber(value: string | number | undefined): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }

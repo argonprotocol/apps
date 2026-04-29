@@ -8,62 +8,57 @@ import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { IS_TREASURY_APP, IS_OPERATIONS_APP, SECURITY } from '../lib/Env.ts';
-import {
-  existentialDepositMicrogons,
-  getSpendableMiningHoldMicrogons,
-  IArgonWalletType,
-  IWallet,
-} from '../lib/Wallet.ts';
-import { IWalletEvents, WalletBalances } from '../lib/WalletBalances.ts';
+import { getSpendableMiningHoldMicrogons, IArgonWalletType } from '../lib/WalletForArgon.ts';
+import { IWallet, type IOtherToken, defaultWalletData } from '../lib/Wallet.ts';
+import { IWalletEvents, WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
+import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
+import { WalletForBase } from '../lib/WalletForBase.ts';
 
 let walletKeys: WalletKeys;
 export function getWalletKeys() {
   walletKeys ??= new WalletKeys(SECURITY, async () => {
-    const walletBalances = getWalletBalances();
-    await walletBalances.load();
-    return walletBalances.didWalletHavePreviousLife();
+    const walletsForArgon = getWalletsForArgon();
+    await walletsForArgon.load();
+    return walletsForArgon.didWalletHavePreviousLife();
   });
   return walletKeys;
 }
 
-let walletBalances: WalletBalances;
-export function getWalletBalances() {
-  if (!walletBalances) {
+let walletsForArgon: WalletsForArgon;
+export function getWalletsForArgon() {
+  if (!walletsForArgon) {
     const myVault = IS_OPERATIONS_APP ? getMyVault() : undefined;
-    walletBalances = new WalletBalances(getWalletKeys(), getDbPromise(), getBlockWatch(), myVault);
+    walletsForArgon = new WalletsForArgon(getWalletKeys(), getDbPromise(), getBlockWatch(), myVault);
   }
-  return walletBalances;
+  return walletsForArgon;
 }
-
-const defaultWallet: IWallet = {
-  address: '',
-  availableMicrogons: 0n,
-  availableMicronots: 0n,
-  reservedMicrogons: 0n,
-  reservedMicronots: 0n,
-  totalMicronots: 0n,
-  totalMicrogons: 0n,
-};
 
 export const useWallets = defineStore('wallets', () => {
   const stats = getStats();
   const currency = getCurrency();
   const config = getConfig();
+  const walletKeys = getWalletKeys();
 
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
-  const walletKeys = getWalletKeys();
-  const walletBalances = getWalletBalances();
-  const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningHoldAddress });
-  const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.miningBotAddress });
-  const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.vaultingAddress });
-  const operationalWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.operationalAddress });
-  const investmentWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.investmentAddress });
-  const ethereumWallet = Vue.reactive<IWallet>({ ...defaultWallet, address: walletKeys.ethereumAddress });
+  const walletsForArgon = getWalletsForArgon();
+  const walletForEthereum = new WalletForEthereum(walletKeys.ethereumAddress);
+  const walletForBase = new WalletForBase(walletKeys.ethereumAddress);
+
+  const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningHoldAddress });
+  const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningBotAddress });
+  const vaultingWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.vaultingAddress });
+  const operationalWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.operationalAddress });
+  const investmentWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.investmentAddress });
+
+  const ethereumWallet = Vue.reactive<IWallet>(walletForEthereum.data);
+  const baseWallet = Vue.reactive<IWallet>(walletForBase.data);
+  walletForEthereum.data = ethereumWallet;
+  walletForBase.data = baseWallet;
 
   const liquidLockingWallet = Vue.computed(() => {
     return IS_TREASURY_APP ? investmentWallet : vaultingWallet;
@@ -194,7 +189,16 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   const totalTreasuryResources = Vue.computed(() => {
-    return investmentWallet.availableMicrogons + investmentWallet.reservedMicrogons;
+    const microgonValue =
+      investmentWallet.availableMicrogons + investmentWallet.reservedMicrogons + ethereumWallet.availableMicrogons;
+    const micronotValue =
+      currency.convertMicronotTo(investmentWallet.availableMicronots, UnitOfMeasurement.Microgon) +
+      currency.convertMicronotTo(ethereumWallet.availableMicronots, UnitOfMeasurement.Microgon);
+    const otherTokenValue = ethereumWallet.otherTokens.reduce((totalValue, token) => {
+      return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
+    }, 0n);
+
+    return microgonValue + micronotValue + otherTokenValue;
   });
 
   const totalWalletMicrogons = Vue.ref(0n);
@@ -209,12 +213,12 @@ export const useWallets = defineStore('wallets', () => {
   } satisfies Record<IArgonWalletType, IWallet>;
 
   //////////////////////////////////////////////////////////////////////////////
-  walletBalances.events.on('balance-change', (entry, type) => {
-    totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
-    totalWalletMicronots.value = walletBalances.totalWalletMicronots;
+  walletsForArgon.events.on('balance-change', (entry, type) => {
+    totalWalletMicrogons.value = walletsForArgon.totalWalletMicrogons;
+    totalWalletMicronots.value = walletsForArgon.totalWalletMicronots;
     const wallet = walletMapping[type];
     Object.assign(wallet, entry);
-    const walletEntry = walletBalances[`${type}Wallet`];
+    const walletEntry = walletsForArgon[`${type}Wallet`];
     wallet.totalMicrogons = walletEntry.totalMicrogons;
     wallet.totalMicronots = walletEntry.totalMicronots;
   });
@@ -223,12 +227,13 @@ export const useWallets = defineStore('wallets', () => {
     for (let i = 0; i < 2; i++) {
       try {
         await config.isLoadedPromise;
-        await walletBalances.load();
-        totalWalletMicrogons.value = walletBalances.totalWalletMicrogons;
-        totalWalletMicronots.value = walletBalances.totalWalletMicronots;
+        await Promise.all([walletsForArgon.load(), walletForEthereum.load(), walletForBase.load()]);
+
+        totalWalletMicrogons.value = walletsForArgon.totalWalletMicrogons;
+        totalWalletMicronots.value = walletsForArgon.totalWalletMicronots;
         for (const [walletType, wallet] of Object.entries(walletMapping)) {
           const key = walletType as keyof typeof walletMapping;
-          const walletEntry = walletBalances[`${key}Wallet`];
+          const walletEntry = walletsForArgon[`${key}Wallet`];
           Object.assign(wallet, walletEntry.latestBalanceChange);
           wallet.totalMicrogons = walletEntry.totalMicrogons;
           wallet.totalMicronots = walletEntry.totalMicronots;
@@ -239,6 +244,8 @@ export const useWallets = defineStore('wallets', () => {
         return;
       } catch (error) {
         console.error(`Error loading wallets`, error);
+        // TODO: this is a bit of a hack to make sure we don't get stuck in a loop. We should replace this with setting
+        //  fetchErrorMsg on each wallet.
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {
           title: 'Difficulty Loading Wallets',
           kind: 'warning',
@@ -259,15 +266,17 @@ export const useWallets = defineStore('wallets', () => {
   return {
     isLoaded,
     isLoadedPromise,
-    existentialDepositMicrogons,
+
     miningHoldWallet,
     miningBotWallet,
     vaultingWallet,
+    operationalWallet,
     investmentWallet,
     ethereumWallet,
+    baseWallet,
     liquidLockingWallet,
+
     miningHoldSpendableMicrogons,
-    operationalWallet,
     miningHoldDisplayedMicrogons,
     totalWalletMicrogons,
     totalWalletMicronots,
@@ -289,11 +298,11 @@ export const useWallets = defineStore('wallets', () => {
     totalTreasuryResources,
 
     on<K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
-      const unsub = walletBalances.events.on(event, cb);
+      const unsub = walletsForArgon.events.on(event, cb);
       // re-emit any load events that happened before we subscribed
-      if (!walletBalances.deferredLoading.isSettled) {
-        void walletBalances.deferredLoading.promise.then(() => {
-          const events = walletBalances.getLoadEvents(event);
+      if (!walletsForArgon.deferredLoading.isSettled) {
+        void walletsForArgon.deferredLoading.promise.then(() => {
+          const events = walletsForArgon.getLoadEvents(event);
           for (const args of events) {
             // @ts-expect-error ts can't understand this pattern
             cb(...args);

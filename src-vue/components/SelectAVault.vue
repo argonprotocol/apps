@@ -42,7 +42,8 @@
                     ? 'border-argon-600 bg-argon-50 text-argon-700'
                     : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:bg-slate-50'
                 "
-                @click="selectVault(vault)">
+                @click="selectVault(vault)"
+              >
                 {{ selectedVaultId === vault.vaultId ? 'Selected' : isSaving ? 'Saving...' : 'Select' }}
               </button>
             </td>

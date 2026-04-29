@@ -61,14 +61,17 @@
       ref="copyToClipboard"
       :content="addSshPublicKey"
       class="relative mb-3 w-full"
-      @click="highlightCopiedContent">
+      @click="highlightCopiedContent"
+    >
       <textarea
         type="text"
         :value="addSshPublicKey"
         class="pointer-events-none h-full w-full rounded-md border border-slate-300 bg-white py-4 pr-8 pl-4"
-        readonly />
+        readonly
+      />
       <div
-        class="pointer-events-auto absolute top-1 right-8 bottom-1 w-10 bg-gradient-to-r from-transparent to-white"></div>
+        class="pointer-events-auto absolute top-1 right-8 bottom-1 w-10 bg-gradient-to-r from-transparent to-white"
+      ></div>
       <div class="absolute top-1/2 right-4 -translate-y-1/2 cursor-pointer">
         <CopyIcon class="h-4 w-4 opacity-80" />
       </div>
@@ -79,9 +82,11 @@
           </span>
         </div>
         <div
-          class="pointer-events-none absolute top-1/2 right-4 flex -translate-y-1/2 flex-row items-center bg-white pl-2">
+          class="pointer-events-none absolute top-1/2 right-4 flex -translate-y-1/2 flex-row items-center bg-white pl-2"
+        >
           <div
-            class="pointer-events-auto absolute top-0 bottom-0 -left-8 w-8 bg-gradient-to-r from-transparent to-white"></div>
+            class="pointer-events-auto absolute top-0 bottom-0 -left-8 w-8 bg-gradient-to-r from-transparent to-white"
+          ></div>
           <span class="font-bold text-blue-800/60">Copied</span>
           <CopyIcon class="ml-3 h-4 w-4 text-blue-600" />
         </div>
@@ -106,7 +111,8 @@
           type="text"
           v-model="sshUser"
           placeholder="SSH User"
-          class="w-full rounded-md border border-slate-300 bg-white px-4 py-3" />
+          class="w-full rounded-md border border-slate-300 bg-white px-4 py-3"
+        />
         <span class="pl-2 font-bold text-slate-500/60">@</span>
       </div>
       <div class="wrapper mr-4 flex grow flex-col">
@@ -114,7 +120,8 @@
           type="text"
           v-model="ipAddressAndMaybePort"
           placeholder="Your Server's IP Address"
-          class="w-full rounded-md border border-slate-300 bg-white px-4 py-3" />
+          class="w-full rounded-md border border-slate-300 bg-white px-4 py-3"
+        />
       </div>
     </div>
   </div>

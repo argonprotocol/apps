@@ -14,7 +14,8 @@
           @mouseenter="setHoveredSlotId(item.seat.slotId)"
           @mouseleave="clearHoveredSlotId(item.seat.slotId)"
           @focus="setHoveredSlotId(item.seat.slotId)"
-          @blur="clearHoveredSlotId(item.seat.slotId)">
+          @blur="clearHoveredSlotId(item.seat.slotId)"
+        >
           <svg v-if="item.startingFrameId !== null" viewBox="0 0 36 36" class="seat-progress-ring" aria-hidden="true">
             <circle
               cx="18"
@@ -22,17 +23,20 @@
               r="17.2"
               pathLength="100"
               :stroke-dasharray="`${getSeatProgressPct(item.startingFrameId)} 100`"
-              :class="twMerge('seat-progress-value', getSeatProgressColorClasses(item.seat))" />
+              :class="twMerge('seat-progress-value', getSeatProgressColorClasses(item.seat))"
+            />
           </svg>
           <span
             v-if="props.isLiveFrame && item.seat.miner?.address === props.lastBlockMinerAddress"
-            class="relative z-10 flex h-full w-full items-center justify-center">
+            class="relative z-10 flex h-full w-full items-center justify-center"
+          >
             <MinerIcon class="h-[54%] w-[54%] text-white" />
           </span>
           <span
             v-else
             class="relative z-10 opacity-50"
-            :class="item.seat.miner?.isOurs && item.seat.slotId === currentAuctionSlot ? 'underline' : ''">
+            :class="item.seat.miner?.isOurs && item.seat.slotId === currentAuctionSlot ? 'underline' : ''"
+          >
             {{ item.seat.id }}
           </span>
         </TooltipTrigger>
@@ -44,9 +48,8 @@
             :startingFrameId="item.startingFrameId"
             :ourBidAddresses="ourBidAddresses"
             :hasAuction="item.seat.slotId === currentAuctionSlot"
-            :tooltipStats="
-              item.seat.miner ? seatTooltipStatsByStartingFrameId[item.seat.miner.startingFrameId] : null
-            " />
+            :tooltipStats="item.seat.miner ? seatTooltipStatsByStartingFrameId[item.seat.miner.startingFrameId] : null"
+          />
           <TooltipArrow :width="27" :height="15" class="z-20 -mt-px fill-white stroke-slate-800/20 stroke-[0.5px]" />
         </TooltipContent>
       </TooltipRoot>

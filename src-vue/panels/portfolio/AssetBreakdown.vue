@@ -20,7 +20,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -34,7 +35,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGNOT"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -61,7 +63,8 @@
               :moveFrom="MoveFrom.VaultingHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -75,7 +78,8 @@
               :moveFrom="MoveFrom.VaultingHold"
               :moveToken="MoveToken.ARGNOT"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -102,7 +106,8 @@
               :moveFrom="MoveFrom.MiningBot"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -118,7 +123,8 @@
               :moveFrom="MoveFrom.MiningBot"
               :moveToken="MoveToken.ARGNOT"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -132,7 +138,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -146,7 +153,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -173,7 +181,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -187,7 +196,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -201,7 +211,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -230,7 +241,8 @@
               :moveFrom="MoveFrom.VaultingSecurity"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -246,7 +258,8 @@
               :moveFrom="MoveFrom.VaultingSecurity"
               :moveToken="MoveToken.ARGNOT"
               class="pointer-events-auto"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -260,7 +273,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -276,7 +290,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -290,7 +305,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -304,7 +320,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>
@@ -331,7 +348,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr v-if="treasuryPendingReturnMicrogons > 0n">
@@ -360,7 +378,8 @@
               :moveFrom="MoveFrom.MiningHold"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
-              side="left" />
+              side="left"
+            />
           </td>
         </tr>
         <tr>

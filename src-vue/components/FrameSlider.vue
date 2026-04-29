@@ -7,7 +7,8 @@
     :isActive="false"
     @pointerdown="startDrag($event)"
     @pointermove="onDrag($event)"
-    @pointerup="stopDrag($event)" />
+    @pointerup="stopDrag($event)"
+  />
 </template>
 
 <script setup lang="ts">

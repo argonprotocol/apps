@@ -33,7 +33,8 @@
 
     <button
       @click="closeOverlay"
-      class="bg-argon-600 border-argon-700 mb-2 w-full cursor-pointer rounded-lg border px-6 py-2 text-lg font-bold text-white focus:outline-none">
+      class="bg-argon-600 border-argon-700 mb-2 w-full cursor-pointer rounded-lg border px-6 py-2 text-lg font-bold text-white focus:outline-none"
+    >
       Okay
     </button>
   </div>

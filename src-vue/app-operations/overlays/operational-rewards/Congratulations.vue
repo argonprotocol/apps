@@ -1,7 +1,8 @@
 <template>
   <div class="px-6 pt-6">
     <div
-      class="relative overflow-hidden rounded-2xl border border-[#CCCEDA] bg-white px-8 pt-10 pb-8 text-center shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+      class="relative overflow-hidden rounded-2xl border border-[#CCCEDA] bg-white px-8 pt-10 pb-8 text-center shadow-[0_1px_0_rgba(15,23,42,0.03)]"
+    >
       <div class="relative z-10">
         <div class="mb-4 flex items-center justify-center text-xs tracking-widest text-slate-500 uppercase">
           <div class="h-px w-24 bg-slate-300" />
@@ -34,7 +35,8 @@
 
     <div class="mt-6 grid grid-cols-2 gap-4">
       <div
-        class="border-argon-300/60 bg-argon-600/5 rounded-2xl border px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+        class="border-argon-300/60 bg-argon-600/5 rounded-2xl border px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+      >
         <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Rewards</div>
         <div class="text-argon-700 mt-2 text-4xl font-bold">
           ₳{{ microgonToArgonNm(controller.inviteSlotProgress.rewardsEarnedAmount).format('0,0.[00]') }}
@@ -47,7 +49,8 @@
       </div>
 
       <div
-        class="border-argon-300/60 bg-argon-600/5 rounded-2xl border px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+        class="border-argon-300/60 bg-argon-600/5 rounded-2xl border px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+      >
         <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Referral Code Unlocked</div>
         <div class="text-argon-700 mt-2 text-4xl font-bold">1</div>
         <div class="mt-2 text-sm leading-6 text-slate-500">
@@ -58,7 +61,8 @@
 
     <div
       v-if="sponsorRewardName"
-      class="border-argon-300/60 bg-argon-600/5 mt-5 rounded-2xl border px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+      class="border-argon-300/60 bg-argon-600/5 mt-5 rounded-2xl border px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+    >
       <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Sponsor Reward</div>
       <div class="mt-2 text-sm leading-6 text-slate-600">
         {{ sponsorRewardName }} also received ₳{{
@@ -72,13 +76,15 @@
       <button
         type="button"
         class="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-        @click="emit('close')">
+        @click="emit('close')"
+      >
         Not Now
       </button>
       <button
         type="button"
         class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-        @click="goToPrimaryAction">
+        @click="goToPrimaryAction"
+      >
         {{ primaryActionLabel }}
       </button>
     </div>

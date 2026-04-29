@@ -46,6 +46,7 @@ import { IS_OPERATIONS_APP } from '../../lib/Env.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 const currency = getCurrency();
 const wallets = useWallets();
@@ -56,12 +57,8 @@ const totalNetWorth = Vue.computed(() => {
   if (!currency.isLoaded) {
     return ['--', '--'];
   }
-  let rawValue: bigint;
-  if (IS_OPERATIONS_APP) {
-    rawValue = wallets.totalOperationalResources;
-  } else {
-    rawValue = wallets.totalTreasuryResources;
-  }
+
+  const rawValue = wallets.investmentWallet.availableMicrogons;
   const value = microgonToMoneyNm(rawValue).format('0,0.00');
   return value.split('.');
 });

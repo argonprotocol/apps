@@ -1,7 +1,7 @@
 import { IServerStateRecord } from '../../interfaces/db/IServerStateRecord.ts';
 import { BaseTable, IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
-import { type IBlockToProcess } from '../WalletBalances.ts';
+import { type IBlockToProcess } from '../WalletsForArgon.ts';
 
 export enum SyncStateKeys {
   Server = 'Server',

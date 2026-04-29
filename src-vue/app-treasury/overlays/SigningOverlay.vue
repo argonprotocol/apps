@@ -220,7 +220,7 @@ async function respondToSessionRequest(approve: boolean) {
   isRespondingToRequest.value = true;
 
   try {
-    const walletKit = await getTreasuryWalletKit();
+    const walletKit = await getTreasuryWalletKit(walletKeys.ethereumAddress);
     const response = approve
       ? await buildApprovedSessionRequestResponse(sessionRequest)
       : {

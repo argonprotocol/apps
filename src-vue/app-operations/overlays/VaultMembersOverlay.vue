@@ -4,7 +4,8 @@
     :overflowScroll="true"
     @close="closeOverlay"
     @esc="closeOverlay"
-    class="max-h-[calc(100vh-2rem)] w-7/12 pb-5">
+    class="max-h-[calc(100vh-2rem)] w-7/12 pb-5"
+  >
     <template #title>
       <div class="grow text-2xl font-bold">Manage Members</div>
     </template>
@@ -34,7 +35,8 @@
 
         <div
           v-if="inviteCreationBlockedReason"
-          class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+        >
           {{ inviteCreationBlockedReason }}
         </div>
       </div>
@@ -52,7 +54,8 @@
             v-if="!inviteCreationBlockedReason && !isAddingInvite"
             type="button"
             class="text-argon-700 rounded border border-slate-300 px-3 py-2 text-sm font-semibold hover:border-slate-400 hover:bg-slate-50"
-            @click="toggleAddInvite">
+            @click="toggleAddInvite"
+          >
             Add Invite
           </button>
         </div>
@@ -63,7 +66,8 @@
             <input
               v-model.trim="inviteName"
               type="text"
-              class="focus:border-argon-600 mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:ring-0" />
+              class="focus:border-argon-600 mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:ring-0"
+            />
           </div>
 
           <div class="mt-4">
@@ -77,14 +81,16 @@
             <button
               type="button"
               class="text-argon-700 rounded border border-slate-300 px-4 py-2 text-sm font-semibold"
-              @click="toggleAddInvite">
+              @click="toggleAddInvite"
+            >
               Cancel
             </button>
             <button
               type="button"
               :disabled="isCreatingInvite || !inviteName.trim()"
               class="border-argon-700 bg-argon-600 rounded border px-4 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-50"
-              @click="createInvite">
+              @click="createInvite"
+            >
               {{ isCreatingInvite ? 'Creating...' : 'Create Invite' }}
             </button>
           </div>
@@ -92,7 +98,8 @@
 
         <div
           v-if="invites.length === 0 && !isAddingInvite"
-          class="mt-5 border-t border-dashed border-slate-300 pt-5 text-center text-sm font-light text-slate-500">
+          class="mt-5 border-t border-dashed border-slate-300 pt-5 text-center text-sm font-light text-slate-500"
+        >
           No invites yet. Create your first one to share your vault with someone.
         </div>
 
@@ -101,8 +108,8 @@
             <div class="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-x-4 text-slate-800">
               <div class="min-w-0">
                 {{ invite.name }} has {{ currency.symbol
-                }}{{ satoshiToMoneyNm(invite.bitcoinLockCoupon?.coupon.maxSatoshis ?? 0n).format('0,0.00') }} in free
-                BTC locking
+                }}{{ satToMoneyNm(invite.bitcoinLockCoupon?.coupon.maxSatoshis ?? 0n).format('0,0.00') }} in free BTC
+                locking
               </div>
 
               <div class="text-right text-sm font-light break-all text-slate-500">
@@ -122,7 +129,8 @@
               <CopyToClipboard
                 v-if="inviteEnvelopesByInviteCode[invite.inviteCode]"
                 :content="`${NetworkConfig.get().websiteHost}/treasury-invite/${inviteEnvelopesByInviteCode[invite.inviteCode]}`"
-                class="cursor-pointer">
+                class="cursor-pointer"
+              >
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
                 <template #copied>
                   <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
@@ -160,7 +168,7 @@ const myVault = getMyVault();
 const currency = getCurrency();
 const serverApiClient = getServerApiClient();
 
-const { satoshiToMoneyNm } = createNumeralHelpers(currency);
+const { satToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const isAddingInvite = Vue.ref(false);

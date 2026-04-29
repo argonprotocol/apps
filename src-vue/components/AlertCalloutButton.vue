@@ -3,17 +3,20 @@
     <HoverCardTrigger :class="buttonClass" :style="buttonStyle" class="group hover:text-argon-600! cursor-pointer">
       <span
         class="arrow-callout__body rounded-md border-[length:var(--arrow-callout-border)] border-l border-[var(--arrow-callout-stroke)] bg-[var(--arrow-callout-fill)] px-8 py-[0.4rem] leading-none font-extrabold whitespace-nowrap shadow-lg"
-        :class="[props.direction === 'left' ? 'pl-[1.15rem]' : 'pr-[1.15rem]']">
+        :class="[props.direction === 'left' ? 'pl-[1.15rem]' : 'pr-[1.15rem]']"
+      >
         {{ label }}
       </span>
       <div
         :class="[props.direction === 'right' ? 'left-0 -translate-x-1/2' : 'right-0 translate-x-1/2']"
         :style="{ borderColor: props.strokeColor, backgroundColor: props.fillColor }"
-        class="text-argon-600! pointer-events-auto absolute top-0 flex aspect-square h-full scale-105 flex-row items-center justify-center rounded-full border shadow-xl">
+        class="text-argon-600! pointer-events-auto absolute top-0 flex aspect-square h-full scale-105 flex-row items-center justify-center rounded-full border shadow-xl"
+      >
         <SparkleOutlineIcon :class="isOpen ? 'opacity-0' : 'w-5 group-hover:opacity-0'" />
         <SparkleFilledIcon
           class="absolute top-1/2 left-1/2 w-5 -translate-x-1/2 -translate-y-1/2"
-          :class="isOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'" />
+          :class="isOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+        />
       </div>
     </HoverCardTrigger>
     <HoverCardPortal>
@@ -21,7 +24,8 @@
         <div
           v-if="props.guidance"
           :style="{ backgroundColor: props.fillColor }"
-          class="border-argon-600/40 flex w-100 flex-col gap-2 rounded border shadow-xl">
+          class="border-argon-600/40 flex w-100 flex-col gap-2 rounded border shadow-xl"
+        >
           <header class="bg-argon-600/10 px-5 py-3 font-bold">
             Task: {{ controller.activeGuideId ? operationalSteps[controller.activeGuideId]?.title : '' }}
           </header>
@@ -33,11 +37,13 @@
           <div class="flex flex-row gap-x-2 p-5 whitespace-nowrap">
             <button
               @click="quitTask"
-              class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1">
+              class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
+            >
               Quit Task
             </button>
             <button
-              class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1">
+              class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
+            >
               View Documentation
             </button>
           </div>
@@ -46,7 +52,8 @@
           :width="24"
           :height="12"
           class="stroke-argon-600/30 relative -top-px z-50 shadow-xl/50"
-          :style="{ fill: '#F1D7F1' }" />
+          :style="{ fill: '#F1D7F1' }"
+        />
       </HoverCardContent>
     </HoverCardPortal>
   </HoverCardRoot>

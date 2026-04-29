@@ -31,14 +31,16 @@ export function setTreasuryWalletKitHandlers(handlers: TreasuryWalletKitHandlers
   walletKitHandlers = handlers;
 }
 
-export async function getTreasuryWalletKit(): Promise<IWalletKit> {
+export async function getTreasuryWalletKit(ethereumAddress: string): Promise<IWalletKit> {
+  const normalizedAddress = ethereumAddress.trim().toLowerCase();
+
   walletKitPromise ??= WalletKit.init({
     core: new Core({
       projectId: walletConnectProjectId,
-      customStoragePrefix: 'argon-treasury-wallet',
+      customStoragePrefix: `argon-wallet-${normalizedAddress}`,
     }),
     metadata: {
-      name: 'Argon In-App Wallet',
+      name: 'Argon Treasury Wallet',
       description: 'Treasury wallet approval surface for WalletConnect sessions.',
       url: 'https://argon.network',
       icons: [],

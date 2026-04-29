@@ -22,7 +22,8 @@
               'bg-argon-500': hasEnoughDiskSpace,
               'bg-red-600': !isCheckingDiskSpace && !hasEnoughDiskSpace,
             }"
-            class="bg-argon-500 absolute -top-1 -right-1 flex h-8 w-8 items-center justify-center rounded-sm border-2 border-white">
+            class="bg-argon-500 absolute -top-1 -right-1 flex h-8 w-8 items-center justify-center rounded-sm border-2 border-white"
+          >
             <LoadingDotsIcon v-if="isCheckingDiskSpace" class="w-9/12" />
             <CheckmarkIcon v-else-if="hasEnoughDiskSpace" class="w-9/12" />
             <AlertIcon v-else class="w-9/12 text-white" />
@@ -39,7 +40,8 @@
           <p class="mt-1">Argon Miner requires a minimum of 100GB of available hard disk space.</p>
           <div
             data-testid="ServerConnectOverlay.local.diskSummary"
-            class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase">
+            class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase"
+          >
             {{ numeral(availableGBs).format('0,0.[000]') }} GB of available space was found on this machine
           </div>
         </div>
@@ -49,7 +51,8 @@
         <div class="relative mt-1 mr-4 w-14 min-w-14">
           <div
             :class="[isDockerStarted ? 'bg-argon-500' : 'bg-gray-500']"
-            class="bg-argon-500 absolute -top-1.5 -right-1 flex h-8 w-8 items-center justify-center rounded-sm border-2 border-white">
+            class="bg-argon-500 absolute -top-1.5 -right-1 flex h-8 w-8 items-center justify-center rounded-sm border-2 border-white"
+          >
             <CheckmarkIcon v-if="isDockerStarted" class="w-9/12" />
             <LoadingDotsIcon v-else class="w-9/12" />
           </div>
@@ -69,7 +72,8 @@
           <p class="mt-3">If you've already installed Docker, make sure it is running.</p>
           <div
             data-testid="ServerConnectOverlay.local.dockerSummary"
-            class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase">
+            class="text-md mt-3 border-t border-b border-slate-400/40 py-1 font-mono uppercase"
+          >
             {{ isDockerStarted ? 'DOCKER VERSION 27+ WAS FOUND RUNNING ON THIS MACHINE' : 'WAITING...' }}
           </div>
         </div>

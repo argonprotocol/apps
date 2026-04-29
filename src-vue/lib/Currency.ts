@@ -9,6 +9,7 @@ import {
   type ICurrencyKey,
 } from '@argonprotocol/apps-core';
 import { Config } from './Config';
+import { IOtherToken } from './Wallet.ts';
 
 export {
   SATOSHIS_PER_BITCOIN,
@@ -49,11 +50,21 @@ export class Currency extends CurrencyBase {
     if (saveToConfig) this.config.defaultCurrencyKey = key;
   }
 
-  public convertSatToBtc(satoshis: bigint): number {
-    return super.convertSatToBtc(satoshis);
+  public convertSatToBtc(sat: bigint): number {
+    return super.convertSatToBtc(sat);
   }
 
-  public convertBtcToMicrogon(bitcoins: number): bigint {
-    return super.convertBtcToMicrogon(bitcoins);
+  public convertBtcToMicrogon(btc: number): bigint {
+    return super.convertBtcToMicrogon(btc);
+  }
+
+  public convertOtherToFinalToken(token: IOtherToken): number {
+    if (!token.value) return 0;
+    return Number(token.value) / 10 ** token.decimals;
+  }
+
+  public convertOtherToMicrogon(token: IOtherToken): bigint {
+    const unitizedToken = this.convertOtherToFinalToken(token);
+    return super.convertOtherUnitizedTokenToMicrogon(unitizedToken, token.unitOfMeasurement);
   }
 }

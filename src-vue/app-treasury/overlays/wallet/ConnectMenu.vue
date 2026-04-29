@@ -198,7 +198,7 @@ async function refreshActiveSessions() {
   if (!walletConnectProjectId) return;
 
   try {
-    const walletKit = await getTreasuryWalletKit();
+    const walletKit = await getTreasuryWalletKit(walletKeys.ethereumAddress);
     syncActiveSessions(walletKit);
   } catch (error) {
     console.warn('Unable to hydrate WalletConnect session state', error);
@@ -272,7 +272,7 @@ async function disconnectWallet(topic: string) {
   disconnectingSessionTopic.value = topic;
 
   try {
-    const walletKit = await getTreasuryWalletKit();
+    const walletKit = await getTreasuryWalletKit(walletKeys.ethereumAddress);
     await walletKit.disconnectSession({
       topic,
       reason: getSdkError('USER_DISCONNECTED'),
@@ -303,7 +303,7 @@ async function connectWallet() {
   setStatus('Waiting for a WalletConnect session proposal...', 'idle');
 
   try {
-    const walletKit = await getTreasuryWalletKit();
+    const walletKit = await getTreasuryWalletKit(walletKeys.ethereumAddress);
     const proposalPromise = waitForProposal(walletKit);
 
     await walletKit.pair({ uri });

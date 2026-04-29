@@ -134,8 +134,8 @@
             </div>
 
             <div v-if="walletBalance" class="relative text-argon-600 font-bold text-xl leading-8">
-              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings<br />
-              that is ready for deployment.
+              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings that is<br />
+              ready for immediate deployment.
             </div>
             <div v-else class="relative text-argon-600 font-bold text-xl leading-8">
               This feature is disabled until your<br />
@@ -207,7 +207,7 @@ const distributableBidPool = Vue.ref(0n);
 const globalActiveCapital = Vue.ref(0n);
 const vaultActiveCapital = Vue.ref(0n);
 const releasingLotIds = Vue.ref<Record<number, boolean>>({});
-const walletBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
+const walletBalance = Vue.computed(() => wallets.investmentWallet.availableMicrogons);
 
 const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[myBonds.vaultId]);
 const vaultBondLots = Vue.computed(() => vaultBondState.value?.bondLots ?? []);

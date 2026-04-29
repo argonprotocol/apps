@@ -211,6 +211,7 @@ import { getTransactionTracker } from '../../../stores/transactions.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { ITransactionMoveMetadata, MoveCapital } from '../../../lib/MoveCapital.ts';
 import AlertIcon from '../../../assets/alert.svg?component';
+import { existentialDepositMicrogons } from '../../../lib/WalletForArgon.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -274,7 +275,7 @@ const hasHyperbridgeProcessedCommitment = Vue.ref(false);
 const progressLabel = Vue.ref('');
 
 const hasTokensToMove = Vue.computed(() => {
-  return maxAmountToMove.value >= wallets.existentialDepositMicrogons;
+  return maxAmountToMove.value >= existentialDepositMicrogons;
 });
 
 const maxAmountToMove = Vue.computed(() => {

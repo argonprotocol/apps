@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import type { Vault } from '@argonprotocol/mainchain';
 import basicEmitter from '../emitters/basicEmitter';
 import { type Config, getConfig } from './config';
-import { getWalletBalances, getWalletKeys } from './wallets.ts';
+import { getWalletsForArgon, getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { createDeferred } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError';
@@ -47,8 +47,8 @@ export const useTreasuryController = defineStore('treasuryController', () => {
 
   async function load() {
     await config.isLoadedPromise;
-    const walletBalances = getWalletBalances();
-    await walletBalances.load();
+    const walletsForArgon = getWalletsForArgon();
+    await walletsForArgon.load();
     isLoaded.value = true;
     isLoadedResolve();
   }

@@ -47,7 +47,8 @@
                 stroke-width="3.5"
                 stroke-dasharray="100"
                 :stroke-dashoffset="100 - termProgress"
-                stroke-linecap="butt" />
+                stroke-linecap="butt"
+              />
             </svg>
             <div class="absolute start-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transform">
               <span :class="timerColorClass" class="text-center text-xs font-bold">
@@ -60,7 +61,8 @@
             <CountdownClock
               v-if="isPendingFunding"
               :time="lockExpirationTime"
-              v-slot="{ days, hours, minutes, seconds, isFinished }">
+              v-slot="{ days, hours, minutes, seconds, isFinished }"
+            >
               <template v-if="isFinished">Expired</template>
               <template v-else>
                 <template v-if="days > 0">{{ days }}d</template>

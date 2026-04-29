@@ -3,7 +3,7 @@ import IVaultingRules from '../interfaces/IVaultingRules.ts';
 import { ArgonClient, FrameIterator, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { WalletBalances } from './WalletBalances.ts';
+import { WalletsForArgon } from './WalletsForArgon.ts';
 
 export type WalletRecoveryFn = WalletRecovery['findHistory'];
 
@@ -11,7 +11,7 @@ export class WalletRecovery {
   constructor(
     private readonly myVault: MyVault,
     private readonly walletKeys: WalletKeys,
-    private readonly walletBalances: WalletBalances,
+    private readonly walletsForArgon: WalletsForArgon,
     private readonly clients: MainchainClients,
     private readonly miningFrames: MiningFrames,
   ) {}
@@ -20,12 +20,12 @@ export class WalletRecovery {
     miningHistory?: IMiningAccountPreviousHistoryRecord[];
     vaultingRules?: IVaultingRules;
   }> {
-    const walletBalances = this.walletBalances;
-    await walletBalances.load();
+    const walletsForArgon = this.walletsForArgon;
+    await walletsForArgon.load();
     await this.miningFrames.load();
 
-    const hasVaultHistory = walletBalances.vaultingWallet.hasValue();
-    const hasMiningHistory = walletBalances.miningBotWallet.hasValue();
+    const hasVaultHistory = walletsForArgon.vaultingWallet.hasValue();
+    const hasMiningHistory = walletsForArgon.miningBotWallet.hasValue();
 
     let vaultProgress = hasVaultHistory ? 0 : 100;
     let miningProgress = hasMiningHistory ? 0 : 100;
@@ -62,7 +62,7 @@ export class WalletRecovery {
     onProgress: (progressPct: number) => void,
   ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
     const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
-    const minerFirstFundedBlock = await this.walletBalances.miningBotWallet.firstFundingBlockNumber(
+    const minerFirstFundedBlock = await this.walletsForArgon.miningBotWallet.firstFundingBlockNumber(
       this.walletKeys.miningBotAddress,
     );
     const accountSubaccounts = await this.walletKeys.getMiningBotSubaccounts();

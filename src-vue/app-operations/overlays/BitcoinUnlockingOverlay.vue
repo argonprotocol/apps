@@ -5,7 +5,8 @@
     :data-e2e-state="unlockStep"
     @close="closeOverlay"
     @esc="closeOverlay"
-    class="BitcoinUnlockingOverlay min-h-60 w-240">
+    class="BitcoinUnlockingOverlay min-h-60 w-240"
+  >
     <template #title>
       <TooltipProvider v-if="isLoaded" :disableHoverableContent="true">
         <div class="mr-6 flex w-full flex-row items-center">
@@ -13,23 +14,27 @@
             <TooltipTrigger class="flex w-[calc(50%+3rem)] flex-row items-center">
               <BitcoinIcon
                 :class="unlockStep === UnlockStep.Start ? 'text-argon-600/80' : 'text-black/20'"
-                class="relative left-1 mr-2 h-10" />
+                class="relative left-1 mr-2 h-10"
+              />
               <div
                 :class="
                   unlockStep === UnlockStep.Start
                     ? 'text-argon-600 border-argon-600 bg-slate-400/10'
                     : 'border-slate-600/20 bg-white text-black/20'
                 "
-                class="relative grow border-y px-2 py-1 text-center text-base font-bold">
+                class="relative grow border-y px-2 py-1 text-center text-base font-bold"
+              >
                 Initiate Unlock
                 <ExclamationTriangleIcon
                   v-if="isNearExpiration"
-                  class="ml-1 inline h-4 w-4 align-text-bottom text-amber-500" />
+                  class="ml-1 inline h-4 w-4 align-text-bottom text-amber-500"
+                />
                 <RoundCap class="absolute top-0 left-0" :isSelected="unlockStep === UnlockStep.Start" />
                 <RoundCap
                   align="end"
                   class="absolute top-0 right-[2px]"
-                  :isSelected="unlockStep === UnlockStep.Start" />
+                  :isSelected="unlockStep === UnlockStep.Start"
+                />
               </div>
             </TooltipTrigger>
             <TooltipContent
@@ -37,12 +42,14 @@
               :sideOffset="-10"
               align="start"
               :collisionPadding="9"
-              class="text-md z-50 w-106 rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl">
+              class="text-md z-50 w-106 rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl"
+            >
               You must specify the address where you want your unlocked bitcoin to be sent.
               <TooltipArrow
                 :width="27"
                 :height="15"
-                class="-mt-px -ml-10 fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                class="-mt-px -ml-10 fill-white stroke-gray-800/20 stroke-[0.5px]"
+              />
             </TooltipContent>
           </TooltipRoot>
 
@@ -52,14 +59,16 @@
                 :class="
                   unlockStep === UnlockStep.IsProcessing ? 'text-argon-600/80 processing-active' : 'text-black/10'
                 "
-                class="ml-6 min-h-[34px] pr-3" />
+                class="ml-6 min-h-[34px] pr-3"
+              />
             </TooltipTrigger>
             <TooltipContent
               side="bottom"
               :sideOffset="-7"
               align="center"
               :collisionPadding="9"
-              class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center font-light text-slate-900/60 shadow-2xl">
+              class="text-md z-50 w-sm rounded-md border border-gray-800/20 bg-white px-5 py-4 text-center font-light text-slate-900/60 shadow-2xl"
+            >
               Bitcoin transactions require six blocks to confirm before they are considered valid.
               <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
             </TooltipContent>
@@ -73,13 +82,15 @@
                     ? 'text-argon-600 border-argon-600 bg-slate-400/10'
                     : 'border-slate-600/20 bg-white text-black/20'
                 "
-                class="relative w-1/2 grow rounded-r border-y border-r px-2 py-1 text-center text-base font-bold">
+                class="relative w-1/2 grow rounded-r border-y border-r px-2 py-1 text-center text-base font-bold"
+              >
                 Unlock Confirmed
                 <RoundCap class="absolute top-0 left-0" :isSelected="unlockStep === UnlockStep.Complete" />
                 <RoundCap
                   align="end"
                   class="absolute top-0 right-[2px]"
-                  :isSelected="unlockStep === UnlockStep.Complete" />
+                  :isSelected="unlockStep === UnlockStep.Complete"
+                />
               </div>
             </TooltipTrigger>
             <TooltipContent
@@ -88,7 +99,8 @@
               align="end"
               :alignOffset="-10"
               :collisionPadding="9"
-              class="text-md z-50 w-100 rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl">
+              class="text-md z-50 w-100 rounded-md border border-gray-800/20 bg-white px-5 py-4 text-left font-light text-slate-900/60 shadow-2xl"
+            >
               Your bitcoin has now been unlocked from the Argon network and is back in your full control.
               <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
             </TooltipContent>
@@ -101,12 +113,14 @@
       v-if="unlockStep === UnlockStep.Start"
       :personalLock="personalLock!"
       :externalError="myVault.data.finalizeMyBitcoinError?.error"
-      @close="closeOverlay" />
+      @close="closeOverlay"
+    />
     <UnlockIsProcessing v-else-if="unlockStep === UnlockStep.IsProcessing" :personalLock="personalLock!" />
     <UnlockComplete
       v-else-if="unlockStep === UnlockStep.Complete"
       :personalLock="personalLock!"
-      @close="closeOverlay" />
+      @close="closeOverlay"
+    />
   </OverlayBase>
 </template>
 

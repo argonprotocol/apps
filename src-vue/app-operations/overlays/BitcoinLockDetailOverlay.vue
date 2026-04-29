@@ -4,14 +4,16 @@
     data-testid="BitcoinLockDetailOverlay"
     @close="emit('close')"
     @esc="emit('close')"
-    class="BitcoinLockDetailOverlay min-h-60 w-240">
+    class="BitcoinLockDetailOverlay min-h-60 w-240"
+  >
     <template #title>
       <div class="mr-6 flex grow flex-row items-center gap-2">
         <span class="text-xl font-bold text-slate-800/80">Bitcoin Lock Details</span>
         <template v-if="IS_OPERATIONS_APP">
           <span
             v-if="isLocalLock"
-            class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white">
+            class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white"
+          >
             YOURS
           </span>
           <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
@@ -26,7 +28,8 @@
       :lock="displayLock"
       :pendingCosign="pendingCosign"
       :isReleased="isExternalLockReleased"
-      @unlock="localLock && emit('unlock', localLock)" />
+      @unlock="localLock && emit('unlock', localLock)"
+    />
   </OverlayBase>
 </template>
 

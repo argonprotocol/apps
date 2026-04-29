@@ -32,7 +32,7 @@
             <div class="shrink-0">
               <div class="text-xs font-medium uppercase tracking-wide text-slate-400">Market Value</div>
               <div class="mt-1 text-2xl font-bold text-slate-700 font-mono">
-                {{ currency.symbol }}{{ satoshiToMoneyNm(totalLockedSatoshis).format('0,0.00') }}
+                {{ currency.symbol }}{{ satToMoneyNm(totalLockedSatoshis).format('0,0.00') }}
               </div>
             </div>
 
@@ -123,8 +123,8 @@
             </div>
 
             <div v-if="walletBalance" class="relative text-argon-600 font-bold text-xl">
-              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings<br />
-              that is ready for deployment.
+              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings that is<br />
+              ready for immediate deployment.
             </div>
             <div v-else class="relative text-argon-600 font-bold text-xl leading-8">
               This feature is disabled until your<br />
@@ -190,7 +190,7 @@ const wallets = useWallets();
 const bitcoinLocks = getBitcoinLocks();
 const miningFrames = getMiningFrames();
 const walletKeys = getWalletKeys();
-const { microgonToMoneyNm, satoshiToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 let vault: Vault | undefined;
 const availableSecuritizationMicrogons = Vue.ref(0n);

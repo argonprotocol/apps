@@ -27,7 +27,7 @@
       :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined"
     >
       <div>Bitcoin Locks</div>
-      <div>{{ currency.symbol }}{{ satoshiToMoneyNm(totalLockedSatoshis).format('0,0.00') }}</div>
+      <div>{{ currency.symbol }}{{ satToMoneyNm(totalLockedSatoshis).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
@@ -88,7 +88,7 @@ const wallets = useWallets();
 const myBonds = useMyBonds();
 const bitcoinLocks = getBitcoinLocks();
 
-const { microgonToMoneyNm, satoshiToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const mainchainBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
 const totalValue = Vue.computed(() => mainchainBalance.value + myBonds.bondTotals.totalBondMicrogons);

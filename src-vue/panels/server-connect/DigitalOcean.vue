@@ -22,7 +22,8 @@
             <div class="h-3 w-3 rounded-full bg-green-500"></div>
           </div>
           <div
-            class="relative top-px my-2 ml-2 grow items-center rounded-full border border-slate-800/20 bg-white py-px pl-5 text-xs text-slate-800/70">
+            class="relative top-px my-2 ml-2 grow items-center rounded-full border border-slate-800/20 bg-white py-px pl-5 text-xs text-slate-800/70"
+          >
             <SecureIcon class="absolute top-1/2 left-2 h-2.5 -translate-y-1/2 opacity-50" />
             https://digitalocean.com/
           </div>
@@ -35,19 +36,22 @@
         <div class="relative mx-px grow overflow-hidden rounded-b">
           <div
             v-if="currentStep === 1.0 || currentStep === 1.1 || currentStep === 1.2"
-            class="absolute top-px left-0 flex h-full w-full flex-col">
+            class="absolute top-px left-0 flex h-full w-full flex-col"
+          >
             <img src="../../assets/digitalocean-1.0-topbar.png" class="w-full" />
             <div class="-mb-px w-full grow bg-[#000D79]" />
             <img src="../../assets/digitalocean-1.0-main.png" class="w-full" />
             <div class="-mt-px w-full grow bg-[#0169FF]" />
             <div
               v-if="currentStep === 1.1 || currentStep === 1.2"
-              class="absolute top-5/12 left-1/2 w-5/12 max-w-[360px] -translate-x-1/2 -translate-y-1/2">
+              class="absolute top-5/12 left-1/2 w-5/12 max-w-[360px] -translate-x-1/2 -translate-y-1/2"
+            >
               <img src="../../assets/digitalocean-1.1-overlay.png" class="w-full" />
               <img
                 v-if="currentStep === 1.2"
                 src="../../assets/digitalocean-1.2-button.png"
-                class="animate-pulse-button absolute top-[72%] left-[11.5%] w-[75%]" />
+                class="animate-pulse-button absolute top-[72%] left-[11.5%] w-[75%]"
+              />
             </div>
           </div>
           <div v-else-if="currentStep === 1.3" class="absolute top-px left-0 flex h-full w-full flex-col">
@@ -66,23 +70,27 @@
           </div>
           <div
             v-else-if="currentStep >= 2 && currentStep < 3"
-            class="absolute top-px left-0 flex h-full w-full flex-col">
+            class="absolute top-px left-0 flex h-full w-full flex-col"
+          >
             <img src="../../assets/digitalocean-2.0-billing.png" class="w-full" />
             <img
               v-if="currentStep === 2.2"
               src="../../assets/digitalocean-2.0-button.png"
-              class="animate-pulse-button2 absolute top-[99px] left-[19.4%] w-[15.2%]" />
+              class="animate-pulse-button2 absolute top-[99px] left-[19.4%] w-[15.2%]"
+            />
             <div v-if="currentStep === 2.3" class="absolute top-0 left-0 h-full w-full bg-white/70">
               <img
                 src="../../assets/digitalocean-2.0-form.png"
-                class="absolute top-1/2 left-1/2 w-[80%] max-w-[650px] -translate-x-1/2 -translate-y-1/2" />
+                class="absolute top-1/2 left-1/2 w-[80%] max-w-[650px] -translate-x-1/2 -translate-y-1/2"
+              />
             </div>
           </div>
           <div v-else class="absolute top-px left-0 flex h-full w-full flex-col">
             <img
               v-if="currentStep === 3.0 || currentStep === 3.1"
               src="../../assets/digitalocean-3.0-form.png"
-              class="w-full" />
+              class="w-full"
+            />
             <img v-else-if="currentStep === 3.2" src="../../assets/digitalocean-3.2-formfilled.png" class="w-full" />
             <img v-else-if="currentStep === 3.3" src="../../assets/digitalocean-3.3-finished.png" class="w-full" />
             <img v-else-if="currentStep === 3.3" src="../../assets/digitalocean-3.3-apikey.png" class="" />
@@ -100,14 +108,17 @@
         defaultValue="1"
         type="single"
         :modelValue="accordionValue"
-        @update:modelValue="setAccordionValue">
+        @update:modelValue="setAccordionValue"
+      >
         <AccordionItem value="1" class="flex flex-col data-[state=open]:grow">
           <AccordionHeader class="flex">
             <AccordionTrigger
-              class="text-argon-700/40 hover:text-argon-600/70 group relative flex cursor-pointer flex-row items-center text-lg font-bold data-[state=open]:cursor-default data-[state=open]:text-slate-800/90">
+              class="text-argon-700/40 hover:text-argon-600/70 group relative flex cursor-pointer flex-row items-center text-lg font-bold data-[state=open]:cursor-default data-[state=open]:text-slate-800/90"
+            >
               <div class="relative h-8 w-8 -translate-x-1/2 rounded-full border-3 border-white bg-white">
                 <div
-                  class="group-data-[state=open]:border-argon-700 group-data-[state=open]:bg-argon-500 absolute flex h-full w-full items-center justify-center rounded-full border border-slate-800/20 group-data-[state=open]:text-white">
+                  class="group-data-[state=open]:border-argon-700 group-data-[state=open]:bg-argon-500 absolute flex h-full w-full items-center justify-center rounded-full border border-slate-800/20 group-data-[state=open]:text-white"
+                >
                   1
                 </div>
               </div>
@@ -132,7 +143,8 @@
               class="group mt-2"
               @mouseover="mouseover(1.1)"
               @mouseleave="mouseleave(1.1)"
-              @click="toggle(1.1)">
+              @click="toggle(1.1)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -154,7 +166,8 @@
               class="group"
               @mouseover="mouseover(1.2)"
               @mouseleave="mouseleave(1.2)"
-              @click="toggle(1.2)">
+              @click="toggle(1.2)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -171,7 +184,8 @@
               class="group"
               @mouseover="mouseover(1.3)"
               @mouseleave="mouseleave(1.3)"
-              @click="toggle(1.3)">
+              @click="toggle(1.3)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -190,7 +204,8 @@
               class="group"
               @mouseover="mouseover(1.4)"
               @mouseleave="mouseleave(1.4)"
-              @click="toggle(1.4)">
+              @click="toggle(1.4)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -205,10 +220,12 @@
         <AccordionItem value="2" class="mt-2 flex flex-col data-[state=open]:grow">
           <AccordionHeader class="flex">
             <AccordionTrigger
-              class="text-argon-700/40 hover:text-argon-600/70 group relative flex cursor-pointer flex-row items-center text-lg font-bold data-[state=open]:cursor-default data-[state=open]:text-slate-800/90">
+              class="text-argon-700/40 hover:text-argon-600/70 group relative flex cursor-pointer flex-row items-center text-lg font-bold data-[state=open]:cursor-default data-[state=open]:text-slate-800/90"
+            >
               <div class="relative h-8 w-8 -translate-x-1/2 rounded-full border-3 border-white bg-white">
                 <div
-                  class="group-data-[state=open]:border-argon-700 group-data-[state=open]:bg-argon-500 absolute flex h-full w-full items-center justify-center rounded-full border border-slate-800/20 group-data-[state=open]:text-white">
+                  class="group-data-[state=open]:border-argon-700 group-data-[state=open]:bg-argon-500 absolute flex h-full w-full items-center justify-center rounded-full border border-slate-800/20 group-data-[state=open]:text-white"
+                >
                   2
                 </div>
               </div>
@@ -228,7 +245,8 @@
               class="group mt-2"
               @mouseover="mouseover(2.1)"
               @mouseleave="mouseleave(2.1)"
-              @click="toggle(2.1)">
+              @click="toggle(2.1)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -250,7 +268,8 @@
               class="group"
               @mouseover="mouseover(2.2)"
               @mouseleave="mouseleave(2.2)"
-              @click="toggle(2.2)">
+              @click="toggle(2.2)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -267,7 +286,8 @@
               class="group"
               @mouseover="mouseover(2.3)"
               @mouseleave="mouseleave(2.3)"
-              @click="toggle(2.3)">
+              @click="toggle(2.3)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -282,10 +302,12 @@
         <AccordionItem value="3" class="mt-2 flex flex-col data-[state=open]:grow">
           <AccordionHeader class="flex">
             <AccordionTrigger
-              class="text-argon-700/40 hover:text-argon-600/70 group relative flex cursor-pointer flex-row items-center text-lg font-bold data-[state=open]:cursor-default data-[state=open]:text-slate-800/90">
+              class="text-argon-700/40 hover:text-argon-600/70 group relative flex cursor-pointer flex-row items-center text-lg font-bold data-[state=open]:cursor-default data-[state=open]:text-slate-800/90"
+            >
               <div class="relative h-8 w-8 -translate-x-1/2 rounded-full border-3 border-white bg-white">
                 <div
-                  class="group-data-[state=open]:border-argon-700 group-data-[state=open]:bg-argon-500 absolute flex h-full w-full items-center justify-center rounded-full border border-slate-800/20 group-data-[state=open]:text-white">
+                  class="group-data-[state=open]:border-argon-700 group-data-[state=open]:bg-argon-500 absolute flex h-full w-full items-center justify-center rounded-full border border-slate-800/20 group-data-[state=open]:text-white"
+                >
                   3
                 </div>
               </div>
@@ -305,7 +327,8 @@
               class="group mt-2"
               @mouseover="mouseover(3.1)"
               @mouseleave="mouseleave(3.1)"
-              @click="toggle(3.1)">
+              @click="toggle(3.1)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -326,7 +349,8 @@
               class="group"
               @mouseover="mouseover(3.2)"
               @mouseleave="mouseleave(3.2)"
-              @click="toggle(3.2)">
+              @click="toggle(3.2)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -346,7 +370,8 @@
               class="group"
               @mouseover="mouseover(3.3)"
               @mouseleave="mouseleave(3.3)"
-              @click="toggle(3.3)">
+              @click="toggle(3.3)"
+            >
               <div CircleWrapper>
                 <div CircleOutside>
                   <div CircleInside />
@@ -359,10 +384,12 @@
                   type="text"
                   v-model="apiKey"
                   placeholder="Digital Ocean API Key"
-                  class="mt-3 mb-2 w-full rounded-md border border-slate-300 bg-white px-4 py-3" />
+                  class="mt-3 mb-2 w-full rounded-md border border-slate-300 bg-white px-4 py-3"
+                />
                 <div
                   v-if="hasInvalidApiKeyError || hasUnauthorizedApiKeyError"
-                  class="mt-1 mb-3 flex flex-row items-center">
+                  class="mt-1 mb-3 flex flex-row items-center"
+                >
                   <ExclamationTriangleIcon class="inline-block w-5 text-red-400" aria-hidden="true" />
                   <div class="ml-2 text-sm font-medium text-red-800">
                     {{

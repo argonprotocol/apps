@@ -1,6 +1,7 @@
 import * as Vue from 'vue';
 import numeralOriginal, { Numeral } from 'numeral';
 import { Currency, UnitOfMeasurement } from './Currency';
+import { IOtherToken } from './Wallet.ts';
 
 // Extend the Numeral interface to include our custom method
 declare module 'numeral' {
@@ -80,15 +81,24 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
       return numeral(currency.convertMicronotTo(micronots, toUnit));
     },
 
-    satoshiToMoneyNm(this: void, satoshis: bigint): Numeral {
-      const btc = currency.convertSatToBtc(satoshis);
+    satToMoneyNm(this: void, sats: bigint): Numeral {
+      const btc = currency.convertSatToBtc(sats);
       const microgons = currency.convertBtcToMicrogon(btc);
       return numeral(currency.convertMicrogonTo(microgons, currency.key));
     },
-    satoshiToNm(this: void, satoshis: bigint, toUnit: UnitOfMeasurement): Numeral {
-      const btc = currency.convertSatToBtc(satoshis);
+    satToNm(this: void, sats: bigint, toUnit: UnitOfMeasurement): Numeral {
+      const btc = currency.convertSatToBtc(sats);
       const microgons = currency.convertBtcToMicrogon(btc);
       return numeral(currency.convertMicrogonTo(microgons, toUnit));
+    },
+
+    otherTokenNm(this: void, token: IOtherToken): Numeral {
+      const tokens = currency.convertOtherToFinalToken(token);
+      return numeral(tokens);
+    },
+    otherTokenToMoneyNm(this: void, token: IOtherToken): Numeral {
+      const microgons = currency.convertOtherToMicrogon(token);
+      return numeral(currency.convertMicrogonTo(microgons, currency.key));
     },
   };
 }

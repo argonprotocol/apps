@@ -3,7 +3,8 @@
     <PopoverTrigger as="button" class="focus:outline-none">
       <slot>
         <span
-          class="border-argon-300 text-argon-600 hover:bg-argon-50/40 hover:border-argon-600 mt-10 cursor-pointer rounded border px-7 py-2 text-center text-lg font-bold whitespace-nowrap transition-all duration-300">
+          class="border-argon-300 text-argon-600 hover:bg-argon-50/40 hover:border-argon-600 mt-10 cursor-pointer rounded border px-7 py-2 text-center text-lg font-bold whitespace-nowrap transition-all duration-300"
+        >
           View Argon Blocks
         </span>
       </slot>
@@ -11,7 +12,8 @@
     <PopoverContent
       as="div"
       :class="panelPositioningClasses"
-      class="absolute z-50 mt-10 w-220 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg">
+      class="absolute z-50 mt-10 w-220 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+    >
       <div :class="arrowPositioningClasses" class="absolute h-[15px] w-[30px] overflow-hidden">
         <div class="relative top-[5px] left-[5px] h-[20px] w-[20px] rotate-45 bg-white ring-1 ring-gray-900/20"></div>
       </div>
@@ -46,10 +48,12 @@
                 <span>{{ abbreviateAddress(block.author, 10) }}</span>
                 <span
                   v-if="isOurAddress(block.author)"
-                  class="bg-argon-600 absolute top-1/2 right-0 -translate-y-1/2 rounded px-1.5 pb-0.25 text-sm text-white">
+                  class="bg-argon-600 absolute top-1/2 right-0 -translate-y-1/2 rounded px-1.5 pb-0.25 text-sm text-white"
+                >
                   YOU
                   <span
-                    class="absolute top-0 -left-3 inline-block h-full w-3 bg-gradient-to-r from-transparent to-white"></span>
+                    class="absolute top-0 -left-3 inline-block h-full w-3 bg-gradient-to-r from-transparent to-white"
+                  ></span>
                 </span>
               </td>
             </tr>

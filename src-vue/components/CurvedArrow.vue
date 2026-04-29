@@ -5,20 +5,23 @@
     :viewBox="`0 0 ${size.width} ${size.height}`"
     fill="none"
     preserveAspectRatio="none"
-    aria-hidden="true">
+    aria-hidden="true"
+  >
     <path
       :d="curvePath"
       :stroke="props.color"
       :stroke-width="props.strokeWidth"
       stroke-linecap="round"
-      vector-effect="non-scaling-stroke" />
+      vector-effect="non-scaling-stroke"
+    />
     <path
       :d="arrowHeadPath"
       :stroke="props.color"
       :stroke-width="props.strokeWidth"
       stroke-linecap="round"
       stroke-linejoin="round"
-      vector-effect="non-scaling-stroke" />
+      vector-effect="non-scaling-stroke"
+    />
   </svg>
 </template>
 

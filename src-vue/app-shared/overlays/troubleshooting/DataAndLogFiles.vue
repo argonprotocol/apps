@@ -7,9 +7,11 @@
         <input
           v-model="localDataDir"
           disabled
-          class="text-md w-full overflow-x-scroll rounded-md border border-black/20 p-1 pr-32 font-mono whitespace-nowrap" />
+          class="text-md w-full overflow-x-scroll rounded-md border border-black/20 p-1 pr-32 font-mono whitespace-nowrap"
+        />
         <div
-          class="absolute top-1 right-1 bottom-1 flex items-center bg-gradient-to-r from-transparent from-0% via-white via-20% to-white pr-2 pl-10">
+          class="absolute top-1 right-1 bottom-1 flex items-center bg-gradient-to-r from-transparent from-0% via-white via-20% to-white pr-2 pl-10"
+        >
           <a @click="openDataDir" class="!text-argon-500 cursor-pointer">Open Directory</a>
         </div>
       </div>
@@ -21,9 +23,11 @@
         <input
           v-model="localLogDir"
           disabled
-          class="text-md w-full overflow-x-scroll rounded-md border border-black/20 p-1 pr-32 font-mono whitespace-nowrap" />
+          class="text-md w-full overflow-x-scroll rounded-md border border-black/20 p-1 pr-32 font-mono whitespace-nowrap"
+        />
         <div
-          class="absolute top-1 right-1 bottom-1 flex items-center bg-gradient-to-r from-transparent from-0% via-white via-20% to-white pr-2 pl-10">
+          class="absolute top-1 right-1 bottom-1 flex items-center bg-gradient-to-r from-transparent from-0% via-white via-20% to-white pr-2 pl-10"
+        >
           <a @click="openLogDir" class="!text-argon-500 cursor-pointer">Open Directory</a>
         </div>
       </div>
@@ -34,7 +38,8 @@
       <ProgressBar
         :progress="troubleshootingProgress"
         class="my-2"
-        v-if="isCreatingTroubleshootingPackage || troubleshootingProgress > 0" />
+        v-if="isCreatingTroubleshootingPackage || troubleshootingProgress > 0"
+      />
       <span v-if="troubleshootingError" class="text-sm text-red-500">
         {{ troubleshootingError }}
       </span>
@@ -45,11 +50,13 @@
           :class="{
             'opacity-50': isCreatingTroubleshootingPackage,
           }"
-          class="bg-argon-button border-argon-600 hover:bg-argon-700 right align-end w-1/2 grow cursor-pointer rounded-md border px-3 py-1 text-lg text-white">
+          class="bg-argon-button border-argon-600 hover:bg-argon-700 right align-end w-1/2 grow cursor-pointer rounded-md border px-3 py-1 text-lg text-white"
+        >
           Download
         </button>
         <div
-          class="pointer-events-none ml-2 flex cursor-pointer flex-row items-center space-x-2 whitespace-nowrap text-gray-800">
+          class="pointer-events-none ml-2 flex cursor-pointer flex-row items-center space-x-2 whitespace-nowrap text-gray-800"
+        >
           <Checkbox :isChecked="true" :size="5" class="opacity-50" />
           <span class="text-sm font-bold">Include Wallet Mnemonics</span>
         </div>

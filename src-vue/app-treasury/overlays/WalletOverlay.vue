@@ -46,10 +46,19 @@
         <WrapBehindEdge class="absolute bottom-0 left-0 translate-y-full w-2 h-2 scale-x-[-1]" />
       </div>
       <div v-if="isSyncMode" class="px-4 w-1/2">
-        <ArgonTokens :minimizedLines="true" :showArrows="true" />
+        <ArgonTokens
+          :microgons="getWalletTokenBalances(secondWallet).availableMicrogons"
+          :micronots="getWalletTokenBalances(secondWallet).availableMicronots"
+          :minimizedLines="true"
+          :showArrows="true"
+        />
       </div>
       <div class="px-4" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
-        <ArgonTokens :minimizedLines="isSyncMode" />
+        <ArgonTokens
+          :microgons="getWalletTokenBalances(firstWallet).availableMicrogons"
+          :micronots="getWalletTokenBalances(firstWallet).availableMicronots"
+          :minimizedLines="isSyncMode"
+        />
       </div>
     </div>
 
@@ -73,24 +82,26 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import { useBasics } from '../../stores/basics.ts';
 import ArgonBottom from './wallet/ArgonBottom.vue';
 import EthereumBottom from './wallet/EthereumBottom.vue';
-import NavHeader, { IWallet } from './wallet/NavHeader.vue';
+import NavHeader, { type IWallet as INavWallet } from './wallet/NavHeader.vue';
 import ArgonTokens from './wallet/ArgonTokens.vue';
 import ArgonIntro from './wallet/ArgonIntro.vue';
 import PortalIcon from '../../assets/portal.svg';
 import WrapBehindEdge from '../../assets/wrap-behind-edge.svg';
 import EthereumIntro from './wallet/EthereumIntro.vue';
-import { WalletType } from '../../lib/Wallet.ts';
+import { type IWallet, WalletType } from '../../lib/Wallet.ts';
+import { useWallets } from '../../stores/wallets.ts';
 
 const basics = useBasics();
+const walletStore = useWallets();
 
 const isOpen = Vue.ref(false);
 const isSyncMode = Vue.ref(false);
-const wallets = Vue.ref<IWallet[]>([
+const wallets = Vue.ref<INavWallet[]>([
   { type: WalletType.investment, name: 'Argon Wallet' },
   { type: WalletType.ethereum, name: 'Ethereum Wallet' },
 ]);
-const firstWallet = Vue.ref<IWallet>(wallets.value[0]);
-const secondWallet = Vue.ref<IWallet>(wallets.value[1]);
+const firstWallet = Vue.ref<INavWallet>(wallets.value[0]);
+const secondWallet = Vue.ref<INavWallet>(wallets.value[1]);
 
 function closeOverlay() {
   if (isSyncMode.value) {
@@ -104,14 +115,14 @@ function closeOverlay() {
   }
 }
 
-function handleSelectFirstWallet(wallet: IWallet) {
+function handleSelectFirstWallet(wallet: INavWallet) {
   if (wallet.type === secondWallet.value.type) {
     secondWallet.value = firstWallet.value;
   }
   firstWallet.value = wallet;
 }
 
-function handleSelectSecondWallet(wallet: IWallet) {
+function handleSelectSecondWallet(wallet: INavWallet) {
   if (wallet.type === firstWallet.value.type) {
     firstWallet.value = secondWallet.value;
   }
@@ -128,9 +139,16 @@ function toggleSyncDirection() {
   secondWallet.value = nextSecondWallet;
 }
 
+function getWalletTokenBalances(wallet: INavWallet): IWallet {
+  if (wallet.type === WalletType.ethereum) {
+    return walletStore.ethereumWallet;
+  }
+  return walletStore.investmentWallet;
+}
+
 basicEmitter.on('openWalletOverlay', async ({ walletType }) => {
   const wallet = wallets.value.find(x => x.type === walletType);
-  handleSelectFirstWallet(wallet as IWallet);
+  handleSelectFirstWallet(wallet as INavWallet);
 
   isOpen.value = true;
   basics.overlayIsOpen = true;

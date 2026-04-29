@@ -15,7 +15,8 @@
     :model-value="modelValue"
     @input="handleInput"
     @change="handleChange"
-    @update:model-value="handleUpdate" />
+    @update:model-value="handleUpdate"
+  />
 </template>
 
 <script setup lang="ts">
