@@ -4,7 +4,7 @@
     :showGoBack="currentScreen === 'claim'"
     :overflowScroll="true"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     @goBack="goBack"
     class="max-h-[calc(100vh-2rem)] pb-6"
     :class="currentScreen === 'overview' ? 'w-7/12' : 'w-[680px]'"

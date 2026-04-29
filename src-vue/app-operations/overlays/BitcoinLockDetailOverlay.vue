@@ -3,7 +3,7 @@
     :isOpen="true"
     data-testid="BitcoinLockDetailOverlay"
     @close="emit('close')"
-    @esc="emit('close')"
+    @pressEsc="emit('close')"
     class="BitcoinLockDetailOverlay min-h-60 w-240"
   >
     <template #title>

@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" :overflowScroll="false" :disallowClose="isSyncMode" :hasHeaderBorder="false" @close="closeOverlay" @esc="closeOverlay"
+  <OverlayBase :isOpen="isOpen" :overflowScroll="false" :disallowClose="isSyncMode" :hasHeaderBorder="false" @close="closeOverlay" @pressEsc="handlePressEsc" @clickClose="handleClickClose" @clickBackdrop="handleClickBackdrop"
     :class="[isSyncMode ? 'w-8/12' : 'w-5/12']"
     class="overflow-visible bg-linear-to-b from-[#cccccc] to-[#9f9f9f] border-none min-h-140"
   >
@@ -104,15 +104,25 @@ const firstWallet = Vue.ref<INavWallet>(wallets.value[0]);
 const secondWallet = Vue.ref<INavWallet>(wallets.value[1]);
 
 function closeOverlay() {
-  if (isSyncMode.value) {
-    const nextFirstWallet = secondWallet.value;
-    secondWallet.value = firstWallet.value;
-    firstWallet.value = nextFirstWallet;
-    isSyncMode.value = false;
-  } else {
-    isOpen.value = false;
-    basics.overlayIsOpen = false;
-  }
+  isSyncMode.value = false;
+  isOpen.value = false;
+  basics.overlayIsOpen = false;
+}
+
+function handleClickClose() {
+  if (!isSyncMode.value) return;
+  toggleSyncDirection();
+  isSyncMode.value = false;
+}
+
+function handleClickBackdrop() {
+  if (!isSyncMode.value) return;
+  closeOverlay();
+}
+
+function handlePressEsc() {
+  if (!isSyncMode.value) return;
+  isSyncMode.value = false;
 }
 
 function handleSelectFirstWallet(wallet: INavWallet) {

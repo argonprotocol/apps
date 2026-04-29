@@ -6,10 +6,13 @@
     "esploraHost": "http://localhost:55158",
     "indexerHost": "http://localhost:55154",
     "websiteHost": "http://localhost:5173",
-    "ethereum": {
+    "ethereumNetwork": {
       "rpcUrl": "https://ethereum-rpc.publicnode.com",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
+    "baseNetwork": {
+      "rpcUrl": "https://mainnet.base.org"
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -23,10 +26,13 @@
     "esploraHost": "http://localhost:3002",
     "indexerHost": "http://localhost:3262",
     "websiteHost": "http://localhost:5173",
-    "ethereum": {
+    "ethereumNetwork": {
       "rpcUrl": "https://ethereum-rpc.publicnode.com",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
+    "baseNetwork": {
+      "rpcUrl": "https://mainnet.base.org"
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -40,10 +46,13 @@
     "esploraHost": "http://bitcoin-node0.testnet.argonprotocol.org:3002",
     "indexerHost": "https://indexer.testnet.argonprotocol.org",
     "websiteHost": "https://staging.argon.network",
-    "ethereum": {
+    "ethereumNetwork": {
       "rpcUrl": "https://ethereum-rpc.publicnode.com",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
+    "baseNetwork": {
+      "rpcUrl": "https://mainnet.base.org"
     },
     "ticksBetweenFrames": 1440,
     "slotBiddingStartAfterTicks": 17280,
@@ -57,10 +66,13 @@
     "esploraHost": "https://mempool.space/api",
     "indexerHost": "https://indexer.argon.network",
     "websiteHost": "https://argon.network",
-    "ethereum": {
+    "ethereumNetwork": {
       "rpcUrl": "https://ethereum-rpc.publicnode.com",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
+    "baseNetwork": {
+      "rpcUrl": "https://mainnet.base.org"
     },
     "ticksBetweenFrames": 1440,
     "slotBiddingStartAfterTicks": 55661,

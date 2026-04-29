@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-9/12 z-20">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-9/12 z-20">
     <template #title>
       <div class="text-2xl font-bold grow">Your Minimum Bot Commitment Has Changed</div>
     </template>

@@ -3,7 +3,7 @@
     :isOpen="isOpen"
     :overflowScroll="true"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     class="max-h-[calc(100vh-2rem)] w-7/12 pb-5"
   >
     <template #title>

@@ -1,7 +1,7 @@
 import { createPublicClient, getAddress, http } from 'viem';
 import { base } from 'viem/chains';
 import { defaultWalletData, IOtherTokenDefinition, type IWallet } from './Wallet.ts';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { loadTokens } from './WalletForEthereum.ts';
 
 export const trackedBaseTokens = [
@@ -31,9 +31,10 @@ export class WalletForBase {
   }
 
   public async load(): Promise<void> {
+    const { baseNetwork } = NetworkConfig.get();
     const basePublicClient = createPublicClient({
       chain: base,
-      transport: http('https://mainnet.base.org', {
+      transport: http(baseNetwork.rpcUrl, {
         retryCount: 1,
         timeout: 15_000,
       }),

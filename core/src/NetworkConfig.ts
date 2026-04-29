@@ -2,8 +2,9 @@ import NetworkConfigSettings from '../network.config.json' with { type: 'json' }
 import type { ArgonClient } from '@argonprotocol/mainchain';
 
 export { NetworkConfigSettings };
-export type INetworkConfigOverride = Partial<Omit<INetworkConfig, 'ethereum'>> & {
-  ethereum?: Partial<IEthereumNetworkConfig>;
+export type INetworkConfigOverride = Partial<Omit<INetworkConfig, 'ethereumNetwork' | 'baseNetwork'>> & {
+  ethereumNetwork?: Partial<IEthereumNetworkConfig>;
+  baseNetwork?: Partial<IBaseNetworkConfig>;
 };
 
 export class NetworkConfig {
@@ -44,9 +45,13 @@ export class NetworkConfig {
     this.runtimeOverrides[networkName] = {
       ...baseConfig,
       ...override,
-      ethereum: {
-        ...baseConfig.ethereum,
-        ...override.ethereum,
+      ethereumNetwork: {
+        ...baseConfig.ethereumNetwork,
+        ...override.ethereumNetwork,
+      },
+      baseNetwork: {
+        ...baseConfig.baseNetwork,
+        ...override.baseNetwork,
       },
     };
   }
@@ -89,7 +94,13 @@ export class NetworkConfig {
   ): Promise<
     Omit<
       INetworkConfig,
-      'esploraHost' | 'archiveUrl' | 'bitcoinBlockMillis' | 'indexerHost' | 'websiteHost' | 'ethereum'
+      | 'esploraHost'
+      | 'archiveUrl'
+      | 'bitcoinBlockMillis'
+      | 'indexerHost'
+      | 'websiteHost'
+      | 'ethereumNetwork'
+      | 'baseNetwork'
     >
   > {
     const config = await client.query.miningSlot.miningConfig().then(x => ({
@@ -119,11 +130,16 @@ export interface INetworkConfig {
   indexerHost: string;
   bitcoinBlockMillis: number;
   esploraHost: string;
-  ethereum: IEthereumNetworkConfig;
+  ethereumNetwork: IEthereumNetworkConfig;
+  baseNetwork: IBaseNetworkConfig;
 }
 
 export interface IEthereumNetworkConfig {
   rpcUrl: string;
   argonTokenAddress: string;
   usdcTokenAddress: string;
+}
+
+export interface IBaseNetworkConfig {
+  rpcUrl: string;
 }

@@ -90,7 +90,6 @@ export class WalletForEthereum {
       const argonToken = tokens.find(isEthereumArgonToken);
 
       this.data.otherTokens = tokens.filter(token => !isEthereumArgonToken(token));
-      console.log('OTHER TOKENS: ', this.data.otherTokens);
 
       if (argonToken) {
         this.data.availableMicrogons = argonToken.value / ethereumArgonValueToMicrogonsFactor;

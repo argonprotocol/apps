@@ -42,11 +42,9 @@ import InfoIcon from '../../assets/info-outline.svg';
 import { WalletType } from '../../lib/Wallet.ts';
 import CopyAddressMenu from '../../app-operations/screens/components/CopyAddressMenu.vue';
 import * as Vue from 'vue';
-import { IS_OPERATIONS_APP } from '../../lib/Env.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 const currency = getCurrency();
 const wallets = useWallets();

@@ -5,9 +5,11 @@ import {
   Currency as CurrencyBase,
   UnitOfMeasurement,
   MainchainClients,
+  bigNumberToBigInt,
   type ICurrencyRecord,
   type ICurrencyKey,
 } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { Config } from './Config';
 import { IOtherToken } from './Wallet.ts';
 
@@ -59,12 +61,15 @@ export class Currency extends CurrencyBase {
   }
 
   public convertOtherToFinalToken(token: IOtherToken): number {
-    if (!token.value) return 0;
-    return Number(token.value) / 10 ** token.decimals;
+    return this.convertOtherToFinalTokenBn(token).toNumber();
   }
 
   public convertOtherToMicrogon(token: IOtherToken): bigint {
-    const unitizedToken = this.convertOtherToFinalToken(token);
-    return super.convertOtherUnitizedTokenToMicrogon(unitizedToken, token.unitOfMeasurement);
+    const microgonsBn = this.convertOtherToFinalTokenBn(token).multipliedBy(this.microgonsPer[token.unitOfMeasurement]);
+    return bigNumberToBigInt(microgonsBn);
+  }
+
+  private convertOtherToFinalTokenBn(token: IOtherToken): BigNumber {
+    return BigNumber(token.value.toString()).shiftedBy(-token.decimals);
   }
 }

@@ -9,7 +9,7 @@
             :initial="disableOverlayMotion ? false : { opacity: 0 }"
             :animate="{ opacity: 1 }"
             :exit="{ opacity: 0 }">
-            <BgOverlay @close="closeOverlay" />
+            <BgOverlay @close="clickBackdrop" />
           </Motion>
         </DialogOverlay>
 
@@ -52,7 +52,7 @@
                   <DialogClose
                     NotDraggable
                     v-if="props.showCloseIcon"
-                    @click="closeOverlay"
+                    @click="clickClose"
                     class="z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[34px] h-[34px] focus:outline-none border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]"
                   >
                     <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4 pointer-events-none" />
@@ -110,7 +110,9 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'esc'): void;
+  (e: 'pressEsc'): void;
+  (e: 'clickClose'): void;
+  (e: 'clickBackdrop'): void;
   (e: 'goBack'): void;
 }>();
 
@@ -118,22 +120,41 @@ const zIndex = Vue.ref(0);
 const attrs = Vue.useAttrs();
 const disableOverlayMotion = MotionGlobalConfig.skipAnimations || MotionGlobalConfig.instantAnimations;
 
-Vue.watch(props, () => {
-  if (props.isOpen) {
+Vue.watch(
+  () => props.isOpen,
+  isOpen => {
+    if (!isOpen) {
+      openZIndexes.value.delete(zIndex.value);
+      return;
+    }
+
     zIndex.value = Math.max(...openZIndexes.value, 0) + 1;
     openZIndexes.value.add(zIndex.value);
-  } else {
-    openZIndexes.value.delete(zIndex.value);
-  }
+  },
+  { immediate: true },
+);
+
+Vue.onUnmounted(() => {
+  openZIndexes.value.delete(zIndex.value);
 });
 
 const draggable = Vue.reactive(new Draggable());
 
 function closeOverlay() {
   if (props.disallowClose) {
-    openZIndexes.value.delete(zIndex.value);
+    return;
   }
   emit('close');
+}
+
+function clickClose() {
+  emit('clickClose');
+  closeOverlay();
+}
+
+function clickBackdrop() {
+  emit('clickBackdrop');
+  closeOverlay();
 }
 
 function goBack() {
@@ -141,7 +162,7 @@ function goBack() {
 }
 
 function handleEscapeKeyDown() {
-  emit('esc');
+  emit('pressEsc');
   closeOverlay();
 }
 

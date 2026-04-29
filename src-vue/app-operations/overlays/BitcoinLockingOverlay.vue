@@ -5,7 +5,7 @@
     data-testid="BitcoinLockingOverlay"
     :data-e2e-state="lockStep"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     class="BitcoinLockingOverlay min-h-60 w-240"
   >
     <template #title>

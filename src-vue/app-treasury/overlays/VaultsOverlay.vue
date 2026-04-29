@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-7/12">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-7/12">
     <template #title>
       <div class="flex grow flex-row items-center justify-between gap-x-3 pr-4">
         <DialogTitle>Active Vaults</DialogTitle>

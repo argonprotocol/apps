@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-7/12 overflow-auto">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-7/12 overflow-auto">
     <template #title>
       <DialogTitle>Signature Request</DialogTitle>
     </template>

@@ -28,7 +28,7 @@ export default class Draggable {
       return;
     }
     const targetElement = event.target as HTMLElement;
-    if (targetElement?.hasAttribute('notdraggable')) return;
+    if (targetElement?.closest('notdraggable')) return;
 
     this.isDragging = true;
     document.body.classList.add('select-none');

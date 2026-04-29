@@ -3,7 +3,7 @@
   <OverlayBase
     :isOpen="isOpen"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     data-testid="OnboardingWalletOverlay"
     class="w-9/12">
     <template #title>

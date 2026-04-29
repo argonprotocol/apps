@@ -35,7 +35,7 @@
             <td class="px-4 py-3 text-right">
               <button
                 type="button"
-                :disabled="isSaving || selectedVaultId === vault.vaultId"
+                :disabled="selectedVaultId === vault.vaultId"
                 class="rounded-md border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-default disabled:opacity-60"
                 :class="
                   selectedVaultId === vault.vaultId
@@ -44,7 +44,7 @@
                 "
                 @click="selectVault(vault)"
               >
-                {{ selectedVaultId === vault.vaultId ? 'Selected' : isSaving ? 'Saving...' : 'Select' }}
+                {{ selectedVaultId === vault.vaultId ? 'Selected' : 'Select' }}
               </button>
             </td>
           </tr>
@@ -74,7 +74,6 @@ const config = getConfig();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoading = Vue.ref(false);
-const isSaving = Vue.ref(false);
 const loadError = Vue.ref('');
 const vaultRows = Vue.shallowRef<Vault[]>([]);
 const selectedVaultId = Vue.computed(() => config.upstreamOperator?.vaultId ?? 0);
@@ -93,7 +92,7 @@ async function loadVaults() {
         const leftAvailableBitcoinSpace = left.availableBitcoinSpace();
         const rightAvailableBitcoinSpace = right.availableBitcoinSpace();
         if (rightAvailableBitcoinSpace !== leftAvailableBitcoinSpace) {
-          return Number(rightAvailableBitcoinSpace - leftAvailableBitcoinSpace);
+          return rightAvailableBitcoinSpace > leftAvailableBitcoinSpace ? 1 : -1;
         }
         return left.vaultId - right.vaultId;
       });
@@ -116,19 +115,9 @@ function bitcoinBaseFee(vault: Vault) {
 }
 
 async function selectVault(vault: Vault) {
-  if (isSaving.value) return;
-
-  isSaving.value = true;
   loadError.value = '';
 
-  try {
-    emit('select', vault);
-  } catch (error) {
-    console.error('Failed to save selected vault', error);
-    loadError.value = 'Unable to save your selected vault right now. Please try again.';
-  } finally {
-    isSaving.value = false;
-  }
+  emit('select', vault);
 }
 
 Vue.onMounted(() => {

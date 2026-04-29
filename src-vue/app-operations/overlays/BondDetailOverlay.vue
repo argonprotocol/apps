@@ -3,7 +3,7 @@
     :isOpen="true"
     data-testid="BondDetailOverlay"
     @close="emit('close')"
-    @esc="emit('close')"
+    @pressEsc="emit('close')"
     class="BondDetailOverlay min-h-48 w-200"
   >
     <template #title>

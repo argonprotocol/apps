@@ -280,7 +280,6 @@ export class Currency {
 
     if (rawRates?.ETH) {
       this.microgonsPer.ETH = this.convertRawFiatExchangeRateToMicrogons(1 / rawRates.ETH);
-      console.log('ETH price updated to', rawRates.ETH, this.microgonsPer.ETH);
     }
   }
 

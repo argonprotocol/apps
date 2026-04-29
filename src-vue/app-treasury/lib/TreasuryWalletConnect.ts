@@ -24,6 +24,7 @@ type TreasuryWalletKitHandlers = {
 };
 
 let walletKitPromise: Promise<IWalletKit> | undefined;
+let walletKitAddress: string | undefined;
 let walletKitListenersAttached = false;
 let walletKitHandlers: TreasuryWalletKitHandlers = {};
 
@@ -32,20 +33,28 @@ export function setTreasuryWalletKitHandlers(handlers: TreasuryWalletKitHandlers
 }
 
 export async function getTreasuryWalletKit(ethereumAddress: string): Promise<IWalletKit> {
+  if (!walletConnectProjectId) {
+    throw new Error('Set VITE_WALLETCONNECT_PROJECT_ID before using WalletConnect.');
+  }
+
   const normalizedAddress = ethereumAddress.trim().toLowerCase();
 
-  walletKitPromise ??= WalletKit.init({
-    core: new Core({
-      projectId: walletConnectProjectId,
-      customStoragePrefix: `argon-wallet-${normalizedAddress}`,
-    }),
-    metadata: {
-      name: 'Argon Treasury Wallet',
-      description: 'Treasury wallet approval surface for WalletConnect sessions.',
-      url: 'https://argon.network',
-      icons: [],
-    },
-  });
+  if (!walletKitPromise || walletKitAddress !== normalizedAddress) {
+    walletKitPromise = WalletKit.init({
+      core: new Core({
+        projectId: walletConnectProjectId,
+        customStoragePrefix: `argon-wallet-${normalizedAddress}`,
+      }),
+      metadata: {
+        name: 'Argon Treasury Wallet',
+        description: 'Treasury wallet approval surface for WalletConnect sessions.',
+        url: 'https://argon.network',
+        icons: [],
+      },
+    });
+    walletKitAddress = normalizedAddress;
+    walletKitListenersAttached = false;
+  }
 
   const walletKit = await walletKitPromise;
 

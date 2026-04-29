@@ -80,9 +80,9 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
       timeoutMs: 15 * 60_000,
       pollMs: 1_000,
       onNotReadyPoll: async () => {
-        const closeOverlay = await flow.isVisible('OverlayBase.closeOverlay()');
+        const closeOverlay = await flow.isVisible('OverlayBase.clickClose()');
         if (closeOverlay.clickable) {
-          await flow.click('OverlayBase.closeOverlay()').catch(() => undefined);
+          await flow.click('OverlayBase.clickClose()').catch(() => undefined);
         }
       },
     });
