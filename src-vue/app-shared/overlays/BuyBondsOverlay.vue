@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="true" @close="emit('close')" @esc="emit('close')" class="w-5/12">
+  <OverlayBase :isOpen="true" @close="emit('close')" @pressEsc="emit('close')" class="w-5/12">
     <template #title>
       <div class="grow text-2xl font-bold">Buy Bonds</div>
     </template>

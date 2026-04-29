@@ -27,6 +27,7 @@ dependencies = [
  "rand 0.9.3",
  "reqwest",
  "russh",
+ "secp256k1 0.28.2",
  "secrecy 0.10.3",
  "serde",
  "serde_json",

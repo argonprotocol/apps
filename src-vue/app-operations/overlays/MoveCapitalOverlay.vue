@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-lg">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-lg">
     <template #title>
       <div class="text-2xl font-bold grow">Move Your {{ walletTypeName[walletType!] }} Funds</div>
     </template>

@@ -12,7 +12,7 @@ import {
 import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getWalletBalances, getWalletKeys, useWallets } from './wallets.ts';
+import { getWalletsForArgon, getWalletKeys, useWallets } from './wallets.ts';
 import BigNumber from 'bignumber.js';
 
 export const usePortfolio = defineStore('portfolio', () => {
@@ -20,7 +20,7 @@ export const usePortfolio = defineStore('portfolio', () => {
   const wallets = useWallets();
   const dbPromise = getDbPromise();
   const walletKeys = getWalletKeys();
-  const walletBalances = getWalletBalances();
+  const walletsForArgon = getWalletsForArgon();
   const myMinerStats = getStats();
 
   let unsubscribe: (() => void) | undefined;
@@ -74,7 +74,7 @@ export const usePortfolio = defineStore('portfolio', () => {
     await myMinerStats.load();
     await updateExternalFunding();
     if (unsubscribe) unsubscribe();
-    unsubscribe = walletBalances.events.on('transfer-in', async () => {
+    unsubscribe = walletsForArgon.events.on('transfer-in', async () => {
       await updateExternalFunding();
     });
 

@@ -45,14 +45,14 @@ import DiagnosticStep from './components/DiagnosticStep.vue';
 import success from './components/DiagnosticSuccess.vue';
 import failure from './components/DiagnosticFailure.vue';
 import heading from './components/DiagnosticHeading.vue';
-import { getWalletBalances, getWalletKeys } from '../../../stores/wallets.ts';
+import { getWalletsForArgon, getWalletKeys } from '../../../stores/wallets.ts';
 import { getMyVault } from '../../../stores/vaults.ts';
 import { getDbPromise } from '../../../stores/helpers/dbPromise.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { MyVaultRecovery } from '../../../lib/MyVaultRecovery.ts';
 import { getMainchainClients } from '../../../stores/mainchain.ts';
 
-const walletBalances = getWalletBalances();
+const walletsForArgon = getWalletsForArgon();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
 const dbPromise = getDbPromise();
@@ -72,12 +72,12 @@ function scrollToBottom() {
 
 async function checkWalletTransfers() {
   const db = await dbPromise;
-  await walletBalances.load();
+  await walletsForArgon.load();
   const transfers = await db.walletTransfersTable.fetchAll();
   const blockNumbersNeeded = new Set<number>();
 
-  for (const wallet of walletBalances.addresses) {
-    await walletBalances.lookupTransferOrClaimBlocks(wallet, blockNumbersNeeded, [0, Number.MAX_SAFE_INTEGER]);
+  for (const wallet of walletsForArgon.addresses) {
+    await walletsForArgon.lookupTransferOrClaimBlocks(wallet, blockNumbersNeeded, [0, Number.MAX_SAFE_INTEGER]);
   }
   const newBlocks = new Set<number>();
   for (const block of blockNumbersNeeded) {
@@ -86,7 +86,7 @@ async function checkWalletTransfers() {
     }
   }
   for (const block of newBlocks) {
-    await walletBalances.resyncBlock(block);
+    await walletsForArgon.resyncBlock(block);
   }
   const isUnchanged = newBlocks.size === 0;
 

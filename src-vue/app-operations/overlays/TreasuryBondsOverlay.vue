@@ -3,7 +3,7 @@
   <OverlayBase
     :isOpen="isOpen"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     class="w-7/12">
     <template #title>
       <div class="grow text-2xl font-bold">Treasury Bonds</div>

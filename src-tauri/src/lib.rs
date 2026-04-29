@@ -198,6 +198,13 @@ async fn derive_ed25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], Str
 }
 
 #[tauri::command]
+async fn sign_ethereum_personal_message(app: AppHandle, message: &str) -> Result<String, String> {
+    let signature =
+        Security::sign_ethereum_personal_message(&app, message).map_err(|e| e.to_string())?;
+    Ok(signature)
+}
+
+#[tauri::command]
 async fn derive_x25519_public_key(app: AppHandle, suri: &str) -> Result<Vec<u8>, String> {
     let public_key = Security::derive_x25519_public_key(&app, suri).map_err(|e| e.to_string())?;
     Ok(public_key)
@@ -701,6 +708,7 @@ pub fn run() {
             derive_sr25519_seed,
             derive_sr25519_address,
             derive_ed25519_seed,
+            sign_ethereum_personal_message,
             derive_x25519_public_key,
             encrypt_x25519_message,
             decrypt_x25519_message,

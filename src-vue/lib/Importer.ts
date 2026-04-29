@@ -6,7 +6,7 @@ import { ITryServerData, SSH } from './SSH';
 import { BootstrapType, IConfigServerDetails } from '../interfaces/IConfig';
 import { SECURITY } from './Env.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { getWalletBalances } from '../stores/wallets.ts';
+import { getWalletsForArgon } from '../stores/wallets.ts';
 import { getBlockWatch } from '../stores/mainchain.ts';
 
 export default class Importer {
@@ -45,7 +45,7 @@ export default class Importer {
   }
 
   private async shutdownBackgroundSync() {
-    await getWalletBalances().close();
+    await getWalletsForArgon().close();
     getBlockWatch().stop();
   }
 

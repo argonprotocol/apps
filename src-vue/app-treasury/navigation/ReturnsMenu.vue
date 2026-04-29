@@ -8,7 +8,7 @@
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
       >
           <div class="ml-[3px] relative top-px -mr-0.5">
-            0%
+            0% RTD
           </div>
       </DropdownMenuTrigger>
 

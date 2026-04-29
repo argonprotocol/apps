@@ -3,39 +3,47 @@
     <span
       v-if="props.showArrow && props.direction !== 'right'"
       class="arrow-callout__point relative z-1 mr-[calc(-1.7*var(--arrow-callout-border))] w-[var(--arrow-callout-point-width)] flex-none bg-[var(--arrow-callout-stroke)] shadow-xl"
-      aria-hidden="true">
+      aria-hidden="true"
+    >
       <span
-        class="arrow-callout__point-fill absolute inset-y-[var(--arrow-callout-point-inset)] right-0 left-[var(--arrow-callout-point-inset)] block bg-[var(--arrow-callout-fill)]" />
+        class="arrow-callout__point-fill absolute inset-y-[var(--arrow-callout-point-inset)] right-0 left-[var(--arrow-callout-point-inset)] block bg-[var(--arrow-callout-fill)]"
+      />
     </span>
     <span
       class="arrow-callout__body rounded-md border-[length:var(--arrow-callout-border)] border-[var(--arrow-callout-stroke)] bg-[var(--arrow-callout-fill)] px-8 py-[0.4rem] leading-none whitespace-nowrap shadow-lg"
-      :class="[props.showArrow ? '' : 'border-l', props.direction === 'left' ? 'pl-[1.15rem]' : 'pr-[1.15rem]']">
+      :class="[props.showArrow ? '' : 'border-l', props.direction === 'left' ? 'pl-[1.15rem]' : 'pr-[1.15rem]']"
+    >
       <slot>{{ label }}</slot>
     </span>
     <span
       v-if="props.showArrow && props.direction === 'right'"
       class="arrow-callout__point arrow-callout__point--right relative z-1 ml-[calc(-1.7*var(--arrow-callout-border))] w-[var(--arrow-callout-point-width)] flex-none bg-[var(--arrow-callout-stroke)] shadow-xl"
-      aria-hidden="true">
+      aria-hidden="true"
+    >
       <span
-        class="arrow-callout__point-fill arrow-callout__point-fill--right absolute inset-y-[var(--arrow-callout-point-inset)] right-[var(--arrow-callout-point-inset)] left-0 block bg-[var(--arrow-callout-fill)]" />
+        class="arrow-callout__point-fill arrow-callout__point-fill--right absolute inset-y-[var(--arrow-callout-point-inset)] right-[var(--arrow-callout-point-inset)] left-0 block bg-[var(--arrow-callout-fill)]"
+      />
     </span>
 
     <HoverCardRoot v-model:open="isOpen" :openDelay="0" :disableHoverableContent="true" :disableClosingTrigger="true">
       <HoverCardTrigger
         :style="{ borderColor: props.strokeColor, backgroundColor: props.fillColor }"
         :class="hoverCardTriggerClass"
-        class="group text-argon-600! pointer-events-auto absolute top-0 flex aspect-square h-full scale-105 cursor-pointer flex-row items-center justify-center rounded-full border shadow-xl">
+        class="group text-argon-600! pointer-events-auto absolute top-0 flex aspect-square h-full scale-105 cursor-pointer flex-row items-center justify-center rounded-full border shadow-xl"
+      >
         <SparkleOutlineIcon :class="isOpen ? 'opacity-0' : 'w-5 group-hover:opacity-0'" />
         <SparkleFilledIcon
           class="absolute top-1/2 left-1/2 w-5 -translate-x-1/2 -translate-y-1/2"
-          :class="isOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'" />
+          :class="isOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+        />
       </HoverCardTrigger>
       <HoverCardPortal>
         <HoverCardContent :side="position" :sideOffset="-4" class="z-[5000]">
           <div
             v-if="props.guidance"
             :style="{ backgroundColor: props.fillColor }"
-            class="border-argon-600/40 flex w-100 flex-col gap-2 rounded border shadow-xl">
+            class="border-argon-600/40 flex w-100 flex-col gap-2 rounded border shadow-xl"
+          >
             <header class="bg-argon-600/10 px-5 py-3 font-bold">
               Task: {{ controller.activeGuideId ? operationalSteps[controller.activeGuideId]?.title : '' }}
             </header>
@@ -47,11 +55,13 @@
             <div class="flex flex-row gap-x-2 p-5 whitespace-nowrap">
               <button
                 @click="cancelTask"
-                class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1">
+                class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
+              >
                 Cancel Task
               </button>
               <button
-                class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1">
+                class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
+              >
                 View Documentation
               </button>
             </div>
@@ -60,7 +70,8 @@
             :width="24"
             :height="12"
             class="stroke-argon-600/30 relative -top-px z-50 shadow-xl/50"
-            :style="{ fill: '#F1D7F1' }" />
+            :style="{ fill: '#F1D7F1' }"
+          />
         </HoverCardContent>
       </HoverCardPortal>
     </HoverCardRoot>

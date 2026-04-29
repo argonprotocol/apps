@@ -39,7 +39,8 @@
 
     <div
       v-if="isWaitingForFirstBitcoinBlock"
-      class="mt-12 flex items-center justify-center gap-3 text-center text-gray-500">
+      class="mt-12 flex items-center justify-center gap-3 text-center text-gray-500"
+    >
       <Spinner class="h-5 w-5" />
       <span>Waiting for the first Bitcoin block...</span>
     </div>

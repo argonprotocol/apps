@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-6/12">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-6/12">
     <template #title>
       <div class="text-2xl font-bold inline-block relative">
         Your Profile

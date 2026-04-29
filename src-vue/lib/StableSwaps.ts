@@ -891,11 +891,11 @@ function getStableSwapEthereumSettings(): {
   // NETWORK_NAME is imported so Env.ts initializes NetworkConfig before this helper is used.
   void NETWORK_NAME;
 
-  const { ethereum } = NetworkConfig.get();
+  const { ethereumNetwork } = NetworkConfig.get();
   return {
-    rpcUrl: ethereum.rpcUrl,
-    argonTokenAddress: getAddress(ethereum.argonTokenAddress),
-    usdcTokenAddress: getAddress(ethereum.usdcTokenAddress),
+    rpcUrl: ethereumNetwork.rpcUrl,
+    argonTokenAddress: getAddress(ethereumNetwork.argonTokenAddress),
+    usdcTokenAddress: getAddress(ethereumNetwork.usdcTokenAddress),
   };
 }
 

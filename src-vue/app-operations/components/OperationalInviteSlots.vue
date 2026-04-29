@@ -5,7 +5,8 @@
       :key="`${mode}:${slot.number}:${slot.type}:${slotKey(slot)}`"
       asChild
       :side="mode === 'menu' ? 'left' : 'top'"
-      :content="slotTooltip(slot)">
+      :content="slotTooltip(slot)"
+    >
       <component
         :is="mode === 'menu' ? 'button' : 'div'"
         :type="mode === 'menu' ? 'button' : undefined"
@@ -15,26 +16,31 @@
             ? 'cursor-pointer py-2.5 pr-3 pl-3 transition hover:border-slate-300 hover:bg-white'
             : 'py-3 pr-4 pl-3'
         "
-        @click="selectSlot(slot)">
+        @click="selectSlot(slot)"
+      >
         <div
           class="absolute inset-y-2 left-0 w-1 rounded-r-full"
           :class="{
             'bg-amber-400': slot.type === 'sent',
             'bg-argon-500': slot.type === 'ready',
             'bg-slate-300': slot.type === 'progress',
-          }" />
+          }"
+        />
 
         <div
           :class="[
             'flex',
             mode === 'menu' ? 'gap-3' : 'gap-4',
             slot.type === 'progress' ? 'items-stretch' : 'items-center',
-          ]">
+          ]"
+        >
           <div
-            class="flex w-[4.3rem] shrink-0 items-center justify-center border-r border-dashed border-slate-300/80 pr-3">
+            class="flex w-[4.3rem] shrink-0 items-center justify-center border-r border-dashed border-slate-300/80 pr-3"
+          >
             <div
               class="flex items-center justify-center rounded-full border border-slate-300 bg-white font-mono font-bold text-slate-600"
-              :class="mode === 'menu' ? 'h-9 w-9 text-base' : 'h-10 w-10 text-lg'">
+              :class="mode === 'menu' ? 'h-9 w-9 text-base' : 'h-10 w-10 text-lg'"
+            >
               {{ slot.number }}
             </div>
           </div>
@@ -44,12 +50,14 @@
               <div class="flex items-center justify-between gap-3">
                 <div
                   class="truncate font-bold text-slate-800"
-                  :class="mode === 'menu' ? 'text-sm leading-5' : 'text-base leading-5'">
+                  :class="mode === 'menu' ? 'text-sm leading-5' : 'text-base leading-5'"
+                >
                   {{ sentInviteName(slot) }}
                 </div>
                 <div
                   class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
-                  :class="statusClass(slot.status.label)">
+                  :class="statusClass(slot.status.label)"
+                >
                   {{ slot.status.label }}
                 </div>
               </div>
@@ -57,21 +65,24 @@
               <div v-if="hasSentInviteChecklistProgress(slot)" class="mt-2">
                 <div
                   v-if="mode === 'overlay'"
-                  class="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
+                  class="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-slate-500"
+                >
                   <span>Certification checklist</span>
                   <span>{{ sentInviteProgressLabel(slot) }}</span>
                 </div>
                 <ProgressBar
                   :progress="sentInviteProgressPct(slot)"
                   class="my-2"
-                  :title="`${sentInviteName(slot)} has completed ${sentInviteProgressLabel(slot)}.`" />
+                  :title="`${sentInviteName(slot)} has completed ${sentInviteProgressLabel(slot)}.`"
+                />
               </div>
             </template>
 
             <template v-else-if="slot.type === 'ready'">
               <div
                 class="truncate font-bold text-slate-800"
-                :class="mode === 'menu' ? 'text-sm leading-5' : 'text-base leading-5'">
+                :class="mode === 'menu' ? 'text-sm leading-5' : 'text-base leading-5'"
+              >
                 {{ readySlotName(slot) }}
               </div>
             </template>
@@ -80,7 +91,8 @@
               <div class="flex items-center justify-between gap-3">
                 <div
                   class="truncate font-bold text-slate-800"
-                  :class="mode === 'menu' ? 'text-sm leading-5' : 'text-base leading-5'">
+                  :class="mode === 'menu' ? 'text-sm leading-5' : 'text-base leading-5'"
+                >
                   Progress to Earning Referral Code
                 </div>
                 <div class="shrink-0 font-mono text-xs font-bold text-slate-500">
@@ -91,7 +103,8 @@
               <div class="mt-2 h-1.5 rounded-full bg-slate-200/90">
                 <div
                   class="h-full rounded-full bg-slate-500/70 transition-all"
-                  :style="{ width: `${slot.progressPct}%` }" />
+                  :style="{ width: `${slot.progressPct}%` }"
+                />
               </div>
             </template>
           </div>
@@ -106,13 +119,15 @@
                   placeholder="Invite name"
                   class="focus:border-argon-600 min-w-0 grow rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:ring-0"
                   @input="updateDraftName(slot.number, $event)"
-                  @keyup.enter="createInvite(slot.number)" />
+                  @keyup.enter="createInvite(slot.number)"
+                />
                 <button
                   type="button"
                   :disabled="isCreating || !hasInviteName(slot.number)"
                   class="bg-argon-button hover:bg-argon-button-hover flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white disabled:cursor-default disabled:opacity-40"
                   aria-label="Create invite"
-                  @click="createInvite(slot.number)">
+                  @click="createInvite(slot.number)"
+                >
                   <PlusIcon class="h-4 w-4 stroke-[2.5]" />
                 </button>
               </div>
@@ -124,7 +139,8 @@
               v-if="slot.inviteLink && !slot.invite?.accountId"
               :content="slot.inviteLink"
               class="shrink-0"
-              @click.stop>
+              @click.stop
+            >
               <button type="button" class="text-argon-700 text-sm font-semibold">Copy link</button>
               <template #copied>
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copied</button>
@@ -135,7 +151,8 @@
               type="button"
               :disabled="isCreating"
               class="text-argon-700 hover:text-argon-800 inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold disabled:cursor-default disabled:text-slate-400"
-              @click.stop="regenerateInvite(slot)">
+              @click.stop="regenerateInvite(slot)"
+            >
               <ArrowPathIcon class="h-4 w-4" />
               Regenerate
             </button>
@@ -143,7 +160,8 @@
 
           <ChevronRightIcon
             v-if="mode === 'menu'"
-            class="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
+            class="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500"
+          />
         </div>
       </component>
     </Tooltip>

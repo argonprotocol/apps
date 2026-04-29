@@ -438,10 +438,10 @@ async function waitForServerInstallToReachLaunchableState(flow: IE2EFlowRuntime,
       if (startingBot.visible) return true;
       if (launchBot.clickable) return true;
 
-      const overlayCloseButton = await flow.isVisible('OverlayBase.closeOverlay()');
+      const overlayCloseButton = await flow.isVisible('OverlayBase.clickClose()');
       if (overlayCloseButton.visible && overlayCloseButton.enabled) {
         console.info(`[E2E] ${flowName}: finalizeSetup closing blocking overlay while waiting for launch readiness`);
-        await flow.click('OverlayBase.closeOverlay()').catch(() => undefined);
+        await flow.click('OverlayBase.clickClose()').catch(() => undefined);
       }
 
       const failedStepCount = installProgress.visible

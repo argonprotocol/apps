@@ -14,7 +14,8 @@
       <div>
         <AlertIcon
           v-if="!config.isValidJurisdiction"
-          class="relative -top-0.5 mr-1 inline-block h-5 w-5 text-yellow-700/80" />
+          class="relative -top-0.5 mr-1 inline-block h-5 w-5 text-yellow-700/80"
+        />
         {{ config.userJurisdiction.countryName }}
         <span class="font-light">(</span>
         <span @click="fixJurisdiction" class="text-argon-500 hover:text-argon-600 inline cursor-pointer">
@@ -26,7 +27,8 @@
 
     <button
       @click="closeOverlay"
-      class="inner-button-shadow w-full cursor-pointer rounded-lg border border-slate-900/10 bg-slate-600/20 px-4 py-1 text-slate-900 hover:bg-slate-600/15 focus:outline-none">
+      class="inner-button-shadow w-full cursor-pointer rounded-lg border border-slate-900/10 bg-slate-600/20 px-4 py-1 text-slate-900 hover:bg-slate-600/15 focus:outline-none"
+    >
       Close
     </button>
   </div>

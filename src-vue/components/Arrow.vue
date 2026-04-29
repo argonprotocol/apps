@@ -4,13 +4,15 @@
     class="Component Arrow"
     viewBox="0 0 18 10"
     preserveAspectRatio="none"
-    aria-hidden="true">
+    aria-hidden="true"
+  >
     <path
       d="M 0 10 L 9 0 L 18 10 Z"
       :stroke="stroke"
       :stroke-width="strokeWidth"
       vector-effect="non-scaling-stroke"
-      stroke-linejoin="round" />
+      stroke-linejoin="round"
+    />
   </svg>
 </template>
 

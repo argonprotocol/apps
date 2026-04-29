@@ -3,7 +3,7 @@
   <OverlayBase
     :isOpen="isOpen"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     data-testid="OnboardingWalletOverlay"
     class="w-9/12">
     <template #title>
@@ -673,7 +673,7 @@ function closeOverlay() {
   basics.overlayIsOpen = false;
 }
 
-basicEmitter.on('openWalletOverlay', async data => {
+basicEmitter.on('openWalletOverlayOld', async data => {
   if (data.screen !== 'receive-onboarding') return;
 
   walletId.value = data.walletType;

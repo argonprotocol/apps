@@ -35,7 +35,8 @@
         <div class="mt-3 text-xs leading-5 text-slate-500">Rewards will be transferred to this account.</div>
         <div
           v-if="hasClaimFeeShortfall"
-          class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800">
+          class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
+        >
           This account needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay the
           network fee. Choose a different account or add funds before claiming.
         </div>
@@ -43,13 +44,15 @@
 
       <div
         v-if="runtimeNotice"
-        class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-800">
+        class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-800"
+      >
         {{ runtimeNotice }}
       </div>
 
       <div
         v-if="hasTreasuryReserveShortfall"
-        class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-800">
+        class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-800"
+      >
         The Argon Treasury cannot cover all pending rewards right now. Treasury reserves are added after every mining
         frame ends.
         <span v-if="nextReserveRefreshAt">
@@ -72,14 +75,16 @@
         <button
           type="button"
           class="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          @click="emit('goTo', 'overview')">
+          @click="emit('goTo', 'overview')"
+        >
           Back to Rewards
         </button>
         <button
           type="button"
           :disabled="!canClaim"
           class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
-          @click="claimRewards">
+          @click="claimRewards"
+        >
           Claim ₳{{ microgonToArgonNm(claimableNow).format('0,0.[00]') }}
         </button>
       </div>
@@ -107,7 +112,8 @@
 
       <div
         v-if="transactionError"
-        class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
         {{ transactionError }}
       </div>
 
@@ -115,7 +121,8 @@
         <button
           type="button"
           class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-          @click="emit('goTo', 'overview')">
+          @click="emit('goTo', 'overview')"
+        >
           Back to Rewards
         </button>
       </div>

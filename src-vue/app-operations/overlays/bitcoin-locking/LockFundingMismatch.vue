@@ -32,7 +32,8 @@
         v-if="globalNoticeText"
         data-testid="LockFundingMismatch.actionError"
         class="text-sm font-semibold"
-        :class="globalNoticeClass">
+        :class="globalNoticeClass"
+      >
         {{ globalNoticeText }}
       </p>
       <p v-else-if="!showReturnCompleteState" class="text-sm text-slate-700">{{ introGuidanceText }}</p>
@@ -55,7 +56,8 @@
         <button
           @click="resumeFunding"
           :disabled="isSubmitting"
-          class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white disabled:bg-slate-400">
+          class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white disabled:bg-slate-400"
+        >
           Resume Lock Funding
         </button>
       </div>
@@ -94,12 +96,14 @@
                 : 'border-slate-300 bg-white'
           "
           class="flex h-full cursor-pointer flex-col rounded-lg border p-3.5 transition-colors"
-          @click="selectAction('accept')">
+          @click="selectAction('accept')"
+        >
           <div class="mb-1 flex items-center gap-2">
             <p class="text-xs font-light tracking-wide text-slate-400 uppercase">Option 1</p>
             <span
               v-if="acceptRecommended"
-              class="bg-argon-100 text-argon-700 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase">
+              class="bg-argon-100 text-argon-700 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase"
+            >
               Recommended
             </span>
           </div>
@@ -141,7 +145,8 @@
                     ? 'border-argon-600 bg-argon-600 hover:bg-argon-700 text-white'
                     : 'border-argon-600/50 text-argon-700 hover:bg-argon-50 bg-white'
                 "
-                class="w-full cursor-pointer rounded-md border px-5 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50">
+                class="w-full cursor-pointer rounded-md border px-5 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 {{ acceptActionLabel }}
               </button>
               <p v-if="!canAffordAccept" class="mt-1 text-xs text-red-700">
@@ -163,12 +168,14 @@
                 : 'border-slate-300 bg-white'
           "
           class="flex h-full cursor-pointer flex-col rounded-lg border p-3.5 transition-colors"
-          @click="selectAction('return')">
+          @click="selectAction('return')"
+        >
           <div class="mb-1 flex items-center gap-2">
             <p class="text-xs font-light tracking-wide text-slate-400 uppercase">Option 2</p>
             <span
               v-if="returnRecommended"
-              class="bg-argon-100 text-argon-700 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase">
+              class="bg-argon-100 text-argon-700 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase"
+            >
               Recommended
             </span>
           </div>
@@ -190,10 +197,12 @@
                     ? 'border-red-400 bg-white text-red-900 placeholder:text-red-300'
                     : 'border-slate-700/50 bg-white text-slate-900 placeholder:text-slate-400'
                 "
-                class="focus:ring-argon-500 w-full rounded-md border px-3 py-2.5 focus:border-transparent focus:ring-2" />
+                class="focus:ring-argon-500 w-full rounded-md border px-3 py-2.5 focus:border-transparent focus:ring-2"
+              />
               <p
                 class="mt-1.5 text-xs"
-                :class="returnDestinationError ? 'font-semibold text-red-700' : 'text-slate-500'">
+                :class="returnDestinationError ? 'font-semibold text-red-700' : 'text-slate-500'"
+              >
                 {{ returnDestinationError || returnDestinationHelper }}
               </p>
             </div>
@@ -222,7 +231,8 @@
                   ? 'border-argon-600 bg-argon-600 hover:bg-argon-700 text-white'
                   : 'border-argon-600/50 text-argon-700 hover:bg-argon-50 bg-white'
               "
-              class="w-full cursor-pointer rounded-md border px-5 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50">
+              class="w-full cursor-pointer rounded-md border px-5 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+            >
               {{ isSubmittingReturn ? 'Submitting Return...' : 'Return Bitcoin' }}
             </button>
             <p v-if="!canAffordReturn" class="mt-1 text-xs text-red-700">
@@ -252,7 +262,8 @@
         v-if="confirmationState.showProgress"
         :progress="confirmationProgressPct"
         :showLabel="false"
-        class="h-4" />
+        class="h-4"
+      />
       <div v-if="confirmationState.showProgress" class="mt-1 text-center font-light text-gray-500">
         {{ confirmationState.label }}
       </div>

@@ -9,7 +9,8 @@
       :options="feeRates"
       :dataTestid="dataTestid"
       :disabled="disabled"
-      class="h-auto py-3 pl-3" />
+      class="h-auto py-3 pl-3"
+    />
   </div>
 </template>
 

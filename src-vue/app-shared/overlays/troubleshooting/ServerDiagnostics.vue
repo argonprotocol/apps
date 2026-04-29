@@ -1,7 +1,8 @@
 <template>
   <div
     ref="containerRef"
-    class="flex min-h-[90%] w-200 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-3 pr-7 pb-5 pl-4">
+    class="flex min-h-[90%] w-200 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-3 pr-7 pb-5 pl-4"
+  >
     <DiagnosticStep ref="step1" :run="() => diagnostics.isConnected()">
       <heading>Checking SSH connection to mining machine</heading>
       <success>A successful connection was made to the server located at {{ config.serverDetails.ipAddress }}</success>
@@ -31,7 +32,8 @@
           <li
             v-for="[key, status] in data.steps"
             :key="key"
-            class="font-md cursor-text pr-10 font-light whitespace-nowrap text-slate-800/50 select-auto">
+            class="font-md cursor-text pr-10 font-light whitespace-nowrap text-slate-800/50 select-auto"
+          >
             {{ key }} = {{ status }}
           </li>
         </ul>
@@ -47,7 +49,8 @@
           <li
             v-for="file in data.files"
             :key="file"
-            class="font-md cursor-text pr-10 font-light text-slate-800/50 select-auto">
+            class="font-md cursor-text pr-10 font-light text-slate-800/50 select-auto"
+          >
             {{ file }}
           </li>
         </ul>
@@ -65,7 +68,8 @@
           <li
             v-for="file in data.files"
             :key="file"
-            class="font-md cursor-text pr-10 font-light text-slate-800/50 select-auto">
+            class="font-md cursor-text pr-10 font-light text-slate-800/50 select-auto"
+          >
             {{ file }}
           </li>
         </ul>
@@ -84,7 +88,8 @@
           <li
             v-for="[key, value] in Object.entries(data.info)"
             :key="key"
-            class="font-md cursor-text overflow-hidden pr-10 font-light text-ellipsis whitespace-nowrap text-slate-800/50 select-auto">
+            class="font-md cursor-text overflow-hidden pr-10 font-light text-ellipsis whitespace-nowrap text-slate-800/50 select-auto"
+          >
             {{ key }}: {{ value }}
           </li>
         </ul>
@@ -100,7 +105,8 @@
           <li
             v-for="[key, value] in Object.entries(data.info)"
             :key="key"
-            class="font-md cursor-text overflow-hidden pr-10 font-light text-ellipsis whitespace-nowrap text-slate-800/50 select-auto">
+            class="font-md cursor-text overflow-hidden pr-10 font-light text-ellipsis whitespace-nowrap text-slate-800/50 select-auto"
+          >
             {{ key }}: {{ value }}
           </li>
         </ul>

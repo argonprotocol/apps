@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
-import { existentialDepositMicrogons, type IWallet, miningHoldOperationalReserveMicrogons } from '../lib/Wallet.ts';
+import { existentialDepositMicrogons, miningHoldOperationalReserveMicrogons } from '../lib/WalletForArgon.ts';
+import { type IWallet } from '../lib/Wallet.ts';
 import { buildOperatorAccountRegistrationTx } from '../lib/OperationalAccount.ts';
 import { Config } from '../lib/Config.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
@@ -387,6 +388,8 @@ function createWallet(partial: Partial<IWallet>): IWallet {
     reservedMicronots: 0n,
     totalMicrogons: partial.availableMicrogons ?? 0n,
     totalMicronots: partial.availableMicronots ?? 0n,
+    fetchErrorMsg: '',
+    otherTokens: [],
     ...partial,
   };
 }

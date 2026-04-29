@@ -147,7 +147,7 @@ import BigNumber from 'bignumber.js';
 import TwoSlicePie from '../../components/TwoSlicePie.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { usePortfolio } from '../../stores/portfolio.ts';
-import { getWalletBalances, useWallets } from '../../stores/wallets.ts';
+import { getWalletsForArgon, useWallets } from '../../stores/wallets.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import { IWalletTransferRecord } from '../../lib/db/WalletTransfersTable.ts';
@@ -270,7 +270,7 @@ let unsubscribe: (() => void) | null = null;
 
 Vue.onMounted(async () => {
   await loadTransactionHistory();
-  const balances = getWalletBalances();
+  const balances = getWalletsForArgon();
   unsubscribe = balances.events.on('transfer-in', async () => {
     await loadTransactionHistory();
   });

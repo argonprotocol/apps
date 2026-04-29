@@ -30,7 +30,8 @@
           <Tooltip
             asChild
             side="top"
-            :content="`Every ${controller.rewardConfig.referralBonusEveryXOperationalSponsees} referred operators earns this bonus.`">
+            :content="`Every ${controller.rewardConfig.referralBonusEveryXOperationalSponsees} referred operators earns this bonus.`"
+          >
             <div StatWrapper class="border-r border-slate-200/70 px-4 py-4">
               <div Stat class="text-4xl! leading-none">
                 ₳{{ microgonToArgonNm(controller.rewardConfig.referralBonusReward).format('0,0.[00]') }}
@@ -48,7 +49,8 @@
         </div>
         <div
           v-if="hasUnclaimedRewards"
-          class="mt-5 flex items-center justify-between gap-4 text-sm leading-6 text-slate-500">
+          class="mt-5 flex items-center justify-between gap-4 text-sm leading-6 text-slate-500"
+        >
           <div class="min-w-0">
             You have
             <span class="font-semibold text-slate-700">
@@ -59,7 +61,8 @@
           <button
             type="button"
             class="text-argon-700 bg-argon-600/5 hover:bg-argon-600/10 shrink-0 rounded-md px-3 py-1.5 text-sm font-semibold"
-            @click="emit('goTo', 'claim')">
+            @click="emit('goTo', 'claim')"
+          >
             Claim ₳{{ microgonToArgonNm(controller.pendingRewardsAmount).format('0,0.[00]') }}
           </button>
         </div>
@@ -90,7 +93,8 @@
         </div>
         <div
           v-if="infoMessage"
-          class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+        >
           {{ infoMessage }}
         </div>
       </div>
@@ -106,7 +110,8 @@
         :inviteLinksByCode="inviteLinksByCode"
         :isCreating="isCreatingInvite"
         @create="createInvite"
-        @regenerate="regenerateInviteLink" />
+        @regenerate="regenerateInviteLink"
+      />
     </section>
 
     <section ref="unlockSectionRef" class="mt-5 border-t border-slate-200/70 px-2 pt-4">
@@ -118,7 +123,8 @@
         <div
           v-for="card in progressCards"
           :key="card.title"
-          class="rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-3">
+          class="rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-3"
+        >
           <div class="flex items-start justify-between gap-3">
             <div class="text-sm font-semibold text-slate-800">{{ card.title }}</div>
             <div class="text-argon-700/80 font-mono text-xs font-semibold">
@@ -146,7 +152,8 @@
 
       <div
         v-if="historicalInvites.length === 0"
-        class="mt-5 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+        class="mt-5 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500"
+      >
         No completed referral history yet. Older referral codes will appear here after they expire or become
         operational.
       </div>
@@ -157,9 +164,11 @@
           :key="invite.id"
           asChild
           side="top"
-          :content="inviteHistoryTooltip(invite)">
+          :content="inviteHistoryTooltip(invite)"
+        >
           <div
-            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-3 transition hover:border-slate-300 hover:bg-white">
+            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-3 transition hover:border-slate-300 hover:bg-white"
+          >
             <div class="min-w-0">
               <div class="font-semibold text-slate-800">{{ invite.name }}</div>
               <div class="mt-1 text-sm text-slate-500">{{ inviteHistorySummary(invite) }}</div>
@@ -170,7 +179,8 @@
 
             <div
               class="justify-self-end rounded-full px-3 py-1 text-xs font-semibold"
-              :class="inviteStatusClasses(inviteStatus(invite).label)">
+              :class="inviteStatusClasses(inviteStatus(invite).label)"
+            >
               {{ inviteStatus(invite).label }}
             </div>
           </div>

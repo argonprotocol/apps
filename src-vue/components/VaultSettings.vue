@@ -7,18 +7,21 @@
       :previousId="editBoxOverlayPreviousId"
       :nextId="editBoxOverlayNextId"
       @close="closeEditBoxOverlay"
-      @goTo="(id: any) => openEditBoxOverlay(id)" />
+      @goTo="(id: any) => openEditBoxOverlay(id)"
+    />
     <section class="my-2 flex grow flex-row" :class="includeProjections ? 'h-1/2' : ''">
       <div MainWrapperParent ref="securitizationRatioParent" :class="includeProjections ? 'w-1/2' : 'w-1/3'">
         <Tooltip
           asChild
           :calculateWidth="() => calculateElementWidth(securitizationRatioParent)"
           side="top"
-          content="This is the ratio of argons to bitcoins that you are committing. These argons guarantee the bitcoin holders that their assets are safe.">
+          content="This is the ratio of argons to bitcoins that you are committing. These argons guarantee the bitcoin holders that their assets are safe."
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('securitizationRatio')"
-            class="flex h-full w-full flex-col items-center justify-center px-8">
+            class="flex h-full w-full flex-col items-center justify-center px-8"
+          >
             <div StatHeader>Securitization Ratio</div>
             <div MainRule class="flex w-full flex-row items-center justify-center">
               <span class="flex flex-row items-center justify-center space-x-2">
@@ -39,11 +42,13 @@
           asChild
           :calculateWidth="() => calculateElementWidth(poolRevenueShareParent)"
           side="top"
-          content="Outside funders can contribute to your Treasury Pool, and in return you agree to share a portion of your profits with them.">
+          content="Outside funders can contribute to your Treasury Pool, and in return you agree to share a portion of your profits with them."
+        >
           <div
             MainWrapper
             @click="openEditBoxOverlay('poolRevenueShare')"
-            class="hover:bg-argon-100/20 flex h-full w-full cursor-pointer flex-col items-center justify-center">
+            class="hover:bg-argon-100/20 flex h-full w-full cursor-pointer flex-col items-center justify-center"
+          >
             <div StatHeader>Treasury Revenue Split</div>
             <div MainRule class="flex w-full flex-row items-center justify-center">
               <span>
@@ -65,11 +70,13 @@
             asChild
             :calculateWidth="() => calculateElementWidth(btcLockingFeesParent)"
             side="top"
-            content="Each bitcoin transaction that locks in your vault must pay this flat fee for doing so.">
+            content="Each bitcoin transaction that locks in your vault must pay this flat fee for doing so."
+          >
             <div
               MainWrapper
               @click="openEditBoxOverlay('btcLockingFees')"
-              class="flex h-full w-full flex-col items-center justify-center px-8">
+              class="flex h-full w-full flex-col items-center justify-center px-8"
+            >
               <div StatHeader>Bitcoin Locking Fee</div>
               <div MainRule class="flex w-full flex-row items-center justify-center">
                 <span>
@@ -98,11 +105,13 @@
             asChild
             :calculateWidth="() => calculateElementWidth(btcLockingFeesParent)"
             side="top"
-            content="Each bitcoin transaction that locks in your vault must pay this flat fee for doing so.">
+            content="Each bitcoin transaction that locks in your vault must pay this flat fee for doing so."
+          >
             <div
               MainWrapper
               @click="openEditBoxOverlay('btcLockingFees')"
-              class="flex h-full w-full flex-col items-center justify-center px-8">
+              class="flex h-full w-full flex-col items-center justify-center px-8"
+            >
               <div StatHeader>Bitcoin Locking Fee</div>
               <div MainRule class="flex w-full flex-row items-center justify-center">
                 <span>
@@ -123,11 +132,13 @@
             asChild
             :calculateWidth="() => calculateElementWidth(projectedUtilizationParent)"
             side="top"
-            content="You can play with scenarios of how utilized your Bitcoin and Treasury pools will be to see how it impacts your returns.">
+            content="You can play with scenarios of how utilized your Bitcoin and Treasury pools will be to see how it impacts your returns."
+          >
             <div
               MainWrapper
               @click="openEditBoxOverlay('projectedUtilization')"
-              class="flex h-full w-full flex-col items-center justify-center px-4">
+              class="flex h-full w-full flex-col items-center justify-center px-4"
+            >
               <div StatHeader>Projected Utilization</div>
               <div class="flex w-full flex-row items-center justify-center px-8 text-center font-mono">
                 <div MainRule class="flex w-5/12 flex-row items-center justify-center">
@@ -145,7 +156,8 @@
                 </div>
               </div>
               <div
-                class="flex w-full flex-row items-center justify-center px-8 text-center font-mono whitespace-nowrap">
+                class="flex w-full flex-row items-center justify-center px-8 text-center font-mono whitespace-nowrap"
+              >
                 <div class="text-md flex w-5/12 flex-row items-center justify-center px-1 text-gray-500/60">
                   Bitcoin Usage
                 </div>

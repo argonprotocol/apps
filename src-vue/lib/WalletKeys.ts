@@ -125,6 +125,10 @@ export class WalletKeys {
     return await invokeWithTimeout<Uint8Array>('derive_x25519_public_key', { suri: `//operational//encrypt` }, 60e3);
   }
 
+  public async signEthereumPersonalMessage(message: string): Promise<string> {
+    return await invokeWithTimeout<string>('sign_ethereum_personal_message', { message }, 60e3);
+  }
+
   // TODO: move signing to backend instead of passing around key
   public async getMiningBotKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);

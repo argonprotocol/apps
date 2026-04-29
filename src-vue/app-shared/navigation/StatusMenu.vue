@@ -4,13 +4,15 @@
       <DropdownMenuTrigger Trigger class="cursor-pointer focus:outline-none">
         <div
           v-if="!wallets.isLoaded"
-          class="text-argon-700 flex h-[30px] flex-row items-center gap-x-2 rounded-md border border-slate-400/50 px-4 py-0.5 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none">
+          class="text-argon-700 flex h-[30px] flex-row items-center gap-x-2 rounded-md border border-slate-400/50 px-4 py-0.5 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none"
+        >
           Loading...
         </div>
         <div
           v-else-if="status === Status.WaitingForSetup || status === Status.WaitingForFunding"
           class="text-argon-600/70 flex h-[30px] flex-row items-center gap-x-2 rounded-md border px-4 py-0.5 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none"
-          :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']">
+          :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+        >
           <div ref="eyeballsElem" class="-ml-0.5 flex h-5 flex-row items-center gap-x-0.5">
             <div Eye class="border-argon-600/70 relative h-full w-3 rounded-[100%] border">
               <div
@@ -20,7 +22,8 @@
                   top: `${eyeballYPosition}%`,
                   transform: `translate(-${eyeballXPosition}%, -${eyeballYPosition}%)`,
                 }"
-                class="bg-argon-600/70 absolute h-[7px] w-[7px] rounded-full" />
+                class="bg-argon-600/70 absolute h-[7px] w-[7px] rounded-full"
+              />
             </div>
             <div Eye class="border-argon-600/70 relative h-full w-3 rounded-[100%] border">
               <div
@@ -30,7 +33,8 @@
                   top: `${eyeballYPosition}%`,
                   transform: `translate(-${eyeballXPosition}%, -${eyeballYPosition}%)`,
                 }"
-                class="bg-argon-600/70 absolute h-[7px] w-[7px] rounded-full" />
+                class="bg-argon-600/70 absolute h-[7px] w-[7px] rounded-full"
+              />
             </div>
           </div>
           Waiting for {{ status === Status.WaitingForSetup ? 'Setup' : 'Funding' }}
@@ -38,7 +42,8 @@
         <div
           v-else-if="status === Status.Funded || status === Status.FullyFunded"
           class="text-argon-600/70 flex h-[30px] flex-row items-center gap-x-2 rounded-md border px-3 py-0.5 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none"
-          :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']">
+          :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+        >
           <div class="text-argon-600 relative h-5 w-5 opacity-70">
             <StatusHappy />
             <Motion
@@ -50,7 +55,8 @@
                 repeatDelay: 4,
                 times: [0, 0.5, 1],
               }"
-              class="absolute top-0 left-0 h-full w-full">
+              class="absolute top-0 left-0 h-full w-full"
+            >
               <StatusSmiling />
             </Motion>
           </div>
@@ -59,7 +65,8 @@
         <div v-else-if="wallets.isLoaded" class="group cursor-pointer">
           <div
             v-if="status === Status.Underfunded"
-            class="inner-button-shadow flex flex-row items-center gap-x-2 rounded-md border border-red-600 bg-red-500 px-4 py-0.5 text-white">
+            class="inner-button-shadow flex flex-row items-center gap-x-2 rounded-md border border-red-600 bg-red-500 px-4 py-0.5 text-white"
+          >
             <div class="h-4 w-4">
               <StatusSad />
             </div>
@@ -68,7 +75,8 @@
 
           <div
             v-else-if="status === Status.Overfunded"
-            class="inner-button-shadow flex flex-row items-center gap-x-2 rounded-md border border-yellow-600/60 bg-yellow-600/70 px-4 py-0.5 text-white">
+            class="inner-button-shadow flex flex-row items-center gap-x-2 rounded-md border border-yellow-600/60 bg-yellow-600/70 px-4 py-0.5 text-white"
+          >
             <div class="h-4 w-4">
               <StatusNeutral />
             </div>
@@ -86,15 +94,18 @@
           :align="'end'"
           :alignOffset="0"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all">
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all"
+        >
           <div
-            class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+            class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20"
+          >
             <div
               v-if="
                 config.miningSetupStatus !== MiningSetupStatus.Finished &&
                 config.vaultingSetupStatus !== VaultingSetupStatus.Finished
               "
-              class="flex w-full flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80">
+              class="flex w-full flex-col gap-y-2 rounded-md px-4 py-4 text-slate-900/80"
+            >
               <p>
                 Once your mining bot has been setup, this is where you'll be notified of important alerts such as when
                 your bot's capital runs low.
@@ -143,12 +154,14 @@
                   background: `linear-gradient(to right, #a600d4 0%, #EABDF7FF 50%, #a600d4 100%)`,
                   backgroundSize: '200% 100%',
                 }"
-                class="mt-1 h-2.5 w-full rounded-sm opacity-50" />
+                class="mt-1 h-2.5 w-full rounded-sm opacity-50"
+              />
             </div>
 
             <div
               v-else-if="config.hasSavedBiddingRules"
-              :class="[installer.isRunning ? 'pointer-events-none opacity-50' : '']">
+              :class="[installer.isRunning ? 'pointer-events-none opacity-50' : '']"
+            >
               <div v-if="miningStatus === 'Funded'" class="rounded-md bg-slate-400/10 px-6 py-5">
                 <header class="flex flex-row items-center gap-x-1 text-lg font-bold whitespace-nowrap text-slate-600">
                   <CheckboxIcon class="relative -left-0.5 h-7 w-7" />
@@ -227,7 +240,8 @@
                 <div class="mt-2 flex flex-row gap-x-2">
                   <button
                     @click="openFundMiningAccountOverlay"
-                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10">
+                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10"
+                  >
                     Transfer Tokens Into Account
                   </button>
                 </div>
@@ -259,7 +273,8 @@
                 </p>
                 <div class="mt-2 flex flex-row gap-x-2">
                   <button
-                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10">
+                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10"
+                  >
                     Add Capital to Bidding Budget
                   </button>
                 </div>
@@ -283,7 +298,8 @@
                 <div class="mt-2 flex flex-row gap-x-2">
                   <button
                     @click="openFundVaultingAccountOverlay"
-                    class="cursor-pointer rounded-md border border-lime-600 px-4 py-1.5 font-bold text-lime-700/70 hover:bg-lime-600/10">
+                    class="cursor-pointer rounded-md border border-lime-600 px-4 py-1.5 font-bold text-lime-700/70 hover:bg-lime-600/10"
+                  >
                     Transfer More Tokens Into Vault
                   </button>
                 </div>
@@ -305,7 +321,8 @@
                 <div class="mt-2 flex flex-row gap-x-2">
                   <button
                     @click="openFundVaultingAccountOverlay"
-                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10">
+                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10"
+                  >
                     Transfer Tokens Into Account
                   </button>
                 </div>
@@ -327,7 +344,8 @@
                 <div class="mt-2 flex flex-row gap-x-2">
                   <button
                     @click="openFundVaultingAccountOverlay"
-                    class="cursor-pointer rounded-md border border-yellow-600 px-4 py-1.5 font-bold text-yellow-700/70 hover:bg-yellow-600/10">
+                    class="cursor-pointer rounded-md border border-yellow-600 px-4 py-1.5 font-bold text-yellow-700/70 hover:bg-yellow-600/10"
+                  >
                     Transfer Tokens Into Account
                   </button>
                 </div>
@@ -355,7 +373,8 @@
                 </p>
                 <div class="mt-2 flex flex-row gap-x-2">
                   <button
-                    class="cursor-pointer rounded-md border border-yellow-600 px-4 py-1.5 font-bold text-yellow-700/70 hover:bg-yellow-600/10">
+                    class="cursor-pointer rounded-md border border-yellow-600 px-4 py-1.5 font-bold text-yellow-700/70 hover:bg-yellow-600/10"
+                  >
                     Add to Vault's Working Capital
                   </button>
                 </div>
@@ -491,12 +510,12 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlayOld', { walletType: WalletType.miningHold, screen: 'receive' });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlayOld', { walletType: WalletType.vaulting, screen: 'receive' });
 }
 
 function openBotCreateOverlay() {

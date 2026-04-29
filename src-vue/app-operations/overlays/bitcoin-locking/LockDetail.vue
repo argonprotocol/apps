@@ -28,7 +28,8 @@
         <a
           :href="mempool.txUrl(releaseTxid)"
           target="_blank"
-          class="text-argon-600 inline-flex items-center gap-1 hover:underline">
+          class="text-argon-600 inline-flex items-center gap-1 hover:underline"
+        >
           View bitcoin transaction
           <ArrowTopRightOnSquareIcon class="h-3 w-3" />
         </a>
@@ -39,7 +40,8 @@
           <div v-if="!isPendingFunding && isOwnLock && unlockPrice > 0n">
             <Tooltip
               :asChild="true"
-              content="The argon cost to unlock this bitcoin and return it to your wallet. Includes the redemption rate plus transaction fees.">
+              content="The argon cost to unlock this bitcoin and return it to your wallet. Includes the redemption rate plus transaction fees."
+            >
               <span class="cursor-help">
                 Unlock costs
                 <span class="font-semibold">
@@ -70,7 +72,8 @@
                 stroke-width="3.5"
                 stroke-dasharray="100"
                 :stroke-dashoffset="100 - termProgress"
-                stroke-linecap="butt" />
+                stroke-linecap="butt"
+              />
             </svg>
             <div class="absolute start-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transform">
               <span :class="timerColorClass" class="text-center text-xs font-bold">
@@ -83,7 +86,8 @@
             <CountdownClock
               v-if="isPendingFunding || isPendingCosign"
               :time="isPendingCosign ? cosignDueTime : lockExpirationTime"
-              v-slot="{ days, hours, minutes, seconds, isFinished }">
+              v-slot="{ days, hours, minutes, seconds, isFinished }"
+            >
               <template v-if="isFinished">Expired</template>
               <template v-else>
                 <template v-if="days > 0">{{ days }}d</template>
@@ -99,11 +103,13 @@
 
       <div
         v-if="isOwnLock && !isPendingFunding && !isReleased"
-        class="mt-5 flex justify-end border-t border-slate-200 pt-4">
+        class="mt-5 flex justify-end border-t border-slate-200 pt-4"
+      >
         <button
           data-testid="LockDetail.unlock()"
           @click="emit('unlock')"
-          class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white">
+          class="bg-argon-600 hover:bg-argon-700 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white"
+        >
           Unlock Bitcoin
         </button>
       </div>

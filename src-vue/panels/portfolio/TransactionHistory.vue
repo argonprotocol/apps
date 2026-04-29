@@ -85,7 +85,7 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { getWalletBalances } from '../../stores/wallets.ts';
+import { getWalletsForArgon } from '../../stores/wallets.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { bigIntAbs } from '@argonprotocol/apps-core';
 
@@ -123,7 +123,7 @@ async function loadTransactionHistory(): Promise<void> {
 const transactions = Vue.ref<IWalletTransferRecord[]>([]);
 Vue.onMounted(async () => {
   await loadTransactionHistory();
-  const balances = getWalletBalances();
+  const balances = getWalletsForArgon();
   balances.events.on('transfer-in', async () => {
     await loadTransactionHistory();
   });

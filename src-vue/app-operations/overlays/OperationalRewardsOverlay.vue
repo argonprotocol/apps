@@ -4,10 +4,11 @@
     :showGoBack="currentScreen === 'claim'"
     :overflowScroll="true"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     @goBack="goBack"
     class="max-h-[calc(100vh-2rem)] pb-6"
-    :class="currentScreen === 'overview' ? 'w-7/12' : 'w-[680px]'">
+    :class="currentScreen === 'overview' ? 'w-7/12' : 'w-[680px]'"
+  >
     <template #title>
       <div class="grow text-[30px] leading-none font-bold text-slate-800">{{ title }}</div>
     </template>
@@ -16,7 +17,8 @@
       v-if="currentScreen === 'activate'"
       :isActive="isOpen && currentScreen === 'activate'"
       @close="closeOverlay"
-      @goTo="goTo" />
+      @goTo="goTo"
+    />
 
     <Congratulations v-else-if="currentScreen === 'congratulations'" @close="closeOverlay" @goTo="goTo" />
 
@@ -27,7 +29,8 @@
       :isActive="isOpen && currentScreen === 'overview'"
       :section="currentSection"
       :sectionRequestId="sectionRequestId"
-      @goTo="goTo" />
+      @goTo="goTo"
+    />
   </OverlayBase>
 </template>
 

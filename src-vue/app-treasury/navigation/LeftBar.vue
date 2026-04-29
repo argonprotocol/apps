@@ -6,8 +6,8 @@
       @click="controller.setScreenKey(TreasuryTab.MainchainSavings)"
       :Selected="controller.selectedTab === TreasuryTab.MainchainSavings || undefined"
     >
-      <div>Argon Savings</div>
-      <div>{{ currency.symbol }}{{ formattedMainchain }}</div>
+      <div>Inflation-Free Savings</div>
+      <div>{{ currency.symbol }}{{ microgonToMoneyNm(mainchainBalance).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
@@ -27,7 +27,7 @@
       :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined"
     >
       <div>Bitcoin Locks</div>
-      <div>{{ currency.symbol }}0.00</div>
+      <div>{{ currency.symbol }}{{ satToMoneyNm(totalLockedSatoshis).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
@@ -36,17 +36,17 @@
       @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)"
       :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
     >
-      <div>Ethereum Swaps</div>
+      <div>Stable Swaps</div>
       <div>{{currency.symbol}}0.00</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
     <section DashBox class="grow flex flex-col">
-      <div class="grow px-10 pb-[40%] flex flex-col justify-center text-justify text-slate-800/60">
+      <div class="grow pl-8 pr-10 pb-[40%] flex flex-col justify-center text-justify text-slate-800/60">
         <header class="font-bold">Did You Know?</header>
         <p class="break-words leading-7">
-          The argon stablecoin is designed to never lose value. Unlike the dollar, it buys the same amount of goods
-          today as it will a century from now.
+          This Argon Treasury app is fully decentralized and open-source, which means there is no company behind it. All the code runs on your
+          computer, and all the data stays with you.
         </p>
       </div>
       <ul class="flex flex-row w-full items-end px-3 pb-4 gap-x-3 text-center">
@@ -70,13 +70,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import CurrencyMenu from '../../app-shared/navigation/CurrencyMenu.vue';
 import Arrow from '../../components/Arrow.vue';
-import { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
-import { useTour } from '../../stores/tour.ts';
-import { appConfigDir } from '@tauri-apps/api/path';
-import { readDir } from '@tauri-apps/plugin-fs';
-import { INSTANCE_NAME, NETWORK_NAME } from '../../lib/Env.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { TreasuryTab, useTreasuryController } from '../../stores/treasuryController.ts';
 import { useWallets } from '../../stores/wallets.ts';
@@ -85,59 +79,37 @@ import DiscordIcon from '../../assets/discord.svg';
 import InstructionsIcon from '../../assets/instructions.svg';
 import { useMyBonds } from '../../stores/myBonds.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
 
 const controller = useTreasuryController();
 const currency = getCurrency();
 const wallets = useWallets();
 const myBonds = useMyBonds();
+const bitcoinLocks = getBitcoinLocks();
+
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const mainchainBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
 const totalValue = Vue.computed(() => mainchainBalance.value + myBonds.bondTotals.totalBondMicrogons);
 
-const formattedMainchain = Vue.computed(() => {
-  if (!currency.isLoaded) return '0.00';
-  const { microgonToMoneyNm } = createNumeralHelpers(currency);
-  return microgonToMoneyNm(mainchainBalance.value).format('0,0.00');
+const activeLocks = Vue.computed(() => {
+  return bitcoinLocks.getAllLocks();
 });
 
-const formattedTotal = Vue.computed(() => {
-  if (!currency.isLoaded) return '0.00';
-  const { microgonToMoneyNm } = createNumeralHelpers(currency);
-  return microgonToMoneyNm(totalValue.value).format('0,0.00');
+const nonReleasedLocks = Vue.computed(() => {
+  return activeLocks.value.filter(l => l.status !== BitcoinLockStatus.Released);
 });
-const tour = useTour();
 
-const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
-
-const instances = Vue.ref<IInstance[]>([]);
+const totalLockedSatoshis = Vue.computed(() => {
+  return nonReleasedLocks.value.reduce((sum, l) => sum + l.satoshis, 0n);
+});
 
 function openLink(url: string) {
   void tauriOpenUrl(url);
 }
 
-async function fetchInstances() {
-  const configDir = await appConfigDir();
-
-  const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
-  instances.value = entries
-    .filter(entry => entry.isDirectory)
-    .map(entry => ({
-      name: entry.name,
-      isSelected: entry.name === INSTANCE_NAME,
-    }));
-}
-tour.registerPositionCheck('currencyMenu', () => {
-  const currencyMenuElem = currencyMenuRef.value?.$el;
-  const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
-  rect.left -= 10;
-  rect.right += 10;
-  rect.top -= 10;
-  rect.bottom += 7;
-  return { ...rect, blur: 5 };
-});
-
 Vue.onMounted(async () => {
-  await fetchInstances();
   await myBonds.load();
 });
 </script>
@@ -157,7 +129,7 @@ Vue.onMounted(async () => {
     &:hover:not([Selected]) {
       @apply bg-[var(--bg-color)];
       [ArrowWrapper] {
-        @apply left-[calc(100%-12px)] block;
+        @apply left-[calc(100%-2px)] block;
         &::before {
           @apply w-4;
         }

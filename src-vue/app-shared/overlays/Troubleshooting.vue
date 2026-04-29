@@ -3,7 +3,7 @@
   <OverlayBase
     :isOpen="isOpen"
     @close="closeOverlay"
-    @esc="closeOverlay"
+    @pressEsc="closeOverlay"
     class="min-h-60 overflow-scroll rounded-lg border border-black/40 bg-white px-3 pb-4 shadow-xl focus:outline-none">
     <template #title>
       <div

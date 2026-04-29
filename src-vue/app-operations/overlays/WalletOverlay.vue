@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @esc="closeOverlay" class="w-9/12">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-9/12">
     <template #title>
       <div class="inline-block text-2xl font-bold relative">Add Funds to Your {{ walletName }} Wallet</div>
     </template>
@@ -237,7 +237,7 @@ function closeOverlay() {
   basics.overlayIsOpen = false;
 }
 
-basicEmitter.on('openWalletOverlay', async data => {
+basicEmitter.on('openWalletOverlayOld', async data => {
   if (data.screen !== 'receive') return;
 
   walletId.value = data.walletType;

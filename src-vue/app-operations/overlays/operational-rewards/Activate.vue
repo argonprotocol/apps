@@ -32,10 +32,12 @@
           v-model="rewardAccount"
           :options="rewardAccountOptions"
           :selectFirst="true"
-          class="mt-3 flex w-full" />
+          class="mt-3 flex w-full"
+        />
         <div
           v-if="hasRewardAccountFeeShortfall"
-          class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800">
+          class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
+        >
           This account needs ~₳{{ microgonToArgonNm(rewardFeeEstimate ?? 0n).format('0,0.[00]') }} available to submit
           the activation. Choose a different account or add funds before activating.
         </div>
@@ -49,7 +51,8 @@
       </div>
       <div
         v-if="runtimeNotice"
-        class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-800">
+        class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm leading-6 text-amber-800"
+      >
         {{ runtimeNotice }}
       </div>
 
@@ -61,14 +64,16 @@
         <button
           type="button"
           class="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          @click="emit('close')">
+          @click="emit('close')"
+        >
           Not Now
         </button>
         <button
           type="button"
           :disabled="!canSubmitRewardClaim"
           class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
-          @click="activateAndClaimReward">
+          @click="activateAndClaimReward"
+        >
           <template v-if="claimableNow === undefined">Activate and Claim Reward</template>
           <template v-else>Activate and Claim ₳{{ microgonToArgonNm(claimableNow).format('0,0.[00]') }}</template>
         </button>
@@ -98,7 +103,8 @@
 
       <div
         v-if="transactionError"
-        class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        class="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
         {{ transactionError }}
       </div>
 
@@ -106,7 +112,8 @@
         <button
           type="button"
           class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-          @click="emit('goTo', isActivationComplete ? 'congratulations' : 'activate')">
+          @click="emit('goTo', isActivationComplete ? 'congratulations' : 'activate')"
+        >
           {{ isActivationComplete ? 'Continue' : 'Try Again' }}
         </button>
       </div>

@@ -3,14 +3,16 @@
     :isOpen="true"
     data-testid="BondDetailOverlay"
     @close="emit('close')"
-    @esc="emit('close')"
-    class="BondDetailOverlay min-h-48 w-200">
+    @pressEsc="emit('close')"
+    class="BondDetailOverlay min-h-48 w-200"
+  >
     <template #title>
       <div class="mr-6 flex grow flex-row items-center gap-2">
         <span class="text-xl font-bold text-slate-800/80">Bond Details</span>
         <span
           v-if="bondLot.isOperator"
-          class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white">
+          class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white"
+        >
           YOURS
         </span>
         <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
@@ -23,7 +25,8 @@
 
     <div
       v-if="bondLotDetails?.isOwn"
-      class="flex items-start justify-between gap-4 border-t border-slate-200 px-10 py-4">
+      class="flex items-start justify-between gap-4 border-t border-slate-200 px-10 py-4"
+    >
       <div class="text-sm text-slate-500">
         <template v-if="bondLotDetails.isReleasing">This bond lot is already being returned.</template>
         <template v-else>Liquidate this bond lot to schedule its return from Treasury Bonds.</template>
@@ -35,7 +38,8 @@
         v-if="bondLotDetails.canRelease && !bondLotDetails.isReleasing && !isLiquidating"
         type="button"
         class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-5 py-2 text-sm font-semibold text-white"
-        @click="liquidateBondLot">
+        @click="liquidateBondLot"
+      >
         Liquidate Bond Lot
       </button>
     </div>

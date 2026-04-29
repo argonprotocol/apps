@@ -22,7 +22,8 @@
       <button
         data-testid="LockFundingExpired.acknowledge()"
         @click="acknowledge"
-        class="cursor-pointer rounded-md border border-slate-400 px-5 py-2 text-base font-semibold text-slate-700 hover:bg-slate-100">
+        class="cursor-pointer rounded-md border border-slate-400 px-5 py-2 text-base font-semibold text-slate-700 hover:bg-slate-100"
+      >
         Acknowledge &amp; Dismiss
       </button>
     </div>

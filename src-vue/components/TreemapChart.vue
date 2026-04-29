@@ -4,7 +4,8 @@
     <div
       v-if="hasRemainder"
       class="treemap__tile treemap__tile--remainder flex cursor-pointer items-center justify-center border border-slate-500/20 px-3 py-1.5"
-      @click="handleTileClick({ key: '__remainder__', kind: 'remainder' } as IRectNode)">
+      @click="handleTileClick({ key: '__remainder__', kind: 'remainder' } as IRectNode)"
+    >
       <span class="text-[0.88rem] opacity-60">
         <template v-if="remainderNode?.displayValue">{{ remainderNode.displayValue }}</template>
         {{ remainderNode?.label }}
@@ -32,16 +33,19 @@
           rect.isTiny ? 'treemap__tile--tiny' : '',
         ]"
         :style="getRectStyle(rect)"
-        @click="handleTileClick(rect)">
+        @click="handleTileClick(rect)"
+      >
         <div
-          class="treemap__content relative z-10 flex h-full w-full flex-col items-center justify-center text-center text-[rgba(71,85,105,0.78)] hover:bg-slate-500/10">
+          class="treemap__content relative z-10 flex h-full w-full flex-col items-center justify-center text-center text-[rgba(71,85,105,0.78)] hover:bg-slate-500/10"
+        >
           <template v-if="!rect.isTiny">
             <div v-if="rect.label" class="treemap__value text-[1.05rem] leading-[1.2] font-bold">
               {{ rect.label }}
             </div>
             <div
               v-if="rect.displayValue && !rect.isCompact"
-              class="treemap__label mt-1 text-[0.82rem] leading-[1.25] opacity-60">
+              class="treemap__label mt-1 text-[0.82rem] leading-[1.25] opacity-60"
+            >
               {{ rect.displayValue }}
             </div>
           </template>

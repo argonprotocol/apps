@@ -1,24 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex h-full flex-col px-4 py-4 gap-4">
-    <header class="flex flex-row items-center justify-between">
-      <div>
-        <h2 class="text-xl font-bold text-slate-800/70">Argon Bonds</h2>
-        <div v-if="isLoaded && vaultTotalCapacity > 0n" class="mt-0.5 text-sm text-slate-400">
-          <span class="font-medium text-slate-600">{{ currency.symbol }}{{ microgonToMoneyNm(vaultAvailableCapacity).format('0,0.00') }}</span>
-          available of
-          <span>{{ currency.symbol }}{{ microgonToMoneyNm(vaultTotalCapacity).format('0,0.00') }}</span>
-          vault capacity
-        </div>
-      </div>
-      <button
-        v-if="myBonds.bondLots.length > 0 && vaultAvailableCapacity > 0n"
-        @click="showOverlay = true"
-        class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-5 py-2 text-base font-bold text-white">
-        Buy Bonds
-      </button>
-    </header>
-
+  <div class="flex flex-col h-full">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">
       Loading…
     </div>
@@ -120,30 +102,58 @@
       </div>
 
       <!-- Blank state -->
-      <div
-        v-else
-        class="flex grow flex-col items-center justify-center gap-4">
-        <div class="text-center">
-          <div class="text-base font-medium text-argon-text-primary">No active bond</div>
-          <div class="mt-1 text-sm text-slate-400">
-            Buy bonds to earn treasury yield from Vault #{{ myBonds.vaultId }}
+      <div v-else class="grow flex flex-col items-center justify-center">
+        <div class="flex flex-col w-7/12 max-w-200 pb-10 items-center">
+          <div class="bg-white shadow-md w-20">
+            <BondIcon class="w-full inline-block text-argon-600/60" />
+          </div>
+          <p class="w-0 min-w-full whitespace-normal border-y border-slate-400/50 py-4 mt-10 text-[17px]/7 font-light">
+            Argon Bonds give you direct exposure to the profit returns of Argon's Stabilization Vaults. Each bond matures
+            in ten days and is backed by the vault's own on-chain mechanics, which makes it impossible for a loan to
+            default. This means your principal is always protected. The only question becomes: how much will your bond
+            earn?
+          </p>
+          <span class="relative">
+            <button
+              @click="showBondsOverlay = true"
+              :class="walletBalance ? '' : 'pointer-events-none opacity-40 bg-slate-600'"
+              class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md mt-12 px-12 py-2.5 text-base font-bold text-white"
+            >
+              Purchase Argon Bonds
+            </button>
+            <CurvedArrow
+              class="pointer-events-none absolute left-full top-14 h-22 text-slate-400/80 translate-y-1"
+            />
+          </span>
+          <div class="relative mt-14 text-center">
+            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div
+                class="h-24 w-80 rounded-full opacity-95 blur-lg"
+                style="background: radial-gradient(ellipse at center, #FFFEDC 0%, #FFFEDC 42%, rgba(255, 254, 220, 0.45) 62%, rgba(255, 255, 255, 0) 78%);"
+              />
+            </div>
+
+            <div v-if="walletBalance" class="relative text-argon-600 font-bold text-xl leading-8">
+              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings that is<br />
+              ready for immediate deployment.
+            </div>
+            <div v-else class="relative text-argon-600 font-bold text-xl leading-8">
+              This feature is disabled until your<br />
+              <span @click="openArgonWallet" class="underline cursor-pointer hover:text-argon-600/80">argon wallet</span> is funded.
+            </div>
           </div>
         </div>
-        <button
-          @click="showOverlay = true"
-          class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-6 py-2.5 text-base font-bold text-white">
-          Buy Bonds
-        </button>
       </div>
 
     </template>
 
     <BuyBondsOverlay
-      v-if="showOverlay"
+      v-if="showBondsOverlay"
       :vaultId="myBonds.vaultId"
-      :walletBalance="wallets.liquidLockingWallet.availableMicrogons"
+      :currentAmount="myBonds.bondTotals.activeBondMicrogons"
+      :walletBalance="walletBalance"
       :availableVaultSpace="vaultAvailableCapacity"
-      @close="showOverlay = false"
+      @close="showBondsOverlay = false"
       @submitted="onSubmitted"
     />
   </div>
@@ -163,10 +173,14 @@ import { BondLot, NetworkConfig, TreasuryBonds } from '@argonprotocol/apps-core'
 import { getBondMarket, type IFrameEarningsRow, useMyBonds } from '../../stores/myBonds.ts';
 import BuyBondsOverlay from '../../app-shared/overlays/BuyBondsOverlay.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
+import CurvedArrow from '../../components/CurvedArrow.vue';
 import Tooltip from '../../components/Tooltip.vue';
+import BondIcon from '../../assets/bond.svg?component';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 
 dayjs.extend(utc);
 
@@ -186,9 +200,14 @@ const transactionTracker = getTransactionTracker();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.ref(false);
-const showOverlay = Vue.ref(false);
+const showBondsOverlay = Vue.ref(false);
+const showAllHistory = Vue.ref(false);
 const vaultTotalCapacity = Vue.ref(0n);
+const distributableBidPool = Vue.ref(0n);
+const globalActiveCapital = Vue.ref(0n);
+const vaultActiveCapital = Vue.ref(0n);
 const releasingLotIds = Vue.ref<Record<number, boolean>>({});
+const walletBalance = Vue.computed(() => wallets.investmentWallet.availableMicrogons);
 
 const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[myBonds.vaultId]);
 const vaultBondLots = Vue.computed(() => vaultBondState.value?.bondLots ?? []);
@@ -205,6 +224,21 @@ const vaultAvailableCapacity = Vue.computed(() => {
   return BondLot.bondsToMicrogons(nextFrameBondAvailability.value.nextFrameAvailableBonds);
 });
 
+const frameHistory = Vue.computed<IFrameRow[]>(() => {
+  return myBonds.frameHistory
+    .filter(row => row.frameId > 0)
+    .map(row => {
+      let date: Date;
+      if (miningFrames.framesById[row.frameId]) {
+        date = miningFrames.getFrameDate(row.frameId);
+      } else {
+        const frameDiff = miningFrames.currentFrameId - row.frameId;
+        date = new Date(Date.now() - frameDiff * TICK_MILLIS);
+      }
+      return { ...row, date };
+    });
+});
+
 const bondsReturnedDate = Vue.computed(() => {
   const returningBondFrame = myBonds.bondTotals.returningBondFrame;
   if (returningBondFrame == null) return null;
@@ -212,7 +246,7 @@ const bondsReturnedDate = Vue.computed(() => {
 });
 
 async function onSubmitted() {
-  showOverlay.value = false;
+  showBondsOverlay.value = false;
   await myBonds.refreshFrameHistory();
   await refreshMarketData();
 }
@@ -264,6 +298,10 @@ async function refreshMarketData() {
     },
     client,
   );
+}
+
+function openArgonWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
 }
 
 let unsubVault: (() => void) | undefined;

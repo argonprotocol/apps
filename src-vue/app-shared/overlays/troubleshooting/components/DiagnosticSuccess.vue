@@ -1,7 +1,8 @@
 <template>
   <div
     v-if="isSuccess"
-    class="diagnostic-step-success font-md mt-1 cursor-text pr-10 font-light text-slate-800/50 select-auto">
+    class="diagnostic-step-success font-md mt-1 cursor-text pr-10 font-light text-slate-800/50 select-auto"
+  >
     <slot :data="data" />
   </div>
 </template>

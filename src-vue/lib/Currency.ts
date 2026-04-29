@@ -5,10 +5,13 @@ import {
   Currency as CurrencyBase,
   UnitOfMeasurement,
   MainchainClients,
+  bigNumberToBigInt,
   type ICurrencyRecord,
   type ICurrencyKey,
 } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { Config } from './Config';
+import { IOtherToken } from './Wallet.ts';
 
 export {
   SATOSHIS_PER_BITCOIN,
@@ -49,11 +52,24 @@ export class Currency extends CurrencyBase {
     if (saveToConfig) this.config.defaultCurrencyKey = key;
   }
 
-  public convertSatToBtc(satoshis: bigint): number {
-    return super.convertSatToBtc(satoshis);
+  public convertSatToBtc(sat: bigint): number {
+    return super.convertSatToBtc(sat);
   }
 
-  public convertBtcToMicrogon(bitcoins: number): bigint {
-    return super.convertBtcToMicrogon(bitcoins);
+  public convertBtcToMicrogon(btc: number): bigint {
+    return super.convertBtcToMicrogon(btc);
+  }
+
+  public convertOtherToFinalToken(token: IOtherToken): number {
+    return this.convertOtherToFinalTokenBn(token).toNumber();
+  }
+
+  public convertOtherToMicrogon(token: IOtherToken): bigint {
+    const microgonsBn = this.convertOtherToFinalTokenBn(token).multipliedBy(this.microgonsPer[token.unitOfMeasurement]);
+    return bigNumberToBigInt(microgonsBn);
+  }
+
+  private convertOtherToFinalTokenBn(token: IOtherToken): BigNumber {
+    return BigNumber(token.value.toString()).shiftedBy(-token.decimals);
   }
 }

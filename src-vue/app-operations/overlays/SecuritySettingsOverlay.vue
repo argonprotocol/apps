@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" :showGoBack="currentScreen !== 'overview'" @close="closeOverlay" @esc="closeOverlay" @goBack="goBack"
+  <OverlayBase :isOpen="isOpen" :showGoBack="currentScreen !== 'overview'" @close="closeOverlay" @pressEsc="closeOverlay" @goBack="goBack"
     :style="{ width: `${overlayWidth}px` }"
   >
     <template #title>

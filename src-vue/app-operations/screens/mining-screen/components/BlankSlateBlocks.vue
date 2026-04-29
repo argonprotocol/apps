@@ -4,7 +4,8 @@
       as="ul"
       :animate="{ x: `${translateX}%` }"
       :transition="isAnimationEnabled ? { duration: 0.6, ease: 'easeOut' } : { duration: 0 }"
-      class="flex h-full w-full flex-row justify-end">
+      class="flex h-full w-full flex-row justify-end"
+    >
       <template v-for="(block, idx) in blocks" :key="`block-${block.hash}-${animationKey}`">
         <li
           Block
@@ -14,7 +15,8 @@
             isLoaded: block.hash,
             isNew: block.isNew,
           }"
-          :style="{ animationDelay: `${getAnimationDelay(idx)}ms` }">
+          :style="{ animationDelay: `${getAnimationDelay(idx)}ms` }"
+        >
           <div class="absolute top-0 left-0 h-px w-full bg-white"></div>
           <div class="absolute top-0 left-0 h-full w-px bg-white"></div>
           <template v-if="block.hash">

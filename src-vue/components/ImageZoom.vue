@@ -4,7 +4,8 @@
     :alt="alt"
     class="cursor-zoom-in rounded-md border border-black object-cover"
     :class="addClasses"
-    @click="zoomOpen = true" />
+    @click="zoomOpen = true"
+  />
 
   <DialogRoot :open="zoomOpen" @update:open="zoomOpen = $event">
     <DialogPortal>
@@ -15,12 +16,14 @@
       </DialogOverlay>
       <DialogContent
         class="fixed inset-0 z-[110] flex items-center justify-center p-4 focus:outline-none"
-        style="pointer-events: none">
+        style="pointer-events: none"
+      >
         <img
           :src="src"
           :alt="alt"
           class="pointer-events-auto max-h-[90vh] max-w-[90vw] cursor-zoom-out rounded-md shadow-lg"
-          @click="zoomOpen = false" />
+          @click="zoomOpen = false"
+        />
       </DialogContent>
     </DialogPortal>
   </DialogRoot>

@@ -13,7 +13,8 @@
           :avoidCollisions="true"
           :collisionPadding="30"
           class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none z-100 rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]"
-          :style="{ width: props.width }">
+          :style="{ width: props.width }"
+        >
           <p>
             Your future returns are dependent on several factors, including the percent utilization of your Bitcoin and
             Treasury Pools. The following table projects out future returns based on the prior epoch.
@@ -41,7 +42,8 @@
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
-                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium">
+                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium"
+                >
                   Total Revenue from Treasury
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right font-light">Epoch</td>
@@ -68,7 +70,8 @@
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
-                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium">
+                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium"
+                >
                   Vault Revenue from Treasury
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right font-light">Epoch</td>
@@ -92,7 +95,8 @@
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
-                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium">
+                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium"
+                >
                   Vault Revenue from Bitcoin
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right font-light">Epoch</td>
@@ -107,7 +111,8 @@
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
-                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium">
+                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-medium"
+                >
                   Payouts to External Treasury Funders
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right font-light">Epoch</td>

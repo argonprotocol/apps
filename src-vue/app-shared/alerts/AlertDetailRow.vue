@@ -29,7 +29,8 @@
           :disabled="buttonDisabled"
           :class="{ 'cursor-default opacity-70 hover:bg-white': buttonDisabled }"
           class="border-argon-700/25 text-argon-700/85 hover:bg-argon-50/80 w-full cursor-pointer rounded-md border bg-white px-4 py-2 text-sm font-bold"
-          @click="emit('open')">
+          @click="emit('open')"
+        >
           {{ buttonLabel }}
         </button>
       </div>

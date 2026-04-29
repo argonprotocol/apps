@@ -9,7 +9,7 @@ import {
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import { WalletKeys } from './WalletKeys.ts';
-import { IBalanceChange, IWalletType, Wallet } from './Wallet.ts';
+import { IArgonWalletType, IBalanceChange, WalletForArgon } from './WalletForArgon.ts';
 import { Db } from './Db.ts';
 import { ApiDecoration, ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import { MyVault } from './MyVault.ts';
@@ -26,8 +26,8 @@ export interface IBlockToProcess {
 }
 
 export interface IWalletEvents {
-  'balance-change': (balanceChange: IBalanceChange, type: IWalletType) => void;
-  'transfer-in': (wallet: Wallet, balanceChange: IBalanceChange) => void;
+  'balance-change': (balanceChange: IBalanceChange, type: IArgonWalletType) => void;
+  'transfer-in': (wallet: WalletForArgon, balanceChange: IBalanceChange) => void;
   'block-deleted': (block: IBlockToProcess) => void;
   'sync:best-block': (block: IBlockHeaderInfo) => void;
   'sync:finalized': (block: IBlockHeaderInfo) => void;
@@ -36,15 +36,15 @@ export interface IWalletEvents {
 type IWalletEventKeys = keyof IWalletEvents;
 type IWalletFlatList<T extends IWalletEventKeys = IWalletEventKeys> = Parameters<IWalletEvents[T]>;
 
-export class WalletBalances {
+export class WalletsForArgon {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
 
-  public miningHoldWallet: Wallet;
-  public miningBotWallet: Wallet;
-  public vaultingWallet: Wallet;
-  public operationalWallet: Wallet;
-  public investmentWallet: Wallet;
+  public miningHoldWallet: WalletForArgon;
+  public miningBotWallet: WalletForArgon;
+  public vaultingWallet: WalletForArgon;
+  public operationalWallet: WalletForArgon;
+  public investmentWallet: WalletForArgon;
 
   public bestBlock?: IBlockHeaderInfo;
   public finalizedBlock?: IBlockHeaderInfo;
@@ -67,7 +67,7 @@ export class WalletBalances {
   private myVault?: MyVault;
   private unsubscribe?: () => void;
 
-  public get wallets(): Wallet[] {
+  public get wallets(): WalletForArgon[] {
     return [
       this.miningHoldWallet,
       this.miningBotWallet,
@@ -92,14 +92,14 @@ export class WalletBalances {
   private readonly dbPromise: Promise<Db>;
 
   constructor(walletKeys: WalletKeys, dbPromise: Promise<Db>, blockWatch: BlockWatch, myVault?: MyVault) {
-    this.miningHoldWallet = new Wallet(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
-    this.miningBotWallet = new Wallet(walletKeys.miningBotAddress, 'miningBot', dbPromise);
-    this.vaultingWallet = new Wallet(walletKeys.vaultingAddress, 'vaulting', dbPromise);
-    this.operationalWallet = new Wallet(walletKeys.operationalAddress, 'operational', dbPromise);
-    this.investmentWallet = new Wallet(walletKeys.investmentAddress, 'investment', dbPromise);
     this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
     this.myVault = myVault;
+    this.miningHoldWallet = new WalletForArgon(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
+    this.miningBotWallet = new WalletForArgon(walletKeys.miningBotAddress, 'miningBot', dbPromise);
+    this.vaultingWallet = new WalletForArgon(walletKeys.vaultingAddress, 'vaulting', dbPromise);
+    this.operationalWallet = new WalletForArgon(walletKeys.operationalAddress, 'operational', dbPromise);
+    this.investmentWallet = new WalletForArgon(walletKeys.investmentAddress, 'investment', dbPromise);
   }
 
   public getLoadEvents<KEY extends IWalletEventKeys>(key: KEY): IWalletFlatList<KEY>[] {
@@ -111,13 +111,13 @@ export class WalletBalances {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
-    console.time('[WalletBalances] Load and sync wallets');
+    console.time('[WalletsForArgon] Load and sync wallets');
     try {
       await this.blockWatch.start();
       await this.resumeWalletSync();
-      console.timeLog('[WalletBalances] Load and sync wallets', 'Synced within range of indexer');
+      console.timeLog('[WalletsForArgon] Load and sync wallets', 'Synced within range of indexer');
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
-      console.log('[WalletBalances] Loaded and synced wallets', {
+      console.log('[WalletsForArgon] Loaded and synced wallets', {
         mining: this.miningHoldWallet.totalMicronots,
         miningBot: this.miningBotWallet.totalMicronots,
         vaulting: this.vaultingWallet.totalMicronots,
@@ -128,14 +128,14 @@ export class WalletBalances {
           if (this.canIgnoreLoadError(error)) {
             return;
           }
-          console.error('[WalletBalances] Failed to load balances at best block', error);
+          console.error('[WalletsForArgon] Failed to load balances at best block', error);
         });
       });
       this.deferredLoading.resolve();
     } catch (err) {
       this.deferredLoading.reject(err);
     }
-    console.timeEnd('[WalletBalances] Load and sync wallets');
+    console.timeEnd('[WalletsForArgon] Load and sync wallets');
     return this.deferredLoading.promise;
   }
 
@@ -367,7 +367,7 @@ export class WalletBalances {
     }
 
     const syncStartBlock = Math.min(latestFinalizedNumber, latestBlockNumberSynced);
-    console.info(`[WalletBalances] Resumed wallet sync to block ${syncStartBlock}. Latest is ${bestBlockNumber}.`);
+    console.info(`[WalletsForArgon] Resumed wallet sync to block ${syncStartBlock}. Latest is ${bestBlockNumber}.`);
     const syncedToBlock = await this.blockWatch.getHeader(syncStartBlock);
     const addresses = this.addresses;
     const { balances } = await this.readBalances(addresses, syncedToBlock);

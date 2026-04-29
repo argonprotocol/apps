@@ -5,7 +5,7 @@ import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startAr
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import Path from 'path';
-import { WalletBalances } from '../lib/WalletBalances.ts';
+import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
 import { WalletLedgerTable } from '../lib/db/WalletLedgerTable.ts';
@@ -46,31 +46,31 @@ describe
       const client = await clients.get(false);
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
       try {
-        await walletBalances.load();
+        await walletsForArgon.load();
         const onBalanceChange = vi.fn();
         const onTransferIn = vi.fn();
         const onBlockDeleted = vi.fn();
         const didBlockGetDeleted = createDeferred<string>();
         let blocksDeleted = 0;
         let balanceChanges = 0;
-        walletBalances.events.on('block-deleted', block => {
+        walletsForArgon.events.on('block-deleted', block => {
           console.log('Block deleted:', block);
           didBlockGetDeleted.resolve(block.blockHash);
           onBlockDeleted(block);
           blocksDeleted++;
         });
         const didGetBalanceChange = createDeferred();
-        walletBalances.events.on('balance-change', (balanceChange, type) => {
+        walletsForArgon.events.on('balance-change', (balanceChange, type) => {
           console.log('Balance Change:', balanceChange);
           onBalanceChange(type);
           didGetBalanceChange.resolve();
           balanceChanges++;
         });
-        walletBalances.events.on('transfer-in', onTransferIn);
-        expect(walletBalances.miningBotWallet.totalMicrogons).toBe(0n);
-        expect(walletBalances.vaultingWallet.totalMicrogons).toBe(0n);
+        walletsForArgon.events.on('transfer-in', onTransferIn);
+        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(0n);
+        expect(walletsForArgon.vaultingWallet.totalMicrogons).toBe(0n);
 
         const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
         const result = await new TxSubmitter(
@@ -80,8 +80,8 @@ describe
         ).submit();
         await result.waitForInFirstBlock;
         await expect(didGetBalanceChange.promise).resolves.toBeUndefined();
-        expect(walletBalances.miningBotWallet.availableMicrogons).toBe(5_000_000n);
-        expect(walletBalances.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
+        expect(walletsForArgon.miningBotWallet.availableMicrogons).toBe(5_000_000n);
+        expect(walletsForArgon.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
         expect(onBalanceChange).toHaveBeenCalledTimes(1 + onBlockDeleted.mock.calls.length);
         expect(onBalanceChange).toHaveBeenCalledWith('miningBot');
         expect(onTransferIn).toHaveBeenCalledTimes(1);
@@ -98,12 +98,12 @@ describe
             isInternal: false,
           } as IBalanceTransfer),
         );
-        expect(walletBalances.vaultingWallet.totalMicrogons).toBe(0n);
+        expect(walletsForArgon.vaultingWallet.totalMicrogons).toBe(0n);
         await result.waitForFinalizedBlock;
         const finalizedBlock = result.blockNumber!;
-        if (!walletBalances.finalizedBlock || walletBalances.finalizedBlock.blockNumber < finalizedBlock) {
+        if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < finalizedBlock) {
           await new Promise(resolve => {
-            const unsub = walletBalances.events.on('sync:finalized', h => {
+            const unsub = walletsForArgon.events.on('sync:finalized', h => {
               if (h.blockNumber >= finalizedBlock) {
                 resolve(null);
                 unsub();
@@ -111,7 +111,7 @@ describe
             });
           });
         }
-        expect(walletBalances.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
+        expect(walletsForArgon.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
         // send a bunch of transfers
         let nextNonce = (await client.rpc.system.accountNextIndex(alice.address)).toNumber();
         let finalizedTxs = 0;
@@ -158,9 +158,9 @@ describe
           }),
         ]);
 
-        if (!walletBalances.finalizedBlock || walletBalances.finalizedBlock.blockNumber < lastTxBlockNumber) {
+        if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < lastTxBlockNumber) {
           await new Promise(resolve => {
-            const unsub = walletBalances.events.on('sync:finalized', h => {
+            const unsub = walletsForArgon.events.on('sync:finalized', h => {
               if (h.blockNumber >= lastTxBlockNumber) {
                 resolve(null);
                 unsub();
@@ -169,12 +169,12 @@ describe
           });
         }
         if (deletedBlockHash) {
-          expect(walletBalances.miningBotWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(
+          expect(walletsForArgon.miningBotWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(
             deletedBlockHash,
           );
         } else {
           console.log(
-            '[WalletBalances] No block deletion observed before assertions; skipping reorg cleanup assertion',
+            '[WalletsForArgon] No block deletion observed before assertions; skipping reorg cleanup assertion',
           );
         }
 
@@ -195,7 +195,7 @@ describe
         expect(ledgerEntries.length).toBeLessThanOrEqual(transferBlocks.length);
         expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
       } finally {
-        await walletBalances.close();
+        await walletsForArgon.close();
         blockWatch.stop();
         await db.close();
       }
@@ -205,10 +205,10 @@ describe
       // 1. Test that it will fill gap from last synced to latest block
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
       try {
         const spy = vi
-          .spyOn(walletBalances, 'lookupTransferOrClaimBlocks')
+          .spyOn(walletsForArgon, 'lookupTransferOrClaimBlocks')
           .mockImplementation(async (address, blocks) => {
             const mostRecentBlock = Math.max(...transferBlocks);
             for (const block of transferBlocks) {
@@ -219,24 +219,26 @@ describe
             return { asOfBlock: mostRecentBlock };
           });
         // @ts-expect-error set a small backlog to force using indexer
-        walletBalances.blockBacklogBeforeUsingIndexer = 10;
+        walletsForArgon.blockBacklogBeforeUsingIndexer = 10;
         await blockWatch.start();
-        await walletBalances.resumeWalletSync();
+        await walletsForArgon.resumeWalletSync();
         // @ts-expect-error - private
-        expect(walletBalances.blockHistory).toHaveLength(1);
+        expect(walletsForArgon.blockHistory).toHaveLength(1);
         // @ts-expect-error - private
-        expect(walletBalances.blockHistory[0].blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletBalances.miningBotWallet.balanceHistory).toHaveLength(1);
-        expect(walletBalances.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletBalances.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(5_000_000n + 10n * 1_000_000n);
-        expect(walletBalances.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletBalances.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletBalances.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletBalances.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.blockHistory[0].blockNumber).toBe(Math.max(...transferBlocks));
+        expect(walletsForArgon.miningBotWallet.balanceHistory).toHaveLength(1);
+        expect(walletsForArgon.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+        expect(walletsForArgon.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(
+          5_000_000n + 10n * 1_000_000n,
+        );
+        expect(walletsForArgon.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+        expect(walletsForArgon.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
+        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
         expect(spy).toHaveBeenCalledTimes(1);
-        expect(walletBalances.miningBotWallet.totalMicrogons).toBeGreaterThan(0n);
-        expect(walletBalances.miningBotWallet.balanceHistory.length).toBeGreaterThan(0);
+        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBeGreaterThan(0n);
+        expect(walletsForArgon.miningBotWallet.balanceHistory.length).toBeGreaterThan(0);
         const walletLedger = new WalletLedgerTable(db);
         const ledgerEntries = await walletLedger.fetchAll();
         console.log('2. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
@@ -247,7 +249,7 @@ describe
         console.log('2. Total Transfer Entries - ', transfers.length, transfers);
         expect(transfers).toHaveLength(transferCount);
       } finally {
-        await walletBalances.close();
+        await walletsForArgon.close();
         blockWatch.stop();
         await db.close();
       }
@@ -257,28 +259,28 @@ describe
       // 1. Test that it will fill gap from last synced to latest block
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletBalances = new WalletBalances(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
       try {
         // @ts-expect-error set a small backlog to force using indexer
-        walletBalances.blockBacklogBeforeUsingIndexer = 1000;
+        walletsForArgon.blockBacklogBeforeUsingIndexer = 1000;
         await blockWatch.start();
-        await walletBalances.resumeWalletSync();
+        await walletsForArgon.resumeWalletSync();
         // @ts-expect-error - private
-        expect(walletBalances.blockHistory).toHaveLength(1);
+        expect(walletsForArgon.blockHistory).toHaveLength(1);
         // @ts-expect-error - private
-        expect(walletBalances.blockHistory[0].blockNumber).toBe(0);
-        expect(walletBalances.miningBotWallet.balanceHistory).toHaveLength(1);
+        expect(walletsForArgon.blockHistory[0].blockNumber).toBe(0);
+        expect(walletsForArgon.miningBotWallet.balanceHistory).toHaveLength(1);
         // nothing will load during resume sync, but it will start at 0 and sync back up after
-        expect(walletBalances.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletBalances.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletBalances.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletBalances.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletBalances.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletBalances.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(0);
+        expect(walletsForArgon.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(0);
+        expect(walletsForArgon.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(0);
+        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
-        await walletBalances.loadBalancesAt(blockWatch.bestBlockHeader);
+        await walletsForArgon.loadBalancesAt(blockWatch.bestBlockHeader);
 
-        expect(walletBalances.miningBotWallet.totalMicrogons).toBe(15_000_000n);
+        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(15_000_000n);
         const walletLedger = new WalletLedgerTable(db);
         const ledgerEntries = await walletLedger.fetchAll();
         console.log('3. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
@@ -289,7 +291,7 @@ describe
         console.log('3. Total Transfer Entries - ', transfers.length, transfers);
         expect(transfers).toHaveLength(transferCount);
       } finally {
-        await walletBalances.close();
+        await walletsForArgon.close();
         blockWatch.stop();
         await db.close();
       }

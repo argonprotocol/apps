@@ -27,6 +27,9 @@ export default class Draggable {
       console.error('Draggable: modalRef is not set');
       return;
     }
+    const targetElement = event.target as HTMLElement;
+    if (targetElement?.closest('notdraggable')) return;
+
     this.isDragging = true;
     document.body.classList.add('select-none');
     this.mouseStart = { x: event.clientX, y: event.clientY };

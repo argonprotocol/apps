@@ -12,7 +12,8 @@
           :alignOffset="alignOffset ?? 0"
           :avoidCollisions="true"
           :collisionPadding="30"
-          class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none z-100 w-[800px] rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]">
+          class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none z-100 w-[800px] rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]"
+        >
           <p>
             Calculating your future return is complex since it's difficult to predict what will happen at auction. For
             example, you could win mining seats at your Starting Bid price of {{ currency.symbol
@@ -52,7 +53,8 @@
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
-                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-light">
+                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-light"
+                >
                   Maximum Bid ({{ currency.symbol }}{{ microgonToMoneyNm(maximumBidAmount).format('0,0.00') }})
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
@@ -67,7 +69,8 @@
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
                 <td
-                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-light">
+                  class="text-argon-800/40 border-t border-dashed border-slate-300 pr-10 pl-2 text-left font-sans font-light"
+                >
                   Starting Bid ({{ currency.symbol }}{{ microgonToMoneyNm(startingBidAmount).format('0,0.00') }})
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
