@@ -149,10 +149,6 @@
 
     <BuyBondsOverlay
       v-if="showBondsOverlay"
-      :vaultId="myBonds.vaultId"
-      :currentAmount="myBonds.bondTotals.activeBondMicrogons"
-      :walletBalance="walletBalance"
-      :availableVaultSpace="vaultAvailableCapacity"
       @close="showBondsOverlay = false"
       @submitted="onSubmitted"
     />
@@ -171,7 +167,7 @@ import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getConfig } from '../../stores/config.ts';
 import { BondLot, NetworkConfig, TreasuryBonds } from '@argonprotocol/apps-core';
 import { getBondMarket, type IFrameEarningsRow, useMyBonds } from '../../stores/myBonds.ts';
-import BuyBondsOverlay from '../../app-shared/overlays/BuyBondsOverlay.vue';
+import BuyBondsOverlay from '../overlays/BuyBondsOverlay.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
 import CurvedArrow from '../../components/CurvedArrow.vue';
 import Tooltip from '../../components/Tooltip.vue';

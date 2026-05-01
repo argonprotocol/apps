@@ -54,7 +54,7 @@ import ArgonBondsScreen from './screens/ArgonBonds.vue';
 import StableSwapsScreen from './screens/StableSwaps.vue';
 import { TreasuryTab, useTreasuryController } from '../stores/treasuryController.ts';
 import VaultsOverlay from './overlays/VaultsOverlay.vue';
-import WalletOverlay from './overlays/WalletOverlay.vue';
+import WalletOverlay from '../app-shared/overlays/WalletOverlay.vue';
 import SigningOverlay from './overlays/SigningOverlay.vue';
 
 const controller = useTreasuryController();

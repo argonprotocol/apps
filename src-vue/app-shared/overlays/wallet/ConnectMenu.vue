@@ -118,7 +118,7 @@ import {
   walletConnectEvents,
   walletConnectMethods,
   walletConnectProjectId,
-} from '../../lib/TreasuryWalletConnect.ts';
+} from '../../../app-treasury/lib/TreasuryWalletConnect.ts';
 
 const walletKeys = getWalletKeys();
 const isOpen = Vue.ref(false);

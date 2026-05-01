@@ -293,7 +293,7 @@ function openVaultCreateOverlay() {
 }
 
 function openFundVaultingAccountOverlay() {
-  basicEmitter.emit('openWalletOverlayOld', { walletType: WalletType.vaulting, screen: 'receive-onboarding' });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, showGuidance: true });
 }
 
 async function startCreateVault() {

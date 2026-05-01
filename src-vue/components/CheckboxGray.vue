@@ -1,12 +1,13 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="w-7 h-7 max-w-7 max-h-7">
+  <div :class="`relative min-w-${props.size} min-h-${props.size} w-${props.size} h-${props.size}`">
     <div
       v-if="props.isChecked"
-      class="flex items-center justify-center w-full h-full border-2 mr-4 border-transparent bg-gray-400/70"
+      :style="`border-width: ${props.size/2}px`"
+      class="flex items-center justify-center w-full h-full mr-4 border-transparent bg-gray-400/70"
     >
       <svg
-        class="pointer-events-none size-10 self-center justify-self-center stroke-white"
+        class="pointer-events-none w-full h-full self-center justify-self-center stroke-white"
         viewBox="0 0 14 14"
         fill="none"
       >
@@ -19,7 +20,7 @@
         />
       </svg>
     </div>
-    <div v-else class="w-full h-full border-2 border-gray-300 mr-4 rounded-full" />
+    <div v-else :style="`border-width: ${props.size/2}px`" class="w-full h-full border-gray-300 mr-4 rounded-full" />
   </div>
 </template>
 
@@ -28,6 +29,10 @@ const props = defineProps({
   isChecked: {
     type: Boolean,
     default: false,
+  },
+  size: {
+    type: Number,
+    default: 7,
   },
 });
 </script>

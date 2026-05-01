@@ -190,18 +190,18 @@ enum LockStep {
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
+import OverlayBase from './OverlayBase.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import LockStart from './bitcoin-locking/LockStart.vue';
-import LockIsProcessingOnArgon from './bitcoin-locking/LockIsProcessingOnArgon.vue';
-import LockReadyForBitcoin from './bitcoin-locking/LockReadyForBitcoin.vue';
-import LockIsProcessingOnBitcoin from './bitcoin-locking/LockIsProcessingOnBitcoin.vue';
-import LockFundingMismatch from './bitcoin-locking/LockFundingMismatch.vue';
-import LockFundingExpired from './bitcoin-locking/LockFundingExpired.vue';
-import LockMinting from './bitcoin-locking/LockMinting.vue';
+import LockStart from '../../app-operations/overlays/bitcoin-locking/LockStart.vue';
+import LockIsProcessingOnArgon from '../../app-operations/overlays/bitcoin-locking/LockIsProcessingOnArgon.vue';
+import LockReadyForBitcoin from '../../app-operations/overlays/bitcoin-locking/LockReadyForBitcoin.vue';
+import LockIsProcessingOnBitcoin from '../../app-operations/overlays/bitcoin-locking/LockIsProcessingOnBitcoin.vue';
+import LockFundingMismatch from '../../app-operations/overlays/bitcoin-locking/LockFundingMismatch.vue';
+import LockFundingExpired from '../../app-operations/overlays/bitcoin-locking/LockFundingExpired.vue';
+import LockMinting from '../../app-operations/overlays/bitcoin-locking/LockMinting.vue';
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import Arrows from '../../assets/arrows.svg?component';
-import RoundCap from './bitcoin-locking/components/RoundCap.vue';
+import RoundCap from '../../app-operations/overlays/bitcoin-locking/components/RoundCap.vue';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';

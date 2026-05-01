@@ -25,7 +25,6 @@
         <BuyBondsForm
           :vaultId="vaultId"
           :walletBalance="wallets.vaultingWallet.availableMicrogons"
-          :availableVaultSpace="availableBondMicrogons"
           @close="goBack"
           @submitted="onBuySubmitted"
         />

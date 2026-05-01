@@ -37,7 +37,7 @@
       :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
     >
       <div>Stable Swaps</div>
-      <div>{{currency.symbol}}0.00</div>
+      <div>{{currency.symbol}}{{ microgonToMoneyNm(stableSwapValue).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
@@ -81,6 +81,8 @@ import { useMyBonds } from '../../stores/myBonds.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import type { IOtherToken } from '../../lib/Wallet.ts';
 
 const controller = useTreasuryController();
 const currency = getCurrency();
@@ -103,6 +105,18 @@ const nonReleasedLocks = Vue.computed(() => {
 
 const totalLockedSatoshis = Vue.computed(() => {
   return nonReleasedLocks.value.reduce((sum, l) => sum + l.satoshis, 0n);
+});
+
+const stableSwapValue = Vue.computed(() => {
+  const microgonValue = wallets.ethereumWallet.availableMicrogons;
+  const micronotValue = currency.convertMicronotTo(
+    wallets.ethereumWallet.availableMicronots,
+    UnitOfMeasurement.Microgon,
+  );
+  const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
+    return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
+  }, 0n);
+  return microgonValue + micronotValue + otherTokenValue;
 });
 
 function openLink(url: string) {

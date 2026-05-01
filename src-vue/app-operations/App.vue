@@ -23,7 +23,6 @@
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectPanel />
       <WalletOverlay />
-      <OnboardingWalletOverlay />
       <MoveCapitalOverlay />
       <TreasuryBondsOverlay />
       <WalletFundingReceivedOverlay />
@@ -56,8 +55,7 @@ import HomeScreen from './screens/HomeScreen.vue';
 import MiningScreen from './screens/MiningScreen.vue';
 import VaultingScreen from './screens/VaultingScreen.vue';
 import ServerConnectPanel from '../panels/ServerConnectPanel.vue';
-import WalletOverlay from './overlays/WalletOverlay.vue';
-import OnboardingWalletOverlay from './overlays/OnboardingWalletOverlay.vue';
+import WalletOverlay from '../app-shared/overlays/WalletOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';

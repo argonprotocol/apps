@@ -299,7 +299,7 @@ import { getConfig } from '../../../stores/config.ts';
 import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../../lib/Env.ts';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
-import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
+import BitcoinLockDetailOverlay from '../../../app-shared/overlays/BitcoinLockDetailOverlay.vue';
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
 import AssetMenu from '../components/AssetMenu.vue';
 import ConfigIcon from '../../../assets/config.svg?component';

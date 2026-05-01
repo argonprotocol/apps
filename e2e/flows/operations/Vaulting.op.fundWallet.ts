@@ -52,7 +52,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       ),
       flow.isVisible('VaultingDashboard'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
-      flow.isVisible('OnboardingWalletOverlay'),
+      flow.isVisible('WalletOverlay'),
       flow.isVisible({ selector: '.VaultIsInstalling' }),
     ]);
     const installingVisible = installingState.visible;
@@ -113,7 +113,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
       fundedMicronots: fundingResult.fundedMicronots.toString(),
     });
 
-    await flow.click('OnboardingWalletOverlay.closeWallet()', { timeoutMs: 8_000 });
+    await flow.click('NavHeader.close()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,
