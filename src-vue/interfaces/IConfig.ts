@@ -211,6 +211,8 @@ export const ConfigSchema = z.object({
     longitude: z.string(),
   }),
   certificationDetails: ConfigCertificationDetailsSchema.optional(),
+
+  hasActivatedStableSwaps: z.boolean(),
 });
 
 // ---- Optional Type Inference ---- //
@@ -267,4 +269,6 @@ export interface IConfigDefaults {
   defaultCurrencyKey: () => IConfig['defaultCurrencyKey'];
   userJurisdiction: () => Promise<IConfig['userJurisdiction']>;
   certificationDetails: () => IConfig['certificationDetails'];
+
+  hasActivatedStableSwaps: () => IConfig['hasActivatedStableSwaps'];
 }

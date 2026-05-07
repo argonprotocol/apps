@@ -31,6 +31,10 @@
                     {{ abbreviateAddress(wallet.address, 15) }}
                   </div>
                 </div>
+                <template v-if="props.showSingleAddress">
+                  <div class="h-px w-full bg-slate-400/30 my-2" />
+                  <img :src="qrCode" class="w-full mt-4" :alt="`QR Code Wallet Address`" />
+                </template>
                 <template #copied>
                   <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
                     <div>
@@ -39,6 +43,10 @@
                     <div class="font-mono">
                       {{ abbreviateAddress(wallet.address, 15) }}
                     </div>
+                    <template v-if="props.showSingleAddress">
+                      <div class="h-px w-full bg-slate-400/30 my-2" />
+                      <img :src="qrCode" class="w-full mt-2" :alt="`QR Code Wallet Address`" />
+                    </template>
                   </div>
                 </template>
               </CopyToClipboard>
@@ -90,6 +98,7 @@ import CopyIcon from '../../../assets/copy.svg';
 import { abbreviateAddress } from '../../../lib/Utils.ts';
 import { IWallet, WalletType } from '../../../lib/Wallet.ts';
 import { useWallets } from '../../../stores/wallets.ts';
+import QRCode from 'qrcode';
 
 const props = defineProps<{
   walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
@@ -100,6 +109,7 @@ const props = defineProps<{
 const wallets = useWallets();
 
 const isOpen = Vue.ref(false);
+const qrCode = Vue.ref('');
 
 const wallet = Vue.computed<IWallet>(() => {
   if (props.walletType === WalletType.miningHold) {
@@ -115,6 +125,17 @@ const wallet = Vue.computed<IWallet>(() => {
 });
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+
+async function loadQRCode() {
+  let address = wallet.value.address;
+  qrCode.value = await QRCode.toDataURL(address, {
+    margin: 0,
+    color: {
+      dark: '#0f172a',
+      light: '#0000',
+    },
+  });
+}
 
 function onMouseEnter() {
   if (mouseLeaveTimeoutId) {
@@ -147,6 +168,10 @@ function clickOutside(e: PointerDownOutsideEvent) {
   e.preventDefault();
   return false;
 }
+
+Vue.onMounted(() => {
+  void loadQRCode();
+});
 </script>
 
 <style scoped>

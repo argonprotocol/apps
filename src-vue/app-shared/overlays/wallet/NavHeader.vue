@@ -1,10 +1,9 @@
 <template>
   <div class="flex grow flex-row items-center gap-x-2">
-    <SelectRoot v-model="props.selectedWallet" @update:open="handleToggleOpen" @update:modelValue="handleSelectWallet">
+    <SelectRoot v-model="props.selectedOption" @update:open="handleToggleOpen" @update:modelValue="handleSelectWallet">
       <SelectTrigger
         ref="triggerInstance"
         class="flex h-[34px] grow items-center justify-between rounded-lg border border-slate-400/60 px-2 text-2xl font-bold text-slate-800/70 outline-none hover:border-slate-400/50"
-        aria-label="Customise wallets"
       >
         <SelectValue placeholder="Select a wallet..." />
         <ChevronDownIcon class="h-4 w-4 text-slate-400" />
@@ -23,16 +22,16 @@
 
           <SelectViewport class="p-[5px]">
             <SelectItem
-              v-for="(wallet, index) in wallets"
+              v-for="(option, index) in options"
               :key="index"
               class="relative flex h-[35px] items-center rounded-[3px] pr-[35px] pl-[5px] text-lg leading-none font-bold text-slate-800/60 select-none data-[disabled]:pointer-events-none data-[highlighted]:bg-slate-200/40 data-[highlighted]:text-slate-800/70 data-[highlighted]:outline-none"
-              :value="wallet"
+              :value="option"
             >
               <SelectItemIndicator class="absolute right-0 inline-flex w-[25px] items-center justify-center">
                 <CheckIcon class="h-4 w-4 text-slate-600/80" />
               </SelectItemIndicator>
               <SelectItemText>
-                {{ wallet.name }}
+                {{ option.name }}
               </SelectItemText>
             </SelectItem>
           </SelectViewport>
@@ -44,8 +43,8 @@
         </SelectContent>
       </SelectPortal>
     </SelectRoot>
-    <CopyAddressMenu :walletType="selectedWallet.type" :showSingleAddress="true" :showBorder="true" />
-    <ConnectMenu v-if="selectedWallet.type === WalletType.ethereum" />
+    <CopyAddressMenu :walletType="selectedOption.type" :showSingleAddress="true" :showBorder="true" />
+    <ConnectMenu v-if="selectedOption.type === WalletType.ethereum" />
     <div
       NotDraggable
       v-if="props.showPortal"
@@ -68,9 +67,10 @@
 <script lang="ts">
 import { WalletType } from '../../../lib/Wallet.ts';
 
-export interface IWallet {
-  type: WalletType.investment | WalletType.ethereum;
+export interface IWalletOption {
+  type: WalletType.investment | WalletType.ethereum | WalletType.vaulting | WalletType.miningHold;
   name: string;
+  isArgonNetwork: boolean;
 }
 </script>
 
@@ -98,12 +98,12 @@ import PortalIcon from '../../../assets/portal.svg';
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'syncMode'): void;
-  (e: 'selectWallet', wallet: IWallet): void;
+  (e: 'selectOption', option: IWalletOption): void;
 }>();
 
 const props = defineProps<{
-  wallets: IWallet[];
-  selectedWallet: IWallet;
+  options: IWalletOption[];
+  selectedOption: IWalletOption;
   showPortal?: boolean;
   showClose?: boolean;
 }>();
@@ -122,8 +122,8 @@ function triggerSyncMode() {
   emit('syncMode');
 }
 
-function handleSelectWallet(wallet: IWallet) {
-  emit('selectWallet', wallet);
+function handleSelectWallet(option: IWalletOption) {
+  emit('selectOption', option);
 }
 
 function close() {

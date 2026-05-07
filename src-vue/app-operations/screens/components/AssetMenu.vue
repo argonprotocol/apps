@@ -65,7 +65,7 @@ const props = defineProps<{
 const isOpen = Vue.ref(false);
 
 function openWalletOverlay() {
-  basicEmitter.emit('openWalletOverlayOld', { walletType: props.walletType, screen: 'receive' });
+  basicEmitter.emit('openWalletOverlay', { walletType: props.walletType });
 }
 
 function openPortfolioPanel() {

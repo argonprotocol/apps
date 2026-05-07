@@ -30,7 +30,7 @@
               }"
               :class="twMerge(
                 'absolute z-50 pointer-events-auto min-h-40 w-6/12 focus:outline-none',
-                IS_TREASURY_APP ? 'ml-[160px]' : '',
+                IS_TREASURY_APP && !config.showWelcomeOverlay ? 'ml-[160px]' : '',
                 props.leaveBlank ? '' : 'bg-white border border-black/40 rounded-lg shadow-2xl',
                 props.overflowScroll ? 'flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden' : '',
                 props.class,
@@ -59,7 +59,7 @@
                   </DialogClose>
                 </span>
               </h2>
-              <div :class="props.overflowScroll ? 'min-h-0 grow overflow-y-auto overflow-x-hidden' : ''">
+              <div :class="props.overflowScroll ? 'min-h-0 overflow-y-auto overflow-x-hidden' : ''" class="grow flex flex-col">
                 <slot />
               </div>
             </div>
@@ -83,6 +83,9 @@ import { ChevronLeftIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import { IS_TREASURY_APP } from '../../lib/Env.ts';
 import BgOverlay from '../../components/BgOverlay.vue';
 import Draggable from '../../app-operations/overlays/helpers/Draggable.ts';
+import { getConfig } from '../../stores/config.ts';
+
+const config = getConfig();
 
 defineOptions({
   inheritAttrs: false,
@@ -120,24 +123,6 @@ const zIndex = Vue.ref(0);
 const attrs = Vue.useAttrs();
 const disableOverlayMotion = MotionGlobalConfig.skipAnimations || MotionGlobalConfig.instantAnimations;
 
-Vue.watch(
-  () => props.isOpen,
-  isOpen => {
-    if (!isOpen) {
-      openZIndexes.value.delete(zIndex.value);
-      return;
-    }
-
-    zIndex.value = Math.max(...openZIndexes.value, 0) + 1;
-    openZIndexes.value.add(zIndex.value);
-  },
-  { immediate: true },
-);
-
-Vue.onUnmounted(() => {
-  openZIndexes.value.delete(zIndex.value);
-});
-
 const draggable = Vue.reactive(new Draggable());
 
 function closeOverlay() {
@@ -165,6 +150,24 @@ function handleEscapeKeyDown() {
   emit('pressEsc');
   closeOverlay();
 }
+
+Vue.watch(
+  () => props.isOpen,
+  isOpen => {
+    if (!isOpen) {
+      openZIndexes.value.delete(zIndex.value);
+      return;
+    }
+
+    zIndex.value = Math.max(...openZIndexes.value, 0) + 1;
+    openZIndexes.value.add(zIndex.value);
+  },
+  { immediate: true },
+);
+
+Vue.onUnmounted(() => {
+  openZIndexes.value.delete(zIndex.value);
+});
 
 defineExpose({
   draggable,

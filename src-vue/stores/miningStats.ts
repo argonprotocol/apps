@@ -10,7 +10,7 @@ export const useMiningStats = defineStore('miningStats', () => {
 
   const mining = getMining();
   const currency = getCurrency();
-  const stats = new GlobalMiningStats(mining, currency as Currency);
+  const stats = new GlobalMiningStats(mining, currency);
 
   const activeMiningSeatCount = Vue.ref(0);
 

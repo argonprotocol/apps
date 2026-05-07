@@ -33,7 +33,7 @@ export function getBitcoinLocks(): BitcoinLocks {
       dbPromise,
       keys,
       blockWatch,
-      getCurrency() as Currency,
+      getCurrency(),
       transactionTracker,
       undefined,
       getUpstreamOperatorClient(),

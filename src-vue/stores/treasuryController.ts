@@ -12,10 +12,9 @@ import { getVaults } from './vaults.ts';
 
 export enum TreasuryTab {
   MainchainSavings = 'MainchainSavings',
+  MainchainDebts = 'MainchainDebts',
   ArgonBonds = 'ArgonBonds',
   BitcoinLocks = 'BitcoinLocks',
-  P2pSavings = 'P2pSavings',
-  P2pTaxes = 'P2pTaxes',
   EthereumSwaps = 'EthereumSwaps',
 }
 

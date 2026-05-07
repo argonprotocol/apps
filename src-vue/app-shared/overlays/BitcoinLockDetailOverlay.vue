@@ -35,11 +35,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
+import OverlayBase from './OverlayBase.vue';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import LockDetail from './bitcoin-locking/LockDetail.vue';
+import LockDetail from '../../app-operations/overlays/bitcoin-locking/LockDetail.vue';
 import { IS_OPERATIONS_APP } from '../../lib/Env.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 

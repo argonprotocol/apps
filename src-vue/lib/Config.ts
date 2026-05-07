@@ -114,6 +114,8 @@ export class Config implements IConfig {
         longitude: '',
       },
       certificationDetails: Config.getDefault(dbFields.certificationDetails) as IConfig['certificationDetails'],
+
+      hasActivatedStableSwaps: Config.getDefault(dbFields.hasActivatedStableSwaps) as boolean,
     };
   }
 
@@ -468,6 +470,13 @@ export class Config implements IConfig {
     return this.userJurisdiction.countryCode === 'KY';
   }
 
+  public get hasActivatedStableSwaps(): boolean {
+    return this.getField('hasActivatedStableSwaps');
+  }
+  public set hasActivatedStableSwaps(value: boolean) {
+    this.setField('hasActivatedStableSwaps', value);
+  }
+
   public get hasSavedBiddingRules(): boolean {
     this._throwErrorIfNotLoaded();
     return !!this._rawData[dbFields.biddingRules];
@@ -649,6 +658,8 @@ const dbFields = {
   defaultCurrencyKey: 'defaultCurrencyKey',
   userJurisdiction: 'userJurisdiction',
   certificationDetails: 'certificationDetails',
+
+  hasActivatedStableSwaps: 'hasActivatedStableSwaps',
 } as const;
 
 const defaults: IConfigDefaults = {
@@ -775,4 +786,6 @@ const defaults: IConfigDefaults = {
     }
   },
   certificationDetails: () => undefined,
+
+  hasActivatedStableSwaps: () => false,
 };

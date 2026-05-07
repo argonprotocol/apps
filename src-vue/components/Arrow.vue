@@ -6,12 +6,18 @@
     preserveAspectRatio="none"
     aria-hidden="true"
   >
+    <defs v-if="shadow">
+      <filter id="arrow-shadow" x="-50%" y="-50%" width="200%" height="200%">
+        <feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.3" />
+      </filter>
+    </defs>
     <path
       d="M 0 10 L 9 0 L 18 10 Z"
       :stroke="stroke"
       :stroke-width="strokeWidth"
       vector-effect="non-scaling-stroke"
       stroke-linejoin="round"
+      :filter="shadow ? 'url(#arrow-shadow)' : undefined"
     />
   </svg>
 </template>
@@ -23,12 +29,14 @@ const props = withDefaults(
     fill?: string;
     stroke?: string;
     strokeWidth?: number;
+    shadow?: boolean;
     class?: string;
   }>(),
   {
     fill: '#ffffff',
     stroke: '#d1d5db',
     strokeWidth: 1,
+    shadow: false,
   },
 );
 </script>

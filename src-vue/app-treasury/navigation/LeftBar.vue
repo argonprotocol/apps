@@ -13,11 +13,11 @@
 
     <section
       DashBox Item
-      @click="controller.setScreenKey(TreasuryTab.ArgonBonds)"
-      :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined"
+      @click="controller.setScreenKey(TreasuryTab.MainchainDebts)"
+      :Selected="controller.selectedTab === TreasuryTab.MainchainDebts || undefined"
     >
-      <div>Argon Bonds</div>
-      <div>{{ currency.symbol }}0.00</div>
+      <div>Interest-Free Debts</div>
+      <div>-{{ currency.symbol }}{{ microgonToMoneyNm(totalBitcoinDebt).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
@@ -33,11 +33,21 @@
 
     <section
       DashBox Item
+      @click="controller.setScreenKey(TreasuryTab.ArgonBonds)"
+      :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined"
+    >
+      <div>Argon Bonds</div>
+      <div>{{ currency.symbol }}{{ microgonToMoneyNm(myBonds.bondTotals.activeBondMicrogons).format('0,0.00') }}</div>
+      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+    </section>
+
+    <section
+      DashBox Item
       @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)"
       :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
     >
       <div>Stable Swaps</div>
-      <div>{{currency.symbol}}0.00</div>
+      <div>{{currency.symbol}}{{ microgonToMoneyNm(stableSwapValue).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>
 
@@ -45,7 +55,7 @@
       <div class="grow pl-8 pr-10 pb-[40%] flex flex-col justify-center text-justify text-slate-800/60">
         <header class="font-bold">Did You Know?</header>
         <p class="break-words leading-7">
-          This Argon Treasury app is fully decentralized and open-source, which means there is no company behind it. All the code runs on your
+          This Argon Treasury app is fully decentralized and open-source. In fact, there is no company behind it. All the code runs on your
           computer, and all the data stays with you.
         </p>
       </div>
@@ -81,36 +91,72 @@ import { useMyBonds } from '../../stores/myBonds.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import type { IOtherToken } from '../../lib/Wallet.ts';
+import { getVaults } from '../../stores/vaults.ts';
+import { BitcoinLock } from '@argonprotocol/mainchain';
 
 const controller = useTreasuryController();
 const currency = getCurrency();
 const wallets = useWallets();
 const myBonds = useMyBonds();
+const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
-const mainchainBalance = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons);
-const totalValue = Vue.computed(() => mainchainBalance.value + myBonds.bondTotals.totalBondMicrogons);
+const isLoaded = Vue.ref(false);
+const pendingMint = Vue.ref(0n);
+const totalBitcoinDebt = Vue.ref(0n);
 
-const activeLocks = Vue.computed(() => {
+const mainchainBalance = Vue.computed(() => {
+  return pendingMint.value + wallets.liquidLockingWallet.availableMicrogons;
+});
+
+const allLocks = Vue.computed(() => {
   return bitcoinLocks.getAllLocks();
 });
 
 const nonReleasedLocks = Vue.computed(() => {
-  return activeLocks.value.filter(l => l.status !== BitcoinLockStatus.Released);
+  return allLocks.value.filter(l => l.status !== BitcoinLockStatus.Released);
 });
 
 const totalLockedSatoshis = Vue.computed(() => {
   return nonReleasedLocks.value.reduce((sum, l) => sum + l.satoshis, 0n);
 });
 
+const stableSwapValue = Vue.computed(() => {
+  const microgonValue = wallets.ethereumWallet.availableMicrogons;
+  const micronotValue = currency.convertMicronotTo(
+    wallets.ethereumWallet.availableMicronots,
+    UnitOfMeasurement.Microgon,
+  );
+  const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
+    return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
+  }, 0n);
+  return microgonValue + micronotValue + otherTokenValue;
+});
+
 function openLink(url: string) {
   void tauriOpenUrl(url);
 }
 
+async function updateTotalBitcoinDebt() {
+  const ratePromises = nonReleasedLocks.value.map(lock => {
+    return BitcoinLock.getRedemptionRate(currency.priceIndex, lock).catch(() => 0n);
+  });
+  const rates = await Promise.all(ratePromises);
+  totalBitcoinDebt.value = rates.reduce((sum, r) => sum + r, 0n);
+}
+
+Vue.watch([nonReleasedLocks, isLoaded], () => {
+  void updateTotalBitcoinDebt();
+});
+
 Vue.onMounted(async () => {
-  await myBonds.load();
+  await Promise.all([myBonds.load(), bitcoinLocks.load(), currency.fetchMainchainRates()]);
+  pendingMint.value = bitcoinLocks.getMintPending();
+  isLoaded.value = true;
 });
 </script>
 

@@ -1614,43 +1614,95 @@ export class MyVault {
     addedSecuritizationMicrogons: bigint;
     addedTreasuryMicrogons: bigint;
     tip?: bigint;
+    metadata?: object;
   }): Promise<TransactionInfo> {
-    const { addedSecuritizationMicrogons, addedTreasuryMicrogons } = args;
     const client = await getMainchainClient(false);
     const vault = this.createdVault;
     if (!vault) {
       throw new Error('No vault created to get changes needed');
     }
 
-    const txs = [];
-
-    if (addedSecuritizationMicrogons > 0n) {
-      const tx = client.tx.vaults.modifyFunding(
-        vault.vaultId,
-        vault.securitization + addedSecuritizationMicrogons,
-        toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
-      );
-      txs.push(tx);
-    }
-
-    if (addedTreasuryMicrogons > 0n) {
-      txs.push(await this.buildTreasuryBondPurchaseTx(addedTreasuryMicrogons));
-    }
+    const tx = await this.buildIncreaseVaultAllocationsTx(args, client);
     const txSigner = await this.walletKeys.getVaultingKeypair();
-    const info = await this.#transactionTracker.submitAndWatch({
-      tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
-      txSigner,
+    const submitOptions = {
+      useLatestNonce: true,
+      tip: args.tip,
+    };
+    console.info('[VaultIncreaseAllocation] Preparing submit', {
+      vaultId: vault.vaultId,
+      walletVaultingAddress: this.walletKeys.vaultingAddress,
+      txSignerAddress: txSigner.address,
+      vaultOperatorAccountId: vault.operatorAccountId,
+      addedSecuritizationMicrogons: args.addedSecuritizationMicrogons,
+      addedTreasuryMicrogons: args.addedTreasuryMicrogons,
+      clientType: (client as ArgonClient & { clientType?: string }).clientType,
+      genesisHash: client.genesisHash?.toHex(),
+      runtime: {
+        specVersion: client.runtimeVersion.specVersion.toNumber(),
+        transactionVersion: client.runtimeVersion.transactionVersion.toNumber(),
+      },
+      signedExtensions: client.registry.signedExtensions,
+    });
+    const submitter = new TxSubmitter(client, tx, txSigner);
+    const signedTx = await submitter.sign(submitOptions);
+    console.info('[VaultIncreaseAllocation] Signed transaction', {
+      signedHash: signedTx.hash.toHex(),
+      nonce: signedTx.nonce.toNumber(),
+      method: signedTx.method.toHuman(),
+      mode: signedTx.mode?.toHuman?.(),
+      metadataHash: signedTx.metadataHash?.toHuman?.(),
+    });
+    try {
+      const dryRunResult = await client.rpc.system.dryRun(signedTx.toHex());
+      console.info('[VaultIncreaseAllocation] Dry run result', dryRunResult.toHuman());
+    } catch (error) {
+      console.error('[VaultIncreaseAllocation] Dry run failed', error);
+    }
+    const txResult = await submitter.submitSigned(signedTx, submitOptions);
+    const info = await this.#transactionTracker.trackTxResult({
+      txResult,
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadata: {
-        addedSecuritizationMicrogons,
-        addedTreasuryMicrogons,
+        addedSecuritizationMicrogons: args.addedSecuritizationMicrogons,
+        addedTreasuryMicrogons: args.addedTreasuryMicrogons,
         vaultId: vault.vaultId,
+        ...args.metadata,
       },
-      tip: args.tip,
     });
     this.data.pendingAllocateTxInfo = info;
     void this.onIncreaseVaultAllocations(info);
     return info;
+  }
+
+  public async buildIncreaseVaultAllocationsTx(
+    args: {
+      addedSecuritizationMicrogons: bigint;
+    },
+    client?: ArgonClient,
+  ): Promise<SubmittableExtrinsic> {
+    const vault = this.createdVault;
+    if (!vault) {
+      throw new Error('No vault created to get changes needed');
+    }
+
+    client ??= await getMainchainClient(false);
+    const txs: SubmittableExtrinsic[] = [];
+
+    if (args.addedSecuritizationMicrogons > 0n) {
+      txs.push(
+        client.tx.vaults.modifyFunding(
+          vault.vaultId,
+          vault.securitization + args.addedSecuritizationMicrogons,
+          toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
+        ),
+      );
+    }
+
+    if (!txs.length) {
+      throw new Error('No vault allocation changes to submit.');
+    }
+
+    return txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0];
   }
 
   private async onIncreaseVaultAllocations(txInfo: TransactionInfo): Promise<void> {

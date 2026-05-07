@@ -94,6 +94,8 @@ dayjs.extend(utc);
 const currency = getCurrency();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
+const transactions = Vue.ref<IWalletTransferRecord[]>([]);
+
 function openTx(tx: IWalletTransferRecord) {
   let url = `https://argon.statescan.io/#/extrinsics/${tx.blockNumber}-${tx.extrinsicIndex}`;
   if (tx.tokenGatewayCommitmentHash) {
@@ -120,7 +122,6 @@ async function loadTransactionHistory(): Promise<void> {
   });
 }
 
-const transactions = Vue.ref<IWalletTransferRecord[]>([]);
 Vue.onMounted(async () => {
   await loadTransactionHistory();
   const balances = getWalletsForArgon();

@@ -2,6 +2,170 @@
   <div class="flex h-full flex-col">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
 
+    <div v-else-if="config.hasActivatedStableSwaps" class="flex h-full flex-col gap-4 px-6 py-4">
+      <section class="mt-5 flex flex-row items-end gap-x-2 text-center">
+        <div class="w-1/3 border-b border-slate-400/30 pb-5">
+          <div class="text-5xl font-bold">
+            {{ currency.symbol }}{{ microgonToMoneyNm(belowTargetAssets).format('0,0.00') }}
+          </div>
+          <div>Assets Targeting Below Target</div>
+        </div>
+        <div class="h-full w-px bg-slate-400/30" />
+        <div class="w-1/3 border-b border-slate-400/30 pb-5">
+          <div class="text-6xl font-bold">{{ walletReturnDisplay }}</div>
+          <div>Swap Profits</div>
+        </div>
+        <div class="h-full w-px bg-slate-400/30" />
+        <div class="w-1/3 border-b border-slate-400/30 pb-5">
+          <div class="text-5xl font-bold">
+            {{ currency.symbol }}{{ microgonToMoneyNm(aboveTargetAssets).format('0,0.00') }}
+          </div>
+          <div>Assets Targeting Above Target</div>
+        </div>
+      </section>
+
+      <section class="relative mt-24 mb-20 flex h-9 flex-row items-center">
+        <div class="relative h-1 w-full bg-slate-500/40" />
+        <div class="absolute top-full left-0 text-slate-500/60">{{ currency.symbol }}0.03</div>
+        <div class="absolute top-full right-0 text-slate-500/60">{{ currency.symbol }}2.03</div>
+        <div class="absolute top-full left-1/2 -translate-x-1/2 text-center text-slate-500/60">
+          {{ currency.symbol }}{{ targetPriceDisplay }}
+          <br />
+          Target Price
+        </div>
+        <div
+          class="bg-argon-600 absolute top-1/2 left-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
+        />
+        <div
+          v-for="n in 4"
+          :key="n"
+          :style="{ left: `${Number(n) * 10}%` }"
+          class="absolute top-1/2 mx-px h-6 w-px -translate-x-1/2 -translate-y-1/2 bg-slate-500/40"
+        />
+        <div
+          v-for="n in 4"
+          :key="n"
+          :style="{ left: `${(Number(n) + 5) * 10}%` }"
+          class="absolute top-1/2 mx-px h-6 w-px -translate-x-1/2 -translate-y-1/2 bg-slate-500/40"
+        />
+        <div class="absolute top-1/2 left-0 h-full w-px -translate-y-1/2 bg-slate-500/40" />
+        <div class="absolute top-1/2 left-1/2 h-full w-1 -translate-x-1/2 -translate-y-1/2 bg-slate-500/50" />
+        <div class="absolute top-1/2 right-0 h-full w-px -translate-y-1/2 bg-slate-500/50" />
+        <div
+          class="text-md absolute top-1/2 left-1/4 -translate-x-1/2 -translate-y-1/2 bg-white px-1 leading-5 text-slate-500/50"
+        >
+          BELOW TARGET
+        </div>
+        <div
+          class="text-md absolute top-1/2 left-3/4 -translate-x-1/2 -translate-y-1/2 bg-white px-1 leading-5 text-slate-500/50"
+        >
+          ABOVE TARGET
+        </div>
+        <div
+          class="absolute bottom-full left-1/2 -translate-x-1/2 rounded border border-slate-500/20 bg-white px-3 py-2 text-center shadow"
+        >
+          <strong>Exactly At Target</strong>
+          <br />
+          {{ currency.symbol }}{{ currentPriceDisplay }}
+          <div class="absolute bottom-0 left-1/2 h-4 w-8 -translate-x-1/2 translate-y-full overflow-hidden">
+            <Arrow :shadow="true" class="relative -top-px h-full w-full rotate-180" />
+          </div>
+        </div>
+      </section>
+
+      <section v-if="projectedProfitDisplay">
+        Argons to Buy: {{ discountedArgonsDisplay }} ARGN Current Price: {{ currency.symbol
+        }}{{ currentPriceDisplay }} Expected Profit: {{ currency.symbol }}{{ projectedProfitDisplay }} Estimated spend:
+        <span class="font-medium text-slate-700">{{ currency.symbol }}{{ costToTargetDisplay }}</span>
+        Offset from Target: {{ targetOffsetDisplay }}
+        <button
+          @click="stableSwaps.openCurrentTrade()"
+          :disabled="!stableSwaps.marketTradeUrl || !stableSwaps.marketSnapshot?.discountedEthereumArgonAmount"
+          class="bg-argon-button hover:bg-argon-button-hover mt-4 inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+          Buy Exact Argons On Uniswap
+        </button>
+      </section>
+      <section
+        v-else
+        class="min-h-20 rounded-lg border-2 border-dashed border-slate-400/50 px-6 py-16 text-center text-xl font-bold text-slate-500/40"
+      >
+        <div v-if="!stableSwaps.marketSnapshot && stableSwaps.isLoadingMarket">Loading...</div>
+        <div v-else-if="stableSwaps.marketError">
+          {{ stableSwaps.marketError }}
+        </div>
+        <div v-else>
+          Price Is At Target
+          <br />
+          No Swap Opportunities
+        </div>
+      </section>
+
+      <section class="flex flex-col overflow-hidden rounded-lg border border-slate-300/50 bg-white shadow-sm">
+        <div
+          class="grid grid-cols-8 border-b border-slate-100 px-6 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase"
+        >
+          <div>Date</div>
+          <div>Argons Bought</div>
+          <div>Cost Basis</div>
+          <div>Buy Price</div>
+          <div>Oracle Price</div>
+          <div>Uniswap Price</div>
+          <div>Current P/L</div>
+          <div class="text-right">Details</div>
+        </div>
+
+        <div
+          v-if="stableSwaps.walletSnapshot?.purchases.length === 0"
+          class="px-6 py-10 text-center text-sm text-slate-500"
+        >
+          No tracked purchases yet for this wallet.
+        </div>
+
+        <div v-else class="overflow-auto">
+          <div
+            v-for="purchase in stableSwaps.walletSnapshot?.purchases"
+            :key="purchase.txHash"
+            class="grid grid-cols-8 items-center border-b border-slate-50 px-6 py-3 text-sm text-slate-700 last:border-0 hover:bg-slate-50/60"
+          >
+            <div class="text-slate-500">{{ formatPurchaseDate(purchase.ethereumTimestamp) }}</div>
+            <div class="font-mono">{{ formatEthereumArgonAmount(purchase.ethereumArgonAmount) }} ARGN</div>
+            <div class="font-mono">{{ currency.symbol }}{{ formatMoneyMicrogons(purchase.costBasisMicrogons) }}</div>
+            <div class="font-mono">
+              {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.effectiveBuyPriceMicrogons, '0,0.[0000]') }}
+            </div>
+            <div class="font-mono">
+              {{ currency.symbol }}{{ formatOptionalMoneyMicrogons(purchase.argonOraclePriceMicrogons) }}
+            </div>
+            <div class="font-mono">
+              {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.uniswapPriceMicrogons, '0,0.[0000]') }}
+            </div>
+            <div
+              :class="purchase.currentProfitMicrogons >= ZERO_BIGINT ? 'text-emerald-600' : 'text-rose-600'"
+              class="font-mono font-semibold"
+            >
+              {{ formatSignedMoneyMicrogons(purchase.currentProfitMicrogons) }}
+            </div>
+            <div class="text-right">
+              <button
+                @click="openPurchaseTx(purchase.txHash)"
+                class="text-argon-600 hover:text-argon-700 inline-flex items-center gap-1 text-sm font-medium transition"
+              >
+                Tx
+                <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      Watching from Ethereum block
+      <span class="font-medium text-slate-700">
+        {{ numeral(stableSwaps.walletSnapshot?.summary.watchedSinceBlockNumber ?? 0).format('0,0') }}
+      </span>
+    </div>
+
     <template v-else>
       <!-- Blank state -->
       <div class="flex grow flex-col items-center justify-center">
@@ -16,14 +180,15 @@
             </div>
           </div>
           <p class="mt-10 w-0 min-w-full border-y border-slate-400/50 py-4 text-[17px]/7 font-light whitespace-normal">
-            Stable Swaps is a feature that monitors Argon's price on Uniswap and makes it easy to profit when the price
+            Stable Swaps is a feature that monitors Argon's price on Uniswap, making it easy to profit when the price
             deviates from target. Your stable swaps are ultimately backed by protocol’s Liquid Locking mechanism, which
             guarantees eventual restabilization. It does this by using Bitcoin shorts to drive the price back to target.
             This correction can take several days, which is where stable swaps come into play -- they profit from the
-            short-term volatility.
+            short-term opportunities.
           </p>
           <span class="relative">
             <button
+              @click="activateStableSwaps"
               :class="walletBalance ? '' : 'pointer-events-none bg-slate-600 opacity-40'"
               class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md px-12 py-2.5 text-base font-bold text-white"
             >
@@ -47,10 +212,10 @@
               />
             </div>
             <div v-if="walletBalance" class="text-argon-600 relative text-xl leading-8 font-bold">
-              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings
-              that is
+              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} on ethereum
+              that
               <br />
-              ready for immediate deployment.
+              is ready for immediate deployment.
             </div>
             <div v-else class="text-argon-600 relative text-xl leading-8 font-bold">
               This feature is disabled until your
@@ -65,219 +230,6 @@
       </div>
     </template>
   </div>
-  <!--  <div class="flex h-full flex-col gap-4 px-4 py-4">-->
-  <!--    <header class="flex flex-row items-start justify-between gap-4">-->
-  <!--      <div>-->
-  <!--        <h2 class="text-xl font-bold text-slate-800/70">Stable Swaps</h2>-->
-  <!--        <div class="mt-0.5 text-sm text-slate-400">-->
-  <!--          Watch the live Argon discount on Uniswap, estimate the buy size needed to return to target, and track wallet-->
-  <!--          swap performance.-->
-  <!--        </div>-->
-  <!--      </div>-->
-
-  <!--      <button-->
-  <!--        @click="stableSwaps.refreshMarket()"-->
-  <!--        :disabled="stableSwaps.isLoadingMarket"-->
-  <!--        class="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50">-->
-  <!--        Refresh Market-->
-  <!--      </button>-->
-  <!--    </header>-->
-
-  <!--    <div-->
-  <!--      v-if="!stableSwaps.marketSnapshot && stableSwaps.isLoadingMarket"-->
-  <!--      class="flex grow items-center justify-center text-slate-500">-->
-  <!--      Loading market snapshot...-->
-  <!--    </div>-->
-
-  <!--    <template v-else>-->
-  <!--      <div-->
-  <!--        v-if="stableSwaps.marketError"-->
-  <!--        class="rounded-lg border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700">-->
-  <!--        {{ stableSwaps.marketError }}-->
-  <!--      </div>-->
-
-  <!--      <div class="grid gap-4 xl:grid-cols-3">-->
-  <!--        <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--          <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Current Price</div>-->
-  <!--          <div class="mt-2 flex flex-row items-end gap-3">-->
-  <!--            <div class="font-mono text-4xl font-bold text-slate-800">-->
-  <!--              {{ currency.symbol }}{{ currentPriceDisplay }}-->
-  <!--            </div>-->
-  <!--            <div-->
-  <!--              v-if="targetOffsetDisplay"-->
-  <!--              :class="targetOffsetClasses"-->
-  <!--              class="mb-1 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide">-->
-  <!--              {{ targetOffsetDisplay }} off target-->
-  <!--            </div>-->
-  <!--          </div>-->
-  <!--          <div class="mt-3 text-sm text-slate-500">-->
-  <!--            <template v-if="targetPriceDisplay">-->
-  <!--              Target:-->
-  <!--              <span class="font-medium text-slate-700">{{ currency.symbol }}{{ targetPriceDisplay }}</span>-->
-  <!--            </template>-->
-  <!--            <template v-else>Waiting for the latest price index target from Argon.</template>-->
-  <!--          </div>-->
-  <!--        </section>-->
-
-  <!--        <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--          <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Discounted Argons Available</div>-->
-  <!--          <div class="mt-2 font-mono text-3xl font-bold text-slate-800">{{ discountedArgonsDisplay }} ARGN</div>-->
-  <!--          <div class="mt-3 text-sm text-slate-500">-->
-  <!--            <template v-if="costToTargetDisplay">-->
-  <!--              Estimated spend:-->
-  <!--              <span class="font-medium text-slate-700">{{ currency.symbol }}{{ costToTargetDisplay }}</span>-->
-  <!--            </template>-->
-  <!--            <template v-else>No discount is currently available in the live pool.</template>-->
-  <!--          </div>-->
-  <!--        </section>-->
-
-  <!--        <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--          <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Return To Target</div>-->
-  <!--          <div class="mt-2 font-mono text-3xl font-bold text-slate-800">-->
-  <!--            {{ currency.symbol }}{{ projectedProfitDisplay }}-->
-  <!--          </div>-->
-  <!--          <div class="mt-3 text-sm text-slate-500">-->
-  <!--            Gross mark-to-target profit if the discounted amount is bought and the price returns to the current peg.-->
-  <!--          </div>-->
-  <!--          <button-->
-  <!--            @click="stableSwaps.openCurrentTrade()"-->
-  <!--            :disabled="!stableSwaps.marketTradeUrl || !stableSwaps.marketSnapshot?.discountedEthereumArgonAmount"-->
-  <!--            class="bg-argon-button hover:bg-argon-button-hover mt-4 inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50">-->
-  <!--            <ArrowTopRightOnSquareIcon class="h-4 w-4" />-->
-  <!--            Buy Exact Argons On Uniswap-->
-  <!--          </button>-->
-  <!--        </section>-->
-  <!--      </div>-->
-
-  <!--      <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">-->
-  <!--          <div>-->
-  <!--            <div class="text-sm font-semibold text-slate-700">Wallet Tracker</div>-->
-  <!--            <div class="mt-1 text-sm text-slate-400">-->
-  <!--              Add a wallet to watch new Ethereum Argon buys from the current block onward.-->
-  <!--            </div>-->
-  <!--          </div>-->
-
-  <!--          <form class="flex w-full max-w-3xl flex-col gap-2 sm:flex-row" @submit.prevent="submitWallet">-->
-  <!--            <input-->
-  <!--              v-model="walletInput"-->
-  <!--              type="text"-->
-  <!--              spellcheck="false"-->
-  <!--              placeholder="0x..."-->
-  <!--              class="focus:border-argon-500 focus:ring-argon-500/20 grow rounded-md border border-slate-300 px-3 py-2 font-mono text-sm text-slate-700 transition outline-none focus:ring-2" />-->
-  <!--            <button-->
-  <!--              type="submit"-->
-  <!--              :disabled="stableSwaps.isRefreshingWallet"-->
-  <!--              class="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50">-->
-  <!--              {{ stableSwaps.isRefreshingWallet ? 'Refreshing...' : 'Track Wallet' }}-->
-  <!--            </button>-->
-  <!--          </form>-->
-  <!--        </div>-->
-
-  <!--        <div-->
-  <!--          v-if="stableSwaps.walletError"-->
-  <!--          class="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">-->
-  <!--          {{ stableSwaps.walletError }}-->
-  <!--        </div>-->
-  <!--        <div-->
-  <!--          v-else-if="stableSwaps.walletMessage"-->
-  <!--          class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">-->
-  <!--          {{ stableSwaps.walletMessage }}-->
-  <!--        </div>-->
-  <!--      </section>-->
-
-  <!--      <template v-if="stableSwaps.walletSnapshot">-->
-  <!--        <div class="grid gap-4 lg:grid-cols-4">-->
-  <!--          <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--            <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Capital Applied</div>-->
-  <!--            <div class="mt-2 font-mono text-2xl font-bold text-slate-800">-->
-  <!--              {{ currency.symbol }}{{ capitalAppliedDisplay }}-->
-  <!--            </div>-->
-  <!--          </section>-->
-
-  <!--          <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--            <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Current Profit</div>-->
-  <!--            <div :class="walletProfitClasses" class="mt-2 font-mono text-2xl font-bold">-->
-  <!--              {{ walletProfitDisplay }}-->
-  <!--            </div>-->
-  <!--          </section>-->
-
-  <!--          <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--            <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Return</div>-->
-  <!--            <div :class="walletProfitClasses" class="mt-2 font-mono text-2xl font-bold">-->
-  <!--              {{ walletReturnDisplay }}-->
-  <!--            </div>-->
-  <!--          </section>-->
-
-  <!--          <section class="rounded-lg border border-slate-300/50 bg-white px-6 py-5 shadow-sm">-->
-  <!--            <div class="text-xs font-medium tracking-wide text-slate-400 uppercase">Tracked Purchases</div>-->
-  <!--            <div class="mt-2 font-mono text-2xl font-bold text-slate-800">-->
-  <!--              {{ stableSwaps.walletSnapshot.summary.purchaseCount }}-->
-  <!--            </div>-->
-  <!--            <div class="mt-2 text-sm text-slate-500">-->
-  <!--              Watching from Ethereum block-->
-  <!--              <span class="font-medium text-slate-700">-->
-  <!--                {{ numeral(stableSwaps.walletSnapshot.summary.watchedSinceBlockNumber ?? 0).format('0,0') }}-->
-  <!--              </span>-->
-  <!--            </div>-->
-  <!--          </section>-->
-  <!--        </div>-->
-
-  <!--        <section class="flex flex-col overflow-hidden rounded-lg border border-slate-300/50 bg-white shadow-sm">-->
-  <!--          <div-->
-  <!--            class="grid grid-cols-8 border-b border-slate-100 px-6 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">-->
-  <!--            <div>Date</div>-->
-  <!--            <div>Argons Bought</div>-->
-  <!--            <div>Cost Basis</div>-->
-  <!--            <div>Buy Price</div>-->
-  <!--            <div>Oracle Price</div>-->
-  <!--            <div>Uniswap Price</div>-->
-  <!--            <div>Current P/L</div>-->
-  <!--            <div class="text-right">Details</div>-->
-  <!--          </div>-->
-
-  <!--          <div-->
-  <!--            v-if="stableSwaps.walletSnapshot.purchases.length === 0"-->
-  <!--            class="px-6 py-10 text-center text-sm text-slate-500">-->
-  <!--            No tracked purchases yet for this wallet.-->
-  <!--          </div>-->
-
-  <!--          <div v-else class="overflow-auto">-->
-  <!--            <div-->
-  <!--              v-for="purchase in stableSwaps.walletSnapshot.purchases"-->
-  <!--              :key="purchase.txHash"-->
-  <!--              class="grid grid-cols-8 items-center border-b border-slate-50 px-6 py-3 text-sm text-slate-700 last:border-0 hover:bg-slate-50/60">-->
-  <!--              <div class="text-slate-500">{{ formatPurchaseDate(purchase.ethereumTimestamp) }}</div>-->
-  <!--              <div class="font-mono">{{ formatEthereumArgonAmount(purchase.ethereumArgonAmount) }} ARGN</div>-->
-  <!--              <div class="font-mono">{{ currency.symbol }}{{ formatMoneyMicrogons(purchase.costBasisMicrogons) }}</div>-->
-  <!--              <div class="font-mono">-->
-  <!--                {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.effectiveBuyPriceMicrogons, '0,0.[0000]') }}-->
-  <!--              </div>-->
-  <!--              <div class="font-mono">-->
-  <!--                {{ currency.symbol }}{{ formatOptionalMoneyMicrogons(purchase.argonOraclePriceMicrogons) }}-->
-  <!--              </div>-->
-  <!--              <div class="font-mono">-->
-  <!--                {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.uniswapPriceMicrogons, '0,0.[0000]') }}-->
-  <!--              </div>-->
-  <!--              <div-->
-  <!--                :class="purchase.currentProfitMicrogons >= ZERO_BIGINT ? 'text-emerald-600' : 'text-rose-600'"-->
-  <!--                class="font-mono font-semibold">-->
-  <!--                {{ formatSignedMoneyMicrogons(purchase.currentProfitMicrogons) }}-->
-  <!--              </div>-->
-  <!--              <div class="text-right">-->
-  <!--                <button-->
-  <!--                  @click="openPurchaseTx(purchase.txHash)"-->
-  <!--                  class="text-argon-600 hover:text-argon-700 inline-flex items-center gap-1 text-sm font-medium transition">-->
-  <!--                  Tx-->
-  <!--                  <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />-->
-  <!--                </button>-->
-  <!--              </div>-->
-  <!--            </div>-->
-  <!--          </div>-->
-  <!--        </section>-->
-  <!--      </template>-->
-  <!--    </template>-->
-  <!--  </div>-->
 </template>
 
 <script setup lang="ts">
@@ -296,16 +248,29 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import { type IOtherToken, WalletType } from '../../lib/Wallet.ts';
 import { bigIntAbs, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useWallets } from '../../stores/wallets.ts';
+import { getConfig } from '../../stores/config.ts';
+import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
+import Arrow from '../../components/Arrow.vue';
 
 const currency = getCurrency();
 const stableSwaps = useStableSwaps();
 const wallets = useWallets();
+const config = getConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const ZERO_BIGINT = BigInt(0);
-const walletInput = Vue.ref('');
 const isLoaded = Vue.ref(true);
+
+const belowTargetAssets = Vue.computed(() => {
+  return wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
+    return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
+  }, 0n);
+});
+
+const aboveTargetAssets = Vue.computed(() => {
+  return 0n;
+});
 
 const walletBalance = Vue.computed(() => {
   const microgonValue = wallets.ethereumWallet.availableMicrogons;
@@ -344,15 +309,6 @@ const targetOffsetDisplay = Vue.computed(() => {
   return `${prefix}${currency.symbol}${formatMoneyMicrogons(bigIntAbs(offset), '0,0.[0000]')}`;
 });
 
-const targetOffsetClasses = Vue.computed(() => {
-  if (!stableSwaps.marketSnapshot?.targetPriceMicrogons) {
-    return 'bg-slate-100 text-slate-500';
-  }
-  return stableSwaps.marketSnapshot.currentPriceMicrogons >= stableSwaps.marketSnapshot.targetPriceMicrogons
-    ? 'bg-emerald-50 text-emerald-700'
-    : 'bg-rose-50 text-rose-700';
-});
-
 const discountedArgonsDisplay = Vue.computed(() => {
   return formatEthereumArgonAmount(stableSwaps.marketSnapshot?.discountedEthereumArgonAmount ?? ZERO_BIGINT);
 });
@@ -369,29 +325,11 @@ const projectedProfitDisplay = Vue.computed(() => {
   return formatMoneyMicrogons(stableSwaps.marketSnapshot?.projectedProfitMicrogons ?? ZERO_BIGINT);
 });
 
-const capitalAppliedDisplay = Vue.computed(() => {
-  return formatMoneyMicrogons(stableSwaps.walletSnapshot?.summary.capitalAppliedMicrogons ?? ZERO_BIGINT);
-});
-
-const walletProfitClasses = Vue.computed(() => {
-  return (stableSwaps.walletSnapshot?.summary.currentProfitMicrogons ?? ZERO_BIGINT) >= ZERO_BIGINT
-    ? 'text-emerald-600'
-    : 'text-rose-600';
-});
-
-const walletProfitDisplay = Vue.computed(() => {
-  return formatSignedMoneyMicrogons(stableSwaps.walletSnapshot?.summary.currentProfitMicrogons ?? ZERO_BIGINT);
-});
-
 const walletReturnDisplay = Vue.computed(() => {
   const returnPct = stableSwaps.walletSnapshot?.summary.returnPct ?? 0;
   const prefix = returnPct >= 0 ? '+' : '';
   return `${prefix}${numeral(returnPct).format('0,0.[00]')}%`;
 });
-
-async function submitWallet() {
-  await stableSwaps.lookupWallet(walletInput.value);
-}
 
 function formatPurchaseDate(date: Date) {
   return dayjs(date).format('MMM D, YYYY h:mm A');
@@ -425,15 +363,10 @@ function openEthereumWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
 }
 
-Vue.watch(
-  () => stableSwaps.selectedWalletAddress,
-  value => {
-    if (value) {
-      walletInput.value = value;
-    }
-  },
-  { immediate: true },
-);
+async function activateStableSwaps() {
+  config.hasActivatedStableSwaps = true;
+  await config.save();
+}
 
 Vue.onMounted(async () => {
   await stableSwaps.load();

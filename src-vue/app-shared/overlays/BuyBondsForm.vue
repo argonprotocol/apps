@@ -37,7 +37,7 @@
         />
         <div class="mt-1 text-xs text-slate-400">
           Wallet: {{ currency.symbol }}{{ microgonToMoneyNm(props.walletBalance).format('0,0.00') }}
-          <template v-if="props.availableVaultSpace < props.walletBalance">
+          <template v-if="vaultAvailableCapacity < props.walletBalance">
             · Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0') }}
           </template>
         </div>
@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
+import { BondLot, MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
 import InputMoney from '../../components/InputMoney.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
@@ -79,13 +79,14 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
+import { getBondMarket } from '../../stores/myBonds.ts';
+import { getVaults } from '../../stores/vaults.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
 const props = defineProps<{
   vaultId: number;
   walletBalance: bigint;
-  availableVaultSpace: bigint;
 }>();
 
 const emit = defineEmits<{
@@ -96,6 +97,9 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
+const bondMarket = getBondMarket();
+const vaults = getVaults();
+
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const purchaseAmount = Vue.ref<bigint>(0n);
@@ -109,8 +113,23 @@ const progressError = Vue.ref('');
 
 let unsubProgress: (() => void) | undefined;
 
+const vaultTotalCapacity = Vue.ref(0n);
+const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[props.vaultId]);
+
+const nextFrameBondAvailability = Vue.computed(() => {
+  return TreasuryBonds.calculateNextFrameBondAvailability(
+    vaultTotalCapacity.value,
+    vaultBondState.value?.bondLots ?? [],
+    bondMarket.data.bondFullCapacityPerFrame,
+  );
+});
+
+const vaultAvailableCapacity = Vue.computed(() => {
+  return BondLot.bondsToMicrogons(nextFrameBondAvailability.value.nextFrameAvailableBonds);
+});
+
 const maxPurchaseAmount = Vue.computed(() => {
-  const max = props.walletBalance < props.availableVaultSpace ? props.walletBalance : props.availableVaultSpace;
+  const max = props.walletBalance < vaultAvailableCapacity.value ? props.walletBalance : vaultAvailableCapacity.value;
   return max - (max % MICROGONS_PER_ARGON_BIGINT);
 });
 
@@ -169,7 +188,19 @@ async function submit() {
   }
 }
 
+let unsubVault: (() => void) | undefined;
+
+Vue.onMounted(async () => {
+  unsubVault = await vaults.subscribeToVault(props.vaultId, () => {
+    const vault = vaults.vaultsById[props.vaultId];
+    if (vault) {
+      vaultTotalCapacity.value = vault.securitization;
+    }
+  });
+});
+
 Vue.onUnmounted(() => {
+  unsubVault?.();
   unsubProgress?.();
 });
 </script>

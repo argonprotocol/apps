@@ -232,6 +232,21 @@ export class TreasuryBonds {
     });
   }
 
+  public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {
+    if (typeof client.query.treasury.bondLotsByVault !== 'function') {
+      return [];
+    }
+
+    const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
+    const ids = [...new Set(accountKeys.map(key => key.args[1].toNumber()))];
+    const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
+
+    return ids.flatMap(id => {
+      const lot = lotsById.get(id);
+      return lot ? [BondLot.fromRuntime(id, lot, accountId)] : [];
+    });
+  }
+
   public static async getCurrentFrameBondLots(
     client: ArgonQueryClient,
     vaultId: number,
