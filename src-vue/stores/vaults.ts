@@ -16,7 +16,7 @@ let myVault: MyVault;
 
 export function getVaults(): Vaults {
   if (!vaults) {
-    vaults = new Vaults(NETWORK_NAME, getCurrency() as Currency, getMiningFrames());
+    vaults = new Vaults(NETWORK_NAME, getCurrency(), getMiningFrames());
   }
 
   return vaults;

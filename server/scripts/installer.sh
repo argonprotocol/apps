@@ -224,7 +224,7 @@ if ! (already_ran "DockerInstall"); then
 
     if [ "$NEEDS_FULL_SETUP" = false ]; then
       echo "Local install detected, installing only docker CLI and compose plugin"
-      run_command "sudo apt install -y docker-cli docker-buildx-plugin docker-compose-plugin"
+      run_command "sudo apt install -y docker-ce-cli docker-buildx-plugin docker-compose-plugin"
     else
       echo "Remote install detected, installing full Docker engine"
       run_command "sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"

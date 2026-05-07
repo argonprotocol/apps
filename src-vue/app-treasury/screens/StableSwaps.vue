@@ -8,7 +8,7 @@
           <div class="text-5xl font-bold">
             {{ currency.symbol }}{{ microgonToMoneyNm(belowTargetAssets).format('0,0.00') }}
           </div>
-          <div>Assets for Below Target</div>
+          <div>Assets Targeting Below Target</div>
         </div>
         <div class="h-full w-px bg-slate-400/30" />
         <div class="w-1/3 border-b border-slate-400/30 pb-5">
@@ -20,7 +20,7 @@
           <div class="text-5xl font-bold">
             {{ currency.symbol }}{{ microgonToMoneyNm(aboveTargetAssets).format('0,0.00') }}
           </div>
-          <div>Assets for Above Target</div>
+          <div>Assets Targeting Above Target</div>
         </div>
       </section>
 
@@ -74,10 +74,9 @@
       </section>
 
       <section v-if="projectedProfitDisplay">
-        Argons to Buy: {{ discountedArgonsDisplay }} ARGN
-        Current Price: {{ currency.symbol }}{{ currentPriceDisplay }}
-        Expected Profit: {{ currency.symbol }}{{ projectedProfitDisplay }}
-        Estimated spend: <span class="font-medium text-slate-700">{{ currency.symbol }}{{ costToTargetDisplay }}</span>
+        Argons to Buy: {{ discountedArgonsDisplay }} ARGN Current Price: {{ currency.symbol
+        }}{{ currentPriceDisplay }} Expected Profit: {{ currency.symbol }}{{ projectedProfitDisplay }} Estimated spend:
+        <span class="font-medium text-slate-700">{{ currency.symbol }}{{ costToTargetDisplay }}</span>
         Offset from Target: {{ targetOffsetDisplay }}
         <button
           @click="stableSwaps.openCurrentTrade()"
@@ -132,9 +131,7 @@
           >
             <div class="text-slate-500">{{ formatPurchaseDate(purchase.ethereumTimestamp) }}</div>
             <div class="font-mono">{{ formatEthereumArgonAmount(purchase.ethereumArgonAmount) }} ARGN</div>
-            <div class="font-mono">
-              {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.costBasisMicrogons) }}
-            </div>
+            <div class="font-mono">{{ currency.symbol }}{{ formatMoneyMicrogons(purchase.costBasisMicrogons) }}</div>
             <div class="font-mono">
               {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.effectiveBuyPriceMicrogons, '0,0.[0000]') }}
             </div>
@@ -215,10 +212,10 @@
               />
             </div>
             <div v-if="walletBalance" class="text-argon-600 relative text-xl leading-8 font-bold">
-              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} in savings
-              that is
+              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} on ethereum
+              that
               <br />
-              ready for immediate deployment.
+              is ready for immediate deployment.
             </div>
             <div v-else class="text-argon-600 relative text-xl leading-8 font-bold">
               This feature is disabled until your

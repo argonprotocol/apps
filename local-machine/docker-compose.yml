@@ -1,6 +1,7 @@
 ---
 services:
   vm:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
@@ -31,7 +32,7 @@ services:
       - GID=${GID}
     healthcheck:
       # yamllint disable-line rule:line-length rule:brackets
-      test: [ "CMD-SHELL", "systemctl is-active --quiet ssh && nc -z localhost 22" ]
+      test: [ "CMD-SHELL", "nc -z localhost 22" ]
       interval: 5s
       timeout: 3s
       retries: 10

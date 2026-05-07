@@ -36,7 +36,7 @@
     >
       <div class="border-argon-600/20 border-b py-5 text-lg font-bold">
         <div v-if="guidanceIsFullyFunded" class="flex flex-row items-center justify-center">
-          <CheckBadgeIcon class="inline-block w-8 mr-1" />
+          <CheckBadgeIcon class="mr-1 inline-block w-8" />
           Your {{ walletType === WalletType.vaulting ? 'Vaulting' : 'Mining' }} Operations Are Fully Funded
         </div>
         <template v-else>

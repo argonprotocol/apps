@@ -141,6 +141,42 @@ export class TransactionsTable extends BaseTable {
     return convertFromSqliteFields(records, this.fields);
   }
 
+  public async fetchByAccountAddress(address: string): Promise<ITransactionRecord[]> {
+    const records = await this.db.select<any[]>(
+      `SELECT
+         id,
+         status,
+         followOnTxId,
+         extrinsicHash,
+         extrinsicMethodJson,
+         extrinsicType,
+         metadataJson,
+         accountAddress,
+         submittedAtTime,
+         submittedAtBlockHeight,
+         submissionErrorJson,
+         txNonce,
+         txTip,
+         txFeePlusTip,
+         blockHeight,
+         blockHash,
+         blockTime,
+         blockExtrinsicIndex,
+         blockExtrinsicEventsJson,
+         blockExtrinsicErrorJson,
+         lastFinalizedBlockHeight AS finalizedHeadHeight,
+         lastFinalizedBlockTime AS finalizedHeadTime,
+         isFinalized,
+         createdAt,
+         updatedAt
+       FROM Transactions
+       WHERE accountAddress = ?
+       ORDER BY COALESCE(blockHeight, submittedAtBlockHeight) DESC, id DESC`,
+      toSqlParams([address]),
+    );
+    return convertFromSqliteFields(records, this.fields);
+  }
+
   public async fetchStatusHistory(transactionId: number): Promise<ITransactionStatusHistoryRecord[]> {
     return await this.db.transactionStatusHistoryTable.fetchByTransactionId(transactionId);
   }

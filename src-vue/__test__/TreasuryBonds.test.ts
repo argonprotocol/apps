@@ -216,6 +216,42 @@ describe('getBondLots', () => {
       { id: 2, bonds: 20, isOwn: true },
     ]);
   });
+
+  it('loads runtime bond lots by account across vaults', async () => {
+    const multiCalls: number[][] = [];
+    const client = {
+      query: {
+        treasury: {
+          bondLotsByVault: async () => [],
+          bondLotIdsByAccount: {
+            keys: async (account: string) => {
+              expect(account).toBe('5Owner');
+
+              return [{ args: [accountId('5Owner'), codecNumber(2)] }, { args: [accountId('5Owner'), codecNumber(3)] }];
+            },
+          },
+          bondLotById: {
+            multi: async (ids: number[]) => {
+              multiCalls.push(ids);
+
+              return [
+                some(runtimeBondLot({ bonds: 20, owner: '5Owner', vaultId: 7 })),
+                some(runtimeBondLot({ bonds: 30, owner: '5Owner', vaultId: 8 })),
+              ];
+            },
+          },
+        },
+      },
+    } as unknown as Parameters<typeof TreasuryBonds.getBondLotsByAccount>[0];
+
+    const lots = await TreasuryBonds.getBondLotsByAccount(client, '5Owner');
+
+    expect(multiCalls).toEqual([[2, 3]]);
+    expect(lots.map(lot => ({ id: lot.id, vaultId: lot.vaultId, bonds: lot.bonds, isOwn: lot.isOwn }))).toEqual([
+      { id: 2, vaultId: 7, bonds: 20, isOwn: true },
+      { id: 3, vaultId: 8, bonds: 30, isOwn: true },
+    ]);
+  });
 });
 
 describe('buildBuyBondTx', () => {

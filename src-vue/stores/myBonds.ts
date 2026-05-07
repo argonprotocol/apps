@@ -56,23 +56,16 @@ export const useMyBonds = defineStore('myBonds', () => {
 
     await config.isLoadedPromise;
     await currency.isLoadedPromise;
-    if (!config.upstreamOperator?.vaultId) return;
     await miningFrames.load();
 
-    vaultId.value = config.upstreamOperator.vaultId;
+    vaultId.value = config.upstreamOperator?.vaultId ?? 0;
 
     await blockWatch.start();
 
     Vue.watch(
       () => config.upstreamOperator?.vaultId ?? 0,
       async nextVaultId => {
-        vaultId.value = nextVaultId;
-        if (!vaultId.value) {
-          bondLots.value = [];
-          frameHistory.value = [];
-          return;
-        }
-
+        setDisplayVaultId(nextVaultId);
         await refreshBondLots();
         await refreshFrameHistory();
       },
@@ -88,27 +81,31 @@ export const useMyBonds = defineStore('myBonds', () => {
 
   async function refreshBondLots(client?: ArgonQueryClient) {
     client ??= await getMainchainClient(false);
-    bondLots.value = (await TreasuryBonds.getBondLots(client, vaultId.value, walletKeys.investmentAddress)).filter(
-      lot => lot.isOwn,
-    );
+    bondLots.value = await getOwnBondLots(client);
+    setDisplayVaultId(config.upstreamOperator?.vaultId ?? vaultId.value);
   }
 
   async function refreshFrameHistory(client?: ArgonQueryClient) {
     client ??= await getMainchainClient(false);
-    const accountId = walletKeys.investmentAddress;
-    frameHistory.value = await TreasuryBonds.getBondFrameHistory(client, vaultId.value, accountId);
+    const lots = bondLots.value.length ? bondLots.value : await getOwnBondLots(client);
+    frameHistory.value = lots
+      .filter(lot => lot.lastEarningsFrame != null)
+      .map(lot => ({
+        frameId: lot.lastEarningsFrame!,
+        bonds: lot.bonds,
+        earnings: lot.lastEarnings,
+      }))
+      .sort((a, b) => b.frameId - a.frameId);
   }
 
   async function refreshFromBlockEvents(blocks: IBlockHeaderInfo[]) {
-    if (!vaultId.value) return;
-
     let latestBondLotsBlock: IBlockHeaderInfo | undefined;
     let latestFrameHistoryBlock: IBlockHeaderInfo | undefined;
 
     for (const block of blocks) {
       const refreshScope = await getTreasuryBondRefreshScope(await blockWatch.getEvents(block));
 
-      if (refreshScope.refreshAll || refreshScope.vaultIds.has(vaultId.value)) {
+      if (refreshScope.refreshAll || refreshScope.vaultIds.size > 0) {
         latestBondLotsBlock = block;
       }
 
@@ -125,6 +122,28 @@ export const useMyBonds = defineStore('myBonds', () => {
     if (latestFrameHistoryBlock) {
       await refreshFrameHistory(await blockWatch.getApi(latestFrameHistoryBlock));
     }
+  }
+
+  async function getOwnBondLots(client: ArgonQueryClient): Promise<BondLot[]> {
+    const accountId = walletKeys.investmentAddress;
+    const accountLots = await TreasuryBonds.getBondLotsByAccount(client, accountId);
+    if (accountLots.length || !config.upstreamOperator?.vaultId) {
+      return accountLots.filter(lot => lot.isOwn);
+    }
+
+    return (await TreasuryBonds.getBondLots(client, config.upstreamOperator.vaultId, accountId)).filter(
+      lot => lot.isOwn,
+    );
+  }
+
+  function setDisplayVaultId(preferredVaultId: number) {
+    const ownedVaultIds = new Set(bondLots.value.map(lot => lot.vaultId));
+    if (preferredVaultId && (!ownedVaultIds.size || ownedVaultIds.has(preferredVaultId))) {
+      vaultId.value = preferredVaultId;
+      return;
+    }
+
+    vaultId.value = bondLots.value[0]?.vaultId ?? preferredVaultId;
   }
 
   return {

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { existentialDepositMicrogons, miningHoldOperationalReserveMicrogons } from '../lib/WalletForArgon.ts';
 import { type IWallet } from '../lib/Wallet.ts';
@@ -40,6 +40,80 @@ describe('MoveCapital', () => {
     walletKeys = createMockWalletKeys();
     config = new Config(Promise.resolve(db), walletKeys);
   });
+
+  it('submits vault security moves through the vault allocation path', async () => {
+    const { moveCapital, myVault } = createMoveCapital();
+    const txInfo = { tx: { id: 11 } } as any;
+    myVault.increaseVaultAllocations.mockResolvedValue(txInfo);
+    const wallet = createWallet({ address: 'vaulting-address', availableMicrogons: 250n });
+
+    const result = await moveCapital.move(
+      MoveFrom.VaultingHold,
+      MoveTo.VaultingSecurity,
+      { [MoveToken.ARGN]: 100n },
+      wallet,
+      'vaulting-address',
+    );
+
+    expect(myVault.increaseVaultAllocations).toHaveBeenCalledWith({
+      addedSecuritizationMicrogons: 100n,
+      addedTreasuryMicrogons: 0n,
+      metadata: {
+        moveFrom: MoveFrom.VaultingHold,
+        moveTo: MoveTo.VaultingSecurity,
+        externalAddress: undefined,
+        assetsToMove: { [MoveToken.ARGN]: 100n },
+      },
+    });
+    expect(result).toBe(txInfo);
+  });
+
+  it('calculates vault security move fees from the actual allocation transaction', async () => {
+    const { moveCapital, myVault } = createMoveCapital();
+    const allocationTx = createMockFeeTx(7n);
+    myVault.buildIncreaseVaultAllocationsTx.mockResolvedValue(allocationTx);
+    const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction');
+    const wallet = createWallet({ address: 'vaulting-address', availableMicrogons: 250n });
+    const client = { id: 'client' } as any;
+
+    const fee = await moveCapital.calculateFee(
+      MoveFrom.VaultingHold,
+      MoveTo.VaultingSecurity,
+      { [MoveToken.ARGN]: 100n },
+      wallet,
+      'vaulting-address',
+      [],
+      client,
+    );
+
+    expect(myVault.buildIncreaseVaultAllocationsTx).toHaveBeenCalledWith(
+      {
+        addedSecuritizationMicrogons: 100n,
+        addedTreasuryMicrogons: 0n,
+      },
+      client,
+    );
+    expect(allocationTx.paymentInfo).toHaveBeenCalledWith('vaulting-address');
+    expect(buildTransactionSpy).not.toHaveBeenCalled();
+    expect(fee).toBe(7n);
+  });
+
+  it('rejects argonot moves into vault security', async () => {
+    const { moveCapital, myVault } = createMoveCapital();
+    const wallet = createWallet({ address: 'vaulting-address', availableMicrogons: 250n, availableMicronots: 10n });
+
+    await expect(
+      moveCapital.move(
+        MoveFrom.VaultingHold,
+        MoveTo.VaultingSecurity,
+        { [MoveToken.ARGNOT]: 10n },
+        wallet,
+        'vaulting-address',
+      ),
+    ).rejects.toThrow('Only ARGN can be moved into vault allocations.');
+    expect(myVault.increaseVaultAllocations).not.toHaveBeenCalled();
+  });
+
   it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
     const { moveCapital, transactionTracker } = createMoveCapital();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
@@ -48,6 +122,7 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
+        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 7n },
       },
     });
@@ -86,6 +161,7 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
+        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 7n },
       },
     });
@@ -101,6 +177,7 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
+        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 4n },
       },
     });
@@ -151,6 +228,7 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
+        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 4n },
       },
     });
@@ -253,6 +331,7 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
+        isMovingToEthereum: false,
         assetsToMove: { ARGN: 50n, ARGNOT: 7n },
       },
     });
@@ -335,6 +414,7 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
+        isMovingToEthereum: false,
         assetsToMove: { ARGN: 50n, ARGNOT: 7n },
       },
     });
@@ -368,14 +448,33 @@ function createMoveCapital(existingTxInfo?: MockTxInfo) {
     createIntentForFollowOnTx: vi.fn(),
     submitAndWatch: vi.fn(),
   };
+  const myVault = {
+    increaseVaultAllocations: vi.fn(),
+    buildIncreaseVaultAllocationsTx: vi.fn(),
+  };
 
   return {
     moveCapital: new MoveCapital(
       { miningBotAddress: 'mining-bot-address' } as any,
       transactionTracker as any,
-      {} as any,
+      myVault as any,
     ),
     transactionTracker,
+    myVault,
+  };
+}
+
+type MockFeeTx = {
+  paymentInfo: () => Promise<{ partialFee: { toBigInt: () => bigint } }>;
+};
+
+function createMockFeeTx(fee: bigint): MockFeeTx {
+  return {
+    paymentInfo: vi.fn().mockResolvedValue({
+      partialFee: {
+        toBigInt: () => fee,
+      },
+    }),
   };
 }
 

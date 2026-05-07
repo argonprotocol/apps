@@ -10,7 +10,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
 
   const vaults = getVaults();
   const currency = getCurrency();
-  const stats = new GlobalVaultingStats(vaults, currency as Currency);
+  const stats = new GlobalVaultingStats(vaults, currency);
 
   const vaultCount = Vue.ref(0);
   const bitcoinLocked = Vue.ref(0);

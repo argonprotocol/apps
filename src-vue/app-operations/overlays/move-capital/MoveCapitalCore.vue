@@ -342,6 +342,10 @@ const moveFromInputOptions = Vue.computed(() => {
 });
 
 const moveTokenOptions = Vue.computed(() => {
+  if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo.value)) {
+    return [{ name: MoveToken.ARGN, value: MoveToken.ARGN }];
+  }
+
   const hasArgonots = [
     MoveFrom.MiningHold,
     MoveFrom.MiningBot,
@@ -669,6 +673,9 @@ Vue.watch(
 );
 
 Vue.watch(moveTo, async () => {
+  if (!moveTokenOptions.value.some(option => option.value === moveToken.value)) {
+    moveToken.value = moveTokenOptions.value[0].value;
+  }
   await updateFee();
 });
 
@@ -678,7 +685,10 @@ Vue.onMounted(async () => {
     if (transactionsShownCompleted.has(txInfo.tx.id)) {
       continue;
     }
-    if (txInfo.tx.extrinsicType === ExtrinsicType.Transfer && txInfo.tx.metadataJson.moveFrom === moveFrom.value) {
+    const isMoveTx =
+      txInfo.tx.extrinsicType === ExtrinsicType.Transfer ||
+      txInfo.tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation;
+    if (isMoveTx && txInfo.tx.metadataJson.moveFrom === moveFrom.value) {
       const metdata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
       pendingTxInfo.value = txInfo;
       isProcessing.value = true;

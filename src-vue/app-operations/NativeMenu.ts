@@ -88,8 +88,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-mining',
         text: 'Open Mining Wallet',
-        action: () =>
-          basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold }),
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold }),
       },
     ],
   });

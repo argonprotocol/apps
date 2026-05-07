@@ -31,6 +31,7 @@ export type IBondLotTotals = {
   activeBondMicrogons: bigint;
   returningBondMicrogons: bigint;
   returningBondFrame: number | null;
+  lifetimeEarnings: bigint;
 };
 
 type IBondLotModel = {
@@ -214,6 +215,7 @@ export class BondLot {
         activeBondMicrogons: totals.activeBondMicrogons + lot.activeBondMicrogons,
         returningBondMicrogons: totals.returningBondMicrogons + lot.returningBondMicrogons,
         returningBondFrame: BondLot.getEarliestFrame(totals.returningBondFrame, lot.releaseFrame),
+        lifetimeEarnings: totals.lifetimeEarnings + lot.lifetimeEarnings,
       }),
       {
         totalBonds: 0,
@@ -223,6 +225,7 @@ export class BondLot {
         activeBondMicrogons: 0n,
         returningBondMicrogons: 0n,
         returningBondFrame: null,
+        lifetimeEarnings: 0n,
       },
     );
   }

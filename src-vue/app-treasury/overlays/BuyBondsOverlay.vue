@@ -42,5 +42,4 @@ const vaultId = Vue.ref(config.upstreamOperator?.vaultId);
 function handleVaultSelected(v: Vault) {
   vaultId.value = v.vaultId;
 }
-
 </script>

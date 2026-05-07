@@ -35,6 +35,7 @@ import { getVaults } from '../stores/vaults.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import {
+  bigNumberToBigInt,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -83,6 +84,20 @@ export interface IBitcoinMismatchViewState {
   nextCandidateId?: number;
   nextCandidate?: IBitcoinMismatchCandidateView;
   candidates: IBitcoinMismatchCandidateView[];
+}
+
+export interface IBitcoinRatchetPreview {
+  additionalLiquidityToMint: bigint;
+  availableVaultFunds: bigint;
+  burnAmount: bigint;
+  canRatchet: boolean;
+  currentLiquidityPromised: bigint;
+  marketRate: bigint;
+  newLiquidityPromised: bigint;
+  ratchetingFee: bigint;
+  requiredVaultFunds: bigint;
+  shortfall: bigint;
+  vaultId: number;
 }
 
 export interface IBitcoinVaultMismatchState {
@@ -974,12 +989,98 @@ export default class BitcoinLocks {
     return fee.partialFee.toBigInt();
   }
 
+  public getMintPending(): bigint {
+    return this.getAllLocks().reduce((sum, lock) => {
+      const ratchets = lock.ratchets ?? [];
+      return sum + ratchets.reduce((s, r) => s + (r.mintPending ?? 0n), 0n);
+    }, 0n);
+  }
+
   public getMintPercent(lock: Pick<IBitcoinLockRecord, 'ratchets'>): number {
     const ratchets = lock.ratchets ?? [];
     const totalMint = ratchets.reduce((sum, r) => sum + (r.mintAmount ?? 0n), 0n);
     const totalPending = ratchets.reduce((sum, r) => sum + (r.mintPending ?? 0n), 0n);
     if (totalMint <= 0n) return 0;
     return Math.round(Number(((totalMint - totalPending) * 100n) / totalMint));
+  }
+
+  public async getRatchetPreview(lock: IBitcoinLockRecord): Promise<IBitcoinRatchetPreview> {
+    const { bitcoinLock, client, vault } = await this.getRatchetContext(lock);
+    const { burnAmount, marketRate, ratchetingFee } = await bitcoinLock.getRatchetPrice(
+      client,
+      this.#currency.priceIndex,
+      vault,
+    );
+    const newLiquidityPromised = this.#currency.priceIndex.getBtcMicrogonPrice(lock.satoshis);
+    const additionalLiquidityToMint =
+      newLiquidityPromised > lock.lockedMarketRate ? newLiquidityPromised - lock.lockedMarketRate : 0n;
+    const lockSecuritizationRatio = await this.getLockSecuritizationRatio(client, lock);
+    const requiredVaultFunds =
+      lockSecuritizationRatio === undefined
+        ? bigNumberToBigInt(vault.securitizationRatioBN().multipliedBy(additionalLiquidityToMint))
+        : (additionalLiquidityToMint * lockSecuritizationRatio) / 1_000_000_000_000_000_000n;
+    const availableVaultFunds = vault.availableSecuritization();
+    const shortfall = requiredVaultFunds > availableVaultFunds ? requiredVaultFunds - availableVaultFunds : 0n;
+
+    return {
+      additionalLiquidityToMint,
+      availableVaultFunds,
+      burnAmount,
+      canRatchet: shortfall === 0n && newLiquidityPromised !== lock.lockedMarketRate,
+      currentLiquidityPromised: lock.liquidityPromised,
+      marketRate,
+      newLiquidityPromised,
+      ratchetingFee,
+      requiredVaultFunds,
+      shortfall,
+      vaultId: lock.vaultId,
+    };
+  }
+
+  private async getRatchetContext(lock: IBitcoinLockRecord) {
+    const vaults = getVaults();
+    await vaults.load();
+    const vault = vaults.vaultsById[lock.vaultId];
+    if (!vault) {
+      throw new Error(`Vault #${lock.vaultId} could not be loaded for this Bitcoin lock.`);
+    }
+
+    const bitcoinLock = new BitcoinLock(lock.lockDetails);
+    bitcoinLock.getRatchetPrice = async (client, priceIndex, vault) => {
+      const marketRate = await BitcoinLock.getMarketRate(priceIndex, bitcoinLock.satoshis);
+      let ratchetingFee = vault.terms.bitcoinBaseFee;
+      let burnAmount = 0n;
+
+      if (marketRate > bitcoinLock.lockedMarketRate) {
+        const lockFee = vault.calculateBitcoinFee(marketRate);
+        const currentBitcoinHeight = await client.query.bitcoinUtxos
+          .confirmedBitcoinBlockTip()
+          .then(x => x.unwrap().blockHeight.toNumber());
+        const blockLength = bitcoinLock.vaultClaimHeight - bitcoinLock.createdAtHeight;
+        const remainingBlocks = Math.max(0, bitcoinLock.vaultClaimHeight - currentBitcoinHeight);
+        const cappedRemainingBlocks = Math.min(blockLength, remainingBlocks);
+
+        ratchetingFee =
+          blockLength > 0
+            ? (lockFee * BigInt(cappedRemainingBlocks) + BigInt(blockLength - 1)) / BigInt(blockLength)
+            : 0n;
+      } else {
+        burnAmount = await bitcoinLock.releasePrice(priceIndex);
+      }
+
+      return { burnAmount, marketRate, ratchetingFee };
+    };
+
+    return { bitcoinLock, client: await getMainchainClient(false), vault };
+  }
+
+  private async getLockSecuritizationRatio(client: ArgonClient, lock: IBitcoinLockRecord): Promise<bigint | undefined> {
+    if (lock.utxoId === undefined) return undefined;
+
+    const rawLock = await client.query.bitcoinLocks.locksByUtxoId(lock.utxoId);
+    if (!rawLock?.isSome) return undefined;
+
+    return rawLock.unwrap().securitizationRatio.toBigInt();
   }
 
   public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
@@ -989,18 +1090,25 @@ export default class BitcoinLocks {
         throw new Error(`Lock with ID ${lock.utxoId} is not verified.`);
       }
 
-      const vaults = getVaults();
-      const bitcoinLock = new BitcoinLock(lock.lockDetails);
+      const { bitcoinLock, client, vault } = await this.getRatchetContext(lock);
+      const preview = await this.getRatchetPreview(lock);
+      if (!preview.canRatchet) {
+        if (preview.shortfall > 0n) {
+          throw new Error(`Vault #${lock.vaultId} needs ${formatArgons(preview.shortfall)} more to ratchet this lock.`);
+        }
+        throw new Error('No ratcheting is available for this Bitcoin lock.');
+      }
+
       // Use whatever is loaded into the price index at this time. NOTE: this could be old, but is likely what the user has seen
       const microgonsPerBtc = this.#currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN);
 
       const result = await bitcoinLock.ratchet({
-        client: await getMainchainClient(false),
+        client,
         priceIndex: this.#currency.priceIndex,
         microgonsPerBtc,
         txSigner,
         tip,
-        vault: vaults.vaultsById[lock.vaultId],
+        vault,
       });
 
       const {
@@ -1008,14 +1116,14 @@ export default class BitcoinLocks {
         securityFee,
         bitcoinBlockHeight: oracleBitcoinBlockHeight,
         blockHeight,
-        liquidityPromised,
         newLockedMarketRate,
         pendingMint,
         txFee,
       } = await result.getRatchetResult();
 
+      const mintAmount = pendingMint - burned;
       lock.ratchets.push({
-        mintAmount: pendingMint,
+        mintAmount,
         mintPending: pendingMint,
         lockedMarketRate: newLockedMarketRate,
         txFee,
@@ -1024,9 +1132,11 @@ export default class BitcoinLocks {
         blockHeight,
         oracleBitcoinBlockHeight,
       });
-      lock.liquidityPromised = liquidityPromised;
+      const totalLiquidityPromised = lock.liquidityPromised + mintAmount;
+
+      lock.liquidityPromised = totalLiquidityPromised;
       lock.lockedMarketRate = newLockedMarketRate;
-      lock.lockDetails.liquidityPromised = liquidityPromised;
+      lock.lockDetails.liquidityPromised = totalLiquidityPromised;
       lock.lockDetails.lockedMarketRate = newLockedMarketRate;
 
       await table.saveNewRatchet(lock);
@@ -2368,8 +2478,8 @@ export default class BitcoinLocks {
     // We look at the previous block to give more time for blocks to settle so we don't bounce data around, but don't
     // wait for finality because of how long it can take. We might need to revisit this for anything where finality is
     // important.
-    const generalClient = await this.blockWatch.getRpcClient(newestHeader.blockNumber - 1);
-    const header = await this.blockWatch.getHeader(newestHeader.blockNumber - 1);
+    const generalClient = await this.blockWatch.getRpcClient(newestHeader.blockNumber);
+    const header = await this.blockWatch.getHeader(newestHeader.blockNumber);
 
     if (header.blockNumber <= this.data.latestArgonBlockHeight) {
       return;

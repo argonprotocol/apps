@@ -115,24 +115,19 @@ const walletOptions = Vue.ref<IWalletOption[]>([
         { type: WalletType.miningHold as const, name: 'Argon Mining Wallet', isArgonNetwork: true },
         { type: WalletType.vaulting as const, name: 'Argon Vaulting Wallet', isArgonNetwork: true },
       ]
-    : [{ type: WalletType.investment as const, name: 'Argon Wallet', isArgonNetwork: true }]
-  ),
+    : [{ type: WalletType.investment as const, name: 'Argon Wallet', isArgonNetwork: true }]),
   { type: WalletType.ethereum as const, name: 'Ethereum Wallet', isArgonNetwork: false },
 ]);
 const showGuidance = Vue.ref(false);
 const firstWalletOption = Vue.ref<IWalletOption>(walletOptions.value[0]);
-const secondWalletOption = Vue.ref<IWalletOption>(walletOptions.value[walletOptions.value.length-1]);
+const secondWalletOption = Vue.ref<IWalletOption>(walletOptions.value[walletOptions.value.length - 1]);
 const firstWalletOptions = Vue.computed(() => getWalletOptionsForSide(secondWalletOption.value));
 const secondWalletOptions = Vue.computed(() => getWalletOptionsForSide(firstWalletOption.value));
 const firstWalletKey = Vue.computed(() => getWalletHeaderKey(firstWalletOption.value, firstWalletOptions.value));
 const secondWalletKey = Vue.computed(() => getWalletHeaderKey(secondWalletOption.value, secondWalletOptions.value));
 
 function isArgonWalletType(walletType: WalletType) {
-  return [
-    WalletType.vaulting,
-    WalletType.miningHold,
-    WalletType.investment
-  ].includes(walletType);
+  return [WalletType.vaulting, WalletType.miningHold, WalletType.investment].includes(walletType);
 }
 
 function getWalletOptionsForSide(oppositeOption: IWalletOption) {
@@ -148,7 +143,9 @@ function getWalletHeaderKey(selectedOption: IWalletOption, options: IWalletOptio
 function ensureSyncWalletPair() {
   if (firstWalletOption.value.isArgonNetwork !== secondWalletOption.value.isArgonNetwork) return;
 
-  const matchingNetworkOption = walletOptions.value.find(wallet => wallet.isArgonNetwork !== firstWalletOption.value.isArgonNetwork);
+  const matchingNetworkOption = walletOptions.value.find(
+    wallet => wallet.isArgonNetwork !== firstWalletOption.value.isArgonNetwork,
+  );
   if (matchingNetworkOption) {
     secondWalletOption.value = matchingNetworkOption;
   }
@@ -216,7 +213,7 @@ function getWallet(option: IWalletOption): IWallet {
   }
 }
 
-basicEmitter.on('openWalletOverlay', async (payload) => {
+basicEmitter.on('openWalletOverlay', async payload => {
   const walletOption = walletOptions.value.find(x => x.type === payload.walletType);
   handleSelectFirstWallet(walletOption as IWalletOption);
 

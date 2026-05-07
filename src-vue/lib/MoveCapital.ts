@@ -71,6 +71,10 @@ export class MoveCapital {
       throw new Error('Direct moves between Treasury Bonds and Bitcoin Security are not supported.');
     }
 
+    if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo)) {
+      this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
+    }
+
     if (shouldDeductFeeFromCapital) {
       const fee = await this.calculateFee(moveFrom, moveTo, assetsToMove, fromWallet, toAddress, prependedTxs, client);
       assetsToMove = {
@@ -88,7 +92,10 @@ export class MoveCapital {
       } else if (moveTo === MoveTo.VaultingTreasury) {
         allocations.addedTreasuryMicrogons = assetsToMove.ARGN ?? 0n;
       }
-      return await this.myVault.increaseVaultAllocations(allocations);
+      return await this.myVault.increaseVaultAllocations({
+        ...allocations,
+        metadata: this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress),
+      });
     } else {
       const transaction = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
       const { tx, metadata } = transaction;
@@ -371,15 +378,41 @@ export class MoveCapital {
     }
 
     const metadata = {
-      moveTo: moveTo,
-      moveFrom: moveFrom,
-      externalAddress: moveTo === MoveTo.External ? toAddress : undefined,
+      ...this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress),
       isMovingToEthereum: externalMeta.isEthereumAddress,
-      assetsToMove: assetsToMove,
-    } as ITransactionMoveMetadata;
+    };
 
     const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
     return { tx, metadata };
+  }
+
+  private validateVaultAllocationMove(moveFrom: MoveFrom, moveTo: MoveTo, assetsToMove: IAssetsToMove): void {
+    if (moveFrom !== MoveFrom.VaultingHold) {
+      throw new Error('Vault allocation moves must come from Inflation-Free Savings.');
+    }
+    if (assetsToMove[MoveToken.ARGNOT]) {
+      throw new Error('Only ARGN can be moved into vault allocations.');
+    }
+    if (!assetsToMove[MoveToken.ARGN]) {
+      throw new Error(`No ${MoveToken.ARGN} amount provided for vault allocation.`);
+    }
+    if (moveTo === MoveTo.VaultingTreasury) {
+      throw new Error('Treasury bond moves must be started from the Treasury Bonds flow.');
+    }
+  }
+
+  private buildMoveMetadata(
+    moveFrom: MoveFrom,
+    moveTo: MoveTo,
+    assetsToMove: IAssetsToMove,
+    toAddress: string,
+  ): ITransactionMoveMetadata {
+    return {
+      moveTo,
+      moveFrom,
+      externalAddress: moveTo === MoveTo.External ? toAddress : undefined,
+      assetsToMove,
+    };
   }
 
   public async calculateFee(
@@ -394,7 +427,28 @@ export class MoveCapital {
     client ??= await getMainchainClient(false);
     this.transactionError = '';
     try {
-      const { tx } = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
+      let tx: SubmittableExtrinsic;
+      if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo)) {
+        this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
+        tx = await this.myVault.buildIncreaseVaultAllocationsTx(
+          {
+            addedSecuritizationMicrogons:
+              moveTo === MoveTo.VaultingSecurity ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
+            addedTreasuryMicrogons: moveTo === MoveTo.VaultingTreasury ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
+          },
+          client,
+        );
+      } else {
+        const transaction = await this.buildTransaction(
+          moveFrom,
+          moveTo,
+          assetsToMove,
+          toAddress,
+          prependedTxs,
+          client,
+        );
+        tx = transaction.tx;
+      }
       const feeObj = await tx.paymentInfo(fromWallet.address);
       let fee = feeObj.partialFee.toBigInt();
 

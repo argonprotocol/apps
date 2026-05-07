@@ -407,6 +407,79 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
+  it('submits vault allocation increases through TxSubmitter and tracks the result', async () => {
+    const { myVault, trackTxResult } = createVault();
+    const tx = createMockTxResultTx();
+    const txResultInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
+      metadataJson: {
+        addedSecuritizationMicrogons: 100n,
+        addedTreasuryMicrogons: 0n,
+        vaultId: 7,
+      },
+    });
+    myVault.data.createdVault = {
+      vaultId: 7,
+      securitization: 1_000n,
+      securitizationRatio: 1,
+    } as any;
+    vi.spyOn(
+      myVault as unknown as { buildIncreaseVaultAllocationsTx: MyVault['buildIncreaseVaultAllocationsTx'] },
+      'buildIncreaseVaultAllocationsTx',
+    ).mockResolvedValue(tx as any);
+    vi.spyOn(myVault as any, 'onIncreaseVaultAllocations').mockResolvedValue(undefined);
+    trackTxResult.mockResolvedValue(txResultInfo);
+    const client = {
+      genesisHash: { toHex: () => '0xgenesis' },
+      runtimeVersion: {
+        specVersion: { toNumber: () => 151 },
+        transactionVersion: { toNumber: () => 5 },
+      },
+      registry: { signedExtensions: ['AuthorizeCall', 'CheckMetadataHash'] },
+      rpc: {
+        chain: {
+          getHeader: vi.fn(async () => ({ number: { toNumber: () => 170 } })),
+        },
+        system: {
+          accountNextIndex: vi.fn(async () => 9),
+          dryRun: vi.fn(async () => ({ toHuman: () => ({ Ok: { Ok: [] } }) })),
+        },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+
+    const result = await myVault.increaseVaultAllocations({
+      addedSecuritizationMicrogons: 100n,
+      addedTreasuryMicrogons: 0n,
+      metadata: { moveFrom: 'VaultingHold', moveTo: 'VaultingSecurity' },
+    });
+
+    expect(tx.signAsync).toHaveBeenCalledWith(expect.objectContaining({ address: expect.any(String) }), {
+      nonce: 9,
+      tip: undefined,
+    });
+    expect(tx.signedTx.send).toHaveBeenCalledTimes(1);
+    expect(trackTxResult).toHaveBeenCalledWith({
+      txResult: expect.objectContaining({
+        extrinsic: expect.objectContaining({
+          nonce: 9,
+          submittedAtBlockNumber: 170,
+        }),
+      }),
+      extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
+      metadata: {
+        addedSecuritizationMicrogons: 100n,
+        addedTreasuryMicrogons: 0n,
+        vaultId: 7,
+        moveFrom: 'VaultingHold',
+        moveTo: 'VaultingSecurity',
+      },
+    });
+    expect(result).toBe(txResultInfo);
+
+    getMainchainClient.mockRestore();
+  });
+
   it('ignores failed orphan cosign txs', async () => {
     const txInfo = createTxInfo({
       status: TransactionStatus.TimedOutWaitingForBlock,
@@ -435,6 +508,7 @@ function createVault(args?: {
   finalizedHeight?: number;
   headerByHeight?: Record<number, string>;
   submitAndWatch?: ReturnType<typeof vi.fn>;
+  trackTxResult?: ReturnType<typeof vi.fn>;
   createIntentForFollowOnTx?: ReturnType<typeof vi.fn>;
   historyByTxId?: Record<number, Partial<ITransactionStatusHistoryRecord>[]>;
 }) {
@@ -450,6 +524,7 @@ function createVault(args?: {
   const historyByTxId = args?.historyByTxId ?? {};
   const txInfos = args?.txInfos ?? [];
   const submitAndWatch = args?.submitAndWatch ?? vi.fn();
+  const trackTxResult = args?.trackTxResult ?? vi.fn();
   const getTxAttemptState = vi.fn(async (txInfo: TransactionInfo, finalizedBlockGrace: number) => {
     const latestHistoryStatus = historyByTxId[txInfo.tx.id]?.at(-1)?.status;
     if (
@@ -528,6 +603,7 @@ function createVault(args?: {
       txInfosByType: {},
     },
     submitAndWatch,
+    trackTxResult,
     createIntentForFollowOnTx: args?.createIntentForFollowOnTx ?? vi.fn(),
     findLatestTxInfo: vi.fn((matcher: (txInfo: TransactionInfo) => boolean) => {
       return txInfos.find(matcher);
@@ -553,7 +629,21 @@ function createVault(args?: {
     miningFrames,
   );
 
-  return { myVault, blockWatch, submitAndWatch };
+  return { myVault, blockWatch, submitAndWatch, transactionTracker, trackTxResult };
+}
+
+function createMockTxResultTx() {
+  const signedTx = {
+    hash: { toHex: () => '0xsigned' },
+    method: { toHuman: () => ({ section: 'vaults', method: 'modifyFunding' }) },
+    nonce: { toNumber: () => 9 },
+    toHex: () => '0xsignedtx',
+    send: vi.fn(async () => undefined),
+  };
+  return {
+    signedTx,
+    signAsync: vi.fn(async () => signedTx),
+  };
 }
 
 function createTxInfo(overrides: Partial<ITransactionRecord>): TransactionInfo {
