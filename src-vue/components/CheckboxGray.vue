@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div :class="`relative min-w-${props.size} min-h-${props.size} w-${props.size} h-${props.size}`">
+  <div class="relative" :style="sizeStyle">
     <div
       v-if="props.isChecked"
       :style="`border-width: ${props.size/2}px`"
@@ -25,6 +25,8 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+
 const props = defineProps({
   isChecked: {
     type: Boolean,
@@ -34,5 +36,16 @@ const props = defineProps({
     type: Number,
     default: 7,
   },
+});
+
+const sizeStyle = computed(() => {
+  const size = `${props.size / 4}rem`;
+
+  return {
+    width: size,
+    height: size,
+    minWidth: size,
+    minHeight: size,
+  };
 });
 </script>

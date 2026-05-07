@@ -1677,7 +1677,6 @@ export class MyVault {
   public async buildIncreaseVaultAllocationsTx(
     args: {
       addedSecuritizationMicrogons: bigint;
-      addedTreasuryMicrogons: bigint;
     },
     client?: ArgonClient,
   ): Promise<SubmittableExtrinsic> {
@@ -1697,10 +1696,6 @@ export class MyVault {
           toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
         ),
       );
-    }
-
-    if (args.addedTreasuryMicrogons > 0n) {
-      txs.push(await this.buildTreasuryBondPurchaseTx(args.addedTreasuryMicrogons));
     }
 
     if (!txs.length) {

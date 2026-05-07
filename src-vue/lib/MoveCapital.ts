@@ -50,7 +50,6 @@ export class MoveCapital {
 
       case MoveFrom.VaultingHold:
       case MoveFrom.VaultingSecurity:
-      case MoveFrom.VaultingTreasury:
         return WalletType.vaulting;
     }
   }
@@ -67,11 +66,7 @@ export class MoveCapital {
   ): Promise<TransactionInfo> {
     client ??= await getMainchainClient(false);
 
-    if (moveFrom === MoveFrom.VaultingTreasury && moveTo === MoveTo.VaultingSecurity) {
-      throw new Error('Direct moves between Treasury Bonds and Bitcoin Security are not supported.');
-    }
-
-    if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo)) {
+    if ([MoveTo.VaultingSecurity].includes(moveTo)) {
       this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
     }
 
@@ -82,15 +77,13 @@ export class MoveCapital {
         [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] ?? 0n,
       };
     }
-    if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo)) {
+    if ([MoveTo.VaultingSecurity].includes(moveTo)) {
       const allocations = {
         addedSecuritizationMicrogons: 0n,
         addedTreasuryMicrogons: 0n,
       };
       if (moveTo === MoveTo.VaultingSecurity) {
         allocations.addedSecuritizationMicrogons = assetsToMove.ARGN ?? 0n;
-      } else if (moveTo === MoveTo.VaultingTreasury) {
-        allocations.addedTreasuryMicrogons = assetsToMove.ARGN ?? 0n;
       }
       return await this.myVault.increaseVaultAllocations({
         ...allocations,
@@ -344,8 +337,6 @@ export class MoveCapital {
         toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
       );
       txs.push(tx);
-    } else if (moveFrom === MoveFrom.VaultingTreasury && assetsToMove.ARGN) {
-      throw new Error('Treasury bonds are liquidated from individual bond lots.');
     }
 
     /// 2. Transfer the argons / argonots
@@ -396,9 +387,6 @@ export class MoveCapital {
     if (!assetsToMove[MoveToken.ARGN]) {
       throw new Error(`No ${MoveToken.ARGN} amount provided for vault allocation.`);
     }
-    if (moveTo === MoveTo.VaultingTreasury) {
-      throw new Error('Treasury bond moves must be started from the Treasury Bonds flow.');
-    }
   }
 
   private buildMoveMetadata(
@@ -428,13 +416,12 @@ export class MoveCapital {
     this.transactionError = '';
     try {
       let tx: SubmittableExtrinsic;
-      if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo)) {
+      if ([MoveTo.VaultingSecurity].includes(moveTo)) {
         this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
         tx = await this.myVault.buildIncreaseVaultAllocationsTx(
           {
             addedSecuritizationMicrogons:
               moveTo === MoveTo.VaultingSecurity ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
-            addedTreasuryMicrogons: moveTo === MoveTo.VaultingTreasury ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
           },
           client,
         );

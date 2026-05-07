@@ -16,7 +16,7 @@
       @click="controller.setScreenKey(TreasuryTab.MainchainDebts)"
       :Selected="controller.selectedTab === TreasuryTab.MainchainDebts || undefined"
     >
-      <div>Interest-Free Debt</div>
+      <div>Interest-Free Debts</div>
       <div>-{{ currency.symbol }}{{ microgonToMoneyNm(totalBitcoinDebt).format('0,0.00') }}</div>
       <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
     </section>

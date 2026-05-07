@@ -88,7 +88,7 @@
                   }}% minted)
                 </span>
                 <span class="grow">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(redemptiveRates[lock.uuid]).format('0,0.00') }} debt
+                  {{ currency.symbol }}{{ microgonToMoneyNm(redemptiveRates[lock.uuid] || 0n).format('0,0.00') }} debt
                 </span>
                 <span class="grow">{{ numeral(individualReturns[lock.uuid]?.total).format('0,0.[00]') }}% return</span>
               </div>
@@ -349,7 +349,6 @@ function lockStatusLabel(lock: IBitcoinLockRecord): string {
 
 function expirationDate(lock: IBitcoinLockRecord) {
   const expirationMillis = bitcoinLocks.unlockDeadlineTime(lock);
-  console.log('LOCK: ', lock, expirationMillis);
   return dayjs.utc(expirationMillis);
 }
 
@@ -487,7 +486,7 @@ Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {
 });
 
 Vue.watch([isLoaded, allLocks], () => {
-  if (!isLoaded) return;
+  if (!isLoaded.value) return;
   void updateIndividualReturns();
   void updateRedemptiveRates();
 });

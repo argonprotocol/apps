@@ -166,11 +166,9 @@ const moveFromName = {
   [MoveFrom.MiningBot]: 'Mining Bids',
   [MoveFrom.VaultingHold]: 'Inflation-Free Savings',
   [MoveFrom.VaultingSecurity]: 'Bitcoin Security',
-  [MoveFrom.VaultingTreasury]: 'Treasury Bonds',
 };
 
 const moveToName = {
-  [MoveTo.VaultingTreasury]: 'Treasury Bonds',
   [MoveTo.VaultingSecurity]: 'Bitcoin Security',
   [MoveTo.MiningBot]: 'Mining Bids',
   [MoveTo.MiningHold]: 'Inflation-Free Savings',
@@ -342,7 +340,7 @@ const moveFromInputOptions = Vue.computed(() => {
 });
 
 const moveTokenOptions = Vue.computed(() => {
-  if ([MoveTo.VaultingSecurity, MoveTo.VaultingTreasury].includes(moveTo.value)) {
+  if ([MoveTo.VaultingSecurity].includes(moveTo.value)) {
     return [{ name: MoveToken.ARGN, value: MoveToken.ARGN }];
   }
 
@@ -369,8 +367,6 @@ function getMoveToOptions(moveFromValue: MoveFrom) {
   } else if (moveFromValue === MoveFrom.VaultingHold) {
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
   } else if (moveFromValue === MoveFrom.VaultingSecurity) {
-    options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
-  } else if (moveFromValue === MoveFrom.VaultingTreasury) {
     options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
   }
 
@@ -401,7 +397,7 @@ const canSubmit = Vue.computed(() => {
 
 const canAfford = Vue.computed(() => {
   const fromWallet = getWalletFrom();
-  const isAlreadySpent = [MoveFrom.VaultingSecurity, MoveFrom.VaultingTreasury].includes(moveFrom.value);
+  const isAlreadySpent = [MoveFrom.VaultingSecurity].includes(moveFrom.value);
   const argonsOnTheMove = moveToken.value === MoveToken.ARGN && !isAlreadySpent ? amountToMove.value : 0n;
   return fromWallet.availableMicrogons >= argonsOnTheMove + txFee.value;
 });
@@ -428,7 +424,6 @@ function getToAddress() {
     [MoveTo.MiningBot]: wallets.miningBotWallet.address,
     [MoveTo.VaultingHold]: wallets.vaultingWallet.address,
     [MoveTo.VaultingSecurity]: wallets.vaultingWallet.address,
-    [MoveTo.VaultingTreasury]: wallets.vaultingWallet.address,
     [MoveTo.External]: externalAddress.value || wallets.vaultingWallet.address,
   }[moveTo.value];
 }

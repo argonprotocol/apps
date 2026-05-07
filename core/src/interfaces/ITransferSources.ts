@@ -4,7 +4,6 @@ export enum MoveFrom {
 
   VaultingHold = 'VaultingHold',
   VaultingSecurity = 'VaultingSecurity',
-  VaultingTreasury = 'VaultingTreasury',
 }
 
 export enum MoveTo {
@@ -13,7 +12,6 @@ export enum MoveTo {
 
   VaultingHold = 'VaultingHold',
   VaultingSecurity = 'VaultingSecurity',
-  VaultingTreasury = 'VaultingTreasury',
 
   External = 'External',
 }

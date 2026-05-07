@@ -89,7 +89,6 @@ describe('MoveCapital', () => {
     expect(myVault.buildIncreaseVaultAllocationsTx).toHaveBeenCalledWith(
       {
         addedSecuritizationMicrogons: 100n,
-        addedTreasuryMicrogons: 0n,
       },
       client,
     );

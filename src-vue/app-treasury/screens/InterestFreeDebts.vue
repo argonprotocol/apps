@@ -153,16 +153,6 @@ Vue.watch(rawTotalValue, () => {
   void updateTotalValue();
 });
 
-Vue.watch([pendingMint, totalValue], () => {
-  console.log({
-    walletBlockNumber: investmentWalletWithBlock.block?.blockNumber,
-    bitcoinBlockNumber: bitcoinLocks.data.latestArgonBlockHeight,
-    walletAmount: wallets.investmentWallet.availableMicrogons,
-    bitcoinAmount: bitcoinLocks.getMintPending(),
-    total: wallets.investmentWallet.availableMicrogons + bitcoinLocks.getMintPending(),
-  });
-});
-
 Vue.onMounted(async () => {
   currency.isLoadedPromise.then(() => (currencyIsLoaded.value = true));
   await bitcoinLocks.load();

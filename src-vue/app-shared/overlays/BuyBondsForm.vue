@@ -39,7 +39,6 @@
           Wallet: {{ currency.symbol }}{{ microgonToMoneyNm(props.walletBalance).format('0,0.00') }}
           <template v-if="vaultAvailableCapacity < props.walletBalance">
             · Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0') }}
-            ({{ props.walletBalance }} < {{ vaultAvailableCapacity }})
           </template>
         </div>
       </div>

@@ -363,9 +363,9 @@ function openEthereumWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
 }
 
-function activateStableSwaps() {
+async function activateStableSwaps() {
   config.hasActivatedStableSwaps = true;
-  config.save();
+  await config.save();
 }
 
 Vue.onMounted(async () => {
