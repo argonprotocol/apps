@@ -1440,13 +1440,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@openzeppelin/contracts@npm:3.4.1-solc-0.7-2":
-  version: 3.4.1-solc-0.7-2
-  resolution: "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2"
-  checksum: 10c0/9959f4951ea8d331ec46441643f020ffeab6156241f240e2ba673fef5873effa1f56fce3aaf335cdc0b2abe6719e4464c838718dc9eb97497260e154f07fb20f
-  languageName: node
-  linkType: hard
-
 "@openzeppelin/contracts@npm:3.4.2-solc-0.7":
   version: 3.4.2-solc-0.7
   resolution: "@openzeppelin/contracts@npm:3.4.2-solc-0.7"

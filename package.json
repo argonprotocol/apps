@@ -164,6 +164,7 @@
     "@argonprotocol/mainchain": "1.4.3-dev.6cdce319",
     "@argonprotocol/testing": "1.4.3-dev.6cdce319",
     "@argonprotocol/bitcoin": "1.4.3-dev.6cdce319",
+    "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
     "axios": "^1.15.0"
   },
   "packageManager": "yarn@4.10.3"
