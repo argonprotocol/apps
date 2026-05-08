@@ -1,14 +1,30 @@
-FROM jrei/systemd-ubuntu:25.04
+FROM ubuntu:25.04
+
+ENV container=docker
+ENV LC_ALL=C
+ENV DEBIAN_FRONTEND=noninteractive
+
+VOLUME ["/sys/fs/cgroup"]
 
 ARG SSH_PUBKEY
 
 RUN sed -i 's/noble/plucky/g' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
-    apt-get install -y --no-install-recommends openssh-server sudo ufw netcat-openbsd
+    apt-get install -y --no-install-recommends openssh-server sudo ufw netcat-openbsd systemd systemd-sysv && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /run/sshd
 # disable policy-rc.d to allow service start
-RUN rm -f /usr/sbin/policy-rc.d && \
+RUN rm -f /usr/sbin/policy-rc.d \
+    /lib/systemd/system/multi-user.target.wants/* \
+    /etc/systemd/system/*.wants/* \
+    /lib/systemd/system/local-fs.target.wants/* \
+    /lib/systemd/system/sockets.target.wants/*udev* \
+    /lib/systemd/system/sockets.target.wants/*initctl* \
+    /lib/systemd/system/basic.target.wants/* \
+    /lib/systemd/system/anaconda.target.wants/* \
+    /lib/systemd/system/plymouth* \
+    /lib/systemd/system/systemd-update-utmp* && \
     systemctl mask getty@tty1.service
 
 RUN useradd -ms /bin/bash argon \
@@ -37,6 +53,8 @@ RUN systemctl enable ssh
 
 EXPOSE 22
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN mkdir -p /etc/systemd/system/ssh.service.d
+COPY ssh-runtime-dir.conf /etc/systemd/system/ssh.service.d/runtime-dir.conf
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
