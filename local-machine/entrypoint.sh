@@ -22,14 +22,4 @@ fi
 # Fix ownership of any bind mounts
 chown -R argon:argon /app 2>/dev/null || true
 
-cat >/usr/sbin/policy-rc.d <<'EOF'
-#!/bin/sh
-exit 101
-EOF
-chmod +x /usr/sbin/policy-rc.d
-
-# /run is mounted as tmpfs, so sshd's privilege separation directory must exist at runtime.
-mkdir -p /run/sshd
-/usr/sbin/sshd
-
 exec "$@"
