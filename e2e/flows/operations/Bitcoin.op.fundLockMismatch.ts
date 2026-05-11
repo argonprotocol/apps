@@ -4,7 +4,7 @@ import {
   sendBitcoinToAddress,
   waitForBitcoinTransactionOutputSatoshis,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import type { IBitcoinLocksVarianceInspect, IBitcoinVaultMismatchState } from '../types/srcVue.ts';
+import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
 import { Operation } from './index.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
@@ -154,22 +154,19 @@ async function readFundLockMismatchUiState(flow: IE2EFlowRuntime): Promise<{
 
 async function readLockSatoshiAllowedVariance(flow: IE2EFlowRuntime): Promise<bigint | null> {
   const rawVariance = (
-    await flow.queryApp<{ lockSatoshiAllowedVariance: string | null }>(LOCK_VARIANCE_INSPECT_FN, {
-      timeoutMs: LOCK_VARIANCE_INSPECT_TIMEOUT_MS,
-    })
+    await flow.queryApp(
+      async refs => {
+        await refs.bitcoinLocks.load().catch(() => undefined);
+        const variance = refs.bitcoinLocks.getLockSatoshiAllowedVariance();
+        return { lockSatoshiAllowedVariance: variance == null ? null : variance.toString() };
+      },
+      {
+        timeoutMs: LOCK_VARIANCE_INSPECT_TIMEOUT_MS,
+      },
+    )
   )?.lockSatoshiAllowedVariance;
   return rawVariance == null ? null : BigInt(rawVariance);
 }
-
-async function inspectLockVariance(refs: {
-  bitcoinLocks: IBitcoinLocksVarianceInspect;
-}): Promise<{ lockSatoshiAllowedVariance: string | null }> {
-  await refs.bitcoinLocks.load().catch(() => undefined);
-  const variance = refs.bitcoinLocks.getLockSatoshiAllowedVariance();
-  return { lockSatoshiAllowedVariance: variance == null ? null : variance.toString() };
-}
-
-const LOCK_VARIANCE_INSPECT_FN = inspectLockVariance.toString();
 
 function calculateMismatchedAmount(
   expectedAmountSatoshis: bigint,

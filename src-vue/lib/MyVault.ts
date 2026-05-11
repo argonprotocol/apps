@@ -77,6 +77,18 @@ export interface IExternalBitcoinLock {
 const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
 export class MyVault {
+  public static readonly activeVaultDelegateBalance = 100_000n;
+  public static readonly targetVaultDelegateBalance = 250_000n;
+  public static readonly vaultDelegateFeeBuffer = 100_000n;
+
+  public static async getVaultDelegateTopUpAmount(client: ArgonClient, delegateAddress: string): Promise<bigint> {
+    const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
+    if (delegateBalance >= MyVault.activeVaultDelegateBalance) {
+      return 0n;
+    }
+    return MyVault.targetVaultDelegateBalance - delegateBalance;
+  }
+
   public data: {
     isReady: boolean;
     createdVault: Vault | null;
@@ -535,19 +547,19 @@ export class MyVault {
         const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
         const client = await getMainchainClient(false);
         const vaultId = this.createdVault!.vaultId;
-        const minimumBalance = 250_000n;
-        const feeBuffer = 100_000n;
 
         const vaultBalance = await client.query.system
           .account(this.createdVault!.operatorAccountId)
           .then(x => x.data.free.toBigInt());
-        if (vaultBalance < minimumBalance + feeBuffer) {
+        if (vaultBalance < MyVault.targetVaultDelegateBalance + MyVault.vaultDelegateFeeBuffer) {
           throw new Error(
-            `Your vault account must have a minimum of ${minimumBalance + feeBuffer} balance to invite external members.`,
+            `Your vault account must have a minimum of ${
+              MyVault.targetVaultDelegateBalance + MyVault.vaultDelegateFeeBuffer
+            } balance to invite external members.`,
           );
         }
 
-        const transferTx = client.tx.balances.transferKeepAlive(delegateAddress, minimumBalance);
+        const transferTx = client.tx.balances.transferKeepAlive(delegateAddress, MyVault.targetVaultDelegateBalance);
         const delegateTx = client.tx.vaults.setBitcoinLockDelegate(delegateAddress);
         const txs = [transferTx, delegateTx];
         if (currentVaultName !== nextVaultName) {
@@ -581,17 +593,16 @@ export class MyVault {
     const client = await getMainchainClient(false);
     const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
     const vaultId = this.createdVault.vaultId;
-    const minimumBalance = 250_000n;
 
     return await this.#vaultQueue.add(async () => {
-      const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
-      if (delegateBalance >= 100_000n) {
+      const amountToFund = await MyVault.getVaultDelegateTopUpAmount(client, delegateAddress);
+      if (!amountToFund) {
         return;
       }
 
       const txSigner = await this.walletKeys.getVaultingKeypair();
       return await this.#transactionTracker.submitAndWatch({
-        tx: client.tx.balances.transferKeepAlive(delegateAddress, minimumBalance - delegateBalance),
+        tx: client.tx.balances.transferKeepAlive(delegateAddress, amountToFund),
         txSigner,
         extrinsicType: ExtrinsicType.VaultTopUpBitcoinLockDelegate,
         metadata: {

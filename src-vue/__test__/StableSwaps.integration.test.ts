@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createStableSwapPublicClient,
   fetchStableSwapMarketSnapshot,
   fetchStableSwapPoolMetadata,
   getStableSwapPoolPriceFixed18,
   quoteStableSwapExactOutput,
   STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT,
 } from '../lib/StableSwaps.ts';
+import { createPublicClient, http } from 'viem';
 
 const runStableSwapsIntegration = Boolean(JSON.parse(process.env.RUN_STABLE_SWAPS_INTEGRATION ?? '0'));
 const stableSwapsRpcUrl = process.env.STABLE_SWAPS_RPC_URL ?? 'https://ethereum-rpc.publicnode.com';
 
 describe.skipIf(!runStableSwapsIntegration).sequential('StableSwaps integration', { timeout: 120e3 }, () => {
   it('finds the amount that reaches the target price boundary on the live Uniswap quote path', async () => {
-    const client = createStableSwapPublicClient(stableSwapsRpcUrl);
+    const client = createPublicClient({
+      transport: http(stableSwapsRpcUrl),
+    });
     const blockNumber = await client.getBlockNumber();
     const pool = await fetchStableSwapPoolMetadata(client, blockNumber);
 

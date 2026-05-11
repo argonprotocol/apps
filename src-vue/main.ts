@@ -1,3 +1,4 @@
+import './lib/browserPolyfills.ts';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';

@@ -49,7 +49,7 @@ export function createTestWallet(mnemonic?: string) {
 
 export function createMockWalletKeys(mnemonic?: string) {
   const { substrateSecret, masterMnemonic } = resolveTestSecrets(mnemonic ?? mnemonicGenerate());
-  const { miningBotAccount, vaultingAccount, walletKeys, operationalAccount, miningHoldAccount } =
+  const { miningBotAccount, vaultingAccount, walletKeys, operationalAccount, miningHoldAccount, investmentAccount } =
     createTestWallet(substrateSecret);
   const delegateAccount = vaultingAccount.derive('//delegate');
   const upstreamOperatorAuthAccount = operationalAccount.derive('//upstream-operator-auth');
@@ -61,6 +61,7 @@ export function createMockWalletKeys(mnemonic?: string) {
   vi.spyOn(walletKeys, 'getOperationalKeypair').mockImplementation(async () => operationalAccount);
   vi.spyOn(walletKeys, 'getMiningBotKeypair').mockImplementation(async () => miningBotAccount);
   vi.spyOn(walletKeys, 'getMiningHoldKeypair').mockImplementation(async () => miningHoldAccount);
+  vi.spyOn(walletKeys, 'getInvestmentKeypair').mockImplementation(async () => investmentAccount);
   vi.spyOn(walletKeys, 'getOperationalEncryptionKeypair').mockImplementation(async () =>
     Uint8Array.from(Array(32).fill(1)),
   );

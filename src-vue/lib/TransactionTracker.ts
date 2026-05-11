@@ -1,13 +1,13 @@
 import {
   ExtrinsicError,
   hexToU8a,
+  ISubmittableResult,
   ISubmittableOptions,
   SignedBlock,
   SubmittableExtrinsic,
   type TxSigningAccount,
   TxResult,
 } from '@argonprotocol/mainchain';
-import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';

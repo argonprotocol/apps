@@ -1,4 +1,4 @@
-import { calculateProfitPct, NetworkConfig } from '@argonprotocol/apps-core';
+import { calculateProfitPct } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import JSBI from 'jsbi';
@@ -7,7 +7,6 @@ import uniswapV3PoolEventsArtifact from '@uniswap/v3-core/artifacts/contracts/in
 import uniswapV3PoolStateArtifact from '@uniswap/v3-core/artifacts/contracts/interfaces/pool/IUniswapV3PoolState.sol/IUniswapV3PoolState.json';
 import { FeeAmount, Pool as UniswapV3Pool, Route as UniswapV3Route, SwapQuoter, TickMath } from '@uniswap/v3-sdk';
 import {
-  createPublicClient,
   decodeEventLog,
   erc20Abi,
   formatUnits,
@@ -21,8 +20,6 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { mainnet } from 'viem/chains';
-import { NETWORK_NAME } from './Env.ts';
 import { getMainchainClientAt } from '../stores/mainchain.ts';
 import type { Db } from './Db.ts';
 import { buildStableSwapReceiptProofs, type StableSwapReceiptProof } from './StableSwapProofs.ts';
@@ -32,6 +29,7 @@ import {
   StableSwapProofStatus,
 } from './db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from './db/StableSwapSyncStateTable.ts';
+import { getEthereumNetworkSettings } from './EthereumClient.ts';
 
 export { buildStableSwapReceiptProofs, type StableSwapReceiptProof };
 
@@ -125,22 +123,12 @@ const UNISWAP_FEE_TIERS = [FeeAmount.LOWEST, FeeAmount.LOW, FeeAmount.MEDIUM, Fe
 const UNISWAP_V3_QUOTER_V2_ADDRESS = getAddress('0x61fFE014bA17989E743c5F6cB21bF9697530B21e');
 const STABLE_SWAP_TRANSFER_EVENT = erc20Abi.find(item => item.type === 'event' && item.name === 'Transfer')!;
 
-export function createStableSwapPublicClient(rpcUrl?: string): PublicClient {
-  return createPublicClient({
-    chain: mainnet,
-    transport: http(rpcUrl?.trim() || getStableSwapEthereumSettings().rpcUrl, {
-      retryCount: 1,
-      timeout: 15_000,
-    }),
-  });
-}
-
 export function normalizeStableSwapAddress(address: string): Address {
   return getAddress(address.trim());
 }
 
 export function getStableSwapArgonTokenAddress(): Address {
-  return getStableSwapEthereumSettings().argonTokenAddress;
+  return getEthereumNetworkSettings().argonTokenAddress;
 }
 
 export async function fetchStableSwapPoolMetadata(
@@ -864,39 +852,13 @@ function stableSwapSdkPriceToFixed18(price: ReturnType<UniswapV3Pool['priceOf']>
 }
 
 function getStableSwapArgonToken(): Token {
-  return new Token(
-    STABLE_SWAP_CHAIN_ID,
-    getStableSwapEthereumSettings().argonTokenAddress,
-    ETHEREUM_ARGON_DECIMALS,
-    'ARGN',
-    'Argon',
-  );
+  const ethereumNetwork = getEthereumNetworkSettings();
+  return new Token(STABLE_SWAP_CHAIN_ID, ethereumNetwork.argonTokenAddress, ETHEREUM_ARGON_DECIMALS, 'ARGN', 'Argon');
 }
 
 function getStableSwapUsdcToken(): Token {
-  return new Token(
-    STABLE_SWAP_CHAIN_ID,
-    getStableSwapEthereumSettings().usdcTokenAddress,
-    USDC_DECIMALS,
-    'USDC',
-    'USD Coin',
-  );
-}
-
-function getStableSwapEthereumSettings(): {
-  rpcUrl: string;
-  argonTokenAddress: Address;
-  usdcTokenAddress: Address;
-} {
-  // NETWORK_NAME is imported so Env.ts initializes NetworkConfig before this helper is used.
-  void NETWORK_NAME;
-
-  const { ethereumNetwork } = NetworkConfig.get();
-  return {
-    rpcUrl: ethereumNetwork.rpcUrl,
-    argonTokenAddress: getAddress(ethereumNetwork.argonTokenAddress),
-    usdcTokenAddress: getAddress(ethereumNetwork.usdcTokenAddress),
-  };
+  const ethereumNetwork = getEthereumNetworkSettings();
+  return new Token(STABLE_SWAP_CHAIN_ID, ethereumNetwork.usdcTokenAddress, USDC_DECIMALS, 'USDC', 'USD Coin');
 }
 
 function isLikelyRateLimit(error: unknown): boolean {

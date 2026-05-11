@@ -16,9 +16,8 @@ export type IEventInfo = {
 export type IBalanceTransfer = {
   to: string;
   from?: string;
-  transferType: 'transfer' | 'faucet' | 'tokenGateway';
+  transferType: 'transfer' | 'faucet' | 'ethereum';
   currency: 'argon' | 'argonot';
-  tokenGatewayCommitmentHash?: string;
   isInternal: boolean;
   isInbound: boolean;
   amount: bigint;
@@ -220,57 +219,7 @@ export class AccountEventsFilter {
       accountFilter = () => true,
       isFromInternal = () => false,
     } = data;
-    if (client.events.tokenGateway.AssetReceived.is(event) && extrinsicIndex !== undefined) {
-      const { beneficiary, amount } = event.data;
-      const index = extrinsicEvents.indexOf(event);
-      const prev = extrinsicEvents[index - 1];
-      const next = extrinsicEvents[index + 1];
-      if (accountFilter(beneficiary)) {
-        let commitmentHash: string | undefined = undefined;
-        if (next && client.events.ismp.PostRequestHandled.is(next)) {
-          console.log('Found ISMP PostRequestHandled event after AssetReceived, extracting commitment hash');
-          const [{ commitment }] = next.data;
-          commitmentHash = commitment.toHex();
-        }
-        return {
-          to: beneficiary.toHuman(),
-          transferType: 'tokenGateway',
-          isInbound: true,
-          amount: amount.toBigInt(),
-          isInternal: false,
-          currency: prev?.section === 'ownership' ? 'argonot' : 'argon',
-          tokenGatewayCommitmentHash: commitmentHash,
-          extrinsicIndex,
-        };
-      }
-    }
-    if (client.events.tokenGateway.AssetTeleported.is(event) && extrinsicIndex !== undefined) {
-      const { from, to, amount, commitment } = event.data;
-      if (accountFilter(from)) {
-        const amountN = amount.toBigInt();
-        const fromAccount = from.toHuman();
-        const hasArgonotBurn = extrinsicEvents.some(x => {
-          if (client.events.ownership.Burned.is(x)) {
-            const { who, amount: burnAmount } = x.data;
-            return who.toHuman() === fromAccount && burnAmount.toBigInt() === amountN;
-          }
-          return false;
-        });
-        return {
-          to: to.toHex(),
-          from: fromAccount,
-          transferType: 'tokenGateway',
-          isInbound: false,
-          amount: amountN,
-          isInternal: false,
-          currency: hasArgonotBurn ? 'argonot' : 'argon',
-          tokenGatewayCommitmentHash: commitment.toHex(),
-          extrinsicIndex,
-        };
-      }
-    }
-    // Watch for testnet drips (which occur via balance set)
-    else if (client.events.balances.BalanceSet.is(event) && extrinsicIndex !== undefined) {
+    if (client.events.balances.BalanceSet.is(event) && extrinsicIndex !== undefined) {
       const { who, free } = event.data;
       if (accountFilter(who)) {
         return {
@@ -293,6 +242,19 @@ export class AccountEventsFilter {
           amount: free.toBigInt(),
           isInternal: false,
           currency: 'argonot',
+          extrinsicIndex,
+        };
+      }
+    } else if (client.events.crosschainTransfer.BurnNoticeAccepted.is(event) && extrinsicIndex !== undefined) {
+      const { notice } = event.data;
+      if (accountFilter(notice.to)) {
+        return {
+          to: notice.to.toHuman(),
+          transferType: 'ethereum',
+          isInbound: true,
+          amount: notice.amount.toBigInt(),
+          isInternal: false,
+          currency: notice.assetKind.isArgon ? 'argon' : 'argonot',
           extrinsicIndex,
         };
       }

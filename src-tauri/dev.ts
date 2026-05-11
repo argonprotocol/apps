@@ -2,9 +2,20 @@
 
 import { execFileSync, spawn } from 'child_process';
 import { config as loadDotEnv } from 'dotenv';
-import { NetworkConfig, type INetworkConfig } from '@argonprotocol/apps-core';
-import { getClient } from '@argonprotocol/mainchain';
+import { NetworkConfig, type INetworkConfigOverride } from '@argonprotocol/apps-core';
+import {
+  checkForExtrinsicSuccess,
+  dispatchErrorToString,
+  getClient,
+  getEthereumBeaconSyncBootstrapTx,
+  getEthereumBeaconSyncState,
+  getNextEthereumBeaconSyncTxs,
+  Keyring,
+  TxSubmitter,
+} from '@argonprotocol/mainchain';
+import { TestEthereum } from '@argonprotocol/testing';
 import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
+import { DEV_ETHEREUM_ADMIN_ACCOUNT } from '../e2e/devEthereumAdmin.ts';
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
@@ -14,6 +25,12 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const COMPOSE_FILES = ['docker-compose.yml', 'indexer.docker-compose.yml'];
+const DEV_ETHEREUM_BEACON_PRESET = readDevEthereumBeaconPreset();
+const DEV_ETHEREUM_SECONDS_PER_SLOT = readPositiveIntEnv('ARGON_DEV_ETHEREUM_SECONDS_PER_SLOT') ?? 1;
+const DEV_ETHEREUM_FINALITY_SLOTS = DEV_ETHEREUM_BEACON_PRESET === 'minimal' ? 16 : 64;
+const DEFAULT_ETHEREUM_FINALITY_MILLIS =
+  DEV_ETHEREUM_SECONDS_PER_SLOT * DEV_ETHEREUM_FINALITY_SLOTS * 1_000;
+const DEV_ETHEREUM_RELAYER_POLL_MS = Math.max(1_000, Math.floor(DEFAULT_ETHEREUM_FINALITY_MILLIS / 32));
 
 void main().catch(error => {
   console.error(`[tauri-dev] Failed to start: ${(error as Error).message}`);
@@ -37,31 +54,46 @@ async function main(): Promise<void> {
   const configJson = JSON.stringify(baseConfig);
 
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
+  let devEthereumRelayer: { shutdown(): Promise<void> } | undefined;
   if (network === 'dev-docker') {
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
 
     const composePorts = await resolveDevDockerComposePorts();
+    const devEthereum = shouldStartDevEthereum() ? await startDevEthereum() : undefined;
     if (composePorts) {
       Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
+      if (devEthereum) {
+        console.log(`[tauri-dev] Ethereum execution RPC (app): ${devEthereum.executionRpcUrl}`);
+        console.log(`[tauri-dev] Ethereum beacon API (app): ${devEthereum.beaconApiUrl}`);
+        console.log(`[tauri-dev] Add this beacon URL in server config: ${devEthereum.serverBeaconApiUrl}`);
+        const archiveUrl = `ws://127.0.0.1:${composePorts.archivePort}`;
+        await ensureDevEthereumBeaconBootstrap(archiveUrl, devEthereum.beaconApiUrl);
+        await ensureDevEthereumChainConfig(archiveUrl, devEthereum);
+        devEthereumRelayer = await startDevEthereumRelayer(archiveUrl, devEthereum.beaconApiUrl);
+        Object.assign(tauriEnv, {
+          ETHEREUM_BEACON_API_URL: devEthereum.serverBeaconApiUrl,
+          ETHEREUM_EXECUTION_RPC_URL: devEthereum.serverExecutionRpcUrl,
+          ETHEREUM_FINALITY_MILLIS: String(DEFAULT_ETHEREUM_FINALITY_MILLIS),
+        });
+      }
     } else {
       console.warn('[tauri-dev] Server env override unavailable, falling back to static server config');
     }
 
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
-    if (inheritedOverride) {
-      tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = inheritedOverride;
-      console.log('[tauri-dev] Using preconfigured network override from parent environment');
+    const runtimeOverride = composePorts ? await resolveDevDockerNetworkConfigOverride(composePorts, devEthereum) : null;
+    const resolvedOverride = inheritedOverride
+      ? mergeNetworkConfigOverrides(JSON.parse(inheritedOverride), runtimeOverride)
+      : runtimeOverride;
+
+    if (resolvedOverride) {
+      tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
+      console.log(
+        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}`,
+      );
     } else {
-      const override = composePorts ? await resolveDevDockerNetworkConfigOverride(composePorts) : null;
-      if (override) {
-        tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(override);
-        console.log(
-          `[tauri-dev] Runtime override archive=${override.archiveUrl} esplora=${override.esploraHost}${override.indexerHost ? ` indexer=${override.indexerHost}` : ''}`,
-        );
-      } else {
-        delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
-        console.warn('[tauri-dev] Runtime override unavailable, falling back to static network config');
-      }
+      delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
+      console.warn('[tauri-dev] Runtime override unavailable, falling back to static network config');
     }
   }
 
@@ -79,7 +111,10 @@ async function main(): Promise<void> {
   });
 
   child.on('exit', code => {
-    process.exit(code ?? 0);
+    const shutdownPromise = devEthereumRelayer?.shutdown() ?? Promise.resolve();
+    void shutdownPromise.finally(() => {
+      process.exit(code ?? 0);
+    });
   });
 }
 
@@ -107,7 +142,21 @@ function loadBaseConfig(configFileName: string, configFilePath: string): any {
 }
 
 type RuntimeChainConfig = Awaited<ReturnType<typeof NetworkConfig.loadConfigs>>;
-type RuntimeNetworkConfigOverride = Partial<INetworkConfig>;
+type RuntimeNetworkConfigOverride = INetworkConfigOverride;
+
+interface IStartDevEthereumResult {
+  enclaveName: string;
+  executionRpcUrl: string;
+  beaconApiUrl: string;
+  chainId: string;
+  gatewayAddress: string;
+  argonTokenAddress: string;
+  argonotTokenAddress: string;
+  serverExecutionRpcUrl: string;
+  serverBeaconApiUrl: string;
+}
+
+type DevEthereumBeaconPreset = 'mainnet' | 'minimal';
 
 interface DevDockerComposePorts {
   archivePort: string;
@@ -174,6 +223,207 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
   };
 }
 
+async function startDevEthereum(): Promise<IStartDevEthereumResult> {
+  if (!TestEthereum.isInstalled()) {
+    throw new Error(
+      'Kurtosis is required to launch the local Ethereum devnet. Install Kurtosis first, or rerun with ARGON_DEV_ETHEREUM=0 to disable Ethereum.',
+    );
+  }
+
+  const ethereum = new TestEthereum();
+  const endpoints = await ethereum.launch({
+    consensusClient: 'lighthouse',
+    preset: DEV_ETHEREUM_BEACON_PRESET,
+    secondsPerSlot: DEV_ETHEREUM_SECONDS_PER_SLOT,
+    prefundedAccounts: {
+      [DEV_ETHEREUM_ADMIN_ACCOUNT.address]: {
+        balance: DEV_ETHEREUM_ADMIN_ACCOUNT.balance,
+      },
+    },
+  });
+  const fixture = await ethereum.deployMintingGatewayFixture({
+    deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
+  });
+
+  return {
+    enclaveName: ethereum.enclaveName,
+    ...endpoints,
+    ...fixture,
+    serverExecutionRpcUrl: rewriteUrlHost(endpoints.executionRpcUrl, 'host.docker.internal'),
+    serverBeaconApiUrl: rewriteUrlHost(endpoints.beaconApiUrl, 'host.docker.internal'),
+  };
+}
+
+async function ensureDevEthereumBeaconBootstrap(archiveUrl: string, beaconApiUrl: string): Promise<void> {
+  const client = await getClient(archiveUrl);
+
+  try {
+    const state = await getEthereumBeaconSyncState(client);
+    if (state.isBootstrapped) {
+      console.log('[tauri-dev] Ethereum verifier already bootstrapped');
+      return;
+    }
+
+    const startedAt = Date.now();
+    let hasLoggedWaiting = false;
+    let tx;
+
+    while (true) {
+      try {
+        tx = await getEthereumBeaconSyncBootstrapTx(client, beaconApiUrl);
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isBootstrap404 = message.includes('/eth/v1/beacon/light_client/bootstrap/') && message.includes('404');
+
+        if (!isBootstrap404) {
+          throw error;
+        }
+        if (Date.now() - startedAt >= 60_000) {
+          throw new Error(
+            `Ethereum beacon light-client bootstrap endpoint did not become ready within 60s. Last error: ${message}`,
+          );
+        }
+        if (!hasLoggedWaiting) {
+          hasLoggedWaiting = true;
+          console.log('[tauri-dev] Waiting for Ethereum light-client bootstrap endpoint...');
+        }
+        await sleep(1_000);
+      }
+    }
+
+    const sudoKeypair = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
+    const result = await new TxSubmitter(client, client.tx.sudo.sudo(tx), sudoKeypair).submit();
+    await result.waitForInFirstBlock;
+
+    const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
+    if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+      throw new Error('Bootstrap transaction did not emit sudo.Sudid.');
+    }
+    if (sudoResultEvent.data.sudoResult.isErr) {
+      throw new Error(
+        `Bootstrap failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
+      );
+    }
+
+    console.log(`[tauri-dev] Bootstrapped ethereum verifier from ${beaconApiUrl}`);
+  } finally {
+    await client.disconnect();
+  }
+}
+
+async function startDevEthereumRelayer(
+  archiveUrl: string,
+  beaconApiUrl: string,
+): Promise<{ shutdown(): Promise<void> }> {
+  const client = await getClient(archiveUrl);
+  const syncKeypair = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
+  let shouldStop = false;
+  let stopSleep: (() => void) | undefined;
+  let hasLoggedWaitingForFinalityUpdate = false;
+
+  const loopPromise = (async () => {
+    while (!shouldStop) {
+      try {
+        const txs = await getNextEthereumBeaconSyncTxs(client, beaconApiUrl);
+        hasLoggedWaitingForFinalityUpdate = false;
+        for (const tx of txs) {
+          if (shouldStop) break;
+
+          const result = await new TxSubmitter(client, tx, syncKeypair).submit({
+            useLatestNonce: true,
+          });
+          await result.waitForInFirstBlock;
+          await checkForExtrinsicSuccess(result.events, client);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isLightClientFinalityUpdateNotReady(message)) {
+          if (!hasLoggedWaitingForFinalityUpdate) {
+            hasLoggedWaitingForFinalityUpdate = true;
+            console.log('[tauri-dev] Waiting for Ethereum light-client finality updates...');
+          }
+        } else {
+          console.error('[tauri-dev] Error syncing Ethereum beacon state', error);
+        }
+      }
+
+      if (!shouldStop) {
+        await waitForNextPoll(DEV_ETHEREUM_RELAYER_POLL_MS, stop => {
+          stopSleep = stop;
+        });
+        stopSleep = undefined;
+      }
+    }
+  })();
+
+  console.log(`[tauri-dev] Started local Ethereum relayer with //Alice (poll=${DEV_ETHEREUM_RELAYER_POLL_MS}ms)`);
+
+  return {
+    async shutdown(): Promise<void> {
+      shouldStop = true;
+      stopSleep?.();
+      await loopPromise;
+      await client.disconnect();
+    },
+  };
+}
+
+async function ensureDevEthereumChainConfig(
+  archiveUrl: string,
+  devEthereum: Pick<IStartDevEthereumResult, 'gatewayAddress' | 'argonTokenAddress' | 'argonotTokenAddress'>,
+): Promise<void> {
+  const client = await getClient(archiveUrl);
+
+  try {
+    const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    if (currentConfig.isSome && currentConfig.unwrap().isEthereum) {
+      const ethereumConfig = currentConfig.unwrap().asEthereum;
+      const isMatch =
+        ethereumConfig.gateway.toHex().toLowerCase() === devEthereum.gatewayAddress.toLowerCase() &&
+        ethereumConfig.argonToken.toHex().toLowerCase() === devEthereum.argonTokenAddress.toLowerCase() &&
+        ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase();
+
+      if (isMatch) {
+        console.log('[tauri-dev] Ethereum chain config already matches local gateway fixture');
+        return;
+      }
+    }
+
+    const sudoKeypair = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
+    const result = await new TxSubmitter(
+      client,
+      client.tx.sudo.sudo(
+        client.tx.crosschainTransfer.setChainConfig({
+          Ethereum: {
+            gateway: devEthereum.gatewayAddress,
+            argonToken: devEthereum.argonTokenAddress,
+            argonotToken: devEthereum.argonotTokenAddress,
+            previousGateway: null,
+            previousReleaseExpiration: null,
+          },
+        }),
+      ),
+      sudoKeypair,
+    ).submit();
+    await result.waitForInFirstBlock;
+
+    const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
+    if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+      throw new Error('Ethereum chain-config transaction did not emit sudo.Sudid.');
+    }
+    if (sudoResultEvent.data.sudoResult.isErr) {
+      throw new Error(
+        `Ethereum chain-config setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
+      );
+    }
+
+    console.log('[tauri-dev] Configured local Ethereum gateway on Argon');
+  } finally {
+    await client.disconnect();
+  }
+}
+
 function getDevDockerServerEnvVars(ports: DevDockerComposePorts): NodeJS.ProcessEnv {
   return {
     ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archivePort}`,
@@ -213,6 +463,7 @@ async function resolveNotaryArchiveHost(notaryPort: string, minioPort: string): 
 
 async function resolveDevDockerNetworkConfigOverride(
   ports: DevDockerComposePorts,
+  devEthereum?: IStartDevEthereumResult,
 ): Promise<RuntimeNetworkConfigOverride | null> {
   const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
   let runtimeConfig: RuntimeChainConfig;
@@ -228,6 +479,12 @@ async function resolveDevDockerNetworkConfigOverride(
     archiveUrl,
     bitcoinBlockMillis: runtimeConfig.tickMillis * 10,
     esploraHost: `http://localhost:${ports.esploraPort}`,
+    ethereumNetwork: {
+      executionRpcUrl: devEthereum?.executionRpcUrl ?? '',
+    },
+    baseNetwork: {
+      rpcUrl: '',
+    },
   };
   if (ports.indexerPort) {
     override.indexerHost = `http://localhost:${ports.indexerPort}`;
@@ -344,6 +601,85 @@ function readNonEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function rewriteUrlHost(url: string, host: string): string {
+  const parsed = new URL(url);
+  if (['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname)) {
+    parsed.hostname = host;
+  }
+  return parsed.toString();
+}
+
+function mergeNetworkConfigOverrides(
+  inheritedOverride: RuntimeNetworkConfigOverride,
+  dynamicOverride: RuntimeNetworkConfigOverride | null,
+): RuntimeNetworkConfigOverride {
+  if (!dynamicOverride) {
+    return inheritedOverride;
+  }
+
+  return {
+    ...inheritedOverride,
+    ...dynamicOverride,
+    ethereumNetwork: {
+      ...inheritedOverride.ethereumNetwork,
+      ...dynamicOverride.ethereumNetwork,
+    },
+    baseNetwork: {
+      ...inheritedOverride.baseNetwork,
+      ...dynamicOverride.baseNetwork,
+    },
+  };
+}
+
+function shouldStartDevEthereum(): boolean {
+  const value = readNonEmpty(process.env.ARGON_DEV_ETHEREUM)?.toLowerCase();
+  if (!value) {
+    return true;
+  }
+
+  return !['0', 'false', 'no', 'off'].includes(value);
+}
+
+function readDevEthereumBeaconPreset(): DevEthereumBeaconPreset {
+  const value = readNonEmpty(process.env.ARGON_DEV_ETHEREUM_PRESET)?.toLowerCase();
+  if (!value) {
+    return 'minimal';
+  }
+  if (value === 'mainnet' || value === 'minimal') {
+    return value;
+  }
+
+  throw new Error(`Unsupported ARGON_DEV_ETHEREUM_PRESET value: ${value}`);
+}
+
+function readPositiveIntEnv(name: string): number | undefined {
+  const value = readNonEmpty(process.env[name]);
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function waitForNextPoll(ms: number, onStopReady: (stop: () => void) => void): Promise<void> {
+  return new Promise(resolve => {
+    const timeout = setTimeout(resolve, ms);
+    onStopReady(() => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+function isLightClientFinalityUpdateNotReady(message: string): boolean {
+  return message.includes('/eth/v1/beacon/light_client/finality_update') && message.includes('404');
 }

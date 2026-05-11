@@ -92,6 +92,7 @@ export default defineConfig(async ({ mode }) => {
     resolve: {
       alias: {
         '@argonprotocol/bitcoin': require.resolve('@argonprotocol/bitcoin/browser'),
+        buffer: require.resolve('buffer/'),
         events: require.resolve('events/'),
       },
     },

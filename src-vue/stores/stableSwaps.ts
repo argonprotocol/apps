@@ -6,7 +6,6 @@ import { parseUnits } from 'viem';
 import {
   backfillStableSwapProofs,
   buildStableSwapUniswapUrl,
-  createStableSwapPublicClient,
   fetchStableSwapMarketSnapshot,
   loadStableSwapWalletSnapshot,
   normalizeStableSwapAddress,
@@ -17,6 +16,7 @@ import {
   type StableSwapPoolMetadata,
   type StableSwapWalletSnapshot,
 } from '../lib/StableSwaps.ts';
+import { createEthereumPublicClient } from '../lib/EthereumClient.ts';
 import { getConfig } from './config.ts';
 import { getCurrency } from './currency.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
@@ -44,7 +44,7 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   });
 
   let loadPromise: Promise<void> | undefined;
-  let publicClient = createStableSwapPublicClient();
+  let publicClient: ReturnType<typeof createEthereumPublicClient> | undefined;
   let activePool: StableSwapPoolMetadata | null = null;
 
   async function load() {
@@ -55,8 +55,6 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     loadPromise = (async () => {
       await config.isLoadedPromise;
       await currency.isLoadedPromise;
-
-      publicClient = createStableSwapPublicClient(config.ethereumRpcUrl);
 
       const db = await dbPromise;
       const cachedMarket = await db.stableSwapMarketStateTable.get();
@@ -78,12 +76,14 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     await config.isLoadedPromise;
     await currency.isLoadedPromise;
 
-    publicClient = createStableSwapPublicClient(config.ethereumRpcUrl);
+    publicClient = createEthereumPublicClient();
 
     isLoadingMarket.value = true;
     marketError.value = '';
 
     try {
+      publicClient = createEthereumPublicClient();
+
       const { pool, snapshot } = await fetchStableSwapMarketSnapshot(
         publicClient,
         currency.microgonsPer.USD,
@@ -135,6 +135,8 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     isRefreshingWallet.value = true;
 
     try {
+      publicClient ??= createEthereumPublicClient();
+
       if (!marketSnapshot.value) {
         await refreshMarket();
       }
@@ -197,6 +199,10 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   }
 
   async function backfillProofs(walletAddress: string) {
+    if (!publicClient) {
+      return;
+    }
+
     try {
       const db = await dbPromise;
       await backfillStableSwapProofs({

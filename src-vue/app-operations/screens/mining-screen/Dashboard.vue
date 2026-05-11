@@ -2,6 +2,8 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex flex-col h-full">
     <div data-testid="MiningDashboard" :class="stats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
+      <span data-testid="TotalBlocksMined" :data-value="totalBlocksMined" class="sr-only">{{ totalBlocksMined }}</span>
+
       <section class="flex flex-row gap-x-2 h-[14%]">
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
@@ -466,6 +468,10 @@ const globalMicrogonsInvested = Vue.computed(() => {
 
 const globalROI = Vue.computed(() => {
   return calculateProfitPct(globalMicrogonsInvested.value, globalMicrogonsEarned.value) * 100;
+});
+
+const totalBlocksMined = Vue.computed(() => {
+  return stats.frames.reduce((sum, frame) => sum + frame.blocksMinedTotal, 0);
 });
 
 const currentFrameEarnings = Vue.computed(() => {

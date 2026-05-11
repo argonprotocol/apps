@@ -40,8 +40,14 @@
           Your {{ walletType === WalletType.vaulting ? 'Vaulting' : 'Mining' }} Operations Are Fully Funded
         </div>
         <template v-else>
-          {{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]') }} ARGN and
-          {{ microgonToArgonNm(minimumMicronotsNeeded).format('0,0.[00000000]') }} ARGNOT Are Needed to
+          <span data-testid="WalletOverlay.microgonsNeeded" :data-value="minimumMicrogonsNeeded.toString()">
+            {{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]') }} ARGN
+          </span>
+          and
+          <span data-testid="WalletOverlay.micronotsNeeded" :data-value="minimumMicronotsNeeded.toString()">
+            {{ microgonToArgonNm(minimumMicronotsNeeded).format('0,0.[00000000]') }} ARGNOT
+          </span>
+          Are Needed to
           <br />
           Launch Your {{ walletType === WalletType.vaulting ? 'Vaulting' : 'Mining' }} Operations
         </template>
@@ -88,7 +94,7 @@
                         <td>Transactional Fees</td>
                         <td>{{ microgonToArgonNm(futureTransactionFeeBudgetMicrogons).format('0,0') }} ARGN</td>
                       </tr>
-                      <tr>
+                      <tr @click="includeVaultTreasuryBondSuggestion = !includeVaultTreasuryBondSuggestion">
                         <td>
                           <span class="origin-center scale-[0.57]">
                             <Checkbox :isChecked="includeVaultTreasuryBondSuggestion" :size="4" class="shrink-0" />

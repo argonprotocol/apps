@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import Path from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BITCOIN_FLOW_INPUT_DEFINITIONS, createBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import { MINING_FLOW_INPUT_DEFINITIONS, createMiningFlowContext } from '../contexts/miningContext.ts';
 import { VAULTING_FLOW_INPUT_DEFINITIONS, createVaultingFlowContext } from '../contexts/vaultingContext.ts';
@@ -168,12 +167,11 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
 
 const OPERATION_FILE_PATTERN = /^[A-Z][A-Za-z0-9]*\.(op|flow)\.[A-Za-z0-9_]+\.(ts|js)$/;
 const OPERATIONS_DIR = resolveOperationsDir();
-const requireOperationModule = createRequire(Path.join(OPERATIONS_DIR, 'index.ts'));
-const DISCOVERED_OPERATIONS = discoverOperations();
+const DISCOVERED_OPERATIONS = await discoverOperations();
 
 const OPERATION_CONTEXTS: Record<OperationContextName, IOperationContextDefinition> = {
   app: {
-    createContext: flow => ({ flow }),
+    createContext: (flow, flowName) => ({ flow, flowName, input: flow.input }),
     inputDefinitions: [],
     operationsByName: createDiscoveredOperationMap('app'),
   },
@@ -471,7 +469,7 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-function discoverOperations(): IDiscoveredOperation[] {
+async function discoverOperations(): Promise<IDiscoveredOperation[]> {
   const currentFileName = resolveCurrentOperationFileName();
   const moduleFiles = fs
     .readdirSync(OPERATIONS_DIR, { withFileTypes: true })
@@ -485,7 +483,7 @@ function discoverOperations(): IDiscoveredOperation[] {
   const operations: IDiscoveredOperation[] = [];
   for (const fileName of moduleFiles) {
     const modulePath = Path.join(OPERATIONS_DIR, fileName);
-    const moduleExports = requireOperationModule(modulePath) as Record<string, unknown>;
+    const moduleExports = (await import(pathToFileURL(modulePath).href)) as Record<string, unknown>;
     const operation = moduleExports.default;
     if (!isOperationExport(operation)) {
       throw new Error(`[E2E] ${fileName} must default-export an Operation or OperationalFlow`);

@@ -3,7 +3,7 @@ export interface IIndexerSpec {
     responseType: {
       transfers: {
         blockNumber: number;
-        source: 'transfer' | 'faucet' | 'tokenGateway';
+        source: 'transfer' | 'faucet' | 'tokenGateway' | 'ethereum';
         currency: 'argon' | 'argonot';
         toAddress: string;
         fromAddress: string | null;

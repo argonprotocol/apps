@@ -3,7 +3,6 @@ import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/app
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
-import { SSH } from './SSH';
 import { IConfigServerDetails, InstallStepKey } from '../interfaces/IConfig';
 import { join, tempDir } from '@tauri-apps/api/path';
 import { LocalMachine } from './LocalMachine.ts';
@@ -135,15 +134,27 @@ export class ServerAdmin {
     oldestFrameIdToSync: number;
     vaultOperatorAddress: string;
     operatorAccountId: string;
+    ethereumBeaconApiUrl?: string;
   }): Promise<void> {
-    const envStateStr =
-      `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}\n` +
-      `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}\n` +
-      `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}\n`;
+    const lines = [
+      `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}`,
+      `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}`,
+      `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}`,
+    ];
+    const ethereumBeaconApiUrl = envState.ethereumBeaconApiUrl?.trim();
+
+    if (ethereumBeaconApiUrl) {
+      lines.push(`ETHEREUM_BEACON_API_URL=${ethereumBeaconApiUrl}`);
+    }
+
+    const envStateStr = `${lines.join('\n')}\n`;
     await this.connection.uploadFileWithTimeout(envStateStr, `${this.workDir}/config/.env.state`, 10e3);
   }
 
-  public async downloadEnvState(): Promise<{ oldestFrameIdToSync: number }> {
+  public async downloadEnvState(): Promise<{
+    oldestFrameIdToSync: number;
+    ethereumBeaconApiUrl?: string;
+  }> {
     const [envStateRaw] = await this.connection.runCommandWithTimeout(
       `cat ${this.workDir}/config/.env.state 2>/dev/null || true`,
       10e3,
@@ -151,6 +162,7 @@ export class ServerAdmin {
     const envState = envStateRaw ? parseEnv(envStateRaw) : {};
     return {
       oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0'),
+      ethereumBeaconApiUrl: envState.ETHEREUM_BEACON_API_URL?.trim() || undefined,
     };
   }
 
@@ -409,7 +421,7 @@ export class ServerAdmin {
 
   public async downloadInstallStepStatuses(): Promise<IInstallStepStatuses> {
     const stepStatuses: IInstallStepStatuses = {};
-    const [output, code] = await SSH.runCommand(`ls ${this.workDir}/logs/step-*`);
+    const [output, code] = await this.connection.runCommandWithTimeout(`ls ${this.workDir}/logs/step-*`, 10e3);
     if (code !== 0) {
       return stepStatuses;
     }

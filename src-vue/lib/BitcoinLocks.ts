@@ -29,6 +29,11 @@ import {
   IBitcoinLockRecord,
   IBitcoinLockRelayMetadata,
 } from './db/BitcoinLocksTable.ts';
+import type {
+  IBitcoinUnlockReleaseState,
+  IBitcoinVaultMismatchState,
+  IBitcoinVaultUnlockStateDetails,
+} from '../interfaces/IBitcoinLocks.ts';
 import BitcoinUtxoTracking from './BitcoinUtxoTracking.ts';
 import BitcoinMempool from './BitcoinMempool.ts';
 import { getVaults } from '../stores/vaults.ts';
@@ -99,46 +104,7 @@ export interface IBitcoinRatchetPreview {
   shortfall: bigint;
   vaultId: number;
 }
-
-export interface IBitcoinVaultMismatchState {
-  hasActiveLock: boolean;
-  lockStatus?: BitcoinLockStatus;
-  phase: IBitcoinMismatchPhase;
-  isPendingFunding: boolean;
-  isFundingReadyToResume: boolean;
-  isPostFundingLock: boolean;
-  candidateCount: number;
-  hasError: boolean;
-  hasNextCandidate: boolean;
-  nextCandidateCanAccept: boolean;
-  nextCandidateCanReturn: boolean;
-}
-
-export interface IBitcoinUnlockReleaseState {
-  hasActiveLock: boolean;
-  lockStatus?: BitcoinLockStatus;
-  isPendingFunding: boolean;
-  isLockReadyForUnlock: boolean;
-  hasFundingRecord: boolean;
-  fundingStatus?: BitcoinUtxoStatus;
-  isReleaseStatus: boolean;
-  isArgonSubmitting: boolean;
-  isWaitingForVaultCosign: boolean;
-  isBitcoinReleaseProcessing: boolean;
-  hasRequestDetails: boolean;
-  hasCosign: boolean;
-  hasReleaseTxid: boolean;
-  isReleaseComplete: boolean;
-}
-
-export type IBitcoinVaultUnlockStateDetails = {
-  activeLocks: Array<{
-    lock: IBitcoinLockRecord;
-    fundingRecord?: IBitcoinUtxoRecord;
-    latestAcceptTx?: ITransactionRecord;
-    fundingCandidates: IBitcoinUtxoRecord[];
-  }>;
-};
+export type { IBitcoinUnlockReleaseState, IBitcoinVaultMismatchState, IBitcoinVaultUnlockStateDetails };
 
 export interface IOperatorBitcoinLockCouponRoute {
   vaultId: number;

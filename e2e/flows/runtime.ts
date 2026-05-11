@@ -17,6 +17,7 @@ import type {
   IE2ETypeOptions,
   IE2EWaitOptions,
 } from './types.ts';
+import type { IAppQueryFn } from './types/srcVue.ts';
 
 const DEFAULT_FLOW_TIMEOUT_MS = 15_000;
 
@@ -185,10 +186,13 @@ export async function executeFlow(
     poll: async () => {
       throw new Error('flow.poll() requires an active operation context.');
     },
-    queryApp: async <T = unknown>(fn: string, options: IE2EQueryAppOptions = {}) => {
+    queryApp: async <T = unknown, TArgs extends E2ECommandArgs = E2ECommandArgs>(
+      fn: IAppQueryFn<T, TArgs>,
+      options: IE2EQueryAppOptions<TArgs> = {},
+    ) => {
       const result = await runDriverCommand<IQueryAppCommandResult<T>>('command.queryApp', {
         ...withCommandMeta(),
-        fn,
+        fn: fn.toString(),
         timeoutMs: options.timeoutMs ?? defaultTimeoutMs,
         args: options.args ?? {},
       }).catch(() => undefined);

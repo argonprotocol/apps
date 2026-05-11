@@ -5,8 +5,9 @@ import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
 import { getMyVault } from '../stores/vaults';
 import { useWallets } from '../stores/wallets.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
-import { getDbPromise } from '../stores/helpers/dbPromise';
+import { useBasics } from '../stores/basics.ts';
+import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
+import type { IAppQueryFn, IAppQueryRefs } from '../interfaces/IAppQueryRefs.ts';
 
 type UnknownRecord = Record<string, unknown>;
 export const LOGGABLE_ARG_KEYS = [
@@ -32,17 +33,6 @@ interface ElementTarget {
 interface CommandContext {
   session: string;
   emit?: (payload: UnknownRecord) => void;
-}
-
-interface AppQueryRefs {
-  config: ReturnType<typeof getConfig>;
-  bitcoinLocks: ReturnType<typeof getBitcoinLocks>;
-  myVault: ReturnType<typeof getMyVault>;
-  wallets: ReturnType<typeof useWallets>;
-  controller: ReturnType<typeof useOperationsController>;
-  db: Awaited<ReturnType<typeof getDbPromise>>;
-  getMainchainClient: typeof getMainchainClient;
-  JsonExt: typeof JsonExt;
 }
 
 interface WaitForStateOptions {
@@ -1173,7 +1163,7 @@ function getSessionFromArgs(args: UnknownRecord): string | undefined {
   return getString(args.session, 'session', false);
 }
 
-type AppQueryFn = (refs: AppQueryRefs, args: UnknownRecord) => unknown;
+type AppQueryFn = IAppQueryFn<unknown, UnknownRecord>;
 
 function hydrateAppQuery(fnSource: string): AppQueryFn {
   const source = fnSource.trim();
@@ -1217,24 +1207,23 @@ function serializeAppQueryResult(result: unknown): unknown {
   }
 }
 
-async function getAppQueryRefs(): Promise<AppQueryRefs> {
+async function getAppQueryRefs(): Promise<IAppQueryRefs> {
   const config = getConfig();
   const myVault = getMyVault();
   const bitcoinLocks = getBitcoinLocks();
+  const basics = useBasics();
   await config.isLoadedPromise.catch(() => undefined);
   await myVault.load().catch(() => undefined);
   await bitcoinLocks.load().catch(() => undefined);
-  const db = await getDbPromise();
 
   return {
     config,
     bitcoinLocks,
     myVault,
     wallets: useWallets(),
-    controller: useOperationsController(),
-    db,
+    overlayIsOpen: basics.overlayIsOpen,
+    getEthereumMoveTracker,
     getMainchainClient,
-    JsonExt,
   };
 }
 

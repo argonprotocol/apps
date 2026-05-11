@@ -1,4 +1,4 @@
-import type { IBitcoinLocksMismatchInspect, IBitcoinVaultMismatchState, IMyVaultInspect } from '../types/srcVue.ts';
+import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
 import { clickIfVisible } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
@@ -40,7 +40,7 @@ export interface IEnsureMismatchActionPanelState
 }
 
 export default new Operation<IBitcoinFlowContext, IEnsureMismatchActionPanelState>(import.meta, {
-  async inspect({ flow, flowName }) {
+  async inspect({ flow }) {
     const [
       chainStateValue,
       actionError,
@@ -51,10 +51,34 @@ export default new Operation<IBitcoinFlowContext, IEnsureMismatchActionPanelStat
       mismatchReturn,
       mismatchResume,
     ] = await Promise.all([
-      flow.queryApp<IMismatchChainState>(MISMATCH_BACKEND_STATE_FN, {
-        timeoutMs: MISMATCH_INSPECT_TIMEOUT_MS,
-        args: { flowName },
-      }),
+      flow.queryApp(
+        async refs => {
+          await refs.myVault.load().catch(() => undefined);
+          await refs.bitcoinLocks.load().catch(() => undefined);
+
+          const vaultId = refs.myVault.vaultId;
+          if (vaultId == null) {
+            return {
+              hasActiveLock: false,
+              phase: 'none',
+              isPendingFunding: false,
+              isFundingReadyToResume: false,
+              isPostFundingLock: false,
+              candidateCount: 0,
+              hasError: false,
+              hasNextCandidate: false,
+              nextCandidateCanAccept: false,
+              nextCandidateCanReturn: false,
+            };
+          }
+
+          const locks = refs.bitcoinLocks.getActiveLocks();
+          return refs.bitcoinLocks.getLockMismatchState(locks[0]);
+        },
+        {
+          timeoutMs: MISMATCH_INSPECT_TIMEOUT_MS,
+        },
+      ),
       flow.isVisible('LockFundingMismatch.actionError'),
       hasDashboardLockEntry(flow),
       flow.isVisible('LockFundingMismatch'),
@@ -150,36 +174,6 @@ export default new Operation<IBitcoinFlowContext, IEnsureMismatchActionPanelStat
     }
   },
 });
-
-async function mismatchBackendStateInspect(refs: IInspectRefs): Promise<IMismatchChainState> {
-  await refs.myVault.load().catch(() => undefined);
-  await refs.bitcoinLocks.load().catch(() => undefined);
-
-  const vaultId = refs.myVault.vaultId;
-  if (vaultId == null) {
-    return {
-      hasActiveLock: false,
-      phase: 'none',
-      isPendingFunding: false,
-      isFundingReadyToResume: false,
-      isPostFundingLock: false,
-      candidateCount: 0,
-      hasError: false,
-      hasNextCandidate: false,
-      nextCandidateCanAccept: false,
-      nextCandidateCanReturn: false,
-    };
-  }
-  const locks = refs.bitcoinLocks.getActiveLocks();
-  return refs.bitcoinLocks.getLockMismatchState(locks[0]);
-}
-
-const MISMATCH_BACKEND_STATE_FN = mismatchBackendStateInspect.toString();
-
-interface IInspectRefs {
-  myVault: IMyVaultInspect;
-  bitcoinLocks: IBitcoinLocksMismatchInspect;
-}
 
 async function hasDashboardLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
   return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))

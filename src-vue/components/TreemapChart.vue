@@ -136,24 +136,45 @@ const containerWidth = Vue.ref(100);
 const containerHeight = Vue.ref(100);
 
 let resizeObserver: ResizeObserver | undefined;
+let resizeAnimationFrame: number | undefined;
+
+function updateContainerSize(width: number, height: number) {
+  const nextWidth = width || 100;
+  const nextHeight = height || 100;
+
+  if (containerWidth.value === nextWidth && containerHeight.value === nextHeight) {
+    return;
+  }
+
+  containerWidth.value = nextWidth;
+  containerHeight.value = nextHeight;
+}
 
 Vue.onMounted(() => {
   if (!containerRef.value) return;
   const rect = containerRef.value.getBoundingClientRect();
-  containerWidth.value = rect.width || 100;
-  containerHeight.value = rect.height || 100;
+  updateContainerSize(rect.width, rect.height);
 
   resizeObserver = new ResizeObserver(entries => {
     const entry = entries[0];
     if (!entry) return;
-    containerWidth.value = entry.contentRect.width || 100;
-    containerHeight.value = entry.contentRect.height || 100;
+
+    if (resizeAnimationFrame) {
+      cancelAnimationFrame(resizeAnimationFrame);
+    }
+
+    resizeAnimationFrame = requestAnimationFrame(() => {
+      updateContainerSize(entry.contentRect.width, entry.contentRect.height);
+    });
   });
   resizeObserver.observe(containerRef.value);
 });
 
 Vue.onUnmounted(() => {
   resizeObserver?.disconnect();
+  if (resizeAnimationFrame) {
+    cancelAnimationFrame(resizeAnimationFrame);
+  }
 });
 
 function toNumber(value: AmountLike): number {

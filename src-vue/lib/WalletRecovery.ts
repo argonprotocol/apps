@@ -1,5 +1,5 @@
 import { IMiningAccountPreviousHistoryBid, IMiningAccountPreviousHistoryRecord } from '../interfaces/IConfig.ts';
-import IVaultingRules from '../interfaces/IVaultingRules.ts';
+import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { ArgonClient, FrameIterator, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';

@@ -41,7 +41,7 @@ export function getTransferInfo(tx: IWalletTransferRecord): string {
   if (tx.otherParty) {
     destination = formatAddress(tx.otherParty);
   } else {
-    if (tx.transferType === 'tokenGateway') {
+    if (tx.transferType === 'tokenGateway' || tx.transferType === 'ethereum') {
       destination = 'Ethereum';
     } else if (tx.transferType === 'transfer') {
       destination = 'Transfer';
@@ -50,7 +50,7 @@ export function getTransferInfo(tx: IWalletTransferRecord): string {
     }
   }
   if (tx.amount < 0n) {
-    if (tx.transferType === 'tokenGateway') {
+    if (tx.transferType === 'tokenGateway' || tx.transferType === 'ethereum') {
       destination = `Ethereum (${destination})`;
     }
     return `${wallet} -> ${destination}`;
@@ -101,7 +101,7 @@ function openTx(tx: IWalletTransferRecord) {
   if (tx.tokenGatewayCommitmentHash) {
     url = `https://explorer.hyperbridge.network/messages/${tx.tokenGatewayCommitmentHash}`;
   }
-  tauriOpenUrl(url);
+  void tauriOpenUrl(url);
 }
 
 async function loadTransactionHistory(): Promise<void> {

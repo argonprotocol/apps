@@ -4,6 +4,7 @@ import {
   IBotApiMethod,
   type IBotApiSpec,
   type IBotState,
+  type IBotStateStarting,
   IDeferred,
   JsonExt,
   JsonRpcResponse,
@@ -12,7 +13,7 @@ import type { ServerApiClient } from './ServerApiClient.ts';
 
 export class BotWsClient {
   public events = createTypedEventEmitter<{
-    '/state': (state: IBotState) => any;
+    '/state': (state: IBotState | IBotStateStarting) => any;
     '/heartbeat': (payload: null) => any;
     'ws:disconnected': (payload: {
       source: 'close' | 'error' | 'heartbeat-timeout';

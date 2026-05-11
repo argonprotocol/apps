@@ -6,11 +6,8 @@
 import * as Vue from 'vue';
 
 import QRCode from 'qrcode';
-import { Buffer } from 'buffer';
 import { UR, UREncoder } from '@ngraveio/bc-ur';
 import { u8aToHex } from '@argonprotocol/mainchain';
-
-window.Buffer = Buffer;
 
 const props = defineProps({
   bytes: {

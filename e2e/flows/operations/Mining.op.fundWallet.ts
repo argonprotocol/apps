@@ -1,9 +1,11 @@
-import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import { getWalletOverlayFundingNeeded, sudoFundWallet, type ISudoFundWalletInput } from '../helpers/sudoFundWallet.ts';
+import { isAddress, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { sudoFundWallet, type ISudoFundWalletInput } from '../helpers/sudoFundWallet.ts';
+import { readClipboardWithRetries } from '../helpers/readClipboardWithRetries.ts';
 import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
+import { MiningSetupStatus } from '../types/srcVue.ts';
 
 const DEFAULT_MINING_FUNDING_MULTIPLIER = 10n;
 const MICROGONS_PER_ARGON_TEXT = BigInt(MICROGONS_PER_ARGON).toString();
@@ -74,10 +76,36 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     await flow.waitFor('WalletOverlay.micronotsNeeded');
     await flow.waitFor('WalletOverlay.microgonsNeeded');
 
-    const requiredFunding = await getWalletOverlayFundingNeeded(flow);
+    const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
+    const micronotsNeededRaw = await flow
+      .getAttribute('WalletOverlay.micronotsNeeded', 'data-value', { timeoutMs: 1_000 })
+      .catch(() => null);
+    const walletAddress = await readClipboardWithRetries(
+      flow,
+      async () => {
+        await flow.click('miningHoldWalletAddress.openMenu()', { timeoutMs: 5_000 });
+        await flow.waitFor('miningHoldWalletAddress.copyContent()', { timeoutMs: 5_000 });
+        await flow.click('miningHoldWalletAddress.copyContent()', { timeoutMs: 5_000 });
+      },
+      value => isAddress(value),
+      { label: 'mining hold wallet address' },
+    );
+
+    if (!walletAddress) {
+      throw new Error(`${flowName}: missing mining hold wallet address.`);
+    }
+    if (!microgonsNeededRaw) {
+      throw new Error(`${flowName}: missing mining wallet microgons requirement.`);
+    }
+
+    const requiredFunding = {
+      address: walletAddress,
+      microgons: BigInt(microgonsNeededRaw),
+      micronots: BigInt(micronotsNeededRaw ?? '0'),
+    };
     const fundingNeeded = requiredFunding.microgons > 0n || requiredFunding.micronots > 0n;
     const funding = fundingNeeded ? deriveMiningFunding(flowName, requiredFunding, input.fundingArgons) : undefined;
-    await flow.click('NavHeader.close()', { timeoutMs: 8_000 });
+    await flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: mining wallet overlay did not close after funding.`,
@@ -145,27 +173,34 @@ function deriveMiningFunding(
 }
 
 async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFundingState | undefined> {
-  return await flow.queryApp<IFundingState>(
-    `(({ config, wallets }) => {
-      if (!config.hasSavedBiddingRules) {
+  return await flow.queryApp(
+    (refs, args: { microgonsPerArgonText: string; finishedSetupStatus: MiningSetupStatus }) => {
+      if (!refs.config.hasSavedBiddingRules) {
         return { walletFullyFunded: false };
       }
 
       const futureTransactionFeeBudgetMicrogons =
-        config.miningSetupStatus === 'Finished' ? 0n : 2n * BigInt('${MICROGONS_PER_ARGON_TEXT}');
+        refs.config.miningSetupStatus === args.finishedSetupStatus ? 0n : 2n * BigInt(args.microgonsPerArgonText);
       const availableMicronots =
-        wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
-      const reservedMicronots = wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
-      const availableMicrogons = wallets.totalMiningMicrogons ?? 0n;
+        refs.wallets.miningHoldWallet.availableMicronots + refs.wallets.miningBotWallet.availableMicronots;
+      const reservedMicronots =
+        refs.wallets.miningHoldWallet.reservedMicronots + refs.wallets.miningBotWallet.reservedMicronots;
+      const availableMicrogons = refs.wallets.totalMiningMicrogons ?? 0n;
       const requiredMicrogons =
-        (config.biddingRules.initialMicrogonRequirement ?? 0n) + futureTransactionFeeBudgetMicrogons;
-      const requiredMicronots = config.biddingRules.initialMicronotRequirement ?? 0n;
+        (refs.config.biddingRules.initialMicrogonRequirement ?? 0n) + futureTransactionFeeBudgetMicrogons;
+      const requiredMicronots = refs.config.biddingRules.initialMicronotRequirement ?? 0n;
 
       return {
         walletFullyFunded:
           availableMicrogons >= requiredMicrogons && availableMicronots + reservedMicronots >= requiredMicronots,
       };
-    })`,
-    { timeoutMs: 10_000 },
+    },
+    {
+      timeoutMs: 10_000,
+      args: {
+        microgonsPerArgonText: MICROGONS_PER_ARGON_TEXT,
+        finishedSetupStatus: MiningSetupStatus.Finished,
+      },
+    },
   );
 }

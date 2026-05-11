@@ -121,7 +121,6 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
-        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 7n },
       },
     });
@@ -160,7 +159,6 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
-        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 7n },
       },
     });
@@ -176,7 +174,6 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
-        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 4n },
       },
     });
@@ -227,7 +224,6 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
-        isMovingToEthereum: false,
         assetsToMove: { ARGNOT: 4n },
       },
     });
@@ -330,7 +326,6 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
-        isMovingToEthereum: false,
         assetsToMove: { ARGN: 50n, ARGNOT: 7n },
       },
     });
@@ -413,7 +408,6 @@ describe('MoveCapital', () => {
       metadata: {
         moveFrom: MoveFrom.MiningHold,
         moveTo: MoveTo.MiningBot,
-        isMovingToEthereum: false,
         assetsToMove: { ARGN: 50n, ARGNOT: 7n },
       },
     });

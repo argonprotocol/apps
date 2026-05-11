@@ -17,7 +17,6 @@ type IBasicEmitter = {
     moveTo?: MoveTo;
     maxAmount?: bigint;
   };
-
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' } | undefined;

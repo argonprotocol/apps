@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "flows": "tsx runFlows.ts",
-    "flows:console": "tsx scripts/operationConsole.ts",
-    "test": "yarn --cwd .. vitest --run --project e2e",
+    "flows": "yarn --cwd .. e2e:prepare && tsx runFlows.ts",
+    "flows:console": "yarn --cwd .. e2e:prepare && tsx scripts/operationConsole.ts",
+    "test": "yarn --cwd .. e2e:prepare && yarn --cwd .. vitest --run --project e2e",
     "test:flows": "yarn flows",
     "lint": "yarn lint:check",
     "lint:check": "yarn check:operation-rules",
@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.3-dev.6cdce319",
+    "@argonprotocol/mainchain": "1.4.3-dev.76caee69",
     "@types/ws": "^8.5.13",
     "docker-compose": "^1.2.0",
     "tsx": "^4.20.5",

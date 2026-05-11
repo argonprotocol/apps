@@ -85,6 +85,10 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS?.trim() || '0',
     ARGON_APP_ENABLE_AUTOUPDATE: '0',
   };
+
+  // Keep helper commands (btc-cli, funding RPC) pointed at the same compose project as this session.
+  process.env.COMPOSE_PROJECT_NAME = composeProjectName;
+
   try {
     if (useTestNetwork) {
       if (shouldRunCleanup) {
@@ -103,11 +107,10 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       const composeEnv = testNetwork.composeEnv;
       tauriEnv.JOIN_COMPOSE_NETWORK = composeEnv.COMPOSE_PROJECT_NAME;
 
-      // Keep helper commands (btc-cli, funding RPC) pointed at the same ephemeral compose project.
-      process.env.COMPOSE_PROJECT_NAME = composeEnv.COMPOSE_PROJECT_NAME;
-
       devDockerProcess = spawn('yarn', ['tauri:dev:docker'], createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
     } else {
+      delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
+
       const appCommand = sessionMode === 'stateful' ? ['tauri:dev:docker'] : ['dev:docker'];
       devDockerProcess = spawn('yarn', appCommand, createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
     }

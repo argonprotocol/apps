@@ -65,7 +65,16 @@ async function getMigrationSqlStatements(): Promise<string[]> {
         if (shouldLogDbQueries) {
           console.log('Migrating', upFile);
         }
-        statements.push(await readFile(upFile, 'utf8'));
+
+        try {
+          statements.push(await readFile(upFile, 'utf8'));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            continue;
+          }
+
+          throw error;
+        }
       }
       return statements;
     })

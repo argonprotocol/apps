@@ -15,8 +15,10 @@ type IPrepareAccessState = IE2EOperationInspectState<Record<string, never>, IPre
 
 export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, {
   async inspect({ flow }) {
-    const appState = await flow.queryApp<{ showWelcomeOverlay?: boolean }>(
-      'refs => ({ showWelcomeOverlay: refs.config.showWelcomeOverlay })',
+    const appState = await flow.queryApp(
+      refs => ({
+        showWelcomeOverlay: refs.config.showWelcomeOverlay,
+      }),
       { timeoutMs: 5_000 },
     );
     const welcomeOverlayVisible = appState?.showWelcomeOverlay ?? true;
@@ -85,8 +87,10 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
             return false;
           }
 
-          const appState = await flow.queryApp<{ showWelcomeOverlay?: boolean }>(
-            'refs => ({ showWelcomeOverlay: refs.config.showWelcomeOverlay })',
+          const appState = await flow.queryApp(
+            refs => ({
+              showWelcomeOverlay: refs.config.showWelcomeOverlay,
+            }),
             { timeoutMs: 1_000 },
           );
           if (appState?.showWelcomeOverlay !== false) {

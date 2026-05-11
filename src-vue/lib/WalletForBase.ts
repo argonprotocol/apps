@@ -32,13 +32,34 @@ export class WalletForBase {
 
   public async load(): Promise<void> {
     const { baseNetwork } = NetworkConfig.get();
-    const basePublicClient = createPublicClient({
-      chain: base,
-      transport: http(baseNetwork.rpcUrl, {
-        retryCount: 1,
-        timeout: 15_000,
-      }),
-    });
-    this.data.otherTokens = await loadTokens(basePublicClient, getAddress(this.data.address), trackedBaseTokens);
+    const rpcUrl = baseNetwork.rpcUrl.trim();
+
+    if (!rpcUrl) {
+      this.data.fetchErrorMsg = '';
+      this.data.otherTokens = [];
+      return;
+    }
+
+    this.data.fetchErrorMsg = '';
+
+    try {
+      const basePublicClient = createPublicClient({
+        chain: base,
+        transport: http(rpcUrl, {
+          retryCount: 1,
+          timeout: 15_000,
+        }),
+      });
+
+      this.data.otherTokens = await loadTokens(basePublicClient, getAddress(this.data.address), trackedBaseTokens);
+    } catch (error) {
+      console.error('Base wallet balance load failed', {
+        address: this.address,
+        rpcUrl,
+        error,
+      });
+      this.data.fetchErrorMsg = error instanceof Error ? error.message : 'Unable to load Base token balances.';
+      this.data.otherTokens = [];
+    }
   }
 }

@@ -82,6 +82,7 @@ export class FinalizedBlockIndexer {
                     transfer: WalletTransferSource.Transfer,
                     tokenGateway: WalletTransferSource.TokenGateway,
                     faucet: WalletTransferSource.Faucet,
+                    ethereum: WalletTransferSource.Ethereum,
                   }[transfer.transferType],
                   toAddress: transfer.to,
                   fromAddress: transfer.from ?? null,

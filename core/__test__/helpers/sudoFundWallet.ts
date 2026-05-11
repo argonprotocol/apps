@@ -28,12 +28,28 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
     const txSubmitter = new TxSubmitter(client, tx, new Keyring({ type: 'sr25519' }).createFromUri('//Alice'));
     const result = await txSubmitter.submit();
     await result.waitForInFirstBlock;
+    await result.waitForFinalizedBlock.catch(() => undefined);
 
-    const chainAtBlock = result.blockHash ? await client.at(result.blockHash) : client;
-    const microgonBalance = await chainAtBlock.query.system.account(input.address);
-    const micronotBalance = await chainAtBlock.query.ownership.account(input.address);
-    const fundedMicrogons = microgonBalance.data.free.toBigInt();
-    const fundedMicronots = micronotBalance.free.toBigInt();
+    if (result.extrinsicError) {
+      throw result.extrinsicError;
+    }
+
+    const startedAt = Date.now();
+    let fundedMicrogons = 0n;
+    let fundedMicronots = 0n;
+
+    while (Date.now() - startedAt < 30_000) {
+      const microgonBalance = await client.query.system.account(input.address);
+      const micronotBalance = await client.query.ownership.account(input.address);
+      fundedMicrogons = microgonBalance.data.free.toBigInt();
+      fundedMicronots = micronotBalance.free.toBigInt();
+
+      if (fundedMicrogons >= input.microgons && fundedMicronots >= input.micronots) {
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+    }
 
     if (fundedMicrogons < input.microgons) {
       throw new Error(

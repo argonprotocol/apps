@@ -10,7 +10,7 @@ import { Config } from '../../lib/Config.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import type { Db } from '../../lib/Db.ts';
-import type IVaultingRules from '../../interfaces/IVaultingRules.ts';
+import type { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../lib/MyVault.ts';
 import { TransactionTracker } from '../../lib/TransactionTracker.ts';
 import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';

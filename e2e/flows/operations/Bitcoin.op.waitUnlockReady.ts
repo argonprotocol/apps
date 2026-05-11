@@ -1,10 +1,5 @@
 import { createBitcoinAddress, mineBitcoinSingleBlock } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import type {
-  IBitcoinLocksUnlockDetailsInspect,
-  IBitcoinUnlockReleaseState,
-  IBitcoinVaultUnlockStateDetails,
-  IMyVaultInspect,
-} from '../types/srcVue.ts';
+import type { IBitcoinUnlockReleaseState, IBitcoinVaultUnlockStateDetails } from '../types/srcVue.ts';
 import { pollEvery } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
@@ -20,10 +15,10 @@ type IWaitUnlockReadyUiState = {
 type IWaitUnlockReadyState = IE2EOperationInspectState<IBitcoinUnlockReleaseState, IWaitUnlockReadyUiState>;
 
 export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.meta, {
-  async inspect({ flow, flowName }) {
+  async inspect({ flow }) {
     const [lockEntryVisible, chainState, lockingOverlay] = await Promise.all([
       hasDashboardLockEntry(flow),
-      readUnlockBackendReleaseState(flow, flowName),
+      readUnlockBackendReleaseState(flow),
       flow.isVisible('BitcoinLockingOverlay'),
     ]);
     const lockingOverlayState = lockingOverlay.visible
@@ -95,7 +90,7 @@ export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.
     );
   },
   async diagnose({ flow, flowName }, state, error) {
-    const debug = await readWaitUnlockDebugState(flow, flowName).catch(() => null);
+    const debug = await readWaitUnlockDebugState(flow).catch(() => null);
     console.error(
       `[E2E] ${flowName}: waitUnlockReady diagnostics`,
       JSON.stringify(
@@ -110,32 +105,24 @@ export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.
   },
 });
 
-async function readWaitUnlockDebugState(
-  flow: IE2EFlowRuntime,
-  flowName: string,
-): Promise<IBitcoinVaultUnlockStateDetails | null> {
+async function readWaitUnlockDebugState(flow: IE2EFlowRuntime): Promise<IBitcoinVaultUnlockStateDetails | null> {
   return (
-    (await flow.queryApp<IBitcoinVaultUnlockStateDetails>(WAIT_UNLOCK_DEBUG_FN, {
-      timeoutMs: 20_000,
-      args: { flowName },
-    })) ?? null
+    (await flow.queryApp(
+      async refs => {
+        await refs.myVault.load().catch(() => undefined);
+        await refs.bitcoinLocks.load().catch(() => undefined);
+        const vaultId = refs.myVault.vaultId ?? null;
+        if (vaultId == null) {
+          return { activeLocks: [] };
+        }
+        return refs.bitcoinLocks.getVaultUnlockStateDetails(vaultId);
+      },
+      {
+        timeoutMs: 20_000,
+      },
+    )) ?? null
   );
 }
-
-async function waitUnlockDebugInspect(refs: {
-  myVault: IMyVaultInspect;
-  bitcoinLocks: IBitcoinLocksUnlockDetailsInspect;
-}): Promise<IBitcoinVaultUnlockStateDetails> {
-  await refs.myVault.load().catch(() => undefined);
-  await refs.bitcoinLocks.load().catch(() => undefined);
-  const vaultId = refs.myVault.vaultId ?? null;
-  if (vaultId == null) {
-    return { activeLocks: [] };
-  }
-  return refs.bitcoinLocks.getVaultUnlockStateDetails(vaultId);
-}
-
-const WAIT_UNLOCK_DEBUG_FN = waitUnlockDebugInspect.toString();
 
 async function hasDashboardLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
   return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))

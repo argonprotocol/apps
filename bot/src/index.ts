@@ -45,6 +45,7 @@ const bot = new Bot({
   db,
   oldestFrameIdToSync: oldestFrameIdToSync,
   bitcoinInitializerDelegateKeypair,
+  ethereumBeaconApiUrl: process.env.ETHEREUM_BEACON_API_URL,
   ...requireAll({
     datadir,
     bidderKeypair,
