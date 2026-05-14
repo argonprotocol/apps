@@ -20,6 +20,9 @@
     "dev:gateway-certs": "tsx scripts/devGatewayCerts.ts",
     "dev:docker": "yarn build:indexer && yarn build:server && yarn clean:dev:docker && yarn dev:gateway-certs && yarn docker:up && yarn tauri:dev:docker",
     "dev:docker:custom": "ARGON_CHAIN=/chainspec.raw.json yarn dev:docker",
+    "e2e:prepare": "yarn build:server",
+    "dev:eth:fund": "tsx e2e/scripts/fundDevEthereumAccount.ts",
+    "dev:eth:mint": "tsx e2e/scripts/mintDevEthereumTokens.ts",
     "e2e:docker": "yarn workspace @argonprotocol/apps-e2e run flows",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -52,8 +55,8 @@
     "@actions/github": "^9.1.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.3-dev.6cdce319",
-    "@argonprotocol/mainchain": "1.4.3-dev.6cdce319",
+    "@argonprotocol/bitcoin": "1.4.3-dev.76caee69",
+    "@argonprotocol/mainchain": "1.4.3-dev.76caee69",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
     "@ethereumjs/trie": "^6.2.1",
@@ -66,7 +69,7 @@
     "@reown/walletkit": "^1.5.5",
     "@scure/bip39": "^2.0.1",
     "@tailwindcss/vite": "^4.1.12",
-    "@tauri-apps/api": "~2.9.0",
+    "@tauri-apps/api": "~2.11.0",
     "@tauri-apps/plugin-autostart": "^2.5.0",
     "@tauri-apps/plugin-dialog": "~2.4.0",
     "@tauri-apps/plugin-fs": "~2.4.2",
@@ -108,7 +111,7 @@
     "semver": "^7.7.3",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.16",
-    "viem": "^2.47.10",
+    "viem": "^2.48.8",
     "vue": "^3.5.20",
     "zod": "^3.25.55"
   },
@@ -121,9 +124,8 @@
     "e2e"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.6cdce319",
-    "@scure/bip39": "^2.0.1",
-    "@tauri-apps/cli": "^2.8.2",
+    "@argonprotocol/testing": "1.4.3-dev.76caee69",
+    "@tauri-apps/cli": "^2.11.1",
     "@types/bun": "^1.2.22",
     "@types/d3": "^7",
     "@types/events": "^3",
@@ -161,11 +163,11 @@
     "@argonprotocol/bitcoin": "portal:../mainchain/bitcoin/nodejs"
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.3-dev.6cdce319",
-    "@argonprotocol/testing": "1.4.3-dev.6cdce319",
-    "@argonprotocol/bitcoin": "1.4.3-dev.6cdce319",
+    "@argonprotocol/mainchain": "1.4.3-dev.76caee69",
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
-    "axios": "^1.15.0"
+    "axios": "^1.15.0",
+    "@argonprotocol/testing": "1.4.3-dev.76caee69",
+    "@argonprotocol/bitcoin": "1.4.3-dev.76caee69"
   },
   "packageManager": "yarn@4.10.3"
 }

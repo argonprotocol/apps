@@ -13,6 +13,7 @@ type IOnboardingUiState = {
   firstAuctionVisible: boolean;
   startingBotVisible: boolean;
   setupInstallingVisible: boolean;
+  totalBlocksMined: number | null;
 };
 
 interface IOnboardingState extends IE2EOperationInspectState<Record<string, never>, IOnboardingUiState> {
@@ -20,6 +21,7 @@ interface IOnboardingState extends IE2EOperationInspectState<Record<string, neve
   firstAuctionVisible: boolean;
   startingBotVisible: boolean;
   setupInstallingVisible: boolean;
+  totalBlocksMined: number | null;
 }
 
 export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.meta, {
@@ -37,10 +39,9 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
     const firstAuctionVisible = firstAuction.visible;
     const startingBotVisible = startingBot.visible;
     const setupInstallingVisible = setupInstalling.visible;
-    let operationState: 'complete' | 'runnable' = 'runnable';
-    if (dashboardVisible || firstAuctionVisible || startingBotVisible || setupInstallingVisible) {
-      operationState = 'complete';
-    }
+    const totalBlocksMined = dashboardVisible ? await readTotalBlocksMined(flow) : null;
+    const isComplete = dashboardVisible && totalBlocksMined != null && totalBlocksMined > 0;
+
     return {
       chainState: {},
       uiState: {
@@ -48,30 +49,44 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
         firstAuctionVisible,
         startingBotVisible,
         setupInstallingVisible,
+        totalBlocksMined,
       },
-      state: operationState,
-      blockers:
-        dashboardVisible || firstAuctionVisible || startingBotVisible || setupInstallingVisible
-          ? ['ALREADY_COMPLETE']
-          : [],
+      state: isComplete ? 'complete' : 'runnable',
+      blockers: isComplete ? ['ALREADY_COMPLETE'] : [],
       dashboardVisible,
       firstAuctionVisible,
       startingBotVisible,
       setupInstallingVisible,
+      totalBlocksMined,
     };
   },
   async run({ flow, input }, state) {
+    if (state.dashboardVisible && state.totalBlocksMined != null && state.totalBlocksMined > 0) {
+      return;
+    }
+
     if (
       state.dashboardVisible ||
       state.firstAuctionVisible ||
       state.startingBotVisible ||
       state.setupInstallingVisible
     ) {
+      await flow.run(miningFinalizeSetup, {
+        timeoutMs: 15 * 60_000,
+        pollMs: 1_000,
+        onNotReadyPoll: async () => {
+          const closeOverlay = await flow.isVisible('OverlayBase.clickClose()');
+          if (closeOverlay.clickable) {
+            await flow.click('OverlayBase.clickClose()').catch(() => undefined);
+          }
+        },
+      });
       return;
     }
 
     await flow.run(miningActivateTab);
     await flow.run(miningStartRegistration);
+    input.maximumBidArgons ??= '5';
     await flow.run(miningCompleteChecklist);
     input.fundingArgons ??= '500';
     await flow.run(miningFundWallet);
@@ -88,3 +103,11 @@ export default new OperationalFlow<IMiningFlowContext, IOnboardingState>(import.
     });
   },
 });
+
+async function readTotalBlocksMined(flow: IMiningFlowContext['flow']): Promise<number | null> {
+  const value = await flow.getAttribute('TotalBlocksMined', 'data-value', { timeoutMs: 2_000 }).catch(() => null);
+  if (!value) return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}

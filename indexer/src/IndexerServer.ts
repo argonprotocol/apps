@@ -51,6 +51,7 @@ export class IndexerServer {
             [WalletTransferSource.Transfer]: 'transfer',
             [WalletTransferSource.Faucet]: 'faucet',
             [WalletTransferSource.TokenGateway]: 'tokenGateway',
+            [WalletTransferSource.Ethereum]: 'ethereum',
           }[x.source],
           currency: {
             [WalletTransferCurrency.Argon]: 'argon',

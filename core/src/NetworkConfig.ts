@@ -135,7 +135,7 @@ export interface INetworkConfig {
 }
 
 export interface IEthereumNetworkConfig {
-  rpcUrl: string;
+  executionRpcUrl: string;
   argonTokenAddress: string;
   usdcTokenAddress: string;
 }

@@ -50,7 +50,8 @@
           :microgons="getWallet(secondWalletOption).availableMicrogons"
           :micronots="getWallet(secondWalletOption).availableMicronots"
           :minimizedLines="true"
-          :showArrows="true"
+          :showArrows="secondWalletOption.type === WalletType.ethereum"
+          :targetWalletType="isArgonWalletType(firstWalletOption.type) ? firstWalletOption.type : undefined"
         />
       </div>
       <div class="px-4" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
@@ -126,7 +127,9 @@ const secondWalletOptions = Vue.computed(() => getWalletOptionsForSide(firstWall
 const firstWalletKey = Vue.computed(() => getWalletHeaderKey(firstWalletOption.value, firstWalletOptions.value));
 const secondWalletKey = Vue.computed(() => getWalletHeaderKey(secondWalletOption.value, secondWalletOptions.value));
 
-function isArgonWalletType(walletType: WalletType) {
+function isArgonWalletType(
+  walletType: WalletType,
+): walletType is WalletType.investment | WalletType.miningHold | WalletType.vaulting {
   return [WalletType.vaulting, WalletType.miningHold, WalletType.investment].includes(walletType);
 }
 
@@ -216,6 +219,12 @@ function getWallet(option: IWalletOption): IWallet {
 basicEmitter.on('openWalletOverlay', async payload => {
   const walletOption = walletOptions.value.find(x => x.type === payload.walletType);
   handleSelectFirstWallet(walletOption as IWalletOption);
+
+  try {
+    await walletStore.load();
+  } catch (error) {
+    console.error('Failed to refresh wallet balances before opening wallet overlay', error);
+  }
 
   showGuidance.value = payload.showGuidance || false;
   isOpen.value = true;

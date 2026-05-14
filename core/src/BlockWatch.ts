@@ -11,6 +11,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { createDeferred } from './Deferred.js';
 import type { MainchainClients } from './MainchainClients.js';
+import { NetworkConfig } from './NetworkConfig.js';
 import { createTypedEventEmitter } from './utils.js';
 import { SingleFileQueue } from './SingleFileQueue.js';
 
@@ -142,7 +143,7 @@ export class BlockWatch {
       this.activeSource = activeSource;
       this.subscriptionClient = client;
       const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
-      const finalizedBlock = BlockWatch.readHeader(finalizedHeader);
+      const finalizedBlock = BlockWatch.readHeader(finalizedHeader, true);
       this.latestHeaders = [finalizedBlock];
       const bestHeader = await client.rpc.chain.getHeader();
       const bestTail = await this.fillNewHeadGap(finalizedBlock, bestHeader);
@@ -558,6 +559,7 @@ export class BlockWatch {
 
   public static readHeader(header: Header, isFinalized = false): IBlockHeaderInfo {
     const frameInfo = getFrameInfoFromHeader(header);
+    const tick = getTickFromHeader(header)!;
     let blockTime = 0;
     for (const x of header.digest.logs) {
       if (x.isConsensus) {
@@ -570,13 +572,22 @@ export class BlockWatch {
         }
       }
     }
+
+    if (blockTime === 0 && tick > 0) {
+      try {
+        blockTime = tick * NetworkConfig.tickMillis;
+      } catch {
+        // NetworkConfig may not be initialized yet in some test paths.
+      }
+    }
+
     return {
       isFinalized,
       blockTime,
       blockNumber: header.number.toNumber(),
       blockHash: header.hash.toHex(),
       parentHash: header.parentHash.toHex(),
-      tick: getTickFromHeader(header)!,
+      tick,
       author: getAuthorFromHeader(header)!,
       frameId: frameInfo?.frameId,
       frameRewardTicksRemaining: frameInfo?.frameRewardTicksRemaining,

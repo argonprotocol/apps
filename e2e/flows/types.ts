@@ -1,4 +1,5 @@
 import type { AnyOperation } from './operations/index.ts';
+import type { IAppQueryFn } from './types/srcVue.ts';
 
 export type E2ECommandArgs = Record<string, unknown>;
 
@@ -30,8 +31,8 @@ export interface IE2ECaptureScreenshotOptions extends IE2ETimeoutOptions {
   name?: string;
 }
 
-export interface IE2EQueryAppOptions extends IE2ETimeoutOptions {
-  args?: E2ECommandArgs;
+export interface IE2EQueryAppOptions<TArgs extends E2ECommandArgs = E2ECommandArgs> extends IE2ETimeoutOptions {
+  args?: TArgs;
 }
 
 export interface IE2EFlowDefinition {
@@ -90,7 +91,13 @@ export interface IE2EFlowRuntime {
       options?: IE2EPollOptions,
     ): Promise<State>;
   };
-  queryApp: <T = unknown>(fn: string, options?: IE2EQueryAppOptions) => Promise<T | undefined>;
+  queryApp: {
+    <T = unknown>(fn: IAppQueryFn<T>, options?: IE2EQueryAppOptions<Record<string, never>>): Promise<T | undefined>;
+    <T = unknown, TArgs extends E2ECommandArgs = E2ECommandArgs>(
+      fn: IAppQueryFn<T, TArgs>,
+      options: IE2EQueryAppOptions<TArgs>,
+    ): Promise<T | undefined>;
+  };
   click: (target: E2ETarget, options?: IE2EClickOptions) => Promise<void>;
   type: (target: E2ETarget, text: string, options?: IE2ETypeOptions) => Promise<void>;
   waitFor: (target: E2ETarget, options?: IE2EWaitOptions) => Promise<void>;

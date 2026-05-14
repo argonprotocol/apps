@@ -21,6 +21,7 @@ use zip::DateTime;
 
 #[cfg(feature = "e2e-screenshots")]
 mod e2e_screenshots;
+mod ethereum_signer;
 mod migrations;
 mod security;
 mod ssh;
@@ -31,6 +32,10 @@ mod vm;
 
 struct NoSleepState {
     nosleep: Mutex<Option<NoSleep>>,
+}
+
+struct EthereumSignerPolicyState {
+    policy: Mutex<Option<ethereum_signer::EthereumSignerPolicy>>,
 }
 
 #[tauri::command]
@@ -158,11 +163,13 @@ async fn read_embedded_file(app: AppHandle, local_relative_path: String) -> Resu
 #[tauri::command]
 async fn overwrite_mnemonic(
     app: AppHandle,
+    signer_policy: State<'_, EthereumSignerPolicyState>,
     mnemonic: String,
 ) -> Result<security::Security, String> {
     log::info!("overwrite_mnemonic");
     let security =
         security::Security::save_with_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
+    *signer_policy.policy.lock().await = None;
     Ok(security)
 }
 
@@ -202,6 +209,51 @@ async fn sign_ethereum_personal_message(app: AppHandle, message: &str) -> Result
     let signature =
         Security::sign_ethereum_personal_message(&app, message).map_err(|e| e.to_string())?;
     Ok(signature)
+}
+
+#[tauri::command]
+async fn set_ethereum_signer_policy(
+    app: AppHandle,
+    signer_policy: State<'_, EthereumSignerPolicyState>,
+    request: ethereum_signer::EthereumSignerPolicyRequest,
+) -> Result<(), String> {
+    let security = Security::load(&app).map_err(|e| e.to_string())?;
+    let allowed_destinations = [
+        security.mining_hold_address,
+        security.mining_bot_address,
+        security.vaulting_address,
+        security.investment_address,
+        security.operational_address,
+    ]
+    .into_iter()
+    .map(|address| {
+        let account_id =
+            sp_core::crypto::AccountId32::from_ss58check(&address).map_err(|e| e.to_string())?;
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(account_id.as_ref());
+        Ok(bytes)
+    })
+    .collect::<Result<Vec<_>, String>>()?;
+
+    let mut current_policy = signer_policy.policy.lock().await;
+    ethereum_signer::set_policy(&mut current_policy, &request, allowed_destinations)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sign_ethereum_transaction(
+    app: AppHandle,
+    signer_policy: State<'_, EthereumSignerPolicyState>,
+    request: ethereum_signer::EthereumTransactionRequest,
+) -> Result<ethereum_signer::EthereumTransactionSignature, String> {
+    let current_policy = signer_policy.policy.lock().await;
+    let policy = current_policy
+        .as_ref()
+        .ok_or("Ethereum signer policy has not been configured yet")?;
+    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
+    let signed_tx = ethereum_signer::sign_transaction(&mnemonic, policy, &request)
+        .map_err(|e| e.to_string())?;
+    Ok(signed_tx)
 }
 
 #[tauri::command]
@@ -603,6 +655,9 @@ pub fn run() {
 
             let nosleep = NoSleep::new().map_err(|e| e.to_string())?;
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
+            app.manage(EthereumSignerPolicyState {
+                policy: Mutex::new(None),
+            });
             app.manage(ssh_access::SshAccessState {
                 access: Mutex::new(None),
             });
@@ -709,6 +764,8 @@ pub fn run() {
             derive_sr25519_address,
             derive_ed25519_seed,
             sign_ethereum_personal_message,
+            set_ethereum_signer_policy,
+            sign_ethereum_transaction,
             derive_x25519_public_key,
             encrypt_x25519_message,
             decrypt_x25519_message,

@@ -77,6 +77,21 @@ function sendMessage(socket: WebSocket, payload: UnknownObject): void {
   socket.send(JSON.stringify(payload));
 }
 
+function formatConsoleErrorArg(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.stack || value.message;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (value == null) return '';
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function isDriverCommandPayload(payload: UnknownObject): payload is DriverCommandPayload {
   return payload.type === 'driver.command' && typeof payload.id === 'string';
 }
@@ -228,6 +243,7 @@ export function initE2EClient(): void {
       ...details,
     });
   };
+  const originalConsoleError = console.error.bind(console);
   socket.addEventListener('open', () => {
     hasOpened = true;
     sendMessage(socket, {
@@ -266,6 +282,11 @@ export function initE2EClient(): void {
     const stack = reason instanceof Error ? reason.stack : undefined;
     emitFrontEndError('unhandledrejection', { message, stack });
   });
+  console.error = (...args: unknown[]) => {
+    const message = args.map(formatConsoleErrorArg).filter(Boolean).join(' ').trim();
+    emitFrontEndError('console.error', { message });
+    originalConsoleError(...args);
+  };
   socket.addEventListener('close', event => {
     hasClosed = true;
     const reason = event.reason ? ` reason=${event.reason}` : '';

@@ -22,5 +22,3 @@ export const VaultingRulesSchema = z.object({
 });
 
 export type IVaultingRules = z.infer<typeof VaultingRulesSchema>;
-
-export default IVaultingRules;

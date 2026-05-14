@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import { createBitcoinAddress, mineBitcoinSingleBlock } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import type {
-  IBitcoinLocksUnlockReleaseInspect,
-  IBitcoinUnlockReleaseState,
-  IMyVaultInspect,
-} from '../types/srcVue.ts';
+import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
 import { clickIfVisible, pollEvery, sleep } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
@@ -46,13 +42,13 @@ const DEFAULT_UNLOCK_BACKEND_STATE: IUnlockBackendReleaseState = {
 };
 
 export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.meta, {
-  async inspect({ flow, flowName }) {
+  async inspect({ flow }) {
     const [ui, lockingOverlay, unlockingOverlay] = await Promise.all([
       readUnlockUiState(flow),
       flow.isVisible('BitcoinLockingOverlay'),
       flow.isVisible('BitcoinUnlockingOverlay'),
     ]);
-    const chainState = await readUnlockBackendReleaseState(flow, flowName);
+    const chainState = await readUnlockBackendReleaseState(flow);
     const lockingOverlayState = lockingOverlay.visible
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
@@ -102,7 +98,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
     };
   },
   async run({ flow, flowName }, state) {
-    const latestChainState = await readUnlockBackendReleaseState(flow, flowName).catch(() => state.chainState);
+    const latestChainState = await readUnlockBackendReleaseState(flow).catch(() => state.chainState);
     if (
       !latestChainState.hasActiveLock &&
       !(await hasDashboardLockEntry(flow)) &&
@@ -166,7 +162,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
     await flow.type('UnlockStart.destinationAddress', releaseAddress);
 
     await flow.click('UnlockStart.submitRelease()');
-    const releaseProgress = await waitForUnlockRequestAccepted(flow, flowName);
+    const releaseProgress = await waitForUnlockRequestAccepted(flow);
     assert.ok(
       releaseProgress.requestAcceptedSeen,
       `${flowName}: Missing unlock request acceptance state (processing overlay or backend release status)`,
@@ -243,10 +239,7 @@ async function readUnlockUiState(flow: IE2EFlowRuntime): Promise<IUnlockBitcoinU
   };
 }
 
-async function waitForUnlockRequestAccepted(
-  flow: IBitcoinFlowContext['flow'],
-  flowName: string,
-): Promise<IUnlockProgress> {
+async function waitForUnlockRequestAccepted(flow: IBitcoinFlowContext['flow']): Promise<IUnlockProgress> {
   const progress: IUnlockProgress = {
     requestAcceptedSeen: false,
     overlayUnlockCompleteSeen: false,
@@ -263,7 +256,7 @@ async function waitForUnlockRequestAccepted(
     }
 
     const unlockState = await flow.inspect<IUnlockBitcoinState>();
-    const backendRelease = await readUnlockBackendReleaseState(flow, flowName);
+    const backendRelease = await readUnlockBackendReleaseState(flow);
     const lockEntryCount = await countDashboardLockEntries(flow);
 
     if (
@@ -297,37 +290,28 @@ async function waitForUnlockRequestAccepted(
   return progress;
 }
 
-export async function readUnlockBackendReleaseState(
-  flow: IE2EFlowRuntime,
-  flowName: string,
-): Promise<IUnlockBackendReleaseState> {
+export async function readUnlockBackendReleaseState(flow: IE2EFlowRuntime): Promise<IUnlockBackendReleaseState> {
   const value: Partial<IUnlockBackendReleaseState> =
-    (await flow.queryApp<IUnlockBackendReleaseState>(UNLOCK_BACKEND_RELEASE_FN, {
-      timeoutMs: UNLOCK_INSPECT_TIMEOUT_MS,
-      args: { flowName },
-    })) ?? {};
+    (await flow.queryApp(
+      async refs => {
+        await refs.myVault.load().catch(() => undefined);
+        await refs.bitcoinLocks.load().catch(() => undefined);
+
+        const vaultId = refs.myVault.vaultId;
+        if (vaultId == null) return {};
+
+        const locks = refs.bitcoinLocks.getActiveLocks();
+        return refs.bitcoinLocks.getLockUnlockReleaseState(locks[0]);
+      },
+      {
+        timeoutMs: UNLOCK_INSPECT_TIMEOUT_MS,
+      },
+    )) ?? {};
   return {
     ...DEFAULT_UNLOCK_BACKEND_STATE,
     ...value,
   };
 }
-
-async function unlockBackendReleaseInspect(refs: IInspectRefs): Promise<IUnlockBackendReleaseState> {
-  await refs.myVault.load().catch(() => undefined);
-  await refs.bitcoinLocks.load().catch(() => undefined);
-
-  const vaultId = refs.myVault.vaultId;
-  if (vaultId == null) return DEFAULT_UNLOCK_BACKEND_STATE;
-  const locks = refs.bitcoinLocks.getActiveLocks();
-  return refs.bitcoinLocks.getLockUnlockReleaseState(locks[0]);
-}
-
-const UNLOCK_BACKEND_RELEASE_FN = unlockBackendReleaseInspect.toString();
-
-type IInspectRefs = {
-  myVault: IMyVaultInspect;
-  bitcoinLocks: IBitcoinLocksUnlockReleaseInspect;
-};
 
 async function hasDashboardLockEntry(flow: IE2EFlowRuntime): Promise<boolean> {
   return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))

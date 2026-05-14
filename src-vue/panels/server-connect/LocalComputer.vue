@@ -34,7 +34,7 @@
         <div class="flex grow flex-col">
           <header data-testid="ServerConnectOverlay.local.diskStatus" class="text-2xl font-bold text-slate-800/80">
             <template v-if="isCheckingDiskSpace">Checking Available Disk Space</template>
-            <template v-if="hasEnoughDiskSpace">Found 100+ GB of Available Disk Space</template>
+            <template v-else-if="hasEnoughDiskSpace">Found 100+ GB of Available Disk Space</template>
             <template v-else>Could Not Find Enough Disk Space</template>
           </header>
           <p class="mt-1">Argon Miner requires a minimum of 100GB of available hard disk space.</p>
@@ -142,14 +142,25 @@ async function connect(): Promise<IConfigServerAddLocalComputer> {
 }
 
 async function checkAvailableDiskSpace() {
-  const bytes: number = await invokeWithTimeout('calculate_free_space', { path: '/' }, 10_000);
-  availableGBs.value = bytes / 1024 / 1024 / 1024;
-  isCheckingDiskSpace.value = false;
-  hasEnoughDiskSpace.value = availableGBs.value >= 100;
   if (IS_TEST) {
+    isCheckingDiskSpace.value = false;
     hasEnoughDiskSpace.value = true;
     availableGBs.value = 100;
+    calculateIsReady();
+    return;
   }
+
+  try {
+    const bytes: number = await invokeWithTimeout('calculate_free_space', { path: '/' }, 10_000);
+    availableGBs.value = bytes / 1024 / 1024 / 1024;
+    hasEnoughDiskSpace.value = availableGBs.value >= 100;
+  } catch (error) {
+    console.warn('Unable to calculate available disk space', error);
+    availableGBs.value = 0;
+    hasEnoughDiskSpace.value = false;
+  }
+
+  isCheckingDiskSpace.value = false;
   calculateIsReady();
 }
 

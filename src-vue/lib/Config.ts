@@ -77,7 +77,7 @@ export class Config implements IConfig {
     this._loadedData = {
       version: packageJson.version,
       requiresPassword: false,
-      ethereumRpcUrl: Config.getDefault(dbFields.ethereumRpcUrl) as IConfig['ethereumRpcUrl'],
+      ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       upstreamOperator: Config.getDefault(dbFields.upstreamOperator) as IConfig['upstreamOperator'],
       serverDetails: {
         ipAddress: '',
@@ -312,11 +312,11 @@ export class Config implements IConfig {
     this.setField('requiresPassword', value);
   }
 
-  public get ethereumRpcUrl(): IConfig['ethereumRpcUrl'] {
-    return this.getField('ethereumRpcUrl');
+  public get ethereumBeaconApiUrl(): IConfig['ethereumBeaconApiUrl'] {
+    return this.getField('ethereumBeaconApiUrl');
   }
-  public set ethereumRpcUrl(value: IConfig['ethereumRpcUrl']) {
-    this.setField('ethereumRpcUrl', value);
+  public set ethereumBeaconApiUrl(value: IConfig['ethereumBeaconApiUrl']) {
+    this.setField('ethereumBeaconApiUrl', value);
   }
 
   public get showWelcomeOverlay(): boolean {
@@ -635,7 +635,7 @@ const dbFields = {
   vaultingSetupStatus: 'vaultingSetupStatus',
 
   requiresPassword: 'requiresPassword',
-  ethereumRpcUrl: 'ethereumRpcUrl',
+  ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
   bootstrapDetails: 'bootstrapDetails',
   upstreamOperator: 'upstreamOperator',
 
@@ -667,7 +667,7 @@ const defaults: IConfigDefaults = {
   vaultingSetupStatus: () => VaultingSetupStatus.None,
 
   requiresPassword: () => false,
-  ethereumRpcUrl: () => undefined,
+  ethereumBeaconApiUrl: () => undefined,
   bootstrapDetails: () => undefined,
   upstreamOperator: () => undefined,
 

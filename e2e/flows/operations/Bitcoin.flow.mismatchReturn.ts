@@ -39,7 +39,7 @@ export default new OperationalFlow<IBitcoinFlowContext, IMismatchReturnState>(im
 
     if (input.ensurePostFirstUnlock) {
       await flow.run(bitcoinLockUnlock);
-      const postFirstUnlockState = await readUnlockBackendReleaseState(flow, flowName);
+      const postFirstUnlockState = await readUnlockBackendReleaseState(flow);
       if (postFirstUnlockState.hasActiveLock) {
         throw new Error(
           `${flowName}: first lock/unlock cycle left an active lock, so mismatch return cannot start a new lock.`,

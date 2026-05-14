@@ -8,12 +8,6 @@ type ICompleteChecklistUiState = {
   botConfigured: boolean;
 };
 
-type IMiningChecklistQueryRefs = {
-  config: {
-    hasSavedBiddingRules: boolean;
-  };
-};
-
 interface ICompleteChecklistState extends IE2EOperationInspectState<Record<string, never>, ICompleteChecklistUiState> {
   checklistVisible: boolean;
   botConfigured: boolean;
@@ -87,10 +81,10 @@ async function applyCustomBid(
 }
 
 async function readBotConfigState(flow: IE2EFlowRuntime): Promise<{ hasSavedBiddingRules: boolean } | undefined> {
-  return await flow.queryApp<{ hasSavedBiddingRules: boolean }>(
-    (({ config }: IMiningChecklistQueryRefs): { hasSavedBiddingRules: boolean } => ({
-      hasSavedBiddingRules: config.hasSavedBiddingRules,
-    })).toString(),
+  return await flow.queryApp(
+    refs => ({
+      hasSavedBiddingRules: refs.config.hasSavedBiddingRules,
+    }),
     { timeoutMs: 10_000 },
   );
 }

@@ -170,7 +170,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import IVaultingRules from '../interfaces/IVaultingRules.ts';
+import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import InputMoney from '../components/InputMoney.vue';
 import ExistingNetworkVaultsOverlayButton from '../app-operations/overlays/ExistingNetworkVaultsOverlayButton.vue';
 import CapitalOverlay from '../app-operations/overlays/vault/VaultCapital.vue';

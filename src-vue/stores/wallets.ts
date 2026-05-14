@@ -14,6 +14,7 @@ import { IWalletEvents, WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
+import { loadEthereumChainConfig } from '../lib/EthereumClient.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { WalletForBase } from '../lib/WalletForBase.ts';
 
@@ -48,6 +49,19 @@ export const useWallets = defineStore('wallets', () => {
   const walletsForArgon = getWalletsForArgon();
   const walletForEthereum = new WalletForEthereum(walletKeys.ethereumAddress);
   const walletForBase = new WalletForBase(walletKeys.ethereumAddress);
+
+  void config.isLoadedPromise
+    .then(async () => {
+      const chainConfig = await loadEthereumChainConfig();
+      if (!chainConfig) return;
+
+      return await walletKeys.configureEthereumSignerPolicy({
+        chainId: chainConfig.chainId,
+        gatewayAddress: chainConfig.gatewayAddress,
+        tokenAddresses: [chainConfig.argonTokenAddress, chainConfig.argonotTokenAddress],
+      });
+    })
+    .catch(handleFatalError);
 
   const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningHoldAddress });
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningBotAddress });
@@ -266,6 +280,8 @@ export const useWallets = defineStore('wallets', () => {
   return {
     isLoaded,
     isLoadedPromise,
+
+    load,
 
     miningHoldWallet,
     miningBotWallet,

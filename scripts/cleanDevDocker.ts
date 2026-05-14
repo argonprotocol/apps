@@ -6,16 +6,18 @@ import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { stripNetworkPrefix, toComposeProjectName } from '../core/src/utils.ts';
 
 const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = Path.resolve(scriptDir, '..');
 const appIds = ['com.argon.operations.local', 'com.argon.treasury.local'];
+const kurtosisEthereumEnclavePrefix = 'argon-eth-';
 
 const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
 const rawInstance = readNonEmptyEnv('ARGON_APP_INSTANCE') ?? 'e2e';
-const instanceName = rawInstance.split(':')[0] || 'e2e';
-const composeProjectName =
-  readNonEmptyEnv('COMPOSE_PROJECT_NAME') ?? `${networkName}-${instanceName}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
+const rawInstanceName = rawInstance.split(':')[0] || 'e2e';
+const instanceName = stripNetworkPrefix(rawInstanceName, networkName) || 'e2e';
+const composeProjectName = readNonEmptyEnv('COMPOSE_PROJECT_NAME') ?? toComposeProjectName(instanceName, networkName);
 
 console.info(
   `[clean:dev:docker] Resetting project="${composeProjectName}" network="${networkName}" instance="${instanceName}"`,
@@ -24,6 +26,7 @@ console.info(
 bringDownArgonComposeProject();
 removeConflictingComposeNetwork(composeProjectName);
 bringDownLocalMachineComposeProjects();
+removeDevEthereumEnclaves();
 
 console.info('[clean:dev:docker] Completed');
 
@@ -167,6 +170,38 @@ function bringDownLocalMachineComposeProjects(): void {
       }
     } catch (error) {
       console.warn(`[clean:dev:docker] Failed to remove directory ${instanceDir}: ${(error as Error).message}`);
+    }
+  }
+}
+
+function removeDevEthereumEnclaves(): void {
+  let output: string;
+  try {
+    output = execFileSync('kurtosis', ['enclave', 'ls'], {
+      cwd: repoRoot,
+      env: process.env,
+      encoding: 'utf8',
+    });
+  } catch (error) {
+    console.warn(`[clean:dev:docker] Unable to list Kurtosis enclaves: ${(error as Error).message}`);
+    return;
+  }
+
+  const enclaveNames = Array.from(
+    new Set(output.match(new RegExp(`\\b${kurtosisEthereumEnclavePrefix}[a-z0-9]+\\b`, 'g')) ?? []),
+  );
+  if (!enclaveNames.length) return;
+
+  for (const enclaveName of enclaveNames) {
+    try {
+      console.info(`[clean:dev:docker] Removing Kurtosis enclave ${enclaveName}`);
+      execFileSync('kurtosis', ['enclave', 'rm', '-f', enclaveName], {
+        cwd: repoRoot,
+        env: process.env,
+        encoding: 'utf8',
+      });
+    } catch (error) {
+      console.warn(`[clean:dev:docker] Failed to remove Kurtosis enclave ${enclaveName}: ${(error as Error).message}`);
     }
   }
 }

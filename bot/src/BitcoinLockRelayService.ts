@@ -18,11 +18,11 @@ import {
   type ArgonClient,
   type FrameSystemEventRecord,
   type GenericEvent,
+  type ISubmittableResult,
   type KeyringPair,
   type SignedBlock,
   Vault,
 } from '@argonprotocol/mainchain';
-import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
 import { nanoid } from 'nanoid';
 import type { Db } from './Db.ts';
 import { HttpError } from './HttpError.ts';

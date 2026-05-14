@@ -29,30 +29,8 @@ type IFinalizeSetupState = IE2EOperationInspectState<IVaultingFundingInspect, IF
 export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.meta, {
   async inspect({ flow }) {
     const [fundingState, dashboard, createVaultEntry, installingState] = await Promise.all([
-      flow.queryApp<IVaultingFundingInspect>(
-        ((refs: {
-          config: {
-            vaultingRules?: {
-              baseMicrogonCommitment?: bigint;
-              baseMicronotCommitment?: bigint;
-            } | null;
-            serverAdd?: {
-              localComputer?: unknown;
-              customServer?: unknown;
-              digitalOcean?: unknown;
-            } | null;
-          };
-          wallets: {
-            isLoaded: boolean;
-            vaultingWallet: {
-              availableMicrogons: bigint;
-              availableMicronots: bigint;
-            };
-          };
-          controller: {
-            overlayIsOpen: boolean;
-          };
-        }) => {
+      flow.queryApp(
+        refs => {
           const requiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
           const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
           const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
@@ -69,14 +47,14 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
             walletIsFullyFunded,
             walletsLoaded,
             hasMiningMachine,
-            canStartVault: walletIsFullyFunded && walletsLoaded && hasMiningMachine && !refs.controller.overlayIsOpen,
-            overlayIsOpen: refs.controller.overlayIsOpen,
+            canStartVault: walletIsFullyFunded && walletsLoaded && hasMiningMachine && !refs.overlayIsOpen,
+            overlayIsOpen: refs.overlayIsOpen,
             availableMicrogons: availableMicrogons.toString(),
             availableMicronots: availableMicronots.toString(),
             requiredMicrogons: requiredMicrogons.toString(),
             requiredMicronots: requiredMicronots.toString(),
           };
-        }).toString(),
+        },
         { timeoutMs: 10_000 },
       ),
       flow.isVisible('VaultingDashboard'),

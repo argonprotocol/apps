@@ -2,7 +2,7 @@ import { clickIfVisible } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
-import type { Config } from '../types/srcVue.ts';
+import type { IAppQueryRefs } from '../types/srcVue.ts';
 
 type ICompleteChecklistUiState = {
   checklistVisible: boolean;
@@ -10,14 +10,19 @@ type ICompleteChecklistUiState = {
   dashboardVisible: boolean;
 };
 
-type IVaultingChecklistState = Pick<Config, 'hasSavedVaultingRules'>;
+type IVaultingChecklistState = Pick<IAppQueryRefs['config'], 'hasSavedVaultingRules'>;
 
 type ICompleteChecklistState = IE2EOperationInspectState<IVaultingChecklistState, ICompleteChecklistUiState>;
 
 export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(import.meta, {
   async inspect({ flow }) {
     const [setupState, checklistEntry, fundStepEntry, dashboard] = await Promise.all([
-      flow.queryApp<IVaultingChecklistState>(VAULTING_CHECKLIST_STATE_FN, { timeoutMs: 10_000 }),
+      flow.queryApp(
+        refs => ({
+          hasSavedVaultingRules: refs.config.hasSavedVaultingRules,
+        }),
+        { timeoutMs: 10_000 },
+      ),
       flow.isVisible('SetupChecklist.openVaultCreateOverlay()'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
       flow.isVisible('VaultingDashboard'),
@@ -64,9 +69,3 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     }
   },
 });
-
-const VAULTING_CHECKLIST_STATE_FN = ((refs: { config: IVaultingChecklistState }) => {
-  return {
-    hasSavedVaultingRules: refs.config.hasSavedVaultingRules,
-  };
-}).toString();

@@ -1,11 +1,13 @@
 import prettierConfig from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 import { importX } from 'eslint-plugin-import-x';
+import noQueryAppExternalScopeCapture from './eslint-rules/no-query-app-external-scope-capture.ts';
 import noRedundantContextualParameterTypes from './eslint-rules/no-redundant-contextual-parameter-types.ts';
 import noSingleUsePassThroughHelper from './eslint-rules/no-single-use-pass-through-helper.ts';
 
 const argonRules = {
   rules: {
+    'no-query-app-external-scope-capture': noQueryAppExternalScopeCapture,
     'no-single-use-pass-through-helper': noSingleUsePassThroughHelper,
     'no-redundant-contextual-parameter-types': noRedundantContextualParameterTypes,
   },
@@ -91,6 +93,7 @@ export default tseslint.config(
   {
     files: ['e2e/**/*.ts'],
     rules: {
+      'argon/no-query-app-external-scope-capture': 'error',
       'argon/no-single-use-pass-through-helper': 'off',
       'argon/no-redundant-contextual-parameter-types': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',

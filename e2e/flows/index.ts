@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import Path from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { DriverClient } from '../driver/client.ts';
 import { createBitcoinFlowContext, type IBitcoinFlowContext } from './contexts/bitcoinContext.ts';
@@ -14,11 +13,10 @@ import type { IE2EFlowDefinition, IE2EFlowExecutionOptions, IE2EFlowExecutionRes
 
 const OPERATION_FILE_PATTERN = /^[A-Z][A-Za-z0-9]*\.(op|flow)\.[A-Za-z0-9_]+\.(ts|js)$/;
 const OPERATIONS_DIR = resolveOperationsDir();
-const requireModule = createRequire(Path.join(OPERATIONS_DIR, 'index.ts'));
 const flowRegistry = new Map<string, IE2EFlowDefinition>();
 const flowConsoleMetadataByContextFactory = createFlowConsoleMetadataByContextFactory();
 
-for (const flowOperation of loadFlowOperations()) {
+for (const flowOperation of await loadFlowOperations()) {
   const flow = toFlowDefinition(flowOperation);
   if (flowRegistry.has(flow.name)) {
     throw new Error(`[E2E] Duplicate flow name '${flow.name}'`);
@@ -92,7 +90,7 @@ function createFlowConsoleMetadataByContextFactory(): Map<
   return metadata;
 }
 
-function loadFlowOperations(): AnyOperationalFlow[] {
+async function loadFlowOperations(): Promise<AnyOperationalFlow[]> {
   const moduleFiles = fs
     .readdirSync(OPERATIONS_DIR, { withFileTypes: true })
     .filter(entry => entry.isFile())
@@ -104,7 +102,7 @@ function loadFlowOperations(): AnyOperationalFlow[] {
   const operations: AnyOperationalFlow[] = [];
   for (const moduleFile of moduleFiles) {
     const modulePath = Path.join(OPERATIONS_DIR, moduleFile);
-    const moduleExports = requireModule(modulePath) as Record<string, unknown>;
+    const moduleExports = (await import(pathToFileURL(modulePath).href)) as Record<string, unknown>;
     const flowOperation = moduleExports.default;
     if (isOperationalFlow(flowOperation)) {
       operations.push(flowOperation);

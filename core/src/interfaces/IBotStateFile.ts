@@ -1,6 +1,17 @@
 import type { IBlockNumbers } from './IBlockNumbers.ts';
 import type { IBidReductionReason } from '../CohortBidder.js';
 
+export type IEthereumSyncMode = 'disabled' | 'needsBootstrap' | 'idle' | 'submitting' | 'error';
+
+export interface IEthereumSyncStatus {
+  mode: IEthereumSyncMode;
+  syncAccountAddress: string;
+  latestFinalizedSlot?: bigint;
+  latestSyncCommitteeUpdatePeriod?: bigint;
+  lastSubmittedTxHash?: string;
+  lastError?: string;
+}
+
 export interface IBotStateStarting {
   isReady: boolean;
   isStarting?: boolean;
@@ -9,6 +20,7 @@ export interface IBotStateStarting {
   argonBlockNumbers: IBlockNumbers;
   bitcoinBlockNumbers: IBlockNumbers & { localNodeBlockTime: number };
   serverError: string | null;
+  ethereumSync?: IEthereumSyncStatus;
 }
 
 export interface IBotSyncStatus extends IBotStateStarting {

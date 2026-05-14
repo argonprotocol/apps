@@ -1,14 +1,6 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
-import {
-  bigIntMax,
-  ethAddressToH256,
-  isValidArgonAccountAddress,
-  isValidEthereumAddress,
-  MoveFrom,
-  MoveTo,
-  MoveToken,
-} from '@argonprotocol/apps-core';
+import { bigIntMax, isValidArgonAccountAddress, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons } from './WalletForArgon.ts';
 import { IWallet, WalletType } from './Wallet.ts';
@@ -287,28 +279,16 @@ export class MoveCapital {
 
   public checkAddressType(address: string): {
     isArgonAddress: boolean;
-    isEthereumAddress: boolean;
     addressWarning: string;
   } {
     const trimmedAddress = (address || '').trim();
-    if (!trimmedAddress) return { isArgonAddress: false, isEthereumAddress: false, addressWarning: '' };
+    if (!trimmedAddress) return { isArgonAddress: false, addressWarning: '' };
 
     const isArgonAddress = isValidArgonAccountAddress(trimmedAddress);
-    const ethereumAddressValidation = isValidEthereumAddress(trimmedAddress);
-    const isEthereumAddress = ethereumAddressValidation.valid;
-
-    let addressWarning = '';
-    if (ethereumAddressValidation.valid) {
-      addressWarning = ethereumAddressValidation.checksum
-        ? ''
-        : "Warning: Ethereum address can't be validated - use a check-summed address to be safer.";
-    } else if (!isArgonAddress) {
-      addressWarning = 'The address entered is not a valid Argon or Ethereum address.';
-    }
+    const addressWarning = isArgonAddress ? '' : 'The address entered is not a valid Argon address.';
 
     return {
       isArgonAddress,
-      isEthereumAddress,
       addressWarning,
     };
   }
@@ -323,6 +303,11 @@ export class MoveCapital {
   ) {
     client ??= await getMainchainClient(false);
     const txs: SubmittableExtrinsic[] = [...prependedTxs];
+    const externalMeta = this.checkAddressType(toAddress);
+
+    if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {
+      throw new Error('The address entered is not a valid Argon address.');
+    }
 
     /// 1. Reduce funding / withdraw from vaulting as needed
     if (moveFrom === MoveFrom.VaultingSecurity && assetsToMove.ARGN) {
@@ -340,38 +325,16 @@ export class MoveCapital {
     }
 
     /// 2. Transfer the argons / argonots
-    const ARGON_ASSET_ID = 0;
-    const ARGONOT_ASSET_ID = 1;
-    const externalMeta = this.checkAddressType(toAddress);
-
     for (const [tokenSymbol, assetToMove] of Object.entries(assetsToMove) as Array<[MoveToken, bigint]>) {
       if (!assetToMove) continue;
-      if (externalMeta.isEthereumAddress) {
-        const assetId = tokenSymbol === MoveToken.ARGN ? ARGON_ASSET_ID : ARGONOT_ASSET_ID;
-        const recipient = ethAddressToH256(toAddress);
-        txs.push(
-          client.tx.tokenGateway.teleport({
-            assetId,
-            destination: { Evm: 1 },
-            recepient: recipient, // NOTE: field name 'recepient' is misspelled in the on-chain API and must remain as-is
-            timeout: 0,
-            relayerFee: 0n,
-            amount: assetToMove,
-            redeem: false,
-            tokenGateway: '0xFd413e3AFe560182C4471F4d143A96d3e259B6dE',
-          }),
-        );
-      } else if (tokenSymbol === MoveToken.ARGN) {
+      if (tokenSymbol === MoveToken.ARGN) {
         txs.push(client.tx.balances.transferAllowDeath(toAddress, assetToMove));
       } else if (tokenSymbol === MoveToken.ARGNOT) {
         txs.push(client.tx.ownership.transferAllowDeath(toAddress, assetToMove));
       }
     }
 
-    const metadata = {
-      ...this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress),
-      isMovingToEthereum: externalMeta.isEthereumAddress,
-    };
+    const metadata = this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress);
 
     const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
     return { tx, metadata };
@@ -457,6 +420,5 @@ export interface ITransactionMoveMetadata {
   moveFrom: MoveFrom;
   moveTo: MoveTo;
   externalAddress?: string;
-  isMovingToEthereum?: boolean;
   assetsToMove: IAssetsToMove;
 }

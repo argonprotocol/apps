@@ -1,8 +1,8 @@
-import { erc20Abi, getAddress, type Address } from 'viem';
-import { createStableSwapPublicClient, getStableSwapArgonTokenAddress } from './StableSwaps.ts';
+import { type Address, erc20Abi, getAddress } from 'viem';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import { type IWallet, type IOtherToken, type IOtherTokenDefinition, defaultWalletData } from './Wallet.ts';
+import { MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE } from '@argonprotocol/mainchain';
+import { defaultWalletData, type IOtherToken, type IOtherTokenDefinition, type IWallet } from './Wallet.ts';
+import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
 
 type ITokenBalanceClient = {
   readContract(args: {
@@ -14,14 +14,7 @@ type ITokenBalanceClient = {
   getBalance(args: { address: Address }): Promise<bigint>;
 };
 
-const trackedEthereumTokens = [
-  {
-    symbol: 'ARGN',
-    decimals: 18,
-    address: getStableSwapArgonTokenAddress(),
-    chain: 'ethereum',
-    unitOfMeasurement: UnitOfMeasurement.ARGN,
-  },
+const trackedOtherEthereumTokens = [
   {
     symbol: 'ETH',
     decimals: 18,
@@ -51,6 +44,7 @@ const trackedEthereumTokens = [
     unitOfMeasurement: UnitOfMeasurement.USDE,
   },
 ] as const satisfies readonly IOtherTokenDefinition[];
+const ETHEREUM_MAINNET_CHAIN_ID = 1;
 
 export class WalletForEthereum {
   public data: IWallet = {
@@ -61,6 +55,10 @@ export class WalletForEthereum {
   private balanceRefreshIsStarted = false;
   private isLoadingBalances = false;
   private readonly balanceLoadIntervalMs = 60_000;
+  private argonTokensPromise?: Promise<{
+    argonTokens: IOtherTokenDefinition[];
+    chainConfig?: IEthereumChainConfig;
+  }>;
 
   constructor(public readonly address: string) {
     this.data.address = address;
@@ -83,22 +81,29 @@ export class WalletForEthereum {
     this.data.fetchErrorMsg = '';
 
     const normalizedWalletAddress = getAddress(this.address);
-    const ethereumClient = createStableSwapPublicClient();
 
     try {
-      const tokens = await loadTokens(ethereumClient, normalizedWalletAddress, trackedEthereumTokens);
+      const ethereumClient = createEthereumPublicClient();
+      const { argonTokens, chainConfig } = await this.loadArgonTokens();
+      const tokens = await loadTokens(ethereumClient, normalizedWalletAddress, [
+        ...argonTokens,
+        ...getTrackedOtherEthereumTokens(chainConfig),
+      ]);
       const argonToken = tokens.find(isEthereumArgonToken);
+      const argonotToken = tokens.find(isEthereumArgonotToken);
 
-      this.data.otherTokens = tokens.filter(token => !isEthereumArgonToken(token));
-
-      if (argonToken) {
-        this.data.availableMicrogons = argonToken.value / ethereumArgonValueToMicrogonsFactor;
-      } else {
-        this.data.availableMicrogons = 0n;
-      }
+      this.data.otherTokens = tokens.filter(token => !isEthereumArgonFamilyToken(token));
+      this.data.availableMicrogons = argonToken ? convertEthereumTokenBaseUnitsToRuntimeAmount(argonToken.value) : 0n;
+      this.data.availableMicronots = argonotToken
+        ? convertEthereumTokenBaseUnitsToRuntimeAmount(argonotToken.value)
+        : 0n;
       this.data.totalMicrogons = this.data.availableMicrogons + this.data.reservedMicrogons;
       this.data.totalMicronots = this.data.availableMicronots + this.data.reservedMicronots;
     } catch (error) {
+      console.error('Ethereum wallet balance load failed', {
+        address: this.address,
+        error,
+      });
       this.data.fetchErrorMsg = error instanceof Error ? error.message : 'Unable to load Ethereum token balances.';
     } finally {
       this.isLoadingBalances = false;
@@ -121,10 +126,47 @@ export class WalletForEthereum {
       void this.loadBalances();
     }, this.balanceLoadIntervalMs);
   }
+
+  private async loadArgonTokens(): Promise<{
+    argonTokens: IOtherTokenDefinition[];
+    chainConfig?: IEthereumChainConfig;
+  }> {
+    const argonTokensPromise = this.argonTokensPromise ?? loadEthereumArgonTokens();
+    this.argonTokensPromise = argonTokensPromise;
+
+    try {
+      const result = await argonTokensPromise;
+      if (!result.argonTokens.length && this.argonTokensPromise === argonTokensPromise) {
+        this.argonTokensPromise = undefined;
+      }
+      return result;
+    } catch (error) {
+      console.error('Ethereum wallet chain-config load failed', {
+        address: this.address,
+        error,
+      });
+      if (this.argonTokensPromise === argonTokensPromise) {
+        this.argonTokensPromise = undefined;
+      }
+      return { argonTokens: [] };
+    }
+  }
 }
 
 function isEthereumArgonToken(token: IOtherTokenDefinition): boolean {
   return token.unitOfMeasurement === UnitOfMeasurement.ARGN;
+}
+
+function isEthereumArgonotToken(token: IOtherTokenDefinition): boolean {
+  return token.unitOfMeasurement === UnitOfMeasurement.ARGNOT;
+}
+
+function isEthereumArgonFamilyToken(token: IOtherTokenDefinition): boolean {
+  return isEthereumArgonToken(token) || isEthereumArgonotToken(token);
+}
+
+export function convertEthereumTokenBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigint {
+  return amountBaseUnits / MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
 }
 
 export async function loadTokens(
@@ -153,4 +195,40 @@ export async function loadTokens(
   );
 }
 
-const ethereumArgonValueToMicrogonsFactor = 10n ** 18n / BigInt(MICROGONS_PER_ARGON);
+function getTrackedOtherEthereumTokens(chainConfig?: IEthereumChainConfig): readonly IOtherTokenDefinition[] {
+  if (chainConfig?.chainId !== ETHEREUM_MAINNET_CHAIN_ID) {
+    return trackedOtherEthereumTokens.filter(token => token.unitOfMeasurement === UnitOfMeasurement.ETH);
+  }
+
+  return trackedOtherEthereumTokens;
+}
+
+async function loadEthereumArgonTokens(): Promise<{
+  argonTokens: IOtherTokenDefinition[];
+  chainConfig?: IEthereumChainConfig;
+}> {
+  const chainConfig = await loadEthereumChainConfig();
+  if (!chainConfig) {
+    return { argonTokens: [] };
+  }
+
+  return {
+    chainConfig,
+    argonTokens: [
+      {
+        symbol: 'ARGN',
+        decimals: 18,
+        address: chainConfig.argonTokenAddress,
+        chain: 'ethereum',
+        unitOfMeasurement: UnitOfMeasurement.ARGN,
+      },
+      {
+        symbol: 'ARGNOT',
+        decimals: 18,
+        address: chainConfig.argonotTokenAddress,
+        chain: 'ethereum',
+        unitOfMeasurement: UnitOfMeasurement.ARGNOT,
+      },
+    ],
+  };
+}

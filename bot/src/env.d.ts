@@ -11,6 +11,7 @@ declare global {
       SESSION_MINI_SECRET: string;
       VAULT_OPERATOR_ADDRESS: string;
       VAULT_DELEGATE_KEYPAIR_PATH: string;
+      ETHEREUM_BEACON_API_URL?: string;
       OLDEST_FRAME_ID_TO_SYNC?: string;
       ARGON_LOG_STORAGE?: string;
       ARGON_LOG_APIS?: string;

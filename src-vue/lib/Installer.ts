@@ -20,6 +20,9 @@ import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
 import * as semver from 'semver';
+import { TxSubmitter } from '@argonprotocol/mainchain';
+import { getMainchainClient } from '../stores/mainchain.ts';
+import { MyVault } from './MyVault.ts';
 
 dayjs.extend(utc);
 
@@ -313,6 +316,16 @@ export default class Installer {
     this.fns.refreshPrunedClient?.();
   }
 
+  public async updateServerConfig(
+    options: { progressFn?: (totalCount: number, uploadedCount: number) => void; restartBot?: boolean } = {},
+  ): Promise<void> {
+    await this.isLoadedPromise;
+
+    await this.uploadBotConfigFiles(options.progressFn, {
+      restartBot: options.restartBot ?? this.config.isServerInstalled,
+    });
+  }
+
   private async getServer(retries?: number): Promise<ServerAdmin> {
     // We were getting into issues where server hadn't been created yet. I decided to just force
     // getting it in every function that needs it.
@@ -601,27 +614,69 @@ export default class Installer {
     progressFn?.(totalCount, totalCount);
   }
 
-  private async uploadBotConfigFiles(progressFn?: (totalCount: number, uploadedCount: number) => void): Promise<void> {
+  private async uploadBotConfigFiles(
+    progressFn?: (totalCount: number, uploadedCount: number) => void,
+    options: { restartBot?: boolean } = {},
+  ): Promise<void> {
     const server = await this.getServer();
+    const delegateKeypair = await this.walletKeys.getVaultDelegateKeypair();
+    const ethereumBeaconApiUrl = this.config.ethereumBeaconApiUrl?.trim() || undefined;
+
     await server.createConfigDir();
+
+    const totalCount = 5;
+
     const miningBotAccount = await this.walletKeys.exportMiningBotAccountJson('');
-    const delegateAccount = (await this.walletKeys.getVaultDelegateKeypair()).toJson('');
     await server.uploadMiningBotWallet(miningBotAccount);
-    progressFn?.(5, 1);
-    await server.uploadVaultDelegateWallet(delegateAccount);
-    progressFn?.(5, 2);
+    progressFn?.(totalCount, 1);
+
+    await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));
+    progressFn?.(totalCount, 2);
+
     await server.uploadBiddingRules(this.config.biddingRules);
-    progressFn?.(5, 3);
+    progressFn?.(totalCount, 3);
+
+    if (ethereumBeaconApiUrl) {
+      await this.topUpVaultDelegateForEthereumSync(delegateKeypair.address);
+    }
+
     await server.uploadEnvState({
       oldestFrameIdToSync: this.config.oldestFrameIdToSync,
       vaultOperatorAddress: this.walletKeys.vaultingAddress,
       operatorAccountId: this.walletKeys.operationalAddress,
+      ethereumBeaconApiUrl,
     });
-    progressFn?.(5, 4);
+    progressFn?.(totalCount, 4);
+
     await server.uploadEnvSecurity({
       sessionMiniSecret: await this.walletKeys.getMiningSessionMiniSecret(),
     });
-    progressFn?.(5, 5);
+    progressFn?.(totalCount, 5);
+
+    if (options.restartBot) {
+      await server.startBotDocker();
+    }
+  }
+
+  private async topUpVaultDelegateForEthereumSync(address: string): Promise<void> {
+    const client = await getMainchainClient(false);
+    const amountToFund = await MyVault.getVaultDelegateTopUpAmount(client, address);
+
+    if (!amountToFund) return;
+
+    const miningBotKeypair = await this.walletKeys.getMiningBotKeypair();
+    const txSubmitter = new TxSubmitter(
+      client,
+      client.tx.balances.transferKeepAlive(address, amountToFund),
+      miningBotKeypair,
+    );
+    const affordability = await txSubmitter.canAfford({ includeExistentialDeposit: true });
+    if (!affordability.canAfford) {
+      throw new Error('Mining bot wallet needs more Argons before it can fund the vault delegate.');
+    }
+
+    const result = await txSubmitter.submit({ useLatestNonce: true });
+    await result.waitForInFirstBlock;
   }
 
   private async clearStepFiles(

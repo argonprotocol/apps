@@ -6,6 +6,7 @@ import type { IWalletTransferRecord } from './db/WalletTransfersTable.ts';
 
 export type WalletActivityType =
   | 'transfer'
+  | 'ethereum'
   | 'tokenGateway'
   | 'faucet'
   | 'vaultRevenue'
@@ -174,6 +175,9 @@ function classifyEvents(events: IEventInfo[]): WalletActivityType {
   }
   if (hasEvent(events, 'tokenGateway')) {
     return 'tokenGateway';
+  }
+  if (hasEvent(events, 'crosschainTransfer', 'BurnNoticeAccepted')) {
+    return 'ethereum';
   }
   if (hasEvent(events, 'vaults', 'VaultCollected') || hasEvent(events, 'treasury')) {
     return 'vaultRevenue';

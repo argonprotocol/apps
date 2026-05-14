@@ -80,6 +80,7 @@ export class DriverClient {
   private appHelloWaiters: IAppHelloWaiter[] = [];
   private messageBuffer: UnknownRecord[] = [];
   private frontendErrors: string[] = [];
+  private fatalFrontendError: Error | null = null;
   private readonly commandTimeoutMs: number;
 
   constructor(private readonly url: string) {
@@ -207,7 +208,11 @@ export class DriverClient {
         } else if (eventName === 'frontend.error') {
           const details = formatFrontendError(payload);
           this.frontendErrors.push(details);
-          console.error(`[E2E] App event ${eventName} ${details}`);
+          const error = new Error(`[E2E] App event ${eventName} ${details}`);
+          this.fatalFrontendError = error;
+          console.error(error.message);
+          this.rejectAllPending(error);
+          this.rejectWaitForApp(error);
         } else {
           logDriverTrace(`[E2E] App event ${eventName}`);
         }
@@ -230,6 +235,9 @@ export class DriverClient {
   }
 
   public async waitForApp(minGeneration = 1): Promise<UnknownRecord> {
+    if (this.fatalFrontendError) {
+      throw this.fatalFrontendError;
+    }
     if (this.appHello && this.appHelloGeneration >= minGeneration) return this.appHello;
     if (this.appHelloError) {
       throw this.appHelloError;
@@ -240,6 +248,9 @@ export class DriverClient {
   }
 
   public async command<T = unknown>(command: string, args?: UnknownRecord): Promise<T> {
+    if (this.fatalFrontendError) {
+      throw this.fatalFrontendError;
+    }
     if (!this.socket) throw new Error('Driver not connected');
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const summary = summarizeArgs(args);

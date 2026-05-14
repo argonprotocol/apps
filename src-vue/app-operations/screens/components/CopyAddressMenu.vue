@@ -5,6 +5,7 @@
       <DropdownMenuTrigger
         Trigger
         NotDraggable
+        :data-testid="`${walletAddressTestId}.openMenu()`"
         class="w-[34px] h-[34px] flex flex-row items-center justify-center hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border rounded-md"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : (showBorder ? 'border-slate-400/60' : 'border-transparent')]"
       >
@@ -21,8 +22,12 @@
           :sideOffset="-3"
           class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[2000] data-[state=open]:transition-all">
           <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem class="pt-1 pb-2">
-              <CopyToClipboard :content="wallet.address" class="group relative cursor-pointer">
+            <DropdownMenuItem @click.capture="closeMenu" class="pt-1 pb-2">
+              <CopyToClipboard
+                :data-testid="walletAddressTestId"
+                :content="wallet.address"
+                class="group relative cursor-pointer"
+              >
                 <div class="flex flex-col text-right">
                   <div class="text-slate-700 group-hover:text-argon-600">
                     {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
@@ -51,7 +56,11 @@
                 </template>
               </CopyToClipboard>
             </DropdownMenuItem>
-            <DropdownMenuItem v-if="walletType === WalletType.investment && !props.showSingleAddress" class="pt-1 pb-2 border-t border-slate-400/30">
+            <DropdownMenuItem
+              v-if="walletType === WalletType.investment && !props.showSingleAddress"
+              @click.capture="closeMenu"
+              class="pt-1 pb-2 border-t border-slate-400/30"
+            >
               <CopyToClipboard :content="wallets.ethereumWallet.address" class="group relative cursor-pointer">
                 <div class="flex flex-col text-right">
                   <div class="text-slate-700 group-hover:text-argon-600">
@@ -111,6 +120,13 @@ const wallets = useWallets();
 const isOpen = Vue.ref(false);
 const qrCode = Vue.ref('');
 
+const walletAddressTestId = Vue.computed(() => {
+  if (props.walletType === WalletType.miningHold) return 'miningHoldWalletAddress';
+  if (props.walletType === WalletType.vaulting) return 'vaultingWalletAddress';
+  if (props.walletType === WalletType.investment) return 'investmentWalletAddress';
+  return 'ethereumWalletAddress';
+});
+
 const wallet = Vue.computed<IWallet>(() => {
   if (props.walletType === WalletType.miningHold) {
     return wallets.miningHoldWallet;
@@ -152,6 +168,14 @@ function onMouseLeave() {
   mouseLeaveTimeoutId = setTimeout(() => {
     isOpen.value = false;
   }, 100);
+}
+
+function closeMenu() {
+  if (mouseLeaveTimeoutId) {
+    clearTimeout(mouseLeaveTimeoutId);
+  }
+  mouseLeaveTimeoutId = undefined;
+  isOpen.value = false;
 }
 
 function clickOutside(e: PointerDownOutsideEvent) {

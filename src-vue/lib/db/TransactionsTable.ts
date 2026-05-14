@@ -7,68 +7,8 @@ import {
   TransactionHistoryStatus,
   type ITransactionStatusHistoryRecord,
 } from './TransactionStatusHistoryTable.ts';
-
-export enum ExtrinsicType {
-  VaultCreate = 'VaultCreate',
-  VaultModifySettings = 'VaultModifySettings',
-  VaultInitialAllocate = 'VaultInitialAllocate',
-  VaultIncreaseAllocation = 'VaultIncreaseAllocation',
-  VaultCollect = 'VaultCollect',
-  VaultSetBitcoinLockDelegate = 'VaultSetBitcoinLockDelegate',
-  VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
-  OperationalActivateAndClaim = 'OperationalActivateAndClaim',
-  OperationalClaimRewards = 'OperationalClaimRewards',
-
-  BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
-  BitcoinRequestRelease = 'BitcoinRequestRelease', // funding UTXO enters release lifecycle on Argon
-  VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease', // vault cosigns release request before bitcoin broadcast
-  VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',
-  BitcoinOrphanedUtxoUseAsFunding = 'BitcoinOrphanedUtxoUseAsFunding',
-  BitcoinOrphanedUtxoRelease = 'BitcoinOrphanedUtxoRelease',
-
-  Transfer = 'Transfer',
-
-  TreasuryBuyBonds = 'TreasuryBuyBonds',
-  TreasuryReleaseBondLot = 'TreasuryReleaseBondLot',
-}
-
-export enum TransactionStatus {
-  Submitted = 'Submitted',
-  InBlock = 'InBlock',
-  Finalized = 'Finalized',
-  Error = 'Error',
-  TimedOutWaitingForBlock = 'TimedOutWaitingForBlock',
-}
-
-export interface ITransactionRecord<MetadataType = any> {
-  id: number; // Auto-incrementing primary key since extrinsic hash isn't implicitly unique and can overlap
-  status: TransactionStatus;
-  followOnTxId?: number;
-  extrinsicHash: string;
-  extrinsicMethodJson: any;
-  extrinsicType: ExtrinsicType;
-  metadataJson: MetadataType;
-  accountAddress: string;
-  submittedAtTime: Date;
-  submittedAtBlockHeight: number;
-  submissionErrorJson: any;
-  txNonce?: number;
-  txTip: bigint | undefined;
-  txFeePlusTip: bigint | undefined;
-  blockHeight: number | undefined;
-  blockHash: string | undefined;
-  blockTime: Date | undefined;
-  blockExtrinsicIndex: number | undefined;
-  blockExtrinsicEventsJson: any[];
-  blockExtrinsicErrorJson:
-    | { batchInterruptedIndex?: number; errorCode?: string; details?: string; message: string }
-    | undefined;
-  finalizedHeadHeight: number | undefined;
-  finalizedHeadTime: Date | undefined;
-  isFinalized: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { type ITransactionRecord, TransactionStatus } from '../../interfaces/ITransactionRecord.ts';
+export { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../../interfaces/ITransactionRecord.ts';
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 type ITransactionRecordKey = keyof ITransactionRecord & string;
 export class TransactionsTable extends BaseTable {

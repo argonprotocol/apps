@@ -7,12 +7,12 @@
     "indexerHost": "http://localhost:55154",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
-      "rpcUrl": "https://ethereum-rpc.publicnode.com",
+      "executionRpcUrl": "",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": "https://mainnet.base.org"
+      "rpcUrl": ""
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -27,12 +27,12 @@
     "indexerHost": "http://localhost:3262",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
-      "rpcUrl": "https://ethereum-rpc.publicnode.com",
+      "executionRpcUrl": "",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": "https://mainnet.base.org"
+      "rpcUrl": ""
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -47,7 +47,7 @@
     "indexerHost": "https://indexer.testnet.argonprotocol.org",
     "websiteHost": "https://staging.argon.network",
     "ethereumNetwork": {
-      "rpcUrl": "https://ethereum-rpc.publicnode.com",
+      "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
@@ -67,7 +67,7 @@
     "indexerHost": "https://indexer.argon.network",
     "websiteHost": "https://argon.network",
     "ethereumNetwork": {
-      "rpcUrl": "https://ethereum-rpc.publicnode.com",
+      "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },

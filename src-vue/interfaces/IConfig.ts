@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import { BiddingRulesSchema } from '@argonprotocol/apps-core';
-import { VaultingRulesSchema } from './IVaultingRules';
-import { UnitOfMeasurement, ICurrencyKey } from '../lib/Currency';
+import { BiddingRulesSchema, type ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { VaultingRulesSchema } from './IVaultingRules.ts';
 
 const CurrencyKeySchema = z
   .nativeEnum(UnitOfMeasurement)
@@ -174,7 +173,7 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 export const ConfigSchema = z.object({
   version: z.string(),
   requiresPassword: z.boolean(),
-  ethereumRpcUrl: z.string().optional(),
+  ethereumBeaconApiUrl: z.string().optional(),
 
   bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
   upstreamOperator: UpstreamOperatorSchema.optional(),
@@ -243,7 +242,7 @@ export type IConnectedVault = z.infer<typeof UpstreamOperatorSchema>;
 
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
-  ethereumRpcUrl: () => IConfig['ethereumRpcUrl'];
+  ethereumBeaconApiUrl: () => IConfig['ethereumBeaconApiUrl'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
   upstreamOperator: () => IConfig['upstreamOperator'];
 

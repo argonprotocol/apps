@@ -70,6 +70,7 @@ export default class Importer {
     // wants to click the Cancel button.
     this.config.biddingRules = serverData.biddingRules!;
     this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync!;
+    this.config.ethereumBeaconApiUrl = serverData.ethereumBeaconApiUrl;
     this.config.serverDetails = { ...this.config.serverDetails, ipAddress: ipAddress };
     await this.config.save();
   }

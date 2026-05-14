@@ -16,6 +16,7 @@ import {
   type IBiddingRules,
   type IBidReductionReason,
   type IBotState,
+  type IEthereumSyncStatus,
   type IHistoryFile,
   type IMiningFrameDetail,
   JsonExt,
@@ -25,6 +26,7 @@ import {
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import { EthereumBeaconSyncService } from './EthereumBeaconSyncService.ts';
 
 interface IBotOptions {
   datadir: string;
@@ -36,6 +38,7 @@ interface IBotOptions {
   biddingRulesPath: string;
   sessionMiniSecret: string;
   bitcoinInitializerDelegateKeypair: KeyringPair;
+  ethereumBeaconApiUrl?: string;
   oldestFrameIdToSync?: number;
   shouldSkipDockerSync?: boolean;
 }
@@ -71,6 +74,7 @@ export default class Bot {
   private localClient!: ArgonClient;
   private readonly mainchainClients!: MainchainClients;
   private shutdownDeferred = createDeferred(false);
+  private ethereumBeaconSyncService?: EthereumBeaconSyncService;
 
   constructor(options: IBotOptions) {
     this.options = options;
@@ -117,6 +121,7 @@ export default class Bot {
         bidsInPreviousFrame: 0,
         isBiddingOpen: false,
         serverError: this.errorMessage ?? startupError,
+        ethereumSync: this.getEthereumSyncState(),
       } as IBotState;
     }
 
@@ -156,6 +161,7 @@ export default class Bot {
       nextBid,
       lastBid: currentBidder?.lastBid,
       serverError: this.errorMessage ?? startupError,
+      ethereumSync: this.getEthereumSyncState(),
     } as IBotState;
   }
 
@@ -219,7 +225,15 @@ export default class Bot {
       }
       this.errorMessage = null;
 
+      if (!this.ethereumBeaconSyncService && this.options.ethereumBeaconApiUrl) {
+        this.ethereumBeaconSyncService = new EthereumBeaconSyncService(this.localClient, {
+          beaconApiUrl: this.options.ethereumBeaconApiUrl,
+          syncKeypair: this.options.bitcoinInitializerDelegateKeypair,
+        });
+      }
+
       await this.relayService.start();
+      await this.ethereumBeaconSyncService?.start();
 
       this.biddingRules = this.loadBiddingRules();
       this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;
@@ -320,6 +334,7 @@ export default class Bot {
     }
     await this.autobidder.stop();
     await this.relayService.shutdown();
+    await this.ethereumBeaconSyncService?.shutdown();
     this.blockWatch.stop();
     await this.miningFrames?.stop?.();
     await this.blockSync?.stop?.();
@@ -400,5 +415,9 @@ export default class Bot {
     } catch (error) {
       console.error('Error reloading bidding rules', error);
     }
+  }
+
+  private getEthereumSyncState(): IEthereumSyncStatus | undefined {
+    return this.ethereumBeaconSyncService?.state();
   }
 }

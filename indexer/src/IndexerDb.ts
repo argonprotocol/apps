@@ -6,6 +6,7 @@ export enum WalletTransferSource {
   Transfer = 0,
   Faucet = 1,
   TokenGateway = 2,
+  Ethereum = 3,
 }
 export enum WalletTransferCurrency {
   Argon = 0,
