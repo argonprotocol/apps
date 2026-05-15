@@ -16,9 +16,12 @@ import {
   parseUnits,
   type Address,
 } from 'viem';
-import { DEV_ETHEREUM_ADMIN_ACCOUNT, sendDevEthereumAdminTransaction } from '../devEthereumAdmin.ts';
+import {
+  DEV_ETHEREUM_ADMIN_ACCOUNT,
+  resolveDevEthereumRpcUrl,
+  sendDevEthereumAdminTransaction,
+} from '../devEthereum.ts';
 import { sudoFundWallet } from '../../core/__test__/helpers/sudoFundWallet.ts';
-import { resolveDevEthereumRpcUrl } from '../devEthereumRpc.ts';
 
 const defaultArchiveUrl = 'ws://127.0.0.1:9944';
 const ethereumRuntimeToErc20Scale = 10n ** 12n;

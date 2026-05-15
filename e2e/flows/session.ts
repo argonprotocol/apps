@@ -1,6 +1,7 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, type WriteStream } from 'node:fs';
 import { createServer } from 'node:net';
+import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,6 @@ const DEFAULT_APP_CONNECT_TIMEOUT_MS = 12 * 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
 const CLEANUP_PORT_POLL_INTERVAL_MS = 500;
 const REQUIRED_LOCAL_DOCKER_PORTS = [3261];
-const APP_IDS = ['com.argon.operations.local', 'com.argon.treasury.local'] as const;
 const FAILED_STEP_LOG_TAIL_LINES = 180;
 const APP_STARTUP_READY_TIMEOUT_MS = 120_000;
 const APP_STARTUP_READY_RETRY_DELAY_MS = 1_000;
@@ -56,7 +56,6 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     throw new Error('[E2E] sessionMode=stateful requires useTestNetwork=false (test-network mode always resets).');
   }
   const shouldRunCleanup = sessionMode === 'isolated';
-  const appProcessOutput = createAppProcessOutputTracker(appLogsMode);
 
   const driverServer: DriverServer = await startDriverServer();
   const driver = new DriverClient(driverServer.url);
@@ -71,8 +70,10 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   const sessionIdentity = resolveTestSessionIdentity({
     fallbackSessionName: defaultSessionName,
   });
+  const appProcessOutput = createAppProcessOutputTracker(appLogsMode, sessionIdentity.sessionName);
   const appInstanceName = sessionIdentity.appInstanceName || sessionIdentity.sessionName;
   const appPort = await chooseSessionPort(sessionIdentity.appInstancePort);
+  const appConfigId = resolveLocalAppConfigId(process.env.ARGON_APP);
   const { composeProjectName, appEnv: commandEnv } = resolveTestSessionCommandEnv({
     baseEnv: process.env,
     fallbackSessionName: defaultSessionName,
@@ -126,6 +127,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     }
     restoreComposeProjectName(previousComposeProjectName);
     restoreNetworkConfigOverride(previousNetworkConfigOverride);
+    closeAppProcessOutputTracker(appProcessOutput);
     throw error;
   }
 
@@ -142,7 +144,13 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     await waitForInitialUiReady(driver, devDockerProcess, APP_STARTUP_READY_TIMEOUT_MS);
   } catch (error) {
     printAppProcessOutputTail(appProcessOutput, 'connect-error');
-    await printInstallFailureLogs(sessionIdentity.composeNetwork, appInstanceName, 'session-startup', error);
+    await printInstallFailureLogs(
+      appConfigId,
+      sessionIdentity.composeNetwork,
+      appInstanceName,
+      'session-startup',
+      error,
+    );
     await printSessionStartupDiagnostics({
       repoRoot,
       sessionMode,
@@ -174,6 +182,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     await driverServer.close();
     restoreComposeProjectName(previousComposeProjectName);
     restoreNetworkConfigOverride(previousNetworkConfigOverride);
+    closeAppProcessOutputTracker(appProcessOutput);
     throw error;
   }
 
@@ -190,7 +199,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
           data: result.data,
         };
       } catch (error) {
-        await printInstallFailureLogs(sessionIdentity.composeNetwork, appInstanceName, flowName, error);
+        await printInstallFailureLogs(appConfigId, sessionIdentity.composeNetwork, appInstanceName, flowName, error);
         printAppProcessOutputTail(appProcessOutput, 'flow-failure');
         const frontendErrors = driver.getFrontendErrors();
         if (frontendErrors.length > 0) {
@@ -221,6 +230,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       } finally {
         restoreComposeProjectName(previousComposeProjectName);
         restoreNetworkConfigOverride(previousNetworkConfigOverride);
+        closeAppProcessOutputTracker(appProcessOutput);
       }
     },
   };
@@ -236,11 +246,19 @@ function getAppConfigBaseDir(): string {
   return process.env.XDG_CONFIG_HOME || Path.join(process.env.HOME ?? '', '.config');
 }
 
-function getServerLogDirectories(networkName: string, instanceName: string): string[] {
+function resolveLocalAppConfigId(appName: string | undefined): string {
+  const normalized = appName?.trim().toLowerCase();
+  return normalized === 'treasury' ? 'com.argon.treasury.local' : 'com.argon.operations.local';
+}
+
+function getServerLogDirectory(appConfigId: string, networkName: string, instanceName: string): string {
   const appConfigBaseDir = getAppConfigBaseDir();
-  return APP_IDS.map(appId =>
-    Path.join(appConfigBaseDir, appId, networkName, instanceName, 'virtual-machine', 'app', 'logs'),
-  );
+  return Path.join(appConfigBaseDir, appConfigId, networkName, instanceName, 'virtual-machine', 'app', 'logs');
+}
+
+function getServerAppDirectory(appConfigId: string, networkName: string, instanceName: string): string {
+  const appConfigBaseDir = getAppConfigBaseDir();
+  return Path.join(appConfigBaseDir, appConfigId, networkName, instanceName, 'virtual-machine', 'app');
 }
 
 function tailText(text: string, lineLimit: number): string {
@@ -250,13 +268,14 @@ function tailText(text: string, lineLimit: number): string {
 }
 
 async function printInstallFailureLogs(
+  appConfigId: string,
   networkName: string,
   instanceName: string,
   flowName: string,
   error: unknown,
 ): Promise<void> {
-  const baseLogDirs = getServerLogDirectories(networkName, instanceName);
-  const existingLogDirs = baseLogDirs.filter(path => existsSync(path));
+  const appDir = getServerAppDirectory(appConfigId, networkName, instanceName);
+  const existingLogDir = getServerLogDirectory(appConfigId, networkName, instanceName);
   const errorMessage = error instanceof Error ? error.message : String(error);
 
   console.error('[E2E] ==========================================');
@@ -264,35 +283,34 @@ async function printInstallFailureLogs(
   console.error(`[E2E] Flow: ${flowName}`);
   console.error(`[E2E] Error: ${errorMessage}`);
 
-  if (!existingLogDirs.length) {
+  if (!existsSync(existingLogDir)) {
     console.warn('[E2E] No local server log directory found for this session.');
+    await createTroubleshootingBundle(appDir);
     return;
   }
 
-  for (const logDir of existingLogDirs) {
-    console.error(`[E2E] Reading server logs from ${logDir}`);
-    let entries: string[];
-    try {
-      entries = readdirSync(logDir);
-    } catch (errorReadDir) {
-      console.warn(`[E2E] Unable to read ${logDir}: ${(errorReadDir as Error).message}`);
-      continue;
-    }
+  console.error(`[E2E] Reading server logs from ${existingLogDir}`);
+  let entries: string[];
+  try {
+    entries = readdirSync(existingLogDir);
+  } catch (errorReadDir) {
+    console.warn(`[E2E] Unable to read ${existingLogDir}: ${(errorReadDir as Error).message}`);
+    await createTroubleshootingBundle(appDir);
+    return;
+  }
 
-    const failedFiles = entries.filter(name => /\.Failed$/.test(name)).sort((a, b) => a.localeCompare(b));
-    if (failedFiles.length === 0) {
-      console.warn(`[E2E] No .Failed install step files found under ${logDir}`);
-      const finishedFiles = entries.filter(name => /\.Finished$/i.test(name)).sort((a, b) => a.localeCompare(b));
-      const logFiles = entries.filter(name => /\.log$/i.test(name)).sort((a, b) => a.localeCompare(b));
-      const fallbackTargets = [...new Set([...finishedFiles.slice(-2), ...logFiles.slice(-2)])];
+  const failedFiles = entries.filter(name => /\.Failed$/.test(name)).sort((a, b) => a.localeCompare(b));
+  if (failedFiles.length === 0) {
+    console.warn(`[E2E] No .Failed install step files found under ${existingLogDir}`);
+    const finishedFiles = entries.filter(name => /\.Finished$/i.test(name)).sort((a, b) => a.localeCompare(b));
+    const logFiles = entries.filter(name => /\.log$/i.test(name)).sort((a, b) => a.localeCompare(b));
+    const fallbackTargets = [...new Set([...finishedFiles.slice(-2), ...logFiles.slice(-2)])];
 
-      if (fallbackTargets.length === 0) {
-        console.warn(`[E2E] No install log artifacts found under ${logDir}`);
-        continue;
-      }
-
+    if (fallbackTargets.length === 0) {
+      console.warn(`[E2E] No install log artifacts found under ${existingLogDir}`);
+    } else {
       for (const fallbackFile of fallbackTargets) {
-        const fallbackPath = Path.join(logDir, fallbackFile);
+        const fallbackPath = Path.join(existingLogDir, fallbackFile);
         console.error(`[E2E] --- Recent artifact: ${fallbackFile} ---`);
         try {
           const fallbackContents = readFileSync(fallbackPath, 'utf8');
@@ -301,14 +319,13 @@ async function printInstallFailureLogs(
           console.warn(`[E2E] Could not read ${fallbackPath}: ${(logError as Error).message}`);
         }
       }
-      continue;
     }
-
+  } else {
     for (const failedFile of failedFiles) {
-      const stepFilePath = Path.join(logDir, failedFile);
+      const stepFilePath = Path.join(existingLogDir, failedFile);
       const baseName = failedFile.replace(/^step-/, '').replace(/\.Failed$/, '');
-      const logFilePath = Path.join(logDir, `step-${baseName}.log`);
-      const finishedFilePath = Path.join(logDir, `step-${baseName}.Finished`);
+      const logFilePath = Path.join(existingLogDir, `step-${baseName}.log`);
+      const finishedFilePath = Path.join(existingLogDir, `step-${baseName}.Finished`);
 
       console.error(`[E2E] --- Failed step: ${baseName} ---`);
       try {
@@ -339,7 +356,63 @@ async function printInstallFailureLogs(
       }
     }
   }
+
+  await createTroubleshootingBundle(appDir);
   console.error('[E2E] ==========================================');
+}
+
+async function createTroubleshootingBundle(appDir: string): Promise<void> {
+  if (process.platform === 'win32') {
+    console.warn('[E2E] Skipping troubleshooting bundle generation on Windows.');
+    return;
+  }
+  if (!existsSync(appDir)) {
+    console.warn('[E2E] No local app directory found for troubleshooting bundle generation.');
+    return;
+  }
+
+  const scriptPath = Path.join(appDir, 'server', 'scripts', 'create_troubleshooting_gz.sh');
+  if (!existsSync(scriptPath)) {
+    console.warn(`[E2E] Troubleshooting script not found at ${scriptPath}`);
+    return;
+  }
+
+  console.error(`[E2E] Creating troubleshooting bundle from ${appDir}`);
+  try {
+    const output = execFileSync('/bin/bash', [scriptPath], {
+      cwd: appDir,
+      encoding: 'utf8',
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const archiveMatch = output.match(/Bundle ready: (.+\.tar\.gz)/);
+    if (archiveMatch?.[1]) {
+      console.error(`[E2E] Troubleshooting bundle ready: ${archiveMatch[1].trim()}`);
+    } else if (output.trim()) {
+      console.error('[E2E] Troubleshooting bundle output:');
+      console.error(tailText(output, 40));
+    }
+  } catch (bundleError) {
+    const message = formatTroubleshootingBundleError(bundleError);
+    console.warn(`[E2E] Failed to create troubleshooting bundle from ${appDir}: ${message}`);
+  }
+}
+
+function formatTroubleshootingBundleError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const errorWithStreams = error as Error & { stdout?: unknown; stderr?: unknown };
+  const stdout = typeof errorWithStreams.stdout === 'string' ? errorWithStreams.stdout : '';
+  const stderr = typeof errorWithStreams.stderr === 'string' ? errorWithStreams.stderr : '';
+  const details = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n');
+  if (!details) {
+    return error.message;
+  }
+
+  return `${error.message}\n${tailText(details, 40)}`;
 }
 
 export function resolveFlowSessionMode(value: string | undefined): E2ESessionMode {
@@ -385,16 +458,21 @@ function createAppSpawnOptions(
 interface IAppProcessOutputTracker {
   appLogsMode: E2EFlowAppLogsMode;
   lines: string[];
+  logFilePath?: string;
   pendingStdout: string;
   pendingStderr: string;
+  stream?: WriteStream;
 }
 
-function createAppProcessOutputTracker(appLogsMode: E2EFlowAppLogsMode): IAppProcessOutputTracker {
+function createAppProcessOutputTracker(appLogsMode: E2EFlowAppLogsMode, sessionName: string): IAppProcessOutputTracker {
+  const logFilePath = appLogsMode === 'quiet' ? createAppOutputLogPath(sessionName) : undefined;
   return {
     appLogsMode,
     lines: [],
+    logFilePath,
     pendingStdout: '',
     pendingStderr: '',
+    stream: logFilePath ? createAppProcessOutputStream(logFilePath) : undefined,
   };
 }
 
@@ -438,6 +516,7 @@ function appendAppOutputChunk(tracker: IAppProcessOutputTracker, source: 'stdout
 
 function pushAppOutputLine(tracker: IAppProcessOutputTracker, line: string): void {
   tracker.lines.push(line);
+  tracker.stream?.write(`${line}\n`);
   if (tracker.lines.length > APP_PROCESS_OUTPUT_MAX_LINES) {
     tracker.lines.splice(0, tracker.lines.length - APP_PROCESS_OUTPUT_MAX_LINES);
   }
@@ -460,8 +539,46 @@ function printAppProcessOutputTail(tracker: IAppProcessOutputTracker, reason: st
   const tail = collectAppOutputTail(tracker, APP_PROCESS_OUTPUT_TAIL_LINES);
   if (tail.length === 0) return;
   console.error(`[E2E] Recent app output (${reason}):`);
+  if (tracker.logFilePath) {
+    console.error(`[E2E] Full app output log: ${tracker.logFilePath}`);
+  }
   for (const line of tail) {
     console.error(`[E2E] ${line}`);
+  }
+}
+
+function closeAppProcessOutputTracker(tracker: IAppProcessOutputTracker): void {
+  if (!tracker.stream) return;
+
+  flushPendingAppOutput(tracker);
+  tracker.stream.end();
+  tracker.stream = undefined;
+}
+
+function flushPendingAppOutput(tracker: IAppProcessOutputTracker): void {
+  if (tracker.pendingStdout.trim().length > 0) {
+    pushAppOutputLine(tracker, `[stdout] ${tracker.pendingStdout.trimEnd()}`);
+    tracker.pendingStdout = '';
+  }
+  if (tracker.pendingStderr.trim().length > 0) {
+    pushAppOutputLine(tracker, `[stderr] ${tracker.pendingStderr.trimEnd()}`);
+    tracker.pendingStderr = '';
+  }
+}
+
+function createAppOutputLogPath(sessionName: string): string {
+  const rootDir = process.env.CI_TEMP_DIR?.trim() || os.tmpdir();
+  const safeSessionName = sessionName.replace(/[^a-zA-Z0-9._-]+/g, '-');
+  return Path.join(rootDir, `e2e-app-output-${safeSessionName}.log`);
+}
+
+function createAppProcessOutputStream(logFilePath: string): WriteStream | undefined {
+  try {
+    mkdirSync(Path.dirname(logFilePath), { recursive: true });
+    return createWriteStream(logFilePath, { flags: 'a' });
+  } catch (error) {
+    console.warn(`[E2E] Failed to open app output log ${logFilePath}: ${(error as Error).message}`);
+    return undefined;
   }
 }
 

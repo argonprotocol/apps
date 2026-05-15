@@ -138,6 +138,12 @@ export class BitcoinLocksTable extends BaseTable {
       toSqlParams([status, lock.utxoId, lock.liquidityPromised, lock.lockedMarketRate, lock, ratchets, uuid]),
     );
     if (!rawRecords.length) {
+      const existingRecord = await this.db
+        .select<IBitcoinLockRecord[]>('SELECT * FROM BitcoinLocks WHERE uuid = ?', toSqlParams([uuid]))
+        .then(records => records[0]);
+      if (existingRecord?.utxoId === lock.utxoId) {
+        return this.toLockRecord(existingRecord);
+      }
       throw new Error(`Failed to finalize Bitcoin lock record (uuid = ${uuid}, utxoId = ${lock.utxoId})`);
     }
     return this.toLockRecord(rawRecords[0]);

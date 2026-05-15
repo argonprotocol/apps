@@ -9,8 +9,14 @@ type IMockTx = { id: string };
 type IMockSubmitOptions = { useLatestNonce?: boolean };
 
 const mainchainMock = vi.hoisted(() => {
+  const dispatchErrorToString = vi.fn();
+  const getEthereumBeaconSyncBootstrapTx = vi.fn();
   const getEthereumBeaconSyncState = vi.fn();
   const getNextEthereumBeaconSyncTxs = vi.fn();
+  const isOutdatedTransactionError = vi.fn((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('Invalid Transaction: Transaction is outdated');
+  });
   const submitTx =
     vi.fn<(tx: IMockTx, syncKeypair: unknown, options?: IMockSubmitOptions) => Promise<IMockSubmitResult>>();
 
@@ -29,16 +35,22 @@ const mainchainMock = vi.hoisted(() => {
   }
 
   return {
+    dispatchErrorToString,
+    getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs,
+    isOutdatedTransactionError,
     submitTx,
     TxSubmitter,
   };
 });
 
 vi.mock('@argonprotocol/mainchain', () => ({
+  dispatchErrorToString: mainchainMock.dispatchErrorToString,
+  getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
   getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
+  isOutdatedTransactionError: mainchainMock.isOutdatedTransactionError,
   TxSubmitter: mainchainMock.TxSubmitter,
 }));
 
@@ -86,7 +98,7 @@ describe('EthereumBeaconSyncService', () => {
     });
   });
 
-  it('submits returned transactions without waiting between them and refreshes sync state', async () => {
+  it('submits returned transactions in order and refreshes sync state', async () => {
     let resolveFirstInBlock!: () => void;
     const firstInBlock = new Promise<void>(resolve => {
       resolveFirstInBlock = resolve;
@@ -127,17 +139,21 @@ describe('EthereumBeaconSyncService', () => {
 
     const runOncePromise = service.runOnce();
     await vi.waitFor(() => {
-      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(2);
+      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
     });
 
     expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(1, txs[0], syncKeypair, {
       useLatestNonce: true,
     });
+
+    resolveFirstInBlock();
+    await vi.waitFor(() => {
+      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(2);
+    });
+
     expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[1], syncKeypair, {
       useLatestNonce: true,
     });
-
-    resolveFirstInBlock();
     await runOncePromise;
 
     expect(service.state()).toMatchObject({

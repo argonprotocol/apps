@@ -195,10 +195,17 @@ export class EthereumClient {
     const pollMs = this.getBurnProofPollMs();
     const timeoutMs = this.getBurnProofTimeoutMs();
 
-    await waitForRetainedExecutionAnchor(mainchainClient, BigInt(burnTransfer.burnBlockNumber), {
-      pollMs,
-      timeoutMs,
-    });
+    try {
+      await waitForRetainedExecutionAnchor(mainchainClient, BigInt(burnTransfer.burnBlockNumber), {
+        pollMs,
+        timeoutMs,
+      });
+    } catch (error) {
+      const verifierState = await getEthereumVerifierDebugState(mainchainClient).catch(() => undefined);
+      const baseMessage = error instanceof Error ? error.message : String(error);
+      const debugSuffix = verifierState ? ` (${verifierState})` : '';
+      throw new Error(`${baseMessage}${debugSuffix}`);
+    }
 
     return buildEthereumEventProof(mainchainClient, {
       txHash: burnTransfer.burnTxHash,
@@ -282,12 +289,17 @@ async function loadEthereumChainConfigForRpc(executionRpcUrl: string): Promise<I
   })();
   ethereumChainConfigPromises.set(resolvedExecutionRpcUrl, configPromise);
 
-  const config = await configPromise;
-  if (!config) {
-    ethereumChainConfigPromises.delete(resolvedExecutionRpcUrl);
-  }
+  try {
+    const config = await configPromise;
+    if (!config) {
+      ethereumChainConfigPromises.delete(resolvedExecutionRpcUrl);
+    }
 
-  return config;
+    return config;
+  } catch (error) {
+    ethereumChainConfigPromises.delete(resolvedExecutionRpcUrl);
+    throw error;
+  }
 }
 
 export function createEthereumPublicClient(chain?: Parameters<typeof createPublicClient>[0]['chain']): PublicClient {
@@ -390,6 +402,23 @@ function getEthereumFinalityMillis(): number {
 
 function getEthereumPollMillis(): number {
   return Math.max(1_000, Math.floor(getEthereumFinalityMillis() / ETHEREUM_BLOCKS_TO_FINALITY));
+}
+
+async function getEthereumVerifierDebugState(mainchainClient: Awaited<ReturnType<typeof getMainchainClient>>) {
+  const verifierQuery = mainchainClient.query.ethereumVerifier;
+  const latestFinalizedBlockRoot = (await verifierQuery.latestFinalizedBlockRoot()).toHex();
+  const [latestExecutionHeaderAnchorBlockHash, finalizedState, latestSyncCommitteeUpdatePeriod] = await Promise.all([
+    verifierQuery.latestExecutionHeaderAnchorBlockHash(),
+    verifierQuery.finalizedBeaconState(latestFinalizedBlockRoot),
+    verifierQuery.latestSyncCommitteeUpdatePeriod(),
+  ]);
+
+  const latestAnchor = latestExecutionHeaderAnchorBlockHash.isSome
+    ? latestExecutionHeaderAnchorBlockHash.unwrap().toHex()
+    : 'none';
+  const latestFinalizedSlot = finalizedState.isSome ? finalizedState.unwrap().slot.toString() : 'none';
+
+  return `anchor=${latestAnchor} finalizedSlot=${latestFinalizedSlot} syncPeriod=${latestSyncCommitteeUpdatePeriod.toString()} finalizedRoot=${latestFinalizedBlockRoot}`;
 }
 
 async function signEthereumTransaction(unsignedTransaction: Hex): Promise<IEthereumSignature> {

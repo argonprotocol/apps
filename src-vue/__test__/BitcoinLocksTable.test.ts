@@ -1,3 +1,4 @@
+import type { IBitcoinLock } from '@argonprotocol/mainchain';
 import { describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
@@ -18,6 +19,35 @@ async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
 }
 
 describe('BitcoinLocksTable', () => {
+  it('treats repeated finalizePending for the same utxo as idempotent', async () => {
+    const { table, lock } = await createPendingLock({ uuid: 'finalize-idempotent' });
+
+    const bitcoinLock = {
+      utxoId: 7,
+      liquidityPromised: 25n,
+      lockedMarketRate: 3n,
+      securityFees: 1n,
+      createdAtHeight: 9,
+    } as IBitcoinLock;
+
+    const first = await table.finalizePending({
+      uuid: lock.uuid,
+      lock: bitcoinLock,
+      createdAtArgonBlockHeight: 12,
+      finalFee: 2n,
+    });
+    const second = await table.finalizePending({
+      uuid: lock.uuid,
+      lock: bitcoinLock,
+      createdAtArgonBlockHeight: 12,
+      finalFee: 2n,
+    });
+
+    expect(first.utxoId).toBe(7);
+    expect(second.utxoId).toBe(7);
+    expect(second.status).toBe(BitcoinLockStatus.LockPendingFunding);
+  });
+
   it('setLockPendingFunding updates lock status', async () => {
     const { table, lock } = await createPendingLock({ uuid: 'pending-funding' });
 

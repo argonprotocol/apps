@@ -22,4 +22,10 @@ fi
 # Fix ownership of any bind mounts
 chown -R argon:argon /app 2>/dev/null || true
 
+cat >/usr/sbin/policy-rc.d <<'EOF'
+#!/bin/sh
+exit 101
+EOF
+chmod +x /usr/sbin/policy-rc.d
+
 exec "$@"

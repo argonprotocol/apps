@@ -52,10 +52,13 @@ export const useWallets = defineStore('wallets', () => {
 
   void config.isLoadedPromise
     .then(async () => {
-      const chainConfig = await loadEthereumChainConfig();
+      const chainConfig = await loadEthereumChainConfig().catch(error => {
+        console.warn('Ethereum wallet chain-config load failed', error);
+        return undefined;
+      });
       if (!chainConfig) return;
 
-      return await walletKeys.configureEthereumSignerPolicy({
+      await walletKeys.configureEthereumSignerPolicy({
         chainId: chainConfig.chainId,
         gatewayAddress: chainConfig.gatewayAddress,
         tokenAddresses: [chainConfig.argonTokenAddress, chainConfig.argonotTokenAddress],

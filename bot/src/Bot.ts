@@ -8,6 +8,7 @@ import { BitcoinLockRelayService } from './BitcoinLockRelayService.ts';
 import { Db } from './Db.ts';
 import { DockerStatus } from './DockerStatus.ts';
 import { setTimeout } from 'node:timers/promises';
+import { EthereumBeaconSyncService } from './EthereumBeaconSyncService.ts';
 import {
   Accountset,
   createDeferred,
@@ -26,7 +27,6 @@ import {
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
-import { EthereumBeaconSyncService } from './EthereumBeaconSyncService.ts';
 
 interface IBotOptions {
   datadir: string;

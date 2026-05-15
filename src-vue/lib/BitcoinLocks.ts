@@ -704,31 +704,13 @@ export default class BitcoinLocks {
     if (lock.utxoId) return;
     if (!relayRecord?.utxoId) return;
 
-    const existingRecord = this.locksByUtxoId[relayRecord.utxoId];
-    if (existingRecord) {
-      const pendingIdx = this.data.pendingLocks.findIndex(x => x.uuid === lock.uuid);
-      if (pendingIdx >= 0) {
-        this.data.pendingLocks.splice(pendingIdx, 1);
-      }
-      return;
-    }
-
     const lockDetails = await this.getFromApi(relayRecord.utxoId);
     const createdAtArgonBlockHeight = relayRecord.txInBlockHeight ?? relayRecord.txFinalizedHeight ?? 0;
-
-    const table = await this.getTable();
-    const record = await table.finalizePending({
-      uuid: lock.uuid,
+    await this.finalizePendingRecord(lock, {
       lock: lockDetails,
       createdAtArgonBlockHeight,
       finalFee: relayRecord.txFeePlusTip ?? 0n,
     });
-    this.locksByUtxoId[record.utxoId!] = record;
-
-    const pendingIdx = this.data.pendingLocks.findIndex(x => x.uuid === lock.uuid);
-    if (pendingIdx >= 0) {
-      this.data.pendingLocks.splice(pendingIdx, 1);
-    }
   }
 
   private async pollRelayUntilSettled(uuid: string): Promise<void> {
@@ -844,22 +826,14 @@ export default class BitcoinLocks {
     const typeClient = await genericClient.at(txResult.blockHash!);
     const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
     const uuid = txInfo.tx.metadataJson.bitcoin.uuid;
-    const table = await this.getTable();
-    let record = this.locksByUtxoId[lock.utxoId];
-    if (!record) {
-      record = await table.finalizePending({
-        uuid,
+    const record = await this.finalizePendingRecord(
+      { uuid },
+      {
         lock,
         createdAtArgonBlockHeight: createdAtHeight,
         finalFee: txResult.finalFee!,
-      });
-    }
-
-    this.locksByUtxoId[record.utxoId!] = record;
-    const pendingIdx = this.data.pendingLocks.findIndex(l => l.uuid === uuid);
-    if (pendingIdx >= 0) {
-      this.data.pendingLocks.splice(pendingIdx, 1);
-    }
+      },
+    );
     postProcessor.resolve();
 
     return record;
@@ -2433,6 +2407,35 @@ export default class BitcoinLocks {
     const { uuid } = lockRecord;
     this.#txQueueByUuid[uuid] ??= new SingleFileQueue();
     return this.#txQueueByUuid[uuid].add(task, { timeoutMs }).promise;
+  }
+
+  private async finalizePendingRecord(
+    pendingLock: Pick<IBitcoinLockRecord, 'uuid'>,
+    args: {
+      lock: BitcoinLock;
+      createdAtArgonBlockHeight: number;
+      finalFee: bigint;
+    },
+  ): Promise<IBitcoinLockRecord> {
+    return await this.runInQueueForUtxo(pendingLock, 60e3, async () => {
+      let record = this.locksByUtxoId[args.lock.utxoId];
+      if (!record) {
+        const table = await this.getTable();
+        record = await table.finalizePending({
+          uuid: pendingLock.uuid,
+          lock: args.lock,
+          createdAtArgonBlockHeight: args.createdAtArgonBlockHeight,
+          finalFee: args.finalFee,
+        });
+      }
+
+      this.locksByUtxoId[record.utxoId!] = record;
+      const pendingIdx = this.data.pendingLocks.findIndex(lock => lock.uuid === pendingLock.uuid);
+      if (pendingIdx >= 0) {
+        this.data.pendingLocks.splice(pendingIdx, 1);
+      }
+      return record;
+    });
   }
 
   private async checkIncomingArgonBlock(

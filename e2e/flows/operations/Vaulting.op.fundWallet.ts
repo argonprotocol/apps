@@ -142,7 +142,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
 });
 
 async function ensureVaultProofFunding(flow: IVaultingFlowContext['flow'], flowName: string): Promise<void> {
-  const initialState = await readVaultProofFundingState(flow);
+  const initialState = await readVaultFundingState(flow);
   const proofFundingGapMicrogons = PROOF_SUBMISSION_FEE_FUNDING_MICROGONS - initialState.vaultingMicrogons;
 
   if (proofFundingGapMicrogons <= 0n) {
@@ -158,7 +158,7 @@ async function ensureVaultProofFunding(flow: IVaultingFlowContext['flow'], flowN
   await pollEvery(
     1_000,
     async () => {
-      const nextState = await readVaultProofFundingState(flow);
+      const nextState = await readVaultFundingState(flow);
       return nextState.vaultingMicrogons >= PROOF_SUBMISSION_FEE_FUNDING_MICROGONS;
     },
     {
@@ -168,7 +168,7 @@ async function ensureVaultProofFunding(flow: IVaultingFlowContext['flow'], flowN
   );
 }
 
-async function readVaultProofFundingState(flow: IVaultingFlowContext['flow']): Promise<{
+async function readVaultFundingState(flow: IVaultingFlowContext['flow']): Promise<{
   vaultingAddress: string;
   vaultingMicrogons: bigint;
 }> {
