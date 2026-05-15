@@ -14,8 +14,9 @@
     "build": "yarn check:operation-rules && tsc --noEmit"
   },
   "devDependencies": {
+    "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.3-dev.76caee69",
+    "@argonprotocol/mainchain": "1.4.3-dev.4408f4ff",
     "@types/ws": "^8.5.13",
     "docker-compose": "^1.2.0",
     "tsx": "^4.20.5",

@@ -2,13 +2,15 @@ import { DOCKER_COMPOSE_PROJECT_NAME } from './ServerAdmin.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { message } from '@tauri-apps/plugin-dialog';
 
+const CREATE_LOCAL_VM_TIMEOUT_MS = 5 * 60_000;
+
 export class LocalMachine {
   public static async create(sshPubkey: string): Promise<{ sshPort: number }> {
     console.log(`Creating local machine`);
     const sshPort = await invokeWithTimeout<number>(
       'create_local_vm',
       { envText: `COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}\nSSH_PUBKEY="${sshPubkey.trim()}"` },
-      120_000,
+      CREATE_LOCAL_VM_TIMEOUT_MS,
     );
     console.log(`Local machine created SSH port: ${sshPort}`);
 
