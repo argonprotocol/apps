@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type IMockSubmitResult = {
   extrinsic: { signedHash: string };
@@ -54,7 +54,10 @@ vi.mock('@argonprotocol/mainchain', () => ({
   TxSubmitter: mainchainMock.TxSubmitter,
 }));
 
-import { EthereumBeaconSyncService } from '../src/EthereumBeaconSyncService.ts';
+import {
+  EthereumBeaconSyncService,
+  waitForFinalizedBeaconExecutionAtOrAbove,
+} from '../src/EthereumBeaconSyncService.ts';
 
 describe('EthereumBeaconSyncService', () => {
   const client = {} as any;
@@ -62,6 +65,10 @@ describe('EthereumBeaconSyncService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('reports disabled when beacon sync is not configured', async () => {
@@ -194,5 +201,28 @@ describe('EthereumBeaconSyncService', () => {
     });
     expect(service.state().lastError).toBeUndefined();
     expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it('times out stalled beacon requests instead of waiting indefinitely', async () => {
+    const fetchMock = vi.fn((_input: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => {
+            const abortError = init.signal?.reason ?? Object.assign(new Error('Aborted'), { name: 'AbortError' });
+            reject(abortError);
+          },
+          { once: true },
+        );
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    await expect(
+      waitForFinalizedBeaconExecutionAtOrAbove('https://beacon.example', 1n, {
+        timeoutMs: 25,
+        pollMs: 1,
+      }),
+    ).rejects.toThrow(/Beacon API request timed out after \d+ms for \/eth\/v1\/beacon\/headers\/finalized/);
   });
 });

@@ -27,6 +27,7 @@ type IEthereumBeaconBootstrapOptions = {
 
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_BOOTSTRAP_POLL_MS = 1_000;
+const DEFAULT_BEACON_REQUEST_TIMEOUT_MS = 10_000;
 
 export class EthereumBeaconSyncService {
   private loopPromise?: Promise<void>;
@@ -240,6 +241,10 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
+      const finalizedHeaderTimeoutMs = Math.max(
+        1,
+        Math.min(DEFAULT_BEACON_REQUEST_TIMEOUT_MS, timeoutMs - (Date.now() - startedAt)),
+      );
       const finalizedHeader = await getBeaconJson<{
         data: {
           root: string;
@@ -249,9 +254,13 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
             };
           };
         };
-      }>(beaconApiUrl, '/eth/v1/beacon/headers/finalized');
+      }>(beaconApiUrl, '/eth/v1/beacon/headers/finalized', finalizedHeaderTimeoutMs);
       lastSeenFinalizedSlot = BigInt(finalizedHeader.data.header.message.slot);
 
+      const finalizedBlockTimeoutMs = Math.max(
+        1,
+        Math.min(DEFAULT_BEACON_REQUEST_TIMEOUT_MS, timeoutMs - (Date.now() - startedAt)),
+      );
       const finalizedBlock = await getBeaconJson<{
         data: {
           message: {
@@ -262,7 +271,7 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
             };
           };
         };
-      }>(beaconApiUrl, `/eth/v2/beacon/blocks/${finalizedHeader.data.root}`);
+      }>(beaconApiUrl, `/eth/v2/beacon/blocks/${finalizedHeader.data.root}`, finalizedBlockTimeoutMs);
       lastSeenExecutionBlockNumber = BigInt(finalizedBlock.data.message.body.execution_payload.block_number);
       lastError = undefined;
 
@@ -300,10 +309,20 @@ function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
   );
 }
 
-async function getBeaconJson<T>(beaconApiUrl: string, path: string): Promise<T> {
-  const response = await fetch(new URL(path, beaconApiUrl), {
-    headers: { Accept: 'application/json' },
-  });
+async function getBeaconJson<T>(beaconApiUrl: string, path: string, timeoutMs: number): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, beaconApiUrl), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      throw new Error(`Beacon API request timed out after ${timeoutMs}ms for ${path}`);
+    }
+    throw error;
+  }
+
   if (!response.ok) {
     throw new Error(`Beacon API request failed (${response.status} ${response.statusText}) for ${path}`);
   }

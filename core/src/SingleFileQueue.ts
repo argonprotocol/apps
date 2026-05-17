@@ -28,10 +28,31 @@ export class SingleFileQueue {
 
   public async stop(waitForCompletion: boolean = false): Promise<void> {
     this.isStopped = true;
-    if (waitForCompletion) {
-      await Promise.allSettled(this.queue.map(x => x.deferred.promise));
+    const queuedTasks = this.isRunning ? this.queue.slice(1) : [...this.queue];
+
+    for (const task of queuedTasks) {
+      task.deferred.reject(new Error('Queue is stopped'));
     }
-    this.queue.length = 0;
+
+    if (!waitForCompletion) {
+      if (this.isRunning) {
+        this.queue.splice(1);
+      } else {
+        this.queue.length = 0;
+      }
+      return;
+    }
+
+    const pendingPromises = this.isRunning
+      ? [this.queue[0]?.deferred.promise, ...queuedTasks.map(x => x.deferred.promise)]
+      : queuedTasks.map(x => x.deferred.promise);
+    await Promise.allSettled(pendingPromises.filter(Boolean));
+
+    if (this.isRunning) {
+      this.queue.splice(1);
+    } else {
+      this.queue.length = 0;
+    }
   }
 
   private async runWithTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
