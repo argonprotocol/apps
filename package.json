@@ -165,8 +165,8 @@
     "@argonprotocol/bitcoin": "1.4.3-dev.afd10c33"
   },
   "resolutions_disabled": {
-    "@argonprotocol/mainchain": "1.4.3-dev.76caee69",
-    "@argonprotocol/testing": "1.4.3-dev.76caee69",
+    "@argonprotocol/mainchain": "portal:../mainchain/client/nodejs",
+    "@argonprotocol/testing": "portal:../mainchain/testing/nodejs",
     "@argonprotocol/bitcoin": "portal:../mainchain/bitcoin/nodejs"
   },
   "packageManager": "yarn@4.10.3"

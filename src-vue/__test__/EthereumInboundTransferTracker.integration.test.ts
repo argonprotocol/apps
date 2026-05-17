@@ -14,14 +14,66 @@ import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { WalletType } from '../lib/Wallet.ts';
 
-vi.mock('../stores/mainchain.ts', () => ({
-  getMainchainClient: vi.fn(async () => ({
-    tx: {
-      crosschainTransfer: {
-        proveTransfer: vi.fn((args: unknown) => args),
+const mainchainStoreMock = vi.hoisted(() => {
+  const paymentInfo = vi.fn(async () => ({
+    partialFee: {
+      toBigInt: (): bigint => 1n,
+    },
+  }));
+  const proveTransfer = vi.fn((args: unknown) => ({
+    transferProof: args,
+    paymentInfo,
+  }));
+  const account = vi.fn(async () => ({
+    data: {
+      free: {
+        toBigInt: (): bigint => 1_000_000n,
       },
     },
-  })),
+  }));
+  const getMainchainClient = vi.fn(async () => ({
+    tx: {
+      crosschainTransfer: {
+        proveTransfer,
+      },
+    },
+    query: {
+      system: {
+        account,
+      },
+    },
+  }));
+
+  return {
+    getMainchainClient,
+    paymentInfo,
+    proveTransfer,
+  };
+});
+
+vi.mock('../stores/mainchain.ts', () => ({
+  getMainchainClient: mainchainStoreMock.getMainchainClient,
+}));
+
+const walletsStoreMock = vi.hoisted(() => {
+  const load = vi.fn(async () => undefined);
+  const walletsForArgon = {
+    load,
+    miningHoldWallet: { availableMicrogons: 1_000_000n },
+    miningBotWallet: { availableMicrogons: 1_000_000n },
+    vaultingWallet: { availableMicrogons: 1_000_000n },
+    operationalWallet: { availableMicrogons: 1_000_000n },
+    investmentWallet: { availableMicrogons: 1_000_000n },
+  };
+
+  return {
+    load,
+    walletsForArgon,
+  };
+});
+
+vi.mock('../stores/wallets.ts', () => ({
+  getWalletsForArgon: () => walletsStoreMock.walletsForArgon,
 }));
 
 type IEthereumProofTxMetadata = {
@@ -34,6 +86,16 @@ type IEthereumProofTxMetadata = {
 describe('EthereumInboundTransferTracker integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mainchainStoreMock.paymentInfo.mockResolvedValue({
+      partialFee: {
+        toBigInt: (): bigint => 1n,
+      },
+    });
+    walletsStoreMock.walletsForArgon.miningHoldWallet.availableMicrogons = 1_000_000n;
+    walletsStoreMock.walletsForArgon.miningBotWallet.availableMicrogons = 1_000_000n;
+    walletsStoreMock.walletsForArgon.vaultingWallet.availableMicrogons = 1_000_000n;
+    walletsStoreMock.walletsForArgon.operationalWallet.availableMicrogons = 1_000_000n;
+    walletsStoreMock.walletsForArgon.investmentWallet.availableMicrogons = 1_000_000n;
   });
 
   it('persists a new transfer through Argon proof submission', async () => {
@@ -78,6 +140,8 @@ describe('EthereumInboundTransferTracker integration', () => {
       transactionTracker,
       walletKeys,
       ethereumClient,
+      { operatorHost: undefined, relayEthereumProof: vi.fn() } as any,
+      { relayEthereumProof: vi.fn() } as any,
     );
 
     const activeTransfer = await tracker.startMove({
@@ -168,6 +232,8 @@ describe('EthereumInboundTransferTracker integration', () => {
       transactionTracker,
       walletKeys,
       relayEthereumClient,
+      { operatorHost: undefined, relayEthereumProof: vi.fn() } as any,
+      { relayEthereumProof: vi.fn() } as any,
     );
 
     const activeTransfer = await tracker.startMove({
@@ -236,6 +302,8 @@ describe('EthereumInboundTransferTracker integration', () => {
       transactionTracker,
       walletKeys,
       ethereumClient,
+      { operatorHost: undefined, relayEthereumProof: vi.fn() } as any,
+      { relayEthereumProof: vi.fn() } as any,
     );
 
     await tracker.load();
@@ -260,6 +328,360 @@ describe('EthereumInboundTransferTracker integration', () => {
 
     expect(submitAndWatch).not.toHaveBeenCalled();
     expect(confirmBurnTransfer).not.toHaveBeenCalled();
+  });
+
+  it('uses another funded local signer before relaying the ARGN proof', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const approveTransfer = createDeferred<void>();
+    const submittedBurnTransfer = createBurnTransfer({
+      moveToken: MoveToken.ARGN,
+      destinationAddress: walletKeys.investmentAddress,
+      burnTxHash: `0x${'77'.repeat(32)}`,
+    });
+    const confirmedBurnTransfer = {
+      ...submittedBurnTransfer,
+      burnBlockNumber: 64,
+      burnBlockHash: `0x${'88'.repeat(32)}`,
+      burnLogIndex: 5,
+    } satisfies IEthereumBurnTransfer;
+    const txInfo = createTxInfo({
+      id: 94,
+      extrinsicHash: `0x${'89'.repeat(32)}`,
+      metadataJson: {
+        txHash: confirmedBurnTransfer.burnTxHash,
+        logIndex: confirmedBurnTransfer.burnLogIndex,
+        recipientAddress: confirmedBurnTransfer.destinationAddress,
+        moveToken: confirmedBurnTransfer.moveToken,
+      },
+    });
+    const publicRelayEthereumProof = vi.fn(async () => {
+      throw new Error('public relay should not be called in this test');
+    });
+    const submitAndWatch = vi.fn(async () => txInfo);
+    const ethereumClient = createEthereumClient(walletKeys.ethereumAddress, {
+      approveTransfer: vi.fn(() => approveTransfer.promise),
+      submitBurnTransfer: vi.fn(async () => submittedBurnTransfer),
+      confirmBurnTransfer: vi.fn(async () => confirmedBurnTransfer),
+      buildBurnProof: vi.fn(async () => ({ eventLog: { id: 'event-log' }, proof: { id: 'proof' } })),
+    });
+    const transactionTracker = createTransactionTracker({
+      submitAndWatch,
+    });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      transactionTracker,
+      walletKeys,
+      ethereumClient,
+      { operatorHost: undefined, relayEthereumProof: vi.fn() } as any,
+      { relayEthereumProof: publicRelayEthereumProof } as any,
+    );
+
+    mainchainStoreMock.paymentInfo.mockResolvedValue({
+      partialFee: {
+        toBigInt: (): bigint => 5n,
+      },
+    });
+    walletsStoreMock.walletsForArgon.investmentWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.vaultingWallet.availableMicrogons = 10_000_000n;
+    walletsStoreMock.walletsForArgon.miningHoldWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningBotWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.operationalWallet.availableMicrogons = 0n;
+
+    await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.investment,
+    });
+
+    approveTransfer.resolve();
+
+    await vi.waitFor(() => {
+      expect(submitAndWatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          txSigner: expect.objectContaining({
+            address: walletKeys.vaultingAddress,
+          }),
+        }),
+      );
+    });
+
+    expect(publicRelayEthereumProof).not.toHaveBeenCalled();
+  });
+
+  it('uses the upstream relay before the public relayer when no local signer can pay', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const approveTransfer = createDeferred<void>();
+    const submittedBurnTransfer = createBurnTransfer({
+      moveToken: MoveToken.ARGN,
+      destinationAddress: walletKeys.investmentAddress,
+      burnTxHash: `0x${'99'.repeat(32)}`,
+    });
+    const confirmedBurnTransfer = {
+      ...submittedBurnTransfer,
+      burnBlockNumber: 75,
+      burnBlockHash: `0x${'aa'.repeat(32)}`,
+      burnLogIndex: 8,
+    } satisfies IEthereumBurnTransfer;
+    const txInfo = createTxInfo({
+      id: 95,
+      extrinsicHash: `0x${'ba'.repeat(32)}`,
+      metadataJson: {
+        txHash: confirmedBurnTransfer.burnTxHash,
+        logIndex: confirmedBurnTransfer.burnLogIndex,
+        recipientAddress: confirmedBurnTransfer.destinationAddress,
+        moveToken: confirmedBurnTransfer.moveToken,
+      },
+    });
+    const upstreamRelayEthereumProof = vi.fn(async () => ({
+      outcome: 'Submitted' as const,
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: txInfo.tx.extrinsicHash,
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+      txNonce: 6,
+      txSubmittedAtBlockHeight: 222,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 5n,
+    }));
+    const publicRelayEthereumProof = vi.fn(async () => {
+      throw new Error('public relay should not be called in this test');
+    });
+    const submitAndWatch = vi.fn(async () => {
+      throw new Error('submitAndWatch should not be called in this test');
+    });
+    const trackTxResult = vi.fn(async () => txInfo);
+    const ethereumClient = createEthereumClient(walletKeys.ethereumAddress, {
+      approveTransfer: vi.fn(() => approveTransfer.promise),
+      submitBurnTransfer: vi.fn(async () => submittedBurnTransfer),
+      confirmBurnTransfer: vi.fn(async () => confirmedBurnTransfer),
+      buildBurnProof: vi.fn(async () => ({ eventLog: { id: 'event-log' }, proof: { id: 'proof' } })),
+    });
+    const transactionTracker = createTransactionTracker({
+      submitAndWatch,
+      trackTxResult,
+    });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      transactionTracker,
+      walletKeys,
+      ethereumClient,
+      { operatorHost: 'https://upstream.example', relayEthereumProof: upstreamRelayEthereumProof } as any,
+      { relayEthereumProof: publicRelayEthereumProof } as any,
+    );
+
+    mainchainStoreMock.paymentInfo.mockResolvedValue({
+      partialFee: {
+        toBigInt: (): bigint => 5n,
+      },
+    });
+    walletsStoreMock.walletsForArgon.investmentWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.vaultingWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningHoldWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningBotWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.operationalWallet.availableMicrogons = 0n;
+
+    const activeTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.investment,
+    });
+
+    approveTransfer.resolve();
+
+    await vi.waitFor(() => {
+      expect(upstreamRelayEthereumProof).toHaveBeenCalledWith({
+        transferProof: {
+          Ethereum: {
+            sourceChain: 'Ethereum',
+            eventLog: { id: 'event-log' },
+            proof: { id: 'proof' },
+          },
+        },
+      });
+    });
+
+    await vi.waitFor(async () => {
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      expect(persisted).toMatchObject({
+        status: CrosschainInboundTransferStatus.ArgonProofSubmitted,
+        argonTxId: txInfo.tx.id,
+        argonTxHash: txInfo.tx.extrinsicHash,
+      });
+    });
+
+    expect(publicRelayEthereumProof).not.toHaveBeenCalled();
+    expect(trackTxResult).toHaveBeenCalled();
+    expect(submitAndWatch).not.toHaveBeenCalled();
+  });
+
+  it('uses the public relayer when no upstream relay is configured', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const approveTransfer = createDeferred<void>();
+    const submittedBurnTransfer = createBurnTransfer({
+      moveToken: MoveToken.ARGN,
+      destinationAddress: walletKeys.investmentAddress,
+      burnTxHash: `0x${'99'.repeat(32)}`,
+    });
+    const confirmedBurnTransfer = {
+      ...submittedBurnTransfer,
+      burnBlockNumber: 75,
+      burnBlockHash: `0x${'aa'.repeat(32)}`,
+      burnLogIndex: 8,
+    } satisfies IEthereumBurnTransfer;
+    const txInfo = createTxInfo({
+      id: 96,
+      extrinsicHash: `0x${'bb'.repeat(32)}`,
+      metadataJson: {
+        txHash: confirmedBurnTransfer.burnTxHash,
+        logIndex: confirmedBurnTransfer.burnLogIndex,
+        recipientAddress: confirmedBurnTransfer.destinationAddress,
+        moveToken: confirmedBurnTransfer.moveToken,
+      },
+    });
+    const publicRelayEthereumProof = vi.fn(async () => ({
+      outcome: 'Submitted' as const,
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: txInfo.tx.extrinsicHash,
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+      txNonce: 6,
+      txSubmittedAtBlockHeight: 222,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 5n,
+    }));
+    const submitAndWatch = vi.fn(async () => {
+      throw new Error('submitAndWatch should not be called in this test');
+    });
+    const trackTxResult = vi.fn(async () => txInfo);
+    const ethereumClient = createEthereumClient(walletKeys.ethereumAddress, {
+      approveTransfer: vi.fn(() => approveTransfer.promise),
+      submitBurnTransfer: vi.fn(async () => submittedBurnTransfer),
+      confirmBurnTransfer: vi.fn(async () => confirmedBurnTransfer),
+      buildBurnProof: vi.fn(async () => ({ eventLog: { id: 'event-log' }, proof: { id: 'proof' } })),
+    });
+    const transactionTracker = createTransactionTracker({
+      submitAndWatch,
+      trackTxResult,
+    });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      transactionTracker,
+      walletKeys,
+      ethereumClient,
+      { operatorHost: undefined, relayEthereumProof: vi.fn() } as any,
+      { relayEthereumProof: publicRelayEthereumProof } as any,
+    );
+
+    mainchainStoreMock.paymentInfo.mockResolvedValue({
+      partialFee: {
+        toBigInt: (): bigint => 5n,
+      },
+    });
+    walletsStoreMock.walletsForArgon.investmentWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.vaultingWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningHoldWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningBotWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.operationalWallet.availableMicrogons = 0n;
+
+    const activeTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.investment,
+    });
+
+    approveTransfer.resolve();
+
+    await vi.waitFor(() => {
+      expect(publicRelayEthereumProof).toHaveBeenCalledWith({
+        transferProof: {
+          Ethereum: {
+            sourceChain: 'Ethereum',
+            eventLog: { id: 'event-log' },
+            proof: { id: 'proof' },
+          },
+        },
+      });
+    });
+
+    await vi.waitFor(async () => {
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      expect(persisted).toMatchObject({
+        status: CrosschainInboundTransferStatus.ArgonProofSubmitted,
+        argonTxId: txInfo.tx.id,
+        argonTxHash: txInfo.tx.extrinsicHash,
+      });
+    });
+
+    expect(trackTxResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicType: ExtrinsicType.CrosschainTransferProve,
+        metadata: {
+          txHash: confirmedBurnTransfer.burnTxHash,
+          logIndex: confirmedBurnTransfer.burnLogIndex,
+          recipientAddress: confirmedBurnTransfer.destinationAddress,
+          moveToken: confirmedBurnTransfer.moveToken,
+        },
+      }),
+    );
+    expect(submitAndWatch).not.toHaveBeenCalled();
+  });
+
+  it('tells the user to move Argons into their account first when no signer can pay the proof fee', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const approveTransfer = createDeferred<void>();
+    const submittedBurnTransfer = createBurnTransfer({
+      moveToken: MoveToken.ARGNOT,
+      destinationAddress: walletKeys.investmentAddress,
+      burnTxHash: `0x${'cc'.repeat(32)}`,
+    });
+    const confirmedBurnTransfer = {
+      ...submittedBurnTransfer,
+      burnBlockNumber: 80,
+      burnBlockHash: `0x${'dd'.repeat(32)}`,
+      burnLogIndex: 9,
+    } satisfies IEthereumBurnTransfer;
+    const ethereumClient = createEthereumClient(walletKeys.ethereumAddress, {
+      approveTransfer: vi.fn(() => approveTransfer.promise),
+      submitBurnTransfer: vi.fn(async () => submittedBurnTransfer),
+      confirmBurnTransfer: vi.fn(async () => confirmedBurnTransfer),
+      buildBurnProof: vi.fn(async () => ({ eventLog: { id: 'event-log' }, proof: { id: 'proof' } })),
+    });
+    const transactionTracker = createTransactionTracker();
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      transactionTracker,
+      walletKeys,
+      ethereumClient,
+      { operatorHost: undefined, relayEthereumProof: vi.fn() } as any,
+      { relayEthereumProof: vi.fn() } as any,
+    );
+
+    mainchainStoreMock.paymentInfo.mockResolvedValue({
+      partialFee: {
+        toBigInt: (): bigint => 5n,
+      },
+    });
+    walletsStoreMock.walletsForArgon.investmentWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.vaultingWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningHoldWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.miningBotWallet.availableMicrogons = 0n;
+    walletsStoreMock.walletsForArgon.operationalWallet.availableMicrogons = 0n;
+
+    const activeTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGNOT,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.investment,
+    });
+
+    approveTransfer.resolve();
+
+    await vi.waitFor(() => {
+      expect(activeTransfer?.transferState.error).toBe(
+        'You need to move some Argons into your account first to pay the proof transaction fee.',
+      );
+    });
   });
 });
 
@@ -305,6 +727,7 @@ function createTransactionTracker(
   overrides: Partial<{
     load: () => Promise<void>;
     submitAndWatch: (args: unknown) => Promise<TransactionInfo<IEthereumProofTxMetadata>>;
+    trackTxResult: (args: unknown) => Promise<TransactionInfo<IEthereumProofTxMetadata>>;
     findLatestTxInfo: (
       matcher: (txInfo: TransactionInfo<IEthereumProofTxMetadata>) => boolean,
     ) => TransactionInfo<IEthereumProofTxMetadata> | undefined;
@@ -317,6 +740,11 @@ function createTransactionTracker(
       overrides.submitAndWatch ??
       vi.fn(async () => {
         throw new Error('submitAndWatch should not be called in this test');
+      }),
+    trackTxResult:
+      overrides.trackTxResult ??
+      vi.fn(async () => {
+        throw new Error('trackTxResult should not be called in this test');
       }),
     findLatestTxInfo: overrides.findLatestTxInfo ?? vi.fn(() => undefined),
     getTxAttemptState: overrides.getTxAttemptState ?? vi.fn(async () => TxAttemptState.Replace),

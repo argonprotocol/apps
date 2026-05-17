@@ -97,6 +97,7 @@ jobs:
         shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
         env:
           ARGON_E2E_HEADLESS: '0'
+          E2E_FLOW_APP_LOGS: 'quiet'
           E2E_SCREENSHOT_MODE: '1'
 
       - name: Tests (macOS/Windows)

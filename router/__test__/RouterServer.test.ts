@@ -444,6 +444,107 @@ describe('RouterServer', () => {
     expect(authenticatedInitializeResponse.status).toBe(200);
   });
 
+  it('allows treasury and operational sessions to relay Ethereum proofs through router pass-through', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-ethereum-proof-relay-auth-test-'));
+    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const treasuryUser = new Keyring({ type: 'sr25519' }).addFromUri('//TreasuryRelayUser');
+    const operationalUser = new Keyring({ type: 'sr25519' }).addFromUri('//OperationalRelayUser');
+    const treasuryAuth = treasuryUser.derive('//upstream-operator-auth');
+    const operationalAuth = operationalUser.derive('//upstream-operator-auth');
+    const started = await startRouterServer(
+      routerDb,
+      {
+        status: 200,
+        body: {
+          outcome: 'Submitted',
+          delegateAddress: '5RelayDelegate',
+          argonTxHash: '0xrelaytx',
+          extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+          txNonce: 3,
+          txSubmittedAtBlockHeight: 44,
+          txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+          estimatedFee: 5n,
+        },
+      },
+      {
+        adminOperatorAccountId: operator.address,
+        sessionTtlSeconds: 60,
+      },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    const { routerAddress } = started;
+
+    const treasuryRecord = routerDb.usersTable.insertUser({
+      role: UserRole.TreasuryUser,
+      name: 'Treasury Relay',
+    });
+    routerDb.userInvitesTable.insertInvite(treasuryRecord.id, InviteCodes.create().inviteCode, 'Operator One');
+    routerDb.userInvitesTable.claimInvite(treasuryRecord.id, treasuryUser.address, treasuryAuth.address);
+
+    const operationalRecord = routerDb.usersTable.insertUser({
+      role: UserRole.OperationalPartner,
+      name: 'Operational Relay',
+    });
+    routerDb.userInvitesTable.insertInvite(operationalRecord.id, InviteCodes.create().inviteCode, 'Operator One');
+    routerDb.userInvitesTable.claimInvite(operationalRecord.id, operationalUser.address, operationalAuth.address);
+
+    const { cookie: treasuryCookie } = await login(routerAddress, treasuryUser, UserRole.TreasuryUser, treasuryAuth);
+    const { cookie: operationalCookie } = await login(
+      routerAddress,
+      operationalUser,
+      UserRole.OperationalPartner,
+      operationalAuth,
+    );
+
+    const relayPath = '/ethereum-proof-relay';
+    const relayBody = {
+      transferProof: {
+        Ethereum: {
+          sourceChain: 'Ethereum',
+          eventLog: { address: '0x1' },
+          proof: { blockHash: '0x2' },
+        },
+      },
+    };
+
+    const unauthenticatedResponse = await requestJson(routerAddress, relayPath, relayBody);
+    expect(unauthenticatedResponse.status).toBe(401);
+
+    const treasuryResponse = await requestJson(routerAddress, relayPath, relayBody, {
+      Cookie: treasuryCookie,
+    });
+    expect(treasuryResponse.status).toBe(200);
+    expect(JsonExt.parse(await treasuryResponse.text())).toEqual({
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xrelaytx',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+      txNonce: 3,
+      txSubmittedAtBlockHeight: 44,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 5n,
+    });
+
+    const operationalResponse = await requestJson(routerAddress, relayPath, relayBody, {
+      Cookie: operationalCookie,
+    });
+    expect(operationalResponse.status).toBe(200);
+    expect(JsonExt.parse(await operationalResponse.text())).toEqual({
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xrelaytx',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+      txNonce: 3,
+      txSubmittedAtBlockHeight: 44,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 5n,
+    });
+  });
+
   it('accepts claimed operational users without granting treasury or bot access', async () => {
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-auth-test-'));
     routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));

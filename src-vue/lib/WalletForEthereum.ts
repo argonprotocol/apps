@@ -141,7 +141,7 @@ export class WalletForEthereum {
       }
       return result;
     } catch (error) {
-      console.error('Ethereum wallet chain-config load failed', {
+      console.warn('Ethereum wallet chain-config load failed', {
         address: this.address,
         error,
       });

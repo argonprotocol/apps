@@ -27,6 +27,7 @@ declare const __SERVER_ENV_VARS__: {
   BITCOIN_ADDNODE?: string;
   ARGON_VERSION: string;
   ETHEREUM_FINALITY_MILLIS?: string;
+  ETHEREUM_EXECUTION_RPC_URL?: string;
   NOTEBOOK_ARCHIVE_HOSTS?: string;
   NOTARY_ALIAS_CONTAINER_ID?: string;
 };

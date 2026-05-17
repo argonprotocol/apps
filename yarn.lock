@@ -58,6 +58,7 @@ __metadata:
     tsup: "npm:^8.5.0"
     tsx: "npm:^4.20.5"
     typescript: "npm:^5.9.2"
+    viem: "npm:^2.48.8"
     ws: "npm:^8.18.3"
   languageName: unknown
   linkType: soft

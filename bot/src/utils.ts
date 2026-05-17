@@ -1,4 +1,7 @@
 import express from 'express';
+import os from 'node:os';
+import { promises as Fs } from 'node:fs';
+import { Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 
 export function onExit(fn: () => void | Promise<void>) {
   const handler = async () => {
@@ -36,4 +39,11 @@ export function jsonExt(data: any, response: express.Response) {
     2,
   );
   response.status(200).type('application/json').send(json);
+}
+
+export async function loadKeypair(path: string): Promise<KeyringPair> {
+  const json = JSON.parse(await Fs.readFile(path.replace('~', os.homedir()), 'utf-8'));
+  const pair = new Keyring().createFromJson(json);
+  pair.decodePkcs8('');
+  return pair;
 }

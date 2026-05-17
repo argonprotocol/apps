@@ -16,6 +16,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
 import { Db } from '../src/Db.ts';
+import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 
 NetworkConfig.setNetwork('dev-docker');
 
@@ -389,7 +390,18 @@ async function createRelayServiceHarness(args?: { bestBlockNumber?: number; fina
   const clients = {
     get: vi.fn(async () => ({})),
   } as unknown as MainchainClients;
-  const service = new BitcoinLockRelayService(db, clients, blockWatch, sudo().address, sudo());
+  const laneClient = {
+    rpc: {
+      system: {
+        accountNextIndex: vi.fn(async () => ({
+          toNumber: () => 1,
+        })),
+      },
+    },
+  } as any;
+  const submitLane = new DelegateSubmitLane(sudo());
+  submitLane.client = laneClient;
+  const service = new BitcoinLockRelayService(db, clients, blockWatch, sudo().address, submitLane);
 
   return {
     db,

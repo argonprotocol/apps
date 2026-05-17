@@ -126,13 +126,20 @@ export class RouterAuthService {
   }
 
   public requireTreasuryUserSession(req: Request, accountId: string): void {
+    this.requireUserSession(req, [UserRole.TreasuryUser], accountId);
+  }
+
+  public requireUserSession(req: Request, allowedRoles: readonly RouterAuthRole[], accountId?: string): void {
     if (!this.isEnabled) return;
 
     const user = this.getRequestUser(req);
     if (!user) {
       throw new RouterError('Unauthorized', 401);
     }
-    if (user.role !== UserRole.TreasuryUser || user.accountId !== accountId) {
+    if (!allowedRoles.includes(user.role)) {
+      throw new RouterError('Forbidden', 403);
+    }
+    if (accountId && user.accountId !== accountId) {
       throw new RouterError('Forbidden', 403);
     }
   }

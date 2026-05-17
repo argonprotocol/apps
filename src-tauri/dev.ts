@@ -46,6 +46,7 @@ async function main(): Promise<void> {
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   const devEthereumConfig = readDevEthereumConfigFromEnv();
   let devEthereumRuntime: { shutdown(): Promise<void> } | undefined;
+  let devEthereumStartPromise: Promise<{ shutdown(): Promise<void> } | undefined> | undefined;
   let devEthereumSetup: IDevEthereumSetup | undefined;
   if (network === 'dev-docker') {
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
@@ -64,7 +65,9 @@ async function main(): Promise<void> {
     }
 
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
-    const runtimeOverride = composePorts ? await resolveDevDockerNetworkConfigOverride(composePorts, devEthereum) : null;
+    const runtimeOverride = composePorts
+      ? await resolveDevDockerNetworkConfigOverride(composePorts, devEthereum, devEthereumSetup?.relayerUrl)
+      : null;
     const resolvedOverride = inheritedOverride
       ? mergeNetworkConfigOverrides(JSON.parse(inheritedOverride), runtimeOverride)
       : runtimeOverride;
@@ -72,7 +75,7 @@ async function main(): Promise<void> {
     if (resolvedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
       console.log(
-        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}`,
+        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.defaultRelayerHost ? ` relayer=${resolvedOverride.defaultRelayerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}`,
       );
     } else {
       delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
@@ -94,15 +97,22 @@ async function main(): Promise<void> {
   });
 
   if (devEthereumSetup) {
-    void devEthereumSetup.start().then(x => {
-      devEthereumRuntime = x;
-    }).catch(error => {
-      console.error(`[tauri-dev] Failed to finish local Ethereum setup: ${(error as Error).message}`);
-    });
+    devEthereumStartPromise = devEthereumSetup
+      .start()
+      .then(runtime => {
+        devEthereumRuntime = runtime;
+        return runtime;
+      })
+      .catch(error => {
+        console.error(`[tauri-dev] Failed to finish local Ethereum setup: ${(error as Error).message}`);
+        return undefined;
+      });
   }
 
   child.on('exit', code => {
-    const shutdownPromise = devEthereumRuntime?.shutdown() ?? Promise.resolve();
+    const shutdownPromise = (devEthereumStartPromise ?? Promise.resolve(devEthereumRuntime))
+      .then(runtime => runtime?.shutdown())
+      .catch(() => undefined);
     void shutdownPromise.finally(() => {
       process.exit(code ?? 0);
     });
@@ -240,6 +250,7 @@ async function resolveNotaryArchiveHost(notaryPort: string, minioPort: string): 
 async function resolveDevDockerNetworkConfigOverride(
   ports: DevDockerComposePorts,
   devEthereum?: IStartDevEthereumResult,
+  relayerUrl?: string,
 ): Promise<RuntimeNetworkConfigOverride | null> {
   const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
   let runtimeConfig: RuntimeChainConfig;
@@ -264,6 +275,9 @@ async function resolveDevDockerNetworkConfigOverride(
   };
   if (ports.indexerPort) {
     override.indexerHost = `http://localhost:${ports.indexerPort}`;
+  }
+  if (relayerUrl) {
+    override.defaultRelayerHost = relayerUrl;
   }
   return override;
 }

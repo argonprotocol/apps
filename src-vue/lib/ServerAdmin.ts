@@ -135,6 +135,7 @@ export class ServerAdmin {
     vaultOperatorAddress: string;
     operatorAccountId: string;
     ethereumBeaconApiUrl?: string;
+    ethereumExecutionRpcUrl?: string;
   }): Promise<void> {
     const lines = [
       `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}`,
@@ -142,9 +143,13 @@ export class ServerAdmin {
       `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}`,
     ];
     const ethereumBeaconApiUrl = envState.ethereumBeaconApiUrl?.trim();
+    const ethereumExecutionRpcUrl = envState.ethereumExecutionRpcUrl?.trim();
 
     if (ethereumBeaconApiUrl) {
       lines.push(`ETHEREUM_BEACON_API_URL=${ethereumBeaconApiUrl}`);
+    }
+    if (ethereumExecutionRpcUrl) {
+      lines.push(`ETHEREUM_EXECUTION_RPC_URL=${ethereumExecutionRpcUrl}`);
     }
 
     const envStateStr = `${lines.join('\n')}\n`;

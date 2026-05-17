@@ -1,8 +1,9 @@
 import { MoveToken } from '@argonprotocol/apps-core';
-import type { TxSigningAccount } from '@argonprotocol/mainchain';
+import { TxResult, type TxSigningAccount } from '@argonprotocol/mainchain';
 import { nanoid } from 'nanoid';
 import type { IArgonWalletType, IEthereumInboundTransferState } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
+import { getWalletsForArgon } from '../stores/wallets.ts';
 import type { TransactionInfo } from './TransactionInfo.ts';
 import { EthereumClient, type IEthereumBurnTransfer, type IEthereumMoveToken } from './EthereumClient.ts';
 import {
@@ -11,8 +12,11 @@ import {
 } from './db/CrosschainInboundTransfersTable.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import type { Db } from './Db.ts';
+import type { PublicRelayerClient } from './PublicRelayerClient.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
+import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import { WalletType } from './Wallet.ts';
+import { existentialDepositMicrogons } from './WalletForArgon.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 export type {
   IArgonWalletType,
@@ -52,6 +56,8 @@ export class EthereumInboundTransferTracker {
     private readonly transactionTracker: TransactionTracker,
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: EthereumClient,
+    private readonly upstreamOperatorClient: UpstreamOperatorClient,
+    private readonly publicRelayerClient: PublicRelayerClient,
   ) {}
 
   public async load(): Promise<void> {
@@ -255,11 +261,10 @@ export class EthereumInboundTransferTracker {
         activeRecord = persistedBurnTransfer;
       }
 
-      const { txSigner } = await this.getDestinationAndSigner(targetWalletType);
       await this.submitTransferToArgon({
         transferId: activeRecord.transferId,
         burnTransfer: confirmedBurnTransfer,
-        txSigner,
+        targetWalletType,
       });
     } catch (error) {
       transferState.error = error instanceof Error ? error.message : 'Unable to resume the Ethereum transfer.';
@@ -278,7 +283,7 @@ export class EthereumInboundTransferTracker {
     const transferState = this.getTransferState(transferId);
 
     try {
-      const { destinationAddress, txSigner } = await this.getDestinationAndSigner(targetWalletType);
+      const { destinationAddress } = await this.getDestinationAndSigner(targetWalletType);
 
       transferState.phase = 'awaitingEthereumApproval';
       await this.ethereumClient.approveTransfer({
@@ -320,7 +325,7 @@ export class EthereumInboundTransferTracker {
       await this.submitTransferToArgon({
         transferId,
         burnTransfer: confirmedBurnTransfer,
-        txSigner,
+        targetWalletType,
       });
     } catch (error) {
       transferState.error = error instanceof Error ? error.message : 'Unable to move funds from Ethereum.';
@@ -392,9 +397,9 @@ export class EthereumInboundTransferTracker {
   private async submitTransferToArgon(args: {
     transferId: string;
     burnTransfer: IEthereumBurnTransfer;
-    txSigner: TxSigningAccount;
+    targetWalletType: IArgonWalletType;
   }) {
-    const { transferId, burnTransfer, txSigner } = args;
+    const { transferId, burnTransfer, targetWalletType } = args;
     const eventProof = await this.buildBurnProof(transferId, burnTransfer);
     const table = (await this.dbPromise).crosschainInboundTransfersTable;
 
@@ -403,23 +408,61 @@ export class EthereumInboundTransferTracker {
     const transferState = this.getTransferState(transferId);
     transferState.phase = 'confirmingArgon';
     const mainchainClient = await getMainchainClient(false);
-    const txInfo = await this.transactionTracker.submitAndWatch({
-      tx: mainchainClient.tx.crosschainTransfer.proveTransfer({
-        Ethereum: {
-          sourceChain: 'Ethereum',
-          eventLog: eventProof.eventLog,
-          proof: eventProof.proof,
-        },
-      }),
-      txSigner,
-      extrinsicType: ExtrinsicType.CrosschainTransferProve,
-      metadata: {
-        txHash: burnTransfer.burnTxHash,
-        logIndex: burnTransfer.burnLogIndex!,
-        recipientAddress: burnTransfer.destinationAddress,
-        moveToken: burnTransfer.moveToken,
-      } satisfies IEthereumInboundTransferTxMetadata,
-    });
+    const transferProof = {
+      Ethereum: {
+        sourceChain: 'Ethereum' as const,
+        eventLog: eventProof.eventLog,
+        proof: eventProof.proof,
+      },
+    };
+    const tx = mainchainClient.tx.crosschainTransfer.proveTransfer(transferProof);
+    const metadata = {
+      txHash: burnTransfer.burnTxHash,
+      logIndex: burnTransfer.burnLogIndex!,
+      recipientAddress: burnTransfer.destinationAddress,
+      moveToken: burnTransfer.moveToken,
+    } satisfies IEthereumInboundTransferTxMetadata;
+
+    let txInfo: TransactionInfo<IEthereumInboundTransferTxMetadata> | undefined;
+    const txSigner = await this.findAffordableProofSubmitSigner(tx, targetWalletType);
+
+    if (!txSigner) {
+      const relayerApiClient = this.upstreamOperatorClient.operatorHost
+        ? this.upstreamOperatorClient
+        : this.publicRelayerClient;
+
+      if (burnTransfer.moveToken === MoveToken.ARGN) {
+        const relayResponse = await relayerApiClient.relayEthereumProof({ transferProof });
+        if (relayResponse.outcome === 'Rejected') {
+          throw new Error(relayResponse.reason);
+        }
+
+        const txResult = new TxResult(mainchainClient, {
+          signedHash: relayResponse.argonTxHash,
+          method: relayResponse.extrinsicMethodJson,
+          nonce: relayResponse.txNonce,
+          accountAddress: relayResponse.delegateAddress,
+          submittedTime: relayResponse.txSubmittedAtTime,
+          submittedAtBlockNumber: relayResponse.txSubmittedAtBlockHeight,
+        });
+        txResult.isBroadcast = true;
+
+        txInfo = await this.transactionTracker.trackTxResult({
+          txResult,
+          extrinsicType: ExtrinsicType.CrosschainTransferProve,
+          metadata,
+        });
+      } else {
+        throw new Error('You need to move some Argons into your account first to pay the proof transaction fee.');
+      }
+    } else {
+      txInfo = await this.transactionTracker.submitAndWatch({
+        tx,
+        txSigner,
+        extrinsicType: ExtrinsicType.CrosschainTransferProve,
+        metadata,
+      });
+    }
 
     await table.recordArgonProofSubmitted({
       transferId,
@@ -518,23 +561,90 @@ export class EthereumInboundTransferTracker {
       case WalletType.investment:
         return {
           destinationAddress: this.walletKeys.investmentAddress,
-          txSigner: (await this.walletKeys.getInvestmentKeypair()) as TxSigningAccount,
+          txSigner: await this.getProofSubmitSigner(WalletType.investment),
         };
       case WalletType.miningHold:
         return {
           destinationAddress: this.walletKeys.miningHoldAddress,
-          txSigner: (await this.walletKeys.getMiningHoldKeypair()) as TxSigningAccount,
+          txSigner: await this.getProofSubmitSigner(WalletType.miningHold),
         };
       case WalletType.vaulting:
         return {
           destinationAddress: this.walletKeys.vaultingAddress,
-          txSigner: (await this.walletKeys.getVaultingKeypair()) as TxSigningAccount,
+          txSigner: await this.getProofSubmitSigner(WalletType.vaulting),
         };
     }
 
     const unhandledWalletType: never = targetWalletType;
     void unhandledWalletType;
     throw new Error('Unsupported target wallet type.');
+  }
+
+  private async findAffordableProofSubmitSigner(
+    tx: { paymentInfo: (address: string) => Promise<{ partialFee: { toBigInt(): bigint } }> },
+    targetWalletType: IArgonWalletType,
+  ): Promise<TxSigningAccount | undefined> {
+    const walletsForArgon = getWalletsForArgon();
+    await walletsForArgon.load();
+    const candidateSigners = await this.getProofSubmitSigners(targetWalletType, walletsForArgon);
+
+    for (const candidate of candidateSigners) {
+      const estimatedFee = (await tx.paymentInfo(candidate.txSigner.address)).partialFee.toBigInt();
+      if (candidate.availableMicrogons >= estimatedFee + existentialDepositMicrogons) {
+        return candidate.txSigner;
+      }
+    }
+  }
+
+  private async getProofSubmitSigners(
+    targetWalletType: IArgonWalletType,
+    walletsForArgon: ReturnType<typeof getWalletsForArgon>,
+  ): Promise<Array<{ txSigner: TxSigningAccount; availableMicrogons: bigint }>> {
+    const candidates: Array<{ walletType: IArgonWalletType; availableMicrogons: bigint }> = [
+      {
+        walletType: targetWalletType,
+        availableMicrogons: this.getWalletAvailableMicrogons(walletsForArgon, targetWalletType),
+      },
+      { walletType: WalletType.vaulting, availableMicrogons: walletsForArgon.vaultingWallet.availableMicrogons },
+      { walletType: WalletType.investment, availableMicrogons: walletsForArgon.investmentWallet.availableMicrogons },
+      { walletType: WalletType.miningHold, availableMicrogons: walletsForArgon.miningHoldWallet.availableMicrogons },
+    ];
+
+    const signers = await Promise.all(
+      candidates.map(async ({ walletType, availableMicrogons }) => ({
+        txSigner: await this.getProofSubmitSigner(walletType),
+        availableMicrogons,
+      })),
+    );
+
+    return signers.filter(
+      (signer, index) => signers.findIndex(x => x.txSigner.address === signer.txSigner.address) === index,
+    );
+  }
+
+  private async getProofSubmitSigner(walletType: IArgonWalletType): Promise<TxSigningAccount> {
+    switch (walletType) {
+      case WalletType.investment:
+        return (await this.walletKeys.getInvestmentKeypair()) as TxSigningAccount;
+      case WalletType.miningHold:
+        return (await this.walletKeys.getMiningHoldKeypair()) as TxSigningAccount;
+      case WalletType.vaulting:
+        return (await this.walletKeys.getVaultingKeypair()) as TxSigningAccount;
+    }
+  }
+
+  private getWalletAvailableMicrogons(
+    walletsForArgon: ReturnType<typeof getWalletsForArgon>,
+    walletType: IArgonWalletType,
+  ): bigint {
+    switch (walletType) {
+      case WalletType.investment:
+        return walletsForArgon.investmentWallet.availableMicrogons;
+      case WalletType.miningHold:
+        return walletsForArgon.miningHoldWallet.availableMicrogons;
+      case WalletType.vaulting:
+        return walletsForArgon.vaultingWallet.availableMicrogons;
+    }
   }
 
   private getTargetWalletType(argonDestinationAddress: string): IArgonWalletType {

@@ -36,6 +36,7 @@ import {
 import type Bot from '../../bot/src/Bot.ts';
 import { startServer as startBotServer, type BotServer } from '../../bot/src/server.ts';
 import { BitcoinLockRelayService } from '../../bot/src/BitcoinLockRelayService.ts';
+import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
 import { Db as BotDb } from '../../bot/src/Db.ts';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { RouterServer } from '../../router/src/RouterServer.ts';
@@ -148,12 +149,14 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       botDb = new BotDb(Path.join(tempDir, 'bot'));
       botDb.migrate();
       relayBlockWatch = new BlockWatch(operatorHarness.clients);
+      const submitLane = new DelegateSubmitLane(delegateKeypair);
+      submitLane.client = await operatorHarness.clients.get(false);
       relayService = new BitcoinLockRelayService(
         botDb,
         operatorHarness.clients,
         relayBlockWatch,
         operatorHarness.walletKeys.vaultingAddress,
-        delegateKeypair,
+        submitLane,
       );
       const activeRelayService = relayService;
       const botApi = {
