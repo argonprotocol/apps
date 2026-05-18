@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type IMockSubmitResult = {
   extrinsic: { signedHash: string };
@@ -9,8 +9,14 @@ type IMockTx = { id: string };
 type IMockSubmitOptions = { useLatestNonce?: boolean };
 
 const mainchainMock = vi.hoisted(() => {
+  const dispatchErrorToString = vi.fn();
+  const getEthereumBeaconSyncBootstrapTx = vi.fn();
   const getEthereumBeaconSyncState = vi.fn();
   const getNextEthereumBeaconSyncTxs = vi.fn();
+  const isOutdatedTransactionError = vi.fn((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('Invalid Transaction: Transaction is outdated');
+  });
   const submitTx =
     vi.fn<(tx: IMockTx, syncKeypair: unknown, options?: IMockSubmitOptions) => Promise<IMockSubmitResult>>();
 
@@ -29,20 +35,29 @@ const mainchainMock = vi.hoisted(() => {
   }
 
   return {
+    dispatchErrorToString,
+    getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs,
+    isOutdatedTransactionError,
     submitTx,
     TxSubmitter,
   };
 });
 
 vi.mock('@argonprotocol/mainchain', () => ({
+  dispatchErrorToString: mainchainMock.dispatchErrorToString,
+  getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
   getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
+  isOutdatedTransactionError: mainchainMock.isOutdatedTransactionError,
   TxSubmitter: mainchainMock.TxSubmitter,
 }));
 
-import { EthereumBeaconSyncService } from '../src/EthereumBeaconSyncService.ts';
+import {
+  EthereumBeaconSyncService,
+  waitForFinalizedBeaconExecutionAtOrAbove,
+} from '../src/EthereumBeaconSyncService.ts';
 
 describe('EthereumBeaconSyncService', () => {
   const client = {} as any;
@@ -50,6 +65,10 @@ describe('EthereumBeaconSyncService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('reports disabled when beacon sync is not configured', async () => {
@@ -86,7 +105,7 @@ describe('EthereumBeaconSyncService', () => {
     });
   });
 
-  it('submits returned transactions without waiting between them and refreshes sync state', async () => {
+  it('submits returned transactions in order and refreshes sync state', async () => {
     let resolveFirstInBlock!: () => void;
     const firstInBlock = new Promise<void>(resolve => {
       resolveFirstInBlock = resolve;
@@ -127,17 +146,21 @@ describe('EthereumBeaconSyncService', () => {
 
     const runOncePromise = service.runOnce();
     await vi.waitFor(() => {
-      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(2);
+      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
     });
 
     expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(1, txs[0], syncKeypair, {
       useLatestNonce: true,
     });
+
+    resolveFirstInBlock();
+    await vi.waitFor(() => {
+      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(2);
+    });
+
     expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[1], syncKeypair, {
       useLatestNonce: true,
     });
-
-    resolveFirstInBlock();
     await runOncePromise;
 
     expect(service.state()).toMatchObject({
@@ -178,5 +201,28 @@ describe('EthereumBeaconSyncService', () => {
     });
     expect(service.state().lastError).toBeUndefined();
     expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it('times out stalled beacon requests instead of waiting indefinitely', async () => {
+    const fetchMock = vi.fn((_input: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => {
+            const abortError = init.signal?.reason ?? Object.assign(new Error('Aborted'), { name: 'AbortError' });
+            reject(abortError);
+          },
+          { once: true },
+        );
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    await expect(
+      waitForFinalizedBeaconExecutionAtOrAbove('https://beacon.example', 1n, {
+        timeoutMs: 25,
+        pollMs: 1,
+      }),
+    ).rejects.toThrow(/Beacon API request timed out after \d+ms for \/eth\/v1\/beacon\/headers\/finalized/);
   });
 });

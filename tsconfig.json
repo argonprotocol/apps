@@ -24,7 +24,7 @@
     "paths": {
       "@argonprotocol/apps-core": ["./core/src/index.ts"],
       "@argonprotocol/cli": ["./cli/src/index.ts"],
-      "@argonprotocol/apps-bot": ["./bot/src/index.ts"],
+      "@argonprotocol/apps-bot": ["./bot/src/public.ts"],
       "@argonprotocol/apps-indexer": ["./indexer/src/index.ts"]
     }
   },

@@ -77,6 +77,18 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: sudo chmod 666 /var/run/docker.sock
 
+      - name: Install Kurtosis
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install -y kurtosis-cli
+          kurtosis version
+
+      - name: Start Kurtosis engine
+        if: matrix.platform == 'ubuntu-latest'
+        run: kurtosis engine start
+
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
       # dbus-run-session provides a D-Bus session bus that WebKit/GTK requires.
       - name: Tests (Linux)
@@ -98,7 +110,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
-          path: /tmp/troubleshooting-*
+          path: |
+            /tmp/troubleshooting-*
+            ${{ env.CI_TEMP_DIR }}/e2e-app-output-*.log
           if-no-files-found: ignore
 
       - name: Upload e2e screenshots

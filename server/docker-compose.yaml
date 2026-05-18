@@ -6,6 +6,8 @@ x-common-config: &common-config
       max-file: '5'
   networks:
     - default
+  extra_hosts:
+    - 'host.docker.internal:host-gateway'
 
 services:
   router:

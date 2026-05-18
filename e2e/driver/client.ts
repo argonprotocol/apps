@@ -208,11 +208,15 @@ export class DriverClient {
         } else if (eventName === 'frontend.error') {
           const details = formatFrontendError(payload);
           this.frontendErrors.push(details);
-          const error = new Error(`[E2E] App event ${eventName} ${details}`);
-          this.fatalFrontendError = error;
-          console.error(error.message);
-          this.rejectAllPending(error);
-          this.rejectWaitForApp(error);
+          if (isFatalFrontendError(payload)) {
+            const error = new Error(`[E2E] App event ${eventName} ${details}`);
+            this.fatalFrontendError = error;
+            console.error(error.message);
+            this.rejectAllPending(error);
+            this.rejectWaitForApp(error);
+          } else {
+            logDriverTrace(`[E2E] App event ${eventName} ${details}`);
+          }
         } else {
           logDriverTrace(`[E2E] App event ${eventName}`);
         }
@@ -319,4 +323,9 @@ function formatFrontendError(payload: UnknownRecord): string {
   const column = typeof payload.column === 'number' ? ` column=${payload.column}` : '';
   const stack = typeof payload.stack === 'string' ? ` stack=${payload.stack}` : '';
   return `[${label}] ${message}${filename}${line}${column}${stack}`;
+}
+
+function isFatalFrontendError(payload: UnknownRecord): boolean {
+  const label = typeof payload.label === 'string' ? payload.label : '';
+  return label !== 'console.error';
 }

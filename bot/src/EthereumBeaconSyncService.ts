@@ -1,8 +1,12 @@
 import { setTimeout } from 'node:timers/promises';
 import type { IEthereumSyncStatus } from '@argonprotocol/apps-core';
+import { SingleFileQueue } from '@argonprotocol/apps-core/src/SingleFileQueue.ts';
 import {
+  dispatchErrorToString,
+  getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState,
   getNextEthereumBeaconSyncTxs,
+  isOutdatedTransactionError,
   type ArgonClient,
   type KeyringPair,
   TxSubmitter,
@@ -14,8 +18,20 @@ type IEthereumBeaconSyncServiceOptions = {
   syncKeypair: KeyringPair;
 };
 
+type IEthereumBeaconBootstrapOptions = {
+  timeoutMs?: number;
+  pollMs?: number;
+  minimumExecutionBlockNumber?: bigint;
+  minimumFinalizedSlot?: bigint;
+};
+
+const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_BOOTSTRAP_POLL_MS = 1_000;
+const DEFAULT_BEACON_REQUEST_TIMEOUT_MS = 10_000;
+
 export class EthereumBeaconSyncService {
   private loopPromise?: Promise<void>;
+  private readonly runQueue = new SingleFileQueue();
   private shouldStop = false;
   private readonly pollMs: number;
   private readonly stateData: IEthereumSyncStatus;
@@ -46,6 +62,7 @@ export class EthereumBeaconSyncService {
   public async shutdown(): Promise<void> {
     this.shouldStop = true;
     await this.loopPromise;
+    await this.runQueue.stop(true);
   }
 
   public async runOnce(): Promise<void> {
@@ -54,10 +71,77 @@ export class EthereumBeaconSyncService {
       return;
     }
 
-    try {
-      await this.runOnceInner();
-    } catch (error) {
-      this.recordError(error);
+    await this.runQueue.add(async () => {
+      if (this.shouldStop) return;
+
+      try {
+        await this.runOnceInner();
+      } catch (error) {
+        this.recordError(error);
+      }
+    }).promise;
+  }
+
+  public static async ensureBootstrapped(
+    client: ArgonClient,
+    beaconApiUrl: string,
+    sudoKeypair: KeyringPair,
+    options: IEthereumBeaconBootstrapOptions = {},
+  ): Promise<void> {
+    const state = await getEthereumBeaconSyncState(client);
+    if (state.isBootstrapped) {
+      return;
+    }
+
+    const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
+    const pollMs = options.pollMs ?? DEFAULT_BOOTSTRAP_POLL_MS;
+    const minimumExecutionBlockNumber = options.minimumExecutionBlockNumber ?? 1n;
+    const minimumFinalizedSlot = options.minimumFinalizedSlot ?? 0n;
+
+    await waitForFinalizedBeaconExecutionAtOrAbove(beaconApiUrl, minimumExecutionBlockNumber, {
+      timeoutMs,
+      pollMs,
+      minimumFinalizedSlot,
+    });
+
+    const startedAt = Date.now();
+    let bootstrapTx;
+    let lastBootstrapError: Error | undefined;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client, beaconApiUrl);
+        break;
+      } catch (error) {
+        if (!(error instanceof Error)) {
+          throw error;
+        }
+        lastBootstrapError = error;
+        if (!isBootstrapEndpointNotReady(error.message)) {
+          throw error;
+        }
+        await setTimeout(pollMs);
+      }
+    }
+
+    if (!bootstrapTx) {
+      const lastErrorSuffix = lastBootstrapError ? ` Last error: ${lastBootstrapError.message}` : '';
+      throw new Error(
+        `Ethereum beacon light-client bootstrap endpoint did not become ready within ${Math.floor(timeoutMs / 1000)}s.${lastErrorSuffix}`,
+      );
+    }
+
+    const result = await new TxSubmitter(client, client.tx.sudo.sudo(bootstrapTx), sudoKeypair).submit();
+    await result.waitForInFirstBlock;
+
+    const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
+    if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+      throw new Error('Bootstrap transaction did not emit sudo.Sudid.');
+    }
+    if (sudoResultEvent.data.sudoResult.isErr) {
+      throw new Error(
+        `Bootstrap failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
+      );
     }
   }
 
@@ -88,7 +172,17 @@ export class EthereumBeaconSyncService {
     }
 
     this.stateData.latestFinalizedSlot = syncState.latestFinalizedSlot;
-    const txs = await getNextEthereumBeaconSyncTxs(this.client, beaconApiUrl);
+
+    let txs;
+    try {
+      txs = await getNextEthereumBeaconSyncTxs(this.client, beaconApiUrl);
+    } catch (error) {
+      if (isLightClientFinalityUpdateNotReady(error)) {
+        this.stateData.mode = 'idle';
+        return;
+      }
+      throw error;
+    }
 
     if (!txs.length) {
       this.stateData.mode = 'idle';
@@ -96,19 +190,23 @@ export class EthereumBeaconSyncService {
     }
 
     this.stateData.mode = 'submitting';
-    const submittedTxs = [];
-
     for (const tx of txs) {
       if (this.shouldStop) return;
 
-      const result = await new TxSubmitter(this.client, tx, syncKeypair).submit({
-        useLatestNonce: true,
-      });
-      this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
-      submittedTxs.push(result);
+      try {
+        const result = await new TxSubmitter(this.client, tx, syncKeypair).submit({
+          useLatestNonce: true,
+        });
+        this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
+        await result.waitForInFirstBlock;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isOutdatedTransactionError(error) || message.includes('Priority is too low')) {
+          continue;
+        }
+        throw error;
+      }
     }
-
-    await Promise.all(submittedTxs.map(x => x.waitForInFirstBlock));
 
     const refreshedState = await getEthereumBeaconSyncState(this.client);
     this.stateData.latestSyncCommitteeUpdatePeriod = refreshedState.latestSyncCommitteeUpdatePeriod;
@@ -122,4 +220,111 @@ export class EthereumBeaconSyncService {
     this.stateData.lastError = message;
     console.error('[EthereumBeaconSyncService] Error syncing beacon headers', error);
   }
+}
+
+export async function waitForFinalizedBeaconExecutionAtOrAbove(
+  beaconApiUrl: string,
+  minimumExecutionBlockNumber: bigint,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+    minimumFinalizedSlot?: bigint;
+  } = {},
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? DEFAULT_BOOTSTRAP_POLL_MS;
+  const minimumFinalizedSlot = options.minimumFinalizedSlot ?? 0n;
+  const startedAt = Date.now();
+  let lastSeenFinalizedSlot = 0n;
+  let lastSeenExecutionBlockNumber = 0n;
+  let lastError: Error | undefined;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const finalizedHeaderTimeoutMs = Math.max(
+        1,
+        Math.min(DEFAULT_BEACON_REQUEST_TIMEOUT_MS, timeoutMs - (Date.now() - startedAt)),
+      );
+      const finalizedHeader = await getBeaconJson<{
+        data: {
+          root: string;
+          header: {
+            message: {
+              slot: string;
+            };
+          };
+        };
+      }>(beaconApiUrl, '/eth/v1/beacon/headers/finalized', finalizedHeaderTimeoutMs);
+      lastSeenFinalizedSlot = BigInt(finalizedHeader.data.header.message.slot);
+
+      const finalizedBlockTimeoutMs = Math.max(
+        1,
+        Math.min(DEFAULT_BEACON_REQUEST_TIMEOUT_MS, timeoutMs - (Date.now() - startedAt)),
+      );
+      const finalizedBlock = await getBeaconJson<{
+        data: {
+          message: {
+            body: {
+              execution_payload: {
+                block_number: string;
+              };
+            };
+          };
+        };
+      }>(beaconApiUrl, `/eth/v2/beacon/blocks/${finalizedHeader.data.root}`, finalizedBlockTimeoutMs);
+      lastSeenExecutionBlockNumber = BigInt(finalizedBlock.data.message.body.execution_payload.block_number);
+      lastError = undefined;
+
+      if (
+        lastSeenExecutionBlockNumber >= minimumExecutionBlockNumber &&
+        lastSeenFinalizedSlot >= minimumFinalizedSlot
+      ) {
+        return;
+      }
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+
+    await setTimeout(pollMs);
+  }
+
+  const lastErrorSuffix = lastError ? `; last beacon error was: ${lastError.message}` : '';
+  throw new Error(
+    `Timed out waiting for finalized beacon execution block at or above ${minimumExecutionBlockNumber} and finalized slot at or above ${minimumFinalizedSlot}; last finalized slot was ${lastSeenFinalizedSlot}, and finalized execution block was ${lastSeenExecutionBlockNumber}${lastErrorSuffix}`,
+  );
+}
+
+function isBootstrapEndpointNotReady(message: string): boolean {
+  return message.includes('404') || message.includes('Not Found');
+}
+
+function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('Light-client finality update is not ready') ||
+    message.includes('Light-client update is unavailable')
+  );
+}
+
+async function getBeaconJson<T>(beaconApiUrl: string, path: string, timeoutMs: number): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, beaconApiUrl), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      throw new Error(`Beacon API request timed out after ${timeoutMs}ms for ${path}`);
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Beacon API request failed (${response.status} ${response.statusText}) for ${path}`);
+  }
+  return (await response.json()) as T;
 }

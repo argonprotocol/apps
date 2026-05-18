@@ -5,8 +5,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createPublicClient, getAddress, http, isAddress, parseEther, type Address } from 'viem';
-import { sendDevEthereumAdminTransaction } from '../devEthereumAdmin.ts';
-import { resolveDevEthereumRpcUrl } from '../devEthereumRpc.ts';
+import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../devEthereum.ts';
 
 type FundDevEthereumAccountArgs = {
   to: string;
