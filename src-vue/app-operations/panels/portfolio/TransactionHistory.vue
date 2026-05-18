@@ -122,11 +122,18 @@ async function loadTransactionHistory(): Promise<void> {
   });
 }
 
+let unsubscribe: (() => void) | null = null;
+
 Vue.onMounted(async () => {
   await loadTransactionHistory();
   const balances = getWalletsForArgon();
-  balances.events.on('transfer-in', async () => {
+  unsubscribe = balances.events.on('transfer-in', async () => {
     await loadTransactionHistory();
   });
+});
+
+Vue.onBeforeUnmount(() => {
+  unsubscribe?.();
+  unsubscribe = null;
 });
 </script>

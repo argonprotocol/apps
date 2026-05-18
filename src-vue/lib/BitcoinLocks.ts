@@ -1018,7 +1018,7 @@ export default class BitcoinLocks {
 
     const isUpRatchet = newTargetPrice > oldTargetPrice;
 
-    let newLiquidityPromised = 0n;
+    let newLiquidityPromised: bigint;
     let additionalLiquidityToMint = 0n;
     let requiredVaultFunds = 0n;
 

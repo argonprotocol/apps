@@ -291,7 +291,6 @@ async function internalHandleBtcChange(value: number) {
   const satoshis = BigInt(Math.round(value * Number(SATS_PER_BTC)));
   lockSatoshis.value = satoshis;
   liquidityToReceive.value = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis);
-  console.log(`${satoshis} sats -> ${liquidityToReceive.value} liquidity to receive`);
   lastSetLiquidityMicrogons = liquidityToReceive.value;
   lastSetBitcoinAmount = value;
   updateFeeEstimate();
