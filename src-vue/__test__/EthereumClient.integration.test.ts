@@ -25,6 +25,7 @@ import { privateKeyToAccount, sign } from 'viem/accounts';
 import { EthereumBeaconSyncService, waitForFinalizedBeaconExecutionAtOrAbove } from '@argonprotocol/apps-bot';
 import { MoveToken } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
 import { EthereumClient } from '../lib/EthereumClient.ts';
 
 const TEST_ACCOUNT = {
@@ -349,10 +350,12 @@ describe
         await EthereumBeaconSyncService.ensureBootstrapped(mainchainClient, ethereum.beaconApiUrl!, relayKeypair, {
           minimumExecutionBlockNumber: laterReceipt.blockNumber,
         });
+        const submitLane = new DelegateSubmitLane(syncKeypair);
+        submitLane.client = mainchainClient;
         ethereumBeaconSyncService = new EthereumBeaconSyncService(mainchainClient, {
           beaconApiUrl: ethereum.beaconApiUrl!,
           pollMs: 1_000,
-          syncKeypair,
+          submitLane,
         });
         const anchorSyncDeadline = Date.now() + 120_000;
         let anchorSyncAttempts = 0;

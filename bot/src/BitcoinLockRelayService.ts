@@ -19,12 +19,12 @@ import {
   type FrameSystemEventRecord,
   type GenericEvent,
   type ISubmittableResult,
-  type KeyringPair,
   type SignedBlock,
   Vault,
 } from '@argonprotocol/mainchain';
 import { nanoid } from 'nanoid';
 import type { Db } from './Db.ts';
+import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { HttpError } from './HttpError.ts';
 
 type IRelayPreflight =
@@ -64,15 +64,13 @@ export class BitcoinLockRelayService {
   private vaultLoadPromise?: Promise<void>;
   private isReconciling = false;
   private bestBlocksUnsub?: () => void;
-  private nextNonce?: number;
-  private submitLock: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly db: Db,
     private readonly clients: MainchainClients,
     private readonly blockWatch: BlockWatch,
     private readonly vaultOperatorAddress: string,
-    private readonly bitcoinInitializerDelegateKeypair: KeyringPair,
+    private readonly submitLane: DelegateSubmitLane,
   ) {}
 
   public async start(): Promise<void> {
@@ -221,7 +219,7 @@ export class BitcoinLockRelayService {
   }
 
   public get delegateAddress(): string {
-    return this.bitcoinInitializerDelegateKeypair.address;
+    return this.submitLane.address;
   }
 
   private async startInternal(): Promise<void> {
@@ -235,11 +233,11 @@ export class BitcoinLockRelayService {
     await this.reconcileNonTerminalRelays();
   }
 
-  private submitNewRelay(
+  private async submitNewRelay(
     coupon: IBitcoinLockCouponRecord,
     request: IBitcoinLockRelayJobRequest,
   ): Promise<IBitcoinLockCouponStatus> {
-    return this.runWithSubmitLock(async () => {
+    return await this.submitLane.runExclusive(async (client, getNonce) => {
       const { offerCode, requestedSatoshis, ownerAccountId, ownerBitcoinPubkey, microgonsPerBtc } = request;
       const existingCoupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
       if (!existingCoupon) {
@@ -268,7 +266,6 @@ export class BitcoinLockRelayService {
         await this.ensureVaultLoaded();
       }
 
-      const client = await this.clients.get(false);
       const tx = client.tx.bitcoinLocks.initializeFor(
         ownerAccountId,
         this.vaultId!,
@@ -280,8 +277,8 @@ export class BitcoinLockRelayService {
       const txSubmittedAtTime = new Date();
       const relayMortalityBlocks = getRelayMortalityBlocks();
       const txExpiresAtBlockHeight = txSubmittedAtBlockHeight + relayMortalityBlocks;
-      const txNonce = await this.getNextNonce(client);
-      const signedTx = await tx.signAsync(this.bitcoinInitializerDelegateKeypair, {
+      const txNonce = await getNonce();
+      const signedTx = await tx.signAsync(this.submitLane.keypair, {
         nonce: txNonce,
         era: relayMortalityBlocks,
       });
@@ -309,7 +306,6 @@ export class BitcoinLockRelayService {
           void this.handleSubmissionUpdate(submittedRelay.id, client, result);
         });
       } catch (error) {
-        this.nextNonce = undefined;
         const message = error instanceof Error ? error.message : String(error);
         return this.failRelay(submittedRelay.id, message);
       }
@@ -405,25 +401,25 @@ export class BitcoinLockRelayService {
         this.db.bitcoinLockRelaysTable.revertToSubmitted(relayId);
         return;
       }
-      this.nextNonce = undefined;
+      this.submitLane.invalidateNonce();
       this.failRelay(relayId, 'Relay was retracted before it was included in a block.');
       return;
     }
 
     if (status.isUsurped) {
-      this.nextNonce = undefined;
+      this.submitLane.invalidateNonce();
       this.failRelay(relayId, `Relay was usurped by ${status.asUsurped.toHex()}.`);
       return;
     }
 
     if (status.isDropped) {
-      this.nextNonce = undefined;
+      this.submitLane.invalidateNonce();
       this.failRelay(relayId, 'Relay was dropped before it was included in a block.');
       return;
     }
 
     if (status.isInvalid) {
-      this.nextNonce = undefined;
+      this.submitLane.invalidateNonce();
       this.failRelay(relayId, 'Relay was rejected as invalid by the node.');
       return;
     }
@@ -632,21 +628,6 @@ export class BitcoinLockRelayService {
   private stopRelayWatch(relayId: number): void {
     this.relayWatchUnsubscribes.get(relayId)?.();
     this.relayWatchUnsubscribes.delete(relayId);
-  }
-
-  private async runWithSubmitLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.submitLock.then(fn, fn);
-    this.submitLock = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-
-  private async getNextNonce(client: ArgonClient): Promise<number> {
-    const nonce = this.nextNonce ?? (await client.rpc.system.accountNextIndex(this.delegateAddress)).toNumber();
-    this.nextNonce = nonce + 1;
-    return nonce;
   }
 
   private async getRelayEventData(

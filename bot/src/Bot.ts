@@ -27,6 +27,8 @@ import {
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import { EthereumProofRelayService } from './EthereumProofRelayService.ts';
+import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 
 interface IBotOptions {
   datadir: string;
@@ -53,6 +55,7 @@ export default class Bot {
   public miningFrameHistory!: MiningFrameHistory;
   public db: Db;
   public relayService: BitcoinLockRelayService;
+  public ethereumProofRelayService: EthereumProofRelayService;
 
   public isStarting: boolean = false;
   public isSyncing: boolean = false;
@@ -73,6 +76,7 @@ export default class Bot {
   private biddingRulesJson: string | null = null;
   private localClient!: ArgonClient;
   private readonly mainchainClients!: MainchainClients;
+  private readonly delegateSubmitLane: DelegateSubmitLane;
   private shutdownDeferred = createDeferred(false);
   private ethereumBeaconSyncService?: EthereumBeaconSyncService;
 
@@ -83,13 +87,15 @@ export default class Bot {
       Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
     );
     this.blockWatch = new BlockWatch(this.mainchainClients, true);
+    this.delegateSubmitLane = new DelegateSubmitLane(this.options.bitcoinInitializerDelegateKeypair);
     this.relayService = new BitcoinLockRelayService(
       this.db,
       this.mainchainClients,
       this.blockWatch,
       this.options.vaultOperatorAddress,
-      this.options.bitcoinInitializerDelegateKeypair,
+      this.delegateSubmitLane,
     );
+    this.ethereumProofRelayService = new EthereumProofRelayService(this.delegateSubmitLane);
   }
 
   public async state(startupError: string | null = null): Promise<IBotState> {
@@ -224,11 +230,12 @@ export default class Bot {
         }
       }
       this.errorMessage = null;
+      this.delegateSubmitLane.client = this.localClient;
 
       if (!this.ethereumBeaconSyncService && this.options.ethereumBeaconApiUrl) {
         this.ethereumBeaconSyncService = new EthereumBeaconSyncService(this.localClient, {
           beaconApiUrl: this.options.ethereumBeaconApiUrl,
-          syncKeypair: this.options.bitcoinInitializerDelegateKeypair,
+          submitLane: this.delegateSubmitLane,
         });
       }
 

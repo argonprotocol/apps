@@ -5,6 +5,7 @@
     "bitcoinBlockMillis": 20000,
     "esploraHost": "http://localhost:55158",
     "indexerHost": "http://localhost:55154",
+    "defaultRelayerHost": "http://localhost:3000",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
       "executionRpcUrl": "",
@@ -25,6 +26,7 @@
     "bitcoinBlockMillis": 100000,
     "esploraHost": "http://localhost:3002",
     "indexerHost": "http://localhost:3262",
+    "defaultRelayerHost": "http://localhost:3000",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
       "executionRpcUrl": "",
@@ -45,6 +47,7 @@
     "bitcoinBlockMillis": 600000,
     "esploraHost": "http://bitcoin-node0.testnet.argonprotocol.org:3002",
     "indexerHost": "https://indexer.testnet.argonprotocol.org",
+    "defaultRelayerHost": "https://relayer.testnet.argonprotocol.org",
     "websiteHost": "https://staging.argon.network",
     "ethereumNetwork": {
       "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
@@ -65,6 +68,7 @@
     "bitcoinBlockMillis": 600000,
     "esploraHost": "https://mempool.space/api",
     "indexerHost": "https://indexer.argon.network",
+    "defaultRelayerHost": "https://relayer.argon.network",
     "websiteHost": "https://argon.network",
     "ethereumNetwork": {
       "executionRpcUrl": "https://ethereum-rpc.publicnode.com",

@@ -1,4 +1,12 @@
-import { InviteCodes, JsonExt, signRouterAuthAccountBinding, UserRole } from '@argonprotocol/apps-core';
+import {
+  getObjectStringProperty,
+  InviteCodes,
+  JsonExt,
+  signRouterAuthAccountBinding,
+  type IEthereumInboundRelayRequest,
+  type IEthereumInboundRelayResponse,
+  UserRole,
+} from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
   BitcoinLockRelayStatus,
@@ -161,6 +169,26 @@ export class UpstreamOperatorClient {
     return body.bitcoinLockCoupons;
   }
 
+  public async relayEthereumProof(payload: IEthereumInboundRelayRequest): Promise<IEthereumInboundRelayResponse> {
+    const operatorHost = this.requireOperatorHost();
+    if (!this.serverAuthClient) {
+      throw new Error('No upstream operator auth client configured.');
+    }
+
+    try {
+      await this.serverAuthClient.ensureTreasurySession(operatorHost);
+    } catch {
+      await this.serverAuthClient.ensureOperationalSession(operatorHost);
+    }
+
+    return await UpstreamOperatorClient.request<IEthereumInboundRelayResponse>(operatorHost, '/ethereum-proof-relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JsonExt.stringify(payload),
+      credentials: 'include',
+    });
+  }
+
   private requireOperatorHost(): string {
     const operatorHost = this.operatorHost;
     if (!operatorHost) {
@@ -197,14 +225,26 @@ export class UpstreamOperatorClient {
       },
     });
     const rawBody = await response.text();
-    const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
-    const error =
-      body != null && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
-        ? body.error
-        : undefined;
+    let body: T | IRouterErrorResponse | string | undefined;
+    if (rawBody) {
+      try {
+        body = JsonExt.parse<T | IRouterErrorResponse>(rawBody);
+      } catch (error) {
+        if (response.ok) throw error;
+        body = rawBody;
+      }
+    }
 
-    if (!response.ok || error) {
-      throw new Error(error || `Upstream operator request failed (${response.status}).`);
+    let responseError = getObjectStringProperty(body, 'error');
+    if (!responseError && !response.ok && typeof body === 'string') {
+      responseError = body;
+    }
+
+    if (!response.ok) {
+      throw new Error(responseError ?? `Upstream operator request failed (${response.status}).`);
+    }
+    if (responseError) {
+      throw new Error(responseError);
     }
 
     return body as T;

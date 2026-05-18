@@ -1,21 +1,20 @@
 import { setTimeout } from 'node:timers/promises';
-import type { IEthereumSyncStatus } from '@argonprotocol/apps-core';
-import { SingleFileQueue } from '@argonprotocol/apps-core/src/SingleFileQueue.ts';
+import { SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
 import {
   dispatchErrorToString,
   getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState,
   getNextEthereumBeaconSyncTxs,
-  isOutdatedTransactionError,
   type ArgonClient,
   type KeyringPair,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
+import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 
 type IEthereumBeaconSyncServiceOptions = {
   beaconApiUrl?: string;
   pollMs?: number;
-  syncKeypair: KeyringPair;
+  submitLane: DelegateSubmitLane;
 };
 
 type IEthereumBeaconBootstrapOptions = {
@@ -43,7 +42,7 @@ export class EthereumBeaconSyncService {
     this.pollMs = options.pollMs ?? 30_000;
     this.stateData = {
       mode: this.isEnabled ? 'idle' : 'disabled',
-      syncAccountAddress: options.syncKeypair.address,
+      syncAccountAddress: options.submitLane.address,
     };
   }
 
@@ -116,6 +115,7 @@ export class EthereumBeaconSyncService {
         if (!(error instanceof Error)) {
           throw error;
         }
+
         lastBootstrapError = error;
         if (!isBootstrapEndpointNotReady(error.message)) {
           throw error;
@@ -159,7 +159,7 @@ export class EthereumBeaconSyncService {
 
   private async runOnceInner(): Promise<void> {
     const beaconApiUrl = this.options.beaconApiUrl!;
-    const syncKeypair = this.options.syncKeypair;
+    const submitLane = this.options.submitLane;
     const syncState = await getEthereumBeaconSyncState(this.client);
 
     this.stateData.latestSyncCommitteeUpdatePeriod = syncState.latestSyncCommitteeUpdatePeriod;
@@ -194,14 +194,16 @@ export class EthereumBeaconSyncService {
       if (this.shouldStop) return;
 
       try {
-        const result = await new TxSubmitter(this.client, tx, syncKeypair).submit({
-          useLatestNonce: true,
+        const result = await submitLane.runExclusive(async (client, getNonce) => {
+          return await new TxSubmitter(client, tx, submitLane.keypair).submit({
+            nonce: await getNonce(),
+          });
         });
         this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
         await result.waitForInFirstBlock;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (isOutdatedTransactionError(error) || message.includes('Priority is too low')) {
+        if (isOutdatedBeaconSyncSubmitError(error) || message.includes('Priority is too low')) {
           continue;
         }
         throw error;
@@ -235,8 +237,6 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
   const pollMs = options.pollMs ?? DEFAULT_BOOTSTRAP_POLL_MS;
   const minimumFinalizedSlot = options.minimumFinalizedSlot ?? 0n;
   const startedAt = Date.now();
-  let lastSeenFinalizedSlot = 0n;
-  let lastSeenExecutionBlockNumber = 0n;
   let lastError: Error | undefined;
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -255,7 +255,7 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
           };
         };
       }>(beaconApiUrl, '/eth/v1/beacon/headers/finalized', finalizedHeaderTimeoutMs);
-      lastSeenFinalizedSlot = BigInt(finalizedHeader.data.header.message.slot);
+      const lastSeenFinalizedSlot = BigInt(finalizedHeader.data.header.message.slot);
 
       const finalizedBlockTimeoutMs = Math.max(
         1,
@@ -272,8 +272,7 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
           };
         };
       }>(beaconApiUrl, `/eth/v2/beacon/blocks/${finalizedHeader.data.root}`, finalizedBlockTimeoutMs);
-      lastSeenExecutionBlockNumber = BigInt(finalizedBlock.data.message.body.execution_payload.block_number);
-      lastError = undefined;
+      const lastSeenExecutionBlockNumber = BigInt(finalizedBlock.data.message.body.execution_payload.block_number);
 
       if (
         lastSeenExecutionBlockNumber >= minimumExecutionBlockNumber &&
@@ -281,24 +280,25 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
       ) {
         return;
       }
+
+      lastError = new Error(
+        `waiting for finalized execution block >= ${minimumExecutionBlockNumber} and slot >= ${minimumFinalizedSlot}; latest block=${lastSeenExecutionBlockNumber} slot=${lastSeenFinalizedSlot}`,
+      );
     } catch (error) {
-      if (!(error instanceof Error)) {
-        throw error;
-      }
-      lastError = error;
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
 
     await setTimeout(pollMs);
   }
 
-  const lastErrorSuffix = lastError ? `; last beacon error was: ${lastError.message}` : '';
+  const lastErrorSuffix = lastError ? ` (${lastError.message})` : '';
   throw new Error(
-    `Timed out waiting for finalized beacon execution block at or above ${minimumExecutionBlockNumber} and finalized slot at or above ${minimumFinalizedSlot}; last finalized slot was ${lastSeenFinalizedSlot}, and finalized execution block was ${lastSeenExecutionBlockNumber}${lastErrorSuffix}`,
+    `finalized beacon execution block did not reach block >= ${minimumExecutionBlockNumber} and slot >= ${minimumFinalizedSlot} within ${Math.floor(timeoutMs / 1000)}s${lastErrorSuffix}`,
   );
 }
 
 function isBootstrapEndpointNotReady(message: string): boolean {
-  return message.includes('404') || message.includes('Not Found');
+  return message.includes('/eth/v1/beacon/light_client/bootstrap/') && message.includes('404');
 }
 
 function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
@@ -309,11 +309,22 @@ function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
   );
 }
 
-async function getBeaconJson<T>(beaconApiUrl: string, path: string, timeoutMs: number): Promise<T> {
+function isOutdatedBeaconSyncSubmitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('Invalid Transaction: Transaction is outdated') || message.includes('InvalidTransaction::Stale')
+  );
+}
+
+async function getBeaconJson<T>(
+  beaconApiUrl: string,
+  path: string,
+  timeoutMs = DEFAULT_BEACON_REQUEST_TIMEOUT_MS,
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(new URL(path, beaconApiUrl), {
-      headers: { Accept: 'application/json' },
+      headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
@@ -324,7 +335,8 @@ async function getBeaconJson<T>(beaconApiUrl: string, path: string, timeoutMs: n
   }
 
   if (!response.ok) {
-    throw new Error(`Beacon API request failed (${response.status} ${response.statusText}) for ${path}`);
+    throw new Error(`Beacon API request failed (${response.status}) for ${path}`);
   }
+
   return (await response.json()) as T;
 }

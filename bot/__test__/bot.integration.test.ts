@@ -1,12 +1,5 @@
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
-import {
-  getClient,
-  getTickFromHeader,
-  Keyring,
-  mnemonicGenerate,
-  toFixedNumber,
-  TxSubmitter,
-} from '@argonprotocol/mainchain';
+import { getClient, Keyring, mnemonicGenerate, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import os from 'node:os';
@@ -27,20 +20,30 @@ import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 afterEach(teardown);
-afterAll(teardown);
 
 let clientAddress: string;
+let stopNetwork: (() => Promise<void>) | undefined;
 beforeAll(async () => {
   if (skipE2E) return;
   NetworkConfig.setNetwork('dev-docker');
-  const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
+  const result = await startArgonTestNetwork(Path.basename(import.meta.filename), {
+    registerTeardown: false,
+  });
   clientAddress = result.archiveUrl;
+  stopNetwork = result.stop;
+});
+afterAll(async () => {
+  await stopNetwork?.().catch(() => undefined);
+  await teardown();
 });
 
 it.skipIf(skipE2E)(
   'can autobid and store stats',
   async () => {
     const client = await getClient(clientAddress);
+    runOnTeardown(async () => {
+      await client.disconnect().catch(() => undefined);
+    });
 
     const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot-'));
     await fs.promises.rm(botDataDir, { recursive: true, force: true });
@@ -162,9 +165,8 @@ it.skipIf(skipE2E)(
         lastSeenBlockNumber = x.number.toNumber();
         if (isVoteBlock) {
           console.log(`Block ${x.number.toNumber()} is vote block`);
-          const tick = getTickFromHeader(x);
-          const frameId = bot.miningFrames.getForTick(tick!);
-          frameIdsWithVoteBlocks.add(frameId);
+          const earningsFrameId = (await api.query.miningSlot.nextFrameId().then(x => x.toNumber())) - 1;
+          frameIdsWithVoteBlocks.add(earningsFrameId);
           voteBlocks++;
           if (voteBlocks >= targetVoteBlocks) {
             unsubscribe();

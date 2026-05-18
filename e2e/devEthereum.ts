@@ -1,3 +1,7 @@
+import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import process from 'node:process';
 import { EthereumBeaconSyncService } from '@argonprotocol/apps-bot';
 import {
@@ -48,6 +52,7 @@ export interface IStartDevEthereumResult {
 
 export interface IDevEthereumSetup {
   env: NodeJS.ProcessEnv;
+  relayerUrl: string;
   start(): Promise<{ shutdown(): Promise<void> }>;
 }
 
@@ -108,6 +113,9 @@ export function createDevEthereumSetup(
   devEthereum: IStartDevEthereumResult,
   config: Pick<IDevEthereumConfig, 'finalityMillis' | 'relayerPollMs'>,
 ): IDevEthereumSetup {
+  const relayerPort = readPositiveIntEnv('ARGON_DEV_ETHEREUM_RELAYER_PORT') ?? 55_156;
+  const relayerUrl = `http://localhost:${relayerPort}`;
+
   console.log(`[tauri-dev] Ethereum execution RPC (app): ${devEthereum.executionRpcUrl}`);
   console.log(`[tauri-dev] Ethereum beacon API (app): ${devEthereum.beaconApiUrl}`);
   console.log(`[tauri-dev] Add this beacon URL in server config: ${devEthereum.serverBeaconApiUrl}`);
@@ -118,12 +126,19 @@ export function createDevEthereumSetup(
       ETHEREUM_EXECUTION_RPC_URL: devEthereum.serverExecutionRpcUrl,
       ETHEREUM_FINALITY_MILLIS: String(config.finalityMillis),
     },
+    relayerUrl,
     async start(): Promise<{ shutdown(): Promise<void> }> {
       await waitForLoad();
       const alice = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
       await ensureDevEthereumChainConfig(archiveUrl, devEthereum, alice);
       await ensureDevEthereumBeaconBootstrap(archiveUrl, devEthereum.beaconApiUrl, devEthereum.beaconPreset, alice);
-      return await startDevEthereumRelayer(archiveUrl, devEthereum.beaconApiUrl, config.relayerPollMs, alice);
+      return await startDevEthereumRelayer({
+        archiveUrl,
+        beaconApiUrl: devEthereum.beaconApiUrl,
+        relayerPollMs: config.relayerPollMs,
+        relayerPort,
+        syncKeypair: alice,
+      });
     },
   };
 }
@@ -241,26 +256,53 @@ async function ensureDevEthereumBeaconBootstrap(
   }
 }
 
-async function startDevEthereumRelayer(
-  archiveUrl: string,
-  beaconApiUrl: string,
-  relayerPollMs: number,
-  syncKeypair: KeyringPair,
-): Promise<{ shutdown(): Promise<void> }> {
-  const client = await getClient(archiveUrl);
-  const ethereumBeaconSyncService = new EthereumBeaconSyncService(client, {
-    beaconApiUrl,
-    pollMs: relayerPollMs,
-    syncKeypair,
+async function startDevEthereumRelayer(args: {
+  archiveUrl: string;
+  beaconApiUrl: string;
+  relayerPollMs: number;
+  relayerPort: number;
+  syncKeypair: KeyringPair;
+}): Promise<{ shutdown(): Promise<void> }> {
+  const relayerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argon-dev-relayer-'));
+  const delegateKeypairPath = path.join(relayerDir, 'vaultDelegate.json');
+  fs.writeFileSync(delegateKeypairPath, JSON.stringify(args.syncKeypair.toJson('')));
+
+  const relayer = spawn('yarn', ['workspace', '@argonprotocol/apps-bot', 'run', 'start:relayer'], {
+    env: {
+      ...process.env,
+      ARGON_CHAIN: 'dev-docker',
+      ARCHIVE_NODE_URL: args.archiveUrl,
+      LOCAL_RPC_URL: args.archiveUrl,
+      ETHEREUM_BEACON_API_URL: args.beaconApiUrl,
+      ETHEREUM_BEACON_POLL_MS: String(args.relayerPollMs),
+      VAULT_DELEGATE_KEYPAIR_PATH: delegateKeypairPath,
+      PORT: String(args.relayerPort),
+    },
+    stdio: 'inherit',
+    shell: false,
   });
 
-  console.log(`[tauri-dev] Started local Ethereum relayer with //Alice (poll=${relayerPollMs}ms)`);
-  await ethereumBeaconSyncService.start();
+  let hasExited = false;
+  relayer.once('exit', code => {
+    hasExited = true;
+    if (code !== 0) {
+      console.error(`[tauri-dev] Local Ethereum relayer exited with code ${code ?? 'unknown'}`);
+    }
+  });
+
+  console.log(
+    `[tauri-dev] Started local Ethereum relayer entrypoint with //Alice at http://localhost:${args.relayerPort}`,
+  );
 
   return {
     async shutdown(): Promise<void> {
-      await ethereumBeaconSyncService.shutdown();
-      await client.disconnect();
+      if (!hasExited) {
+        relayer.kill('SIGTERM');
+        await new Promise<void>(resolve => {
+          relayer.once('exit', () => resolve());
+        });
+      }
+      fs.rmSync(relayerDir, { recursive: true, force: true });
     },
   };
 }
@@ -382,7 +424,6 @@ async function waitForStableExecutionRpc(
     `Ethereum execution RPC at ${rpcUrl} did not stay ready for ${consecutiveSuccesses} consecutive probes within ${timeoutMs}ms${lastError ? `: ${lastError.message}` : ''}`,
   );
 }
-
 async function rpcCall<TResult>(rpcUrl: string, method: string, params: unknown[]): Promise<TResult> {
   const response = await fetch(rpcUrl, {
     method: 'POST',
@@ -418,7 +459,6 @@ async function rpcCall<TResult>(rpcUrl: string, method: string, params: unknown[
 async function delay(ms: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
-
 function rewriteLocalUrlHost(url: string, host: string): string {
   const parsed = new URL(url);
   if (['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname)) {

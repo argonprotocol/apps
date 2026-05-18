@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import { JsonExt, UserRole } from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
-import { BotCouponClient } from './BotCouponClient.ts';
+import { BotUpstreamClient } from './BotUpstreamClient.ts';
 import { ADMIN_OPERATOR_ACCOUNT_ID, BITCOIN_CONFIG, ROUTER_AUTH_SESSION_TTL_SECONDS, SERVER_ROOT } from './env.ts';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
@@ -14,6 +14,8 @@ import type {
   IBitcoinLockStatusResponse,
   ICreateOperationalInviteResponse,
   ICreateTreasuryInviteResponse,
+  IEthereumInboundRelayRequest,
+  IEthereumInboundRelayResponse,
   IListBitcoinLockCouponsResponse,
   IListOperationalInvitesResponse,
   IListTreasuryInvitesResponse,
@@ -54,7 +56,7 @@ export class RouterServer {
   public start(): void {
     const app = express();
     const { botInternalUrl, db } = this.options;
-    const botCouponClient = new BotCouponClient(botInternalUrl);
+    const botClient = new BotUpstreamClient(botInternalUrl);
     const inviteService = new UserInviteService(db);
     const routerAuth = new RouterAuthService({
       db,
@@ -192,7 +194,7 @@ export class RouterServer {
 
         let bitcoinLockCoupon;
         try {
-          bitcoinLockCoupon = await botCouponClient.createCoupon({
+          bitcoinLockCoupon = await botClient.createCoupon({
             userId: userInvite.id,
             vaultId: body.vaultId,
             maxSatoshis: body.maxSatoshis,
@@ -242,7 +244,7 @@ export class RouterServer {
         if (!userInvite) {
           throw new RouterError('Invite not found', 404);
         }
-        const bitcoinLockCoupon = await botCouponClient.activateLatestCoupon({
+        const bitcoinLockCoupon = await botClient.activateLatestCoupon({
           userId: userInvite.id,
           accountId,
         });
@@ -262,7 +264,7 @@ export class RouterServer {
       '/treasury-users/invites',
       requireAdminOperatorAuth,
       safeJsonRoute<IListTreasuryInvitesResponse>(async () => {
-        const couponsByUserId = await botCouponClient.listLatestCouponsByUserId();
+        const couponsByUserId = await botClient.listLatestCouponsByUserId();
 
         return {
           invites: db.userInvitesTable.fetchByRole(UserRole.TreasuryUser).map(user => {
@@ -353,7 +355,7 @@ export class RouterServer {
       requireAdminOperatorAuth,
       safeJsonRoute<IListBitcoinLockCouponsResponse>(async () => {
         return {
-          bitcoinLockCoupons: await botCouponClient.listCoupons(),
+          bitcoinLockCoupons: await botClient.listCoupons(),
         };
       }),
     );
@@ -362,7 +364,7 @@ export class RouterServer {
       '/bitcoin-lock-coupons/:offerCode',
       safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
         return {
-          bitcoinLock: await botCouponClient.getCoupon(req.params.offerCode),
+          bitcoinLock: await botClient.getCoupon(req.params.offerCode),
         };
       }),
     );
@@ -378,7 +380,7 @@ export class RouterServer {
           throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
         }
 
-        const bitcoinLock = await botCouponClient
+        const bitcoinLock = await botClient
           .initializeCoupon(req.params.offerCode, {
             offerCode: req.params.offerCode,
             requestedSatoshis: body.requestedSatoshis,
@@ -413,8 +415,23 @@ export class RouterServer {
         }
 
         return {
-          bitcoinLockCoupons: await botCouponClient.listCouponsByUserId(user.id),
+          bitcoinLockCoupons: await botClient.listCouponsByUserId(user.id),
         };
+      }),
+    );
+
+    app.post(
+      '/ethereum-proof-relay',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IEthereumInboundRelayResponse>(async req => {
+        routerAuth.requireUserSession(req, [UserRole.TreasuryUser, UserRole.OperationalPartner]);
+
+        return await botClient.relayEthereumProof(requireBody<IEthereumInboundRelayRequest>(req)).catch(error => {
+          if (error instanceof RouterError) {
+            throw new RouterError(error.message || 'Bot request failed to relay this Ethereum proof.', error.status);
+          }
+          throw error;
+        });
       }),
     );
 

@@ -1,14 +1,16 @@
-import { JsonExt } from '@argonprotocol/apps-core';
+import { getObjectStringProperty, JsonExt } from '@argonprotocol/apps-core';
 import type {
   IActivateBitcoinLockCouponRequest,
   IBitcoinLockCouponStatus,
   IBitcoinLockRelayJobRequest,
   ICreateBitcoinLockCouponRequest,
+  IEthereumInboundRelayRequest,
+  IEthereumInboundRelayResponse,
   IRouterErrorResponse,
 } from './interfaces/index.ts';
 import { RouterError } from './RouterError.ts';
 
-export class BotCouponClient {
+export class BotUpstreamClient {
   constructor(private readonly botInternalUrl: string) {}
 
   public async createCoupon(request: ICreateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
@@ -65,16 +67,21 @@ export class BotCouponClient {
     return couponsByUserId;
   }
 
+  public async relayEthereumProof(request: IEthereumInboundRelayRequest): Promise<IEthereumInboundRelayResponse> {
+    return await this.request('/ethereum-proof-relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JsonExt.stringify(request),
+    });
+  }
+
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${this.botInternalUrl}${path}`, init);
     const rawBody = await response.text();
     const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
 
     if (!response.ok) {
-      const message =
-        body != null && typeof body === 'object' && !Array.isArray(body) && 'error' in body
-          ? body.error
-          : 'Bot request failed.';
+      const message = getObjectStringProperty(body, 'error') ?? 'Bot request failed.';
       throw new RouterError(message, response.status);
     }
 

@@ -4,7 +4,9 @@
   "description": "A bot for managing mining bids",
   "scripts": {
     "start": "tsx src/index.ts",
+    "start:relayer": "tsx src/relayer.ts",
     "build": "tsup",
+    "build:relayer": "BOT_BUILD_TARGET=relayer tsup",
     "watch": "tsup --watch"
   },
   "type": "module",
@@ -21,6 +23,7 @@
     "p-queue": "^8.1.0",
     "source-map-support": "^0.5.21",
     "tiny-lru": "^11.4.5",
+    "viem": "^2.48.8",
     "ws": "^8.18.3"
   },
   "devDependencies": {

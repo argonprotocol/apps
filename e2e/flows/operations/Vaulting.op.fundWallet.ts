@@ -4,11 +4,9 @@ import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
-import { VaultingSetupStatus, WalletType } from '../types/srcVue.ts';
-import appFundWalletFromEthereum from './App.op.fundWalletFromEthereum.ts';
+import { VaultingSetupStatus } from '../types/srcVue.ts';
 
 const MICROGONS_PER_ARGON_TEXT = BigInt(MICROGONS_PER_ARGON).toString();
-const PROOF_SUBMISSION_FEE_FUNDING_MICROGONS = BigInt(MICROGONS_PER_ARGON);
 
 type IVaultingFundingInspect = {
   walletIsFullyFunded: boolean;
@@ -108,24 +106,54 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     }
 
     await flow.click('SetupChecklist.openFundVaultingAccountOverlay()');
+    await flow.waitFor('WalletOverlay.micronotsNeeded');
+    await flow.waitFor('WalletOverlay.microgonsNeeded');
+
+    const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
+    const micronotsNeededRaw = await flow
+      .getAttribute('WalletOverlay.micronotsNeeded', 'data-value', { timeoutMs: 1_000 })
+      .catch(() => null);
+    const walletAddress = await flow.queryApp(refs => refs.wallets.vaultingWallet.address, {
+      timeoutMs: 10_000,
+    });
+
+    if (!walletAddress) {
+      throw new Error(`${flowName}: missing vaulting wallet address.`);
+    }
+    if (!microgonsNeededRaw) {
+      throw new Error(`${flowName}: missing vaulting wallet microgons requirement.`);
+    }
+
     const extraMicrogons = parseDecimalToUnits(
       input.extraFundingArgons ?? '1000',
       BigInt(MICROGONS_PER_ARGON),
       `${flowName}.extraFundingArgons`,
     );
+    const requiredMicrogons = BigInt(microgonsNeededRaw);
+    const requiredMicronots = BigInt(micronotsNeededRaw ?? '0');
+    const fundingNeeded = requiredMicrogons > 0n || requiredMicronots > 0n;
 
-    await ensureVaultProofFunding(flow, flowName);
-    await flow.run(
-      {
-        flow,
-        flowName,
-        input: {
-          targetWalletType: WalletType.vaulting,
-          extraMicrogons,
-        },
-      },
-      appFundWalletFromEthereum,
-    );
+    await flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
+    await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
+      timeoutMs: 20_000,
+      timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,
+    });
+
+    if (fundingNeeded) {
+      const fundingResult = await sudoFundWallet({
+        address: walletAddress,
+        microgons: requiredMicrogons + extraMicrogons,
+        micronots: requiredMicronots,
+      });
+
+      console.info(`[E2E] ${flowName} funded wallet`, {
+        address: fundingResult.address,
+        requestedMicrogons: fundingResult.requestedMicrogons.toString(),
+        requestedMicronots: fundingResult.requestedMicronots.toString(),
+        fundedMicrogons: fundingResult.fundedMicrogons.toString(),
+        fundedMicronots: fundingResult.fundedMicronots.toString(),
+      });
+    }
 
     await flow.poll(
       this,
@@ -135,57 +163,8 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
         nextState.uiState.installingVisible,
       {
         timeoutMs: 120_000,
-        timeoutMessage: `${flowName}: vaulting wallet did not become funded after Ethereum funding.`,
+        timeoutMessage: `${flowName}: vaulting wallet did not become funded in time.`,
       },
     );
   },
 });
-
-async function ensureVaultProofFunding(flow: IVaultingFlowContext['flow'], flowName: string): Promise<void> {
-  const initialState = await readVaultFundingState(flow);
-  const proofFundingGapMicrogons = PROOF_SUBMISSION_FEE_FUNDING_MICROGONS - initialState.vaultingMicrogons;
-
-  if (proofFundingGapMicrogons <= 0n) {
-    return;
-  }
-
-  await sudoFundWallet({
-    address: initialState.vaultingAddress,
-    microgons: proofFundingGapMicrogons,
-    micronots: 0n,
-  });
-
-  await pollEvery(
-    1_000,
-    async () => {
-      const nextState = await readVaultFundingState(flow);
-      return nextState.vaultingMicrogons >= PROOF_SUBMISSION_FEE_FUNDING_MICROGONS;
-    },
-    {
-      timeoutMs: 30_000,
-      timeoutMessage: `${flowName}: vaulting wallet did not receive proof-submission funding in time.`,
-    },
-  );
-}
-
-async function readVaultFundingState(flow: IVaultingFlowContext['flow']): Promise<{
-  vaultingAddress: string;
-  vaultingMicrogons: bigint;
-}> {
-  const state = await flow.queryApp(
-    refs => ({
-      vaultingAddress: refs.wallets.vaultingWallet.address,
-      vaultingMicrogons: refs.wallets.vaultingWallet.availableMicrogons.toString(),
-    }),
-    { timeoutMs: 30_000 },
-  );
-
-  if (!state?.vaultingAddress) {
-    throw new Error('Unable to read vault proof-funding state from the app.');
-  }
-
-  return {
-    vaultingAddress: state.vaultingAddress,
-    vaultingMicrogons: BigInt(state.vaultingMicrogons),
-  };
-}

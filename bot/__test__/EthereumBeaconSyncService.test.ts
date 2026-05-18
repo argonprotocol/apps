@@ -6,17 +6,13 @@ type IMockSubmitResult = {
 };
 
 type IMockTx = { id: string };
-type IMockSubmitOptions = { useLatestNonce?: boolean };
+type IMockSubmitOptions = { nonce?: number };
 
 const mainchainMock = vi.hoisted(() => {
   const dispatchErrorToString = vi.fn();
   const getEthereumBeaconSyncBootstrapTx = vi.fn();
   const getEthereumBeaconSyncState = vi.fn();
   const getNextEthereumBeaconSyncTxs = vi.fn();
-  const isOutdatedTransactionError = vi.fn((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes('Invalid Transaction: Transaction is outdated');
-  });
   const submitTx =
     vi.fn<(tx: IMockTx, syncKeypair: unknown, options?: IMockSubmitOptions) => Promise<IMockSubmitResult>>();
 
@@ -39,29 +35,44 @@ const mainchainMock = vi.hoisted(() => {
     getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs,
-    isOutdatedTransactionError,
     submitTx,
     TxSubmitter,
   };
 });
 
-vi.mock('@argonprotocol/mainchain', () => ({
-  dispatchErrorToString: mainchainMock.dispatchErrorToString,
-  getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
-  getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
-  getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
-  isOutdatedTransactionError: mainchainMock.isOutdatedTransactionError,
-  TxSubmitter: mainchainMock.TxSubmitter,
-}));
+vi.mock('@argonprotocol/mainchain', async () => {
+  const actual = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
 
+  return {
+    ...actual,
+    dispatchErrorToString: mainchainMock.dispatchErrorToString,
+    getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
+    getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
+    getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
+    TxSubmitter: mainchainMock.TxSubmitter,
+  };
+});
+
+import type { ArgonClient } from '@argonprotocol/mainchain';
+import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import {
   EthereumBeaconSyncService,
   waitForFinalizedBeaconExecutionAtOrAbove,
 } from '../src/EthereumBeaconSyncService.ts';
 
+const syncKeypair = { address: 'sync-account' } as any;
+
 describe('EthereumBeaconSyncService', () => {
-  const client = {} as any;
-  const syncKeypair = { address: 'sync-account' } as any;
+  const createClient = (startingNonce = 4): ArgonClient =>
+    ({
+      rpc: {
+        system: {
+          accountNextIndex: vi.fn(async () => ({
+            toNumber: () => startingNonce,
+          })),
+        },
+      },
+    }) as unknown as ArgonClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -72,7 +83,9 @@ describe('EthereumBeaconSyncService', () => {
   });
 
   it('reports disabled when beacon sync is not configured', async () => {
-    const service = new EthereumBeaconSyncService(client, { syncKeypair });
+    const service = new EthereumBeaconSyncService(createClient(), {
+      submitLane: createSubmitLane(createClient()),
+    });
 
     await service.start();
 
@@ -90,9 +103,9 @@ describe('EthereumBeaconSyncService', () => {
       headerInterval: 32n,
     });
 
-    const service = new EthereumBeaconSyncService(client, {
+    const service = new EthereumBeaconSyncService(createClient(), {
       beaconApiUrl: 'https://beacon.example',
-      syncKeypair,
+      submitLane: createSubmitLane(createClient()),
     });
 
     await service.runOnce();
@@ -111,6 +124,7 @@ describe('EthereumBeaconSyncService', () => {
       resolveFirstInBlock = resolve;
     });
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
+    const client = createClient(12);
 
     mainchainMock.getEthereumBeaconSyncState
       .mockResolvedValueOnce({
@@ -141,7 +155,7 @@ describe('EthereumBeaconSyncService', () => {
 
     const service = new EthereumBeaconSyncService(client, {
       beaconApiUrl: 'https://beacon.example',
-      syncKeypair,
+      submitLane: createSubmitLane(client),
     });
 
     const runOncePromise = service.runOnce();
@@ -150,7 +164,7 @@ describe('EthereumBeaconSyncService', () => {
     });
 
     expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(1, txs[0], syncKeypair, {
-      useLatestNonce: true,
+      nonce: 12,
     });
 
     resolveFirstInBlock();
@@ -159,7 +173,7 @@ describe('EthereumBeaconSyncService', () => {
     });
 
     expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[1], syncKeypair, {
-      useLatestNonce: true,
+      nonce: 13,
     });
     await runOncePromise;
 
@@ -183,9 +197,9 @@ describe('EthereumBeaconSyncService', () => {
         headerInterval: 32n,
       });
 
-    const service = new EthereumBeaconSyncService(client, {
+    const service = new EthereumBeaconSyncService(createClient(), {
       beaconApiUrl: 'https://beacon.example',
-      syncKeypair,
+      submitLane: createSubmitLane(createClient()),
     });
 
     await service.runOnce();
@@ -225,4 +239,90 @@ describe('EthereumBeaconSyncService', () => {
       }),
     ).rejects.toThrow(/Beacon API request timed out after \d+ms for \/eth\/v1\/beacon\/headers\/finalized/);
   });
+
+  it('treats finality update not ready as idle instead of error', async () => {
+    mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
+      isBootstrapped: true,
+      hasNextSyncCommittee: true,
+      latestFinalizedBlockRoot: '0xabc',
+      latestFinalizedSlot: 800n,
+      nextRecommendedFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      headerInterval: 32n,
+    });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockRejectedValue(
+      new Error('Light-client finality update is not ready'),
+    );
+
+    const service = new EthereumBeaconSyncService(createClient(), {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(createClient()),
+    });
+
+    await service.runOnce();
+
+    expect(service.state()).toMatchObject({
+      latestFinalizedSlot: 800n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      mode: 'idle',
+    });
+    expect(service.state().lastError).toBeUndefined();
+  });
+
+  it('continues when the submit error is classified as outdated', async () => {
+    const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
+    const outdatedError = new Error('Invalid Transaction: Transaction is outdated');
+    const client = createClient(12);
+
+    mainchainMock.getEthereumBeaconSyncState
+      .mockResolvedValueOnce({
+        isBootstrapped: true,
+        hasNextSyncCommittee: true,
+        latestFinalizedBlockRoot: '0xabc',
+        latestFinalizedSlot: 800n,
+        nextRecommendedFinalizedSlot: 832n,
+        latestSyncCommitteeUpdatePeriod: 12n,
+        headerInterval: 32n,
+      })
+      .mockResolvedValueOnce({
+        isBootstrapped: true,
+        hasNextSyncCommittee: true,
+        latestFinalizedBlockRoot: '0xdef',
+        latestFinalizedSlot: 832n,
+        nextRecommendedFinalizedSlot: 864n,
+        latestSyncCommitteeUpdatePeriod: 13n,
+        headerInterval: 32n,
+      });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
+    mainchainMock.submitTx.mockRejectedValueOnce(outdatedError).mockResolvedValueOnce({
+      extrinsic: { signedHash: 'tx-2-hash' },
+      waitForInFirstBlock: Promise.resolve(),
+    });
+
+    const service = new EthereumBeaconSyncService(client, {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(client),
+    });
+
+    await service.runOnce();
+
+    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(1, txs[0], syncKeypair, {
+      nonce: 12,
+    });
+    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[1], syncKeypair, {
+      nonce: 12,
+    });
+    expect(service.state()).toMatchObject({
+      latestFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 13n,
+      lastSubmittedTxHash: 'tx-2-hash',
+      mode: 'idle',
+    });
+  });
 });
+
+function createSubmitLane(client: any) {
+  const lane = new DelegateSubmitLane(syncKeypair);
+  lane.client = client;
+  return lane;
+}

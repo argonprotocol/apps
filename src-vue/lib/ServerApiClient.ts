@@ -1,4 +1,4 @@
-import { JsonExt } from '@argonprotocol/apps-core';
+import { getObjectStringProperty, JsonExt } from '@argonprotocol/apps-core';
 import type {
   ICreateOperationalInviteResponse,
   ICreateTreasuryInviteResponse,
@@ -275,19 +275,17 @@ export class ServerApiClient {
           body = rawBody;
         }
       }
-      const error =
-        body != null &&
-        typeof body === 'object' &&
-        !Array.isArray(body) &&
-        'error' in body &&
-        typeof body.error === 'string'
-          ? body.error
-          : !response.ok && typeof body === 'string'
-            ? body
-            : undefined;
 
-      if (!response.ok || error) {
-        throw new Error(error || `Server API request failed (${response.status}).`);
+      let error = getObjectStringProperty(body, 'error');
+      if (!error && !response.ok && typeof body === 'string') {
+        error = body;
+      }
+
+      if (!response.ok) {
+        throw new Error(error ?? `Server API request failed (${response.status}).`);
+      }
+      if (error) {
+        throw new Error(error);
       }
 
       return body as T;

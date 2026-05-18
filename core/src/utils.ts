@@ -182,6 +182,15 @@ export function filterUndefined<T extends Record<string, any>>(obj: Partial<T>):
   ) as NonNullableProps<T>;
 }
 
+export function getObjectStringProperty(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !(key in value)) {
+    return;
+  }
+
+  const property = (value as Record<string, unknown>)[key];
+  return typeof property === 'string' ? property : undefined;
+}
+
 export function isValidArgonAccountAddress(address: string): boolean {
   try {
     encodeAddress(decodeAddress(address));
