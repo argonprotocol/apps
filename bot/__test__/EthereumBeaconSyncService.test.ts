@@ -65,6 +65,7 @@ const syncKeypair = { address: 'sync-account' } as any;
 describe('EthereumBeaconSyncService', () => {
   const createClient = (startingNonce = 4): ArgonClient =>
     ({
+      isConnected: true,
       rpc: {
         system: {
           accountNextIndex: vi.fn(async () => ({
@@ -252,6 +253,35 @@ describe('EthereumBeaconSyncService', () => {
     });
     mainchainMock.getNextEthereumBeaconSyncTxs.mockRejectedValue(
       new Error('Light-client finality update is not ready'),
+    );
+
+    const service = new EthereumBeaconSyncService(createClient(), {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(createClient()),
+    });
+
+    await service.runOnce();
+
+    expect(service.state()).toMatchObject({
+      latestFinalizedSlot: 800n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      mode: 'idle',
+    });
+    expect(service.state().lastError).toBeUndefined();
+  });
+
+  it('treats missing finality update endpoint data as idle instead of error', async () => {
+    mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
+      isBootstrapped: true,
+      hasNextSyncCommittee: true,
+      latestFinalizedBlockRoot: '0xabc',
+      latestFinalizedSlot: 800n,
+      nextRecommendedFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      headerInterval: 32n,
+    });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockRejectedValue(
+      new Error('Beacon API request failed for /eth/v1/beacon/light_client/finality_update: 404 Not Found'),
     );
 
     const service = new EthereumBeaconSyncService(createClient(), {

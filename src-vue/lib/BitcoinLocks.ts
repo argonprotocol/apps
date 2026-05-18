@@ -861,7 +861,6 @@ export default class BitcoinLocks {
 
     const typeClient = await genericClient.at(txResult.blockHash!);
     const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
-    const uuid = txInfo.tx.metadataJson.bitcoin.uuid;
     const record = await this.finalizePendingRecord(
       { uuid },
       {

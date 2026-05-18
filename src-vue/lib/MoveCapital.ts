@@ -288,7 +288,6 @@ export class MoveCapital {
 
     return {
       isArgonAddress,
-      isEthereumAddress: false,
       addressWarning: isArgonAddress ? '' : 'The address entered is not a valid Argon address.',
     };
   }
@@ -325,7 +324,6 @@ export class MoveCapital {
     }
 
     /// 2. Transfer the argons / argonots
-    const externalMeta = this.checkAddressType(toAddress);
     if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {
       throw new Error('External transfers require a valid Argon address.');
     }

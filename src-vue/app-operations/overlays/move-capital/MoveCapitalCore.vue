@@ -352,9 +352,7 @@ const moveToOptions = Vue.computed(() => {
 });
 
 const canSubmit = Vue.computed(() => {
-  const hasValidDestination = moveTo.value !== MoveTo.External || isMovingToArgon.value;
   return (
-    hasValidDestination &&
     amountToMove.value > 10_000n &&
     amountToMove.value <= maxAmountToMove.value &&
     !isProcessing.value &&

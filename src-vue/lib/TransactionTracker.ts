@@ -1,7 +1,6 @@
 import {
   ExtrinsicError,
   hexToU8a,
-  ISubmittableResult,
   ISubmittableOptions,
   type ISubmittableResult,
   SignedBlock,

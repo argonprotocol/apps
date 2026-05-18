@@ -58,7 +58,7 @@ __metadata:
     tsup: "npm:^8.5.0"
     tsx: "npm:^4.20.5"
     typescript: "npm:^5.9.2"
-    viem: "npm:^2.48.8"
+    viem: "npm:^2.48.11"
     ws: "npm:^8.18.3"
   languageName: unknown
   linkType: soft
@@ -85,6 +85,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@argonprotocol/apps-e2e@workspace:e2e"
   dependencies:
+    "@argonprotocol/apps-bot": "workspace:*"
     "@argonprotocol/apps-core": "workspace:*"
     "@argonprotocol/mainchain": "npm:1.4.3-dev.4117801d"
     "@types/ws": "npm:^8.5.13"

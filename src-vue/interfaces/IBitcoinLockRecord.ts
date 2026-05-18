@@ -50,7 +50,7 @@ export interface IBitcoinLockRecord {
   status: BitcoinLockStatus;
   satoshis: bigint;
   liquidityPromised: bigint;
-  lockedMarketRate: bigint;
+  lockedTargetPrice: bigint;
   ratchets: IRatchet[];
   cosignVersion: string;
   lockDetails: IBitcoinLock;

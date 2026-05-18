@@ -28,7 +28,7 @@
     "tauri": "tauri",
     "tauri:dev": "tsx src-tauri/dev.ts",
     "tauri:dev:local": "NODE_ENV=localnet yarn tauri:dev",
-    "tauri:dev:docker:treasury": "ARGON_APP=treasury yarn tauri:dev:docker",
+    "tauri:dev:docker:treasury": "ARGON_DEV_ETHEREUM=0 ARGON_APP=treasury yarn tauri:dev:docker",
     "tauri:dev:docker": "RUST_BACKTRACE=full ARGON_APP_INSTANCE=${ARGON_APP_INSTANCE:-e2e} ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
     "tauri:dev:docker:ops2": "JOIN_COMPOSE_NETWORK=${JOIN_COMPOSE_NETWORK:-dev-docker-e2e} ARGON_APP_INSTANCE=${ARGON_APP_INSTANCE:-ops2:1421} yarn tauri:dev:docker",
     "lint": "prettier -w bot core src-vue cli e2e",
@@ -182,7 +182,7 @@
     "@polkadot/util": "14.0.3",
     "@polkadot/util-crypto": "14.0.3",
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
-    "axios": "^1.15.0",
+    "axios": "^1.15.0"
   },
   "resolutions_disabled": {
     "@argonprotocol/mainchain": "portal:../mainchain/client/nodejs",

@@ -25,7 +25,7 @@ describe('BitcoinLocksTable', () => {
     const bitcoinLock = {
       utxoId: 7,
       liquidityPromised: 25n,
-      lockedMarketRate: 3n,
+      lockedTargetPrice: 3n,
       securityFees: 1n,
       createdAtHeight: 9,
     } as IBitcoinLock;

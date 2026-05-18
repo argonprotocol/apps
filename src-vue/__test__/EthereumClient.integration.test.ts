@@ -22,7 +22,10 @@ import {
   type Hex,
 } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
-import { EthereumBeaconSyncService, waitForFinalizedBeaconExecutionAtOrAbove } from '@argonprotocol/apps-bot';
+import {
+  EthereumBeaconSyncService,
+  waitForFinalizedBeaconExecutionAtOrAbove,
+} from '../../bot/src/EthereumBeaconSyncService.ts';
 import { MoveToken } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
