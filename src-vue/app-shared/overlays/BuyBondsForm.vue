@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { BondLot, MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
 import InputMoney from '../../components/InputMoney.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
@@ -102,6 +102,7 @@ const vaults = getVaults();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
+const vault = Vue.ref(vaults.vaultsById[props.vaultId]);
 const purchaseAmount = Vue.ref<bigint>(0n);
 const isSubmitting = Vue.ref(false);
 const errorMessage = Vue.ref('');
@@ -113,19 +114,16 @@ const progressError = Vue.ref('');
 
 let unsubProgress: (() => void) | undefined;
 
-const vaultTotalCapacity = Vue.ref(0n);
 const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[props.vaultId]);
 
-const nextFrameBondAvailability = Vue.computed(() => {
-  return TreasuryBonds.calculateNextFrameBondAvailability(
-    vaultTotalCapacity.value,
-    vaultBondState.value?.bondLots ?? [],
-    bondMarket.data.bondFullCapacityPerFrame,
-  );
-});
-
 const vaultAvailableCapacity = Vue.computed(() => {
-  return BondLot.bondsToMicrogons(nextFrameBondAvailability.value.nextFrameAvailableBonds);
+  return (
+    vault.value?.availableBondSpace(
+      currency.priceIndex,
+      vaultBondState.value?.bondLots ?? [],
+      bondMarket.data.bondFullCapacityPerFrame,
+    ) ?? 0n
+  );
 });
 
 const maxPurchaseAmount = Vue.computed(() => {
@@ -191,12 +189,11 @@ async function submit() {
 let unsubVault: (() => void) | undefined;
 
 Vue.onMounted(async () => {
-  unsubVault = await vaults.subscribeToVault(props.vaultId, () => {
-    const vault = vaults.vaultsById[props.vaultId];
-    if (vault) {
-      vaultTotalCapacity.value = vault.securitization;
-    }
+  vault.value = vaults.vaultsById[props.vaultId];
+  unsubVault = await vaults.subscribeToVault(props.vaultId, updatedVault => {
+    vault.value = updatedVault;
   });
+  purchaseAmount.value = maxPurchaseAmount.value;
 });
 
 Vue.onUnmounted(() => {

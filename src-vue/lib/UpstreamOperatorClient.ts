@@ -30,6 +30,8 @@ type UpstreamOperatorInviteWalletKeys = Pick<
   'getLiquidLockingKeypair' | 'getOperationalKeypair' | 'getUpstreamOperatorAuthKeypair'
 >;
 
+const BOOTSTRAP_LOADING_HOST = 'loading';
+
 export class UpstreamOperatorClient {
   constructor(
     private readonly serverAuthClient?: ServerAuthClient,
@@ -65,7 +67,10 @@ export class UpstreamOperatorClient {
   public static getBootstrapHost(bootstrapDetails: IConfig['bootstrapDetails']): string | undefined {
     if (!bootstrapDetails?.routerHost) return;
 
-    return `https://${normalizeOperatorHost(stripScheme(bootstrapDetails.routerHost))}`;
+    const routerHost = normalizeOperatorHost(stripScheme(bootstrapDetails.routerHost));
+    if (routerHost.toLowerCase() === BOOTSTRAP_LOADING_HOST) return;
+
+    return `https://${routerHost}`;
   }
 
   public static getBootstrapDetails(

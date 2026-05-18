@@ -21,7 +21,7 @@ import TourStepThree from './welcome-tour/StepThree.vue';
 import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
 import { getConfig } from '../../stores/config.ts';
-import { useOperationsController, OperationsTab } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationsTab } from '../stores/controller.ts';
 
 const controller = useOperationsController();
 const config = getConfig();

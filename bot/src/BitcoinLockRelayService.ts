@@ -102,7 +102,7 @@ export class BitcoinLockRelayService {
       throw new HttpError('Requested satoshis must be greater than minimum satoshis.', 400);
     }
 
-    if (request.microgonsPerBtc == null || request.microgonsPerBtc <= 0n) {
+    if (request.microgonsAtTargetPerBtc == null || request.microgonsAtTargetPerBtc <= 0n) {
       throw new HttpError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
     }
 
@@ -238,7 +238,7 @@ export class BitcoinLockRelayService {
     request: IBitcoinLockRelayJobRequest,
   ): Promise<IBitcoinLockCouponStatus> {
     return await this.submitLane.runExclusive(async (client, getNonce) => {
-      const { offerCode, requestedSatoshis, ownerAccountId, ownerBitcoinPubkey, microgonsPerBtc } = request;
+      const { offerCode, requestedSatoshis, ownerAccountId, ownerBitcoinPubkey, microgonsAtTargetPerBtc } = request;
       const existingCoupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
       if (!existingCoupon) {
         throw new HttpError('Bitcoin lock coupon not found.', 404);
@@ -271,7 +271,7 @@ export class BitcoinLockRelayService {
         this.vaultId!,
         requestedSatoshis,
         ownerBitcoinPubkey,
-        { V1: { microgonsPerBtc } },
+        { V1: { microgonsAtTargetPerBtc } },
       );
       const txSubmittedAtBlockHeight = this.blockWatch.bestBlockHeader.blockNumber;
       const txSubmittedAtTime = new Date();
@@ -289,7 +289,7 @@ export class BitcoinLockRelayService {
         securitizationUsedMicrogons: preflight.securitizationUsedMicrogons,
         ownerAccountId,
         ownerBitcoinPubkey,
-        microgonsPerBtc,
+        microgonsAtTargetPerBtc,
         delegateAddress: this.delegateAddress,
         extrinsicHash: signedTx.hash.toHex(),
         extrinsicMethodJson: signedTx.method.toHuman(),
@@ -328,7 +328,7 @@ export class BitcoinLockRelayService {
   ): Promise<IRelayPreflight> {
     await this.ensureVaultLoaded();
 
-    const { requestedSatoshis, microgonsPerBtc } = request;
+    const { requestedSatoshis, microgonsAtTargetPerBtc } = request;
     const { expirationTick, maxSatoshis } = coupon;
     const latestVault = this.latestVault;
     if (!latestVault) {
@@ -361,7 +361,7 @@ export class BitcoinLockRelayService {
     const pendingSubmittedRelays = this.db.bitcoinLockRelaysTable
       .fetchNonTerminal()
       .filter(relay => relay.status === 'Submitted');
-    const requiredLiquidity = (requestedSatoshis * microgonsPerBtc) / SATOSHIS_PER_BITCOIN;
+    const requiredLiquidity = (requestedSatoshis * microgonsAtTargetPerBtc) / SATOSHIS_PER_BITCOIN;
     const requiredSecuritization = bigNumberToBigInt(
       latestVault.securitizationRatioBN().multipliedBy(requiredLiquidity),
     );
@@ -664,7 +664,7 @@ function assertMatchingRelayRequest(
     existingRelay.requestedSatoshis !== request.requestedSatoshis ||
     existingRelay.ownerAccountId !== request.ownerAccountId ||
     existingRelay.ownerBitcoinPubkey !== request.ownerBitcoinPubkey ||
-    existingRelay.microgonsPerBtc !== request.microgonsPerBtc
+    existingRelay.microgonsAtTargetPerBtc !== request.microgonsAtTargetPerBtc
   ) {
     throw new HttpError('This invite already has a different relay request in progress.', 409);
   }

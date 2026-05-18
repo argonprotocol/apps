@@ -11,7 +11,7 @@
         <span class="text-sm text-slate-500">
           <Tooltip :asChild="true" content="The current market value of this bitcoin based on the latest oracle price.">
             <span class="cursor-help">
-              {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }} market
+              {{ currency.symbol }}{{ satToMoneyNm(props.lock.satoshis).format('0,0.[00]') }} market
             </span>
           </Tooltip>
           ·
@@ -87,7 +87,6 @@ import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { getConfig } from '../../../stores/config.ts';
-import { getVaults } from '../../../stores/vaults.ts';
 import BitcoinIcon from '../../../assets/wallets/bitcoin.svg?component';
 import VaultIcon from '../../../assets/wallets/vault.svg?component';
 import Tooltip from '../../../components/Tooltip.vue';
@@ -100,8 +99,7 @@ dayjs.extend(utc);
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
-const vaults = getVaults();
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   lock: IExternalBitcoinLock;
@@ -195,7 +193,6 @@ const termProgress = Vue.computed(() => {
   return lockTermProgress.value;
 });
 
-const btcMarketRate = Vue.ref(0n);
 const lockExpirationTime = Vue.computed(() => {
   try {
     return dayjs.utc(bitcoinLocks.verifyExpirationTime(props.lock));
@@ -203,18 +200,4 @@ const lockExpirationTime = Vue.computed(() => {
     return dayjs.utc();
   }
 });
-
-async function loadPrices() {
-  btcMarketRate.value = await vaults.getMarketRateInMicrogons(props.lock.satoshis).catch(() => 0n);
-}
-
-Vue.onMounted(() => {
-  void loadPrices();
-});
-
-Vue.watch(
-  () => props.lock,
-  () => void loadPrices(),
-  { deep: true },
-);
 </script>

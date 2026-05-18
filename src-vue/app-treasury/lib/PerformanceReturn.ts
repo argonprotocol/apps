@@ -1,10 +1,10 @@
 // PerformanceReturn.ts
 
 export type IPerformanceReturnInput = {
-  startDate: Date | number | string;
-  endDate?: Date | number | string | null;
-  startCapital: bigint;
-  endCapital: bigint;
+  startingDate: Date | number | string;
+  startingCapital: bigint;
+  endingDate?: Date | number | string | null;
+  endingCapital: bigint;
 };
 
 export type IPerformanceReturnOptions = {
@@ -85,15 +85,15 @@ export function calculatePerformanceReturn(
   let totalProfits = 0n;
 
   for (const investment of investments) {
-    const startCapital = investment.startCapital;
-    const profit = investment.endCapital - startCapital;
+    const startCapital = investment.startingCapital;
+    const profit = investment.endingCapital - startCapital;
 
     if (startCapital <= 0n) {
       continue;
     }
 
-    const startMs = toDateMs(investment.startDate);
-    const endMs = investment.endDate ? toDateMs(investment.endDate) : nowMs;
+    const startMs = toDateMs(investment.startingDate);
+    const endMs = investment.endingDate ? toDateMs(investment.endingDate) : nowMs;
 
     const ageMs = endMs - startMs;
 

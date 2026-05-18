@@ -48,7 +48,7 @@ function createLock(args: {
     status: args.status,
     satoshis: 10_000n,
     liquidityPromised: 0n,
-    lockedMarketRate: 0n,
+    lockedTargetPrice: 0n,
     ratchets: [],
     cosignVersion: 'v1',
     lockDetails: createLockDetails(),
@@ -694,7 +694,7 @@ describe('BitcoinLocks funding utxo updates', () => {
       {
         mintAmount: 0n,
         mintPending: 0n,
-        lockedMarketRate: 0n,
+        lockedTargetPrice: 0n,
         securityFee: 0n,
         txFee: 0n,
         burned: 0n,
@@ -711,7 +711,7 @@ describe('BitcoinLocks funding utxo updates', () => {
     const latestBitcoinLock = {
       utxoSatoshis: 10_000n,
       satoshis: 10_000n,
-      lockedMarketRate: 200n,
+      lockedTargetPrice: 200n,
       liquidityPromised: 300n,
       getFundingUtxoRef: vi.fn().mockResolvedValue({ txid: 'f'.repeat(64), vout: 1 }),
     };

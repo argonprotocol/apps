@@ -208,7 +208,7 @@ import {
   type IOperationalInviteStatus,
   type IOperationalInviteStatusLabel,
   useOperationsController,
-} from '../../../stores/operationsController.ts';
+} from '../../stores/controller.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getMainchainClient } from '../../../stores/mainchain.ts';

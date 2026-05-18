@@ -285,11 +285,11 @@ export class MoveCapital {
     if (!trimmedAddress) return { isArgonAddress: false, addressWarning: '' };
 
     const isArgonAddress = isValidArgonAccountAddress(trimmedAddress);
-    const addressWarning = isArgonAddress ? '' : 'The address entered is not a valid Argon address.';
 
     return {
       isArgonAddress,
-      addressWarning,
+      isEthereumAddress: false,
+      addressWarning: isArgonAddress ? '' : 'The address entered is not a valid Argon address.',
     };
   }
 
@@ -325,6 +325,11 @@ export class MoveCapital {
     }
 
     /// 2. Transfer the argons / argonots
+    const externalMeta = this.checkAddressType(toAddress);
+    if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {
+      throw new Error('External transfers require a valid Argon address.');
+    }
+
     for (const [tokenSymbol, assetToMove] of Object.entries(assetsToMove) as Array<[MoveToken, bigint]>) {
       if (!assetToMove) continue;
       if (tokenSymbol === MoveToken.ARGN) {

@@ -122,8 +122,7 @@
         ]"
         class="inner-button-shadow rounded-md border px-10 py-1.5 font-bold text-white"
       >
-        <template v-if="addressWarning">Send Anyway</template>
-        <template v-else>Send</template>
+        Send
       </button>
     </div>
     <template v-else>
@@ -353,7 +352,9 @@ const moveToOptions = Vue.computed(() => {
 });
 
 const canSubmit = Vue.computed(() => {
+  const hasValidDestination = moveTo.value !== MoveTo.External || isMovingToArgon.value;
   return (
+    hasValidDestination &&
     amountToMove.value > 10_000n &&
     amountToMove.value <= maxAmountToMove.value &&
     !isProcessing.value &&

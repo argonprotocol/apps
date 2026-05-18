@@ -30,7 +30,7 @@ import * as Vue from 'vue';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { useOperationsController, operationalSteps, OperationalStepId } from '../../stores/operationsController.ts';
+import { useOperationsController, operationalSteps, OperationalStepId } from '../stores/controller.ts';
 import { useBasics } from '../../stores/basics.ts';
 
 const basics = useBasics();

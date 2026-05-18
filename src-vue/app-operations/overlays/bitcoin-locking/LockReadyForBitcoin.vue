@@ -2,11 +2,10 @@
   <div class="px-10 pt-3">
     <p class="mt-5 mb-4 text-gray-600 select-text">
       You must send exactly
-      <strong>{{ numeral(currency.convertSatToBtc(props.personalLock.satoshis)).format('0,0.[00000000]') }} BTC</strong>
-      (or
-      {{ numeral(props.personalLock.satoshis).format('0,0') }}
-      sats) to the multi-sig cosign address listed below. If the amount differs, we’ll pause and let you choose whether
-      to accept the adjusted amount or return the transfer.
+      <strong>{{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }} BTC</strong>
+      (around {{ currency.symbol }}{{ satToMoneyNm(props.personalLock.satoshis).format('0,0.00') }} worth) to the
+      multi-sig cosign address listed below. If the amount differs, we’ll pause and let you choose whether to accept the
+      adjusted amount or return the transfer.
     </p>
 
     <p class="mt-5 mb-4 text-gray-600 select-text">
@@ -74,7 +73,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import numeral from '../../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { abbreviateAddress } from '../../../lib/Utils.ts';
 import CopyToClipboard from '../../../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../../../components/BitcoinQrCode.vue';
@@ -94,6 +93,8 @@ const props = defineProps<{
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
+
+const { satToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
 const showQrCode = Vue.ref(false);
 const fundingBip21 = Vue.ref('');

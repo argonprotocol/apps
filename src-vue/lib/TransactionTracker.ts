@@ -3,6 +3,7 @@ import {
   hexToU8a,
   ISubmittableResult,
   ISubmittableOptions,
+  type ISubmittableResult,
   SignedBlock,
   SubmittableExtrinsic,
   type TxSigningAccount,
@@ -87,13 +88,6 @@ export class TransactionTracker {
         }
         txResult.finalFee = tx.txFeePlusTip ?? 0n;
         txResult.finalFeeTip = tx.txTip ?? 0n;
-        if (tx.blockExtrinsicErrorJson) {
-          txResult.extrinsicError = new ExtrinsicError(
-            tx.blockExtrinsicErrorJson.errorCode ?? 'Unknown Error',
-            tx.blockExtrinsicErrorJson.details ?? tx.blockExtrinsicErrorJson.message,
-            tx.blockExtrinsicErrorJson.batchInterruptedIndex,
-          );
-        }
         if (tx.blockHeight) {
           void txResult.setSeenInBlock({
             blockHash: hexToU8a(tx.blockHash),
@@ -114,8 +108,15 @@ export class TransactionTracker {
             );
           }
         }
+        if (tx.blockExtrinsicErrorJson) {
+          txResult.extrinsicError = new ExtrinsicError(
+            tx.blockExtrinsicErrorJson.errorCode ?? 'Unknown Error',
+            tx.blockExtrinsicErrorJson.details ?? tx.blockExtrinsicErrorJson.message,
+            tx.blockExtrinsicErrorJson.batchInterruptedIndex,
+          );
+        }
 
-        if (tx.isFinalized || txResult.extrinsicError || txResult.submissionError) {
+        if (tx.isFinalized || txResult.submissionError) {
           txResult.setFinalized();
         }
         // Mark txResult as non-reactive to avoid issues with private fields

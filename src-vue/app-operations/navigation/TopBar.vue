@@ -9,8 +9,8 @@
       <WindowControls />
       <div class="text-[19px] font-bold whitespace-nowrap">
         {{ APP_NAME }}
-        <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
       </div>
+      <InstanceMenu v-if="NETWORK_NAME !== 'mainnet' || instances.length > 1" :instances="instances" />
     </div>
 
     <div
@@ -20,34 +20,53 @@
       <TabSwitcher />
     </div>
 
-    <div v-if="controller.isLoaded && !controller.isImporting"
-      class="flex flex-row mr-3 space-x-2 items-center justify-end w-1/3 grow pointer-events-none relative top-[1px]"
+    <NavigationMenuRoot
+      v-if="controller.isLoaded && !controller.isImporting"
+      class="grow pointer-events-none relative mr-3 flex flex-row items-center justify-end w-1/3"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
+      :model-value="navigationMenuValue"
+      :delay-duration="0"
+      :skip-delay-duration="0"
+      @update:model-value="setNavigationMenuValue"
     >
-      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
-        <ServerMenu ref="serverMenuRef" />
-      </div>
-      <div class="pointer-events-auto">
-        <OperationalMenu ref="operationalMenuRef" />
-      </div>
-      <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
-        <CurrencyMenu ref="currencyMenuRef" />
-      </div>
-      <div
-        :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
-        class="relative"
+      <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
+        <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+          <ServerMenu ref="serverMenuRef" />
+        </div>
+        <div class="pointer-events-auto">
+          <OperationalMenu ref="operationalMenuRef" />
+        </div>
+        <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+          <PortfolioMenu ref="currencyMenuRef" />
+        </div>
+        <div
+          :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
+          class="relative"
+        >
+          <AccountMenu ref="accountMenuRef" />
+        </div>
+      </NavigationMenuList>
+      <NavigationMenuIndicator
+        class="pointer-events-none absolute top-full left-0 z-[2001] flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
       >
-        <AccountMenu ref="accountMenuRef" />
-      </div>
-    </div>
+        <div class="relative top-[-1px] h-0 w-0 border-x-[13px] border-b-[13px] border-x-transparent border-b-gray-900/20">
+          <div class="absolute top-[2px] left-[-11px] h-0 w-0 border-x-[11px] border-b-[11px] border-x-transparent border-b-argon-menu-bg" />
+        </div>
+      </NavigationMenuIndicator>
+      <NavigationMenuViewport
+        align="end"
+        class="pointer-events-auto absolute top-full left-[var(--reka-navigation-menu-viewport-left)] z-[2000] mt-[8px] h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-visible rounded border border-gray-900/20 bg-argon-menu-bg shadow-lg transition-[left,_width,_height] duration-300 data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn sm:w-[var(--reka-navigation-menu-viewport-width)]"
+        @mouseenter="clearNavigationMenuClose"
+      />
+    </NavigationMenuRoot>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController, OperationsTab, OperationalStepId } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationsTab } from '../stores/controller.ts';
 import WindowControls from '../../tauri-controls/WindowControls.vue';
-import CurrencyMenu from '../../app-shared/navigation/CurrencyMenu.vue';
+import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import InstanceMenu from '../../app-shared/navigation/InstanceMenu.vue';
 import { useWallets } from '../../stores/wallets.ts';
@@ -60,6 +79,7 @@ import { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
 import TabSwitcher from './TabSwitcher.vue';
 import ServerMenu from './ServerMenu.vue';
 import OperationalMenu from './OperationalMenu.vue';
+import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
 
 const controller = useOperationsController();
 const wallets = useWallets();
@@ -67,7 +87,10 @@ const tour = useTour();
 const bot = getBot();
 
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
-const currencyMenuRef = Vue.ref<InstanceType<typeof CurrencyMenu> | null>(null);
+const currencyMenuRef = Vue.ref<InstanceType<typeof PortfolioMenu> | null>(null);
+
+const navigationMenuValue = Vue.ref('');
+let navigationMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 const instances = Vue.ref<IInstance[]>([]);
 
@@ -89,6 +112,27 @@ async function fetchInstances() {
       },
     ];
   }
+}
+
+function setNavigationMenuValue(value: string) {
+  clearNavigationMenuClose();
+
+  if (value) {
+    navigationMenuValue.value = value;
+    return;
+  }
+
+  navigationMenuCloseTimeoutId = setTimeout(() => {
+    navigationMenuValue.value = '';
+    navigationMenuCloseTimeoutId = undefined;
+  }, 450);
+}
+
+function clearNavigationMenuClose() {
+  if (navigationMenuCloseTimeoutId) {
+    clearTimeout(navigationMenuCloseTimeoutId);
+  }
+  navigationMenuCloseTimeoutId = undefined;
 }
 
 tour.registerPositionCheck('currencyMenu', () => {

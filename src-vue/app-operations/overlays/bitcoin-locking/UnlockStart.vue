@@ -186,7 +186,7 @@ async function updateFeeRates() {
   const isLocked = bitcoinLocks.isLockedStatus(props.personalLock);
   if (!isLocked) return;
 
-  releasePrice.value = await vaults.getRedemptionRate(props.personalLock);
+  releasePrice.value = await vaults.fetchAndCalculateRedemptionAmount(props.personalLock);
 }
 
 Vue.onMounted(async () => {

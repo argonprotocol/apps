@@ -245,7 +245,8 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
           ownerAccountId: operatorHarness.walletKeys.liquidLockingAddress,
           ownerBitcoinPubkey: '02deadbeef',
           requestedSatoshis,
-          microgonsPerBtc: treasuryHarness.currency.priceIndex.getBtcMicrogonPrice(SATOSHIS_PER_BITCOIN),
+          microgonsAtTargetPerBtc:
+            treasuryHarness.currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN),
         }),
       ).rejects.toThrow('claimed by a different account');
 

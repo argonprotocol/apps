@@ -1,44 +1,52 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="relative flex h-full flex-col items-center justify-center grow pb-5 px-[5%] ">
-    <MoreIcon class="absolute top-4 right-4 h-4 w-4 text-slate-400" />
+  <div class="flex h-full flex-col px-9">
+    <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
 
-    <div class="flex flex-col grow pb-40 mx-auto max-w-300 justify-center">
-      <section class="grow max-h-60 py-10 flex flex-col items-center justify-center">
-        <div class="whitespace-nowrap text-center">
-          <span class="relative text-7xl text-slate-600 font-bold ">
+    <!-- Blank state -->
+    <div v-else-if="!allLocks.length" class="flex grow flex-col items-center justify-center pb-20">
+      <div class="flex w-7/12 max-w-200 flex-col items-center pb-10">
+        <div class="w-20 bg-white shadow-md">
+          <LoanIcon class="text-argon-600/60 inline-block w-full" />
+        </div>
+        <p class="mt-10 w-0 min-w-full border-y border-slate-400/50 py-4 text-[17px]/7 font-light whitespace-normal">
+          The Argon Network provides interest-free loans to all bitcoin holders up to the full market value of their
+          bitcoin. These loans are for a duration of one year, after which you can continue to extend it for additional
+          years. The stablecoins you receive are unencumbered, meaning you have the full freedom to deploy your capital
+          however you want.
+        </p>
+        <div class=" mt-12">
+          <button @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)" class="text-argon-600 text-base font-bold cursor-pointer border border-argon-600 px-5 py-1 rounded-md hover:bg-argon-600/5">
+            Open Bitcoin Locks Tab
+            <ArrowRightIcon class="w-5 h-5 inline-block ml-1" />
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="min-h-0 grow flex flex-col">
+      <section class="mt-5 flex flex-row items-end gap-x-2 text-center px-9">
+        <div class="w-1/3 border-b border-slate-400/30 py-5">
+          <div class="text-argon-600 text-5xl font-bold">
             {{ currency.symbol }}<FormattedMoney :isLoaded="bitcoinLocksIsLoaded" :value="totalBitcoinDebt" />
-            <span class="flex flex-row gap-x-1 absolute -top-3 -right-1 translate-y-full translate-x-full">
-              <InfoIcon class="w-5 h-5 text-slate-400" />
-            </span>
-          </span>
+          </div>
+          <div class="font-light text-slate-900/70">Outstanding Debt</div>
         </div>
-        <div class="text-center mt-1 text-lg font-light text-slate-600 break-all select-all whitespace-nowrap">
-          Outstanding Debt
-        </div>
-      </section>
-
-      <section class="grow max-h-40 flex flex-row w-full items-stretch border-t border-slate-400/30">
-        <div class="flex flex-col justify-center text-center w-1/2 pl-7 pr-7 pt-7 pb-5">
-          <span class="relative text-5xl text-slate-700/80 font-bold ">
+        <div class="relative h-full w-px bg-slate-400/30"/>
+        <div class="w-1/3 border-b border-slate-400/30 py-5">
+          <div class="text-argon-600 text-5xl font-bold">
             {{ allLocks.length }}
-            <span class="flex flex-row gap-x-1 absolute -top-3 -right-1 translate-y-full translate-x-full">
-              <InfoIcon class="w-5 h-5 text-slate-400" />
-            </span>
-          </span>
-          <div class="mt-1 text-lg font-light text-slate-800 break-all select-all whitespace-nowrap">
+          </div>
+          <div class="font-light text-slate-900/70">
             Active Position{{ allLocks.length === 1 ? '' : 's' }}
           </div>
         </div>
-        <div class="w-px bg-slate-400/30 mx-5" />
-        <div class="flex flex-col justify-center text-center w-1/2 pl-5 pr-10 pt-7 pb-5">
-          <span class="relative text-5xl text-slate-700/80 font-bold">
-            11 Days
-            <span class="flex flex-row gap-x-1 absolute -top-3 -right-1 translate-y-full translate-x-full">
-              <InfoIcon class="w-5 h-5 text-slate-400" />
-            </span>
-          </span>
-          <div class="mt-1 text-lg font-light text-slate-800 break-all select-all whitespace-nowrap">
+        <div class="relative h-full w-px bg-slate-400/30"/>
+        <div class="w-1/3 border-b border-slate-400/30 py-5">
+          <div class="text-argon-600 text-5xl font-bold">
+            {{ closestMaturityDays }} Days
+          </div>
+          <div class="font-light text-slate-900/70">
             Until Next Maturity
           </div>
         </div>
@@ -51,21 +59,23 @@
           from now as it does today.
         </p>
       </section>
-    </div>
 
-    <section class="w-full">
-      <div v-if="!recentTransactions.length" class="italic text-shadow-slate-600/80">
-        Your wallet has no transactions yet.
-      </div>
-      <header class="font-bold">Upcoming Payment Dates</header>
-      <table class="w-full">
-        <tbody>
-        <tr v-for="tx of recentTransactions">
-          <td>{{ dayjs.utc(tx.createdAt).local().fromNow() }}</td>
-        </tr>
-        </tbody>
-      </table>
-    </section>
+      <section class="w-full">
+        <div v-if="!sortedLocks.length" class="italic text-shadow-slate-600/80 text-center pt-50">
+          No upcoming payments
+        </div>
+        <template v-if="sortedLocks.length">
+          <header class="font-bold">Upcoming Payment Dates</header>
+          <table class="w-full">
+            <tbody>
+              <tr v-for="lock of sortedLocks">
+                <td>{{ dayjs.utc(lock.createdAt).local().fromNow() }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -73,32 +83,30 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { useDebounceFn } from '@vueuse/core';
 import { getCurrency } from '../../stores/currency.ts';
-import MoreIcon from '../../assets/more.svg';
 import InfoIcon from '../../assets/info-outline.svg';
-import { WalletType } from '../../lib/Wallet.ts';
-import { useWallets } from '../../stores/wallets.ts';
-import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
-import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
-import { IWalletTransferRecord } from '../../lib/db/WalletTransfersTable.ts';
 import { BitcoinLock } from '@argonprotocol/mainchain';
 import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
+import LoanIcon from '../../assets/loan.svg';
+import { ArrowRightIcon } from '@heroicons/vue/24/outline';
+import { TreasuryTab, useTreasuryController } from '../stores/controller.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import numeral from '../../lib/numeral.ts';
 
 dayjs.extend(utc);
 
 const currency = getCurrency();
-const wallets = useWallets();
 const bitcoinLocks = getBitcoinLocks();
+const controller = useTreasuryController();
 
 const isLoaded = Vue.ref(false);
 const currencyIsLoaded = Vue.ref(false);
 const bitcoinLocksIsLoaded = Vue.ref(false);
-const totalBitcoinDebt = Vue.ref(0n);
 
-const recentTransactions = Vue.ref<IWalletTransferRecord[]>([]);
+const totalBitcoinDebt = Vue.ref(0n);
+const closestMaturityDays = Vue.ref(365);
 
 const allLocks = Vue.computed(() => {
   return bitcoinLocks.getAllLocks();
@@ -108,49 +116,31 @@ const nonReleasedLocks = Vue.computed(() => {
   return allLocks.value.filter(l => l.status !== BitcoinLockStatus.Released);
 });
 
-const pendingMint = Vue.computed(() => {
-  return bitcoinLocks.getMintPending();
-});
-
-const rawTotalValue = Vue.computed(() => {
-  return wallets.investmentWallet.availableMicrogons + pendingMint.value;
-});
-const totalValue = Vue.ref(rawTotalValue.value);
-const updateTotalValue = useDebounceFn(
-  () => {
-    totalValue.value = rawTotalValue.value;
-  },
-  250,
-  { maxWait: 750 },
-);
-const investmentWalletWithBlock = wallets.investmentWallet as typeof wallets.investmentWallet & {
-  block?: { blockNumber: number };
-};
-
-function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
-}
-
-async function loadTransactionHistory() {
-  const db = await getDbPromise();
-  const allTransfers = await db.walletTransfersTable.fetchAll();
-  recentTransactions.value = allTransfers.slice(0, 2);
-}
-
-async function updateTotalBitcoinDebt() {
-  const ratePromises = nonReleasedLocks.value.map(lock => {
-    return BitcoinLock.getRedemptionRate(currency.priceIndex, lock).catch(() => 0n);
+const sortedLocks = Vue.computed(() => {
+  const locks = [...nonReleasedLocks.value].sort((a, b) => {
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
-  const rates = await Promise.all(ratePromises);
+
+  if (locks[0]) {
+    const date = dayjs.utc(locks[0].createdAt);
+    closestMaturityDays.value = Math.max(dayjs.utc().diff(date, 'day'), 0);
+  }
+
+  return locks;
+});
+
+function updateTotalBitcoinDebt() {
+  const rates = nonReleasedLocks.value.map(lock => {
+    return (
+      BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, lock.satoshis, lock.lockedTargetPrice) ||
+      0n
+    );
+  });
   totalBitcoinDebt.value = rates.reduce((sum, r) => sum + r, 0n);
 }
 
 Vue.watch([nonReleasedLocks, isLoaded], () => {
-  void updateTotalBitcoinDebt();
-});
-
-Vue.watch(rawTotalValue, () => {
-  void updateTotalValue();
+  updateTotalBitcoinDebt();
 });
 
 Vue.onMounted(async () => {
@@ -158,8 +148,8 @@ Vue.onMounted(async () => {
   await bitcoinLocks.load();
   bitcoinLocksIsLoaded.value = true;
 
-  void updateTotalBitcoinDebt();
-  await loadTransactionHistory();
+  updateTotalBitcoinDebt();
+  isLoaded.value = true;
 });
 </script>
 

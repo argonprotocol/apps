@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
-  <div>
-    <div v-if="isShowingCompletionTooltip" class="z-50 absolute top-6 right-[46px] pt-[12px]">
+  <div class="relative">
+    <div AlertMenu v-if="isShowingCompletionTooltip" class="z-50 absolute top-6 right-0 pt-[12px]">
       <Arrow
         class="absolute top-0 right-6 h-3.5 w-6"
         fill="white"
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div v-else-if="isShowingBonusTooltip" class="z-50 absolute top-6 right-[46px] pt-[12px]">
+    <div AlertMenu v-else-if="isShowingBonusTooltip" class="z-50 absolute top-6 right-0 pt-[12px]">
       <Arrow
         class="absolute top-0 right-6 w-6 h-3.5"
         fill="white"
@@ -59,16 +59,16 @@
       </div>
     </div>
 
-    <div ref="rootRef" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
-      <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
-        <DropdownMenuTrigger
+    <div ref="rootRef">
+      <NavigationMenuItem class="pointer-events-auto" @mouseenter="onMenuEnter" @mouseleave="onMenuLeave">
+        <NavigationMenuTrigger
           Trigger
           :aria-label="controller.isOperationalRewardsFlowActive ? 'Operational rewards' : 'Operational progress'"
-          class="flex flex-row items-center justify-center overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
+          class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
           :class="[
-            isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50',
             controller.isOperationalRewardsFlowActive ? 'w-[42px]' : 'font-mono text-base font-semibold',
           ]"
+          @focus="onMenuEnter"
         >
           <template v-if="controller.isOperationalRewardsFlowActive">
             <div class="relative flex h-full w-full items-center justify-center">
@@ -85,18 +85,13 @@
             <RocketIcon class="h-[17px] relative top-[2px] mr-[5px] -rotate-45" aria-hidden="true" />
             {{ controller.completedCertificationStepCount }}/{{ controller.certificationStepCount }}
           </div>
-        </DropdownMenuTrigger>
+        </NavigationMenuTrigger>
 
-        <DropdownMenuPortal>
-          <DropdownMenuContent
-            @mouseenter="onMouseEnter"
-            @mouseleave="onMouseLeave"
-            @pointerDownOutside="clickOutside"
-            :align="'end'"
-            :alignOffset="0"
-            :sideOffset="-3"
-            class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all"
-          >
+        <NavigationMenuContent
+          class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
+          @mouseenter="onMenuEnter"
+          @mouseleave="onMenuLeave"
+        >
             <div class="relative">
               <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
                 <div v-if="controller.isOperationalRewardsFlowActive" class="w-[26rem] px-4 pt-4 pb-4">
@@ -224,10 +219,8 @@
                 </div>
               </div>
             </div>
-            <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
-          </DropdownMenuContent>
-        </DropdownMenuPortal>
-      </DropdownMenuRoot>
+          </NavigationMenuContent>
+      </NavigationMenuItem>
     </div>
   </div>
 </template>
@@ -235,14 +228,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
-import {
-  DropdownMenuArrow,
-  DropdownMenuContent,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-  PointerDownOutsideEvent,
-} from 'reka-ui';
+import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import RocketIcon from '../../assets/rocket.svg?component';
 import basicEmitter from '../../emitters/basicEmitter.ts';
@@ -253,7 +239,7 @@ import Arrow from '../../components/Arrow.vue';
 import Tooltip from '../../components/Tooltip.vue';
 import OperationalInviteSlots from '../components/OperationalInviteSlots.vue';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import { OperationalStepId, operationalSteps, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, operationalSteps, useOperationsController } from '../stores/controller.ts';
 
 const config = getConfig();
 const controller = useOperationsController();
@@ -340,7 +326,7 @@ function dismissMessage() {
   void config.save();
 }
 
-function onMouseEnter() {
+function onMenuEnter() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
   }
@@ -356,7 +342,7 @@ function onMouseEnter() {
   }
 }
 
-function onMouseLeave() {
+function onMenuLeave() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
   }
@@ -364,21 +350,6 @@ function onMouseLeave() {
   mouseLeaveTimeoutId = setTimeout(() => {
     isOpen.value = false;
   }, 100);
-}
-
-function clickOutside(e: PointerDownOutsideEvent) {
-  const isChildOfTrigger = !!(e.target as HTMLElement)?.closest('[Trigger]');
-  if (!isChildOfTrigger) return;
-
-  isOpen.value = true;
-  setTimeout(() => {
-    isOpen.value = true;
-  }, 200);
-  e.detail.originalEvent.stopPropagation();
-  e.detail.originalEvent.preventDefault();
-  e.stopPropagation();
-  e.preventDefault();
-  return false;
 }
 
 function openOverlay(stepId: OperationalStepId, event: MouseEvent) {

@@ -91,7 +91,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
     const sats = BigInt(myVault.createdVault?.securitizedSatoshis ?? 0);
     if (sats <= 0n) return 0n;
-    return currency.priceIndex.getBtcMicrogonPrice(sats);
+    return currency.priceIndex.getSatoshiPriceInTargetMicrogons(sats);
   });
 
   const treasuryBondCapacityUsedMicrogons = Vue.computed(() => {
@@ -115,12 +115,13 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   // The remaining next-frame room for buying new bonds.
   const treasuryBondMicrogonsAvailable = Vue.computed(() => {
-    const availability = TreasuryBonds.calculateNextFrameBondAvailability(
-      treasuryBondCapacityMicrogons.value,
-      vaultBondState.value?.bondLots ?? [],
-      bondMarket.data.bondFullCapacityPerFrame,
+    return (
+      myVault.createdVault?.availableBondSpace(
+        currency.priceIndex,
+        vaultBondState.value?.bondLots ?? [],
+        bondMarket.data.bondFullCapacityPerFrame,
+      ) ?? 0n
     );
-    return BondLot.bondsToMicrogons(availability.nextFrameAvailableBonds);
   });
 
   // Operational Fees

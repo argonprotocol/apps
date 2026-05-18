@@ -5,6 +5,8 @@ import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
 import { getMyVault } from '../stores/vaults';
 import { useWallets } from '../stores/wallets.ts';
+import { useOperationsController } from '../app-operations/stores/controller.ts';
+import { getDbPromise } from '../stores/helpers/dbPromise';
 import { useBasics } from '../stores/basics.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
 import type { IAppQueryFn, IAppQueryRefs } from '../interfaces/IAppQueryRefs.ts';

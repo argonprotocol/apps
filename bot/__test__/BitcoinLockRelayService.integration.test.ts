@@ -148,7 +148,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
         },
         {
           offerCode: 'missing-price-quote',
-          patch: { microgonsPerBtc: 0n },
+          patch: { microgonsAtTargetPerBtc: 0n },
           errorMatcher: 'current bitcoin price quote',
         },
       ];
@@ -304,7 +304,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
             data: {
               utxoId: { toNumber: () => 42 },
               liquidityPromised: { toBigInt: () => 555n },
-              lockedMarketRate: { toBigInt: () => relay.microgonsPerBtc },
+              lockedTargetPrice: { toBigInt: () => relay.microgonsAtTargetPerBtc },
               accountId: { toString: () => relay.ownerAccountId },
               securityFee: { toBigInt: () => 9n },
             },
@@ -421,7 +421,7 @@ function createRelayRequest(offerCode = 'offer-code'): IBitcoinLockRelayJobReque
     requestedSatoshis: 25_000n,
     ownerAccountId: sudo().address,
     ownerBitcoinPubkey: '0x1234',
-    microgonsPerBtc: 75_000_000n,
+    microgonsAtTargetPerBtc: 75_000_000n,
   };
 }
 
@@ -447,7 +447,7 @@ function upsertCouponState(db: Db, request: IBitcoinLockRelayJobRequest, status:
       securitizationUsedMicrogons: 0n,
       ownerAccountId: request.ownerAccountId,
       ownerBitcoinPubkey: request.ownerBitcoinPubkey,
-      microgonsPerBtc: request.microgonsPerBtc,
+      microgonsAtTargetPerBtc: request.microgonsAtTargetPerBtc,
       delegateAddress: sudo().address,
       extrinsicHash: `0x${request.offerCode}`,
       extrinsicMethodJson: {},

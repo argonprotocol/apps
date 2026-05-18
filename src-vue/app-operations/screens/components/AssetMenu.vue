@@ -55,7 +55,7 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import basicEmitter from '../../../emitters/basicEmitter.ts';
-import { PortfolioTab } from '../../../panels/interfaces/IPortfolioTab.ts';
+import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import { WalletType } from '../../../lib/Wallet.ts';
 
 const props = defineProps<{

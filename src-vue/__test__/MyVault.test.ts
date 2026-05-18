@@ -396,7 +396,7 @@ describe('MyVault cosign recovery', () => {
     const testVault = myVault as unknown as IMyVaultTestTarget;
     vi.spyOn(testVault, 'updateCollectDueDate').mockImplementation(() => undefined);
 
-    myVault.data.pendingCosignUtxosById.set(16, { marketValue: 1_000n });
+    myVault.data.pendingCosignUtxosById.set(16, { targetValue: 1_000n });
     myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.set(16, txInfo as TransactionInfo<{ utxoId: number }>);
 
     await testVault.recordPendingCosignUtxos([], 0);

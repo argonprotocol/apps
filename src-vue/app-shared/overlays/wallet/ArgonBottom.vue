@@ -174,7 +174,7 @@ import Checkbox from '../../../components/Checkbox.vue';
 import { MiningSetupStatus, VaultingSetupStatus } from '../../../interfaces/IConfig.ts';
 import { useWallets } from '../../../stores/wallets.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
-import { OperationalStepId, useOperationsController } from '../../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../../../app-operations/stores/controller.ts';
 import AlertCalloutButton from '../../../components/AlertCalloutButton.vue';
 import { IS_OPERATIONS_APP } from '../../../lib/Env.ts';
 import { getBiddingCalculator } from '../../../stores/mainchain.ts';

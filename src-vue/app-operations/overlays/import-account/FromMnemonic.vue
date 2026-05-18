@@ -39,7 +39,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController } from '../../../stores/operationsController.ts';
+import { useOperationsController } from '../../stores/controller.ts';
 import { getWalletKeys } from '../../../stores/wallets.ts';
 
 withDefaults(

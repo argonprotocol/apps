@@ -284,7 +284,7 @@ import MiningAssetBreakdown from '../components/MiningAssetBreakdown.vue';
 import MiningSeats from './components/MiningSeats.vue';
 import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../../stores/mainchain.ts';
 import { UnitOfMeasurement } from '../../../lib/Currency.ts';
-import { PortfolioTab } from '../../../panels/interfaces/IPortfolioTab.ts';
+import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import ProjectionsIcon from '../../../assets/rocket.svg';
 import RoiIcon from '../../../assets/roi.svg';
 import { WalletType } from '../../../lib/Wallet.ts';
@@ -292,7 +292,7 @@ import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { botEmitter } from '../../../lib/Bot.ts';
 import { getBot } from '../../../stores/bot.ts';
-import { OperationalStepId, useOperationsController } from '../../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/controller.ts';
 import { useWallets } from '../../../stores/wallets.ts';
 
 const controller = useOperationsController();

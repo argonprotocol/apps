@@ -65,7 +65,7 @@
           <label class="font-bold opacity-40">Argons to Receive</label>
           <InputMoney
             data-testid="LockStart.argonAmount"
-            v-model="liquidityToReceiveMicrogons"
+            v-model="liquidityToReceive"
             @input="handleArgonChange"
             :maxDecimals="0"
             :min="0n"
@@ -136,7 +136,7 @@ import InputNumber from '../../../components/InputNumber.vue';
 import InputMoney from '../../../components/InputMoney.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
-import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+import { BitcoinLock, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
@@ -173,7 +173,7 @@ const availableLiquidityBtc = Vue.ref(0);
 const isSaving = Vue.ref(false);
 const errorMessage = Vue.ref<string | null>(null);
 const bitcoinAmount = Vue.ref(0);
-const liquidityToReceiveMicrogons = Vue.ref(0n);
+const liquidityToReceive = Vue.ref(0n);
 const lockSatoshis = Vue.ref(0n);
 const securityFee = Vue.ref(0n);
 const hasEditedAmounts = Vue.ref(false);
@@ -250,18 +250,18 @@ let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
 
 function updateFeeEstimate() {
-  if (!props.vault || liquidityToReceiveMicrogons.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
+  if (!props.vault || liquidityToReceive.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
     securityFee.value = 0n;
     return;
   }
-  securityFee.value = props.vault.calculateBitcoinFee(liquidityToReceiveMicrogons.value);
+  securityFee.value = props.vault.calculateBitcoinFee(liquidityToReceive.value);
 }
 
 function initializeDefaultAmounts(satoshis: bigint, liquidityMicrogons: bigint) {
   const btc = currency.convertSatToBtc(satoshis);
 
   lockSatoshis.value = satoshis;
-  liquidityToReceiveMicrogons.value = liquidityMicrogons;
+  liquidityToReceive.value = liquidityMicrogons;
   bitcoinAmount.value = btc;
 
   lastSetLiquidityMicrogons = liquidityMicrogons;
@@ -288,11 +288,11 @@ async function internalHandleBtcChange(value: number) {
     return;
   }
   hasEditedAmounts.value = true;
-  const sats = BigInt(Math.round(value * Number(SATS_PER_BTC)));
-  lockSatoshis.value = sats;
-  liquidityToReceiveMicrogons.value = await vaults.getMarketRateInMicrogons(sats);
-  console.log(`Btc market rate of ${sats} sats -> ${liquidityToReceiveMicrogons.value} liquidity microgons`);
-  lastSetLiquidityMicrogons = liquidityToReceiveMicrogons.value;
+  const satoshis = BigInt(Math.round(value * Number(SATS_PER_BTC)));
+  lockSatoshis.value = satoshis;
+  liquidityToReceive.value = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis);
+  console.log(`${satoshis} sats -> ${liquidityToReceive.value} liquidity to receive`);
+  lastSetLiquidityMicrogons = liquidityToReceive.value;
   lastSetBitcoinAmount = value;
   updateFeeEstimate();
 }
@@ -305,8 +305,8 @@ async function submitLiquidLock() {
     await config.isLoadedPromise;
     isSaving.value = true;
     errorMessage.value = null;
-    if (satoshis <= 0n && liquidityToReceiveMicrogons.value > 0n) {
-      satoshis = await bitcoinLocks.satoshisForArgonLiquidity(liquidityToReceiveMicrogons.value);
+    if (satoshis <= 0n && liquidityToReceive.value > 0n) {
+      satoshis = await bitcoinLocks.satoshisForArgonLiquidity(liquidityToReceive.value);
       lockSatoshis.value = satoshis;
     }
     if (satoshis <= 0n) {
@@ -347,7 +347,10 @@ async function setLiquidityVariables() {
         : nextVaultCapacitySatoshis;
   }
 
-  const nextLiquidityMicrogons = await vaults.getMarketRateInMicrogons(nextAvailableSatoshis);
+  const nextLiquidityMicrogons = BitcoinLock.calculateRedemptionAmountFromSatoshis(
+    currency.priceIndex,
+    nextAvailableSatoshis,
+  );
 
   if (syncId !== availableLiquiditySyncId) return;
 
@@ -356,7 +359,7 @@ async function setLiquidityVariables() {
   availableLiquidityMicrogons.value = nextLiquidityMicrogons;
   availableLiquidityBtc.value = currency.convertSatToBtc(nextAvailableSatoshis);
 
-  if (!hasEditedAmounts.value || (liquidityToReceiveMicrogons.value === 0n && lockSatoshis.value === 0n)) {
+  if (!hasEditedAmounts.value || (liquidityToReceive.value === 0n && lockSatoshis.value === 0n)) {
     initializeDefaultAmounts(nextAvailableSatoshis, nextLiquidityMicrogons);
     if (syncId !== availableLiquiditySyncId) return;
   }

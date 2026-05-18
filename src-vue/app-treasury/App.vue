@@ -2,9 +2,9 @@
 <template>
   <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default gap-y-2">
     <TopBar />
-    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pb-2">
+    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pb-2 overflow-scroll">
       <LeftBar />
-      <main DashBox class="flex flex-col grow relative h-full overflow-scroll">
+      <main DashBox class="flex flex-col grow relative">
         <InflationFreeSavings v-if="controller.selectedTab === TreasuryTab.MainchainSavings" />
         <InterestFreeDebts v-if="controller.selectedTab === TreasuryTab.MainchainDebts" />
         <ArgonBondsScreen v-if="controller.selectedTab === TreasuryTab.ArgonBonds" />
@@ -26,6 +26,7 @@
       <WalletOverlay />
       <SigningOverlay />
       <JurisdictionOverlay />
+      <TransactionsOverlay />
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
     </template>
     <TroubleshootingOverlay />
@@ -53,11 +54,12 @@ import InflationFreeSavings from './screens/InflationFreeSavings.vue';
 import BitcoinLocksScreen from './screens/BitcoinLocks.vue';
 import ArgonBondsScreen from './screens/ArgonBonds.vue';
 import StableSwapsScreen from './screens/StableSwaps.vue';
-import { TreasuryTab, useTreasuryController } from '../stores/treasuryController.ts';
+import { TreasuryTab, useTreasuryController } from './stores/controller.ts';
 import VaultsOverlay from './overlays/VaultsOverlay.vue';
 import WalletOverlay from '../app-shared/overlays/WalletOverlay.vue';
 import SigningOverlay from './overlays/SigningOverlay.vue';
 import InterestFreeDebts from './screens/InterestFreeDebts.vue';
+import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 
 const controller = useTreasuryController();
 const config = getConfig();

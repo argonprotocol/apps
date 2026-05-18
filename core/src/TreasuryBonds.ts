@@ -140,26 +140,6 @@ export class TreasuryBonds {
     return BondLot.microgonsToWholeBonds(availableMicrogons);
   }
 
-  public static calculateNextFrameBondAvailability(
-    totalBondCapacityMicrogons: bigint,
-    bondLots: Pick<BondLot, 'activeBonds'>[],
-    bondFullCapacityPerFrame = TreasuryBonds.bondFullCapacityPerFrame,
-  ): INextFrameBondAvailability {
-    const nextFrameBondCapacity = TreasuryBonds.getBondPurchaseCapacity(
-      totalBondCapacityMicrogons,
-      bondFullCapacityPerFrame,
-    );
-    const totalActiveBonds = bondLots.reduce((sum, lot) => sum + lot.activeBonds, 0);
-    const nextFrameAvailableBonds =
-      totalActiveBonds < nextFrameBondCapacity ? nextFrameBondCapacity - totalActiveBonds : 0;
-
-    return {
-      nextFrameBondCapacity,
-      totalActiveBonds,
-      nextFrameAvailableBonds,
-    };
-  }
-
   public static potentialDailyRevenue(args: {
     distributableBidPool: bigint;
     globalActiveBonds: number;

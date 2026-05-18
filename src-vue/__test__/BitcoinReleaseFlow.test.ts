@@ -122,7 +122,7 @@ describe('BitcoinLocks release status sync', () => {
       bitcoinNetworkFee: 9n,
       dueFrame: 44,
       vaultId: 1,
-      redemptionPrice: 123n,
+      redemptionAmount: 123n,
     });
 
     try {
@@ -716,7 +716,7 @@ function createLockRecord(overrides: Partial<IBitcoinLockRecord>): IBitcoinLockR
     status: overrides.status ?? BitcoinLockStatus.LockPendingFunding,
     satoshis: overrides.satoshis ?? 10_000n,
     liquidityPromised: overrides.liquidityPromised ?? 0n,
-    lockedMarketRate: overrides.lockedMarketRate ?? 0n,
+    lockedTargetPrice: overrides.lockedTargetPrice ?? 0n,
     ratchets: overrides.ratchets ?? [],
     cosignVersion: overrides.cosignVersion ?? 'v1',
     lockDetails: overrides.lockDetails ?? createLockDetails(),

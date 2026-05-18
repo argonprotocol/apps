@@ -2,21 +2,15 @@
   <div class="space-y-5 px-10 pt-5 pb-5">
     <p v-if="isMismatchAccepted">
       Funding difference accepted. Argon has locked your adjusted
-      {{
-        numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)).format(
-          '0,0.[00000000]',
-        )
-      }}
-      BTC amount.
+      {{ satToBtcNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.[00000000]') }} of BTC
+      (around {{ currency.symbol
+      }}{{ satToMoneyNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.00') }}).
     </p>
     <p v-else>
       Argon has processed and locked your
-      {{
-        numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)).format(
-          '0,0.[00000000]',
-        )
-      }}
-      BTC.
+      {{ satToBtcNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.[00000000]') }} of BTC
+      (around {{ currency.symbol
+      }}{{ satToMoneyNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.00') }}).
     </p>
     <p v-if="isMismatchAccepted">
       You’ll receive the market value of the accepted Bitcoin amount, currently
@@ -52,7 +46,7 @@ import { TransactionStatus } from '../../../lib/db/TransactionsTable.ts';
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 
-const { microgonToArgonNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;

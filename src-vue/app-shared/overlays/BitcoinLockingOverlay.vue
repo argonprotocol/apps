@@ -6,7 +6,7 @@
     :data-e2e-state="lockStep"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
-    class="BitcoinLockingOverlay min-h-60 w-240"
+    class="BitcoinLockingOverlay min-h-60 w-220"
   >
     <template #title>
       <TooltipProvider v-if="isLoaded" :disableHoverableContent="true">
@@ -49,7 +49,11 @@
             <TooltipRoot :delayDuration="100">
               <TooltipTrigger asChild>
                 <Arrows
-                  :class="lockStep === LockStep.IsProcessingOnArgon ? 'text-argon-600/80 processing-active' : 'text-black/10'"
+                  :class="
+                    lockStep === LockStep.IsProcessingOnArgon || lockStep === LockStep.Failed
+                      ? 'text-argon-600/80 processing-active'
+                      : 'text-black/10'
+                  "
                   class="ml-5 min-h-[34px] pr-3"
                 />
               </TooltipTrigger>
@@ -154,7 +158,25 @@
       </TooltipProvider>
     </template>
 
-    <SelectAVault v-if="lockStep === LockStep.SelectVault" @load="handleVaultsLoaded" @select="handleVaultSelected" />
+    <div v-if="lockStep === LockStep.SelectVault" class="px-2">
+      <SelectAVault unitType="BitcoinLock" @load="handleVaultsLoaded" @select="handleVaultSelected" class="px-3" />
+      <div class="flex flex-row justify-end gap-3 pt-3 px-3 mt-4 mb-3 border-t border-slate-300">
+        <button
+          type="button"
+          class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 cursor-pointer hover:bg-slate-50"
+          @click="emit('close', false)"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white cursor-pointer disabled:opacity-40"
+          @click="finalizeVaultSelection"
+        >
+          Select Vault
+        </button>
+      </div>
+    </div>
     <LockStart
       v-else-if="lockStep === LockStep.Start"
       :coupon="props.coupon"
@@ -163,6 +185,16 @@
       @close="closeOverlay"
       @lockCreated="onLockCreated" />
     <LockIsProcessingOnArgon v-else-if="lockStep === LockStep.IsProcessingOnArgon" :personalLock="personalLock!" />
+    <div v-else-if="lockStep === LockStep.Failed" class="flex flex-col px-5 pt-6 pb-8">
+      <div class="flex flex-row items-center justify-center">
+        <div class="flex flex-col items-center justify-center">
+          <div class="text-2xl font-bold">Error</div>
+          <div class="text-sm text-gray-500">
+            {{ lockFailedError || 'The Argon transaction failed before this Bitcoin lock was created.' }}
+          </div>
+        </div>
+      </div>
+    </div>
     <LockReadyForBitcoin v-else-if="lockStep === LockStep.ReadyForBitcoin" :personalLock="personalLock!" />
     <LockIsProcessingOnBitcoin v-else-if="lockStep === LockStep.ProcessingOnBitcoin" :personalLock="personalLock!" />
     <LockFundingMismatch v-else-if="lockStep === LockStep.FundingMismatch" :personalLock="personalLock!" />
@@ -179,6 +211,7 @@ enum LockStep {
   SelectVault = 'SelectVault',
   Start = 'Start',
   IsProcessingOnArgon = 'IsProcessingOnArgon',
+  Failed = 'Failed',
   ReadyForBitcoin = 'ReadyForBitcoin',
   ProcessingOnBitcoin = 'ProcessingOnBitcoin',
   FundingMismatch = 'FundingMismatch',
@@ -203,13 +236,11 @@ import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import Arrows from '../../assets/arrows.svg?component';
 import RoundCap from '../../app-operations/overlays/bitcoin-locking/components/RoundCap.vue';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { getMyVault } from '../../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import SelectAVault from '../../components/SelectAVault.vue';
 
 const bitcoinLocks = getBitcoinLocks();
-const myVault = getMyVault();
 
 const props = defineProps<{
   coupon?: IBitcoinLockCouponStatus;
@@ -224,6 +255,7 @@ const emit = defineEmits<{
 
 const isLoaded = Vue.ref(false);
 const hasDefaultVault = Vue.ref(!!props.vault);
+const tmpVault = Vue.ref<Vault | undefined>(props.vault);
 const vault = Vue.ref<Vault | undefined>(props.vault);
 
 const createdLockUuid = Vue.ref<string | undefined>();
@@ -279,6 +311,10 @@ const lockStep = Vue.computed<LockStep>(() => {
     return LockStep.IsProcessingOnArgon;
   }
 
+  if (lock.status === BitcoinLockStatus.LockFailed) {
+    return LockStep.Failed;
+  }
+
   if (bitcoinLocks.isFundingReadyToResumeStatus(lock) || mismatchView.value?.phase !== 'none') {
     return LockStep.FundingMismatch;
   }
@@ -308,6 +344,12 @@ const isLockBitcoinStep = Vue.computed(() => {
 
 const isLockToCollectTransition = Vue.computed(() => {
   return lockStep.value === LockStep.ProcessingOnBitcoin;
+});
+
+const lockFailedError = Vue.computed(() => {
+  const lock = personalLock.value;
+  if (!lock) return '';
+  return bitcoinLocks.getLockProcessingError(lock);
 });
 
 function updateLockProcessingDetails() {
@@ -369,8 +411,11 @@ async function startNewLocking() {
 function handleVaultsLoaded() {}
 
 function handleVaultSelected(v: Vault) {
-  console.log('SELECTED VAULT = ', v);
-  vault.value = v;
+  tmpVault.value = v;
+}
+
+function finalizeVaultSelection() {
+  vault.value = tmpVault.value;
 }
 
 Vue.onMounted(() => {

@@ -6,7 +6,8 @@
     data-testid="PersonalBitcoin"
     :data-lock-state="lockState"
     :data-lock-utxo-id="personalLock?.utxoId ?? ''"
-    :data-is-locked="isLockedStatus ? 'true' : 'false'">
+    :data-is-locked="isLockedStatus ? 'true' : 'false'"
+  >
     <div v-if="!lockStatus" class="grow flex flex-row items-center justify-start px-[3%] py-5 border-[1.5px] border-dashed border-slate-900/30 m-0.5">
       <div class="flex flex-col items-start justify-center grow pr-16 text-argon-800/70">
         <div class="text-xl font-bold opacity-60">No Bitcoin Attached to this Vault</div>
@@ -231,7 +232,7 @@
       <div class="flex flex-col items-start justify-center grow">
         <div class="text-xl font-bold opacity-60">
           {{ numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock?.satoshis ?? 0n)).format('0,0.[00000000]') }} BTC Locked
-          (Value = {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }})
+          (Value = {{ currency.symbol }}{{ satToMoneyNm(fundingSatoshis).format('0,0.[00]') }})
         </div>
         <div class="opacity-40">
           {{ currency.symbol}}{{ microgonToMoneyNm(personalLock?.liquidityPromised ?? 0n).format('0,0.[00]') }} Liquidity {{ lockStatus === BitcoinLockStatus.LockedAndIsMinting ? 'Promised' : 'Received'}}
@@ -434,7 +435,7 @@ function showReleaseOverlay() {
   doShowReleaseOverlay.value = true;
 }
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const personalLock = Vue.computed(() => {
   return bitcoinLocks.getActiveLocks()[0];
@@ -727,8 +728,8 @@ const isWaitingForVaultCosign = Vue.computed(() => {
   return isReleasingOnArgon.value && bitcoinLockProgress.requestReleaseByVaultProgress > 0;
 });
 
-const btcMarketRate = Vue.ref(0n);
 const unlockPrice = Vue.ref(0n);
+const fundingSatoshis = Vue.ref(0n);
 
 const doShowReleaseOverlay = Vue.ref(false);
 const doShowLockingOverlay = Vue.ref(false);
@@ -751,8 +752,7 @@ async function updateBitcoinUnlockPrices() {
   const lock = personalLock.value;
   if (!lock) return;
 
-  const fundingSatoshis = fundingUtxoRecord.value?.satoshis ?? lock.satoshis;
-  btcMarketRate.value = await vaults.getMarketRateInMicrogons(fundingSatoshis).catch(() => 0n);
+  fundingSatoshis.value = fundingUtxoRecord.value?.satoshis ?? lock.satoshis;
 
   if (!isLockedStatus.value) {
     unlockPrice.value = 0n;
@@ -760,7 +760,7 @@ async function updateBitcoinUnlockPrices() {
   }
   const liquidLockingAddress = getWalletKeys().liquidLockingAddress;
   const unlockFee = await bitcoinLocks.estimatedReleaseArgonTxFee({ lock: lock, liquidLockingAddress }).catch(() => 0n);
-  unlockPrice.value = (await vaults.getRedemptionRate(lock).catch(() => 0n)) + unlockFee;
+  unlockPrice.value = (await vaults.fetchAndCalculateRedemptionAmount(lock).catch(() => 0n)) + unlockFee;
 }
 
 function closeLockingOverlay(shouldStartNewLocking = false) {

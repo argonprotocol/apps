@@ -9,13 +9,16 @@
     "update-frames": "tsx ./src/scripts/updateFrameHistory.ts"
   },
   "dependencies": {
-    "@argonprotocol/mainchain": "1.4.3-dev.afd10c33",
+    "@argonprotocol/mainchain": "1.4.3-dev.4117801d",
+    "@polkadot/keyring": "^14.0.3",
+    "@polkadot/util": "^14.0.3",
+    "@polkadot/util-crypto": "^14.0.3",
     "bignumber.js": "^9.3.1",
     "dayjs": "^1.11.13",
     "zod": "^3.25.55"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.afd10c33",
+    "@argonprotocol/testing": "1.4.3-dev.4117801d",
     "docker-compose": "^1.2.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"

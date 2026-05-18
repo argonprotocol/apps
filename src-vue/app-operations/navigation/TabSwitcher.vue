@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <TooltipProvider :disableHoverableContent="true" :disableClosingTrigger="true" :delayDuration="300">
+  <TooltipProvider :disableHoverableContent="true" :delayDuration="300">
     <section
       ref="toggleRef"
       class="pointer-events-auto relative flex w-fit flex-row rounded border border-[#b8b9bd] bg-[#E9EBF1] text-center text-slate-600"
@@ -106,7 +106,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
-import { useOperationsController, OperationsTab, OperationalStepId } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationsTab, OperationalStepId } from '../stores/controller.ts';
 import { ITourPos, useTour } from '../../stores/tour.ts';
 import ArgonLogo from '../../assets/resources/argon.svg?component';
 import { getConfig } from '../../stores/config.ts';

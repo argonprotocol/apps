@@ -2,6 +2,7 @@
   <svg
     :class="twMerge('block h-3.5 w-6', props.class)"
     class="Component Arrow"
+    :style="{ height: cssSize(props.height), width: cssSize(props.width) }"
     viewBox="0 0 18 10"
     preserveAspectRatio="none"
     aria-hidden="true"
@@ -30,6 +31,8 @@ const props = withDefaults(
     stroke?: string;
     strokeWidth?: number;
     shadow?: boolean;
+    height?: number | string;
+    width?: number | string;
     class?: string;
   }>(),
   {
@@ -39,6 +42,13 @@ const props = withDefaults(
     shadow: false,
   },
 );
+
+function cssSize(value: number | string | undefined) {
+  if (typeof value === 'number') {
+    return `${value}px`;
+  }
+  return value;
+}
 </script>
 
 <style scoped>

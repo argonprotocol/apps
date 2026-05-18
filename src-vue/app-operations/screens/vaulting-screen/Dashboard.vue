@@ -311,7 +311,7 @@ import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
 import RoiIcon from '../../../assets/roi.svg';
 import ProjectionsIcon from '../../../assets/rocket.svg';
-import { PortfolioTab } from '../../../panels/interfaces/IPortfolioTab.ts';
+import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import basicEmitter from '../../../emitters/basicEmitter.ts';
 import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { WalletType } from '../../../lib/Wallet.ts';
@@ -321,7 +321,7 @@ import { getBondMarket } from '../../../stores/myBonds.ts';
 import type { IVaultBondState } from '../../../lib/BondMarket.ts';
 import TreemapChart, { type TileStatus } from '../../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
-import { OperationalStepId, OperationsTab, useOperationsController } from '../../../stores/operationsController.ts';
+import { OperationalStepId, OperationsTab, useOperationsController } from '../../stores/controller.ts';
 import ArrowCalloutButton from '../../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);
@@ -421,7 +421,7 @@ const bitcoinMapTotal = Vue.computed(() => {
 });
 
 const bitcoinMapRemainderMinimum = Vue.computed(() => {
-  return currency.priceIndex.getBtcMicrogonPrice(1000n);
+  return currency.priceIndex.getSatoshiPriceInTargetMicrogons(1000n);
 });
 
 type MapItem = {

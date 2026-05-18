@@ -1,41 +1,54 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="rootRef" class="inline-block relative pointer-events-auto" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
-    <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
-      <DropdownMenuTrigger
-        Trigger
-        class="font-light inline-block text-md border border-slate-600/30 rounded-md text-slate-800/80 px-3 ml-2 h-[30px] focus:outline-none relative -top-[0.5px]"
-        :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+  <div ref="rootRef">
+    <NavigationMenuRoot
+      class="pointer-events-none relative mr-3 flex flex-row items-center"
+      :class="[wallets.isLoaded ? '' : 'opacity-20']"
+      :model-value="navigationMenuValue"
+      :delay-duration="0"
+      :skip-delay-duration="0"
+      @update:model-value="setNavigationMenuValue"
+    >
+      <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
+        <NavigationMenuItem class="pointer-events-auto">
+          <NavigationMenuTrigger
+            Trigger
+            class="font-light inline-block text-md border border-slate-600/30 rounded-md text-slate-800/80 px-3 ml-2 h-[30px] focus:outline-none relative -top-[0.5px]"
+            :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+          >
+            <template v-if="networkName !== 'mainnet'">{{ networkName }}:</template>{{ INSTANCE_NAME?.slice(0, 10) }}<template v-if="INSTANCE_NAME.length > 10">...</template>
+          </NavigationMenuTrigger>
+
+          <NavigationMenuContent
+            class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
+          >
+            <div class="min-w-40 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+              <template v-for="instance in props.instances" :key="instance.name">
+                <NavigationMenuLink @click="() => openInstance(instance)" class="flex flex-row py-2 items-center">
+                  <div ItemWrapper>{{ instance.name }}</div>
+                  <span v-if="instance.isSelected">
+                    <CheckIcon class="size-5" aria-hidden="true" />
+                  </span>
+                </NavigationMenuLink>
+                <div divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+              </template>
+            </div>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+      </NavigationMenuList>
+      <NavigationMenuIndicator
+        class="pointer-events-none absolute top-full left-0 z-[2001] flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
       >
-        <template v-if="networkName !== 'mainnet'">{{ networkName }}:</template>{{ INSTANCE_NAME?.slice(0, 10) }}<template v-if="INSTANCE_NAME.length > 10">...</template>
-      </DropdownMenuTrigger>
-
-      <DropdownMenuPortal>
-        <DropdownMenuContent
-          @mouseenter="onMouseEnter"
-          @mouseleave="onMouseLeave"
-          @pointerDownOutside="clickOutside"
-          :align="'start'"
-          :alignOffset="0"
-          :sideOffset="-3"
-          class="z-50 data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
-        >
-          <div class="min-w-40 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <template v-for="instance in props.instances" :key="instance.name">
-              <DropdownMenuItem @click="() => openInstance(instance)" class="flex flex-row py-2 items-center">
-                <div ItemWrapper>{{ instance.name }}</div>
-                <span v-if="instance.isSelected">
-                  <CheckIcon class="size-5" aria-hidden="true" />
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            </template>
-          </div>
-
-          <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
-        </DropdownMenuContent>
-      </DropdownMenuPortal>
-    </DropdownMenuRoot>
+        <div class="relative top-[-1px] h-0 w-0 border-x-[13px] border-b-[13px] border-x-transparent border-b-gray-900/20">
+          <div class="absolute top-[2px] left-[-11px] h-0 w-0 border-x-[11px] border-b-[11px] border-x-transparent border-b-argon-menu-bg" />
+        </div>
+      </NavigationMenuIndicator>
+      <NavigationMenuViewport
+        align="end"
+        class="pointer-events-auto absolute top-full right-[var(--reka-navigation-menu-viewport-left)] z-[2000] mt-[8px] h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-visible rounded border border-gray-900/20 bg-argon-menu-bg shadow-lg transition-[left,_width,_height] duration-300 data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn sm:w-[var(--reka-navigation-menu-viewport-width)]"
+        @mouseenter="clearNavigationMenuClose"
+      />
+    </NavigationMenuRoot>
   </div>
 </template>
 
@@ -49,24 +62,29 @@ export interface IInstance {
 <script setup lang="ts">
 import * as Vue from 'vue';
 import {
-  DropdownMenuArrow,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  PointerDownOutsideEvent,
+  NavigationMenuItem,
+  NavigationMenuTrigger,
+  NavigationMenuContent,
+  NavigationMenuLink,
+  NavigationMenuRoot,
+  NavigationMenuList,
+  NavigationMenuViewport,
+  NavigationMenuIndicator,
 } from 'reka-ui';
 import { INSTANCE_NAME, NETWORK_NAME } from '../../lib/Env.ts';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { getConfig } from '../../stores/config.ts';
 import { CheckIcon } from '@heroicons/vue/20/solid';
+import { useWallets } from '../../stores/wallets.ts';
 
 const config = getConfig();
+const wallets = useWallets();
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
+
+const navigationMenuValue = Vue.ref('');
+let navigationMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 const props = defineProps<{
   instances: IInstance[];
@@ -79,41 +97,25 @@ defineExpose({
 
 const networkName = NETWORK_NAME.replace('dev-docker', 'docknet');
 
-let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+function setNavigationMenuValue(value: string) {
+  clearNavigationMenuClose();
 
-function onMouseEnter() {
-  if (mouseLeaveTimeoutId) {
-    clearTimeout(mouseLeaveTimeoutId);
+  if (value) {
+    navigationMenuValue.value = value;
+    return;
   }
-  mouseLeaveTimeoutId = undefined;
-  if (props.instances.length === 1) return;
 
-  isOpen.value = true;
+  navigationMenuCloseTimeoutId = setTimeout(() => {
+    navigationMenuValue.value = '';
+    navigationMenuCloseTimeoutId = undefined;
+  }, 450);
 }
 
-function onMouseLeave() {
-  if (mouseLeaveTimeoutId) {
-    clearTimeout(mouseLeaveTimeoutId);
+function clearNavigationMenuClose() {
+  if (navigationMenuCloseTimeoutId) {
+    clearTimeout(navigationMenuCloseTimeoutId);
   }
-  mouseLeaveTimeoutId = setTimeout(() => {
-    isOpen.value = false;
-  }, 250);
-}
-
-function clickOutside(e: PointerDownOutsideEvent) {
-  const isChildOfTrigger = !!(e.target as HTMLElement)?.closest('[Trigger]');
-  if (!isChildOfTrigger) return;
-  if (props.instances.length === 1) return;
-
-  isOpen.value = true;
-  setTimeout(() => {
-    isOpen.value = true;
-  }, 200);
-  e.detail.originalEvent.stopPropagation();
-  e.detail.originalEvent.preventDefault();
-  e.stopPropagation();
-  e.preventDefault();
-  return false;
+  navigationMenuCloseTimeoutId = undefined;
 }
 
 async function openInstance(instance: IInstance) {

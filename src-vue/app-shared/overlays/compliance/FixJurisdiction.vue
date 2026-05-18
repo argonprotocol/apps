@@ -18,10 +18,17 @@ import * as Vue from 'vue';
 import InputMenu from '../../../components/InputMenu.vue';
 import { getConfig } from '../../../stores/config.ts';
 import Countries from '../../../lib/Countries.ts';
+import { ICurrencyKey } from '@argonprotocol/apps-core';
+import { getCurrency } from '../../../stores/currency.ts';
+
+const props = defineProps<{
+  setCurrencyKey?: ICurrencyKey;
+}>();
 
 const emit = defineEmits(['close', 'goTo']);
 
 const config = getConfig();
+const currency = getCurrency();
 const countryCode = Vue.ref(config.userJurisdiction.countryCode);
 
 async function saveChanges() {
@@ -43,6 +50,10 @@ async function saveChanges() {
     longitude: '',
   };
   await config.save();
+
+  if (config.isValidJurisdiction && props.setCurrencyKey) {
+    currency.setKey(props.setCurrencyKey);
+  }
   emit('goTo', 'overview');
 }
 </script>

@@ -143,7 +143,7 @@ import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import Checkbox from '../../components/Checkbox.vue';
 import { ArrowTopRightOnSquareIcon, CheckCircleIcon, ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import { useOperationsController, OperationalStepId, operationalSteps } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationalStepId, operationalSteps } from '../stores/controller.ts';
 import { useBasics } from '../../stores/basics.ts';
 
 const basics = useBasics();

@@ -1,11 +1,10 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="rootRef" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
-    <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="relative pointer-events-auto" v-model:open="isOpen">
-      <DropdownMenuTrigger
+  <div ref="rootRef">
+    <NavigationMenuItem class="pointer-events-auto">
+      <NavigationMenuTrigger
         Trigger
-        class="flex flex-row items-center justify-center font-mono text-[16.4px] font-semibold overflow-hidden text-argon-600/70 cursor-pointer border rounded-md hover:bg-slate-400/10 h-[30px] focus:outline-none hover:border-slate-400/50"
-        :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 font-mono text-[16.4px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <div v-if="!config.isServerAdded" class="relative flex flex-row items-center pl-2.5 pr-3 pt-px" style="word-spacing: -6px">
           <PluginSmallIcon class="h-3.5 relative mr-1.5" />
@@ -40,18 +39,11 @@
             <span class="absolute top-0 left-0 h-full w-full text-left connecting-dots" aria-hidden="true">...</span>
           </div>
         </div>
-      </DropdownMenuTrigger>
+      </NavigationMenuTrigger>
 
-      <DropdownMenuPortal>
-        <DropdownMenuContent
-          @mouseenter="onMouseEnter"
-          @mouseleave="onMouseLeave"
-          @pointerDownOutside="clickOutside"
-          :align="'end'"
-          :alignOffset="0"
-          :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all"
-        >
+      <NavigationMenuContent
+        class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
+      >
           <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <div v-if="!config.isServerAdded" class="w-80">
               <div class="flex flex-col px-3 font-light py-2 text-md">
@@ -62,24 +54,24 @@
                 </div>
                 <div class="text-center">You need your own Argon node before you can start mining or vaulting.</div>
               </div>
-              <DropdownMenuItem v-if="IS_OPERATIONS_APP" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
+              <NavigationMenuLink v-if="IS_OPERATIONS_APP" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
                 <button @click="openServerConnectPanel" class="text-base py-2 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
                   Connect a Cloud Machine
                 </button>
-              </DropdownMenuItem>
+              </NavigationMenuLink>
             </div>
 
-            <DropdownMenuItem v-else-if="config.isServerInstalling" class="px-3 py-1 w-120 text-black/30 cursor-default!">
+            <NavigationMenuLink v-else-if="config.isServerInstalling" class="px-3 py-1 w-120 text-black/30 cursor-default!">
               <InstallProgress />
               <div class="border-t border-dashed border-slate-300 py-1">
                 <button @click="openServerOverlay" class="mt-2 text-base py-1.5 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
                   Open Server Overlay
                 </button>
               </div>
-            </DropdownMenuItem>
+            </NavigationMenuLink>
 
             <div v-else-if="lastUpdatedAt">
-              <DropdownMenuItem @click="openServerOverlay" class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover flex flex-col cursor-pointer border-b border-slate-400/30 py-3 pr-1 pl-3 last:border-b-0">
+              <NavigationMenuLink @click="openServerOverlay" class="group/item hover:!text-argon-600 hover:bg-argon-menu-hover flex flex-col cursor-pointer border-b border-slate-400/30 py-3 pr-1 pl-3 last:border-b-0">
                 <div class="flex flex-row items-stretch px-5 text-center">
                   <div class="flex flex-col gap-x-2 whitespace-nowrap">
                     <div>Last Bitcoin Block</div>
@@ -108,7 +100,7 @@
                 >
                   Open Cloud Machine
                 </button>
-              </DropdownMenuItem>
+              </NavigationMenuLink>
             </div>
 
             <div v-else class="min-w-80">
@@ -122,24 +114,14 @@
               </div>
             </div>
           </div>
-          <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
-        </DropdownMenuContent>
-      </DropdownMenuPortal>
-    </DropdownMenuRoot>
+        </NavigationMenuContent>
+    </NavigationMenuItem>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import {
-  DropdownMenuArrow,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-  PointerDownOutsideEvent,
-} from 'reka-ui';
+import { NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuTrigger } from 'reka-ui';
 import CloudServerIcon from '../../assets/cloud-server.svg?component';
 import CloudServerOutlineIcon from '../../assets/cloud-server-outline.svg?component';
 import PluginIcon from '../../assets/plugin.svg?component';
@@ -164,7 +146,6 @@ dayjs.extend(utc);
 const config = getConfig();
 const stats = getStats();
 
-const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
 
 // Expose the root element to parent components
@@ -206,42 +187,7 @@ const installerProgress = Vue.computed(() => {
   return totalProgress / stepLabels.length;
 });
 
-let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
-
-function onMouseEnter() {
-  if (mouseLeaveTimeoutId) {
-    clearTimeout(mouseLeaveTimeoutId);
-  }
-  mouseLeaveTimeoutId = undefined;
-  isOpen.value = true;
-}
-
-function onMouseLeave() {
-  if (mouseLeaveTimeoutId) {
-    clearTimeout(mouseLeaveTimeoutId);
-  }
-  mouseLeaveTimeoutId = setTimeout(() => {
-    isOpen.value = false;
-  }, 100);
-}
-
-function clickOutside(e: PointerDownOutsideEvent) {
-  const isChildOfTrigger = !!(e.target as HTMLElement)?.closest('[Trigger]');
-  if (!isChildOfTrigger) return;
-
-  isOpen.value = true;
-  setTimeout(() => {
-    isOpen.value = true;
-  }, 200);
-  e.detail.originalEvent.stopPropagation();
-  e.detail.originalEvent.preventDefault();
-  e.stopPropagation();
-  e.preventDefault();
-  return false;
-}
-
 function openServerOverlay() {
-  isOpen.value = false;
   basicEmitter.emit('openServerOverlay');
 }
 

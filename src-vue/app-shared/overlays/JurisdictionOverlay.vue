@@ -41,7 +41,7 @@
             </h2>
 
             <JurisdictionalOverview v-if="currentScreen === 'overview'" @close="closeOverlay" @goTo="goTo" />
-            <FixJurisdiction v-if="currentScreen === 'fixJurisdiction'" @close="closeOverlay" @goTo="goTo" />
+            <FixJurisdiction v-if="currentScreen === 'fixJurisdiction'" :setCurrencyKey="setCurrencyKey" @close="closeOverlay" @goTo="goTo" />
           </Motion>
         </DialogContent>
       </AnimatePresence>
@@ -60,10 +60,12 @@ import { AnimatePresence, Motion } from 'motion-v';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import Draggable from '../../app-operations/overlays/helpers/Draggable.ts';
+import { ICurrencyKey } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(false);
 const currentScreen = Vue.ref<'overview' | 'fixJurisdiction'>('overview');
 const draggable = Vue.reactive(new Draggable());
+const setCurrencyKey = Vue.ref<ICurrencyKey | undefined>(undefined);
 
 const title = Vue.computed(() => {
   if (currentScreen.value === 'overview') {
@@ -76,6 +78,7 @@ const title = Vue.computed(() => {
 basicEmitter.on('openJurisdictionOverlay', async (data: any) => {
   isOpen.value = true;
   currentScreen.value = 'overview';
+  setCurrencyKey.value = data?.setCurrencyKey;
   draggable.modalPosition.x = 0;
   draggable.modalPosition.y = 0;
 });

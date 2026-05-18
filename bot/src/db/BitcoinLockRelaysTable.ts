@@ -17,7 +17,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
     securitizationUsedMicrogons: bigint;
     ownerAccountId: string;
     ownerBitcoinPubkey: string;
-    microgonsPerBtc: bigint;
+    microgonsAtTargetPerBtc: bigint;
     delegateAddress: string;
     extrinsicHash: string;
     extrinsicMethodJson: any;
@@ -36,7 +36,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
           securitizationUsedMicrogons,
           ownerAccountId,
           ownerBitcoinPubkey,
-          microgonsPerBtc,
+          microgonsAtTargetPerBtc,
           delegateAddress,
           extrinsicHash,
           extrinsicMethodJson,
@@ -51,7 +51,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
           $securitizationUsedMicrogons,
           $ownerAccountId,
           $ownerBitcoinPubkey,
-          $microgonsPerBtc,
+          $microgonsAtTargetPerBtc,
           $delegateAddress,
           $extrinsicHash,
           $extrinsicMethodJson,
@@ -245,7 +245,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
 
   private mapRelay(record: SqlRelayRow): IBitcoinLockRelayRecord {
     return convertFromSqliteFields<IBitcoinLockRelayRecord>(record, {
-      bigint: ['requestedSatoshis', 'securitizationUsedMicrogons', 'microgonsPerBtc', 'txFeePlusTip', 'txTip'],
+      bigint: ['requestedSatoshis', 'securitizationUsedMicrogons', 'microgonsAtTargetPerBtc', 'txFeePlusTip', 'txTip'],
       json: ['extrinsicMethodJson'],
       date: ['txSubmittedAtTime', 'createdAt', 'updatedAt'],
     });

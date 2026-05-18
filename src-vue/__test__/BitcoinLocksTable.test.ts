@@ -67,7 +67,7 @@ describe('BitcoinLocksTable', () => {
       {
         mintAmount: 10n,
         mintPending: 5n,
-        lockedMarketRate: 1n,
+        lockedTargetPrice: 1n,
         securityFee: 0n,
         txFee: 0n,
         burned: 0n,
@@ -104,5 +104,23 @@ describe('BitcoinLocksTable', () => {
     await table.setReleased(lock);
     const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;
     expect(updated.status).toBe(BitcoinLockStatus.Released);
+  });
+
+  it('setLockFailed persists failed status and block extrinsic error', async () => {
+    const { table, lock } = await createPendingLock({ uuid: 'failed-lock' });
+
+    await table.setLockFailed(lock, {
+      errorCode: 'bitcoinLocks.InsufficientVaultFunds',
+      details: 'bitcoinLocks.InsufficientVaultFunds',
+      message: 'bitcoinLocks.InsufficientVaultFunds',
+    });
+
+    const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;
+    expect(updated.status).toBe(BitcoinLockStatus.LockFailed);
+    expect(updated.blockExtrinsicErrorJson).toEqual({
+      errorCode: 'bitcoinLocks.InsufficientVaultFunds',
+      details: 'bitcoinLocks.InsufficientVaultFunds',
+      message: 'bitcoinLocks.InsufficientVaultFunds',
+    });
   });
 });

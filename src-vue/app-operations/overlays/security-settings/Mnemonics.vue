@@ -31,7 +31,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getWalletKeys } from '../../../stores/wallets.ts';
-import { OperationalStepId, useOperationsController } from '../../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/controller.ts';
 import ArrowCalloutButton from '../../../components/ArrowCalloutButton.vue';
 import { getConfig } from '../../../stores/config.ts';
 import basicEmitter from '../../../emitters/basicEmitter.ts';

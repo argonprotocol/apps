@@ -137,7 +137,7 @@ import {
 import { ExtrinsicType } from '../../../lib/db/TransactionsTable.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getMainchainClient, getMiningFrames } from '../../../stores/mainchain.ts';
-import { useOperationsController } from '../../../stores/operationsController.ts';
+import { useOperationsController } from '../../stores/controller.ts';
 import { getTransactionTracker } from '../../../stores/transactions.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
 

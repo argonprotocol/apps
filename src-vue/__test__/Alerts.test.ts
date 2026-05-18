@@ -24,7 +24,7 @@ describe('getVaultAlertNotice', () => {
         pendingCollectTxInfo: {
           tx: { metadataJson: { expectedCollectRevenue: 64n, cosignedUtxoIds: [11, 12] } },
         },
-        pendingCosignUtxosById: new Map([[11, { marketValue: 50n }]]),
+        pendingCosignUtxosById: new Map([[11, { targetValue: 50n }]]),
         nextCollectDueDate: 1234,
       }),
       { getLockByUtxoId: () => undefined },
@@ -137,7 +137,7 @@ function vaultSource(
         };
       };
     } | null;
-    pendingCosignUtxosById: Map<number, { marketValue: bigint }>;
+    pendingCosignUtxosById: Map<number, { targetValue: bigint }>;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
     nextCollectDueDate: number;
   }> = {},

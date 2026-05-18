@@ -3,6 +3,7 @@ import utc from 'dayjs/plugin/utc';
 import { IBitcoinPriceRecord } from '../interfaces/IBitcoinPriceRecord';
 import BitcoinFees from './BitcoinFees';
 import BitcoinPrices from './BitcoinPrices';
+import { GlobalVaultingStats } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 
@@ -181,7 +182,9 @@ export default class LlbVault {
 
       if (currentShort) {
         qtyOfArgonsToBurn =
-          LlbVault.calculateUnlockBurnPerBitcoinDollar(currentShort.lowestPrice) * unlockPriceOfBtc * bitcoinCount;
+          GlobalVaultingStats.calculateUnlockBurnPerBitcoinDollar(currentShort.lowestPrice) *
+          unlockPriceOfBtc *
+          bitcoinCount;
         const newCostOfArgonsToBurn = qtyOfArgonsToBurn * currentShort.lowestPrice;
         this.profitFromShorts += costOfArgonsToBurn - newCostOfArgonsToBurn;
         costOfArgonsToBurn = newCostOfArgonsToBurn;
@@ -229,7 +232,9 @@ export default class LlbVault {
       if (this.shortsByDate.EXIT) {
         const currentShort = this.shortsByDate.EXIT;
         qtyOfArgonsToBurn =
-          LlbVault.calculateUnlockBurnPerBitcoinDollar(currentShort.lowestPrice) * unlockPriceOfBtc * bitcoinCount;
+          GlobalVaultingStats.calculateUnlockBurnPerBitcoinDollar(currentShort.lowestPrice) *
+          unlockPriceOfBtc *
+          bitcoinCount;
         const newCostOfArgonsToBurn = qtyOfArgonsToBurn * currentShort.lowestPrice;
         this.profitFromShorts += costOfArgonsToBurn - newCostOfArgonsToBurn;
         costOfArgonsToBurn = newCostOfArgonsToBurn;
@@ -263,19 +268,6 @@ export default class LlbVault {
         totalCashUnlocked: this.totalCashUnlocked,
         totalAccruedValue: this.totalAccruedValue,
       });
-    }
-  }
-
-  public static calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
-    const r = argonRatioPrice;
-    if (r >= 1.0) {
-      return 1;
-    } else if (r >= 0.9) {
-      return 20 * Math.pow(r, 2) - 38 * r + 19;
-    } else if (r >= 0.01) {
-      return (0.5618 * r + 0.3944) / r;
-    } else {
-      return (1 / r) * (0.576 * r + 0.4);
     }
   }
 

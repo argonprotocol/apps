@@ -5,11 +5,71 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLoc
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 
+vi.mock('../stores/mainchain.ts', () => ({
+  getMainchainClient: vi.fn(async () => ({})),
+}));
+
 type IBitcoinLocksTestTarget = {
+  onBitcoinLockFinalized(txInfo: {
+    createPostProcessor: () => { resolve: () => void };
+    tx: { metadataJson: { bitcoin: { uuid: string } } };
+    txResult: { waitForFinalizedBlock: Promise<Uint8Array>; extrinsicError?: Error };
+  }): Promise<void>;
   syncLockReleaseArgonCosign(lock: IBitcoinLockRecord, archiveClient: ArgonClient): Promise<void>;
 };
 
 describe('BitcoinLocks Argon cosign gating', () => {
+  it('formats block extrinsic errors with the concrete error name', () => {
+    expect(
+      BitcoinLocks.formatBlockExtrinsicError({
+        errorCode: 'bitcoinLocks.InsufficientVaultFunds',
+        details: '',
+        message: 'bitcoinLocks.InsufficientVaultFunds',
+      }),
+    ).toBe('InsufficientVaultFunds');
+  });
+
+  it('marks a pending lock failed when the finalized lock request rejects with an extrinsic error', async () => {
+    const lock = createLock({
+      uuid: 'failed-lock',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      utxoId: undefined,
+    });
+    const extrinsicError = new Error('bitcoinLocks.InsufficientVaultFunds') as Error & {
+      errorCode?: string;
+      details?: string;
+    };
+    extrinsicError.errorCode = 'bitcoinLocks.InsufficientVaultFunds';
+    extrinsicError.details = 'bitcoinLocks.InsufficientVaultFunds';
+    const setLockFailed = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+    const postProcessorResolve = vi.fn();
+    const store = Object.assign(Object.create(BitcoinLocks.prototype), {
+      data: {
+        pendingLocks: [lock],
+      },
+      getTable: vi.fn().mockResolvedValue({
+        setLockFailed,
+      }),
+    }) as BitcoinLocks;
+    const testStore = store as unknown as IBitcoinLocksTestTarget;
+
+    await testStore.onBitcoinLockFinalized({
+      createPostProcessor: () => ({ resolve: postProcessorResolve }),
+      tx: { metadataJson: { bitcoin: { uuid: lock.uuid } } },
+      txResult: {
+        waitForFinalizedBlock: Promise.reject(extrinsicError),
+        extrinsicError,
+      },
+    });
+
+    expect(setLockFailed).toHaveBeenCalledWith(lock, {
+      errorCode: 'bitcoinLocks.InsufficientVaultFunds',
+      details: 'bitcoinLocks.InsufficientVaultFunds',
+      message: 'bitcoinLocks.InsufficientVaultFunds',
+    });
+    expect(postProcessorResolve).toHaveBeenCalledTimes(1);
+  });
+
   it('stores the cosign only after a later sync sees it in finalized Argon state', async () => {
     const lock = createLock();
     const fundingRecord = createFundingRecord();
@@ -113,14 +173,14 @@ describe('BitcoinLocks Argon cosign gating', () => {
   });
 });
 
-function createLock(): IBitcoinLockRecord {
+function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
   return {
-    uuid: 'lock-1',
-    utxoId: 11,
-    status: BitcoinLockStatus.Releasing,
+    uuid: overrides.uuid ?? 'lock-1',
+    utxoId: 'utxoId' in overrides ? overrides.utxoId : 11,
+    status: overrides.status ?? BitcoinLockStatus.Releasing,
     satoshis: 10_000n,
     liquidityPromised: 0n,
-    lockedMarketRate: 0n,
+    lockedTargetPrice: 0n,
     ratchets: [],
     cosignVersion: 'v1',
     lockDetails: {

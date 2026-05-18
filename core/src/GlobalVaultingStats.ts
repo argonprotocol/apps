@@ -38,7 +38,11 @@ export class GlobalVaultingStats {
 
     const satsLocked = this.vaults.getTotalSatoshisLocked();
     this.bitcoinLocked = Number(satsLocked) / Number(SATOSHIS_PER_BITCOIN);
-    this.microgonValueOfVaultedBitcoins = await this.fetchMicrogonValueOfSats(satsLocked);
+    try {
+      this.microgonValueOfVaultedBitcoins = await this.vaults.getSatoshiPriceInTargetMicrogons(satsLocked);
+    } catch (error) {
+      this.microgonValueOfVaultedBitcoins = 0n;
+    }
     this.vaultCount = list.length;
 
     if (vaultApys.length > 0) {
@@ -58,14 +62,6 @@ export class GlobalVaultingStats {
     const burnPerBitcoinDollar = GlobalVaultingStats.calculateUnlockBurnPerBitcoinDollar(usdPriceAfterTerraCollapse);
 
     this.argonBurnCapacity = burnPerBitcoinDollar * dollarValueOfVaultedBitcoin;
-  }
-
-  private async fetchMicrogonValueOfSats(satsLocked: bigint) {
-    try {
-      return await this.vaults.getMarketRateInMicrogons(satsLocked);
-    } catch (error) {
-      return 0n;
-    }
   }
 
   public static calculateUnlockBurnPerBitcoinDollar(argonRatioPrice: number): number {
