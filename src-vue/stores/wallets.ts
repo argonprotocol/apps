@@ -205,19 +205,6 @@ export const useWallets = defineStore('wallets', () => {
     return totalMiningResources.value + totalVaultingResources.value;
   });
 
-  const totalTreasuryResources = Vue.computed(() => {
-    const microgonValue =
-      investmentWallet.availableMicrogons + investmentWallet.reservedMicrogons + ethereumWallet.availableMicrogons;
-    const micronotValue =
-      currency.convertMicronotTo(investmentWallet.availableMicronots, UnitOfMeasurement.Microgon) +
-      currency.convertMicronotTo(ethereumWallet.availableMicronots, UnitOfMeasurement.Microgon);
-    const otherTokenValue = ethereumWallet.otherTokens.reduce((totalValue, token) => {
-      return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
-    }, 0n);
-
-    return microgonValue + micronotValue + otherTokenValue;
-  });
-
   const totalWalletMicrogons = Vue.ref(0n);
   const totalWalletMicronots = Vue.ref(0n);
 
@@ -313,8 +300,6 @@ export const useWallets = defineStore('wallets', () => {
     totalMiningResources,
     totalVaultingResources,
     totalOperationalResources,
-
-    totalTreasuryResources,
 
     on<K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
       const unsub = walletsForArgon.events.on(event, cb);

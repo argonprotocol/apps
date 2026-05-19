@@ -88,7 +88,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import AlertDetailRow from './AlertDetailRow.vue';
-import BitcoinIcon from '../../assets/wallets/bitcoin-alert.svg?component';
+import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import AlertIcon from '../../assets/alert.svg?component';
 import CountdownClock from '../../components/CountdownClock.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';

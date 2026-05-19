@@ -5,7 +5,7 @@ import type { IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 
 type IVaultPendingCosign = {
-  marketValue: bigint;
+  targetValue: bigint;
   dueFrame?: number;
 };
 
@@ -133,7 +133,7 @@ export function getVaultAlertNotice(
 
   const signatureCount = manualPendingCosignEntries.length;
   const signaturePenalty = bigIntMin(
-    manualPendingCosignEntries.reduce((sum, [, entry]) => sum + entry.marketValue, 0n),
+    manualPendingCosignEntries.reduce((sum, [, entry]) => sum + entry.targetValue, 0n),
     myVault.createdVault?.securitization ?? 0n,
   );
   const processingCollectRevenue = processingTxInfo?.tx.metadataJson.expectedCollectRevenue ?? 0n;

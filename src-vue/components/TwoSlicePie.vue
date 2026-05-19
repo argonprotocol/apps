@@ -18,6 +18,7 @@ const props = withDefaults(
 
     // sizing
     size?: number;
+    borderWidth?: number;
 
     // style
     strokeColor?: string;
@@ -31,6 +32,7 @@ const props = withDefaults(
   }>(),
   {
     size: 520,
+    borderWidth: 15,
 
     strokeColor: '#ffffff',
     strokeWidth: 10,
@@ -58,8 +60,7 @@ function render() {
   const h = host.value.clientHeight || w;
   const size = Math.min(w, h);
 
-  const borderWidth = 15;
-  const radius = size / 2 - borderWidth;
+  const radius = size / 2 - props.borderWidth;
 
   const sanitized: [Slice, Slice] = [
     { ...props.data[0], value: clampNonNeg(props.data[0].value) },

@@ -574,10 +574,14 @@ function handleInput() {
   const inputValue = Number(currentText.replace(/,/g, ''));
   if (isNaN(inputValue)) return;
 
-  currentInputValue = calculateBoundedInputValue(inputValue);
+  const boundedInputValue = calculateBoundedInputValue(inputValue);
+  currentInputValue = boundedInputValue;
   currentInputValueFormatted.value = formatFn(inputValue);
 
   inputValueInserted.value = currentText;
+  emit('update:modelValue', boundedInputValue);
+  emit('change', boundedInputValue);
+  emit('input', boundedInputValue);
 }
 
 function getCaretPosition(): { start: number; end: number } {

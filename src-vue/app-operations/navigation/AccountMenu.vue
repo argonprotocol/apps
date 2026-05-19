@@ -1,152 +1,178 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="rootRef" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
-    <DropdownMenuRoot :openDelay="0" :closeDelay="0" class="pointer-events-auto relative" v-model:open="isOpen">
-      <DropdownMenuTrigger
+  <div ref="rootRef">
+    <NavigationMenuItem class="pointer-events-auto">
+      <NavigationMenuTrigger
         Trigger
-        class="relative text-argon-600/60 flex h-[30px] w-[38px] cursor-pointer flex-row items-center justify-center rounded-md border text-sm/6 font-semibold hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none"
-        :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']">
+        class="group relative flex h-[30px] w-[38px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 text-sm/6 font-semibold text-argon-600/60 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10">
         <ConfigIcon class="h-5 w-5" />
         <ArrowCalloutButton
-          v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic && !isOpen && !basics.overlayIsOpen"
-          class="absolute top-1/2 left-2 -translate-y-1/2 -translate-x-full z-50"
+          v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic && !basics.overlayIsOpen"
+          class="absolute top-1/2 left-2 z-50 -translate-x-full -translate-y-1/2 group-data-[state=open]:hidden"
           label="Mouse Over"
           guidance="Open your account menu."
           direction="right"
         />
-      </DropdownMenuTrigger>
+      </NavigationMenuTrigger>
 
-      <DropdownMenuPortal>
-        <DropdownMenuContent
-          @mouseenter="onMouseEnter"
-          @mouseleave="onMouseLeave"
-          @pointerDownOutside="clickOutside"
-          :align="'end'"
-          :alignOffset="0"
-          :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all">
-          <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem @click="() => openAboutOverlay()" class="pt-1 pb-2">
+      <NavigationMenuContent
+        class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
+      >
+          <ul class="flex min-w-66 shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900">
+            <NavigationMenuLink @click="() => openAboutOverlay()" :class="menuItemClass">
               <header>About This App</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openProfileOverlay()" class="py-2">
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink @click="() => openProfileOverlay()" :class="menuItemClass">
               <header>Personal Profile</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openJurisdictionOverlay()" class="py-2">
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink @click="() => openJurisdictionOverlay()" :class="menuItemClass">
               <header>Default Jurisdiction</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openSecuritySettingsOverlay()" class="py-2 relative">
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink @click="() => openSecuritySettingsOverlay()" :class="[menuItemClass, 'relative']">
               <header>Security and Backups</header>
               <ArrowCalloutButton
-                v-if="isOpen && controller.activeGuideId === OperationalStepId.BackupMnemonic"
+                v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic"
                 class="absolute top-1/2 left-2 -translate-y-1/2 -translate-x-full z-50"
                 guidance="Open the overlay."
                 direction="right"
               />
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openPortfolioPanel()" class="py-2">
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink @click="() => openPortfolioPanel()" :class="menuItemClass">
               <header>Portfolio Details</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem class="py-2" @click="() => checkForUpdates()">
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink :class="menuItemClass" @click="() => checkForUpdates()">
               <header>Check for Updates</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="() => openImportAccountOverlay()" class="py-2">
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink @click="() => openImportAccountOverlay()" :class="menuItemClass">
               <header>Import Account</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger class="relative py-2">
-                <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <header>In-App Wallets</header>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent class="relative -top-1 min-w-50">
-                <div
-                  class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                  <DropdownMenuItem class="py-2" @click="openWallet(WalletType.miningHold)">
-                    <header>Argon Mining Wallet</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                  <DropdownMenuItem class="py-2" @click="openWallet(WalletType.vaulting)">
-                    <header>Argon Vaulting Wallet</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                  <DropdownMenuItem class="py-2" @click="openWallet(WalletType.ethereum)">
-                    <header>Ethereum Wallet</header>
-                  </DropdownMenuItem>
-                </div>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger class="relative py-2">
-                <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                <header>Helpful Resources</header>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent class="relative -top-1 min-w-50">
-                <div
-                  class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                  <DropdownMenuItem class="py-2" @click="() => openTroubleshooting()">
-                    <header>Troubleshooting</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                  <DropdownMenuItem class="py-2" @click="() => void openLink('https://argon.network/docs')">
-                    <header>Documentation</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem class="py-2" @click="() => void openLink('https://argon.network/faq')">
-                    <header>Frequently Asked Questions</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem class="py-2" @click="() => takeTheTour()" :disabled="tour.isDisabled">
-                    <header>Take the Welcome Tour</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                  <DropdownMenuItem class="py-2" @click="() => void openLink('https://discord.gg/xDwwDgCYr9')">
-                    <header>Discord User Community</header>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    class="py-2"
-                    @click="() => void openLink('https://github.com/argonprotocol/apps/issues')">
-                    <header>GitHub Developer Community</header>
-                  </DropdownMenuItem>
-                </div>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </div>
-          <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
-        </DropdownMenuContent>
-      </DropdownMenuPortal>
-    </DropdownMenuRoot>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <li>
+              <NavigationMenuSub
+                :model-value="walletsMenuValue"
+                orientation="vertical"
+                class="relative"
+                @mouseenter="clearWalletsMenuClose"
+                @mouseleave="scheduleWalletsMenuClose"
+                @update:model-value="setWalletsMenuValue"
+              >
+                <NavigationMenuList class="flex flex-col">
+                  <NavigationMenuItem value="wallets">
+                    <NavigationMenuTrigger
+                      :class="submenuTriggerClass"
+                    >
+                      <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                      <header>In-App Wallets</header>
+                    </NavigationMenuTrigger>
+                    <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
+                      <ul class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+                        <NavigationMenuLink :class="menuItemClass" @click="openWallet(WalletType.miningHold)">
+                          <header>Argon Mining Wallet</header>
+                        </NavigationMenuLink>
+                        <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+                        <NavigationMenuLink :class="menuItemClass" @click="openWallet(WalletType.vaulting)">
+                          <header>Argon Vaulting Wallet</header>
+                        </NavigationMenuLink>
+                        <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+                        <NavigationMenuLink :class="menuItemClass" @click="openWallet(WalletType.ethereum)">
+                          <header>Ethereum Wallet</header>
+                        </NavigationMenuLink>
+                      </ul>
+                    </NavigationMenuContent>
+                  </NavigationMenuItem>
+                </NavigationMenuList>
+                <NavigationMenuViewport
+                  align="start"
+                  class="pointer-events-auto absolute top-[var(--reka-navigation-menu-viewport-top)] right-full mr-1 h-[var(--reka-navigation-menu-viewport-height)] w-[var(--reka-navigation-menu-viewport-width)] overflow-visible"
+                />
+              </NavigationMenuSub>
+            </li>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <li>
+              <NavigationMenuSub
+                :model-value="resourcesMenuValue"
+                orientation="vertical"
+                class="relative"
+                @mouseenter="clearResourcesMenuClose"
+                @mouseleave="scheduleResourcesMenuClose"
+                @update:model-value="setResourcesMenuValue"
+              >
+                <NavigationMenuList class="flex flex-col">
+                  <NavigationMenuItem value="resources">
+                    <NavigationMenuTrigger
+                      :class="submenuTriggerClass"
+                    >
+                      <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                      <header>Helpful Resources</header>
+                    </NavigationMenuTrigger>
+                    <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
+                      <ul class="min-w-56 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+                        <NavigationMenuLink :class="menuItemClass" @click="() => openTroubleshooting()">
+                          <header>Troubleshooting</header>
+                        </NavigationMenuLink>
+                        <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+                        <NavigationMenuLink :class="menuItemClass" @click="() => void openLink('https://argon.network/docs')">
+                          <header>Documentation</header>
+                        </NavigationMenuLink>
+                        <NavigationMenuLink :class="menuItemClass" @click="() => void openLink('https://argon.network/faq')">
+                          <header>Frequently Asked Questions</header>
+                        </NavigationMenuLink>
+                        <NavigationMenuLink
+                          :class="[menuItemClass, tour.isDisabled ? 'pointer-events-none opacity-30' : '']"
+                          @click="() => !tour.isDisabled && takeTheTour()"
+                        >
+                          <header>Take the Welcome Tour</header>
+                        </NavigationMenuLink>
+                        <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+                        <NavigationMenuLink :class="menuItemClass" @click="() => void openLink('https://discord.gg/xDwwDgCYr9')">
+                          <header>Discord User Community</header>
+                        </NavigationMenuLink>
+                        <NavigationMenuLink
+                          :class="menuItemClass"
+                          @click="() => void openLink('https://github.com/argonprotocol/apps/issues')">
+                          <header>GitHub Developer Community</header>
+                        </NavigationMenuLink>
+                      </ul>
+                    </NavigationMenuContent>
+                  </NavigationMenuItem>
+                </NavigationMenuList>
+                <NavigationMenuViewport
+                  align="start"
+                  class="pointer-events-auto absolute top-[var(--reka-navigation-menu-viewport-top)] right-full mr-1 h-[var(--reka-navigation-menu-viewport-height)] w-[var(--reka-navigation-menu-viewport-width)] overflow-visible"
+                />
+              </NavigationMenuSub>
+            </li>
+          </ul>
+        </NavigationMenuContent>
+    </NavigationMenuItem>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import {
-  DropdownMenuArrow,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-  PointerDownOutsideEvent,
+  NavigationMenuItem,
+  NavigationMenuTrigger,
+  NavigationMenuContent,
+  NavigationMenuLink,
+  NavigationMenuSub,
+  NavigationMenuList,
+  NavigationMenuViewport,
 } from 'reka-ui';
 import ConfigIcon from '../../assets/config.svg?component';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../../stores/tour.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
+import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../stores/controller.ts';
 import { useBasics } from '../../stores/basics.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 
@@ -154,81 +180,48 @@ const tour = useTour();
 const basics = useBasics();
 const controller = useOperationsController();
 
-const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
+const walletsMenuValue = Vue.ref('');
+const resourcesMenuValue = Vue.ref('');
+let walletsMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+let resourcesMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+
+const menuItemClass =
+  'block cursor-pointer rounded px-4 py-2 text-right hover:bg-argon-menu-hover focus:bg-argon-menu-hover focus:outline-none';
+const submenuTriggerClass =
+  'relative block w-full cursor-pointer rounded px-4 py-2 pl-10 text-right hover:bg-argon-menu-hover focus:bg-argon-menu-hover focus:outline-none data-[state=open]:bg-argon-menu-hover';
 
 // Expose the root element to parent components
 defineExpose({
   $el: rootRef,
 });
 
-let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
-
-function onMouseEnter() {
-  if (mouseLeaveTimeoutId) {
-    clearTimeout(mouseLeaveTimeoutId);
-  }
-  mouseLeaveTimeoutId = undefined;
-  isOpen.value = true;
-}
-
-function onMouseLeave() {
-  if (mouseLeaveTimeoutId) {
-    clearTimeout(mouseLeaveTimeoutId);
-  }
-  mouseLeaveTimeoutId = setTimeout(() => {
-    isOpen.value = false;
-  }, 250);
-}
-
 function openLink(url: string) {
   void tauriOpenUrl(url);
-  isOpen.value = false;
 }
 
 function checkForUpdates() {
   basicEmitter.emit('openCheckForAppUpdatesOverlay');
-  isOpen.value = false;
-}
-
-function clickOutside(e: PointerDownOutsideEvent) {
-  const isChildOfTrigger = !!(e.target as HTMLElement)?.closest('[Trigger]');
-  if (!isChildOfTrigger) return;
-
-  isOpen.value = true;
-  setTimeout(() => {
-    isOpen.value = true;
-  }, 200);
-  e.detail.originalEvent.stopPropagation();
-  e.detail.originalEvent.preventDefault();
-  e.stopPropagation();
-  e.preventDefault();
-  return false;
 }
 
 function openSecuritySettingsOverlay() {
   basicEmitter.emit('openSecuritySettingsOverlay');
-  isOpen.value = false;
 }
 
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
-  isOpen.value = false;
 }
 
 function openJurisdictionOverlay() {
   basicEmitter.emit('openJurisdictionOverlay');
-  isOpen.value = false;
 }
 
 function openImportAccountOverlay() {
   basicEmitter.emit('openImportAccountOverlay');
-  isOpen.value = false;
 }
 
 function openTroubleshooting() {
   basicEmitter.emit('openTroubleshootingOverlay', { screen: 'overview' });
-  isOpen.value = false;
 }
 
 function openProfileOverlay(): void {
@@ -241,12 +234,64 @@ function openPortfolioPanel(): void {
 
 function takeTheTour() {
   tour.start();
-  isOpen.value = false;
 }
 
 function openWallet(walletType: WalletType) {
   basicEmitter.emit('openWalletOverlay', { walletType: walletType as any });
-  isOpen.value = false;
+}
+
+function setWalletsMenuValue(value: string) {
+  clearWalletsMenuClose();
+  if (value) {
+    closeResourcesMenu();
+  }
+  walletsMenuValue.value = value;
+}
+
+function setResourcesMenuValue(value: string) {
+  clearResourcesMenuClose();
+  if (value) {
+    closeWalletsMenu();
+  }
+  resourcesMenuValue.value = value;
+}
+
+function clearWalletsMenuClose() {
+  if (walletsMenuCloseTimeoutId) {
+    clearTimeout(walletsMenuCloseTimeoutId);
+  }
+  walletsMenuCloseTimeoutId = undefined;
+}
+
+function scheduleWalletsMenuClose() {
+  clearWalletsMenuClose();
+  walletsMenuCloseTimeoutId = setTimeout(() => {
+    closeWalletsMenu();
+  }, 450);
+}
+
+function closeWalletsMenu() {
+  walletsMenuValue.value = '';
+  walletsMenuCloseTimeoutId = undefined;
+}
+
+function clearResourcesMenuClose() {
+  if (resourcesMenuCloseTimeoutId) {
+    clearTimeout(resourcesMenuCloseTimeoutId);
+  }
+  resourcesMenuCloseTimeoutId = undefined;
+}
+
+function scheduleResourcesMenuClose() {
+  clearResourcesMenuClose();
+  resourcesMenuCloseTimeoutId = setTimeout(() => {
+    closeResourcesMenu();
+  }, 450);
+}
+
+function closeResourcesMenu() {
+  resourcesMenuValue.value = '';
+  resourcesMenuCloseTimeoutId = undefined;
 }
 </script>
 
@@ -254,7 +299,7 @@ function openWallet(walletType: WalletType) {
 @reference "../../main.css";
 
 [data-reka-collection-item] {
-  @apply focus:bg-argon-menu-hover cursor-pointer pr-4 pl-10 focus:outline-none;
+  @apply cursor-pointer focus:outline-none;
 
   &[data-disabled] {
     opacity: 0.3;

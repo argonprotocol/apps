@@ -160,6 +160,13 @@ export class EthereumBeaconSyncService {
   private async runOnceInner(): Promise<void> {
     const beaconApiUrl = this.options.beaconApiUrl!;
     const submitLane = this.options.submitLane;
+
+    if (!this.client.isConnected) {
+      this.stateData.mode = 'idle';
+      this.stateData.lastError = 'Mainchain WebSocket is not connected; waiting to retry.';
+      return;
+    }
+
     const syncState = await getEthereumBeaconSyncState(this.client);
 
     this.stateData.latestSyncCommitteeUpdatePeriod = syncState.latestSyncCommitteeUpdatePeriod;
@@ -305,7 +312,8 @@ function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
     message.includes('Light-client finality update is not ready') ||
-    message.includes('Light-client update is unavailable')
+    message.includes('Light-client update is unavailable') ||
+    (message.includes('/eth/v1/beacon/light_client/finality_update') && message.includes('404'))
   );
 }
 

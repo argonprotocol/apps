@@ -39,7 +39,7 @@ import * as Vue from 'vue';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
-import { useOperationsController } from '../../stores/operationsController.ts';
+import { useOperationsController } from '../stores/controller.ts';
 import Activate from './operational-rewards/Activate.vue';
 import Congratulations from './operational-rewards/Congratulations.vue';
 import Claim from './operational-rewards/Claim.vue';

@@ -6,9 +6,15 @@
       @click="controller.setScreenKey(TreasuryTab.MainchainSavings)"
       :Selected="controller.selectedTab === TreasuryTab.MainchainSavings || undefined"
     >
-      <div>Inflation-Free Savings</div>
-      <div>{{ currency.symbol }}{{ microgonToMoneyNm(mainchainBalance).format('0,0.00') }}</div>
-      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+      <div Text>Inflation-Free Savings</div>
+      <div Text>
+        {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalValue).format('0,0.00') }}
+      </div>
+      <div ArrowWrapper>
+        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
+        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+      </div>
     </section>
 
     <section
@@ -16,9 +22,20 @@
       @click="controller.setScreenKey(TreasuryTab.MainchainDebts)"
       :Selected="controller.selectedTab === TreasuryTab.MainchainDebts || undefined"
     >
-      <div>Interest-Free Debts</div>
-      <div>-{{ currency.symbol }}{{ microgonToMoneyNm(totalBitcoinDebt).format('0,0.00') }}</div>
-      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+      <div Text>Interest-Free Liabilities</div>
+      <div Text>
+        <Spinner SpinnerIcon v-if="financials.liquidPrelockedRecords.length && !financials.liquidProblemRecords.length" />
+        <template v-else>
+          {{ financials.liquidCurrentBitcoinDebt ? '-' : '' }}{{
+            currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00')
+          }}
+        </template>
+      </div>
+      <div ArrowWrapper>
+        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
+        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+      </div>
     </section>
 
     <section
@@ -26,9 +43,19 @@
       @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)"
       :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined"
     >
-      <div>Bitcoin Locks</div>
-      <div>{{ currency.symbol }}{{ satToMoneyNm(totalLockedSatoshis).format('0,0.00') }}</div>
-      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+      <div Text>Bitcoin Locks</div>
+      <div Text>
+        <AlertIcon AlertIcon v-if="financials.liquidProblemRecords.length" class="h-6 w-6 text-argon-600" />
+        <Spinner SpinnerIcon v-else-if="financials.liquidPrelockedRecords.length" />
+        <template v-else>
+          {{ currency.symbol }}{{ satToMoneyNm(financials.liquidTotalSatoshis).format('0,0.00') }}
+        </template>
+      </div>
+      <div ArrowWrapper>
+        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
+        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+      </div>
     </section>
 
     <section
@@ -36,9 +63,13 @@
       @click="controller.setScreenKey(TreasuryTab.ArgonBonds)"
       :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined"
     >
-      <div>Argon Bonds</div>
-      <div>{{ currency.symbol }}{{ microgonToMoneyNm(myBonds.bondTotals.activeBondMicrogons).format('0,0.00') }}</div>
-      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+      <div Text>Argon Bonds</div>
+      <div Text>{{ currency.symbol }}{{ microgonToMoneyNm(financials.bondsTotalValue).format('0,0.00') }}</div>
+      <div ArrowWrapper>
+        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
+        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+      </div>
     </section>
 
     <section
@@ -46,9 +77,13 @@
       @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)"
       :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
     >
-      <div>Stable Swaps</div>
-      <div>{{currency.symbol}}{{ microgonToMoneyNm(stableSwapValue).format('0,0.00') }}</div>
-      <div ArrowWrapper><Arrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+      <div Text>Stable Swaps</div>
+      <div Text>{{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}</div>
+      <div ArrowWrapper>
+        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
+        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+      </div>
     </section>
 
     <section DashBox class="grow flex flex-col">
@@ -81,81 +116,31 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import Arrow from '../../components/Arrow.vue';
+import ArrowRightBg from '../../assets/arrow-right-bg.svg';
 import { getCurrency } from '../../stores/currency.ts';
-import { TreasuryTab, useTreasuryController } from '../../stores/treasuryController.ts';
-import { useWallets } from '../../stores/wallets.ts';
+import { TreasuryTab, useTreasuryController } from '../stores/controller.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import DiscordIcon from '../../assets/discord.svg';
 import InstructionsIcon from '../../assets/instructions.svg';
-import { useMyBonds } from '../../stores/myBonds.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { BitcoinLockStatus } from '../../lib/db/BitcoinLocksTable.ts';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
-import type { IOtherToken } from '../../lib/Wallet.ts';
-import { getVaults } from '../../stores/vaults.ts';
-import { BitcoinLock } from '@argonprotocol/mainchain';
+import { useFinancials } from '../stores/financials.ts';
+import Spinner from '../../components/Spinner.vue';
+import AlertIcon from '../../assets/alert.svg';
 
 const controller = useTreasuryController();
+const financials = useFinancials();
 const currency = getCurrency();
-const wallets = useWallets();
-const myBonds = useMyBonds();
-const vaults = getVaults();
-const bitcoinLocks = getBitcoinLocks();
 
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.ref(false);
-const pendingMint = Vue.ref(0n);
-const totalBitcoinDebt = Vue.ref(0n);
-
-const mainchainBalance = Vue.computed(() => {
-  return pendingMint.value + wallets.liquidLockingWallet.availableMicrogons;
-});
-
-const allLocks = Vue.computed(() => {
-  return bitcoinLocks.getAllLocks();
-});
-
-const nonReleasedLocks = Vue.computed(() => {
-  return allLocks.value.filter(l => l.status !== BitcoinLockStatus.Released);
-});
-
-const totalLockedSatoshis = Vue.computed(() => {
-  return nonReleasedLocks.value.reduce((sum, l) => sum + l.satoshis, 0n);
-});
-
-const stableSwapValue = Vue.computed(() => {
-  const microgonValue = wallets.ethereumWallet.availableMicrogons;
-  const micronotValue = currency.convertMicronotTo(
-    wallets.ethereumWallet.availableMicronots,
-    UnitOfMeasurement.Microgon,
-  );
-  const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
-    return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
-  }, 0n);
-  return microgonValue + micronotValue + otherTokenValue;
-});
 
 function openLink(url: string) {
   void tauriOpenUrl(url);
 }
 
-async function updateTotalBitcoinDebt() {
-  const ratePromises = nonReleasedLocks.value.map(lock => {
-    return BitcoinLock.getRedemptionRate(currency.priceIndex, lock).catch(() => 0n);
-  });
-  const rates = await Promise.all(ratePromises);
-  totalBitcoinDebt.value = rates.reduce((sum, r) => sum + r, 0n);
-}
-
-Vue.watch([nonReleasedLocks, isLoaded], () => {
-  void updateTotalBitcoinDebt();
-});
-
 Vue.onMounted(async () => {
-  await Promise.all([myBonds.load(), bitcoinLocks.load(), currency.fetchMainchainRates()]);
-  pendingMint.value = bitcoinLocks.getMintPending();
+  await Promise.all([currency.fetchMainchainRates()]);
   isLoaded.value = true;
 });
 </script>
@@ -166,40 +151,70 @@ Vue.onMounted(async () => {
 .Navigation.LeftBar {
   section[Item] {
     @apply relative flex cursor-pointer flex-row items-center justify-between gap-x-2 px-4 py-4 whitespace-nowrap;
+    [SpinnerIcon] {
+      @apply absolute top-1/2 right-0 -translate-x-full -translate-y-1/2;
+    }
+    [AlertIcon] {
+      @apply absolute top-1/2 right-0 -translate-y-1/2;
+    }
+    div[Text] {
+      @apply relative opacity-50;
+    }
     div:nth-child(1) {
-      @apply text-argon-600;
+      @apply text-argon-700;
     }
     div:nth-child(2) {
-      @apply text-argon-800/40;
+      @apply text-argon-800/70;
     }
     &:hover:not([Selected]) {
-      @apply bg-[var(--bg-color)];
+      @apply bg-[var(--color-argon-20)];
+      div[Text] {
+        @apply opacity-100;
+      }
       [ArrowWrapper] {
-        @apply left-[calc(100%-2px)] block;
-        &::before {
-          @apply w-4;
-        }
-        .Component.Arrow path {
-          fill: var(--bg-color) !important;
+        .Component.Arrow[InactiveArrow] path {
+          fill: var(--color-argon-20) !important;
         }
       }
     }
     &[Selected] {
+      @apply w-[calc(100%+10px)] cursor-default bg-[var(--color-argon-20)] pr-[calc(16px+10px)];
       text-shadow: 1px 1px 1px white;
+      div[Text] {
+        @apply opacity-100;
+      }
       [ArrowWrapper] {
-        @apply block;
+        @apply top-[-4px] left-[calc(100%-2px)] aspect-square h-[calc(100%+8px)] w-auto translate-y-0 pr-[6px] pb-[8px];
+        &::before {
+          @apply block;
+        }
+        .Component.Arrow[InactiveArrow] {
+          @apply hidden;
+        }
+        .Component.Arrow[ActiveArrow] {
+          @apply block;
+        }
+        [ArrowRightBg] {
+          @apply hidden;
+        }
       }
     }
   }
 
   [ArrowWrapper] {
-    @apply absolute top-[-4px] left-[calc(100%-2px)] hidden aspect-square h-[calc(100%+8px)] overflow-hidden pr-[6px] pb-[8px];
+    @apply absolute top-[-4px] left-[calc(100%-2px)] block aspect-square h-[calc(100%+8px)] overflow-hidden;
     &::before {
       content: '';
-      @apply absolute top-[3px] left-0 h-[calc(100%+2px)] w-1 bg-[var(--bg-color)];
+      @apply absolute top-[3px] left-0 hidden h-[calc(100%+2px)] w-1 bg-[var(--bg-color)];
     }
-    svg {
-      @apply absolute top-[2px] left-[calc(25%-3px)] h-1/2 w-[calc(100%-10px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[2px_2px_2px_rgb(0_0_0/0.3)];
+    svg[InactiveArrow] {
+      @apply absolute top-[2px] left-[calc(25%-8px)] h-4.5 w-[calc(100%-4px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[1px_1px_1px_rgb(0_0_0/0.16)];
+    }
+    svg[ActiveArrow] {
+      @apply absolute top-[2px] left-[calc(25%-9px)] hidden h-5.5 w-[calc(100%-10px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[2px_2px_2px_rgb(0_0_0/0.3)];
+      path {
+        fill: var(--color-argon-20) !important;
+      }
     }
   }
 }

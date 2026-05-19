@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import process from 'node:process';
-import { EthereumBeaconSyncService } from '@argonprotocol/apps-bot';
+import { EthereumBeaconSyncService } from '../bot/src/EthereumBeaconSyncService.ts';
 import {
   dispatchErrorToString,
   getClient,

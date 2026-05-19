@@ -1,6 +1,6 @@
+<!-- prettier-ignore -->
 <template>
-  {{ integer }}.
-  <span :class="[isLoaded ? 'opacity-40' : '']">{{ decimal }}</span>
+  {{ integer }}.<span :class="[isLoaded ? 'opacity-40' : '']">{{ decimal }}</span>
 </template>
 
 <script setup lang="ts">
@@ -24,8 +24,19 @@ const currency = getCurrency();
 
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
-const integer = Vue.ref('--');
-const decimal = Vue.ref('--');
+const integer = Vue.computed(() => {
+  if (!props.isLoaded) return '--';
+
+  const value = convertToMoney(props.value);
+  return value.split('.')[0];
+});
+
+const decimal = Vue.computed(() => {
+  if (!props.isLoaded) return '--';
+
+  const value = convertToMoney(props.value);
+  return value.split('.')[1];
+});
 
 function convertToMoney(value: bigint): string {
   if (props.unitOfMeasurement === UnitOfMeasurement.Satoshi) {
@@ -34,17 +45,4 @@ function convertToMoney(value: bigint): string {
     return microgonToMoneyNm(value).format('0,0.00');
   }
 }
-
-Vue.watch(
-  () => [props.isLoaded, props.value],
-  () => {
-    if (!props.isLoaded) return;
-
-    const value = convertToMoney(props.value);
-    const parts = value.split('.');
-    integer.value = parts[0];
-    decimal.value = parts[1];
-  },
-  { immediate: true },
-);
 </script>

@@ -60,7 +60,7 @@ type ICollectOrphanCosignMetadata = {
   vaultSignatureHex: string;
 };
 type IPendingCosignUtxo = {
-  marketValue: bigint;
+  targetValue: bigint;
   dueFrame?: number;
 };
 
@@ -407,8 +407,8 @@ export class MyVault {
       const dueFrame = pendingReleaseRaw.isSome
         ? pendingReleaseRaw.unwrap().cosignDueFrame.toNumber()
         : previousPending?.dueFrame;
-      const marketValue = lock?.lockedMarketRate ?? previousPending?.marketValue ?? 0n;
-      pendingCosignUtxosById.set(id, { marketValue, dueFrame });
+      const targetValue = lock?.lockedTargetPrice ?? previousPending?.targetValue ?? 0n;
+      pendingCosignUtxosById.set(id, { targetValue, dueFrame });
     }
     if (updateSeq !== this.#pendingCosignUpdateSeq) {
       return;

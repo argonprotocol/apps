@@ -12,13 +12,15 @@
     <p>
       <template v-if="isSubmittingToChain">
         Your request to lock
-        {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
-        BTC is being submitted to Argon.
+        {{ satToBtcNm(personalLock.satoshis ?? 0n).format('0,0.[00000000]') }}
+        of BTC (around {{ currency.symbol }}{{ satToMoneyNm(props.personalLock.satoshis).format('0,0.00') }} worth) is
+        being submitted to Argon.
       </template>
       <template v-else>
         Your request to lock
-        {{ numeral(currency.convertSatToBtc(personalLock.satoshis ?? 0n)).format('0,0.[00000000]') }}
-        BTC has been submitted to Argon and is awaiting confirmation. This usually takes a few minutes.
+        {{ satToBtcNm(personalLock.satoshis ?? 0n).format('0,0.[00000000]') }} of BTC (around {{ currency.symbol
+        }}{{ satToMoneyNm(props.personalLock.satoshis).format('0,0.00') }} worth) has been submitted to Argon and is
+        awaiting confirmation. This usually takes a few minutes.
       </template>
     </p>
 
@@ -45,7 +47,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from '../../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import { getCurrency } from '../../../stores/currency.ts';
 import { IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
@@ -59,6 +61,9 @@ const props = defineProps<{
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
+
+const { satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
+
 const bitcoinLockProgress = useBitcoinLockProgress();
 const personalLock = Vue.computed(() => props.personalLock);
 const progressPct = Vue.computed(() => bitcoinLockProgress.lockProcessing.progressPct);

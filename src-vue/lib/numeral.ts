@@ -86,6 +86,10 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
       const microgons = currency.convertBtcToMicrogon(btc);
       return numeral(currency.convertMicrogonTo(microgons, currency.key));
     },
+    satToBtcNm(this: void, sats: bigint): Numeral {
+      const btc = currency.convertSatToBtc(sats);
+      return numeral(btc);
+    },
     satToNm(this: void, sats: bigint, toUnit: UnitOfMeasurement): Numeral {
       const btc = currency.convertSatToBtc(sats);
       const microgons = currency.convertBtcToMicrogon(btc);

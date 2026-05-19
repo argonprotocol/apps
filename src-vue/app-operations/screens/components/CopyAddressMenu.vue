@@ -1,98 +1,115 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="rootRef" class="pointer-events-auto relative" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
-    <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
-      <DropdownMenuTrigger
-        Trigger
-        NotDraggable
-        :data-testid="`${walletAddressTestId}.openMenu()`"
-        class="w-[34px] h-[34px] flex flex-row items-center justify-center hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border rounded-md"
-        :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : (showBorder ? 'border-slate-400/60' : 'border-transparent')]"
+  <div ref="rootRef" class="flex flex-row group">
+    <div
+      NotDraggable
+      class="pointer-events-auto hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border rounded-l-md"
+      :class="[showBorder ? 'border-slate-400/60' : 'border-transparent']"
+    >
+      <CopyToClipboard
+        :data-testid="walletAddressTestId"
+        :content="wallet.address"
+        class="flex flex-row items-center justify-center relative cursor-pointer w-[32px] h-[32px]"
       >
         <CopyIcon class="h-4 w-4 text-slate-800/50 pointer-events-none" />
-      </DropdownMenuTrigger>
+        <template #copied>
+          <CopyIcon class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-4 text-slate-800 pointer-events-none" />
+        </template>
+      </CopyToClipboard>
+    </div>
+    <div class="pointer-events-auto relative" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
+      <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
+        <DropdownMenuTrigger
+          Trigger
+          NotDraggable
+          :data-testid="`${walletAddressTestId}.openMenu()`"
+          class="h-[34px] flex flex-row items-center justify-center group-hover:border-slate-400/50 group-hover:bg-slate-400/10 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none border border-l-0 rounded-r-md"
+          :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : (showBorder ? 'border-slate-400/60' : 'border-transparent')]"
+        >
+          <ChevronDownIcon class="w-4 mx-0.5 text-slate-800/50 pointer-events-none" />
+        </DropdownMenuTrigger>
 
-      <DropdownMenuPortal>
-        <DropdownMenuContent
-          @mouseenter="onMouseEnter"
-          @mouseleave="onMouseLeave"
-          @pointerDownOutside="clickOutside"
-          :align="'end'"
-          :alignOffset="0"
-          :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[2000] data-[state=open]:transition-all">
-          <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem @click.capture="closeMenu" class="pt-1 pb-2">
-              <CopyToClipboard
-                :data-testid="walletAddressTestId"
-                :content="wallet.address"
-                class="group relative cursor-pointer"
-              >
-                <div class="flex flex-col text-right">
-                  <div class="text-slate-700 group-hover:text-argon-600">
-                    {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
-                  </div>
-                  <div class="text-slate-600/60 font-mono">
-                    {{ abbreviateAddress(wallet.address, 15) }}
-                  </div>
-                </div>
-                <template v-if="props.showSingleAddress">
-                  <div class="h-px w-full bg-slate-400/30 my-2" />
-                  <img :src="qrCode" class="w-full mt-4" :alt="`QR Code Wallet Address`" />
-                </template>
-                <template #copied>
-                  <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
-                    <div>
+        <DropdownMenuPortal>
+          <DropdownMenuContent
+            @mouseenter="onMouseEnter"
+            @mouseleave="onMouseLeave"
+            @pointerDownOutside="clickOutside"
+            :align="'end'"
+            :alignOffset="0"
+            :sideOffset="-3"
+            class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[2000] data-[state=open]:transition-all">
+            <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+              <DropdownMenuItem @click.capture="closeMenu" class="pt-1 pb-2">
+                <CopyToClipboard
+                  :data-testid="walletAddressTestId"
+                  :content="wallet.address"
+                  class="group relative cursor-pointer"
+                >
+                  <div class="flex flex-col text-right">
+                    <div class="text-slate-700 group-hover:text-argon-600">
                       {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
                     </div>
-                    <div class="font-mono">
+                    <div class="text-slate-600/60 font-mono">
                       {{ abbreviateAddress(wallet.address, 15) }}
                     </div>
-                    <template v-if="props.showSingleAddress">
-                      <div class="h-px w-full bg-slate-400/30 my-2" />
-                      <img :src="qrCode" class="w-full mt-2" :alt="`QR Code Wallet Address`" />
-                    </template>
                   </div>
-                </template>
-              </CopyToClipboard>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              v-if="walletType === WalletType.investment && !props.showSingleAddress"
-              @click.capture="closeMenu"
-              class="pt-1 pb-2 border-t border-slate-400/30"
-            >
-              <CopyToClipboard :content="wallets.ethereumWallet.address" class="group relative cursor-pointer">
-                <div class="flex flex-col text-right">
-                  <div class="text-slate-700 group-hover:text-argon-600">
-                    Ethereum Wallet Address
-                  </div>
-                  <div class="text-slate-600/60 font-mono">
-                    {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
-                  </div>
-                </div>
-                <template #copied>
-                  <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
-                    <div>
+                  <template v-if="props.showSingleAddress">
+                    <div class="h-px w-full bg-slate-400/30 my-2" />
+                    <img :src="qrCode" class="w-full mt-4" :alt="`QR Code Wallet Address`" />
+                  </template>
+                  <template #copied>
+                    <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
+                      <div>
+                        {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
+                      </div>
+                      <div class="font-mono">
+                        {{ abbreviateAddress(wallet.address, 15) }}
+                      </div>
+                      <template v-if="props.showSingleAddress">
+                        <div class="h-px w-full bg-slate-400/30 my-2" />
+                        <img :src="qrCode" class="w-full mt-2" :alt="`QR Code Wallet Address`" />
+                      </template>
+                    </div>
+                  </template>
+                </CopyToClipboard>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="walletType === WalletType.investment && !props.showSingleAddress"
+                @click.capture="closeMenu"
+                class="pt-1 pb-2 border-t border-slate-400/30"
+              >
+                <CopyToClipboard :content="wallets.ethereumWallet.address" class="group relative cursor-pointer">
+                  <div class="flex flex-col text-right">
+                    <div class="text-slate-700 group-hover:text-argon-600">
                       Ethereum Wallet Address
                     </div>
-                    <div class="font-mono">
+                    <div class="text-slate-600/60 font-mono">
                       {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
                     </div>
                   </div>
-                </template>
-              </CopyToClipboard>
-            </DropdownMenuItem>
-          </div>
-          <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
-        </DropdownMenuContent>
-      </DropdownMenuPortal>
-    </DropdownMenuRoot>
+                  <template #copied>
+                    <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
+                      <div>
+                        Ethereum Wallet Address
+                      </div>
+                      <div class="font-mono">
+                        {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
+                      </div>
+                    </div>
+                  </template>
+                </CopyToClipboard>
+              </DropdownMenuItem>
+            </div>
+            <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
+          </DropdownMenuContent>
+        </DropdownMenuPortal>
+      </DropdownMenuRoot>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import GlobeIcon from '../../../assets/globe.svg?component';
 import {
   DropdownMenuArrow,
   DropdownMenuContent,
@@ -102,6 +119,7 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
+import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import CopyToClipboard from '../../../components/CopyToClipboard.vue';
 import CopyIcon from '../../../assets/copy.svg';
 import { abbreviateAddress } from '../../../lib/Utils.ts';

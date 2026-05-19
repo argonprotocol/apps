@@ -1,0 +1,23 @@
+
+<svg viewBox="0 0 10 35" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <defs>
+        <polyline id="path-hlt-t44ai2-1" points="-15.5858448 23.1761596 4.24260694 12.2857888 23.9290863 23.1064251"></polyline>
+        <filter x="-2.5%" y="-9.2%" width="105.1%" height="118.4%" filterUnits="objectBoundingBox" id="filter-hlt-t44ai2-2">
+            <feGaussianBlur stdDeviation="1" in="SourceAlpha" result="shadowBlurInner1"></feGaussianBlur>
+            <feOffset dx="0" dy="0" in="shadowBlurInner1" result="shadowOffsetInner1"></feOffset>
+            <feComposite in="shadowOffsetInner1" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="shadowInnerInner1"></feComposite>
+            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.0544385723 0" type="matrix" in="shadowInnerInner1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="Argon-Treasury" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Frame-11" transform="translate(-360.9265, -286.1538)">
+            <g id="arrow-right-bg" transform="translate(360.9265, 286.1538)">
+                <g id="Path" transform="translate(4.1716, 17.731) rotate(90) translate(-4.1716, -17.731)">
+                    <use fill="#F8F1F9" fill-rule="evenodd" xlink:href="#path-hlt-t44ai2-1"></use>
+                    <use fill="black" fill-opacity="1" filter="url(#filter-hlt-t44ai2-2)" xlink:href="#path-hlt-t44ai2-1"></use>
+                </g>
+                <polyline id="Path" stroke="#D3D9E3" transform="translate(5.4623, 17.731) rotate(90) translate(-5.4623, -17.731)" points="-11.7037029 22.4619484 5.52397382 13 22.6282998 22.4013605"></polyline>
+            </g>
+        </g>
+    </g>
+</svg>

@@ -271,16 +271,6 @@ export class Vaults {
       .reduce((total, change) => total + change.bitcoinFeeRevenue, 0n);
   }
 
-  public getLockedBitcoin(vaultId: number): bigint {
-    const vaultRevenue = this.stats?.vaultsById[vaultId];
-    if (!vaultRevenue) return 0n;
-
-    return (
-      vaultRevenue.changesByFrame.reduce((total, change) => total + change.satoshisAdded, 0n) +
-      vaultRevenue.baseline.satoshis
-    );
-  }
-
   public async getTotalLiquidityRealized(refresh = true) {
     if (refresh) {
       await this.updateRevenue();
@@ -315,14 +305,21 @@ export class Vaults {
     }, 0n);
   }
 
-  public async getRedemptionRate(lock: { satoshis: bigint; lockedMarketRate: bigint }): Promise<bigint> {
+  public async fetchAndCalculateRedemptionAmount(lock: {
+    satoshis: bigint;
+    lockedTargetPrice: bigint;
+  }): Promise<bigint> {
     await this.currency.fetchMainchainRates();
-    return await BitcoinLock.getRedemptionRate(this.currency.priceIndex, lock);
+    return BitcoinLock.calculateRedemptionAmountFromSatoshis(
+      this.currency.priceIndex,
+      lock.satoshis,
+      lock.lockedTargetPrice,
+    );
   }
 
-  public async getMarketRateInMicrogons(satoshis: bigint): Promise<bigint> {
+  public async getSatoshiPriceInTargetMicrogons(satoshis: bigint): Promise<bigint> {
     await this.currency.fetchMainchainRates();
-    return await BitcoinLock.getMarketRate(this.currency.priceIndex, satoshis);
+    return this.currency.priceIndex.getSatoshiPriceInTargetMicrogons(satoshis);
   }
 
   public getTreasuryFillPct(vaultId: number): number {

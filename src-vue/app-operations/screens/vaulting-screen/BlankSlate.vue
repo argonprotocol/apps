@@ -161,7 +161,7 @@ import { getConfig } from '../../../stores/config.ts';
 import { abbreviateAddress, getPercent } from '../../../lib/Utils.ts';
 import { useVaultingStats } from '../../../stores/vaultingStats.ts';
 import { VaultingSetupStatus } from '../../../interfaces/IConfig.ts';
-import { OperationalStepId, useOperationsController } from '../../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/controller.ts';
 import ArrowCalloutButton from '../../../components/ArrowCalloutButton.vue';
 
 const currency = getCurrency();

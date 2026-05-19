@@ -1,12 +1,19 @@
 import BigNumber from 'bignumber.js';
 import { bigNumberToBigInt } from './utils.js';
-import { type ApiDecoration, MICROGONS_PER_ARGON, PriceIndex, SATS_PER_BTC } from '@argonprotocol/mainchain';
+import {
+  type ApiDecoration,
+  type ArgonClient,
+  FIXED_U128_DECIMALS,
+  fromFixedNumber,
+  MICROGONS_PER_ARGON,
+  PriceIndex,
+  SATS_PER_BTC,
+} from '@argonprotocol/mainchain';
 import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MainchainClients } from './MainchainClients.ts';
 
-const TEN_MINUTES_IN_MILLISECONDS = 10 * 60e3;
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
 
 export const SATOSHIS_PER_BITCOIN = SATS_PER_BTC;
@@ -50,6 +57,21 @@ type IRawEthRates = Record<string, number> | null;
 
 export type IMainchainRates = Record<UnitOfMeasurement.ARGNOT | UnitOfMeasurement.USD | UnitOfMeasurement.BTC, bigint>;
 
+type IRawPriceIndex = {
+  btcUsdPrice: { toBigInt(): bigint };
+  argonotUsdPrice: { toBigInt(): bigint };
+  argonUsdPrice: { toBigInt(): bigint };
+  argonUsdTargetPrice: { toBigInt(): bigint };
+  argonTimeWeightedAverageLiquidity: { toBigInt(): bigint };
+  tick: { toNumber(): number };
+};
+
+type IRawPriceIndexOption = {
+  isSome: boolean;
+  unwrap(): IRawPriceIndex;
+  toHex?(): string;
+};
+
 export const defaultMicrogonsPer: IMicrogonsPer = {
   Microgon: 1n,
   Micronot: BigInt(MICROGONS_PER_ARGON),
@@ -92,12 +114,21 @@ export class Currency {
   public isLoaded: boolean;
   public isLoadedPromise: Promise<void>;
   private isLoadedDeferred: IDeferred<void>;
-  private loadTimeout?: number;
+  private offchainRatesTimeout?: number;
+  private priceIndexSubscription?: () => void;
+  private priceIndexSubscriptionPromise?: Promise<void>;
+  private lastPriceIndexStorageValue?: string;
 
   constructor(public clients: MainchainClients) {
     this.isLoaded = false;
     this.isLoadedDeferred = createDeferred<void>();
     this.isLoadedPromise = this.isLoadedDeferred.promise;
+    this.clients.events.on('on-pruned-client', client => {
+      if (!this.priceIndexSubscription && !this.priceIndexSubscriptionPromise) return;
+      void this.replacePriceIndexSubscription(client).catch(e =>
+        console.error('[Currency] Error switching price index subscription client', e),
+      );
+    });
   }
 
   public async load(skipCache = false): Promise<void> {
@@ -108,9 +139,9 @@ export class Currency {
         this.isLoaded = true;
         this.isLoadedDeferred.resolve();
       }
+      await this.subscribeToPriceIndex();
     } finally {
-      clearTimeout(this.loadTimeout);
-      this.loadTimeout = setTimeout(() => this.load(), TEN_MINUTES_IN_MILLISECONDS) as unknown as number;
+      this.scheduleOffchainRatesRefresh();
     }
   }
 
@@ -205,15 +236,70 @@ export class Currency {
 
   public async fetchMainchainRates(api?: ApiDecoration<'promise'>, ignoreCache = true): Promise<IMainchainRates> {
     api ??= await this.clients.prunedClientOrArchivePromise;
-    await this.priceIndex.load(api);
+    const current = await api.query.priceIndex.current();
 
-    if (this.priceIndex.argonUsdPrice) {
+    return await this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, ignoreCache);
+  }
+
+  private async subscribeToPriceIndex(client?: ArgonClient): Promise<void> {
+    if (this.priceIndexSubscription) return;
+    if (this.priceIndexSubscriptionPromise) return this.priceIndexSubscriptionPromise;
+
+    this.priceIndexSubscriptionPromise = this.startPriceIndexSubscription(client).catch(e => {
+      this.priceIndexSubscriptionPromise = undefined;
+      throw e;
+    });
+
+    return this.priceIndexSubscriptionPromise;
+  }
+
+  private async replacePriceIndexSubscription(client: ArgonClient): Promise<void> {
+    if (this.priceIndexSubscription) {
+      this.priceIndexSubscription();
+    } else if (this.priceIndexSubscriptionPromise) {
+      await this.priceIndexSubscriptionPromise;
+      const unsubscribe = this.priceIndexSubscription as (() => void) | undefined;
+      unsubscribe?.();
+    }
+
+    this.priceIndexSubscription = undefined;
+    this.priceIndexSubscriptionPromise = undefined;
+    await this.subscribeToPriceIndex(client);
+  }
+
+  private async startPriceIndexSubscription(client?: ArgonClient): Promise<void> {
+    const subscriptionClient = client ?? (await this.clients.prunedClientOrArchivePromise);
+    const unsubscribe = await subscriptionClient.query.priceIndex.current(current => {
+      const storageValue = this.getPriceIndexStorageValue(current as IRawPriceIndexOption);
+      if (storageValue && storageValue === this.lastPriceIndexStorageValue) return;
+
+      void this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, false).catch(e =>
+        console.error('[Currency] Error updating subscribed price index', e),
+      );
+    });
+    this.priceIndexSubscription = () => {
+      unsubscribe();
+      this.priceIndexSubscription = undefined;
+      this.priceIndexSubscriptionPromise = undefined;
+    };
+  }
+
+  private async updateMainchainRatesFromPriceIndex(
+    current: IRawPriceIndexOption,
+    ignoreCache = true,
+  ): Promise<IMainchainRates> {
+    this.loadPriceIndex(current);
+
+    if (this.priceIndex.argonUsdTargetPrice) {
       // These exchange rates should be relative to the argon
-      const usdForArgonBn = this.priceIndex.argonUsdPrice;
+      const usdTargetForArgonBn = this.priceIndex.argonUsdTargetPrice;
 
-      this.microgonsPer.USD = this.calculateExchangeRateInMicrogons(BigNumber(1), usdForArgonBn);
-      this.microgonsPer.BTC = this.calculateExchangeRateInMicrogons(this.priceIndex.btcUsdPrice!, usdForArgonBn);
-      this.microgonsPer.ARGNOT = this.calculateExchangeRateInMicrogons(this.priceIndex.argonotUsdPrice!, usdForArgonBn);
+      this.microgonsPer.USD = this.calculateExchangeRateInMicrogons(BigNumber(1), usdTargetForArgonBn);
+      this.microgonsPer.BTC = this.calculateExchangeRateInMicrogons(this.priceIndex.btcUsdPrice!, usdTargetForArgonBn);
+      this.microgonsPer.ARGNOT = this.calculateExchangeRateInMicrogons(
+        this.priceIndex.argonotUsdPrice!,
+        usdTargetForArgonBn,
+      );
 
       const networkIsLocal = NetworkConfig.networkName === 'dev-docker' || NetworkConfig.networkName === 'localnet';
       if (this.priceIndex.argonotUsdPrice! === BigNumber(0) && networkIsLocal) {
@@ -230,6 +316,42 @@ export class Currency {
       BTC: this.microgonsPer.BTC,
       USD: this.microgonsPer.USD,
     };
+  }
+
+  private loadPriceIndex(current: IRawPriceIndexOption): void {
+    this.lastPriceIndexStorageValue = this.getPriceIndexStorageValue(current);
+
+    if (!current.isSome) {
+      this.priceIndex.argonUsdPrice = undefined;
+      this.priceIndex.argonotUsdPrice = undefined;
+      this.priceIndex.btcUsdPrice = undefined;
+      this.priceIndex.argonUsdTargetPrice = undefined;
+      this.priceIndex.argonTimeWeightedAverageLiquidity = undefined;
+      this.priceIndex.lastUpdatedTick = undefined;
+      return;
+    }
+
+    const value = current.unwrap();
+    this.priceIndex.btcUsdPrice = fromFixedNumber(value.btcUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
+    this.priceIndex.argonotUsdPrice = fromFixedNumber(value.argonotUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
+    this.priceIndex.argonUsdPrice = fromFixedNumber(value.argonUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
+    this.priceIndex.argonUsdTargetPrice = fromFixedNumber(value.argonUsdTargetPrice.toBigInt(), FIXED_U128_DECIMALS);
+    this.priceIndex.argonTimeWeightedAverageLiquidity = fromFixedNumber(
+      value.argonTimeWeightedAverageLiquidity.toBigInt(),
+      FIXED_U128_DECIMALS,
+    );
+    this.priceIndex.lastUpdatedTick = value.tick.toNumber();
+  }
+
+  private getPriceIndexStorageValue(current: IRawPriceIndexOption): string | undefined {
+    return current.toHex?.();
+  }
+
+  private scheduleOffchainRatesRefresh(): void {
+    clearTimeout(this.offchainRatesTimeout);
+    this.offchainRatesTimeout = setTimeout(() => {
+      void this.fetchMainchainRates(undefined, false).finally(() => this.scheduleOffchainRatesRefresh());
+    }, TWENTY_FOUR_HOURS_IN_MILLISECONDS) as unknown as number;
   }
 
   public calculateTargetOffset(price: BigNumber | undefined, targetPrice: BigNumber | undefined): number | null {

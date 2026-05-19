@@ -113,6 +113,15 @@ describe('MoveCapital', () => {
     expect(myVault.increaseVaultAllocations).not.toHaveBeenCalled();
   });
 
+  it('does not treat Ethereum addresses as valid external move destinations', () => {
+    const { moveCapital } = createMoveCapital();
+
+    expect(moveCapital.checkAddressType('0x742d35Cc6634C0532925a3b844Bc454e4438f44e')).toEqual({
+      isArgonAddress: false,
+      addressWarning: 'The address entered is not a valid Argon address.',
+    });
+  });
+
   it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
     const { moveCapital, transactionTracker } = createMoveCapital();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);

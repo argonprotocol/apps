@@ -10,24 +10,21 @@
     "watch": "tsup --watch"
   },
   "type": "module",
-  "main": "src/public.ts",
-  "exports": {
-    ".": "./src/public.ts"
-  },
+  "main": "src/index.ts",
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.3-dev.afd10c33",
+    "@argonprotocol/mainchain": "1.4.3-dev.4117801d",
     "bignumber.js": "^9.3.1",
     "cors": "^2.8.5",
     "express": "^5.2.0",
     "p-queue": "^8.1.0",
     "source-map-support": "^0.5.21",
     "tiny-lru": "^11.4.5",
-    "viem": "^2.48.8",
+    "viem": "^2.48.11",
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.afd10c33",
+    "@argonprotocol/testing": "1.4.3-dev.4117801d",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/ws": "^8.18.1",

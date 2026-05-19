@@ -4,7 +4,7 @@ import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
+import { useOperationsController, OperationsTab } from './stores/controller.ts';
 import { checkInstallerIfCloseAllowed, getInstaller } from '../stores/installer.ts';
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';

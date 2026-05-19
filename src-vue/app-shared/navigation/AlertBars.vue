@@ -214,7 +214,7 @@ import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getBondMarket } from '../../stores/myBonds.ts';
-import BitcoinIcon from '../../assets/wallets/bitcoin-alert.svg?component';
+import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import VaultCollectOverlay from '../../app-operations/overlays/VaultCollectOverlay.vue';
 import BitcoinLockingOverlay from '../overlays/BitcoinLockingOverlay.vue';
 import BitcoinUnlockingOverlay from '../overlays/BitcoinUnlockingOverlay.vue';

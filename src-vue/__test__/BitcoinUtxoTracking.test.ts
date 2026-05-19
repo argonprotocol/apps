@@ -17,7 +17,7 @@ function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRe
     status: overrides.status ?? BitcoinLockStatus.LockPendingFunding,
     satoshis: overrides.satoshis ?? 10_000n,
     liquidityPromised: overrides.liquidityPromised ?? 0n,
-    lockedMarketRate: overrides.lockedMarketRate ?? 0n,
+    lockedTargetPrice: overrides.lockedTargetPrice ?? 0n,
     ratchets: overrides.ratchets ?? [],
     cosignVersion: overrides.cosignVersion ?? 'v1',
     lockDetails: overrides.lockDetails ?? createLockDetails(),

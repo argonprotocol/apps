@@ -108,7 +108,7 @@ import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { ChevronDoubleRightIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
 import { MiningSetupStatus } from '../../../interfaces/IConfig.ts';
-import { OperationalStepId, useOperationsController } from '../../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/controller.ts';
 import ArrowCalloutButton from '../../../components/ArrowCalloutButton.vue';
 
 const controller = useOperationsController();

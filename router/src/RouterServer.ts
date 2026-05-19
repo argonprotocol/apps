@@ -376,7 +376,7 @@ export class RouterServer {
         const body = requireBody<IBitcoinLockRelayRequest>(req);
         routerAuth.requireTreasuryUserSession(req, body.ownerAccountId);
 
-        if (body.microgonsPerBtc == null) {
+        if (body.microgonsAtTargetPerBtc == null) {
           throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
         }
 
@@ -386,7 +386,7 @@ export class RouterServer {
             requestedSatoshis: body.requestedSatoshis,
             ownerAccountId: body.ownerAccountId,
             ownerBitcoinPubkey: body.ownerBitcoinPubkey,
-            microgonsPerBtc: body.microgonsPerBtc,
+            microgonsAtTargetPerBtc: body.microgonsAtTargetPerBtc,
           })
           .catch(error => {
             if (error instanceof RouterError) {

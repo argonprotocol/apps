@@ -138,6 +138,7 @@ export default defineConfig(async ({ mode }) => {
     // Define environment variables for the frontend
     define: {
       'process.env': {},
+      global: 'globalThis',
       __ARGON_DRIVER_WS__: JSON.stringify(driverWs ?? ''),
       __ARGON_E2E_SCREENSHOT_MODE__: JSON.stringify(process.env.E2E_SCREENSHOT_MODE?.trim() ?? ''),
     },

@@ -44,6 +44,27 @@ describe('TransactionTracker', () => {
     expect(tracker.data.txInfos[0].txResult.submissionError).toBeUndefined();
   });
 
+  it('restores in-block extrinsic errors without finalizing non-finalized transactions', async () => {
+    const tx = createTransaction({
+      id: 11,
+      status: TransactionStatus.InBlock,
+      isFinalized: false,
+      blockExtrinsicErrorJson: {
+        errorCode: 'bitcoinLocks.InsufficientVaultFunds',
+        details: 'bitcoinLocks.InsufficientVaultFunds',
+        message: 'bitcoinLocks.InsufficientVaultFunds',
+      },
+    });
+    const { tracker } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 101,
+    });
+
+    const txResult = tracker.data.txInfos[0].txResult;
+    expect(txResult.extrinsicError?.message).toBe('bitcoinLocks.InsufficientVaultFunds');
+    expect(txResult.isFinalized).toBe(false);
+  });
+
   it('treats a recent submitted attempt as followable', async () => {
     const tx = createTransaction({
       id: 2,
@@ -334,8 +355,8 @@ function createTransaction(overrides: Partial<ITransactionRecord> = {}): ITransa
     txNonce: overrides.txNonce,
     txTip: overrides.txTip,
     txFeePlusTip: overrides.txFeePlusTip,
-    blockHeight: overrides.blockHeight ?? 100,
-    blockHash: overrides.blockHash ?? '0xold-block',
+    blockHeight: 'blockHeight' in overrides ? overrides.blockHeight : 100,
+    blockHash: 'blockHash' in overrides ? overrides.blockHash : '0xold-block',
     blockTime: overrides.blockTime ?? now,
     blockExtrinsicIndex: overrides.blockExtrinsicIndex,
     blockExtrinsicEventsJson: overrides.blockExtrinsicEventsJson ?? [],

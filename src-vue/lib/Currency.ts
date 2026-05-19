@@ -60,6 +60,11 @@ export class Currency extends CurrencyBase {
     return super.convertBtcToMicrogon(btc);
   }
 
+  public convertSatToMicrogon(sat: bigint): bigint {
+    const btc = super.convertSatToBtc(sat);
+    return super.convertBtcToMicrogon(btc);
+  }
+
   public convertOtherToFinalToken(token: IOtherToken): number {
     return this.convertOtherToFinalTokenBn(token).toNumber();
   }

@@ -22,7 +22,7 @@ export interface IBitcoinLockRelayRecord {
   securitizationUsedMicrogons: bigint;
   ownerAccountId: string;
   ownerBitcoinPubkey: string;
-  microgonsPerBtc: bigint;
+  microgonsAtTargetPerBtc: bigint;
   error: string | null;
   delegateAddress: string;
   extrinsicHash: string;
@@ -57,7 +57,7 @@ export interface IBitcoinLockRelayRequest {
   requestedSatoshis: bigint;
   ownerAccountId: string;
   ownerBitcoinPubkey: string;
-  microgonsPerBtc?: bigint;
+  microgonsAtTargetPerBtc?: bigint;
 }
 
 export interface IBitcoinLockCouponStatus {
@@ -69,5 +69,5 @@ export interface IBitcoinLockCouponStatus {
 
 export interface IBitcoinLockRelayJobRequest extends IBitcoinLockRelayRequest {
   offerCode: string;
-  microgonsPerBtc: bigint;
+  microgonsAtTargetPerBtc: bigint;
 }

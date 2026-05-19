@@ -93,7 +93,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController } from '../../../stores/operationsController.ts';
+import { useOperationsController } from '../../stores/controller.ts';
 import { getConfig } from '../../../stores/config.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';

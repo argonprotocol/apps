@@ -122,8 +122,7 @@
         ]"
         class="inner-button-shadow rounded-md border px-10 py-1.5 font-bold text-white"
       >
-        <template v-if="addressWarning">Send Anyway</template>
-        <template v-else>Send</template>
+        Send
       </button>
     </div>
     <template v-else>

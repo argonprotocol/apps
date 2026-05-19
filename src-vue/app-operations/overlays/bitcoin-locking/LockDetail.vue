@@ -11,7 +11,7 @@
         <span class="text-sm text-slate-500">
           <Tooltip :asChild="true" content="The current market value of this bitcoin based on the latest oracle price.">
             <span class="cursor-help">
-              {{ currency.symbol }}{{ microgonToMoneyNm(btcMarketRate).format('0,0.[00]') }} market
+              {{ currency.symbol }}{{ satToMoneyNm(fundingSatoshis).format('0,0.[00]') }} market
             </span>
           </Tooltip>
           ·
@@ -145,7 +145,7 @@ const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const miningFrames = getMiningFrames();
 const vaults = getVaults();
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   lock: IBitcoinLockRecord | IExternalBitcoinLock;
@@ -308,12 +308,9 @@ const lockExpirationTime = Vue.computed(() => {
   return dayjs.utc(expirationMillis);
 });
 
-const btcMarketRate = Vue.ref(0n);
 const unlockPrice = Vue.ref(0n);
 
 async function loadPrices() {
-  btcMarketRate.value = await vaults.getMarketRateInMicrogons(fundingSatoshis.value).catch(() => 0n);
-
   if (!localLock.value || !bitcoinLocks.isLockedStatus(localLock.value)) {
     unlockPrice.value = 0n;
     return;
@@ -324,7 +321,7 @@ async function loadPrices() {
     .estimatedReleaseArgonTxFee({ lock: localLock.value, liquidLockingAddress })
     .catch(() => 0n);
 
-  unlockPrice.value = (await vaults.getRedemptionRate(localLock.value).catch(() => 0n)) + unlockFee;
+  unlockPrice.value = (await vaults.fetchAndCalculateRedemptionAmount(localLock.value).catch(() => 0n)) + unlockFee;
 }
 
 Vue.onMounted(() => {

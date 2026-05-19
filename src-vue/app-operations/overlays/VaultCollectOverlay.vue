@@ -187,7 +187,7 @@ const manualPendingCosignCount = Vue.computed(() => {
 });
 
 const manualPendingCosignSum = Vue.computed(() => {
-  const sum = manualPendingCosignEntries.value.reduce((acc, [, utxo]) => acc + utxo.marketValue, 0n);
+  const sum = manualPendingCosignEntries.value.reduce((acc, [, utxo]) => acc + utxo.targetValue, 0n);
   return bigIntMin(sum, myVault.createdVault?.securitization ?? 0n);
 });
 

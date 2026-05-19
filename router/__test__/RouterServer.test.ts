@@ -427,7 +427,7 @@ describe('RouterServer', () => {
       requestedSatoshis: 10_000n,
       ownerAccountId: treasuryUser.address,
       ownerBitcoinPubkey: '03b28f34af9b5e623aa640f82bf9f09ffcc287d5826ac7ef84b96eddb71543fdae',
-      microgonsPerBtc: 125_000_000n,
+      microgonsAtTargetPerBtc: 125_000_000n,
     };
 
     const unauthenticatedInitializeResponse = await requestJson(routerAddress, initializePath, initializeBody);
