@@ -1,17 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { open } from 'sqlite';
-import { Database as Sqlite3Database } from 'sqlite3';
 import { readdir, readFile } from 'node:fs/promises';
 import Path from 'node:path';
+import { TestSqliteDb } from './helpers/db';
 
 const MIGRATIONS_DIR = Path.resolve(__dirname, '../../src-tauri/migrations');
 
 describe('12-bitcoin-utxo-foundation migration', () => {
   it('keeps pending funding rows, backfills candidate history, and only links accepted funding pointers', async () => {
-    const db = await open({
-      filename: ':memory:',
-      driver: Sqlite3Database,
-    });
+    const db = new TestSqliteDb(':memory:');
 
     try {
       const migrationDirs = await listMigrationDirs();
@@ -157,10 +153,7 @@ describe('12-bitcoin-utxo-foundation migration', () => {
   });
 
   it('maps legacy completed releases and expired funding rows to acknowledged current states', async () => {
-    const db = await open({
-      filename: ':memory:',
-      driver: Sqlite3Database,
-    });
+    const db = new TestSqliteDb(':memory:');
 
     try {
       const migrationDirs = await listMigrationDirs();
@@ -272,7 +265,7 @@ async function listMigrationDirs(): Promise<string[]> {
   return dirs.sort();
 }
 
-async function runMigration(db: { exec: (sql: string) => Promise<unknown> }, migrationDir: string): Promise<void> {
+async function runMigration(db: TestSqliteDb, migrationDir: string): Promise<void> {
   const migrationFile = Path.join(MIGRATIONS_DIR, migrationDir, 'up.sql');
   const migrationSql = await readFile(migrationFile, 'utf8');
   await db.exec(migrationSql);

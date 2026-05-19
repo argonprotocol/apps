@@ -1,10 +1,11 @@
 import { Db } from '../../lib/Db';
 import { IConfigStringified } from '../../interfaces/IConfig';
-import { open } from 'sqlite';
-import { Database as Sqlite3Database } from 'sqlite3';
 import PluginSql, { QueryResult } from '@tauri-apps/plugin-sql';
 import { readdir, readFile } from 'node:fs/promises';
 import Path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { JsonExt } from '@argonprotocol/apps-core';
+import { u8aToHex } from '@argonprotocol/mainchain';
 
 const shouldLogDbQueries = process.env.TEST_DB_DEBUG === '1';
 let migrationSqlStatementsPromise: Promise<string[]> | null = null;
@@ -19,10 +20,7 @@ export async function createMockedDbPromise(allAsObject: { [key: string]: string
 }
 
 export async function createTestDb(): Promise<Db> {
-  const database = await open({
-    filename: ':memory:',
-    driver: Sqlite3Database,
-  });
+  const database = new TestSqliteDb(':memory:');
 
   const migrationSqlStatements = await getMigrationSqlStatements();
   for (const migrationSql of migrationSqlStatements) {
@@ -34,7 +32,7 @@ export async function createTestDb(): Promise<Db> {
       if (shouldLogDbQueries) {
         console.log('execute value', query);
       }
-      const result = await database.run(query, ...(bindValues ?? []));
+      const result = await database.run(query, bindValues);
       return {
         lastInsertId: result.lastID,
         rowsAffected: result.changes ?? 0,
@@ -44,7 +42,7 @@ export async function createTestDb(): Promise<Db> {
       if (shouldLogDbQueries) {
         console.log('Selecting value', query);
       }
-      return (await database.all(query, ...(bindValues ?? []))) as T;
+      return (await database.all<T>(query, bindValues)) as T;
     },
     async close(_db?: string): Promise<boolean> {
       await database.close();
@@ -82,4 +80,61 @@ async function getMigrationSqlStatements(): Promise<string[]> {
       migrationSqlStatementsPromise = null;
       throw error;
     }));
+}
+
+export class TestSqliteDb {
+  readonly #database: DatabaseSync;
+
+  constructor(filename: string = ':memory:') {
+    this.#database = new DatabaseSync(filename);
+  }
+
+  public async exec(query: string): Promise<void> {
+    this.#database.exec(query);
+  }
+
+  public async run(query: string, bindValues?: unknown[]): Promise<{ lastID: number; changes: number }> {
+    const result = this.#database.prepare(query).run(...toNodeSqliteParams(bindValues));
+    return {
+      lastID: Number(result.lastInsertRowid),
+      changes: Number(result.changes ?? 0),
+    };
+  }
+
+  public async get<T>(query: string, bindValues?: unknown[]): Promise<T | undefined> {
+    return this.#database.prepare(query).get(...toNodeSqliteParams(bindValues)) as T | undefined;
+  }
+
+  public async all<T>(query: string, bindValues?: unknown[]): Promise<T> {
+    return this.#database.prepare(query).all(...toNodeSqliteParams(bindValues)) as T;
+  }
+
+  public async close(): Promise<void> {
+    this.#database.close();
+  }
+}
+
+function toNodeSqliteParams(bindValues?: unknown[]): (string | number | Uint8Array | null)[] {
+  // Mirrors src-vue/lib/Utils.ts::toSqlParams, but serializes Date for node:sqlite binding.
+  return (bindValues ?? []).map(param => {
+    if (param === undefined || param === null) {
+      return null;
+    }
+    if (typeof param === 'boolean') {
+      return param ? 1 : 0;
+    }
+    if (typeof param === 'bigint') {
+      return param.toString();
+    }
+    if (param instanceof Date) {
+      return param.toISOString();
+    }
+    if (ArrayBuffer.isView(param)) {
+      return u8aToHex(new Uint8Array(param.buffer, param.byteOffset, param.byteLength));
+    }
+    if (typeof param === 'object') {
+      return JsonExt.stringify(param);
+    }
+    return param as string | number | Uint8Array;
+  });
 }
