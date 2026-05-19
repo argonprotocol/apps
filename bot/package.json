@@ -21,7 +21,7 @@
     "source-map-support": "^0.5.21",
     "tiny-lru": "^11.4.5",
     "viem": "^2.48.11",
-    "ws": "^8.18.3"
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@argonprotocol/testing": "1.4.3-dev.4117801d",
