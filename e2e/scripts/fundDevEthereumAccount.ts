@@ -141,7 +141,7 @@ function printUsage(): void {
 
 Notes:
   - Sends raw ETH from the built-in local dev admin account.
-  - Uses ETH_RPC if set, otherwise probes local geth dev ports.
+  - Uses ETH_RPC or ETHEREUM_EXECUTION_RPC_URL if set, otherwise probes local Kurtosis execution RPC ports.
   - Waits for the funding transaction receipt before returning.
 `);
 }

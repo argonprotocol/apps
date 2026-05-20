@@ -210,14 +210,15 @@ export async function sendDevEthereumAdminTransaction(args: {
 
 export async function resolveDevEthereumRpcUrl(args: { rpcUrl?: string; logPrefix?: string }): Promise<string> {
   const { rpcUrl, logPrefix = 'dev-ethereum' } = args;
-  const envRpc = process.env.ETH_RPC?.trim();
-  if (rpcUrl?.trim()) return rpcUrl.trim();
+  const explicitRpc = readNonEmpty(rpcUrl);
+  const envRpc = readNonEmpty(process.env.ETH_RPC) ?? readNonEmpty(process.env.ETHEREUM_EXECUTION_RPC_URL);
+  if (explicitRpc) return explicitRpc;
   if (envRpc) return envRpc;
 
   const candidates = await detectExecutionRpcUrls();
   if (!candidates.length) {
     throw new Error(
-      'Unable to detect a local Ethereum execution RPC. Pass --rpc http://127.0.0.1:<port> or set ETH_RPC.',
+      'Unable to detect a local Ethereum execution RPC. Pass --rpc http://127.0.0.1:<port>, set ETH_RPC or ETHEREUM_EXECUTION_RPC_URL, or start the local Kurtosis devnet first.',
     );
   }
 
@@ -364,16 +365,24 @@ async function ensureDevEthereumChainConfig(
 
 async function detectExecutionRpcUrls(): Promise<string[]> {
   const candidates: string[] = [];
+  const portRangeSize = 32;
+  const portStart = 32_000;
+  const portScanLimit = 1_024;
 
-  for (let port = 32_000; port < 32_032; port += 1) {
-    const rpcUrl = `http://127.0.0.1:${port}`;
-    try {
-      const chainId = await rpcCall<string>(rpcUrl, 'eth_chainId', []);
-      if (typeof chainId === 'string') {
-        candidates.push(rpcUrl);
+  // Mirror TestEthereum.launch() in @argonprotocol/testing, which allocates the
+  // first free 32-port execution block starting near 32000 for each devnet.
+  for (let rangeStart = portStart; rangeStart < portStart + portScanLimit; rangeStart += portRangeSize) {
+    for (let port = rangeStart; port < rangeStart + portRangeSize; port += 1) {
+      const rpcUrl = `http://127.0.0.1:${port}`;
+      try {
+        const chainId = await rpcCall<string>(rpcUrl, 'eth_chainId', []);
+        if (typeof chainId === 'string') {
+          candidates.push(rpcUrl);
+          break;
+        }
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
     }
   }
 
