@@ -436,7 +436,7 @@ Notes:
   - Uses MintingGateway.adminMintBatch on the configured Ethereum gateway.
   - Also sudo-bumps the Argon crosschain burn-account liquidity for the matching asset.
   - Resolves gateway, ARGN, and ARGNOT addresses from Argon runtime Ethereum chain config.
-  - Uses ETH_RPC if set, otherwise probes local geth dev ports.
+  - Uses ETH_RPC or ETHEREUM_EXECUTION_RPC_URL if set, otherwise probes local Kurtosis execution RPC ports.
   - Uses ARGON_ARCHIVE_URL if set, otherwise defaults to ws://127.0.0.1:9944.
   - Uses the first unlocked devnet account if --from is omitted.
   - The Ethereum sender must be the gateway admin on the local devnet.
