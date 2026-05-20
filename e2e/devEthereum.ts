@@ -371,11 +371,7 @@ async function detectExecutionRpcUrls(): Promise<string[]> {
 
   // Mirror TestEthereum.launch() in @argonprotocol/testing, which allocates the
   // first free 32-port execution block starting near 32000 for each devnet.
-  for (
-    let rangeStart = portStart;
-    rangeStart < portStart + portScanLimit;
-    rangeStart += portRangeSize
-  ) {
+  for (let rangeStart = portStart; rangeStart < portStart + portScanLimit; rangeStart += portRangeSize) {
     for (let port = rangeStart; port < rangeStart + portRangeSize; port += 1) {
       const rpcUrl = `http://127.0.0.1:${port}`;
       try {
