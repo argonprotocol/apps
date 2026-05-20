@@ -6,7 +6,7 @@
       <LeftBar />
       <main DashBox class="flex flex-col grow relative">
         <InflationFreeSavings v-if="controller.selectedTab === TreasuryTab.MainchainSavings" />
-        <InterestFreeDebts v-if="controller.selectedTab === TreasuryTab.MainchainDebts" />
+        <InterestFreeLiabilities v-if="controller.selectedTab === TreasuryTab.MainchainDebts" />
         <ArgonBondsScreen v-if="controller.selectedTab === TreasuryTab.ArgonBonds" />
         <BitcoinLocksScreen v-if="controller.selectedTab === TreasuryTab.BitcoinLocks" />
         <StableSwapsScreen v-if="controller.selectedTab === TreasuryTab.EthereumSwaps" />
@@ -58,7 +58,7 @@ import { TreasuryTab, useTreasuryController } from './stores/controller.ts';
 import VaultsOverlay from './overlays/VaultsOverlay.vue';
 import WalletOverlay from '../app-shared/overlays/WalletOverlay.vue';
 import SigningOverlay from './overlays/SigningOverlay.vue';
-import InterestFreeDebts from './screens/InterestFreeDebts.vue';
+import InterestFreeLiabilities from './screens/InterestFreeLiabilities.vue';
 import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 
 const controller = useTreasuryController();

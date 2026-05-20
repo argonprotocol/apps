@@ -1,13 +1,13 @@
 <template>
-  <div class="relative flex h-full grow flex-col items-center justify-center px-[5%] pb-5">
+  <div class="relative flex h-full grow flex-col items-center justify-center">
     <MoreIcon class="absolute top-4 right-4 h-4 w-4 text-slate-400" />
 
-    <div class="mx-auto flex max-w-200 grow flex-col justify-center pb-10">
+    <div class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%] pb-10">
       <section class="flex max-h-60 flex-row items-center justify-center py-10">
         <div v-if="financials.savingsTotalPending" class="flex flex-col">
           <div class="text-center whitespace-nowrap">
-            <span class="text-argon-700 relative text-7xl font-bold">
-              {{ currency.symbol }}
+            <span class="text-argon-700 relative inline-flex text-7xl font-bold">
+              <span>{{ currency.symbol }}</span>
               <FormattedMoney :isLoaded="financials.savingsIsLoaded" :value="financials.savingsTotalPending" />
             </span>
           </div>
@@ -25,8 +25,8 @@
         </div>
         <div class="flex flex-col">
           <div class="text-center whitespace-nowrap">
-            <span class="text-argon-700 relative text-7xl font-bold">
-              {{ currency.symbol }}
+            <span class="text-argon-700 relative inline-flex text-7xl font-bold">
+              <span>{{ currency.symbol }}</span>
               <FormattedMoney :isLoaded="financials.savingsIsLoaded" :value="financials.savingsTotalReadyToUse" />
             </span>
           </div>
@@ -59,7 +59,7 @@
         </li>
       </ul>
 
-      <section class="flex flex-row justify-center py-12">
+      <section class="flex flex-row justify-center pt-12">
         <button
           @click="openArgonWallet"
           class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow w-7/12 cursor-pointer rounded-md border px-12 py-3 text-lg font-bold text-white focus:outline-none"
@@ -67,6 +67,9 @@
           Open Your Argon Wallet
         </button>
       </section>
+    </div>
+    <div class="relative px-0.5 pb-0.5">
+      <img src="/treasury-footers/inflation-free-savings.png" class="w-full opacity-50" />
     </div>
   </div>
 </template>

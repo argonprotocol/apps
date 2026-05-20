@@ -4,18 +4,22 @@ import { isValidEthereumAddress } from '@argonprotocol/apps-core';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { parseUnits } from 'viem';
 import {
-  backfillStableSwapProofs,
   buildStableSwapUniswapUrl,
   fetchStableSwapMarketSnapshot,
-  loadStableSwapWalletSnapshot,
   normalizeStableSwapAddress,
   stableSwapMarketRecordToSnapshot,
   storeStableSwapMarketSnapshot,
-  syncStableSwapWallet,
-  type StableSwapMarketSnapshot,
-  type StableSwapPoolMetadata,
-  type StableSwapWalletSnapshot,
 } from '../lib/StableSwaps.ts';
+import {
+  backfillStableSwapProofs,
+  loadStableSwapWalletSnapshot,
+  syncStableSwapWallet,
+} from '../lib/StableSwapWallet.ts';
+import type {
+  IStableSwapMarketSnapshot,
+  IStableSwapPoolMetadata,
+  IStableSwapWalletSnapshot,
+} from '../interfaces/IStableSwap.ts';
 import { createEthereumPublicClient } from '../lib/EthereumClient.ts';
 import { getConfig } from './config.ts';
 import { getCurrency } from './currency.ts';
@@ -35,8 +39,8 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   const walletError = Vue.ref('');
   const walletMessage = Vue.ref('');
 
-  const marketSnapshot = Vue.ref<StableSwapMarketSnapshot | null>(null);
-  const walletSnapshot = Vue.ref<StableSwapWalletSnapshot | null>(null);
+  const marketSnapshot = Vue.ref<IStableSwapMarketSnapshot | null>(null);
+  const walletSnapshot = Vue.ref<IStableSwapWalletSnapshot | null>(null);
   const selectedWalletAddress = Vue.ref('');
 
   const marketTradeUrl = Vue.computed(() => {
@@ -45,7 +49,7 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
 
   let loadPromise: Promise<void> | undefined;
   let publicClient: ReturnType<typeof createEthereumPublicClient> | undefined;
-  let activePool: StableSwapPoolMetadata | null = null;
+  let activePool: IStableSwapPoolMetadata | null = null;
 
   async function load() {
     if (loadPromise) {

@@ -94,14 +94,14 @@
           computer, and all the data stays with you.
         </p>
       </div>
-      <ul class="flex flex-row w-full items-end px-3 pb-4 gap-x-3 text-center">
-        <li class="w-1/2 border-t border-slate-400/40 pt-3">
+      <ul class="flex flex-row w-full items-end px-3 pb-3 gap-x-3 text-center">
+        <li class="w-1/2 border-t border-slate-400/40 pt-4">
           <div @click="() => void openLink('https://argon.network/docs')" class="cursor-pointer flex flex-col items-center gap-y-1 text-center text-argon-600 hover:text-argon-600/70">
             <InstructionsIcon class="h-6 w-6" />
             <div>Docs</div>
           </div>
         </li>
-        <li class="w-1/2 border-t border-slate-400/40 pt-3">
+        <li class="w-1/2 border-t border-slate-400/40 pt-4">
           <div @click="() => void openLink('https://discord.gg/xDwwDgCYr9')" class="cursor-pointer flex flex-col items-center gap-y-1 text-center text-argon-600 hover:text-argon-600/70">
             <DiscordIcon class="h-7 w-7 -mb-1" />
             <div>Community</div>

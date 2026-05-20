@@ -679,43 +679,6 @@ function mouseoutCurrencyKey() {
   currencyIsEngaged.value = false;
 }
 
-function finishSetCurrencyKey(key: ICurrencyKey) {
-  const posIndex = currencyPositions.indexOf(key);
-  currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`;
-  currencyKey.value = key;
-
-  const oneArgonBn = BigNumber(1_000_000n);
-
-  const nextTier = 10 + Math.ceil(currency.targetOffset * 10) * 10;
-  const startingOffset = nextTier - currency.targetOffset * 10;
-
-  aboveTargetScenarios.value = [];
-  belowTargetScenarios.value = [];
-
-  for (let i = 4; i >= 1; i--) {
-    const earningsPotentialPercent = startingOffset + (i - 1) * 10;
-    const adjustFactorBn = BigNumber(earningsPotentialPercent).dividedBy(100).plus(1);
-    const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
-    const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
-    aboveTargetScenarios.value.push({
-      microgons: simulatedPrice,
-      earningsPotentialPercent,
-    });
-  }
-
-  for (const percentOffTarget of [5, 20, 40]) {
-    const adjustFactorBn = BigNumber(100).minus(percentOffTarget).dividedBy(100);
-    const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
-    const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
-    const simulatedPriceInUsd = currency.convertMicrogonTo(simulatedPrice, UnitOfMeasurement.USD);
-    const earningsPotentialPercent = getBitcoinReturnAsPercent(simulatedPriceInUsd);
-    belowTargetScenarios.value.push({
-      microgons: simulatedPrice,
-      earningsPotentialPercent,
-    });
-  }
-}
-
 function setupVault() {
   controller.setScreenKey(OperationsTab.Vaulting);
   controller.backButtonTriggersHome = true;
@@ -757,6 +720,43 @@ function startSetCurrencyKey(key: ICurrencyKey, shouldClearRotation: boolean = t
     finishSetCurrencyKey(key);
     currencyFadeClass.value = 'opacity-100';
   }, 400);
+}
+
+function finishSetCurrencyKey(key: ICurrencyKey) {
+  const posIndex = currencyPositions.indexOf(key);
+  currencyLeftPos.value = posIndex <= 0 ? '0%' : `${posIndex * 25}%`;
+  currencyKey.value = key;
+
+  const oneArgonBn = BigNumber(1_000_000n);
+
+  const nextTier = 10 + Math.ceil(currency.targetOffset * 10) * 10;
+  const startingOffset = nextTier - currency.targetOffset * 10;
+
+  aboveTargetScenarios.value = [];
+  belowTargetScenarios.value = [];
+
+  for (let i = 4; i >= 1; i--) {
+    const earningsPotentialPercent = startingOffset + (i - 1) * 10;
+    const adjustFactorBn = BigNumber(earningsPotentialPercent).dividedBy(100).plus(1);
+    const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
+    const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
+    aboveTargetScenarios.value.push({
+      microgons: simulatedPrice,
+      earningsPotentialPercent,
+    });
+  }
+
+  for (const percentOffTarget of [5, 20, 40]) {
+    const adjustFactorBn = BigNumber(100).minus(percentOffTarget).dividedBy(100);
+    const simulatedPriceBn = oneArgonBn.multipliedBy(adjustFactorBn);
+    const simulatedPrice = bigNumberToBigInt(simulatedPriceBn);
+    const simulatedPriceInUsd = currency.convertMicrogonTo(simulatedPrice, UnitOfMeasurement.USD);
+    const earningsPotentialPercent = getBitcoinReturnAsPercent(simulatedPriceInUsd);
+    belowTargetScenarios.value.push({
+      microgons: simulatedPrice,
+      earningsPotentialPercent,
+    });
+  }
 }
 
 function openPortfolio(tab: PortfolioTab) {

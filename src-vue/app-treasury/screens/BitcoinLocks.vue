@@ -3,61 +3,69 @@
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
 
     <!-- Blank state -->
-    <div v-else-if="!financials.liquidAllRecords.length" class="flex grow flex-col items-center justify-center px-9">
-      <div class="flex w-7/12 max-w-200 flex-col items-center pb-10">
-        <div class="relative">
-          <div class="relative z-10 w-20 rounded bg-white shadow-md">
-            <VaultIcon class="text-argon-600 inline-block h-full w-full" />
-          </div>
-          <BitcoinIcon class="text-argon-600 absolute top-1/2 -left-4 z-0 h-16 w-16 -translate-1/2" />
-        </div>
-        <p class="mt-10 w-0 min-w-full border-y border-slate-400/50 py-4 text-[17px]/7 font-light whitespace-normal">
-          Argon's Liquid Locking converts the full market value of your Bitcoin into stablecoins. If Bitcoin's price
-          drops after you lock, the protocol covers the difference. Either way, you retain the full value of your
-          Bitcoin based on the moment it was locked — no matter what the market does afterwards. Your stablecoins are
-          then yours to invest or spend however you want.
-        </p>
-        <span class="relative">
-          <button
-            @click="openLockingOverlay"
-            :class="financials.savingsTotalReadyToUse ? '' : 'pointer-events-none bg-slate-600 opacity-40'"
-            class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md px-12 py-2.5 text-base font-bold text-white"
+    <div v-else-if="!financials.liquidAllRecords.length" class="flex grow flex-col">
+      <div class="flex grow flex-col items-center justify-center">
+        <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
+          <header class="text-argon-600 w-full pb-3 text-left text-xl font-bold">
+            Argon Converts Your Bitcoin Into An Income Producing Asset
+          </header>
+          <p
+            class="w-0 min-w-full border-y border-slate-400/50 py-4 text-justify text-[17px]/7 font-light whitespace-normal"
           >
-            Liquid Lock Your Bitcoin
-          </button>
-          <CurvedArrow class="pointer-events-none absolute top-14 left-full h-22 translate-y-1 text-slate-400/80" />
-        </span>
-        <div class="relative mt-14 text-center">
-          <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div
-              class="h-24 w-80 rounded-full opacity-95 blur-lg"
-              style="
-                background: radial-gradient(
-                  ellipse at center,
-                  #fffedc 0%,
-                  #fffedc 42%,
-                  rgba(255, 254, 220, 0.45) 62%,
-                  rgba(255, 255, 255, 0) 78%
-                );
+            Argon Liquid Locking converts the full market value of your Bitcoin into unencumbered stablecoins. If
+            Bitcoin's price drops after you lock, the protocol covers the difference. Either way, you retain the full
+            value of your Bitcoin based on the moment it was locked — no matter what the market does afterwards. Your
+            stablecoins are then yours to invest or spend however you want.
+          </p>
+          <span class="relative">
+            <button
+              @click="openLockingOverlay"
+              :class="
+                financials.savingsTotalReadyToUse
+                  ? 'bg-argon-button hover:bg-argon-button-hover border-transparent text-white'
+                  : 'pointer-events-none border-gray-500 bg-white text-gray-500 opacity-40'
               "
-            />
-          </div>
+              class="mt-12 cursor-pointer rounded-md border px-12 py-3 text-lg font-bold"
+            >
+              Liquid Lock Your Bitcoin
+            </button>
+            <CurvedArrow class="pointer-events-none absolute top-14 left-full h-22 translate-y-1 text-slate-400/80" />
+          </span>
+          <div class="relative mt-14 text-center">
+            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div
+                class="h-24 w-80 rounded-full opacity-95 blur-lg"
+                style="
+                  background: radial-gradient(
+                    ellipse at center,
+                    #fffedc 0%,
+                    #fffedc 42%,
+                    rgba(255, 254, 220, 0.45) 62%,
+                    rgba(255, 255, 255, 0) 78%
+                  );
+                "
+              />
+            </div>
 
-          <div v-if="financials.savingsTotalReadyToUse" class="text-argon-600 relative text-xl leading-8 font-bold">
-            Your account has {{ currency.symbol
-            }}{{ microgonToMoneyNm(financials.savingsTotalReadyToUse).format('0,0.00') }} in savings that is
-            <br />
-            ready for immediate deployment.
-          </div>
-          <div v-else class="text-argon-600 relative text-xl leading-8 font-bold">
-            This feature is disabled until your
-            <br />
-            <span @click="openArgonWallet" class="hover:text-argon-600/80 inline-block cursor-pointer underline">
-              argon wallet
-            </span>
-            is funded.
+            <div v-if="financials.savingsTotalReadyToUse" class="text-argon-600 relative text-xl leading-8 font-bold">
+              Your account has {{ currency.symbol
+              }}{{ microgonToMoneyNm(financials.savingsTotalReadyToUse).format('0,0.00') }} in savings that is
+              <br />
+              ready for immediate deployment.
+            </div>
+            <div v-else class="text-argon-600 relative text-xl leading-8 font-bold">
+              This feature is disabled until your
+              <br />
+              <span @click="openArgonWallet" class="hover:text-argon-600/80 inline-block cursor-pointer underline">
+                argon wallet
+              </span>
+              is funded.
+            </div>
           </div>
         </div>
+      </div>
+      <div class="relative px-0.5 pb-0.5">
+        <img src="/treasury-footers/bitcoin-locks.png" class="w-full opacity-50" />
       </div>
     </div>
 
@@ -65,8 +73,8 @@
     <div v-else class="flex min-h-0 grow flex-col">
       <section class="mt-5 flex flex-row items-end gap-x-2 px-9 text-center">
         <div class="w-1/3 border-b border-slate-400/30 py-5">
-          <div class="text-argon-600 text-5xl font-bold">
-            {{ currency.symbol }}
+          <div class="text-argon-600 inline-flex text-5xl font-bold">
+            <span>{{ currency.symbol }}</span>
             <FormattedMoney :value="financials.liquidTotalSatoshis" :unitOfMeasurement="UnitOfMeasurement.Satoshi" />
           </div>
           <div class="font-light text-slate-900/70">Market Value of BTC</div>
@@ -107,12 +115,15 @@
                 financials.liquidVisibleRecords.length === 1 ? '' : 's'
               }}...
             </span>
-            <button
-              @click="showLockingOverlay = true"
-              class="text-md border-argon-600 text-argon-600 cursor-pointer rounded-lg border px-3 py-0.5"
-            >
-              + Lock Another Bitcoin
-            </button>
+            <div class="flex flex-row items-stretch gap-x-3">
+              <button @click="showLockingOverlay = true" class="text-md text-argon-600 cursor-pointer">
+                Lock Another Bitcoin
+              </button>
+              <div class="w-px bg-slate-400/50" />
+              <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
+                View Docs
+              </a>
+            </div>
           </div>
 
           <section class="mt-4 flex flex-col gap-y-3">
@@ -124,25 +135,12 @@
               @ratchet="openRatchetingOverlay"
               @unlock="openUnlockingOverlay"
             />
-            <div
-              @click="showLockingOverlay = true"
-              class="text-argon-600/50 hover:text-argon-600 hover:border-argon-600/30 flex cursor-pointer flex-col items-center justify-center border-2 border-dashed border-slate-500/30 py-12"
-            >
-              + Lock Another Bitcoin
-            </div>
           </section>
         </div>
         <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
       </div>
-
-      <div
-        v-if="financials.liquidInvisibleRecords.length > 0"
-        class="text-argon-600 mb-4 flex cursor-pointer flex-col gap-1.5 font-light"
-      >
-        {{ financials.liquidInvisibleRecords.length }} bitcoin transaction{{
-          financials.liquidInvisibleRecords.length === 1 ? '' : 's'
-        }}
-        {{ financials.liquidInvisibleRecords.length === 1 ? 'has' : 'have' }} been archived
+      <div class="relative px-0.5 pb-0.5">
+        <img src="/treasury-footers/bitcoin-locks.png" class="w-full opacity-50" />
       </div>
     </div>
 

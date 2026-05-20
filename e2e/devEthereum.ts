@@ -274,6 +274,12 @@ async function startDevEthereumRelayer(args: {
       executionRpcUrl: args.executionRpcUrl,
       finalityBlocks: args.finalityBlocks,
     },
+<<<<<<< HEAD
+=======
+    stdio: 'inherit',
+    shell: false,
+    detached: process.platform !== 'win32',
+>>>>>>> 18ba0f5f (feat: updated dashboards in Treasury)
   });
 
   const client = await getClient(args.archiveUrl);
@@ -304,14 +310,43 @@ async function startDevEthereumRelayer(args: {
 
   return {
     async shutdown(): Promise<void> {
+<<<<<<< HEAD
       await ethereumGatewayProverService.shutdown().catch(() => undefined);
       await ethereumBeaconSyncService.shutdown().catch(() => undefined);
       await client.disconnect().catch(() => undefined);
       NetworkConfig.clearRuntimeOverride('dev-docker');
       process.env.ARGON_CHAIN = previousArgonChain;
       restoreEnvVar('ETHEREUM_FINALITY_MILLIS', previousEthereumFinalityMillis);
+=======
+      if (!hasExited) {
+        terminateDevRelayerProcess(relayer.pid, 'SIGTERM');
+        await new Promise<void>(resolve => {
+          relayer.once('exit', () => resolve());
+        });
+      }
+      fs.rmSync(relayerDir, { recursive: true, force: true });
+>>>>>>> 18ba0f5f (feat: updated dashboards in Treasury)
     },
   };
+}
+
+function terminateDevRelayerProcess(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (!pid) return;
+
+  try {
+    if (process.platform === 'win32') {
+      process.kill(pid, signal);
+      return;
+    }
+
+    process.kill(-pid, signal);
+  } catch (_error) {
+    try {
+      process.kill(pid, signal);
+    } catch (_innerError) {
+      // The relayer may have already exited between the hasExited check and signal delivery.
+    }
+  }
 }
 
 async function ensureDevEthereumChainConfig(
