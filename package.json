@@ -146,8 +146,6 @@
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "0.6.14",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1",
     "svgo": "^4.0.1",
     "tar": "^7.5.13",
     "tsx": "^4.20.5",
@@ -159,6 +157,23 @@
     "vite-svg-loader": "^5.1.1",
     "vitest": "^4.1.5",
     "vue-tsc": "^2.2.12"
+  },
+  "dependenciesMeta": {
+    "@swc/core": {
+      "built": true
+    },
+    "@tailwindcss/oxide": {
+      "built": true
+    },
+    "esbuild": {
+      "built": true
+    },
+    "unrs-resolver": {
+      "built": true
+    },
+    "vue-demi": {
+      "built": true
+    }
   },
   "resolutions": {
     "@argonprotocol/mainchain": "1.4.3-dev.4117801d",
