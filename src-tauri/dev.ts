@@ -8,6 +8,7 @@ import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 import {
   createDevEthereumSetup,
   readDevEthereumConfigFromEnv,
+  resolveDevEthereumRpcUrl,
   startDevEthereum,
   type IDevEthereumSetup,
   type IStartDevEthereumResult,
@@ -65,11 +66,15 @@ async function main(): Promise<void> {
     }
 
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
+    const inheritedRuntimeOverride: RuntimeNetworkConfigOverride | undefined = inheritedOverride
+      ? JSON.parse(inheritedOverride)
+      : undefined;
+    const ethereumExecutionRpcUrl = await resolveRuntimeEthereumExecutionRpcUrl(devEthereum, inheritedRuntimeOverride);
     const runtimeOverride = composePorts
-      ? await resolveDevDockerNetworkConfigOverride(composePorts, devEthereum, devEthereumSetup?.relayerUrl)
+      ? await resolveDevDockerNetworkConfigOverride(composePorts, ethereumExecutionRpcUrl, devEthereumSetup?.relayerUrl)
       : null;
-    const resolvedOverride = inheritedOverride
-      ? mergeNetworkConfigOverrides(JSON.parse(inheritedOverride), runtimeOverride)
+    const resolvedOverride = inheritedRuntimeOverride
+      ? mergeNetworkConfigOverrides(inheritedRuntimeOverride, runtimeOverride)
       : runtimeOverride;
 
     if (resolvedOverride) {
@@ -249,7 +254,7 @@ async function resolveNotaryArchiveHost(notaryPort: string, minioPort: string): 
 
 async function resolveDevDockerNetworkConfigOverride(
   ports: DevDockerComposePorts,
-  devEthereum?: IStartDevEthereumResult,
+  ethereumExecutionRpcUrl?: string,
   relayerUrl?: string,
 ): Promise<RuntimeNetworkConfigOverride | null> {
   const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
@@ -266,13 +271,15 @@ async function resolveDevDockerNetworkConfigOverride(
     archiveUrl,
     bitcoinBlockMillis: runtimeConfig.tickMillis * 10,
     esploraHost: `http://localhost:${ports.esploraPort}`,
-    ethereumNetwork: {
-      executionRpcUrl: devEthereum?.executionRpcUrl ?? '',
-    },
     baseNetwork: {
       rpcUrl: '',
     },
   };
+  if (ethereumExecutionRpcUrl) {
+    override.ethereumNetwork = {
+      executionRpcUrl: ethereumExecutionRpcUrl,
+    };
+  }
   if (ports.indexerPort) {
     override.indexerHost = `http://localhost:${ports.indexerPort}`;
   }
@@ -280,6 +287,28 @@ async function resolveDevDockerNetworkConfigOverride(
     override.defaultRelayerHost = relayerUrl;
   }
   return override;
+}
+
+async function resolveRuntimeEthereumExecutionRpcUrl(
+  devEthereum?: IStartDevEthereumResult,
+  inheritedOverride?: RuntimeNetworkConfigOverride,
+): Promise<string | undefined> {
+  const inheritedExecutionRpcUrl = readNonEmpty(inheritedOverride?.ethereumNetwork?.executionRpcUrl);
+  if (inheritedExecutionRpcUrl) {
+    return inheritedExecutionRpcUrl;
+  }
+
+  const launchedExecutionRpcUrl = readNonEmpty(devEthereum?.executionRpcUrl);
+  if (launchedExecutionRpcUrl) {
+    return launchedExecutionRpcUrl;
+  }
+
+  try {
+    return await resolveDevEthereumRpcUrl({ logPrefix: 'tauri-dev' });
+  } catch (error) {
+    console.warn(`[tauri-dev] Ethereum execution RPC unavailable: ${(error as Error).message}`);
+    return undefined;
+  }
 }
 
 async function readComposePortWithRetry(

@@ -3,6 +3,7 @@
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { getClient } from '@argonprotocol/mainchain';
 import {
   createPublicClient,
@@ -27,17 +28,6 @@ const defaultArchiveUrl = 'ws://127.0.0.1:9944';
 const ethereumRuntimeToErc20Scale = 10n ** 12n;
 
 type SupportedToken = 'ARGN' | 'ARGNOT';
-
-type CliArgs = {
-  token?: string;
-  to?: string;
-  from?: string;
-  rpc?: string;
-  archive?: string;
-  amount?: string;
-  baseUnits?: string;
-  help?: boolean;
-};
 
 type EthereumChainConfig = {
   gatewayAddress: Address;
@@ -85,20 +75,33 @@ if (isDirectExecution) {
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const { values } = parseArgs({
+    args: process.argv.slice(2),
+    options: {
+      token: { type: 'string' },
+      to: { type: 'string' },
+      from: { type: 'string' },
+      rpc: { type: 'string' },
+      archive: { type: 'string' },
+      amount: { type: 'string' },
+      'base-units': { type: 'string' },
+      help: { type: 'boolean', short: 'h' },
+    },
+    allowPositionals: false,
+  });
 
-  if (args.help) {
+  if (values.help) {
     printUsage();
     return;
   }
 
   const result = await mintDevEthereumToken({
-    token: parseTokenArg(args.token),
-    to: parseAddressArg(args.to, 'Missing required --to address'),
-    from: args.from,
-    rpcUrl: args.rpc,
-    archiveUrl: args.archive,
-    amountBaseUnits: parseAmountArg(args.amount, args.baseUnits),
+    token: parseTokenArg(values.token),
+    to: parseAddressArg(values.to, 'Missing required --to address'),
+    from: values.from,
+    rpcUrl: values.rpc,
+    archiveUrl: values.archive,
+    amountBaseUnits: parseAmountArg(values.amount, values['base-units']),
   });
 
   console.info(`[mint-dev-ethereum-token] RPC: ${result.rpcUrl}`);
@@ -171,55 +174,6 @@ export async function mintDevEthereumToken(args: MintDevEthereumTokenArgs): Prom
     ethereumMintHash,
     argonBump,
   };
-}
-
-function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = {};
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (!arg) continue;
-
-    if (arg === '--help' || arg === '-h') {
-      args.help = true;
-      continue;
-    }
-
-    const next = argv[i + 1];
-    if (!next) {
-      throw new Error(`Missing value for ${arg}`);
-    }
-
-    switch (arg) {
-      case '--token':
-        args.token = next;
-        break;
-      case '--to':
-        args.to = next;
-        break;
-      case '--from':
-        args.from = next;
-        break;
-      case '--rpc':
-        args.rpc = next;
-        break;
-      case '--archive':
-        args.archive = next;
-        break;
-      case '--amount':
-        args.amount = next;
-        break;
-      case '--base-units':
-        args.baseUnits = next;
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-
-    i += 1;
-  }
-
-  return args;
 }
 
 function parseTokenArg(value: string | undefined): SupportedToken {
