@@ -135,9 +135,9 @@ function formatEthAmount(amountWei: bigint): string {
 
 function printUsage(): void {
   console.info(`Usage:
-  yarn dev:eth:fund --to 0xRecipient --amount 1
-  yarn dev:eth:fund --to 0xRecipient --amount 0.1
-  yarn dev:eth:fund --to 0xRecipient --wei 100000000000000000
+  yarn dev:ethereum:add-eth --to 0xRecipient --amount 1
+  yarn dev:ethereum:add-eth --to 0xRecipient --amount 0.1
+  yarn dev:ethereum:add-eth --to 0xRecipient --wei 100000000000000000
 
 Notes:
   - Sends raw ETH from the built-in local dev admin account.
