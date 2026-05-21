@@ -176,7 +176,7 @@ function classifyEvents(events: IEventInfo[]): WalletActivityType {
   if (hasEvent(events, 'tokenGateway')) {
     return 'tokenGateway';
   }
-  if (hasEvent(events, 'crosschainTransfer', 'BurnNoticeAccepted')) {
+  if (hasEvent(events, 'crosschainTransfer', 'TransferToArgonSettled')) {
     return 'ethereum';
   }
   if (hasEvent(events, 'vaults', 'VaultCollected') || hasEvent(events, 'treasury')) {

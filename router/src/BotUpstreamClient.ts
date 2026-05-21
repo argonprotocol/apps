@@ -1,11 +1,15 @@
-import { getObjectStringProperty, JsonExt } from '@argonprotocol/apps-core';
+import {
+  getObjectStringProperty,
+  JsonExt,
+  type IEthereumGatewayCatchUpRequest,
+  type IEthereumGatewayCatchUpResponse,
+  type IEthereumGatewayRelayStatus,
+} from '@argonprotocol/apps-core';
 import type {
   IActivateBitcoinLockCouponRequest,
   IBitcoinLockCouponStatus,
   IBitcoinLockRelayJobRequest,
   ICreateBitcoinLockCouponRequest,
-  IEthereumInboundRelayRequest,
-  IEthereumInboundRelayResponse,
   IRouterErrorResponse,
 } from './interfaces/index.ts';
 import { RouterError } from './RouterError.ts';
@@ -67,12 +71,18 @@ export class BotUpstreamClient {
     return couponsByUserId;
   }
 
-  public async relayEthereumProof(request: IEthereumInboundRelayRequest): Promise<IEthereumInboundRelayResponse> {
-    return await this.request('/ethereum-proof-relay', {
+  public async requestEthereumGatewayCatchUp(
+    request: IEthereumGatewayCatchUpRequest,
+  ): Promise<IEthereumGatewayCatchUpResponse> {
+    return await this.request('/ethereum-relay-request', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JsonExt.stringify(request),
     });
+  }
+
+  public async getEthereumGatewayRelayStatus(): Promise<IEthereumGatewayRelayStatus> {
+    return await this.request('/ethereum-relay-status');
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {

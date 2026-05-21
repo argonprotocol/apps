@@ -1,6 +1,7 @@
 import { Accountset, getRange } from '@argonprotocol/apps-core';
 import { Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
+import type { Hex, Signature } from 'viem';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { IS_TREASURY_APP } from './Env.ts';
@@ -127,6 +128,32 @@ export class WalletKeys {
 
   public async signEthereumPersonalMessage(message: string): Promise<string> {
     return await invokeWithTimeout<string>('sign_ethereum_personal_message', { message }, 60e3);
+  }
+
+  public async signEthereumTransaction(unsignedTransaction: Hex): Promise<Signature> {
+    return await invokeWithTimeout<Signature>('sign_ethereum_transaction', { request: { unsignedTransaction } }, 60e3);
+  }
+
+  public async signEthereumPermit(args: {
+    tokenAddress: string;
+    tokenName: string;
+    value: bigint;
+    nonce: bigint;
+    deadline: bigint;
+  }): Promise<{ v: number; r: string; s: string }> {
+    return await invokeWithTimeout<{ v: number; r: string; s: string }>(
+      'sign_ethereum_permit',
+      {
+        request: {
+          tokenAddress: args.tokenAddress,
+          tokenName: args.tokenName,
+          value: args.value.toString(),
+          nonce: args.nonce.toString(),
+          deadline: args.deadline.toString(),
+        },
+      },
+      60e3,
+    );
   }
 
   public async configureEthereumSignerPolicy(args: {

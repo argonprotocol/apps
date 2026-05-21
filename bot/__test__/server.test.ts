@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { type BotServer, startServer } from '../src/server.ts';
 import type Bot from '../src/Bot.ts';
-import { createDeferred, JsonExt, type JsonRpcResponse } from '@argonprotocol/apps-core';
+import {
+  createDeferred,
+  JsonExt,
+  type IEthereumGatewayRelayStatus,
+  type JsonRpcResponse,
+} from '@argonprotocol/apps-core';
 
 function createMockBot(overrides: Record<string, any> = {}): Bot {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
@@ -12,6 +17,11 @@ function createMockBot(overrides: Record<string, any> = {}): Bot {
     errorMessage: '',
     currentFrameId: Promise.resolve(123),
     state: async (startupError: string) => ({ startupError, ok: true }),
+    ethereumGatewayProverService: {
+      getRelayStatus: async () => ({ isReady: true }),
+      runToCheckpoint: async () => ({ outcome: 'Noop' }),
+      shutdown: async () => undefined,
+    },
     history: { recent: Promise.resolve({ activities: [{ id: 'a1' }] }) },
     storage: {
       bidsFile: (_start: number, _end: number) => ({ get: async () => ({ bids: [] }) }),
@@ -39,6 +49,32 @@ describe('BotServer basic behavior', () => {
 
     const body = await response.json();
     expect(body).toBe(true);
+  });
+
+  it('GET /ethereum-relay-status returns the gateway prover relay status', async () => {
+    server = startServer(
+      createMockBot({
+        ethereumGatewayProverService: {
+          getRelayStatus: async () => ({
+            isReady: false,
+            reason: 'Vault delegate cannot afford Ethereum gateway relay.',
+          }),
+        },
+      }),
+      0,
+    );
+    await server.waitForListening();
+    const { host, port } = server.getAddress();
+
+    const response = await fetch(`http://${host}:${port}/ethereum-relay-status`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type') ?? '').toContain('application/json');
+
+    const body = JsonExt.parse<IEthereumGatewayRelayStatus>(await response.text());
+    expect(body).toEqual({
+      isReady: false,
+      reason: 'Vault delegate cannot afford Ethereum gateway relay.',
+    });
   });
 
   it('WS sends /heartbeat event periodically (we see at least one)', async () => {

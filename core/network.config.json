@@ -5,10 +5,10 @@
     "bitcoinBlockMillis": 20000,
     "esploraHost": "http://localhost:55158",
     "indexerHost": "http://localhost:55154",
-    "defaultRelayerHost": "http://localhost:3000",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
       "executionRpcUrl": "",
+      "finalityBlocks": 16,
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
@@ -26,10 +26,10 @@
     "bitcoinBlockMillis": 100000,
     "esploraHost": "http://localhost:3002",
     "indexerHost": "http://localhost:3262",
-    "defaultRelayerHost": "http://localhost:3000",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
       "executionRpcUrl": "",
+      "finalityBlocks": 16,
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
@@ -47,10 +47,10 @@
     "bitcoinBlockMillis": 600000,
     "esploraHost": "http://bitcoin-node0.testnet.argonprotocol.org:3002",
     "indexerHost": "https://indexer.testnet.argonprotocol.org",
-    "defaultRelayerHost": "https://relayer.testnet.argonprotocol.org",
     "websiteHost": "https://staging.argon.network",
     "ethereumNetwork": {
       "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "finalityBlocks": 32,
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
@@ -68,10 +68,10 @@
     "bitcoinBlockMillis": 600000,
     "esploraHost": "https://mempool.space/api",
     "indexerHost": "https://indexer.argon.network",
-    "defaultRelayerHost": "https://relayer.argon.network",
     "websiteHost": "https://argon.network",
     "ethereumNetwork": {
       "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "finalityBlocks": 32,
       "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },

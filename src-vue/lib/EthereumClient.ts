@@ -1,43 +1,42 @@
 import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import {
-  buildEthereumEventProof,
-  findEthereumBurnForTransferLogIndex,
+  argonTokenArtifact,
+  decodeEthereumTransferToArgonStartedLog,
+  findEthereumTransferToArgonStartedLogIndexes,
   MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
   mintingGatewayArtifact,
-  waitForRetainedExecutionAnchor,
 } from '@argonprotocol/mainchain';
 import {
   type Address,
   createPublicClient,
   defineChain,
   encodeFunctionData,
-  erc20Abi,
   getAddress,
   type Hash,
   type Hex,
   http,
   type PublicClient,
   serializeTransaction,
+  type TransactionSerializableEIP1559,
 } from 'viem';
 import type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { SERVER_ENV_VARS } from './Env.ts';
-import { invokeWithTimeout } from './tauriApi.ts';
 import type { WalletKeys } from './WalletKeys.ts';
+
 export type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 
-export type IEthereumBurnTransfer = {
+export type IEthereumTransferToArgon = {
   moveToken: IEthereumMoveToken;
   amountBaseUnits: bigint;
   destinationAddress: string;
   executionRpcUrl: string;
-  burnTxHash: Hash;
-  burnBlockNumber?: number;
-  burnBlockHash?: Hash;
-  burnLogIndex?: number;
+  sourceTxHash: Hash;
+  sourceBlockNumber?: number;
+  sourceBlockHash?: Hash;
+  sourceLogIndex?: number;
+  gatewayActivityNonce?: bigint;
 };
-
-export type IEthereumBurnProof = Awaited<ReturnType<typeof buildEthereumEventProof>>;
 
 export type IEthereumChainConfig = {
   chainId: number;
@@ -46,39 +45,12 @@ export type IEthereumChainConfig = {
   argonotTokenAddress: Address;
 };
 
-export type IEthereumNetworkSettings = {
-  executionRpcUrl: string;
-  argonTokenAddress: Address;
-  usdcTokenAddress: Address;
-};
-
-type IEthereumSignature = {
-  yParity: number;
-  r: Hex;
-  s: Hex;
-};
-
-type IEthereumUnsignedTransaction = {
-  chainId: number;
-  nonce: number;
-  gas: bigint;
-  maxFeePerGas: bigint;
-  maxPriorityFeePerGas: bigint;
-  to: Address;
-  value: bigint;
-  data: Hex;
-  type: 'eip1559';
-  accessList: [];
-};
-
-const ETHEREUM_BLOCKS_TO_FINALITY = 32;
-const MIN_BURN_PROOF_TIMEOUT_MS = 5 * 60_000;
 const ETHEREUM_PUBLIC_CLIENT_OPTIONS = { retryCount: 1, timeout: 15_000 } as const;
 const ethereumChainConfigPromises = new Map<string, Promise<IEthereumChainConfig | undefined>>();
 
 export class EthereumClient {
   constructor(
-    private readonly walletKeys: WalletKeys,
+    private readonly walletKeys: Pick<WalletKeys, 'ethereumAddress' | 'signEthereumPermit' | 'signEthereumTransaction'>,
     public readonly executionRpcUrl: string,
   ) {}
 
@@ -86,76 +58,78 @@ export class EthereumClient {
     return this.walletKeys.ethereumAddress;
   }
 
-  public getBurnProofWaitEstimateMs() {
+  public getTransferToArgonWaitEstimateMs() {
     return getEthereumFinalityMillis() + NetworkConfig.tickMillis * 4;
   }
 
-  public getBurnProofPollMs() {
-    return getEthereumPollMillis();
+  public getTransferToArgonPollMs() {
+    const finalityBlocks = NetworkConfig.get().ethereumNetwork.finalityBlocks;
+    if (!Number.isFinite(finalityBlocks) || finalityBlocks <= 0) {
+      throw new Error('Ethereum finality blocks are missing from the network config.');
+    }
+
+    return Math.max(1_000, Math.floor(getEthereumFinalityMillis() / finalityBlocks));
   }
 
-  public getBurnProofTimeoutMs() {
-    return Math.max(MIN_BURN_PROOF_TIMEOUT_MS, this.getBurnProofWaitEstimateMs() + this.getBurnProofPollMs() * 2);
-  }
-
-  public async approveTransfer(args: { moveToken: IEthereumMoveToken; amountBaseUnits: bigint }) {
-    const { moveToken, amountBaseUnits } = args;
-    const chainConfig = await this.loadChainConfig();
-    const tokenAddress = getEthereumTokenAddress(chainConfig, moveToken);
-    const { chain, publicClient } = await this.createExecutionClient();
-    const from = getAddress(this.walletKeys.ethereumAddress);
-
-    const approveCallData = encodeFunctionData({
-      abi: erc20Abi,
-      functionName: 'approve',
-      args: [chainConfig.gatewayAddress, amountBaseUnits],
-    });
-    const { transaction: approveTransaction, unsignedTransaction: unsignedApproveTransaction } =
-      await buildEthereumUnsignedTransaction({
-        publicClient,
-        from,
-        chainId: chain.id,
-        to: tokenAddress,
-        data: approveCallData,
-      });
-    const approveSignature = await signEthereumTransaction(unsignedApproveTransaction);
-    const approveHash = await publicClient.sendRawTransaction({
-      serializedTransaction: serializeTransaction(approveTransaction, approveSignature),
-    });
-
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
-  }
-
-  public async submitBurnTransfer(args: {
+  public async startTransferToArgon(args: {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
-  }): Promise<IEthereumBurnTransfer> {
+  }): Promise<IEthereumTransferToArgon> {
     const { moveToken, amountBaseUnits, destinationAddress } = args;
     const mainchainClient = await getMainchainClient(false);
     const chainConfig = await this.loadChainConfig();
-    const tokenAddress = getEthereumTokenAddress(chainConfig, moveToken);
+    const tokenAddress =
+      moveToken === MoveToken.ARGNOT ? chainConfig.argonotTokenAddress : chainConfig.argonTokenAddress;
     const { chain, publicClient } = await this.createExecutionClient();
     const from = getAddress(this.walletKeys.ethereumAddress);
     const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits);
-
-    const argonDestination = mainchainClient.createType('AccountId32', destinationAddress).toHex();
-    const burnCallData = encodeFunctionData({
-      abi: mintingGatewayArtifact.abi,
-      functionName: 'burnForTransfer',
-      args: [tokenAddress, runtimeAmount, argonDestination],
+    const latestBlock = await publicClient.getBlock();
+    const permitDeadline = latestBlock.timestamp + 3600n;
+    const [permitNonce, tokenName] = await Promise.all([
+      publicClient.readContract({
+        address: tokenAddress,
+        abi: argonTokenArtifact.abi,
+        functionName: 'nonces',
+        args: [from],
+      }),
+      publicClient.readContract({
+        address: tokenAddress,
+        abi: argonTokenArtifact.abi,
+        functionName: 'name',
+      }),
+    ]);
+    const permitSignature = await this.walletKeys.signEthereumPermit({
+      tokenAddress,
+      tokenName,
+      value: amountBaseUnits,
+      nonce: permitNonce,
+      deadline: permitDeadline,
     });
-    const { transaction: burnTransaction, unsignedTransaction: unsignedBurnTransaction } =
-      await buildEthereumUnsignedTransaction({
-        publicClient,
-        from,
-        chainId: chain.id,
-        to: chainConfig.gatewayAddress,
-        data: burnCallData,
-      });
-    const burnSignature = await signEthereumTransaction(unsignedBurnTransaction);
-    const burnTxHash = await publicClient.sendRawTransaction({
-      serializedTransaction: serializeTransaction(burnTransaction, burnSignature),
+    const argonDestination = mainchainClient.createType('AccountId32', destinationAddress).toHex();
+    const callData = encodeFunctionData({
+      abi: mintingGatewayArtifact.abi,
+      functionName: 'startTransferToArgon',
+      args: [
+        tokenAddress,
+        runtimeAmount,
+        argonDestination,
+        permitDeadline,
+        permitSignature.v,
+        permitSignature.r as Hex,
+        permitSignature.s as Hex,
+      ],
+    });
+    const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
+      publicClient,
+      from,
+      chainId: chain.id,
+      to: chainConfig.gatewayAddress,
+      data: callData,
+    });
+    const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
+    const sourceTxHash = await publicClient.sendRawTransaction({
+      serializedTransaction: serializeTransaction(transaction, signature),
     });
 
     return {
@@ -163,56 +137,49 @@ export class EthereumClient {
       amountBaseUnits,
       destinationAddress,
       executionRpcUrl: this.executionRpcUrl,
-      burnTxHash,
+      sourceTxHash,
     };
   }
 
-  public async confirmBurnTransfer(burnTransfer: IEthereumBurnTransfer): Promise<IEthereumBurnTransfer> {
-    if (burnTransfer.burnBlockNumber != null && burnTransfer.burnLogIndex != null) {
-      return burnTransfer;
+  public async confirmTransferToArgon(transfer: IEthereumTransferToArgon): Promise<IEthereumTransferToArgon> {
+    if (
+      transfer.sourceBlockNumber !== undefined &&
+      transfer.sourceLogIndex !== undefined &&
+      transfer.gatewayActivityNonce !== undefined
+    ) {
+      return transfer;
     }
 
     const chainConfig = await this.loadChainConfig();
     const { publicClient } = await this.createExecutionClient();
-    const burnReceipt = await publicClient.waitForTransactionReceipt({ hash: burnTransfer.burnTxHash });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: transfer.sourceTxHash });
+    const logIndexes = findEthereumTransferToArgonStartedLogIndexes(receipt, chainConfig.gatewayAddress);
+    const sourceLogIndex = logIndexes[0];
+    const transferLog = sourceLogIndex !== undefined ? receipt.logs[sourceLogIndex] : undefined;
+    if (!transferLog) {
+      throw new Error(
+        `Ethereum receipt ${receipt.transactionHash} did not emit TransferToArgonStarted from gateway ${chainConfig.gatewayAddress}`,
+      );
+    }
+
+    const decodedEvent = decodeEthereumTransferToArgonStartedLog({
+      data: transferLog.data,
+      topics: [...transferLog.topics],
+    });
+    if (decodedEvent.gatewayState?.gatewayActivityNonce === undefined) {
+      throw new Error(
+        `Ethereum receipt ${receipt.transactionHash} emitted TransferToArgonStarted without a gateway activity nonce.`,
+      );
+    }
+    const gatewayActivityNonce = decodedEvent.gatewayState.gatewayActivityNonce;
 
     return {
-      ...burnTransfer,
-      burnBlockNumber: Number(burnReceipt.blockNumber),
-      burnBlockHash: burnReceipt.blockHash,
-      burnLogIndex: findEthereumBurnForTransferLogIndex(burnReceipt, chainConfig.gatewayAddress),
+      ...transfer,
+      sourceBlockNumber: Number(receipt.blockNumber),
+      sourceBlockHash: receipt.blockHash,
+      sourceLogIndex,
+      gatewayActivityNonce,
     };
-  }
-
-  public async buildBurnProof(burnTransfer: IEthereumBurnTransfer): Promise<IEthereumBurnProof> {
-    if (burnTransfer.burnBlockNumber == null || burnTransfer.burnLogIndex == null) {
-      throw new Error('Ethereum burn transfer must be confirmed before building a proof.');
-    }
-
-    const mainchainClient = await getMainchainClient(false);
-    const { publicClient } = await this.createExecutionClient();
-    const burnReceipt = await publicClient.waitForTransactionReceipt({ hash: burnTransfer.burnTxHash });
-    const pollMs = this.getBurnProofPollMs();
-    const timeoutMs = this.getBurnProofTimeoutMs();
-
-    try {
-      await waitForRetainedExecutionAnchor(mainchainClient, BigInt(burnTransfer.burnBlockNumber), {
-        pollMs,
-        timeoutMs,
-      });
-    } catch (error) {
-      const verifierState = await getEthereumVerifierDebugState(mainchainClient).catch(() => undefined);
-      const baseMessage = error instanceof Error ? error.message : String(error);
-      const debugSuffix = verifierState ? ` (${verifierState})` : '';
-      throw new Error(`${baseMessage}${debugSuffix}`);
-    }
-
-    return buildEthereumEventProof(mainchainClient, {
-      txHash: burnTransfer.burnTxHash,
-      logIndex: burnTransfer.burnLogIndex,
-      executionClient: publicClient,
-      receipt: burnReceipt,
-    });
   }
 
   private async loadChainConfig(): Promise<IEthereumChainConfig> {
@@ -321,23 +288,6 @@ function createEthereumPublicClientForRpc(
   });
 }
 
-export function getEthereumNetworkSettings(): IEthereumNetworkSettings {
-  const { ethereumNetwork } = NetworkConfig.get();
-  return {
-    executionRpcUrl: ethereumNetwork.executionRpcUrl,
-    argonTokenAddress: getAddress(ethereumNetwork.argonTokenAddress),
-    usdcTokenAddress: getAddress(ethereumNetwork.usdcTokenAddress),
-  };
-}
-
-function getEthereumTokenAddress(chainConfig: IEthereumChainConfig, moveToken: IEthereumMoveToken): Address {
-  if (moveToken === MoveToken.ARGNOT) {
-    return chainConfig.argonotTokenAddress;
-  }
-
-  return chainConfig.argonTokenAddress;
-}
-
 function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigint {
   if (amountBaseUnits % MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE !== 0n) {
     throw new Error('Ethereum token balance is not aligned to Argon runtime units.');
@@ -347,16 +297,16 @@ function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigin
 }
 
 export function getEthereumExecutionRpcUrl(): string | undefined {
-  return getEthereumNetworkSettings().executionRpcUrl.trim() || undefined;
+  return NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim() || undefined;
 }
 
 async function buildEthereumUnsignedTransaction(args: {
-  publicClient: ReturnType<typeof createPublicClient>;
+  publicClient: PublicClient;
   from: Address;
   chainId: number;
   to: Address;
   data: Hex;
-}): Promise<{ transaction: IEthereumUnsignedTransaction; unsignedTransaction: Hex }> {
+}): Promise<{ transaction: TransactionSerializableEIP1559; unsignedTransaction: Hex }> {
   const { publicClient, from, chainId, to, data } = args;
   const [nonce, gasEstimate, fees] = await Promise.all([
     publicClient.getTransactionCount({ address: from, blockTag: 'pending' }),
@@ -370,7 +320,7 @@ async function buildEthereumUnsignedTransaction(args: {
   ]);
   const fallbackGasPrice = fees.gasPrice ?? (await publicClient.getGasPrice());
 
-  const transaction: IEthereumUnsignedTransaction = {
+  const transaction: TransactionSerializableEIP1559 = {
     chainId,
     nonce,
     gas: (gasEstimate * 12n) / 10n,
@@ -398,35 +348,4 @@ function getEthereumFinalityMillis(): number {
   }
 
   return value;
-}
-
-function getEthereumPollMillis(): number {
-  return Math.max(1_000, Math.floor(getEthereumFinalityMillis() / ETHEREUM_BLOCKS_TO_FINALITY));
-}
-
-async function getEthereumVerifierDebugState(mainchainClient: Awaited<ReturnType<typeof getMainchainClient>>) {
-  const verifierQuery = mainchainClient.query.ethereumVerifier;
-  const latestFinalizedBlockRoot = (await verifierQuery.latestFinalizedBlockRoot()).toHex();
-  const [latestExecutionHeaderAnchorBlockHash, finalizedState, latestSyncCommitteeUpdatePeriod] = await Promise.all([
-    verifierQuery.latestExecutionHeaderAnchorBlockHash(),
-    verifierQuery.finalizedBeaconState(latestFinalizedBlockRoot),
-    verifierQuery.latestSyncCommitteeUpdatePeriod(),
-  ]);
-
-  const latestAnchor = latestExecutionHeaderAnchorBlockHash.isSome
-    ? latestExecutionHeaderAnchorBlockHash.unwrap().toHex()
-    : 'none';
-  const latestFinalizedSlot = finalizedState.isSome ? finalizedState.unwrap().slot.toString() : 'none';
-
-  return `anchor=${latestAnchor} finalizedSlot=${latestFinalizedSlot} syncPeriod=${latestSyncCommitteeUpdatePeriod.toString()} finalizedRoot=${latestFinalizedBlockRoot}`;
-}
-
-async function signEthereumTransaction(unsignedTransaction: Hex): Promise<IEthereumSignature> {
-  return invokeWithTimeout<IEthereumSignature>(
-    'sign_ethereum_transaction',
-    {
-      request: { unsignedTransaction },
-    },
-    60e3,
-  );
 }

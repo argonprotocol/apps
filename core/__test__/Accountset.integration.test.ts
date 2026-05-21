@@ -87,7 +87,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
       tip: 100n,
       useLatestNonce: true,
     });
-    await result.waitForInFirstBlock;
+    const blockHash = await result.waitForInFirstBlock;
 
     console.log('Mining bid result', { ...result, client: undefined });
     expect(result).toBeTruthy();
@@ -95,7 +95,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     expect(result.batchInterruptedIndex).not.toBeDefined();
     expect(result.extrinsicError).toBeFalsy();
     // check for bids or registered seats
-    const api = await client.at(result.blockHash!);
+    const api = await client.at(blockHash);
     const seats = await accountset.miningSeatsAndBids(api);
     expect(seats.filter(x => !!x.seat || x.hasWinningBid)).toHaveLength(5);
   });

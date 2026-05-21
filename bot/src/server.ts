@@ -10,7 +10,7 @@ import type {
   IBotApiResponse,
   IBotApiSpec,
   ICreateBitcoinLockCouponRequest,
-  IEthereumInboundRelayRequest,
+  IEthereumGatewayCatchUpRequest,
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@argonprotocol/apps-core';
@@ -58,7 +58,7 @@ export class BotServer {
     const wss = new WebSocketServer({ noServer: true });
     const bot = this.bot;
     const relayService = bot.relayService;
-    const ethereumProofRelayService = bot.ethereumProofRelayService;
+    const ethereumGatewayProverService = bot.ethereumGatewayProverService;
     this.wss = wss;
 
     app.use(cors({ origin: true, methods: ['GET', 'POST'] }));
@@ -106,10 +106,16 @@ export class BotServer {
       });
     });
 
-    app.post('/ethereum-proof-relay', express.text({ type: '*/*' }), async (req, res) => {
+    app.get('/ethereum-relay-status', async (_req, res) => {
       await safeJsonRoute(res, async () => {
-        const request = requireBody<IEthereumInboundRelayRequest>(req.body);
-        return await ethereumProofRelayService.relayTransferProof(request);
+        return await ethereumGatewayProverService.getRelayStatus();
+      });
+    });
+
+    app.post('/ethereum-relay-request', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        const request = requireBody<IEthereumGatewayCatchUpRequest>(req.body);
+        return await ethereumGatewayProverService.runToCheckpoint(request);
       });
     });
 

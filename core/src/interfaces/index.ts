@@ -7,7 +7,7 @@ export * from './IBitcoinLockRelay.js';
 export * from './IBlockNumbers.js';
 export * from './IBlockSyncFile.js';
 export * from './IBotStateFile.js';
-export * from './IEthereumProofRelay.js';
+export * from './IEthereumGatewayCatchUp.js';
 export * from './IEarningsFile.js';
 export * from './IFramesHistory.js';
 export * from './IHistoryFile.js';

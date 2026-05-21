@@ -1,6 +1,12 @@
 import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
-import { JsonExt, UserRole } from '@argonprotocol/apps-core';
+import {
+  JsonExt,
+  UserRole,
+  type IEthereumGatewayCatchUpRequest,
+  type IEthereumGatewayCatchUpResponse,
+  type IEthereumGatewayRelayStatus,
+} from '@argonprotocol/apps-core';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotUpstreamClient } from './BotUpstreamClient.ts';
@@ -14,8 +20,6 @@ import type {
   IBitcoinLockStatusResponse,
   ICreateOperationalInviteResponse,
   ICreateTreasuryInviteResponse,
-  IEthereumInboundRelayRequest,
-  IEthereumInboundRelayResponse,
   IListBitcoinLockCouponsResponse,
   IListOperationalInvitesResponse,
   IListTreasuryInvitesResponse,
@@ -420,18 +424,48 @@ export class RouterServer {
       }),
     );
 
-    app.post(
-      '/ethereum-proof-relay',
-      express.text({ type: '*/*' }),
-      safeJsonRoute<IEthereumInboundRelayResponse>(async req => {
-        routerAuth.requireUserSession(req, [UserRole.TreasuryUser, UserRole.OperationalPartner]);
+    app.get(
+      '/ethereum-relay-status',
+      safeJsonRoute<IEthereumGatewayRelayStatus>(async req => {
+        routerAuth.requireUserSession(req, [
+          UserRole.AdminOperator,
+          UserRole.TreasuryUser,
+          UserRole.OperationalPartner,
+        ]);
 
-        return await botClient.relayEthereumProof(requireBody<IEthereumInboundRelayRequest>(req)).catch(error => {
+        return await botClient.getEthereumGatewayRelayStatus().catch(error => {
           if (error instanceof RouterError) {
-            throw new RouterError(error.message || 'Bot request failed to relay this Ethereum proof.', error.status);
+            throw new RouterError(
+              error.message || 'Bot request failed to load Ethereum relay status.',
+              error.status,
+            );
           }
           throw error;
         });
+      }),
+    );
+
+    app.post(
+      '/ethereum-relay-request',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IEthereumGatewayCatchUpResponse>(async req => {
+        routerAuth.requireUserSession(req, [
+          UserRole.AdminOperator,
+          UserRole.TreasuryUser,
+          UserRole.OperationalPartner,
+        ]);
+
+        return await botClient
+          .requestEthereumGatewayCatchUp(requireBody<IEthereumGatewayCatchUpRequest>(req))
+          .catch(error => {
+            if (error instanceof RouterError) {
+              throw new RouterError(
+                error.message || 'Bot request failed to catch up Ethereum gateway activity.',
+                error.status,
+              );
+            }
+            throw error;
+          });
       }),
     );
 

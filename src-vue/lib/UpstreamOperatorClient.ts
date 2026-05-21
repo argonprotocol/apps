@@ -1,10 +1,10 @@
 import {
   getObjectStringProperty,
   InviteCodes,
+  type IEthereumGatewayCatchUpRequest,
+  type IEthereumGatewayCatchUpResponse,
   JsonExt,
   signRouterAuthAccountBinding,
-  type IEthereumInboundRelayRequest,
-  type IEthereumInboundRelayResponse,
   UserRole,
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
@@ -174,7 +174,9 @@ export class UpstreamOperatorClient {
     return body.bitcoinLockCoupons;
   }
 
-  public async relayEthereumProof(payload: IEthereumInboundRelayRequest): Promise<IEthereumInboundRelayResponse> {
+  public async requestEthereumGatewayCatchUp(
+    payload: IEthereumGatewayCatchUpRequest,
+  ): Promise<IEthereumGatewayCatchUpResponse> {
     const operatorHost = this.requireOperatorHost();
     if (!this.serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
@@ -186,12 +188,16 @@ export class UpstreamOperatorClient {
       await this.serverAuthClient.ensureOperationalSession(operatorHost);
     }
 
-    return await UpstreamOperatorClient.request<IEthereumInboundRelayResponse>(operatorHost, '/ethereum-proof-relay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JsonExt.stringify(payload),
-      credentials: 'include',
-    });
+    return await UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
+      operatorHost,
+      '/ethereum-relay-request',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JsonExt.stringify(payload),
+        credentials: 'include',
+      },
+    );
   }
 
   private requireOperatorHost(): string {

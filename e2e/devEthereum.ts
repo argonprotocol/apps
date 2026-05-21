@@ -1,9 +1,9 @@
-import { spawn } from 'child_process';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import process from 'node:process';
+import { NetworkConfig } from '@argonprotocol/apps-core';
+import { DelegateSubmitLane } from '../bot/src/DelegateSubmitLane.ts';
 import { EthereumBeaconSyncService } from '../bot/src/EthereumBeaconSyncService.ts';
+import { EthereumGatewayProverService } from '../bot/src/EthereumGatewayProverService.ts';
+import { configureNetwork } from '../bot/src/configureNetwork.ts';
 import {
   dispatchErrorToString,
   getClient,
@@ -34,6 +34,7 @@ export interface IDevEthereumConfig {
   beaconPreset: DevEthereumBeaconPreset;
   secondsPerSlot: number;
   finalityMillis: number;
+  finalityBlocks: number;
   relayerPollMs: number;
 }
 
@@ -43,16 +44,12 @@ export interface IStartDevEthereumResult {
   executionRpcUrl: string;
   beaconApiUrl: string;
   chainId: string;
-  gatewayAddress: string;
-  argonTokenAddress: string;
-  argonotTokenAddress: string;
   serverExecutionRpcUrl: string;
   serverBeaconApiUrl: string;
 }
 
 export interface IDevEthereumSetup {
   env: NodeJS.ProcessEnv;
-  relayerUrl: string;
   start(): Promise<{ shutdown(): Promise<void> }>;
 }
 
@@ -64,14 +61,15 @@ export function readDevEthereumConfigFromEnv(): IDevEthereumConfig | undefined {
 
   const beaconPreset = readDevEthereumBeaconPreset();
   const secondsPerSlot = readPositiveIntEnv('ARGON_DEV_ETHEREUM_SECONDS_PER_SLOT') ?? 1;
-  const finalitySlots = beaconPreset === 'minimal' ? 16 : 64;
-  const finalityMillis = secondsPerSlot * finalitySlots * 1_000;
+  const finalityBlocks = beaconPreset === 'minimal' ? 16 : 64;
+  const finalityMillis = secondsPerSlot * finalityBlocks * 1_000;
 
   return {
     beaconPreset,
     secondsPerSlot,
     finalityMillis,
-    relayerPollMs: Math.max(1_000, Math.floor(finalityMillis / 32)),
+    finalityBlocks,
+    relayerPollMs: Math.max(1_000, Math.floor(finalityMillis / finalityBlocks)),
   };
 }
 
@@ -93,16 +91,12 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
       },
     },
   });
-  const fixture = await ethereum.deployMintingGatewayFixture({
-    deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
-  });
   await waitForStableExecutionRpc(endpoints.executionRpcUrl, endpoints.chainId);
 
   return {
     beaconPreset: config.beaconPreset,
     enclaveName: ethereum.enclaveName,
     ...endpoints,
-    ...fixture,
     serverExecutionRpcUrl: rewriteLocalUrlHost(endpoints.executionRpcUrl, 'host.docker.internal'),
     serverBeaconApiUrl: rewriteLocalUrlHost(endpoints.beaconApiUrl, 'host.docker.internal'),
   };
@@ -111,11 +105,8 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
 export function createDevEthereumSetup(
   archiveUrl: string,
   devEthereum: IStartDevEthereumResult,
-  config: Pick<IDevEthereumConfig, 'finalityMillis' | 'relayerPollMs'>,
+  config: Pick<IDevEthereumConfig, 'finalityBlocks' | 'finalityMillis' | 'relayerPollMs'>,
 ): IDevEthereumSetup {
-  const relayerPort = readPositiveIntEnv('ARGON_DEV_ETHEREUM_RELAYER_PORT') ?? 55_156;
-  const relayerUrl = `http://localhost:${relayerPort}`;
-
   console.log(`[tauri-dev] Ethereum execution RPC (app): ${devEthereum.executionRpcUrl}`);
   console.log(`[tauri-dev] Ethereum beacon API (app): ${devEthereum.beaconApiUrl}`);
   console.log(`[tauri-dev] Add this beacon URL in server config: ${devEthereum.serverBeaconApiUrl}`);
@@ -126,17 +117,24 @@ export function createDevEthereumSetup(
       ETHEREUM_EXECUTION_RPC_URL: devEthereum.serverExecutionRpcUrl,
       ETHEREUM_FINALITY_MILLIS: String(config.finalityMillis),
     },
-    relayerUrl,
     async start(): Promise<{ shutdown(): Promise<void> }> {
       await waitForLoad();
       const alice = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
-      await ensureDevEthereumChainConfig(archiveUrl, devEthereum, alice);
       await ensureDevEthereumBeaconBootstrap(archiveUrl, devEthereum.beaconApiUrl, devEthereum.beaconPreset, alice);
+      const fixtureDeployer = new TestEthereum(devEthereum.enclaveName);
+      fixtureDeployer.executionRpcUrl = devEthereum.executionRpcUrl;
+      fixtureDeployer.chainId = devEthereum.chainId;
+      const fixture = await fixtureDeployer.deployMintingGatewayFixture({
+        deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
+      });
+      await ensureDevEthereumChainConfig(archiveUrl, fixture, alice);
       return await startDevEthereumRelayer({
         archiveUrl,
         beaconApiUrl: devEthereum.beaconApiUrl,
+        executionRpcUrl: devEthereum.executionRpcUrl,
+        finalityMillis: config.finalityMillis,
+        finalityBlocks: config.finalityBlocks,
         relayerPollMs: config.relayerPollMs,
-        relayerPort,
         syncKeypair: alice,
       });
     },
@@ -260,104 +258,110 @@ async function ensureDevEthereumBeaconBootstrap(
 async function startDevEthereumRelayer(args: {
   archiveUrl: string;
   beaconApiUrl: string;
+  executionRpcUrl: string;
+  finalityMillis: number;
+  finalityBlocks: number;
   relayerPollMs: number;
-  relayerPort: number;
   syncKeypair: KeyringPair;
 }): Promise<{ shutdown(): Promise<void> }> {
-  const relayerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argon-dev-relayer-'));
-  const delegateKeypairPath = path.join(relayerDir, 'vaultDelegate.json');
-  fs.writeFileSync(delegateKeypairPath, JSON.stringify(args.syncKeypair.toJson('')));
-
-  const relayer = spawn('yarn', ['workspace', '@argonprotocol/apps-bot', 'run', 'start:relayer'], {
-    env: {
-      ...process.env,
-      ARGON_CHAIN: 'dev-docker',
-      ARCHIVE_NODE_URL: args.archiveUrl,
-      LOCAL_RPC_URL: args.archiveUrl,
-      ETHEREUM_BEACON_API_URL: args.beaconApiUrl,
-      ETHEREUM_BEACON_POLL_MS: String(args.relayerPollMs),
-      VAULT_DELEGATE_KEYPAIR_PATH: delegateKeypairPath,
-      PORT: String(args.relayerPort),
+  const previousArgonChain = process.env.ARGON_CHAIN;
+  const previousEthereumFinalityMillis = process.env.ETHEREUM_FINALITY_MILLIS;
+  process.env.ARGON_CHAIN = 'dev-docker';
+  process.env.ETHEREUM_FINALITY_MILLIS = String(args.finalityMillis);
+  await configureNetwork(args.archiveUrl);
+  NetworkConfig.setRuntimeOverride('dev-docker', {
+    ethereumNetwork: {
+      executionRpcUrl: args.executionRpcUrl,
+      finalityBlocks: args.finalityBlocks,
     },
-    stdio: 'inherit',
-    shell: false,
   });
 
-  let hasExited = false;
-  relayer.once('exit', code => {
-    hasExited = true;
-    if (code !== 0) {
-      console.error(`[tauri-dev] Local Ethereum relayer exited with code ${code ?? 'unknown'}`);
-    }
+  const client = await getClient(args.archiveUrl);
+  const submitLane = new DelegateSubmitLane(args.syncKeypair);
+  submitLane.client = client;
+
+  const ethereumBeaconSyncService = new EthereumBeaconSyncService(client, {
+    beaconApiUrl: args.beaconApiUrl,
+    pollMs: args.relayerPollMs,
+    submitLane,
+  });
+  const ethereumGatewayProverService = new EthereumGatewayProverService(submitLane, {
+    backgroundSweepMs: args.relayerPollMs,
   });
 
-  console.log(
-    `[tauri-dev] Started local Ethereum relayer entrypoint with //Alice at http://localhost:${args.relayerPort}`,
-  );
+  try {
+    await ethereumBeaconSyncService.start();
+    await ethereumGatewayProverService.start();
+  } catch (error) {
+    await client.disconnect().catch(() => undefined);
+    NetworkConfig.clearRuntimeOverride('dev-docker');
+    process.env.ARGON_CHAIN = previousArgonChain;
+    restoreEnvVar('ETHEREUM_FINALITY_MILLIS', previousEthereumFinalityMillis);
+    throw error;
+  }
+
+  console.log(`[tauri-dev] Started local Ethereum relayer with //Alice on ${args.executionRpcUrl}`);
 
   return {
     async shutdown(): Promise<void> {
-      if (!hasExited) {
-        relayer.kill('SIGTERM');
-        await new Promise<void>(resolve => {
-          relayer.once('exit', () => resolve());
-        });
-      }
-      fs.rmSync(relayerDir, { recursive: true, force: true });
+      await ethereumGatewayProverService.shutdown().catch(() => undefined);
+      await ethereumBeaconSyncService.shutdown().catch(() => undefined);
+      await client.disconnect().catch(() => undefined);
+      NetworkConfig.clearRuntimeOverride('dev-docker');
+      process.env.ARGON_CHAIN = previousArgonChain;
+      restoreEnvVar('ETHEREUM_FINALITY_MILLIS', previousEthereumFinalityMillis);
     },
   };
 }
 
 async function ensureDevEthereumChainConfig(
   archiveUrl: string,
-  devEthereum: Pick<IStartDevEthereumResult, 'gatewayAddress' | 'argonTokenAddress' | 'argonotTokenAddress'>,
+  devEthereum: Awaited<ReturnType<TestEthereum['deployMintingGatewayFixture']>>,
   sudoKeypair: KeyringPair,
 ): Promise<void> {
   const client = await getClient(archiveUrl);
 
   try {
     const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    let hasMatchingConfig = false;
     if (currentConfig.isSome && currentConfig.unwrap().isEthereum) {
       const ethereumConfig = currentConfig.unwrap().asEthereum;
-      const isMatch =
+      hasMatchingConfig =
         ethereumConfig.gateway.toHex().toLowerCase() === devEthereum.gatewayAddress.toLowerCase() &&
         ethereumConfig.argonToken.toHex().toLowerCase() === devEthereum.argonTokenAddress.toLowerCase() &&
         ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase();
+    }
 
-      if (isMatch) {
-        console.log('[tauri-dev] Ethereum chain config already matches local gateway fixture');
-        return;
+    if (!hasMatchingConfig) {
+      const result = await new TxSubmitter(
+        client,
+        client.tx.sudo.sudo(
+          client.tx.crosschainTransfer.setChainConfig({
+            Ethereum: {
+              gateway: devEthereum.gatewayAddress,
+              argonToken: devEthereum.argonTokenAddress,
+              argonotToken: devEthereum.argonotTokenAddress,
+            },
+          }),
+        ),
+        sudoKeypair,
+      ).submit();
+      await result.waitForInFirstBlock;
+
+      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
+      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+        throw new Error('Ethereum chain-config transaction did not emit sudo.Sudid.');
       }
-    }
+      if (sudoResultEvent.data.sudoResult.isErr) {
+        throw new Error(
+          `Ethereum chain-config setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
+        );
+      }
 
-    const result = await new TxSubmitter(
-      client,
-      client.tx.sudo.sudo(
-        client.tx.crosschainTransfer.setChainConfig({
-          Ethereum: {
-            gateway: devEthereum.gatewayAddress,
-            argonToken: devEthereum.argonTokenAddress,
-            argonotToken: devEthereum.argonotTokenAddress,
-            previousGateway: null,
-            previousReleaseExpiration: null,
-          },
-        }),
-      ),
-      sudoKeypair,
-    ).submit();
-    await result.waitForInFirstBlock;
-
-    const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-    if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
-      throw new Error('Ethereum chain-config transaction did not emit sudo.Sudid.');
+      console.log('[tauri-dev] Configured local Ethereum gateway on Argon');
+    } else {
+      console.log('[tauri-dev] Ethereum chain config already matches local gateway fixture');
     }
-    if (sudoResultEvent.data.sudoResult.isErr) {
-      throw new Error(
-        `Ethereum chain-config setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-      );
-    }
-
-    console.log('[tauri-dev] Configured local Ethereum gateway on Argon');
   } finally {
     await client.disconnect();
   }
@@ -505,4 +509,13 @@ function readPositiveIntEnv(name: string): number | undefined {
 function readNonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
 }

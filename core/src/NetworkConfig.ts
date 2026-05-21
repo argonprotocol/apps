@@ -98,7 +98,6 @@ export class NetworkConfig {
       | 'archiveUrl'
       | 'bitcoinBlockMillis'
       | 'indexerHost'
-      | 'defaultRelayerHost'
       | 'websiteHost'
       | 'ethereumNetwork'
       | 'baseNetwork'
@@ -129,7 +128,6 @@ export interface INetworkConfig {
   archiveUrl: string;
   websiteHost: string;
   indexerHost: string;
-  defaultRelayerHost: string;
   bitcoinBlockMillis: number;
   esploraHost: string;
   ethereumNetwork: IEthereumNetworkConfig;
@@ -138,6 +136,7 @@ export interface INetworkConfig {
 
 export interface IEthereumNetworkConfig {
   executionRpcUrl: string;
+  finalityBlocks: number;
   argonTokenAddress: string;
   usdcTokenAddress: string;
 }

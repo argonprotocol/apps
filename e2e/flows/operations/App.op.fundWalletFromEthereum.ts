@@ -60,7 +60,8 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     const chainState = targetWalletType
       ? await readEthereumFundingState(context.flow, targetWalletType)
       : EMPTY_FUNDING_STATE;
-    const isComplete = !walletOverlay.visible;
+    const fundingRunStarted = context.flow.getData<boolean>('App.op.fundWalletFromEthereum.started') ?? false;
+    const isComplete = fundingRunStarted && !walletOverlay.visible;
     const canRun = !!targetWalletType && walletOverlay.visible;
 
     return {
@@ -81,6 +82,9 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     if (!targetWalletType) {
       throw new Error('Ethereum funding target wallet type is required.');
     }
+
+    context.flow.setData('App.op.fundWalletFromEthereum.started', true);
+
     const flowName = context.flowName;
     await context.flow.waitFor('WalletOverlay.microgonsNeeded', { timeoutMs: 10_000 });
     await context.flow.waitFor('WalletOverlay.micronotsNeeded', { timeoutMs: 10_000 });
