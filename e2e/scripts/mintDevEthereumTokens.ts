@@ -382,9 +382,9 @@ async function rpcCall<TResult>(rpcUrl: string, method: string, params: unknown[
 
 function printUsage(): void {
   console.info(`Usage:
-  yarn dev:eth:mint --token ARGN --to 0xRecipient --amount 100
-  yarn dev:eth:mint --token ARGNOT --to 0xRecipient --amount 25.5
-  yarn dev:eth:mint --token ARGN --from 0xAdmin --to 0xRecipient --base-units 1000000000000000000
+  yarn dev:ethereum:add-argn --to 0xRecipient --amount 100
+  yarn dev:ethereum:add-argnot --to 0xRecipient --amount 25.5
+  yarn dev:ethereum:add-argn --from 0xAdmin --to 0xRecipient --base-units 1000000000000000000
 
 Notes:
   - Uses MintingGateway.adminMintBatch on the configured Ethereum gateway.
