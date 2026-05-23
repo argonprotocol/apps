@@ -34,6 +34,9 @@ import {
   NetworkConfig,
   SingleFileQueue,
   TreasuryBonds,
+  minimumVaultDelegateBalance,
+  targetVaultDelegateBalance,
+  vaultDelegateFeeBuffer,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
@@ -77,16 +80,13 @@ export interface IExternalBitcoinLock {
 const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
 export class MyVault {
-  public static readonly activeVaultDelegateBalance = 100_000n;
-  public static readonly targetVaultDelegateBalance = 250_000n;
-  public static readonly vaultDelegateFeeBuffer = 100_000n;
-
+  // The shared vault delegate now fronts both bitcoin lock relay work and Ethereum proof/beacon relay submissions.
   public static async getVaultDelegateTopUpAmount(client: ArgonClient, delegateAddress: string): Promise<bigint> {
     const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
-    if (delegateBalance >= MyVault.activeVaultDelegateBalance) {
+    if (delegateBalance >= minimumVaultDelegateBalance) {
       return 0n;
     }
-    return MyVault.targetVaultDelegateBalance - delegateBalance;
+    return targetVaultDelegateBalance - delegateBalance;
   }
 
   public data: {
@@ -551,15 +551,15 @@ export class MyVault {
         const vaultBalance = await client.query.system
           .account(this.createdVault!.operatorAccountId)
           .then(x => x.data.free.toBigInt());
-        if (vaultBalance < MyVault.targetVaultDelegateBalance + MyVault.vaultDelegateFeeBuffer) {
+        if (vaultBalance < targetVaultDelegateBalance + vaultDelegateFeeBuffer) {
           throw new Error(
             `Your vault account must have a minimum of ${
-              MyVault.targetVaultDelegateBalance + MyVault.vaultDelegateFeeBuffer
+              targetVaultDelegateBalance + vaultDelegateFeeBuffer
             } balance to invite external members.`,
           );
         }
 
-        const transferTx = client.tx.balances.transferKeepAlive(delegateAddress, MyVault.targetVaultDelegateBalance);
+        const transferTx = client.tx.balances.transferKeepAlive(delegateAddress, targetVaultDelegateBalance);
         const delegateTx = client.tx.vaults.setBitcoinLockDelegate(delegateAddress);
         const txs = [transferTx, delegateTx];
         if (currentVaultName !== nextVaultName) {
@@ -1146,7 +1146,8 @@ export class MyVault {
             throw new Error('Failed to determine collected revenue from vault collect events');
           }
           const client = await getMainchainClient(false);
-          const clientAt = await client.at(txInfo.txResult.blockHash!);
+          const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
+          const clientAt = await client.at(blockHash);
           const balanceAtBlock = await clientAt.query.system
             .account(this.walletKeys.vaultingAddress)
             .then(x => x.data.free.toBigInt());

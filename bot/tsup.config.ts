@@ -1,10 +1,8 @@
 import { defineConfig } from 'tsup';
 import { wasmLoader } from 'esbuild-plugin-wasm';
 
-const entry = process.env.BOT_BUILD_TARGET === 'relayer' ? ['src/relayer.ts'] : ['src/index.ts'];
-
 export default defineConfig({
-  entry,
+  entry: ['src/index.ts'],
   dts: false,
   format: 'esm',
   target: 'esnext',

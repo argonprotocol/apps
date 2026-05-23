@@ -808,7 +808,7 @@ export default class BitcoinLocks {
       ...details,
       status: BitcoinLockStatus.LockIsProcessingOnArgon,
       cosignVersion: 'v1',
-      network: this.#config.bitcoinNetwork.toString(),
+      network: String(this.#config.bitcoinNetwork),
     });
   }
 
@@ -835,7 +835,7 @@ export default class BitcoinLocks {
     const postProcessor = txInfo.createPostProcessor();
     const genericClient = await getMainchainClient(true);
     const txResult = txInfo.txResult;
-    await txResult.waitForFinalizedBlock.catch(error => {
+    const blockHash = await txResult.waitForFinalizedBlock.catch(error => {
       if (!txResult.extrinsicError) throw error;
     });
     const uuid = txInfo.tx.metadataJson.bitcoin.uuid;
@@ -859,7 +859,7 @@ export default class BitcoinLocks {
       return;
     }
 
-    const typeClient = await genericClient.at(txResult.blockHash!);
+    const typeClient = await genericClient.at(blockHash!);
     const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
     const record = await this.finalizePendingRecord(
       { uuid },

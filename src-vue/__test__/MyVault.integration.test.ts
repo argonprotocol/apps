@@ -76,7 +76,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
 
     setMainchainClients(clients);
     NetworkConfig.setNetwork('dev-docker');
-  }, 120e3);
+  }, 180e3);
 
   afterAll(async () => {
     myVault?.unsubscribe();

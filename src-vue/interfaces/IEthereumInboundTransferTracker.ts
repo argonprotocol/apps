@@ -8,13 +8,11 @@ export type IEthereumMoveToken = MoveToken.ARGN | MoveToken.ARGNOT;
 export type IEthereumInboundTransferPhase =
   | 'idle'
   | 'preparing'
-  | 'awaitingEthereumApproval'
-  | 'awaitingEthereumBurn'
-  | 'waitingForRetainedAnchor'
+  | 'confirmingEthereum'
   | 'confirmingArgon'
   | 'confirmedOnArgon';
 
-export interface IEthereumInboundSourceFinalization {
+export interface IEthereumInboundArgonReadiness {
   startedAt: number;
   estimatedDurationMs: number;
   pollMs: number;
@@ -32,7 +30,7 @@ export interface IEthereumInboundTransferState {
   targetWalletType?: IArgonWalletType;
   phase: IEthereumInboundTransferPhase;
   error: string;
-  sourceFinalization?: IEthereumInboundSourceFinalization;
+  argonReadiness?: IEthereumInboundArgonReadiness;
   argonProgress?: IEthereumInboundArgonProgress;
 }
 

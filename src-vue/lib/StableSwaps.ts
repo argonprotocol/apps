@@ -1,4 +1,4 @@
-import { calculateProfitPct } from '@argonprotocol/apps-core';
+import { calculateProfitPct, NetworkConfig } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import JSBI from 'jsbi';
@@ -29,8 +29,6 @@ import {
   StableSwapProofStatus,
 } from './db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from './db/StableSwapSyncStateTable.ts';
-import { getEthereumNetworkSettings } from './EthereumClient.ts';
-
 export { buildStableSwapReceiptProofs, type StableSwapReceiptProof };
 
 export interface StableSwapPoolMetadata {
@@ -128,7 +126,7 @@ export function normalizeStableSwapAddress(address: string): Address {
 }
 
 export function getStableSwapArgonTokenAddress(): Address {
-  return getEthereumNetworkSettings().argonTokenAddress;
+  return getAddress(NetworkConfig.get().ethereumNetwork.argonTokenAddress);
 }
 
 export async function fetchStableSwapPoolMetadata(
@@ -852,13 +850,23 @@ function stableSwapSdkPriceToFixed18(price: ReturnType<UniswapV3Pool['priceOf']>
 }
 
 function getStableSwapArgonToken(): Token {
-  const ethereumNetwork = getEthereumNetworkSettings();
-  return new Token(STABLE_SWAP_CHAIN_ID, ethereumNetwork.argonTokenAddress, ETHEREUM_ARGON_DECIMALS, 'ARGN', 'Argon');
+  return new Token(
+    STABLE_SWAP_CHAIN_ID,
+    getAddress(NetworkConfig.get().ethereumNetwork.argonTokenAddress),
+    ETHEREUM_ARGON_DECIMALS,
+    'ARGN',
+    'Argon',
+  );
 }
 
 function getStableSwapUsdcToken(): Token {
-  const ethereumNetwork = getEthereumNetworkSettings();
-  return new Token(STABLE_SWAP_CHAIN_ID, ethereumNetwork.usdcTokenAddress, USDC_DECIMALS, 'USDC', 'USD Coin');
+  return new Token(
+    STABLE_SWAP_CHAIN_ID,
+    getAddress(NetworkConfig.get().ethereumNetwork.usdcTokenAddress),
+    USDC_DECIMALS,
+    'USDC',
+    'USD Coin',
+  );
 }
 
 function isLikelyRateLimit(error: unknown): boolean {

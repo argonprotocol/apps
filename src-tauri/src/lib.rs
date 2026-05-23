@@ -212,6 +212,22 @@ async fn sign_ethereum_personal_message(app: AppHandle, message: &str) -> Result
 }
 
 #[tauri::command]
+async fn sign_ethereum_permit(
+    app: AppHandle,
+    signer_policy: State<'_, EthereumSignerPolicyState>,
+    request: ethereum_signer::EthereumPermitRequest,
+) -> Result<ethereum_signer::EthereumPermitSignature, String> {
+    let current_policy = signer_policy.policy.lock().await;
+    let policy = current_policy
+        .as_ref()
+        .ok_or("Ethereum signer policy has not been configured yet")?;
+    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
+    let signature =
+        ethereum_signer::sign_permit(&mnemonic, policy, &request).map_err(|e| e.to_string())?;
+    Ok(signature)
+}
+
+#[tauri::command]
 async fn set_ethereum_signer_policy(
     app: AppHandle,
     signer_policy: State<'_, EthereumSignerPolicyState>,
@@ -764,6 +780,7 @@ pub fn run() {
             derive_sr25519_address,
             derive_ed25519_seed,
             sign_ethereum_personal_message,
+            sign_ethereum_permit,
             set_ethereum_signer_policy,
             sign_ethereum_transaction,
             derive_x25519_public_key,

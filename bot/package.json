@@ -4,16 +4,14 @@
   "description": "A bot for managing mining bids",
   "scripts": {
     "start": "tsx src/index.ts",
-    "start:relayer": "tsx src/relayer.ts",
     "build": "tsup",
-    "build:relayer": "BOT_BUILD_TARGET=relayer tsup",
     "watch": "tsup --watch"
   },
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.3-dev.4117801d",
+    "@argonprotocol/mainchain": "1.4.3-dev.5831d68f",
     "bignumber.js": "^9.3.1",
     "cors": "^2.8.5",
     "express": "^5.2.0",
@@ -24,7 +22,7 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.4117801d",
+    "@argonprotocol/testing": "1.4.3-dev.5831d68f",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/ws": "^8.18.1",

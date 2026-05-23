@@ -245,16 +245,16 @@ export class AccountEventsFilter {
           extrinsicIndex,
         };
       }
-    } else if (client.events.crosschainTransfer.BurnNoticeAccepted.is(event) && extrinsicIndex !== undefined) {
-      const { notice } = event.data;
-      if (accountFilter(notice.to)) {
+    } else if (client.events.crosschainTransfer.TransferToArgonSettled.is(event) && extrinsicIndex !== undefined) {
+      const { transfer } = event.data;
+      if (accountFilter(transfer.to)) {
         return {
-          to: notice.to.toHuman(),
+          to: transfer.to.toHuman(),
           transferType: 'ethereum',
           isInbound: true,
-          amount: notice.amount.toBigInt(),
+          amount: transfer.amount.toBigInt(),
           isInternal: false,
-          currency: notice.assetKind.isArgon ? 'argon' : 'argonot',
+          currency: transfer.asset.isArgon ? 'argon' : 'argonot',
           extrinsicIndex,
         };
       }

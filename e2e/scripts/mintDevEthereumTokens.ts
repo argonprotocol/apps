@@ -5,15 +5,15 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { getClient } from '@argonprotocol/mainchain';
+import { mintingGatewayArtifact } from '@argonprotocol/testing';
 import {
   createPublicClient,
   encodeFunctionData,
+  erc20Abi,
   getAddress,
   type Hash,
-  type Hex,
   http,
   isAddress,
-  parseAbiItem,
   parseUnits,
   type Address,
 } from 'viem';
@@ -29,40 +29,37 @@ const ethereumRuntimeToErc20Scale = 10n ** 12n;
 
 type SupportedToken = 'ARGN' | 'ARGNOT';
 
+type MintDevEthereumTokensArgs = {
+  to: string;
+  from?: string;
+  rpcUrl?: string;
+  archiveUrl?: string;
+  argnRuntimeAmount?: bigint;
+  argnotRuntimeAmount?: bigint;
+};
+
+type MintDevEthereumTokensResult = {
+  rpcUrl: string;
+  archiveUrl: string;
+  chainId: number;
+  gatewayAddress: Address;
+  argonTokenAddress: Address;
+  argonotTokenAddress: Address;
+  recipient: Address;
+  argnAmountBaseUnits: bigint;
+  argnotAmountBaseUnits: bigint;
+  argnRuntimeAmount: bigint;
+  argnotRuntimeAmount: bigint;
+  adminSender?: Address;
+  ethereumMintHash?: Hash;
+  argonBump?: Awaited<ReturnType<typeof bumpArgonBurnAccount>>;
+};
+
 type EthereumChainConfig = {
   gatewayAddress: Address;
   argonTokenAddress: Address;
   argonotTokenAddress: Address;
 };
-
-type MintDevEthereumTokenArgs = {
-  token: SupportedToken;
-  to: string;
-  from?: string;
-  rpcUrl?: string;
-  archiveUrl?: string;
-  runtimeAmount?: bigint;
-  amountBaseUnits?: bigint;
-};
-
-type MintDevEthereumTokenResult = {
-  rpcUrl: string;
-  archiveUrl: string;
-  chainId: number;
-  token: SupportedToken;
-  tokenAddress: Address;
-  gatewayAddress: Address;
-  adminSender: Address;
-  recipient: Address;
-  amountBaseUnits: bigint;
-  runtimeAmount: bigint;
-  ethereumMintHash: Hash;
-  argonBump: Awaited<ReturnType<typeof bumpArgonBurnAccount>>;
-};
-
-const mintingGatewayAbi = [
-  parseAbiItem('function adminMintBatch(address token, address[] recipients, uint256[] amounts)'),
-] as const;
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const isDirectExecution = !!process.argv[1] && path.resolve(process.argv[1]) === currentFilePath;
@@ -84,7 +81,8 @@ async function main(): Promise<void> {
       rpc: { type: 'string' },
       archive: { type: 'string' },
       amount: { type: 'string' },
-      'base-units': { type: 'string' },
+      argons: { type: 'string' },
+      argonots: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
     allowPositionals: false,
@@ -95,82 +93,154 @@ async function main(): Promise<void> {
     return;
   }
 
-  const result = await mintDevEthereumToken({
-    token: parseTokenArg(values.token),
+  const token = values.token ? parseTokenArg(values.token) : undefined;
+  const genericRuntimeAmount = parseRuntimeAmountArg(values.amount);
+  if (token && (values.argons || values.argonots)) {
+    throw new Error('Use either --token with --amount, or the explicit --argons / --argonots flags. Do not mix both.');
+  }
+  if (!token && values.amount) {
+    throw new Error('Provide --token when using --amount.');
+  }
+
+  const result = await mintDevEthereumTokens({
     to: parseAddressArg(values.to, 'Missing required --to address'),
     from: values.from,
     rpcUrl: values.rpc,
     archiveUrl: values.archive,
-    amountBaseUnits: parseAmountArg(values.amount, values['base-units']),
+    argnRuntimeAmount: token === 'ARGN' ? genericRuntimeAmount : parseRuntimeAmountArg(values.argons),
+    argnotRuntimeAmount: token === 'ARGNOT' ? genericRuntimeAmount : parseRuntimeAmountArg(values.argonots),
   });
 
   console.info(`[mint-dev-ethereum-token] RPC: ${result.rpcUrl}`);
   console.info(`[mint-dev-ethereum-token] Archive: ${result.archiveUrl}`);
   console.info(`[mint-dev-ethereum-token] Chain ID: ${result.chainId}`);
-  console.info(`[mint-dev-ethereum-token] Token: ${result.token}`);
-  console.info(`[mint-dev-ethereum-token] Token Address: ${result.tokenAddress}`);
   console.info(`[mint-dev-ethereum-token] Gateway Address: ${result.gatewayAddress}`);
-  console.info(`[mint-dev-ethereum-token] Admin Sender: ${result.adminSender}`);
+  console.info(`[mint-dev-ethereum-token] ARGN Token Address: ${result.argonTokenAddress}`);
+  console.info(`[mint-dev-ethereum-token] ARGNOT Token Address: ${result.argonotTokenAddress}`);
   console.info(`[mint-dev-ethereum-token] Recipient: ${result.recipient}`);
-  console.info(`[mint-dev-ethereum-token] Amount (Argon runtime units): ${result.runtimeAmount}`);
-  console.info(`[mint-dev-ethereum-token] Amount (ERC20 base units): ${result.amountBaseUnits}`);
-  console.info(`[mint-dev-ethereum-token] Ethereum Mint Tx: ${result.ethereumMintHash}`);
-  console.info(`[mint-dev-ethereum-token] Argon Burn Account: ${result.argonBump.burnAccount}`);
-  console.info(
-    `[mint-dev-ethereum-token] Burn Account Balances: ${result.argonBump.microgons} microgons, ${result.argonBump.micronots} micronots`,
-  );
+  console.info(`[mint-dev-ethereum-token] ARGN Amount (Argon runtime units): ${result.argnRuntimeAmount}`);
+  console.info(`[mint-dev-ethereum-token] ARGN Amount (ERC20 base units): ${result.argnAmountBaseUnits}`);
+  console.info(`[mint-dev-ethereum-token] ARGNOT Amount (Argon runtime units): ${result.argnotRuntimeAmount}`);
+  console.info(`[mint-dev-ethereum-token] ARGNOT Amount (ERC20 base units): ${result.argnotAmountBaseUnits}`);
+
+  if (result.ethereumMintHash) {
+    console.info(`[mint-dev-ethereum-token] Admin Sender: ${result.adminSender}`);
+    console.info(`[mint-dev-ethereum-token] Ethereum Migration Tx: ${result.ethereumMintHash}`);
+  } else {
+    console.info(
+      '[mint-dev-ethereum-token] Migration already completed; existing seeded balances satisfied this request.',
+    );
+  }
+
+  if (result.argonBump) {
+    console.info(`[mint-dev-ethereum-token] Argon Burn Account: ${result.argonBump.burnAccount}`);
+    console.info(
+      `[mint-dev-ethereum-token] Burn Account Balances: ${result.argonBump.microgons} microgons, ${result.argonBump.micronots} micronots`,
+    );
+  }
 }
 
-export async function mintDevEthereumToken(args: MintDevEthereumTokenArgs): Promise<MintDevEthereumTokenResult> {
-  const token = args.token;
+export async function mintDevEthereumTokens(args: MintDevEthereumTokensArgs): Promise<MintDevEthereumTokensResult> {
   const recipient = parseAddressArg(args.to, 'Missing required recipient address');
-  const amountBaseUnits = resolveAmountBaseUnits(args);
-  const runtimeAmount = convertErc20AmountToRuntimeAmount(amountBaseUnits);
-  const rpcUrl = await resolveRpcUrl(args.rpcUrl);
-  const archiveUrl = resolveArchiveUrl(args.archiveUrl);
+  const argnRuntimeAmount = resolveRuntimeAmount(args.argnRuntimeAmount, 'ARGN');
+  const argnotRuntimeAmount = resolveRuntimeAmount(args.argnotRuntimeAmount, 'ARGNOT');
+  if (argnRuntimeAmount === 0n && argnotRuntimeAmount === 0n) {
+    throw new Error('Provide an ARGN or ARGNOT amount to seed on the dev Ethereum gateway.');
+  }
+
+  const argnAmountBaseUnits = convertRuntimeAmountToErc20Amount(argnRuntimeAmount);
+  const argnotAmountBaseUnits = convertRuntimeAmountToErc20Amount(argnotRuntimeAmount);
+  const rpcUrl = await resolveDevEthereumRpcUrl({
+    rpcUrl: args.rpcUrl,
+    logPrefix: 'mint-dev-ethereum-token',
+  });
+  const archiveUrl = args.archiveUrl?.trim() || process.env.ARGON_ARCHIVE_URL?.trim() || defaultArchiveUrl;
   const publicClient = createPublicClient({
     transport: http(rpcUrl, { retryCount: 1, timeout: 15_000 }),
   });
 
   const [chainId, chainConfig] = await Promise.all([publicClient.getChainId(), loadEthereumChainConfig(archiveUrl)]);
-  const tokenAddress = token === 'ARGNOT' ? chainConfig.argonotTokenAddress : chainConfig.argonTokenAddress;
-
-  // adminMintBatch accepts Argon runtime base units, not ERC20 token base units.
-  const mintData = encodeFunctionData({
-    abi: mintingGatewayAbi,
-    functionName: 'adminMintBatch',
-    args: [tokenAddress, [recipient], [runtimeAmount]],
+  const migrationCompleted = await publicClient.readContract({
+    address: chainConfig.gatewayAddress,
+    abi: mintingGatewayArtifact.abi,
+    functionName: 'migrationCompleted',
   });
 
-  const { adminSender, ethereumMintHash } = await sendMintTransaction({
-    rpcUrl,
-    gatewayAddress: chainConfig.gatewayAddress,
-    mintData,
-    from: args.from,
-  });
+  let adminSender: Address | undefined;
+  let ethereumMintHash: Hash | undefined;
+  let argonBump: Awaited<ReturnType<typeof bumpArgonBurnAccount>> | undefined;
 
-  const ethereumReceipt = await publicClient.waitForTransactionReceipt({ hash: ethereumMintHash });
-  if (ethereumReceipt.status !== 'success') {
-    throw new Error(`Ethereum mint transaction failed: ${ethereumMintHash}`);
+  if (migrationCompleted) {
+    const [argonBalance, argonotBalance] = await Promise.all([
+      publicClient.readContract({
+        address: chainConfig.argonTokenAddress,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [recipient],
+      }),
+      publicClient.readContract({
+        address: chainConfig.argonotTokenAddress,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [recipient],
+      }),
+    ]);
+
+    if (argonBalance < argnAmountBaseUnits || argonotBalance < argnotAmountBaseUnits) {
+      throw new Error(
+        'MintingGateway migration balances have already been seeded on this dev chain. Restart the dev Ethereum fixture before seeding additional balances.',
+      );
+    }
+  } else {
+    const mintData = encodeFunctionData({
+      abi: mintingGatewayArtifact.abi,
+      functionName: 'migrate',
+      args: [
+        {
+          recipients: argnAmountBaseUnits > 0n ? [recipient] : [],
+          amounts: argnAmountBaseUnits > 0n ? [argnAmountBaseUnits] : [],
+        },
+        {
+          recipients: argnotAmountBaseUnits > 0n ? [recipient] : [],
+          amounts: argnotAmountBaseUnits > 0n ? [argnotAmountBaseUnits] : [],
+        },
+      ],
+    });
+
+    const sent = await sendMintTransaction({
+      rpcUrl,
+      gatewayAddress: chainConfig.gatewayAddress,
+      mintData,
+      from: args.from,
+    });
+    adminSender = sent.adminSender;
+    ethereumMintHash = sent.ethereumMintHash;
+
+    const ethereumReceipt = await publicClient.waitForTransactionReceipt({ hash: ethereumMintHash });
+    if (ethereumReceipt.status !== 'success') {
+      throw new Error(`Ethereum migration transaction failed: ${ethereumMintHash}`);
+    }
+
+    argonBump = await bumpArgonBurnAccount({
+      archiveUrl,
+      microgons: argnRuntimeAmount,
+      micronots: argnotRuntimeAmount,
+    });
   }
-
-  const argonBump = await bumpArgonBurnAccount({
-    archiveUrl,
-    token,
-    runtimeAmount,
-  });
 
   return {
     rpcUrl,
     archiveUrl,
     chainId,
-    token,
-    tokenAddress,
     gatewayAddress: chainConfig.gatewayAddress,
-    adminSender,
+    argonTokenAddress: chainConfig.argonTokenAddress,
+    argonotTokenAddress: chainConfig.argonotTokenAddress,
     recipient,
-    amountBaseUnits,
-    runtimeAmount,
+    argnAmountBaseUnits,
+    argnotAmountBaseUnits,
+    argnRuntimeAmount,
+    argnotRuntimeAmount,
+    adminSender,
     ethereumMintHash,
     argonBump,
   };
@@ -195,55 +265,27 @@ function parseAddressArg(value: string | undefined, missingMessage: string): Add
   return getAddress(value);
 }
 
-function parseAmountArg(amount: string | undefined, baseUnits: string | undefined): bigint {
-  if (!amount && !baseUnits) {
-    throw new Error('Provide either --amount <decimal> or --base-units <integer>');
+function parseRuntimeAmountArg(amount: string | undefined): bigint | undefined {
+  if (!amount) {
+    return;
   }
-  if (amount && baseUnits) {
-    throw new Error('Provide only one of --amount or --base-units');
-  }
-  if (baseUnits) {
-    if (!/^\d+$/.test(baseUnits)) {
-      throw new Error(`--base-units must be an integer string: ${baseUnits}`);
+
+  return parseUnits(amount, 6);
+}
+
+function resolveRuntimeAmount(runtimeAmount: bigint | undefined, label: string): bigint {
+  if (runtimeAmount !== undefined) {
+    if (runtimeAmount < 0n) {
+      throw new Error(`${label} runtime amount must be non-negative: ${runtimeAmount}`);
     }
-    return BigInt(baseUnits);
+    return runtimeAmount;
   }
 
-  return parseUnits(amount!, 18);
+  return 0n;
 }
 
-function resolveAmountBaseUnits(args: MintDevEthereumTokenArgs): bigint {
-  const hasBaseUnits = args.amountBaseUnits != null;
-  const hasRuntimeAmount = args.runtimeAmount != null;
-
-  if (hasBaseUnits === hasRuntimeAmount) {
-    throw new Error('Provide exactly one of amountBaseUnits or runtimeAmount');
-  }
-
-  if (hasBaseUnits) {
-    return args.amountBaseUnits!;
-  }
-
-  const runtimeAmount = args.runtimeAmount!;
-  if (runtimeAmount < 0n) {
-    throw new Error(`Runtime amount must be non-negative: ${runtimeAmount}`);
-  }
-
+function convertRuntimeAmountToErc20Amount(runtimeAmount: bigint): bigint {
   return runtimeAmount * ethereumRuntimeToErc20Scale;
-}
-
-function convertErc20AmountToRuntimeAmount(amountBaseUnits: bigint): bigint {
-  if (amountBaseUnits % ethereumRuntimeToErc20Scale !== 0n) {
-    throw new Error(
-      `Amount ${amountBaseUnits} is not representable on Argon. Use a value aligned to 6 runtime decimals (multiple of ${ethereumRuntimeToErc20Scale}).`,
-    );
-  }
-
-  return amountBaseUnits / ethereumRuntimeToErc20Scale;
-}
-
-function resolveArchiveUrl(value: string | undefined): string {
-  return value?.trim() || process.env.ARGON_ARCHIVE_URL?.trim() || defaultArchiveUrl;
 }
 
 async function loadEthereumChainConfig(archiveUrl: string): Promise<EthereumChainConfig> {
@@ -266,17 +308,10 @@ async function loadEthereumChainConfig(archiveUrl: string): Promise<EthereumChai
   }
 }
 
-async function resolveRpcUrl(value: string | undefined): Promise<string> {
-  return resolveDevEthereumRpcUrl({
-    rpcUrl: value,
-    logPrefix: 'mint-dev-ethereum-token',
-  });
-}
-
 async function sendMintTransaction(args: {
   rpcUrl: string;
   gatewayAddress: Address;
-  mintData: Hex;
+  mintData: `0x${string}`;
   from?: string;
 }): Promise<{ adminSender: Address; ethereumMintHash: Hash }> {
   const { rpcUrl, gatewayAddress, mintData, from } = args;
@@ -310,17 +345,12 @@ async function sendMintTransaction(args: {
   };
 }
 
-async function bumpArgonBurnAccount(args: {
-  archiveUrl: string;
-  token: SupportedToken;
-  runtimeAmount: bigint;
-}): Promise<{
+async function bumpArgonBurnAccount(args: { archiveUrl: string; microgons: bigint; micronots: bigint }): Promise<{
   burnAccount: string;
   microgons: bigint;
   micronots: bigint;
 }> {
-  const { archiveUrl, token, runtimeAmount } = args;
-  const client = await getClient(archiveUrl);
+  const client = await getClient(args.archiveUrl);
 
   try {
     const burnAccount = client.consts.crosschainTransfer.ethereumBurnAccount.toString();
@@ -329,13 +359,11 @@ async function bumpArgonBurnAccount(args: {
       client.query.ownership.account(burnAccount).then(x => x.free.toBigInt()),
     ]);
 
-    const nextMicrogons = token === 'ARGN' ? currentMicrogons + runtimeAmount : currentMicrogons;
-    const nextMicronots = token === 'ARGNOT' ? currentMicronots + runtimeAmount : currentMicronots;
     const { fundedMicrogons, fundedMicronots } = await sudoFundWallet({
       address: burnAccount,
-      archiveUrl,
-      microgons: nextMicrogons,
-      micronots: nextMicronots,
+      archiveUrl: args.archiveUrl,
+      microgons: currentMicrogons + args.microgons,
+      micronots: currentMicronots + args.micronots,
     });
 
     return {
@@ -384,16 +412,21 @@ function printUsage(): void {
   console.info(`Usage:
   yarn dev:ethereum:add-argn --to 0xRecipient --amount 100
   yarn dev:ethereum:add-argnot --to 0xRecipient --amount 25.5
-  yarn dev:ethereum:add-argn --from 0xAdmin --to 0xRecipient --base-units 1000000000000000000
+  yarn dev:ethereum:add-argn --from 0xAdmin --to 0xRecipient --amount 1
+
+Direct:
+  yarn exec tsx e2e/scripts/mintDevEthereumTokens.ts --to 0xRecipient --argons 100 --argonots 25.5
 
 Notes:
-  - Uses MintingGateway.adminMintBatch on the configured Ethereum gateway.
-  - Also sudo-bumps the Argon crosschain burn-account liquidity for the matching asset.
+  - Uses MintingGatewayV2.migrate on the configured Ethereum gateway.
+  - Migration seeding is one-time per dev chain; restart the dev Ethereum fixture to seed different balances later.
+  - Also sudo-bumps the Argon crosschain burn-account liquidity for the seeded assets.
   - Resolves gateway, ARGN, and ARGNOT addresses from Argon runtime Ethereum chain config.
   - Uses ETH_RPC or ETHEREUM_EXECUTION_RPC_URL if set, otherwise probes local Kurtosis execution RPC ports.
   - Uses ARGON_ARCHIVE_URL if set, otherwise defaults to ws://127.0.0.1:9944.
-  - Uses the first unlocked devnet account if --from is omitted.
-  - The Ethereum sender must be the gateway admin on the local devnet.
-  - Amounts must align to 6 Argon runtime decimals.
+  - Uses the built-in local dev admin account if --from is omitted.
+  - --amount is a 6-decimal Argon runtime amount for the token selected by the package script.
+  - --argons and --argonots are 6-decimal Argon runtime amounts.
+  - Example: --argons 1 seeds 1_000_000 microgons.
 `);
 }

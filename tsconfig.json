@@ -33,6 +33,7 @@
     "src-vue/**/*.d.ts",
     "src-vue/**/*.tsx",
     "src-vue/**/*.vue",
+    "src-tauri/dev.ts",
     "scripts",
     "eslint.config.ts",
     "bot/**/*.ts",

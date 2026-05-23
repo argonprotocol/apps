@@ -1,14 +1,20 @@
-use alloy_primitives::Bytes;
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_rlp::{Decodable, RlpDecodable};
-use alloy_sol_types::{SolCall, sol};
+use alloy_sol_types::{Eip712Domain, SolCall, SolStruct, sol};
 use anyhow::{Result, ensure};
 use bip32::XPrv;
 use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
 use std::str::FromStr;
 
 sol! {
-    function approve(address spender, uint256 amount);
-    function burnForTransfer(address token, uint256 amountBaseUnits, bytes32 argonDestination);
+    function startTransferToArgon(address token, uint128 amount, bytes32 argonAccountId, uint256 deadline, uint8 v, bytes32 r, bytes32 s);
+    struct Permit {
+        address owner;
+        address spender;
+        uint256 value;
+        uint256 nonce;
+        uint256 deadline;
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -41,6 +47,24 @@ pub struct EthereumTransactionSignature {
     pub s: String,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthereumPermitRequest {
+    pub token_address: String,
+    pub token_name: String,
+    pub value: String,
+    pub nonce: String,
+    pub deadline: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthereumPermitSignature {
+    pub v: u8,
+    pub r: String,
+    pub s: String,
+}
+
 pub fn derive_hd_key(mnemonic: &str) -> Result<XPrv> {
     let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
     let path = bip32::DerivationPath::from_str("m/44'/60'/0'/0/0")?;
@@ -61,6 +85,46 @@ pub fn sign_personal_message(mnemonic: &str, message: &str) -> Result<String> {
     signature_bytes[64] = recovery_id.to_i32() as u8 + 27;
 
     Ok(format!("0x{}", hex::encode(signature_bytes)))
+}
+
+pub fn sign_permit(
+    mnemonic: &str,
+    policy: &EthereumSignerPolicy,
+    request: &EthereumPermitRequest,
+) -> Result<EthereumPermitSignature> {
+    let token_address = parse_ethereum_address(&request.token_address)?;
+    ensure!(
+        policy
+            .token_addresses
+            .iter()
+            .any(|allowed| allowed == &token_address),
+        "Ethereum permit token is not allowed"
+    );
+
+    let value = parse_u256(&request.value)?;
+    let nonce = parse_u256(&request.nonce)?;
+    let deadline = parse_u256(&request.deadline)?;
+    let domain = Eip712Domain::new(
+        Some(request.token_name.clone().into()),
+        Some("1".into()),
+        Some(U256::from(policy.chain_id)),
+        Some(Address::from(token_address)),
+        None,
+    );
+    let permit = Permit {
+        owner: Address::from(derive_ethereum_address_bytes(mnemonic)?),
+        spender: Address::from(policy.gateway_address),
+        value,
+        nonce,
+        deadline,
+    };
+    let signature = sign_digest(mnemonic, permit.eip712_signing_hash(&domain).into())?;
+
+    Ok(EthereumPermitSignature {
+        v: signature.0,
+        r: signature.1,
+        s: signature.2,
+    })
 }
 
 pub fn set_policy(
@@ -133,36 +197,26 @@ fn sign_transaction_bytes(
 }
 
 fn validate_ethereum_call(policy: &EthereumSignerPolicy, to: &[u8; 20], data: &[u8]) -> Result<()> {
-    if policy.token_addresses.iter().any(|token| token == to) {
-        let approve_call = approveCall::abi_decode_validate(data).map_err(|_| {
-            anyhow::anyhow!("Ethereum signer only allows approve calls on token contracts")
-        })?;
-
-        ensure!(
-            approve_call.spender.as_slice() == policy.gateway_address.as_slice(),
-            "Ethereum approve spender is not the configured gateway"
-        );
-        return Ok(());
-    }
-
     if *to == policy.gateway_address {
-        let burn_call = burnForTransferCall::abi_decode_validate(data).map_err(|_| {
-            anyhow::anyhow!("Ethereum signer only allows burnForTransfer on the gateway contract")
+        let transfer_call = startTransferToArgonCall::abi_decode_validate(data).map_err(|_| {
+            anyhow::anyhow!(
+                "Ethereum signer only allows startTransferToArgon on the gateway contract"
+            )
         })?;
 
         ensure!(
             policy
                 .token_addresses
                 .iter()
-                .any(|allowed| allowed.as_slice() == burn_call.token.as_slice()),
-            "Ethereum burnForTransfer token is not allowed"
+                .any(|allowed| allowed.as_slice() == transfer_call.token.as_slice()),
+            "Ethereum startTransferToArgon token is not allowed"
         );
         ensure!(
             policy
                 .allowed_destinations
                 .iter()
-                .any(|allowed| allowed.as_slice() == burn_call.argonDestination.as_slice()),
-            "Ethereum burnForTransfer destination is not one of this wallet's Argon accounts"
+                .any(|allowed| allowed.as_slice() == transfer_call.argonAccountId.as_slice()),
+            "Ethereum startTransferToArgon destination is not one of this wallet's Argon accounts"
         );
         return Ok(());
     }
@@ -262,6 +316,35 @@ fn ethereum_personal_message_digest(message: &[u8]) -> [u8; 32] {
     let mut payload = prefix.into_bytes();
     payload.extend_from_slice(message);
     sp_core::hashing::keccak_256(&payload)
+}
+
+fn parse_u256(value: &str) -> Result<U256> {
+    Ok(U256::from_str(value.trim())?)
+}
+
+fn derive_ethereum_address_bytes(mnemonic: &str) -> Result<[u8; 20]> {
+    let hd_key = derive_hd_key(mnemonic)?;
+    let public_key = hd_key.private_key().verifying_key();
+    let encoded = public_key.to_encoded_point(false);
+    let public_key_bytes = encoded.as_bytes();
+    let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
+    let mut address = [0u8; 20];
+    address.copy_from_slice(&hash[12..]);
+    Ok(address)
+}
+
+fn sign_digest(mnemonic: &str, digest: [u8; 32]) -> Result<(u8, String, String)> {
+    let hd_key = derive_hd_key(mnemonic)?;
+    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    let signature = Secp256k1::new()
+        .sign_ecdsa_recoverable(&Secp256k1Message::from_digest(digest), &secret_key);
+    let (recovery_id, compact) = signature.serialize_compact();
+
+    Ok((
+        recovery_id.to_i32() as u8 + 27,
+        format!("0x{}", hex::encode(&compact[..32])),
+        format!("0x{}", hex::encode(&compact[32..])),
+    ))
 }
 
 #[cfg(test)]

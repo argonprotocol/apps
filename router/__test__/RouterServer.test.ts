@@ -444,8 +444,8 @@ describe('RouterServer', () => {
     expect(authenticatedInitializeResponse.status).toBe(200);
   });
 
-  it('allows treasury and operational sessions to relay Ethereum proofs through router pass-through', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-ethereum-proof-relay-auth-test-'));
+  it('allows admin, treasury, and operational sessions to trigger Ethereum gateway catch-up through router pass-through', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-ethereum-gateway-catch-up-auth-test-'));
     routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
     routerDb.migrate();
 
@@ -462,11 +462,12 @@ describe('RouterServer', () => {
           outcome: 'Submitted',
           delegateAddress: '5RelayDelegate',
           argonTxHash: '0xrelaytx',
-          extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+          extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
           txNonce: 3,
           txSubmittedAtBlockHeight: 44,
           txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
           estimatedFee: 5n,
+          throughGatewayActivityNonce: 7n,
         },
       },
       {
@@ -492,6 +493,7 @@ describe('RouterServer', () => {
     routerDb.userInvitesTable.insertInvite(operationalRecord.id, InviteCodes.create().inviteCode, 'Operator One');
     routerDb.userInvitesTable.claimInvite(operationalRecord.id, operationalUser.address, operationalAuth.address);
 
+    const { cookie: adminCookie } = await login(routerAddress, operator);
     const { cookie: treasuryCookie } = await login(routerAddress, treasuryUser, UserRole.TreasuryUser, treasuryAuth);
     const { cookie: operationalCookie } = await login(
       routerAddress,
@@ -500,19 +502,30 @@ describe('RouterServer', () => {
       operationalAuth,
     );
 
-    const relayPath = '/ethereum-proof-relay';
+    const relayPath = '/ethereum-relay-request';
     const relayBody = {
-      transferProof: {
-        Ethereum: {
-          sourceChain: 'Ethereum',
-          eventLog: { address: '0x1' },
-          proof: { blockHash: '0x2' },
-        },
-      },
+      sourceChain: 'Ethereum',
+      throughGatewayActivityNonce: 7n,
     };
 
     const unauthenticatedResponse = await requestJson(routerAddress, relayPath, relayBody);
     expect(unauthenticatedResponse.status).toBe(401);
+
+    const adminResponse = await requestJson(routerAddress, relayPath, relayBody, {
+      Cookie: adminCookie,
+    });
+    expect(adminResponse.status).toBe(200);
+    expect(JsonExt.parse(await adminResponse.text())).toEqual({
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xrelaytx',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
+      txNonce: 3,
+      txSubmittedAtBlockHeight: 44,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 5n,
+      throughGatewayActivityNonce: 7n,
+    });
 
     const treasuryResponse = await requestJson(routerAddress, relayPath, relayBody, {
       Cookie: treasuryCookie,
@@ -522,11 +535,12 @@ describe('RouterServer', () => {
       outcome: 'Submitted',
       delegateAddress: '5RelayDelegate',
       argonTxHash: '0xrelaytx',
-      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
       txNonce: 3,
       txSubmittedAtBlockHeight: 44,
       txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
       estimatedFee: 5n,
+      throughGatewayActivityNonce: 7n,
     });
 
     const operationalResponse = await requestJson(routerAddress, relayPath, relayBody, {
@@ -537,11 +551,56 @@ describe('RouterServer', () => {
       outcome: 'Submitted',
       delegateAddress: '5RelayDelegate',
       argonTxHash: '0xrelaytx',
-      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveTransfer' },
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
       txNonce: 3,
       txSubmittedAtBlockHeight: 44,
       txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
       estimatedFee: 5n,
+      throughGatewayActivityNonce: 7n,
+    });
+  });
+
+  it('allows an admin session to read Ethereum relay readiness through router pass-through', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-ethereum-relay-status-auth-test-'));
+    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const started = await startRouterServer(
+      routerDb,
+      {
+        status: 200,
+        body: {
+          isReady: false,
+          reason: 'Vault delegate cannot afford Ethereum gateway relay.',
+        },
+      },
+      {
+        adminOperatorAccountId: operator.address,
+        sessionTtlSeconds: 60,
+      },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    const { routerAddress } = started;
+
+    const { cookie } = await login(routerAddress, operator);
+
+    const unauthenticatedResponse = await fetch(
+      `http://${routerAddress.host}:${routerAddress.port}/ethereum-relay-status`,
+    );
+    expect(unauthenticatedResponse.status).toBe(401);
+
+    const authenticatedResponse = await fetch(
+      `http://${routerAddress.host}:${routerAddress.port}/ethereum-relay-status`,
+      {
+        headers: { Cookie: cookie },
+      },
+    );
+    expect(authenticatedResponse.status).toBe(200);
+    expect(JsonExt.parse(await authenticatedResponse.text())).toEqual({
+      isReady: false,
+      reason: 'Vault delegate cannot afford Ethereum gateway relay.',
     });
   });
 

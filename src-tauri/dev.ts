@@ -18,7 +18,6 @@ import path from 'path';
 import process from 'process';
 import { fileURLToPath } from 'url';
 
-// @ts-ignore
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const COMPOSE_FILES = ['docker-compose.yml', 'indexer.docker-compose.yml'];
@@ -47,7 +46,6 @@ async function main(): Promise<void> {
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   const devEthereumConfig = readDevEthereumConfigFromEnv();
   let devEthereumRuntime: { shutdown(): Promise<void> } | undefined;
-  let devEthereumStartPromise: Promise<{ shutdown(): Promise<void> } | undefined> | undefined;
   let devEthereumSetup: IDevEthereumSetup | undefined;
   if (network === 'dev-docker') {
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
@@ -71,7 +69,7 @@ async function main(): Promise<void> {
       : undefined;
     const ethereumExecutionRpcUrl = await resolveRuntimeEthereumExecutionRpcUrl(devEthereum, inheritedRuntimeOverride);
     const runtimeOverride = composePorts
-      ? await resolveDevDockerNetworkConfigOverride(composePorts, ethereumExecutionRpcUrl, devEthereumSetup?.relayerUrl)
+      ? await resolveDevDockerNetworkConfigOverride(composePorts, ethereumExecutionRpcUrl)
       : null;
     const resolvedOverride = inheritedRuntimeOverride
       ? mergeNetworkConfigOverrides(inheritedRuntimeOverride, runtimeOverride)
@@ -80,12 +78,16 @@ async function main(): Promise<void> {
     if (resolvedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
       console.log(
-        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.defaultRelayerHost ? ` relayer=${resolvedOverride.defaultRelayerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}`,
+        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}`,
       );
     } else {
       delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
       console.warn('[tauri-dev] Runtime override unavailable, falling back to static network config');
     }
+  }
+
+  if (devEthereumSetup) {
+    devEthereumRuntime = await devEthereumSetup.start();
   }
 
   console.log(baseConfig);
@@ -101,23 +103,8 @@ async function main(): Promise<void> {
     shell: false,
   });
 
-  if (devEthereumSetup) {
-    devEthereumStartPromise = devEthereumSetup
-      .start()
-      .then(runtime => {
-        devEthereumRuntime = runtime;
-        return runtime;
-      })
-      .catch(error => {
-        console.error(`[tauri-dev] Failed to finish local Ethereum setup: ${(error as Error).message}`);
-        return undefined;
-      });
-  }
-
   child.on('exit', code => {
-    const shutdownPromise = (devEthereumStartPromise ?? Promise.resolve(devEthereumRuntime))
-      .then(runtime => runtime?.shutdown())
-      .catch(() => undefined);
+    const shutdownPromise = Promise.resolve(devEthereumRuntime?.shutdown()).catch(() => undefined);
     void shutdownPromise.finally(() => {
       process.exit(code ?? 0);
     });
@@ -181,22 +168,32 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
   let notaryArchiveHost: string | undefined;
 
   try {
-    archivePort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 9944);
-    archiveP2pPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 30334);
-    bitcoinP2pPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin', 18444);
-    esploraPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin-electrs', 3002);
+    archivePort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 9944))!;
+    archiveP2pPort = (
+      await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 30334)
+    )!;
+    bitcoinP2pPort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin', 18444))!;
+    esploraPort = (
+      await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin-electrs', 3002)
+    )!;
     indexerPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'indexer', 3262, {
       optional: true,
     });
     notaryAliasContainerId = readComposeContainerId(composeDir, composeEnv, joinComposeNetwork, 'notary');
-    const notebookArchivePort = await readComposePortWithRetry(
+    const notebookArchivePort = (await readComposePortWithRetry(
       composeDir,
       composeEnv,
       joinComposeNetwork,
       'minio',
       9000,
-    );
-    const notaryPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'notary', 9925);
+    ))!;
+    const notaryPort = (await readComposePortWithRetry(
+      composeDir,
+      composeEnv,
+      joinComposeNetwork,
+      'notary',
+      9925,
+    ))!;
     // then after resolving ports:
     notaryArchiveHost = await resolveNotaryArchiveHost(notaryPort, notebookArchivePort);
   } catch (error) {
@@ -282,9 +279,6 @@ async function resolveDevDockerNetworkConfigOverride(
   }
   if (ports.indexerPort) {
     override.indexerHost = `http://localhost:${ports.indexerPort}`;
-  }
-  if (relayerUrl) {
-    override.defaultRelayerHost = relayerUrl;
   }
   return override;
 }

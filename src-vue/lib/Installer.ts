@@ -638,10 +638,6 @@ export default class Installer {
     await server.uploadBiddingRules(this.config.biddingRules);
     progressFn?.(totalCount, 3);
 
-    if (ethereumBeaconApiUrl) {
-      await this.topUpVaultDelegateForEthereumSync(delegateKeypair.address);
-    }
-
     await server.uploadEnvState({
       oldestFrameIdToSync: this.config.oldestFrameIdToSync,
       vaultOperatorAddress: this.walletKeys.vaultingAddress,
@@ -659,27 +655,6 @@ export default class Installer {
     if (options.restartBot) {
       await server.startBotDocker();
     }
-  }
-
-  private async topUpVaultDelegateForEthereumSync(address: string): Promise<void> {
-    const client = await getMainchainClient(false);
-    const amountToFund = await MyVault.getVaultDelegateTopUpAmount(client, address);
-
-    if (!amountToFund) return;
-
-    const miningBotKeypair = await this.walletKeys.getMiningBotKeypair();
-    const txSubmitter = new TxSubmitter(
-      client,
-      client.tx.balances.transferKeepAlive(address, amountToFund),
-      miningBotKeypair,
-    );
-    const affordability = await txSubmitter.canAfford({ includeExistentialDeposit: true });
-    if (!affordability.canAfford) {
-      throw new Error('Mining bot wallet needs more Argons before it can fund the vault delegate.');
-    }
-
-    const result = await txSubmitter.submit({ useLatestNonce: true });
-    await result.waitForInFirstBlock;
   }
 
   private async clearStepFiles(

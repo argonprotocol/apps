@@ -139,9 +139,7 @@ export class EthereumBeaconSyncService {
       throw new Error('Bootstrap transaction did not emit sudo.Sudid.');
     }
     if (sudoResultEvent.data.sudoResult.isErr) {
-      throw new Error(
-        `Bootstrap failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-      );
+      throw new Error(`Bootstrap failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr)}`);
     }
   }
 

@@ -32,6 +32,7 @@ export * from './SqliteUtils.js';
 export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
 export * from './BondLot.js';
+export * from './VaultDelegateFunding.js';
 
 export * from './utils.js';
 

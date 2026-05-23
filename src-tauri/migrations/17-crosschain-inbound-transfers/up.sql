@@ -8,12 +8,11 @@ CREATE TABLE CrosschainInboundTransfers (
   sourceTxHash TEXT,
   sourceBlockNumber INTEGER,
   sourceBlockHash TEXT,
-  sourceReferenceJson JSON,
-  argonTxId INTEGER,
-  argonTxHash TEXT,
+  sourceLogIndex INTEGER,
+  gatewayActivityNonce TEXT,
   argonBlockNumber INTEGER,
   argonBlockHash TEXT,
-  status TEXT NOT NULL CHECK(status IN ('SourceBurned', 'SourceFinalized', 'ArgonProofSubmitted', 'ArgonFinalized')),
+  status TEXT NOT NULL CHECK(status IN ('SourceSubmitted', 'SourceFinalized', 'ArgonFinalized')),
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
 );

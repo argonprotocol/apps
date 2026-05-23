@@ -293,16 +293,15 @@ export class Currency {
     if (this.priceIndex.argonUsdTargetPrice) {
       // These exchange rates should be relative to the argon
       const usdTargetForArgonBn = this.priceIndex.argonUsdTargetPrice;
+      const btcUsdPriceBn = this.priceIndex.btcUsdPrice!;
+      const argonotUsdPriceBn = this.priceIndex.argonotUsdPrice!;
 
       this.microgonsPer.USD = this.calculateExchangeRateInMicrogons(BigNumber(1), usdTargetForArgonBn);
-      this.microgonsPer.BTC = this.calculateExchangeRateInMicrogons(this.priceIndex.btcUsdPrice!, usdTargetForArgonBn);
-      this.microgonsPer.ARGNOT = this.calculateExchangeRateInMicrogons(
-        this.priceIndex.argonotUsdPrice!,
-        usdTargetForArgonBn,
-      );
+      this.microgonsPer.BTC = this.calculateExchangeRateInMicrogons(btcUsdPriceBn, usdTargetForArgonBn);
+      this.microgonsPer.ARGNOT = this.calculateExchangeRateInMicrogons(argonotUsdPriceBn, usdTargetForArgonBn);
 
       const networkIsLocal = NetworkConfig.networkName === 'dev-docker' || NetworkConfig.networkName === 'localnet';
-      if (this.priceIndex.argonotUsdPrice! === BigNumber(0) && networkIsLocal) {
+      if (argonotUsdPriceBn === BigNumber(0) && networkIsLocal) {
         this.microgonsPer.ARGNOT = this.microgonsPer.ARGNOT / 10n;
       }
 

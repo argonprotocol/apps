@@ -27,7 +27,7 @@ import {
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
-import { EthereumProofRelayService } from './EthereumProofRelayService.ts';
+import { EthereumGatewayProverService } from './EthereumGatewayProverService.ts';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 
 interface IBotOptions {
@@ -55,7 +55,7 @@ export default class Bot {
   public miningFrameHistory!: MiningFrameHistory;
   public db: Db;
   public relayService: BitcoinLockRelayService;
-  public ethereumProofRelayService: EthereumProofRelayService;
+  public ethereumGatewayProverService: EthereumGatewayProverService;
 
   public isStarting: boolean = false;
   public isSyncing: boolean = false;
@@ -95,7 +95,7 @@ export default class Bot {
       this.options.vaultOperatorAddress,
       this.delegateSubmitLane,
     );
-    this.ethereumProofRelayService = new EthereumProofRelayService(this.delegateSubmitLane);
+    this.ethereumGatewayProverService = new EthereumGatewayProverService(this.delegateSubmitLane);
   }
 
   public async state(startupError: string | null = null): Promise<IBotState> {
@@ -241,6 +241,7 @@ export default class Bot {
 
       await this.relayService.start();
       await this.ethereumBeaconSyncService?.start();
+      await this.ethereumGatewayProverService.start();
 
       this.biddingRules = this.loadBiddingRules();
       this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;
@@ -342,6 +343,7 @@ export default class Bot {
     await this.autobidder.stop();
     await this.relayService.shutdown();
     await this.ethereumBeaconSyncService?.shutdown();
+    await this.ethereumGatewayProverService.shutdown();
     this.blockWatch.stop();
     await this.miningFrames?.stop?.();
     await this.blockSync?.stop?.();

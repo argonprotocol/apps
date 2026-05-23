@@ -1,4 +1,10 @@
-import { getObjectStringProperty, JsonExt } from '@argonprotocol/apps-core';
+import {
+  getObjectStringProperty,
+  JsonExt,
+  type IEthereumGatewayCatchUpRequest,
+  type IEthereumGatewayCatchUpResponse,
+  type IEthereumGatewayRelayStatus,
+} from '@argonprotocol/apps-core';
 import type {
   ICreateOperationalInviteResponse,
   ICreateTreasuryInviteResponse,
@@ -119,6 +125,22 @@ export class ServerApiClient {
       adminOperatorAuth: true,
     });
     return body.invite;
+  }
+
+  public async requestEthereumGatewayCatchUp(
+    payload: IEthereumGatewayCatchUpRequest,
+  ): Promise<IEthereumGatewayCatchUpResponse> {
+    return await this.postJson<IEthereumGatewayCatchUpResponse>('/ethereum-relay-request', payload, {
+      timeoutMs: 30e3,
+      adminOperatorAuth: true,
+    });
+  }
+
+  public async getEthereumRelayStatus(): Promise<IEthereumGatewayRelayStatus> {
+    return await this.request<IEthereumGatewayRelayStatus>('/ethereum-relay-status', {
+      timeoutMs: 10e3,
+      adminOperatorAuth: true,
+    });
   }
 
   public async regenerateOperationalInvite(

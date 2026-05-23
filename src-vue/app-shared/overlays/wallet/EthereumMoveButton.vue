@@ -82,7 +82,6 @@ import {
   type IEthereumInboundActiveTransfer,
   type IEthereumInboundTransferState,
 } from '../../../lib/EthereumInboundTransferTracker.ts';
-import { generateProgressLabel } from '../../../lib/Utils.ts';
 import { WalletType } from '../../../lib/Wallet.ts';
 import numeral from '../../../lib/numeral.ts';
 import { getEthereumMoveTracker } from '../../../stores/moveFromEthereum.ts';
@@ -128,11 +127,11 @@ Vue.watch(
 );
 
 Vue.watch(
-  () => activeTransfer.value?.transferState.sourceFinalization?.pollMs,
+  () => activeTransfer.value?.transferState.argonReadiness?.pollMs,
   () => {
     const pollMs =
-      activeTransfer.value?.transferState.phase === 'waitingForRetainedAnchor'
-        ? activeTransfer.value.transferState.sourceFinalization?.pollMs
+      activeTransfer.value?.transferState.phase === 'confirmingArgon'
+        ? activeTransfer.value.transferState.argonReadiness?.pollMs
         : undefined;
 
     if (!pollMs) {
@@ -234,14 +233,10 @@ function getTransferProgressPct(transferState: IEthereumInboundTransferState, cu
   switch (transferState.phase) {
     case 'preparing':
       return 5;
-    case 'awaitingEthereumApproval':
-      return 15;
-    case 'awaitingEthereumBurn':
+    case 'confirmingEthereum':
       return 30;
-    case 'waitingForRetainedAnchor':
-      return getSourceFinalizationProgress(transferState.sourceFinalization, currentTimeMs);
     case 'confirmingArgon':
-      return 80 + (transferState.argonProgress?.progressPct ?? 0) * 0.2;
+      return getArgonConfirmationProgress(transferState.argonReadiness, currentTimeMs);
     case 'confirmedOnArgon':
       return 100;
     default:
@@ -253,21 +248,10 @@ function getTransferProgressLabel(transferState: IEthereumInboundTransferState):
   switch (transferState.phase) {
     case 'preparing':
       return 'Preparing transfer...';
-    case 'awaitingEthereumApproval':
-    case 'awaitingEthereumBurn':
+    case 'confirmingEthereum':
       return 'Confirming on Ethereum...';
-    case 'waitingForRetainedAnchor':
-      return 'Waiting for finalization on Ethereum...';
     case 'confirmingArgon':
-      if (!transferState.argonProgress) {
-        return 'Confirming on Argon...';
-      }
-
-      return generateProgressLabel(
-        transferState.argonProgress.confirmations,
-        transferState.argonProgress.expectedConfirmations,
-        { blockType: 'Argon' },
-      );
+      return 'Confirming on Argon...';
     case 'confirmedOnArgon':
       return 'Confirmed on Argon.';
     default:
@@ -275,21 +259,18 @@ function getTransferProgressLabel(transferState: IEthereumInboundTransferState):
   }
 }
 
-function getSourceFinalizationProgress(
-  sourceFinalization: IEthereumInboundTransferState['sourceFinalization'],
+function getArgonConfirmationProgress(
+  argonReadiness: IEthereumInboundTransferState['argonReadiness'],
   currentTimeMs: number,
 ) {
-  if (!sourceFinalization) {
-    return 50;
+  if (!argonReadiness) {
+    return 75;
   }
 
-  const elapsedMs = currentTimeMs - sourceFinalization.startedAt;
-  const expectedProgress = Math.min(
-    18,
-    Math.floor((elapsedMs * 18) / Math.max(1, sourceFinalization.estimatedDurationMs)),
-  );
+  const elapsedMs = currentTimeMs - argonReadiness.startedAt;
+  const expectedProgress = Math.min(20, Math.floor((elapsedMs * 20) / Math.max(1, argonReadiness.estimatedDurationMs)));
 
-  return Math.min(68, 50 + Math.max(2, expectedProgress));
+  return Math.min(92, 70 + Math.max(3, expectedProgress));
 }
 </script>
 
