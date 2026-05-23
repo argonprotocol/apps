@@ -115,7 +115,18 @@ const financials = useFinancials();
 const isLoaded = Vue.ref(false);
 const currencyIsLoaded = Vue.ref(false);
 
-const closestMaturityDays = Vue.ref(365);
+const closestMaturityDays = Vue.computed(() => {
+  const nextMaturityMillis = financials.liquidVisibleRecords.reduce<number | undefined>((closest, lockSummary) => {
+    const maturityMillis = bitcoinLocks.unlockDeadlineTime(lockSummary.record);
+    return closest === undefined || maturityMillis < closest ? maturityMillis : closest;
+  }, undefined);
+
+  if (nextMaturityMillis === undefined) {
+    return 0;
+  }
+
+  return Math.max(dayjs.utc(nextMaturityMillis).diff(dayjs.utc(), 'day'), 0);
+});
 
 Vue.onMounted(async () => {
   currency.isLoadedPromise.then(() => (currencyIsLoaded.value = true));

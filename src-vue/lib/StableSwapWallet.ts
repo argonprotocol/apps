@@ -116,10 +116,10 @@ export async function buildStableSwapPurchaseFromTransaction(args: {
     ethereumArgonAmount,
     costBasisUsdc,
     costBasisMicrogons: usdcToMicrogons(costBasisUsdc, microgonsPerUsd),
-    effectiveBuyPriceMicrogons:
-      ethereumArgonAmount > 0n
-        ? fixed18ToMicrogons((costBasisFixed18 * FIXED_18) / ethereumArgonAmount, microgonsPerUsd)
-        : 0n,
+    effectiveBuyPriceMicrogons: fixed18ToMicrogons(
+      (costBasisFixed18 * FIXED_18) / ethereumArgonAmount,
+      microgonsPerUsd,
+    ),
     uniswapPriceMicrogons: fixed18ToMicrogons(
       stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, lastPoolState).priceOf(getStableSwapArgonToken())),
       microgonsPerUsd,

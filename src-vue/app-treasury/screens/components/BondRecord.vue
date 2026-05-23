@@ -8,7 +8,7 @@
           <span class="font-light">
             bought {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).format('M/D/YYYY [at] h:mm a') }}
           </span>
-          <div v-if="bondLot.isReleasing" class="text-sm text-amber-700">
+          <div v-if="isReleasing" class="text-sm text-amber-700">
             Releasing
             <span class="font-semibold">
               {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
