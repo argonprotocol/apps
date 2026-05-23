@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildStableSwapUniswapUrl, hydrateStableSwapWallet } from '../lib/StableSwaps.ts';
+import { buildStableSwapUniswapUrl } from '../lib/StableSwaps.ts';
+import { hydrateStableSwapWallet } from '../lib/StableSwapWallet.ts';
 import { StableSwapProofStatus, type IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
 

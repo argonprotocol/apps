@@ -37,6 +37,7 @@ export interface ILockSummary {
   totalReturn: number;
   totalFees: bigint;
   unlockAmount: bigint;
+  createdAt: Date;
   record: IBitcoinLockRecord;
 }
 
@@ -303,6 +304,7 @@ export const useFinancials = defineStore('financials', () => {
       totalReturn: totalReturn,
       totalFees: totalFees,
       unlockAmount: unlockAmount,
+      createdAt: lock.createdAt,
       record: lock,
     });
 
@@ -365,8 +367,7 @@ export const useFinancials = defineStore('financials', () => {
 
   // Stable Swaps //////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  const swapsTotalValue = Vue.computed(() => {
-    const microgonValue = wallets.ethereumWallet.availableMicrogons;
+  const swapsBelowTargetValue = Vue.computed(() => {
     const micronotValue = currency.convertMicronotTo(
       wallets.ethereumWallet.availableMicronots,
       UnitOfMeasurement.Microgon,
@@ -374,7 +375,16 @@ export const useFinancials = defineStore('financials', () => {
     const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
       return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
     }, 0n);
-    return microgonValue + micronotValue + otherTokenValue;
+
+    return micronotValue + otherTokenValue;
+  });
+
+  const swapsAboveTargetValue = Vue.computed(() => {
+    return wallets.ethereumWallet.availableMicrogons;
+  });
+
+  const swapsTotalValue = Vue.computed(() => {
+    return swapsBelowTargetValue.value + swapsAboveTargetValue.value;
   });
 
   const stableSwapInvestments = Vue.ref<IPerformanceReturnInput[]>([]);
@@ -443,6 +453,8 @@ export const useFinancials = defineStore('financials', () => {
     liquidPerformanceReturn,
     liquidHodlingReturn,
 
+    swapsBelowTargetValue,
+    swapsAboveTargetValue,
     swapsTotalValue,
     swapsPerformanceReturn,
 

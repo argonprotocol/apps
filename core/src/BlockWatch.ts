@@ -59,7 +59,7 @@ export class BlockWatch {
   private unsubscribe: (() => void) | undefined;
   private activeSource: ISubscriptionSource = 'archive';
   private subscriptionGeneration: number = 0;
-  private clientEventUnsubscribes: (() => void)[] = [];
+  private readonly clientEventUnsubscribes: (() => void)[] = [];
   private finalizedAheadRecoveryFailures: number = 0;
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingRestart: { reason: string; source: ISubscriptionSource } | undefined;

@@ -26,6 +26,7 @@ console.info(
 bringDownArgonComposeProject();
 removeConflictingComposeNetwork(composeProjectName);
 bringDownLocalMachineComposeProjects();
+removeDevEthereumRelayers();
 removeDevEthereumEnclaves();
 
 console.info('[clean:dev:docker] Completed');
@@ -204,6 +205,91 @@ function removeDevEthereumEnclaves(): void {
       console.warn(`[clean:dev:docker] Failed to remove Kurtosis enclave ${enclaveName}: ${(error as Error).message}`);
     }
   }
+}
+
+function removeDevEthereumRelayers(): void {
+  const processes = listProcesses();
+  if (!processes.length) return;
+
+  const matchingPids = new Set<number>();
+  for (const entry of processes) {
+    if (isDevEthereumRelayerProcess(entry.command)) {
+      matchingPids.add(entry.pid);
+      collectDescendantPids(entry.pid, processes, matchingPids);
+    }
+  }
+
+  if (!matchingPids.size) return;
+
+  console.info(`[clean:dev:docker] Stopping ${matchingPids.size} local Ethereum relayer process(es)`);
+  signalProcesses(matchingPids, 'SIGTERM');
+  sleepSync(500);
+  signalProcesses(matchingPids, 'SIGKILL');
+}
+
+function listProcesses(): Array<{ pid: number; ppid: number; command: string }> {
+  if (process.platform === 'win32') return [];
+
+  let output: string;
+  try {
+    output = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], {
+      encoding: 'utf8',
+    });
+  } catch (error) {
+    console.warn(`[clean:dev:docker] Unable to inspect local processes: ${(error as Error).message}`);
+    return [];
+  }
+
+  return output
+    .split('\n')
+    .map(line => {
+      const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+      if (!match) return;
+      return {
+        pid: Number.parseInt(match[1], 10),
+        ppid: Number.parseInt(match[2], 10),
+        command: match[3],
+      };
+    })
+    .filter((entry): entry is { pid: number; ppid: number; command: string } => Boolean(entry));
+}
+
+function isDevEthereumRelayerProcess(command: string): boolean {
+  const normalizedRepoRoot = repoRoot.split('\\').join('/');
+  const normalizedCommand = command.split('\\').join('/');
+
+  return (
+    (normalizedCommand.includes(`${normalizedRepoRoot}/.yarn/releases/`) &&
+      normalizedCommand.includes('workspace @argonprotocol/apps-bot run start:relayer')) ||
+    (normalizedCommand.includes(`${normalizedRepoRoot}/node_modules/tsx/`) &&
+      normalizedCommand.includes('src/relayer.ts'))
+  );
+}
+
+function collectDescendantPids(
+  pid: number,
+  processes: Array<{ pid: number; ppid: number; command: string }>,
+  targetPids: Set<number>,
+): void {
+  for (const processEntry of processes) {
+    if (processEntry.ppid !== pid || targetPids.has(processEntry.pid)) continue;
+    targetPids.add(processEntry.pid);
+    collectDescendantPids(processEntry.pid, processes, targetPids);
+  }
+}
+
+function signalProcesses(pids: Set<number>, signal: NodeJS.Signals): void {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+    } catch (_error) {
+      // Already exited.
+    }
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function isMissingDockerNetworkError(error: unknown): boolean {
