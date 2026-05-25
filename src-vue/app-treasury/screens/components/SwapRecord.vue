@@ -1,19 +1,32 @@
 <template>
   <div class="SwapRecord Component flex flex-col">
-    <section ActiveRecord :class="isActionHovered ? '' : 'hover:bg-slate-50'">
+    <section
+      :ActiveRecord="walletOutputAmount ? true : undefined"
+      :DisabledRecord="walletOutputAmount ? undefined : true"
+      :class="isActionHovered ? '' : 'hover:bg-slate-50'"
+    >
       <div class="rounded border border-slate-500/20 px-2 py-4 text-center">
-        <div class="text-argon-600 text-4xl font-bold">+{{ numeral(swap.returnPct).format('0,0.[00]') }}%</div>
-        <div class="mt-1 text-sm font-bold text-slate-600/70">ON ETHEREUM</div>
+        <div :class="walletOutputAmount ? 'text-argon-600' : 'text-slate-600/90'" class="text-4xl font-bold">
+          +{{ numeral(swap.returnPct).format('0,0.[00]') }}%
+        </div>
+        <div :class="walletOutputAmount ? 'text-argon-600/70' : 'text-slate-600/90'" class="mt-1 text-sm font-bold">
+          ON ETHEREUM
+        </div>
       </div>
       <div ContentWrapper>
         <div FirstRow>
-          <div class="flex flex-row items-center gap-x-2 text-xl font-bold">
+          <header class="flex flex-row items-center gap-x-2">
             <span>
-              {{ microgonToNm(swap.inputAmount, swap.inputToken).format('0,0.[000000]') }} {{ swap.inputToken }}
+              {{
+                microgonToNm(swap.inputAmountMicrogons, swap.inputToken).format(
+                  swap.inputToken === UnitOfMeasurement.ETH ? '0,0.[0000000000]' : '0,0.00',
+                )
+              }}
+              {{ swap.inputToken }}
             </span>
             <ArrowLongRightIcon class="h-10 opacity-50" />
             <span>{{ microgonToArgonNm(swap.outputAmount).format('0,0.[000000]') }} ARGN</span>
-          </div>
+          </header>
           <div
             class="text-md flex grow flex-row items-center justify-end gap-x-2 text-right"
             @mouseenter="isActionHovered = true"
@@ -21,40 +34,36 @@
           >
             <button
               @click.stop="openCurrentTrade()"
-              class="bg-argon-600 border-argon-800 hover:bg-argon-700 cursor-pointer rounded-md border px-5 text-white hover:shadow-lg"
+              :class="
+                walletOutputAmount
+                  ? 'bg-argon-600 border-argon-800 hover:bg-argon-700 cursor-pointer text-white hover:shadow-lg'
+                  : 'border-slate-600/30 bg-white text-slate-600/30'
+              "
+              class="rounded-md border px-5"
             >
               Start Swap
             </button>
           </div>
         </div>
         <div SecondRow>
-          <span>
+          <span v-if="!walletOutputAmount">Your wallet needs {{ swap.inputToken }} before it can swap.</span>
+          <span v-else-if="walletOutputAmount === swap.outputAmount">
+            Your wallet has enough {{ swap.inputToken }} to fully execute this swap.
+          </span>
+          <span v-else>
             Your wallet has
-            {{ currency.symbol }}{{ microgonToMoneyNm(0n).format('0,0.00') }} {{ swap.inputToken }}, which will acquire
-            {{ currency.symbol }}{{ microgonToMoneyNm(0n).format('0,0.00') }} ARGN
+            {{
+              microgonToNm(walletInputAmount, swap.inputToken).format(
+                swap.inputToken === UnitOfMeasurement.ETH ? '0,0.[0000000000]' : '0,0.00',
+              )
+            }}
+            {{ swap.inputToken }}, which can acquire
+            {{ microgonToArgonNm(walletOutputAmount).format('0,0.[000000]') }} ARGN
           </span>
         </div>
       </div>
     </section>
   </div>
-  <!--  <div>Argons to Buy:-->
-  <!--    {{ microgonToArgonNm(stableSwaps.marketSnapshot.discountedEthereumArgonAmount ?? 0n).format('0,0.[0000]') }}-->
-  <!--  </div>-->
-  <!--  <div>ARGN Current Price: {{ currency.symbol-->
-  <!--    }}{{-->
-  <!--      microgonToMoneyNm(stableSwaps.marketSnapshot.currentPriceMicrogons || 0n).format('0,0.[0000]')-->
-  <!--    }}-->
-  <!--  </div>-->
-  <!--  <div>Expected Profit: {{ currency.symbol-->
-  <!--    }}{{ microgonToMoneyNm(stableSwaps.marketSnapshot?.projectedProfitMicrogons ?? 0n).format('0,0.00') }}-->
-  <!--  </div>-->
-  <!--  <div>Estimated Spend:-->
-  <!--    <span class="font-medium text-slate-700">{{ currency.symbol }}{{ microgonToMoneyNm(stableSwaps.marketSnapshot?.costToTargetMicrogons || 0n).format('0,0.00') }}</span>-->
-  <!--  </div>-->
-  <!--  <div>Offset from Target: {{ stableSwaps.marketSnapshot.targetPriceOffset < 0 ? '-' : '+'-->
-  <!--    }}{{ currency.symbol-->
-  <!--    }}{{ microgonToMoneyNm(bigIntAbs(stableSwaps.marketSnapshot.targetPriceOffset)).format('0,0.[0000]') }}-->
-  <!--  </div>-->
 </template>
 
 <script setup lang="ts">
@@ -64,18 +73,20 @@ import utc from 'dayjs/plugin/utc.js';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
-import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { IStableSwap } from '../../../interfaces/IStableSwap.ts';
 import { ArrowLongRightIcon } from '@heroicons/vue/24/outline';
+import { useWallets } from '../../../stores/wallets.ts';
+import { bigIntMin, bigNumberToBigInt, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { useStableSwaps } from '../../stores/stableSwaps.ts';
 
 dayjs.extend(utc);
 
 const currency = getCurrency();
-const miningFrames = getMiningFrames();
+const wallets = useWallets();
 const stableSwaps = useStableSwaps();
 
-const { microgonToMoneyNm, microgonToArgonNm, microgonToNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToNm } = createNumeralHelpers(currency);
 
 const props = withDefaults(
   defineProps<{
@@ -86,10 +97,33 @@ const props = withDefaults(
 
 const isActionHovered = Vue.ref(false);
 
-async function openCurrentTrade() {
-  if (!props.swap.tradeUrl) return;
+const walletInputAmount = Vue.computed(() => {
+  let amount = 0n;
 
-  await tauriOpenUrl(props.swap.tradeUrl);
+  if (props.swap.inputToken === UnitOfMeasurement.ARGNOT) {
+    const micronots = wallets.ethereumWallet.availableMicronots;
+    amount = currency.convertMicronotTo(micronots, UnitOfMeasurement.Microgon);
+  } else {
+    const otherToken = wallets.ethereumWallet.otherTokens.find(x => x.symbol === props.swap.inputToken);
+    if (otherToken) {
+      amount = otherToken.value;
+    }
+  }
+
+  return bigIntMin(amount, props.swap.inputAmountMicrogons);
+});
+
+const walletOutputAmount = Vue.computed(() => {
+  const factor = BigNumber(walletInputAmount.value).dividedBy(props.swap.inputAmountMicrogons).toNumber();
+  const amount = BigNumber(props.swap.outputAmount).multipliedBy(factor);
+  return bigNumberToBigInt(amount);
+});
+
+async function openCurrentTrade() {
+  const swapUrl = stableSwaps.stableSwaps.buildStableSwapUniswapUrl(walletOutputAmount.value, props.swap.inputToken);
+  if (!swapUrl) return;
+
+  await tauriOpenUrl(swapUrl);
 }
 </script>
 
@@ -97,8 +131,8 @@ async function openCurrentTrade() {
 @reference "../../../main.css";
 
 .SwapRecord.Component {
-  section[PendingRecord] {
-    @apply flex cursor-pointer flex-row items-center gap-2.5 rounded border-[1.5px] border-dashed border-slate-900/30 bg-white px-3.5 py-2 hover:bg-slate-50/50;
+  section[DisabledRecord] {
+    @apply flex flex-row items-center gap-2.5 rounded border-[1.5px] border-dashed border-slate-900/30 bg-white px-3.5 py-2 opacity-50;
     [MainIcon] {
       @apply opacity-50;
     }

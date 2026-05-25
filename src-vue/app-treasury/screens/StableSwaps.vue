@@ -65,7 +65,7 @@
       </div>
     </div>
 
-    <div v-else class="flex h-full flex-col gap-4 pt-4">
+    <div v-else class="flex h-full flex-col pt-4">
       <section class="mx-9 mt-5 flex flex-row items-end gap-x-2 text-center">
         <div class="w-1/3 border-b border-slate-400/30 pb-5">
           <div class="text-argon-600 inline-flex text-5xl font-bold">
@@ -108,8 +108,8 @@
       </section>
 
       <div class="relative flex min-h-0 grow flex-col">
-        <div class="flex flex-col overflow-y-auto px-9 pt-10 pb-2">
-          <div class="flex flex-row items-center text-slate-800/70">
+        <div class="flex grow flex-col overflow-y-auto pt-10">
+          <div class="flex flex-row items-center px-9 text-slate-800/70">
             <span class="grow">
               You have {{ stableSwaps.swaps.length }} swap opportunit{{
                 stableSwaps.swaps.length === 1 ? 'y' : 'ies'
@@ -123,98 +123,91 @@
               </a>
             </div>
           </div>
-        </div>
 
-        <section v-if="stableSwaps.swaps.length" class="mx-9">
-          <SwapRecord v-for="swap of stableSwaps.swaps" :swap="swap" />
-        </section>
+          <section v-if="stableSwaps.swaps.length" class="mx-9 mt-4 flex flex-col gap-y-2 pb-10">
+            <SwapRecord v-for="swap of stableSwaps.swaps" :swap="swap" />
+          </section>
 
-        <section
-          v-else
-          class="mx-9 flex min-h-20 flex-col items-center rounded border border-slate-400/20 bg-slate-400/5 px-6 py-16 text-center text-slate-600/60"
-        >
-          <p>
-            Argon is on target, which means there are
-            <br />
-            no swap opportunities currently available.
-          </p>
-          <div
-            :class="currencyFadeClass"
-            class="mt-5 flex flex-row items-center border-y border-slate-600/10 py-2 pr-2 pl-1 transition-opacity duration-400 ease-in-out"
+          <section
+            v-else
+            class="mx-9 flex min-h-20 flex-col items-center rounded border border-slate-400/20 bg-slate-400/5 px-6 py-16 text-center text-slate-600/60"
           >
-            <CheckIcon class="mr-2 size-5" />
-            <span>
-              ARGN is trading on Ethereum at {{ currencySymbol
-              }}{{ microgonToNm(oneArgonInMicrogons, currencyKey).format('0.00[0]') }}
-            </span>
-          </div>
-        </section>
-
-        <section class="mx-9 mt-10 flex grow flex-col">
-          <div
-            class="grid grid-cols-8 border-b border-slate-100 px-6 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase"
-          >
-            <div>Date</div>
-            <div>Argons Bought</div>
-            <div>Cost Basis</div>
-            <div>Buy Price</div>
-            <div>Oracle Price</div>
-            <div>Uniswap Price</div>
-            <div>Current P/L</div>
-            <div class="text-right">Details</div>
-          </div>
-
-          <div
-            v-if="stableSwaps.walletSnapshot?.purchases.length === 0"
-            class="px-6 py-10 text-center text-sm text-slate-500"
-          >
-            No tracked purchases yet for this wallet.
-          </div>
-
-          <div v-else class="overflow-auto">
+            <p>
+              Argon is on target, which means there are
+              <br />
+              no swap opportunities currently available.
+            </p>
             <div
-              v-for="purchase in stableSwaps.walletSnapshot?.purchases"
-              :key="purchase.txHash"
-              class="grid grid-cols-8 items-center border-b border-slate-50 px-6 py-3 text-sm text-slate-700 last:border-0 hover:bg-slate-50/60"
+              :class="currencyFadeClass"
+              class="mt-5 flex flex-row items-center border-y border-slate-600/10 py-2 pr-2 pl-1 transition-opacity duration-400 ease-in-out"
             >
-              <div class="text-slate-500">{{ dayjs(purchase.ethereumTimestamp).format('MMM D, YYYY h:mm A') }}</div>
-              <div class="font-mono">
-                {{ numeral(formatUnits(purchase.ethereumArgonAmount, 18)).format('0,0.[0000]') }} ARGN
-              </div>
-              <div class="font-mono">
-                {{ currency.symbol }}{{ microgonToMoneyNm(purchase.costBasisMicrogons).format('0,0.00') }}
-              </div>
-              <div class="font-mono">
-                {{ currency.symbol }}{{ microgonToMoneyNm(purchase.effectiveBuyPriceMicrogons).format('0,0.[0000]') }}
-              </div>
-              <div class="font-mono">
-                {{ currency.symbol
-                }}{{ microgonToMoneyNm(purchase.argonOraclePriceMicrogons || zeroMicrogons).format('0,0.[0000]') }}
-              </div>
-              <div class="font-mono">
-                {{ currency.symbol }}{{ microgonToMoneyNm(purchase.uniswapPriceMicrogons).format('0,0.[0000]') }}
-              </div>
+              <CheckIcon class="mr-2 size-5" />
+              <span>
+                ARGN is trading on Ethereum at {{ currencySymbol
+                }}{{ microgonToNm(oneArgonInMicrogons, currencyKey).format('0.00[0]') }}
+              </span>
+            </div>
+          </section>
+
+          <section v-if="stableSwaps.walletSnapshot?.purchases.length" class="mx-9 mt-10 flex grow flex-col">
+            <div
+              class="grid grid-cols-8 border-b border-slate-100 px-6 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase"
+            >
+              <div>Date</div>
+              <div>Argons Bought</div>
+              <div>Cost Basis</div>
+              <div>Buy Price</div>
+              <div>Oracle Price</div>
+              <div>Uniswap Price</div>
+              <div>Current P/L</div>
+              <div class="text-right">Details</div>
+            </div>
+
+            <div class="overflow-auto">
               <div
-                :class="purchase.currentProfitMicrogons >= zeroMicrogons ? 'text-emerald-600' : 'text-rose-600'"
-                class="font-mono font-semibold"
+                v-for="purchase in stableSwaps.walletSnapshot?.purchases"
+                :key="purchase.txHash"
+                class="grid grid-cols-8 items-center border-b border-slate-50 px-6 py-3 text-sm text-slate-700 last:border-0 hover:bg-slate-50/60"
               >
-                {{ purchase.currentProfitMicrogons >= zeroMicrogons ? '+' : '-' }}{{ currency.symbol
-                }}{{ microgonToMoneyNm(purchase.currentProfitMicrogons).format('0,0.00') }}
-              </div>
-              <div class="text-right">
-                <button
-                  @click="openPurchaseTx(purchase.txHash)"
-                  class="text-argon-600 hover:text-argon-700 inline-flex items-center gap-1 text-sm font-medium transition"
+                <div class="text-slate-500">{{ dayjs(purchase.ethereumTimestamp).format('MMM D, YYYY h:mm A') }}</div>
+                <div class="font-mono">
+                  {{ numeral(formatUnits(purchase.ethereumArgonAmount, 18)).format('0,0.[0000]') }} ARGN
+                </div>
+                <div class="font-mono">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(purchase.costBasisMicrogons).format('0,0.00') }}
+                </div>
+                <div class="font-mono">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(purchase.effectiveBuyPriceMicrogons).format('0,0.[0000]') }}
+                </div>
+                <div class="font-mono">
+                  {{ currency.symbol
+                  }}{{ microgonToMoneyNm(purchase.argonOraclePriceMicrogons || zeroMicrogons).format('0,0.[0000]') }}
+                </div>
+                <div class="font-mono">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(purchase.uniswapPriceMicrogons).format('0,0.[0000]') }}
+                </div>
+                <div
+                  :class="purchase.currentProfitMicrogons >= zeroMicrogons ? 'text-emerald-600' : 'text-rose-600'"
+                  class="font-mono font-semibold"
                 >
-                  Tx
-                  <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />
-                </button>
+                  {{ purchase.currentProfitMicrogons >= zeroMicrogons ? '+' : '-' }}{{ currency.symbol
+                  }}{{ microgonToMoneyNm(purchase.currentProfitMicrogons).format('0,0.00') }}
+                </div>
+                <div class="text-right">
+                  <button
+                    @click="openPurchaseTx(purchase.txHash)"
+                    class="text-argon-600 hover:text-argon-700 inline-flex items-center gap-1 text-sm font-medium transition"
+                  >
+                    Tx
+                    <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
+          </section>
+          <div class="relative px-0.5 pb-0.5">
+            <img src="/treasury-footers/stable-swaps.png" class="w-full opacity-50" />
           </div>
-        </section>
-        <div class="relative px-0.5 pb-0.5">
-          <img src="/treasury-footers/stable-swaps.png" class="w-full opacity-50" />
         </div>
       </div>
     </div>

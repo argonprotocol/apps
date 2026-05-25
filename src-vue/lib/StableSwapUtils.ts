@@ -38,9 +38,14 @@ export const USDC_TO_FIXED_18_FACTOR = 10n ** 12n;
 export const STABLE_SWAP_CHAIN_ID = ChainId.MAINNET;
 export const ETHEREUM_ARGON_DECIMALS = 18;
 export const USDC_DECIMALS = 6;
+export const USDT_DECIMALS = 6;
+export const WETH_DECIMALS = 18;
+export const ETHEREUM_ARGONOT_DECIMALS = 18;
 export const ONE_ETHEREUM_ARGON = 10n ** BigInt(ETHEREUM_ARGON_DECIMALS);
 export const ETHEREUM_ARGON_BASE_UNITS_PER_MICROGON = 10n ** 12n;
 export const STABLE_SWAP_TRANSFER_EVENT = erc20Abi.find(item => item.type === 'event' && item.name === 'Transfer')!;
+export const STABLE_SWAP_USDT_TOKEN_ADDRESS = getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7');
+export const STABLE_SWAP_WETH_TOKEN_ADDRESS = getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
 
 export function getStableSwapArgonTokenAddress(): Address {
   return getAddress(NetworkConfig.get().ethereumNetwork.argonTokenAddress);
@@ -64,6 +69,18 @@ export function getStableSwapUsdcToken(): Token {
     'USDC',
     'USD Coin',
   );
+}
+
+export function getStableSwapUsdtToken(): Token {
+  return new Token(STABLE_SWAP_CHAIN_ID, STABLE_SWAP_USDT_TOKEN_ADDRESS, USDT_DECIMALS, 'USDT', 'Tether USD');
+}
+
+export function getStableSwapWethToken(): Token {
+  return new Token(STABLE_SWAP_CHAIN_ID, STABLE_SWAP_WETH_TOKEN_ADDRESS, WETH_DECIMALS, 'WETH', 'Wrapped Ether');
+}
+
+export function getStableSwapArgonotToken(address: Address): Token {
+  return new Token(STABLE_SWAP_CHAIN_ID, getAddress(address), ETHEREUM_ARGONOT_DECIMALS, 'ARGNOT', 'Argonot');
 }
 
 export function createStableSwapSdkPool(pool: StableSwapPoolLike, state?: StableSwapSdkPoolState): UniswapV3Pool {

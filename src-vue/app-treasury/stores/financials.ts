@@ -276,10 +276,11 @@ export const useFinancials = defineStore('financials', () => {
       mismatchView.phase,
     );
     const showReadyForBitcoin =
-      (showFundingMismatch || showMismatchAccept) &&
-      hasObservedFundingSignal &&
+      !showFundingMismatch &&
+      !showMismatchAccept &&
+      !hasObservedFundingSignal &&
       lockProcessingDetails.confirmations < 0;
-    const isFundingSeenInMempoolOnly = !hasObservedFundingSignal && lockProcessingDetails.confirmations < 0;
+    const isFundingSeenInMempoolOnly = hasObservedFundingSignal && lockProcessingDetails.confirmations < 0;
 
     const lockSummary = Vue.reactive<ILockSummary>({
       uuid: lock.uuid,
@@ -329,11 +330,12 @@ export const useFinancials = defineStore('financials', () => {
       summary.statusDetails.showMismatchAccept = showMismatchAccept;
       summary.statusDetails.showFundingMismatch = showFundingMismatch;
       summary.statusDetails.showReadyForBitcoin =
-        (showFundingMismatch || showMismatchAccept) &&
-        hasObservedFundingSignal &&
+        !showFundingMismatch &&
+        !showMismatchAccept &&
+        !hasObservedFundingSignal &&
         lockProcessingDetails.confirmations < 0;
       summary.statusDetails.isFundingSeenInMempoolOnly =
-        !hasObservedFundingSignal && lockProcessingDetails.confirmations < 0;
+        hasObservedFundingSignal && lockProcessingDetails.confirmations < 0;
     }
   }
 

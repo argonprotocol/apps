@@ -35,6 +35,12 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
       isLoaded.value = true;
       swaps.value = await stableSwaps.getActive({
         microgonsPerUsd: currency.microgonsPer.USD,
+        inputTokenPricesMicrogons: {
+          USDC: currency.microgonsPer.USD,
+          USDT: currency.microgonsPer.USD,
+          ETH: currency.microgonsPer.ETH,
+          ARGNOT: currency.microgonsPer.ARGNOT,
+        },
         targetPriceFixed18: getTargetPriceFixed18(),
       });
 
@@ -59,6 +65,7 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     walletMessage,
     walletSnapshot,
     swaps,
+    stableSwaps,
     load,
   };
 });

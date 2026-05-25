@@ -162,7 +162,7 @@ export default defineConfig(async ({ mode }) => {
           : undefined,
       watch: {
         // 3. tell vite to ignore watching `src-tauri`
-        ignored: ['**/src-tauri/**', '**/e2e/**'],
+        ignored: ['**/src-tauri/**', '**/e2e/**', '!**/e2e/argon/uniswap/**'],
       },
     },
   };

@@ -39,6 +39,8 @@ export interface IStableSwap {
   outputToken: IStableSwapOutputTokenSymbol;
   network: IStableSwapNetwork;
   inputAmount: bigint;
+  inputAmountMicrogons: bigint;
+  inputTokenDecimals: number;
   outputAmount: bigint;
   projectedProfitMicrogons: bigint;
   returnPct: number;

@@ -9,7 +9,7 @@ import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { IS_TREASURY_APP, IS_OPERATIONS_APP, SECURITY } from '../lib/Env.ts';
 import { getSpendableMiningHoldMicrogons, IArgonWalletType } from '../lib/WalletForArgon.ts';
-import { IWallet, type IOtherToken, defaultWalletData } from '../lib/Wallet.ts';
+import { IWallet, defaultWalletData } from '../lib/Wallet.ts';
 import { IWalletEvents, WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
@@ -262,7 +262,6 @@ export const useWallets = defineStore('wallets', () => {
   }
 
   load().catch(error => {
-    console.log('Error loading wallets:', error);
     void handleFatalError.bind('useWallets')(error);
     isLoadedReject();
   });

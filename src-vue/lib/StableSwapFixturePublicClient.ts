@@ -1,24 +1,60 @@
 import JSBI from 'jsbi';
 import { Pool as UniswapV3Pool, SwapQuoter, TickMath, encodeSqrtRatioX96 } from '@uniswap/v3-sdk';
-import { getAddress, isAddressEqual, type Address, type Hex, type PublicClient } from 'viem';
+import { getAddress, type Address, type Hex, type PublicClient } from 'viem';
 import fixture from '../../e2e/argon/uniswap/test-stable-swaps.json';
-import { FIXED_18, getStableSwapArgonToken, getStableSwapUsdcToken } from './StableSwapUtils.ts';
+import {
+  ETHEREUM_ARGONOT_DECIMALS,
+  ETHEREUM_ARGON_DECIMALS,
+  FIXED_18,
+  getStableSwapArgonotToken,
+  getStableSwapArgonToken,
+  getStableSwapUsdcToken,
+  getStableSwapUsdtToken,
+  getStableSwapWethToken,
+  USDC_DECIMALS,
+  USDT_DECIMALS,
+  WETH_DECIMALS,
+} from './StableSwapUtils.ts';
 
 type StableSwapFixture = {
   blockNumber: number;
+  tokenAddresses: {
+    argonot: string;
+  };
   pool: {
     poolFee: number;
     poolLiquidity: string;
     currentPriceFixed18: string;
   };
+  bridgePools: Record<
+    string,
+    {
+      poolFee: number;
+      poolLiquidity: string;
+      currentPriceFixed18: string;
+    }
+  >;
   poolArgonBalance: string;
-  quote: {
-    amountInPriceFixed18: string;
-    priceImpactFixed18PerArgon: string;
-  };
+  quotes: Record<string, StableSwapFixtureQuote>;
 };
 
-const USDC_BASE_UNITS_PER_FIXED_18_ARGON = 10n ** 30n;
+type StableSwapFixtureQuote = {
+  amountInPriceFixed18: string;
+  priceImpactFixed18PerArgon: string;
+};
+
+type ParsedStableSwapFixtureQuote = {
+  amountInPriceFixed18: bigint;
+  priceImpactFixed18PerArgon: bigint;
+};
+
+type ParsedStableSwapFixturePool = {
+  poolAddress: Address;
+  poolLiquidity: bigint;
+  currentPriceFixed18: bigint;
+};
+
+export const STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS = getAddress(fixture.tokenAddresses.argonot);
 
 export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwapFixture = fixture): PublicClient {
   const parsedFixture = parseStableSwapFixture(stableSwapFixture);
@@ -26,19 +62,16 @@ export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwa
   return {
     async readContract(args: { address?: Address; functionName: string }) {
       if (args.functionName === 'liquidity') {
-        if (!isFixturePoolAddress(args.address, parsedFixture.pool.poolAddress)) {
-          return 0n;
-        }
-
-        return parsedFixture.pool.poolLiquidity;
+        return parsedFixture.poolsByAddress.get(normalizeAddress(args.address))?.poolLiquidity ?? 0n;
       }
 
       if (args.functionName === 'slot0') {
-        if (!isFixturePoolAddress(args.address, parsedFixture.pool.poolAddress)) {
+        const pool = parsedFixture.poolsByAddress.get(normalizeAddress(args.address));
+        if (!pool) {
           throw new Error(`Stable swap fixture client does not have slot0 for ${args.address}.`);
         }
 
-        const sqrtPriceX96 = fixed18PriceToSqrtPriceX96(parsedFixture.pool.currentPriceFixed18);
+        const sqrtPriceX96 = fixed18PriceToSqrtPriceX96(pool.currentPriceFixed18);
         return [
           sqrtPriceX96,
           TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96.toString()) as any),
@@ -62,13 +95,28 @@ export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwa
         return { data: undefined };
       }
 
-      const amountOut = decodeStableSwapQuoteAmountOut(args.data);
-      const amountIn = (amountOut * parsedFixture.quote.amountInPriceFixed18) / USDC_BASE_UNITS_PER_FIXED_18_ARGON;
+      const { amountOut, routeKey, inputTokenDecimals, isMultiHop } = decodeStableSwapQuote(args.data, parsedFixture);
+      const quote = parsedFixture.quotes[routeKey];
+      if (!quote) {
+        throw new Error(`Stable swap fixture client does not have a quote for ${routeKey}.`);
+      }
+
+      const amountIn = tokenQuoteAmountIn(amountOut, quote.amountInPriceFixed18, inputTokenDecimals);
       const argonsOutFixed18 = amountOut;
       const priceAfterFixed18 =
-        parsedFixture.pool.currentPriceFixed18 +
-        (argonsOutFixed18 * parsedFixture.quote.priceImpactFixed18PerArgon) / FIXED_18;
+        parsedFixture.pool.currentPriceFixed18 + (argonsOutFixed18 * quote.priceImpactFixed18PerArgon) / FIXED_18;
       const sqrtPriceX96After = fixed18PriceToSqrtPriceX96(priceAfterFixed18);
+
+      if (isMultiHop) {
+        return {
+          data: SwapQuoter.V2INTERFACE.encodeFunctionResult('quoteExactOutput', [
+            amountIn.toString(),
+            [sqrtPriceX96After.toString()],
+            ['0'],
+            '0',
+          ]) as Hex,
+        };
+      }
 
       return {
         data: SwapQuoter.V2INTERFACE.encodeFunctionResult('quoteExactOutputSingle', [
@@ -91,64 +139,171 @@ export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwa
 }
 
 function parseStableSwapFixture(stableSwapFixture: StableSwapFixture) {
+  const tokenBySymbol = createStableSwapFixtureTokens(stableSwapFixture);
+  const poolsByAddress = new Map<string, ParsedStableSwapFixturePool>();
+  const argonUsdcPoolAddress = getAddress(
+    UniswapV3Pool.getAddress(tokenBySymbol.ARGN, tokenBySymbol.USDC, stableSwapFixture.pool.poolFee),
+  );
+  poolsByAddress.set(normalizeAddress(argonUsdcPoolAddress), {
+    poolAddress: argonUsdcPoolAddress,
+    poolLiquidity: BigInt(stableSwapFixture.pool.poolLiquidity),
+    currentPriceFixed18: BigInt(stableSwapFixture.pool.currentPriceFixed18),
+  });
+
+  for (const [routeKey, pool] of Object.entries(stableSwapFixture.bridgePools)) {
+    const [tokenInSymbol, tokenOutSymbol] = routeKey.split('->') as [
+      StableSwapFixtureTokenSymbol,
+      StableSwapFixtureTokenSymbol,
+    ];
+    const poolAddress = getAddress(
+      UniswapV3Pool.getAddress(tokenBySymbol[tokenInSymbol], tokenBySymbol[tokenOutSymbol], pool.poolFee),
+    );
+    poolsByAddress.set(normalizeAddress(poolAddress), {
+      poolAddress,
+      poolLiquidity: BigInt(pool.poolLiquidity),
+      currentPriceFixed18: BigInt(pool.currentPriceFixed18),
+    });
+  }
+
   return {
     blockNumber: stableSwapFixture.blockNumber,
     pool: {
       poolFee: stableSwapFixture.pool.poolFee,
-      poolAddress: getAddress(
-        UniswapV3Pool.getAddress(getStableSwapArgonToken(), getStableSwapUsdcToken(), stableSwapFixture.pool.poolFee),
-      ),
+      poolAddress: argonUsdcPoolAddress,
       poolLiquidity: BigInt(stableSwapFixture.pool.poolLiquidity),
       currentPriceFixed18: BigInt(stableSwapFixture.pool.currentPriceFixed18),
     },
+    poolsByAddress,
     poolArgonBalance: BigInt(stableSwapFixture.poolArgonBalance),
-    quote: {
-      amountInPriceFixed18: BigInt(stableSwapFixture.quote.amountInPriceFixed18),
-      priceImpactFixed18PerArgon: BigInt(stableSwapFixture.quote.priceImpactFixed18PerArgon),
-    },
+    quotes: Object.fromEntries(
+      Object.entries(stableSwapFixture.quotes).map(([routeKey, quote]) => [
+        routeKey,
+        {
+          amountInPriceFixed18: BigInt(quote.amountInPriceFixed18),
+          priceImpactFixed18PerArgon: BigInt(quote.priceImpactFixed18PerArgon),
+        } satisfies ParsedStableSwapFixtureQuote,
+      ]),
+    ) as Record<string, ParsedStableSwapFixtureQuote>,
+    tokenByAddress: createStableSwapFixtureTokenAddressMap(tokenBySymbol),
   };
 }
 
-function isFixturePoolAddress(address: Address | undefined, fixturePoolAddress: Address): boolean {
-  return Boolean(address && isAddressEqual(address, fixturePoolAddress));
+type StableSwapFixtureTokenSymbol = 'ARGN' | 'USDC' | 'USDT' | 'WETH' | 'ARGNOT';
+
+function createStableSwapFixtureTokens(stableSwapFixture: StableSwapFixture) {
+  return {
+    ARGN: getStableSwapArgonToken(),
+    USDC: getStableSwapUsdcToken(),
+    USDT: getStableSwapUsdtToken(),
+    WETH: getStableSwapWethToken(),
+    ARGNOT: getStableSwapArgonotToken(getAddress(stableSwapFixture.tokenAddresses.argonot)),
+  };
 }
 
-function decodeStableSwapQuoteAmountOut(data: Hex): bigint {
-  const decoded = SwapQuoter.V2INTERFACE.decodeFunctionData('quoteExactOutputSingle', data) as unknown;
-  const values = collectBigIntLikeValues(decoded);
-  const amountOut = values.reduce((max, value) => (value > max ? value : max), 0n);
-  if (amountOut <= 0n) {
-    throw new Error('Stable swap fixture client could not decode the quoted output amount.');
-  }
-
-  return amountOut;
+function createStableSwapFixtureTokenAddressMap(
+  tokenBySymbol: ReturnType<typeof createStableSwapFixtureTokens>,
+): Map<string, StableSwapFixtureTokenSymbol> {
+  return new Map(
+    Object.entries(tokenBySymbol).map(([symbol, token]) => [
+      normalizeAddress(token.address as Address),
+      symbol as StableSwapFixtureTokenSymbol,
+    ]),
+  );
 }
 
-function collectBigIntLikeValues(value: unknown): bigint[] {
-  if (typeof value === 'bigint') {
-    return [value];
-  }
+function decodeStableSwapQuote(
+  data: Hex,
+  parsedFixture: ReturnType<typeof parseStableSwapFixture>,
+): { amountOut: bigint; routeKey: string; inputTokenDecimals: number; isMultiHop: boolean } {
+  try {
+    const decoded = SwapQuoter.V2INTERFACE.decodeFunctionData('quoteExactOutputSingle', data) as unknown as readonly [
+      {
+        tokenIn: Address;
+        tokenOut: Address;
+        amount: bigint;
+      },
+    ];
+    const params = decoded[0];
+    const inputSymbol = getFixtureTokenSymbol(params.tokenIn, parsedFixture.tokenByAddress);
+    const outputSymbol = getFixtureTokenSymbol(params.tokenOut, parsedFixture.tokenByAddress);
 
-  if (typeof value === 'number' && Number.isInteger(value)) {
-    return [BigInt(value)];
-  }
+    return {
+      amountOut: BigInt(params.amount.toString()),
+      routeKey: `${inputSymbol}->${outputSymbol}`,
+      inputTokenDecimals: getFixtureTokenDecimals(inputSymbol),
+      isMultiHop: false,
+    };
+  } catch {
+    const decoded = SwapQuoter.V2INTERFACE.decodeFunctionData('quoteExactOutput', data) as unknown as readonly [
+      Hex,
+      bigint,
+    ];
+    const reversedTokenSymbols = decodeUniswapPathSymbols(decoded[0], parsedFixture.tokenByAddress);
+    const routeSymbols = reversedTokenSymbols.reverse();
+    const inputSymbol = routeSymbols[0];
 
-  if (value && typeof value === 'object' && 'toString' in value && typeof value.toString === 'function') {
-    const stringValue = value.toString();
-    if (/^\d+$/.test(stringValue)) {
-      return [BigInt(stringValue)];
+    return {
+      amountOut: BigInt(decoded[1].toString()),
+      routeKey: routeSymbols.join('->'),
+      inputTokenDecimals: getFixtureTokenDecimals(inputSymbol),
+      isMultiHop: true,
+    };
+  }
+}
+
+function decodeUniswapPathSymbols(
+  path: Hex,
+  tokenByAddress: Map<string, StableSwapFixtureTokenSymbol>,
+): StableSwapFixtureTokenSymbol[] {
+  const value = path.slice(2);
+  const symbols: StableSwapFixtureTokenSymbol[] = [];
+  let cursor = 0;
+
+  while (cursor + 40 <= value.length) {
+    const address = getAddress(`0x${value.slice(cursor, cursor + 40)}`);
+    symbols.push(getFixtureTokenSymbol(address, tokenByAddress));
+    cursor += 40;
+    if (cursor >= value.length) {
+      break;
     }
+    cursor += 6;
   }
 
-  if (Array.isArray(value)) {
-    return value.flatMap(item => collectBigIntLikeValues(item));
-  }
+  return symbols;
+}
 
-  if (value && typeof value === 'object') {
-    return Object.values(value).flatMap(item => collectBigIntLikeValues(item));
+function getFixtureTokenSymbol(
+  address: Address,
+  tokenByAddress: Map<string, StableSwapFixtureTokenSymbol>,
+): StableSwapFixtureTokenSymbol {
+  const symbol = tokenByAddress.get(normalizeAddress(address));
+  if (!symbol) {
+    throw new Error(`Stable swap fixture client does not know token ${address}.`);
   }
+  return symbol;
+}
 
-  return [];
+function getFixtureTokenDecimals(symbol: StableSwapFixtureTokenSymbol): number {
+  switch (symbol) {
+    case 'ARGN':
+      return ETHEREUM_ARGON_DECIMALS;
+    case 'USDC':
+      return USDC_DECIMALS;
+    case 'USDT':
+      return USDT_DECIMALS;
+    case 'WETH':
+      return WETH_DECIMALS;
+    case 'ARGNOT':
+      return ETHEREUM_ARGONOT_DECIMALS;
+  }
+}
+
+function tokenQuoteAmountIn(amountOut: bigint, amountInPriceFixed18: bigint, inputTokenDecimals: number): bigint {
+  return (amountOut * amountInPriceFixed18 * 10n ** BigInt(inputTokenDecimals)) / (FIXED_18 * FIXED_18);
+}
+
+function normalizeAddress(address: Address | undefined): string {
+  return address ? getAddress(address).toLowerCase() : '';
 }
 
 function fixed18PriceToSqrtPriceX96(priceFixed18: bigint) {

@@ -77,7 +77,7 @@
 
         <section class="flex flex-col gap-y-3 px-9">
           <DebtRecord
-            v-for="lockSummary in financials.liquidVisibleRecords"
+            v-for="lockSummary in financials.liquidLockedRecords"
             :key="lockSummary.uuid ?? lockSummary.utxoId"
             :lockSummary="lockSummary"
           />

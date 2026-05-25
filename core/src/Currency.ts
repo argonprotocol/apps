@@ -181,6 +181,9 @@ export class Currency {
     } else if (to === UnitOfMeasurement.BTC) {
       const bitcoinsBn = BigNumber(microgons).dividedBy(this.microgonsPer.BTC);
       return bitcoinsBn.toNumber();
+    } else if (to === UnitOfMeasurement.ETH) {
+      const ethBn = BigNumber(microgons).dividedBy(this.microgonsPer.ETH);
+      return ethBn.toNumber();
     } else {
       throw new Error(`Unsupported UnitOfMeasurement: ${to}`);
     }
