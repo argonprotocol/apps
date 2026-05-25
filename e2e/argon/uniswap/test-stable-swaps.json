@@ -1,0 +1,13 @@
+{
+  "blockNumber": 1,
+  "pool": {
+    "poolFee": 500,
+    "poolLiquidity": "1000000000000000000000000",
+    "currentPriceFixed18": "970000000000000000"
+  },
+  "poolArgonBalance": "1000000000000000000000",
+  "quote": {
+    "amountInPriceFixed18": "970000000000000000",
+    "priceImpactFixed18PerArgon": "50000000000000000"
+  }
+}

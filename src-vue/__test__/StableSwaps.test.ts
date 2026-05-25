@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildStableSwapUniswapUrl } from '../lib/StableSwaps.ts';
+import { parseUnits } from 'viem';
+import { StableSwaps } from '../lib/StableSwaps.ts';
+import { createStableSwapFixturePublicClient } from '../lib/StableSwapFixturePublicClient.ts';
 import { hydrateStableSwapWallet } from '../lib/StableSwapWallet.ts';
 import { StableSwapProofStatus, type IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
@@ -71,7 +73,8 @@ describe('StableSwaps', () => {
   });
 
   it('builds a Uniswap exact-output link with Argon prefilled and no input token override', () => {
-    const url = buildStableSwapUniswapUrl(12_340_000_000_000_000_000n)!;
+    const stableSwaps = new StableSwaps(createStableSwapFixturePublicClient());
+    const url = stableSwaps.buildStableSwapUniswapUrl(12_340_000n)!;
 
     expect(url).toContain('https://app.uniswap.org/#/swap?');
     expect(url).toContain('chain=mainnet');
@@ -79,5 +82,23 @@ describe('StableSwaps', () => {
     expect(url).toContain('outputCurrency=0x6A9143639D8b70D50b031fFaD55d4CC65EA55155');
     expect(url).toContain('exactAmount=12.34');
     expect(url).not.toContain('inputCurrency=');
+  });
+
+  it('loads active swaps from the fixture public client', async () => {
+    const stableSwaps = new StableSwaps(createStableSwapFixturePublicClient());
+
+    const swaps = await stableSwaps.getActive({
+      microgonsPerUsd: 1_000_000n,
+      targetPriceFixed18: parseUnits('1', 18),
+    });
+
+    expect(swaps).toHaveLength(1);
+    expect(swaps[0].inputToken).toBe('USDC');
+    expect(swaps[0].outputToken).toBe('ARGN');
+    expect(swaps[0].poolFee).toBe(500);
+    expect(swaps[0].inputAmount).toBeGreaterThan(0n);
+    expect(swaps[0].outputAmount).toBeGreaterThan(0n);
+    expect(swaps[0].returnPct).toBeGreaterThan(0);
+    expect(swaps[0].tradeUrl).toContain('exactField=output');
   });
 });

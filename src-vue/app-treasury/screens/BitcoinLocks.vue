@@ -6,7 +6,7 @@
     <div v-else-if="!financials.liquidAllRecords.length" class="flex grow flex-col">
       <div class="flex grow flex-col items-center justify-center">
         <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
-          <header class="text-argon-600 w-full pb-3 text-left text-xl font-bold">
+          <header class="text-argon-600 pb-3 text-xl font-bold">
             Argon Converts Your Bitcoin Into An Income Producing Asset
           </header>
           <p

@@ -1,6 +1,7 @@
 import type { Address } from 'viem';
 import type { IStableSwapPurchaseRecord as IStableSwapPurchaseRow } from '../lib/db/StableSwapPurchasesTable.ts';
 import type { IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 export interface IStableSwapPoolMetadata {
   poolAddress: Address;
@@ -17,9 +18,38 @@ export interface IStableSwapMarketSnapshot {
   poolLiquidity: bigint;
   currentPriceMicrogons: bigint;
   targetPriceMicrogons?: bigint;
+  targetPriceOffset: bigint;
   discountedEthereumArgonAmount: bigint;
   costToTargetMicrogons: bigint;
   projectedProfitMicrogons: bigint;
+  updatedAt: Date;
+}
+
+export type IStableSwapInputTokenSymbol =
+  | UnitOfMeasurement.ETH
+  | UnitOfMeasurement.USDC
+  | UnitOfMeasurement.USDT
+  | UnitOfMeasurement.ARGNOT;
+export type IStableSwapOutputTokenSymbol = UnitOfMeasurement.ARGN;
+export type IStableSwapNetwork = 'ethereum';
+export type IStableSwapDisabledReason = 'no_tokens' | 'no_pool' | 'not_profitable' | 'quote_failed';
+
+export interface IStableSwap {
+  inputToken: IStableSwapInputTokenSymbol;
+  outputToken: IStableSwapOutputTokenSymbol;
+  network: IStableSwapNetwork;
+  inputAmount: bigint;
+  outputAmount: bigint;
+  projectedProfitMicrogons: bigint;
+  returnPct: number;
+  tradeUrl: string | null;
+  disabledReason?: IStableSwapDisabledReason;
+  poolAddress: string;
+  poolFee: number;
+  poolLiquidity: bigint;
+  currentPriceMicrogons: bigint;
+  targetPriceMicrogons?: bigint;
+  targetPriceOffset: bigint;
   updatedAt: Date;
 }
 

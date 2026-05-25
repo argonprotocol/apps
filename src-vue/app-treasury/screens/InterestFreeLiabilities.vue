@@ -7,7 +7,7 @@
     <div v-else-if="!financials.liquidAllRecords.length" class="flex grow flex-col">
       <div class="grow flex flex-col items-center justify-center">
         <div class="flex flex-col items-center w-8/12 max-w-200 py-10">
-          <header class="font-bold text-argon-600 text-left w-full text-xl pb-3">Argon Offers Network-Backed Loans That Are Free From Interest</header>
+          <header class="font-bold text-argon-600 text-xl pb-3">Argon Offers Network-Backed Loans That Are Free From Interest</header>
           <p class="w-0 min-w-full border-y border-slate-400/50 py-4 text-[17px]/7 font-light whitespace-normal">
             Argon Network provides interest-free loans to all bitcoin holders up to the full market value of their
             bitcoin. These loans are for a duration of one year, after which you can continue to extend it for additional
