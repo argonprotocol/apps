@@ -18,7 +18,7 @@
             <button
               @click="activateStableSwaps"
               :class="
-                walletBalance
+                financials.swapsTotalValue
                   ? 'bg-argon-button hover:bg-argon-button-hover border-transparent text-white'
                   : 'pointer-events-none border-gray-500 bg-white text-gray-500 opacity-40'
               "
@@ -43,9 +43,9 @@
                 "
               />
             </div>
-            <div v-if="walletBalance" class="text-argon-600 relative text-xl leading-8 font-bold">
-              Your account has {{ currency.symbol }}{{ microgonToMoneyNm(walletBalance).format('0,0.00') }} on ethereum
-              that
+            <div v-if="financials.swapsTotalValue" class="text-argon-600 relative text-xl leading-8 font-bold">
+              Your account has {{ currency.symbol
+              }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }} on ethereum that
               <br />
               is ready for immediate deployment.
             </div>
@@ -65,7 +65,7 @@
       </div>
     </div>
 
-    <div v-else class="flex h-full flex-col gap-4 pt-4">
+    <div v-else class="flex h-full flex-col pt-4">
       <section class="mx-9 mt-5 flex flex-row items-end gap-x-2 text-center">
         <div class="w-1/3 border-b border-slate-400/30 pb-5">
           <div class="text-argon-600 inline-flex text-5xl font-bold">
@@ -108,10 +108,12 @@
       </section>
 
       <div class="relative flex min-h-0 grow flex-col">
-        <div class="flex flex-col overflow-y-auto px-9 pt-10 pb-2">
-          <div class="flex flex-row items-center text-slate-800/70">
+        <div class="flex grow flex-col overflow-y-auto pt-10">
+          <div class="flex flex-row items-center px-9 text-slate-800/70">
             <span class="grow">
-              You have {{ opportunities.length }} swap opportunit{{ opportunities.length === 1 ? 'y' : 'ies' }}...
+              You have {{ stableSwaps.swaps.length }} swap opportunit{{
+                stableSwaps.swaps.length === 1 ? 'y' : 'ies'
+              }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
               <button class="text-md text-argon-600 cursor-pointer">Refresh List</button>
@@ -121,104 +123,94 @@
               </a>
             </div>
           </div>
-        </div>
 
-        <section v-if="opportunities.length" class="mx-9">
-          Argons to Buy: {{ discountedArgonsDisplay }} ARGN Current Price: {{ currency.symbol
-          }}{{ currentPriceDisplay }} Expected Profit: {{ currency.symbol }}{{ projectedProfitDisplay }} Estimated
-          spend:
-          <span class="font-medium text-slate-700">{{ currency.symbol }}{{ costToTargetDisplay }}</span>
-          Offset from Target: {{ targetOffsetDisplay }}
-          <button
-            @click="stableSwaps.openCurrentTrade()"
-            :disabled="!stableSwaps.marketTradeUrl || !stableSwaps.marketSnapshot?.discountedEthereumArgonAmount"
-            class="bg-argon-button hover:bg-argon-button-hover mt-4 inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ArrowTopRightOnSquareIcon class="h-4 w-4" />
-            Buy Exact Argons On Uniswap
-          </button>
-        </section>
+          <div class="mt-4 flex grow flex-col">
+            <section v-if="stableSwaps.swaps.length" class="mx-9 flex flex-col gap-y-2 pb-10">
+              <SwapRecord v-for="swap of stableSwaps.swaps" :swap="swap" />
+            </section>
 
-        <section
-          v-else
-          class="mx-9 flex min-h-20 flex-col items-center rounded border border-slate-400/20 bg-slate-400/5 px-6 py-16 text-center text-slate-600/60"
-        >
-          <p>
-            Argon is on target, which means there are
-            <br />
-            no swap opportunities currently available.
-          </p>
-          <div
-            :class="currencyFadeClass"
-            class="mt-5 flex flex-row items-center border-y border-slate-600/10 py-2 pr-2 pl-1 transition-opacity duration-400 ease-in-out"
-          >
-            <CheckIcon class="mr-2 size-5" />
-            <span>
-              ARGN is trading on Ethereum at {{ currencySymbol
-              }}{{ microgonToNm(1_000_000n, currencyKey).format('0.00[0]') }}
-            </span>
-          </div>
-        </section>
-
-        <section class="mx-9 mt-10 flex grow flex-col">
-          <div
-            class="grid grid-cols-8 border-b border-slate-100 px-6 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase"
-          >
-            <div>Date</div>
-            <div>Argons Bought</div>
-            <div>Cost Basis</div>
-            <div>Buy Price</div>
-            <div>Oracle Price</div>
-            <div>Uniswap Price</div>
-            <div>Current P/L</div>
-            <div class="text-right">Details</div>
-          </div>
-
-          <div
-            v-if="stableSwaps.walletSnapshot?.purchases.length === 0"
-            class="px-6 py-10 text-center text-sm text-slate-500"
-          >
-            No tracked purchases yet for this wallet.
-          </div>
-
-          <div v-else class="overflow-auto">
-            <div
-              v-for="purchase in stableSwaps.walletSnapshot?.purchases"
-              :key="purchase.txHash"
-              class="grid grid-cols-8 items-center border-b border-slate-50 px-6 py-3 text-sm text-slate-700 last:border-0 hover:bg-slate-50/60"
+            <section
+              v-else
+              class="mx-9 flex min-h-20 flex-col items-center rounded border border-slate-400/20 bg-slate-400/5 px-6 py-16 text-center text-slate-600/60"
             >
-              <div class="text-slate-500">{{ formatPurchaseDate(purchase.ethereumTimestamp) }}</div>
-              <div class="font-mono">{{ formatEthereumArgonAmount(purchase.ethereumArgonAmount) }} ARGN</div>
-              <div class="font-mono">{{ currency.symbol }}{{ formatMoneyMicrogons(purchase.costBasisMicrogons) }}</div>
-              <div class="font-mono">
-                {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.effectiveBuyPriceMicrogons, '0,0.[0000]') }}
-              </div>
-              <div class="font-mono">
-                {{ currency.symbol }}{{ formatOptionalMoneyMicrogons(purchase.argonOraclePriceMicrogons) }}
-              </div>
-              <div class="font-mono">
-                {{ currency.symbol }}{{ formatMoneyMicrogons(purchase.uniswapPriceMicrogons, '0,0.[0000]') }}
-              </div>
+              <p>
+                Argon is on target, which means there are
+                <br />
+                no swap opportunities currently available.
+              </p>
               <div
-                :class="purchase.currentProfitMicrogons >= ZERO_BIGINT ? 'text-emerald-600' : 'text-rose-600'"
-                class="font-mono font-semibold"
+                :class="currencyFadeClass"
+                class="mt-5 flex flex-row items-center border-y border-slate-600/10 py-2 pr-2 pl-1 transition-opacity duration-400 ease-in-out"
               >
-                {{ formatSignedMoneyMicrogons(purchase.currentProfitMicrogons) }}
+                <CheckIcon class="mr-2 size-5" />
+                <span>
+                  ARGN is trading on Ethereum at {{ currencySymbol
+                  }}{{ microgonToNm(oneArgonInMicrogons, currencyKey).format('0.00[0]') }}
+                </span>
               </div>
-              <div class="text-right">
-                <button
-                  @click="openPurchaseTx(purchase.txHash)"
-                  class="text-argon-600 hover:text-argon-700 inline-flex items-center gap-1 text-sm font-medium transition"
+            </section>
+
+            <section v-if="stableSwaps.walletSnapshot?.purchases.length" class="mx-9 mt-10 flex grow flex-col">
+              <div
+                class="grid grid-cols-8 border-b border-slate-100 px-6 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase"
+              >
+                <div>Date</div>
+                <div>Argons Bought</div>
+                <div>Cost Basis</div>
+                <div>Buy Price</div>
+                <div>Oracle Price</div>
+                <div>Uniswap Price</div>
+                <div>Current P/L</div>
+                <div class="text-right">Details</div>
+              </div>
+
+              <div class="overflow-auto">
+                <div
+                  v-for="purchase in stableSwaps.walletSnapshot?.purchases"
+                  :key="purchase.txHash"
+                  class="grid grid-cols-8 items-center border-b border-slate-50 px-6 py-3 text-sm text-slate-700 last:border-0 hover:bg-slate-50/60"
                 >
-                  Tx
-                  <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />
-                </button>
+                  <div class="text-slate-500">{{ dayjs(purchase.ethereumTimestamp).format('MMM D, YYYY h:mm A') }}</div>
+                  <div class="font-mono">
+                    {{ numeral(formatUnits(purchase.ethereumArgonAmount, 18)).format('0,0.[0000]') }} ARGN
+                  </div>
+                  <div class="font-mono">
+                    {{ currency.symbol }}{{ microgonToMoneyNm(purchase.costBasisMicrogons).format('0,0.00') }}
+                  </div>
+                  <div class="font-mono">
+                    {{ currency.symbol
+                    }}{{ microgonToMoneyNm(purchase.effectiveBuyPriceMicrogons).format('0,0.[0000]') }}
+                  </div>
+                  <div class="font-mono">
+                    {{ currency.symbol
+                    }}{{ microgonToMoneyNm(purchase.argonOraclePriceMicrogons || zeroMicrogons).format('0,0.[0000]') }}
+                  </div>
+                  <div class="font-mono">
+                    {{ currency.symbol }}{{ microgonToMoneyNm(purchase.uniswapPriceMicrogons).format('0,0.[0000]') }}
+                  </div>
+                  <div
+                    :class="purchase.currentProfitMicrogons >= zeroMicrogons ? 'text-emerald-600' : 'text-rose-600'"
+                    class="font-mono font-semibold"
+                  >
+                    {{ purchase.currentProfitMicrogons >= zeroMicrogons ? '+' : '-' }}{{ currency.symbol
+                    }}{{ microgonToMoneyNm(purchase.currentProfitMicrogons).format('0,0.00') }}
+                  </div>
+                  <div class="text-right">
+                    <button
+                      @click="openPurchaseTx(purchase.txHash)"
+                      class="text-argon-600 hover:text-argon-700 inline-flex items-center gap-1 text-sm font-medium transition"
+                    >
+                      Tx
+                      <ArrowTopRightOnSquareIcon class="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </section>
           </div>
-        </section>
-        <div class="relative px-0.5 pb-0.5">
-          <img src="/treasury-footers/stable-swaps.png" class="w-full opacity-50" />
+          <div class="relative px-0.5 pb-0.5">
+            <img src="/treasury-footers/stable-swaps.png" class="w-full opacity-50" />
+          </div>
         </div>
       </div>
     </div>
@@ -232,122 +224,41 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { formatUnits } from 'viem';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getCurrency } from '../../stores/currency.ts';
-import { useStableSwaps } from '../../stores/stableSwaps.ts';
+import { useStableSwaps } from '../stores/stableSwaps.ts';
 import CurvedArrow from '../../components/CurvedArrow.vue';
 import EthereumIcon from '../../assets/networks/ethereum.svg';
 import ArgonIcon from '../../assets/networks/argon.svg';
 import SwapIcon from '../../assets/swap.svg';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { type IOtherToken, WalletType } from '../../lib/Wallet.ts';
-import { bigIntAbs, bigNumberToBigInt, ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { useWallets } from '../../stores/wallets.ts';
+import { WalletType } from '../../lib/Wallet.ts';
+import { bigIntAbs, ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getConfig } from '../../stores/config.ts';
 import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline';
 import Arrow from '../../components/Arrow.vue';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../stores/financials.ts';
-import BigNumber from 'bignumber.js';
+import SwapRecord from './components/SwapRecord.vue';
 
 const currency = getCurrency();
 const financials = useFinancials();
 const stableSwaps = useStableSwaps();
-const wallets = useWallets();
 const config = getConfig();
 
 const { microgonToMoneyNm, microgonToNm } = createNumeralHelpers(currency);
 
-const ZERO_BIGINT = BigInt(0);
 const isLoaded = Vue.ref(false);
 
-const opportunities = Vue.ref([]);
 const currencyKey = Vue.ref<ICurrencyKey>(UnitOfMeasurement.USD);
+const oneArgonInMicrogons = 1000000n;
+const zeroMicrogons = 0n;
 
 const currencySymbol = Vue.computed(() => {
   return currency.recordsByKey[currencyKey.value].symbol;
 });
 
-const walletBalance = Vue.computed(() => {
-  const microgonValue = wallets.ethereumWallet.availableMicrogons;
-  const micronotValue = currency.convertMicronotTo(
-    wallets.ethereumWallet.availableMicronots,
-    UnitOfMeasurement.Microgon,
-  );
-  const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
-    return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
-  }, 0n);
-  return microgonValue + micronotValue + otherTokenValue;
-});
-
-const currentPriceDisplay = Vue.computed(() => {
-  return stableSwaps.marketSnapshot
-    ? formatMoneyMicrogons(stableSwaps.marketSnapshot.currentPriceMicrogons, '0,0.[0000]')
-    : '0.0000';
-});
-
-const targetPriceDisplay = Vue.computed(() => {
-  const target = stableSwaps.marketSnapshot?.targetPriceMicrogons;
-  if (!target) {
-    return '';
-  }
-  return formatMoneyMicrogons(target, '0,0.[0000]');
-});
-
-const targetOffsetDisplay = Vue.computed(() => {
-  const snapshot = stableSwaps.marketSnapshot;
-  if (!snapshot?.targetPriceMicrogons) {
-    return '';
-  }
-
-  const offset = snapshot.currentPriceMicrogons - snapshot.targetPriceMicrogons;
-  const prefix = offset >= ZERO_BIGINT ? '+' : '-';
-  return `${prefix}${currency.symbol}${formatMoneyMicrogons(bigIntAbs(offset), '0,0.[0000]')}`;
-});
-
-const discountedArgonsDisplay = Vue.computed(() => {
-  return formatEthereumArgonAmount(stableSwaps.marketSnapshot?.discountedEthereumArgonAmount ?? ZERO_BIGINT);
-});
-
-const costToTargetDisplay = Vue.computed(() => {
-  const amount = stableSwaps.marketSnapshot?.costToTargetMicrogons ?? ZERO_BIGINT;
-  if (amount <= ZERO_BIGINT) {
-    return '';
-  }
-  return formatMoneyMicrogons(amount);
-});
-
-const projectedProfitDisplay = Vue.computed(() => {
-  return '';
-  // return formatMoneyMicrogons(stableSwaps.marketSnapshot?.projectedProfitMicrogons ?? ZERO_BIGINT);
-});
-
 const totalSwapReturn = Vue.computed(() => {
   return stableSwaps.walletSnapshot?.summary.returnPct ?? 0;
 });
-
-function formatPurchaseDate(date: Date) {
-  return dayjs(date).format('MMM D, YYYY h:mm A');
-}
-
-function formatEthereumArgonAmount(amount: bigint) {
-  return numeral(formatUnits(amount, 18)).format('0,0.[0000]');
-}
-
-function formatOptionalMoneyMicrogons(value?: bigint) {
-  if (!value) {
-    return '--';
-  }
-  return formatMoneyMicrogons(value, '0,0.[0000]');
-}
-
-function formatSignedMoneyMicrogons(value: bigint) {
-  const prefix = value >= ZERO_BIGINT ? '+' : '-';
-  return `${prefix}${currency.symbol}${formatMoneyMicrogons(bigIntAbs(value))}`;
-}
-
-function formatMoneyMicrogons(value: bigint, format = '0,0.00') {
-  return numeral(currency.convertMicrogonTo(value, currency.key)).format(format);
-}
 
 async function openPurchaseTx(txHash: string) {
   await tauriOpenUrl(`https://etherscan.io/tx/${txHash}`);

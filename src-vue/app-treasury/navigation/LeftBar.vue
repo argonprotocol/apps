@@ -24,12 +24,9 @@
     >
       <div Text>Interest-Free Liabilities</div>
       <div Text>
-        <Spinner SpinnerIcon v-if="financials.liquidPrelockedRecords.length && !financials.liquidProblemRecords.length" />
-        <template v-else>
-          {{ financials.liquidCurrentBitcoinDebt ? '-' : '' }}{{
-            currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00')
-          }}
-        </template>
+        {{ financials.liquidCurrentBitcoinDebt ? '-' : '' }}{{
+          currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00')
+        }}
       </div>
       <div ArrowWrapper>
         <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
@@ -77,8 +74,11 @@
       @click="controller.setScreenKey(TreasuryTab.EthereumSwaps)"
       :Selected="controller.selectedTab === TreasuryTab.EthereumSwaps || undefined"
     >
-      <div Text>Stable Swaps</div>
-      <div Text>{{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}</div>
+      <div Text>
+        Stable Swaps
+      </div>
+      <span Badge v-if="config.hasActivatedStableSwaps && stableSwaps.swaps.length">{{ stableSwaps.swaps.length }}</span>
+      <div Text v-else>{{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}</div>
       <div ArrowWrapper>
         <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
         <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
@@ -126,10 +126,14 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { useFinancials } from '../stores/financials.ts';
 import Spinner from '../../components/Spinner.vue';
 import AlertIcon from '../../assets/alert.svg';
+import { useStableSwaps } from '../stores/stableSwaps.ts';
+import { getConfig } from '../../stores/config.ts';
 
+const config = getConfig();
+const currency = getCurrency();
 const controller = useTreasuryController();
 const financials = useFinancials();
-const currency = getCurrency();
+const stableSwaps = useStableSwaps();
 
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
@@ -141,6 +145,11 @@ function openLink(url: string) {
 
 Vue.onMounted(async () => {
   await Promise.all([currency.fetchMainchainRates()]);
+  try {
+    await stableSwaps.load();
+  } catch (error) {
+    console.error('Failed to load stable swaps', error);
+  }
   isLoaded.value = true;
 });
 </script>
@@ -171,6 +180,9 @@ Vue.onMounted(async () => {
       div[Text] {
         @apply opacity-100;
       }
+      [Badge] {
+        @apply opacity-100;
+      }
       [ArrowWrapper] {
         .Component.Arrow[InactiveArrow] path {
           fill: var(--color-argon-20) !important;
@@ -181,6 +193,9 @@ Vue.onMounted(async () => {
       @apply w-[calc(100%+10px)] cursor-default bg-[var(--color-argon-20)] pr-[calc(16px+10px)];
       text-shadow: 1px 1px 1px white;
       div[Text] {
+        @apply opacity-100;
+      }
+      [Badge] {
         @apply opacity-100;
       }
       [ArrowWrapper] {
@@ -199,6 +214,11 @@ Vue.onMounted(async () => {
         }
       }
     }
+  }
+
+  [Badge] {
+    @apply bg-argon-600/80 border-argon-700 rounded-full border px-2 py-px text-sm font-bold text-white opacity-50;
+    text-shadow: none;
   }
 
   [ArrowWrapper] {

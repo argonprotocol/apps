@@ -22,6 +22,7 @@
     "dev:docker:custom": "ARGON_CHAIN=/chainspec.raw.json yarn dev:docker",
     "e2e:prepare": "yarn build:server",
     "dev:ethereum:add-eth": "tsx e2e/scripts/fundDevEthereumAccount.ts",
+    "dev:ethereum:add-usdc": "tsx e2e/scripts/fundDevEthereumAccount.ts --token=USDC",
     "dev:ethereum:add-argn": "tsx e2e/scripts/mintDevEthereumTokens.ts --token=ARGN",
     "dev:ethereum:add-argnot": "tsx e2e/scripts/mintDevEthereumTokens.ts --token=ARGNOT",
     "e2e:docker": "yarn workspace @argonprotocol/apps-e2e run flows",

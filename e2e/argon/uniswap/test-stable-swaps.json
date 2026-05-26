@@ -1,0 +1,47 @@
+{
+  "blockNumber": 1,
+  "tokenAddresses": {
+    "argonot": "0x1111111111111111111111111111111111111111"
+  },
+  "pool": {
+    "poolFee": 500,
+    "poolLiquidity": "1000000000000000000000000000",
+    "currentPriceFixed18": "970000000000000000"
+  },
+  "bridgePools": {
+    "USDT->USDC": {
+      "poolFee": 500,
+      "poolLiquidity": "1000000000000000",
+      "currentPriceFixed18": "1000000000000000000"
+    },
+    "WETH->USDC": {
+      "poolFee": 500,
+      "poolLiquidity": "100000000000000000000000",
+      "currentPriceFixed18": "3000000000000000000000"
+    },
+    "ARGNOT->USDC": {
+      "poolFee": 500,
+      "poolLiquidity": "1000000000000000000000000",
+      "currentPriceFixed18": "50000000000000000"
+    }
+  },
+  "poolArgonBalance": "10000000000000000000000",
+  "quotes": {
+    "USDC->ARGN": {
+      "amountInPriceFixed18": "970000000000000000",
+      "priceImpactFixed18PerArgon": "100000000000000"
+    },
+    "USDT->USDC->ARGN": {
+      "amountInPriceFixed18": "971000000000000000",
+      "priceImpactFixed18PerArgon": "50000000000000000"
+    },
+    "WETH->USDC->ARGN": {
+      "amountInPriceFixed18": "323666666666666",
+      "priceImpactFixed18PerArgon": "50000000000000000"
+    },
+    "ARGNOT->USDC->ARGN": {
+      "amountInPriceFixed18": "19400000000000000000",
+      "priceImpactFixed18PerArgon": "50000000000000000"
+    }
+  }
+}

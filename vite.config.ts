@@ -18,6 +18,19 @@ const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const defaultOperationsPortString = '1420';
 const defaultTreasuryPortString = '1430';
 
+function shouldIgnoreWatchedPath(path: string): boolean {
+  const watchedPath = path.replace(/\\/g, '/');
+  const normalizedPath = watchedPath.startsWith('/') ? watchedPath : `/${watchedPath}`;
+  const isSrcTauriPath = normalizedPath.includes('/src-tauri/') || normalizedPath.endsWith('/src-tauri');
+  const isUniswapE2ePath =
+    normalizedPath.includes('/e2e/argon/uniswap/') || normalizedPath.endsWith('/e2e/argon/uniswap');
+
+  if (isSrcTauriPath) return true;
+  if (!normalizedPath.includes('/e2e/')) return false;
+
+  return !isUniswapE2ePath;
+}
+
 // Function to check if a port is available
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -161,8 +174,8 @@ export default defineConfig(async ({ mode }) => {
             }
           : undefined,
       watch: {
-        // 3. tell vite to ignore watching `src-tauri`
-        ignored: ['**/src-tauri/**', '**/e2e/**'],
+        // 3. tell vite to ignore watching `src-tauri` and non-uniswap e2e files
+        ignored: shouldIgnoreWatchedPath,
       },
     },
   };

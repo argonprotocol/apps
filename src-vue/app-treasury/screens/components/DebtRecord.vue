@@ -115,19 +115,19 @@ function openUnlockingOverlay(event: MouseEvent, lock: IBitcoinLockRecord) {
     }
 
     [FirstRow] {
-      @apply flex flex-row items-center gap-1 pt-3 pb-2 text-lg text-slate-800;
+      @apply flex flex-row items-center gap-1 pt-3 pb-2 pl-1 text-lg text-slate-800;
       header {
         @apply relative top-1 grow text-lg font-bold;
       }
     }
 
     [SecondRow] {
-      @apply flex flex-row items-stretch border-t border-slate-400/30 pt-3 pb-3 whitespace-nowrap text-slate-500;
+      @apply flex flex-row items-stretch border-t border-slate-400/30 pt-3 pb-3 pl-1 whitespace-nowrap text-slate-600/70;
     }
   }
 
   [MainIcon] {
-    @apply w-20 text-slate-400;
+    @apply text-argon-600/60 w-20;
   }
   /* relative top-px mr-7 inline-block w-18 -rotate-24 opacity-60 */
 

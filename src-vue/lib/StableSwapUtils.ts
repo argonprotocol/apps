@@ -28,6 +28,7 @@ type StableSwapPoolLike = {
   poolLiquidity: bigint;
   currentSqrtPriceX96: bigint;
   currentTick: number;
+  argonIsToken0: boolean;
 };
 
 export const UNISWAP_V3_POOL_STATE_ABI = uniswapV3PoolStateArtifact.abi as Abi;
@@ -38,8 +39,14 @@ export const USDC_TO_FIXED_18_FACTOR = 10n ** 12n;
 export const STABLE_SWAP_CHAIN_ID = ChainId.MAINNET;
 export const ETHEREUM_ARGON_DECIMALS = 18;
 export const USDC_DECIMALS = 6;
+export const USDT_DECIMALS = 6;
+export const WETH_DECIMALS = 18;
+export const ETHEREUM_ARGONOT_DECIMALS = 18;
 export const ONE_ETHEREUM_ARGON = 10n ** BigInt(ETHEREUM_ARGON_DECIMALS);
+export const ETHEREUM_ARGON_BASE_UNITS_PER_MICROGON = 10n ** 12n;
 export const STABLE_SWAP_TRANSFER_EVENT = erc20Abi.find(item => item.type === 'event' && item.name === 'Transfer')!;
+export const STABLE_SWAP_USDT_TOKEN_ADDRESS = getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7');
+export const STABLE_SWAP_WETH_TOKEN_ADDRESS = getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
 
 export function getStableSwapArgonTokenAddress(): Address {
   return getAddress(NetworkConfig.get().ethereumNetwork.argonTokenAddress);
@@ -65,6 +72,18 @@ export function getStableSwapUsdcToken(): Token {
   );
 }
 
+export function getStableSwapUsdtToken(): Token {
+  return new Token(STABLE_SWAP_CHAIN_ID, STABLE_SWAP_USDT_TOKEN_ADDRESS, USDT_DECIMALS, 'USDT', 'Tether USD');
+}
+
+export function getStableSwapWethToken(): Token {
+  return new Token(STABLE_SWAP_CHAIN_ID, STABLE_SWAP_WETH_TOKEN_ADDRESS, WETH_DECIMALS, 'WETH', 'Wrapped Ether');
+}
+
+export function getStableSwapArgonotToken(address: Address): Token {
+  return new Token(STABLE_SWAP_CHAIN_ID, getAddress(address), ETHEREUM_ARGONOT_DECIMALS, 'ARGNOT', 'Argonot');
+}
+
 export function createStableSwapSdkPool(pool: StableSwapPoolLike, state?: StableSwapSdkPoolState): UniswapV3Pool {
   const argonToken = getStableSwapArgonToken();
   const usdcToken = getStableSwapUsdcToken();
@@ -73,10 +92,12 @@ export function createStableSwapSdkPool(pool: StableSwapPoolLike, state?: Stable
     liquidity: pool.poolLiquidity,
     tickCurrent: pool.currentTick,
   };
+  const token0 = pool.argonIsToken0 ? argonToken : usdcToken;
+  const token1 = pool.argonIsToken0 ? usdcToken : argonToken;
 
   return new UniswapV3Pool(
-    argonToken,
-    usdcToken,
+    token0,
+    token1,
     pool.poolFee as FeeAmount,
     poolState.sqrtPriceX96.toString(),
     poolState.liquidity.toString(),
@@ -103,6 +124,14 @@ export function decimalToFixed18(value: string): bigint {
 
 export function fixed18ToMicrogons(valueFixed18: bigint, microgonsPerUsd: bigint): bigint {
   return (valueFixed18 * microgonsPerUsd) / FIXED_18;
+}
+
+export function ethereumArgonBaseUnitsToMicrogons(value: bigint): bigint {
+  return value / ETHEREUM_ARGON_BASE_UNITS_PER_MICROGON;
+}
+
+export function microgonsToEthereumArgonBaseUnits(value: bigint): bigint {
+  return value * ETHEREUM_ARGON_BASE_UNITS_PER_MICROGON;
 }
 
 export function usdcToFixed18(usdc: bigint): bigint {

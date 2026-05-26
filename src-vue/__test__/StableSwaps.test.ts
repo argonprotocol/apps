@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { buildStableSwapUniswapUrl } from '../lib/StableSwaps.ts';
+import { parseUnits } from 'viem';
+import { encodeSqrtRatioX96, TickMath } from '@uniswap/v3-sdk';
+import JSBI from 'jsbi';
+import { StableSwaps } from '../lib/StableSwaps.ts';
+import {
+  createStableSwapFixturePublicClient,
+  STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
+} from '../lib/StableSwapFixturePublicClient.ts';
+import {
+  createStableSwapSdkPool,
+  getStableSwapArgonToken,
+  stableSwapSdkPriceToFixed18,
+} from '../lib/StableSwapUtils.ts';
 import { hydrateStableSwapWallet } from '../lib/StableSwapWallet.ts';
 import { StableSwapProofStatus, type IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
+import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 const NOW = new Date('2026-04-06T12:00:00Z');
 
@@ -71,13 +84,110 @@ describe('StableSwaps', () => {
   });
 
   it('builds a Uniswap exact-output link with Argon prefilled and no input token override', () => {
-    const url = buildStableSwapUniswapUrl(12_340_000_000_000_000_000n)!;
+    const url = StableSwaps.buildStableSwapUniswapUrl(12_340_000n)!;
 
     expect(url).toContain('https://app.uniswap.org/#/swap?');
     expect(url).toContain('chain=mainnet');
-    expect(url).toContain('exactField=output');
+    expect(url).toContain('field=output');
     expect(url).toContain('outputCurrency=0x6A9143639D8b70D50b031fFaD55d4CC65EA55155');
-    expect(url).toContain('exactAmount=12.34');
+    expect(url).toContain('value=12.34');
     expect(url).not.toContain('inputCurrency=');
+  });
+
+  it('resolves stable swap input tokens to Uniswap input currencies', async () => {
+    await expect(StableSwaps.getInputCurrency(UnitOfMeasurement.USDC)).resolves.toBe(
+      '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    );
+    await expect(StableSwaps.getInputCurrency(UnitOfMeasurement.USDT)).resolves.toBe(
+      '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    );
+    await expect(StableSwaps.getInputCurrency(UnitOfMeasurement.ETH)).resolves.toBe('ETH');
+    await expect(
+      StableSwaps.getInputCurrency(UnitOfMeasurement.ARGNOT, {
+        argonotTokenAddress: STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
+      }),
+    ).resolves.toBe(STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS);
+  });
+
+  it('prices the Argon/USDC pool correctly when USDC is token0', () => {
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: {
+        usdcTokenAddress: '0x0000000000000000000000000000000000000001',
+      },
+    });
+
+    try {
+      const argonToken = getStableSwapArgonToken();
+      const sqrtPriceX96 = encodeSqrtRatioX96((1n * 10n ** BigInt(argonToken.decimals)).toString(), '970000');
+      const pool = createStableSwapSdkPool({
+        poolFee: 500,
+        poolLiquidity: 1_000_000_000_000_000_000n,
+        currentSqrtPriceX96: BigInt(sqrtPriceX96.toString()),
+        currentTick: TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96.toString()) as any),
+        argonIsToken0: false,
+      });
+
+      expect(stableSwapSdkPriceToFixed18(pool.priceOf(argonToken))).toBe(970_000_000_000_000_000n);
+    } finally {
+      NetworkConfig.clearRuntimeOverride('dev-docker');
+    }
+  });
+
+  it('loads active swaps from the fixture public client when USDC is token0', async () => {
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: {
+        usdcTokenAddress: '0x0000000000000000000000000000000000000001',
+      },
+    });
+
+    try {
+      const stableSwaps = new StableSwaps(createStableSwapFixturePublicClient(), {
+        argonotTokenAddress: STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
+      });
+
+      const swaps = await stableSwaps.getActive({
+        microgonsPerUsd: 1_000_000n,
+        inputTokenPricesMicrogons: {
+          USDC: 1_000_000n,
+          USDT: 1_000_000n,
+          ETH: 3_000_000_000n,
+          ARGNOT: 50_000n,
+        },
+        targetPriceFixed18: parseUnits('1', 18),
+      });
+
+      expect(swaps).toHaveLength(4);
+      expect(swaps.map(swap => swap.inputToken)).toEqual(['USDC', 'USDT', 'ETH', 'ARGNOT']);
+    } finally {
+      NetworkConfig.clearRuntimeOverride('dev-docker');
+    }
+  });
+
+  it('loads active swaps from the fixture public client', async () => {
+    const stableSwaps = new StableSwaps(createStableSwapFixturePublicClient(), {
+      argonotTokenAddress: STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
+    });
+
+    const swaps = await stableSwaps.getActive({
+      microgonsPerUsd: 1_000_000n,
+      inputTokenPricesMicrogons: {
+        USDC: 1_000_000n,
+        USDT: 1_000_000n,
+        ETH: 3_000_000_000n,
+        ARGNOT: 50_000n,
+      },
+      targetPriceFixed18: parseUnits('1', 18),
+    });
+
+    expect(swaps).toHaveLength(4);
+    expect(swaps.map(swap => swap.inputToken)).toEqual(['USDC', 'USDT', 'ETH', 'ARGNOT']);
+    for (const swap of swaps) {
+      expect(swap.outputToken).toBe('ARGN');
+      expect(swap.poolFee).toBe(500);
+      expect(swap.inputAmount).toBeGreaterThan(0n);
+      expect(swap.inputAmountMicrogons).toBeGreaterThan(0n);
+      expect(swap.outputAmount).toBeGreaterThan(0n);
+      expect(swap.returnPct).toBeGreaterThan(0);
+    }
   });
 });

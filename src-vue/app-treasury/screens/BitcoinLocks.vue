@@ -6,7 +6,7 @@
     <div v-else-if="!financials.liquidAllRecords.length" class="flex grow flex-col">
       <div class="flex grow flex-col items-center justify-center">
         <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
-          <header class="text-argon-600 w-full pb-3 text-left text-xl font-bold">
+          <header class="text-argon-600 pb-3 text-xl font-bold">
             Argon Converts Your Bitcoin Into An Income Producing Asset
           </header>
           <p
@@ -108,8 +108,8 @@
       </section>
 
       <div class="relative flex min-h-0 grow flex-col">
-        <div class="flex grow flex-col overflow-y-auto px-9 pt-10 pb-5">
-          <div class="flex flex-row items-center text-slate-800/70">
+        <div class="flex grow flex-col overflow-y-auto pt-10">
+          <div class="flex flex-row items-center px-9 text-slate-800/70">
             <span class="grow">
               You have {{ financials.liquidVisibleRecords.length }} BTC transaction{{
                 financials.liquidVisibleRecords.length === 1 ? '' : 's'
@@ -126,7 +126,7 @@
             </div>
           </div>
 
-          <section class="mt-4 flex flex-col gap-y-3">
+          <section class="mt-4 flex grow flex-col gap-y-3 px-9 pb-10">
             <BitcoinRecord
               v-for="lockSummary in financials.liquidVisibleRecords"
               :key="lockSummary.uuid ?? lockSummary.utxoId"
@@ -136,11 +136,11 @@
               @unlock="openUnlockingOverlay"
             />
           </section>
+          <div class="relative px-0.5 pb-0.5">
+            <img src="/treasury-footers/bitcoin-locks.png" class="w-full opacity-50" />
+          </div>
         </div>
         <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
-      </div>
-      <div class="relative px-0.5 pb-0.5">
-        <img src="/treasury-footers/bitcoin-locks.png" class="w-full opacity-50" />
       </div>
     </div>
 

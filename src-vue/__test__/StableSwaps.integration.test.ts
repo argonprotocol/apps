@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  fetchStableSwapMarketSnapshot,
-  fetchStableSwapPoolMetadata,
-  getStableSwapPoolPriceFixed18,
-  quoteStableSwapExactOutput,
-  STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT,
-} from '../lib/StableSwaps.ts';
+import { StableSwaps, STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT } from '../lib/StableSwaps.ts';
+import { microgonsToEthereumArgonBaseUnits } from '../lib/StableSwapUtils.ts';
 import { createPublicClient, http } from 'viem';
 
 const runStableSwapsIntegration = Boolean(JSON.parse(process.env.RUN_STABLE_SWAPS_INTEGRATION ?? '0'));
@@ -17,11 +12,11 @@ describe.skipIf(!runStableSwapsIntegration).sequential('StableSwaps integration'
       transport: http(stableSwapsRpcUrl),
     });
     const blockNumber = await client.getBlockNumber();
-    const pool = await fetchStableSwapPoolMetadata(client, blockNumber);
+    const stableSwaps = new StableSwaps(client);
+    const pool = await stableSwaps.getActivePoolMetadata(blockNumber);
+    const currentPriceFixed18 = stableSwaps.getCurrentPriceFixed18(pool);
 
-    const currentPriceFixed18 = getStableSwapPoolPriceFixed18(pool);
-    const sampleQuote = await quoteStableSwapExactOutput({
-      client,
+    const sampleQuote = await stableSwaps.quoteExactOutput({
       pool,
       amountOut: 1_000_000_000_000_000n,
       blockNumber,
@@ -34,26 +29,30 @@ describe.skipIf(!runStableSwapsIntegration).sequential('StableSwaps integration'
     const priceIncreaseFixed18 = sampleQuote!.priceAfterFixed18 - currentPriceFixed18;
     const targetPriceFixed18 = currentPriceFixed18 + (priceIncreaseFixed18 > 1n ? priceIncreaseFixed18 / 2n : 1n);
 
-    const { snapshot } = await fetchStableSwapMarketSnapshot(client, 1_000_000n, targetPriceFixed18, pool, blockNumber);
+    const snapshot = await stableSwaps.getMarketSnapshot({
+      microgonsPerUsd: 1_000_000n,
+      targetPriceFixed18,
+      pool,
+      blockNumber,
+    });
 
     expect(snapshot.discountedEthereumArgonAmount).toBeGreaterThan(0n);
-    expect(snapshot.discountedEthereumArgonAmount).toBeGreaterThan(STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT);
     expect(snapshot.costToTargetMicrogons).toBeGreaterThan(0n);
+    const discountedEthereumArgonBaseUnits = microgonsToEthereumArgonBaseUnits(snapshot.discountedEthereumArgonAmount);
+    expect(discountedEthereumArgonBaseUnits).toBeGreaterThan(STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT);
 
-    const boundaryQuote = await quoteStableSwapExactOutput({
-      client,
+    const boundaryQuote = await stableSwaps.quoteExactOutput({
       pool,
-      amountOut: snapshot.discountedEthereumArgonAmount,
+      amountOut: discountedEthereumArgonBaseUnits,
       blockNumber,
     });
 
     expect(boundaryQuote).toBeTruthy();
     expect(boundaryQuote!.priceAfterFixed18).toBeGreaterThanOrEqual(targetPriceFixed18);
 
-    const smallerQuote = await quoteStableSwapExactOutput({
-      client,
+    const smallerQuote = await stableSwaps.quoteExactOutput({
       pool,
-      amountOut: snapshot.discountedEthereumArgonAmount - STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT,
+      amountOut: discountedEthereumArgonBaseUnits - STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT,
       blockNumber,
     });
 

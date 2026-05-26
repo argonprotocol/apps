@@ -164,7 +164,9 @@ export class Currency {
       return microgons;
     } else if (to === UnitOfMeasurement.Micronot) {
       return bigNumberToBigInt(BigNumber(microgons).dividedBy(this.microgonsPer.Micronot));
-    } else if (to === UnitOfMeasurement.USD) {
+    } else if (
+      [UnitOfMeasurement.USD, UnitOfMeasurement.USDC, UnitOfMeasurement.USDE, UnitOfMeasurement.USDT].includes(to)
+    ) {
       return BigNumber(microgons).dividedBy(this.microgonsPer.USD).toNumber();
     } else if (to === UnitOfMeasurement.EUR) {
       return BigNumber(microgons).dividedBy(this.microgonsPer.EUR).toNumber();
@@ -179,6 +181,9 @@ export class Currency {
     } else if (to === UnitOfMeasurement.BTC) {
       const bitcoinsBn = BigNumber(microgons).dividedBy(this.microgonsPer.BTC);
       return bitcoinsBn.toNumber();
+    } else if (to === UnitOfMeasurement.ETH) {
+      const ethBn = BigNumber(microgons).dividedBy(this.microgonsPer.ETH);
+      return ethBn.toNumber();
     } else {
       throw new Error(`Unsupported UnitOfMeasurement: ${to}`);
     }

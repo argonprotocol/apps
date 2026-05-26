@@ -1,4 +1,7 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import { DelegateSubmitLane } from '../bot/src/DelegateSubmitLane.ts';
 import { EthereumBeaconSyncService } from '../bot/src/EthereumBeaconSyncService.ts';
@@ -14,7 +17,19 @@ import {
   waitForLoad,
 } from '@argonprotocol/mainchain';
 import { TestEthereum } from '@argonprotocol/testing';
-import { createPublicClient, defineChain, http, type Address, type Hash, type Hex } from 'viem';
+import erc20PresetFixedSupplyArtifact from '@openzeppelin/contracts/build/contracts/ERC20PresetFixedSupply.json' with { type: 'json' };
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  parseUnits,
+  type Abi,
+  type Address,
+  type Hash,
+  type Hex,
+  type TransactionReceipt,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 export const DEV_ETHEREUM_ADMIN_ACCOUNT = {
@@ -46,6 +61,19 @@ export interface IStartDevEthereumResult {
   chainId: string;
   serverExecutionRpcUrl: string;
   serverBeaconApiUrl: string;
+  usdcTokenAddress: Address;
+}
+
+export interface IDevEthereumRuntimeState {
+  beaconPreset: DevEthereumBeaconPreset;
+  enclaveName: string;
+  executionRpcUrl: string;
+  beaconApiUrl: string;
+  chainId: string;
+  serverExecutionRpcUrl: string;
+  serverBeaconApiUrl: string;
+  usdcTokenAddress: Address;
+  updatedAt: string;
 }
 
 export interface IDevEthereumSetup {
@@ -92,14 +120,21 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
     },
   });
   await waitForStableExecutionRpc(endpoints.executionRpcUrl, endpoints.chainId);
+  const usdcTokenAddress = await deployDevEthereumUsdc({
+    executionRpcUrl: endpoints.executionRpcUrl,
+    chainId: endpoints.chainId,
+  });
 
-  return {
+  const result = {
     beaconPreset: config.beaconPreset,
     enclaveName: ethereum.enclaveName,
     ...endpoints,
     serverExecutionRpcUrl: rewriteLocalUrlHost(endpoints.executionRpcUrl, 'host.docker.internal'),
     serverBeaconApiUrl: rewriteLocalUrlHost(endpoints.beaconApiUrl, 'host.docker.internal'),
+    usdcTokenAddress,
   };
+  await writeDevEthereumRuntimeState(result);
+  return result;
 }
 
 export function createDevEthereumSetup(
@@ -132,6 +167,7 @@ export function createDevEthereumSetup(
         archiveUrl,
         beaconApiUrl: devEthereum.beaconApiUrl,
         executionRpcUrl: devEthereum.executionRpcUrl,
+        usdcTokenAddress: devEthereum.usdcTokenAddress,
         finalityMillis: config.finalityMillis,
         finalityBlocks: config.finalityBlocks,
         relayerPollMs: config.relayerPollMs,
@@ -153,20 +189,7 @@ export async function sendDevEthereumAdminTransaction(args: {
     transport: http(rpcUrl, { retryCount: 1, timeout: 15_000 }),
   });
   const chainId = await publicClient.getChainId();
-  const chain = defineChain({
-    id: chainId,
-    name: 'argon-dev-ethereum',
-    nativeCurrency: {
-      name: 'Ether',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    rpcUrls: {
-      default: {
-        http: [rpcUrl],
-      },
-    },
-  });
+  const chain = createDevEthereumChain(chainId, rpcUrl);
   const nonce = await publicClient.getTransactionCount({
     address: account.address,
   });
@@ -204,6 +227,18 @@ export async function sendDevEthereumAdminTransaction(args: {
     hash,
     sender: account.address,
   };
+}
+
+export async function readDevEthereumRuntimeState(): Promise<IDevEthereumRuntimeState | undefined> {
+  try {
+    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(), 'utf8');
+    return JSON.parse(raw) as IDevEthereumRuntimeState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 export async function resolveDevEthereumRpcUrl(args: { rpcUrl?: string; logPrefix?: string }): Promise<string> {
@@ -259,6 +294,7 @@ async function startDevEthereumRelayer(args: {
   archiveUrl: string;
   beaconApiUrl: string;
   executionRpcUrl: string;
+  usdcTokenAddress: Address;
   finalityMillis: number;
   finalityBlocks: number;
   relayerPollMs: number;
@@ -273,6 +309,7 @@ async function startDevEthereumRelayer(args: {
     ethereumNetwork: {
       executionRpcUrl: args.executionRpcUrl,
       finalityBlocks: args.finalityBlocks,
+      usdcTokenAddress: args.usdcTokenAddress,
     },
   });
 
@@ -312,6 +349,100 @@ async function startDevEthereumRelayer(args: {
       restoreEnvVar('ETHEREUM_FINALITY_MILLIS', previousEthereumFinalityMillis);
     },
   };
+}
+
+async function deployDevEthereumUsdc(args: { executionRpcUrl: string; chainId: string }): Promise<Address> {
+  const account = privateKeyToAccount(DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey);
+  const chain = createDevEthereumChain(Number(BigInt(args.chainId)), args.executionRpcUrl);
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(args.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+  });
+  const walletClient = createWalletClient({
+    account,
+    chain,
+    transport: http(args.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+  });
+  const hash = await walletClient.deployContract({
+    abi: erc20PresetFixedSupplyArtifact.abi as Abi,
+    bytecode: erc20PresetFixedSupplyArtifact.bytecode as Hex,
+    args: ['USD Coin', 'USDC', parseUnits('1000000000', 6), account.address],
+  });
+  const receipt = await waitForDevEthereumTransactionReceipt(publicClient, hash);
+  if (receipt.status !== 'success' || !receipt.contractAddress) {
+    throw new Error(`USDC mock deployment failed: ${hash}`);
+  }
+
+  console.log(`[tauri-dev] Deployed mock USDC at ${receipt.contractAddress}`);
+  return receipt.contractAddress;
+}
+
+async function waitForDevEthereumTransactionReceipt(
+  publicClient: ReturnType<typeof createPublicClient>,
+  hash: Hash,
+): Promise<TransactionReceipt> {
+  const startedAt = Date.now();
+  const timeoutMs = 60_000;
+  let lastError: Error | undefined;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      return await publicClient.getTransactionReceipt({ hash });
+    } catch (error) {
+      lastError = error as Error;
+      const message = lastError.message.toLowerCase();
+      if (
+        !message.includes('not found') &&
+        !message.includes('could not be found') &&
+        !message.includes('indexing is in progress')
+      ) {
+        throw lastError;
+      }
+      await delay(500);
+    }
+  }
+
+  throw new Error(`Timed out waiting for Ethereum transaction receipt: ${hash}`, {
+    cause: lastError,
+  });
+}
+
+function createDevEthereumChain(chainId: number, rpcUrl: string) {
+  return defineChain({
+    id: chainId,
+    name: 'argon-dev-ethereum',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    rpcUrls: {
+      default: {
+        http: [rpcUrl],
+      },
+    },
+  });
+}
+
+async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
+  const statePath = getDevEthereumRuntimeStatePath();
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
+  await fs.writeFile(
+    statePath,
+    `${JSON.stringify(
+      {
+        ...state,
+        updatedAt: new Date().toISOString(),
+      } satisfies IDevEthereumRuntimeState,
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+}
+
+function getDevEthereumRuntimeStatePath(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'artifacts', 'dev-ethereum.json');
 }
 
 async function ensureDevEthereumChainConfig(

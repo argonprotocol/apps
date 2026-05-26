@@ -82,7 +82,7 @@
         </div>
         <div SecondRow>
           <div class="fade-in-out text-argon-900/60 text-md pointer-events-none font-bold">
-            Monitoring the Bitcoin Network for Your Deposit
+            You need to send the required amount of bitcoin into the vault.
           </div>
         </div>
       </div>
@@ -295,7 +295,7 @@ async function acknowledgeExpiredNotice() {
   }
 
   [MainIcon] {
-    @apply w-20 text-slate-400;
+    @apply text-argon-600/60 w-20;
   }
   /* relative top-px mr-7 inline-block w-18 -rotate-24 opacity-60 */
 
