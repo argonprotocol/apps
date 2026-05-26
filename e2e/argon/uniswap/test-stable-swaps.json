@@ -36,7 +36,7 @@
       "priceImpactFixed18PerArgon": "50000000000000000"
     },
     "WETH->USDC->ARGN": {
-      "amountInPriceFixed18": "477000000000000",
+      "amountInPriceFixed18": "323666666666666",
       "priceImpactFixed18PerArgon": "50000000000000000"
     },
     "ARGNOT->USDC->ARGN": {

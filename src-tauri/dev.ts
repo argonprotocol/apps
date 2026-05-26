@@ -8,6 +8,7 @@ import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 import {
   createDevEthereumSetup,
   readDevEthereumConfigFromEnv,
+  readDevEthereumRuntimeState,
   resolveDevEthereumRpcUrl,
   startDevEthereum,
   type IDevEthereumSetup,
@@ -68,8 +69,12 @@ async function main(): Promise<void> {
       ? JSON.parse(inheritedOverride)
       : undefined;
     const ethereumExecutionRpcUrl = await resolveRuntimeEthereumExecutionRpcUrl(devEthereum, inheritedRuntimeOverride);
+    const ethereumUsdcTokenAddress = await resolveRuntimeEthereumUsdcTokenAddress(
+      devEthereum,
+      inheritedRuntimeOverride,
+    );
     const runtimeOverride = composePorts
-      ? await resolveDevDockerNetworkConfigOverride(composePorts, ethereumExecutionRpcUrl)
+      ? await resolveDevDockerNetworkConfigOverride(composePorts, ethereumExecutionRpcUrl, ethereumUsdcTokenAddress)
       : null;
     const resolvedOverride = inheritedRuntimeOverride
       ? mergeNetworkConfigOverrides(inheritedRuntimeOverride, runtimeOverride)
@@ -78,7 +83,7 @@ async function main(): Promise<void> {
     if (resolvedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
       console.log(
-        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}`,
+        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}${resolvedOverride.ethereumNetwork?.usdcTokenAddress ? ` usdc=${resolvedOverride.ethereumNetwork.usdcTokenAddress}` : ''}`,
       );
     } else {
       delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
@@ -169,13 +174,21 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
 
   try {
     archivePort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 9944))!;
-    archiveP2pPort = (
-      await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 30334)
-    )!;
+    archiveP2pPort = (await readComposePortWithRetry(
+      composeDir,
+      composeEnv,
+      joinComposeNetwork,
+      'archive-node',
+      30334,
+    ))!;
     bitcoinP2pPort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin', 18444))!;
-    esploraPort = (
-      await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin-electrs', 3002)
-    )!;
+    esploraPort = (await readComposePortWithRetry(
+      composeDir,
+      composeEnv,
+      joinComposeNetwork,
+      'bitcoin-electrs',
+      3002,
+    ))!;
     indexerPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'indexer', 3262, {
       optional: true,
     });
@@ -187,13 +200,7 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
       'minio',
       9000,
     ))!;
-    const notaryPort = (await readComposePortWithRetry(
-      composeDir,
-      composeEnv,
-      joinComposeNetwork,
-      'notary',
-      9925,
-    ))!;
+    const notaryPort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'notary', 9925))!;
     // then after resolving ports:
     notaryArchiveHost = await resolveNotaryArchiveHost(notaryPort, notebookArchivePort);
   } catch (error) {
@@ -252,6 +259,7 @@ async function resolveNotaryArchiveHost(notaryPort: string, minioPort: string): 
 async function resolveDevDockerNetworkConfigOverride(
   ports: DevDockerComposePorts,
   ethereumExecutionRpcUrl?: string,
+  usdcTokenAddress?: string,
   relayerUrl?: string,
 ): Promise<RuntimeNetworkConfigOverride | null> {
   const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
@@ -275,6 +283,7 @@ async function resolveDevDockerNetworkConfigOverride(
   if (ethereumExecutionRpcUrl) {
     override.ethereumNetwork = {
       executionRpcUrl: ethereumExecutionRpcUrl,
+      ...(usdcTokenAddress ? { usdcTokenAddress } : {}),
     };
   }
   if (ports.indexerPort) {
@@ -301,6 +310,28 @@ async function resolveRuntimeEthereumExecutionRpcUrl(
     return await resolveDevEthereumRpcUrl({ logPrefix: 'tauri-dev' });
   } catch (error) {
     console.warn(`[tauri-dev] Ethereum execution RPC unavailable: ${(error as Error).message}`);
+    return undefined;
+  }
+}
+
+async function resolveRuntimeEthereumUsdcTokenAddress(
+  devEthereum?: IStartDevEthereumResult,
+  inheritedOverride?: RuntimeNetworkConfigOverride,
+): Promise<string | undefined> {
+  const inheritedUsdcTokenAddress = readNonEmpty(inheritedOverride?.ethereumNetwork?.usdcTokenAddress);
+  if (inheritedUsdcTokenAddress) {
+    return inheritedUsdcTokenAddress;
+  }
+
+  const launchedUsdcTokenAddress = readNonEmpty(devEthereum?.usdcTokenAddress);
+  if (launchedUsdcTokenAddress) {
+    return launchedUsdcTokenAddress;
+  }
+
+  try {
+    return readNonEmpty((await readDevEthereumRuntimeState())?.usdcTokenAddress);
+  } catch (error) {
+    console.warn(`[tauri-dev] Dev Ethereum USDC address unavailable: ${(error as Error).message}`);
     return undefined;
   }
 }

@@ -54,7 +54,6 @@ type StableSwapRoutePoolMetadata = {
 type StableSwapInputRoute = {
   inputToken: IStableSwapInputTokenSymbol;
   inputTokenDecimals: number;
-  inputCurrency: string;
   inputTokenPriceMicrogons: bigint;
   route: UniswapV3Route<Token, Token>;
 };
@@ -125,7 +124,6 @@ export class StableSwaps {
           outputAmount: snapshot.discountedEthereumArgonAmount,
           projectedProfitMicrogons,
           returnPct: calculateStableSwapReturnPct(inputAmountMicrogons, projectedProfitMicrogons),
-          tradeUrl: this.buildStableSwapUniswapUrl(snapshot.discountedEthereumArgonAmount, inputRoute.inputCurrency),
           poolAddress: activePool.poolAddress,
           poolFee: activePool.poolFee,
           poolLiquidity: activePool.poolLiquidity,
@@ -376,7 +374,7 @@ export class StableSwaps {
     return stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, state).priceOf(getStableSwapArgonToken()));
   }
 
-  public buildStableSwapUniswapUrl(argonAmountMicrogons: bigint, inputCurrency?: string): string | null {
+  public static buildStableSwapUniswapUrl(argonAmountMicrogons: bigint, inputCurrency?: string): string | null {
     if (argonAmountMicrogons <= 0n) {
       return null;
     }
@@ -384,6 +382,22 @@ export class StableSwaps {
     const ethereumArgonAmount = microgonsToEthereumArgonBaseUnits(argonAmountMicrogons);
     const inputCurrencyParam = inputCurrency ? `&inputCurrency=${inputCurrency}` : '';
     return `https://app.uniswap.org/#/swap?chain=mainnet${inputCurrencyParam}&outputCurrency=${getStableSwapArgonTokenAddress()}&field=output&value=${formatUnits(ethereumArgonAmount, ETHEREUM_ARGON_DECIMALS)}`;
+  }
+
+  public static async getInputCurrency(
+    inputToken: IStableSwapInputTokenSymbol,
+    options: { argonotTokenAddress?: Address } = {},
+  ): Promise<string | undefined> {
+    switch (inputToken) {
+      case UnitOfMeasurement.USDC:
+        return getStableSwapUsdcToken().address;
+      case UnitOfMeasurement.USDT:
+        return getStableSwapUsdtToken().address;
+      case UnitOfMeasurement.ETH:
+        return 'ETH';
+      case UnitOfMeasurement.ARGNOT:
+        return options.argonotTokenAddress ?? (await loadEthereumChainConfig())?.argonotTokenAddress;
+    }
   }
 
   private async getStableSwapInputRoutes(args: {
@@ -400,7 +414,6 @@ export class StableSwaps {
       {
         inputToken: UnitOfMeasurement.USDC,
         inputTokenDecimals: USDC_DECIMALS,
-        inputCurrency: usdcToken.address,
         inputTokenPriceMicrogons: inputTokenPricesMicrogons?.[UnitOfMeasurement.USDC] ?? microgonsPerUsd,
         route: new UniswapV3Route([createUniswapV3SdkPool(argonUsdcPool)], usdcToken, argonToken),
       },
@@ -411,7 +424,6 @@ export class StableSwaps {
     const bridgeRoutes = await Promise.all([
       this.createBridgeInputRoute({
         inputToken: UnitOfMeasurement.USDT,
-        inputCurrency: getStableSwapUsdtToken().address,
         inputTokenDecimals: USDT_DECIMALS,
         inputTokenPriceMicrogons: inputTokenPricesMicrogons?.[UnitOfMeasurement.USDT] ?? microgonsPerUsd,
         inputTokenSdk: getStableSwapUsdtToken(),
@@ -423,7 +435,6 @@ export class StableSwaps {
       ethTokenPriceMicrogons !== undefined
         ? this.createBridgeInputRoute({
             inputToken: UnitOfMeasurement.ETH,
-            inputCurrency: 'ETH',
             inputTokenDecimals: WETH_DECIMALS,
             inputTokenPriceMicrogons: ethTokenPriceMicrogons,
             inputTokenSdk: getStableSwapWethToken(),
@@ -447,7 +458,6 @@ export class StableSwaps {
 
   private async createBridgeInputRoute(args: {
     inputToken: IStableSwapInputTokenSymbol;
-    inputCurrency: string;
     inputTokenDecimals: number;
     inputTokenPriceMicrogons: bigint;
     inputTokenSdk: Token;
@@ -464,7 +474,6 @@ export class StableSwaps {
     return {
       inputToken: args.inputToken,
       inputTokenDecimals: args.inputTokenDecimals,
-      inputCurrency: args.inputCurrency,
       inputTokenPriceMicrogons: args.inputTokenPriceMicrogons,
       route: new UniswapV3Route(
         [createUniswapV3SdkPool(bridgePool), createUniswapV3SdkPool(args.argonUsdcPool)],
@@ -492,7 +501,6 @@ export class StableSwaps {
 
     return this.createBridgeInputRoute({
       inputToken: UnitOfMeasurement.ARGNOT,
-      inputCurrency: argonotToken.address,
       inputTokenDecimals: ETHEREUM_ARGONOT_DECIMALS,
       inputTokenPriceMicrogons: args.argonotTokenPriceMicrogons,
       inputTokenSdk: argonotToken,

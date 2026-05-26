@@ -28,6 +28,7 @@ type StableSwapPoolLike = {
   poolLiquidity: bigint;
   currentSqrtPriceX96: bigint;
   currentTick: number;
+  argonIsToken0: boolean;
 };
 
 export const UNISWAP_V3_POOL_STATE_ABI = uniswapV3PoolStateArtifact.abi as Abi;
@@ -91,10 +92,12 @@ export function createStableSwapSdkPool(pool: StableSwapPoolLike, state?: Stable
     liquidity: pool.poolLiquidity,
     tickCurrent: pool.currentTick,
   };
+  const token0 = pool.argonIsToken0 ? argonToken : usdcToken;
+  const token1 = pool.argonIsToken0 ? usdcToken : argonToken;
 
   return new UniswapV3Pool(
-    argonToken,
-    usdcToken,
+    token0,
+    token1,
     pool.poolFee as FeeAmount,
     poolState.sqrtPriceX96.toString(),
     poolState.liquidity.toString(),

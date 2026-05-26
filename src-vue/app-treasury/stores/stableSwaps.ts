@@ -11,8 +11,6 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   const config = getConfig();
   const currency = getCurrency();
 
-  const publicClient = createStableSwapPublicClient();
-  const stableSwaps = new StableSwaps(publicClient);
   const swaps = Vue.ref<IStableSwap[]>([]);
 
   const isLoaded = Vue.ref(false);
@@ -24,6 +22,12 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   const walletSnapshot = Vue.ref<IStableSwapWalletSnapshot | null>(null);
 
   let loadPromise: Promise<void> | undefined;
+  let stableSwapsPromise: Promise<StableSwaps> | undefined;
+
+  async function getStableSwaps(): Promise<StableSwaps> {
+    stableSwapsPromise ??= createStableSwapPublicClient().then(publicClient => new StableSwaps(publicClient));
+    return await stableSwapsPromise;
+  }
 
   async function load() {
     if (loadPromise) return await loadPromise;
@@ -31,6 +35,8 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     loadPromise = (async () => {
       await config.isLoadedPromise;
       await currency.isLoadedPromise;
+      const stableSwaps = await getStableSwaps();
+      const targetPriceFixed18 = getTargetPriceFixed18();
 
       isLoaded.value = true;
       swaps.value = await stableSwaps.getActive({
@@ -41,11 +47,8 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
           ETH: currency.microgonsPer.ETH,
           ARGNOT: currency.microgonsPer.ARGNOT,
         },
-        targetPriceFixed18: getTargetPriceFixed18(),
+        targetPriceFixed18,
       });
-
-      // const db = await dbPromise;
-      // await storeStableSwapMarketSnapshot({ db, snapshot });
     })();
 
     try {
@@ -65,7 +68,6 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     walletMessage,
     walletSnapshot,
     swaps,
-    stableSwaps,
     load,
   };
 });

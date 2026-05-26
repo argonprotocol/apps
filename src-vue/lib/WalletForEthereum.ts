@@ -1,5 +1,5 @@
 import { type Address, erc20Abi, getAddress } from 'viem';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE } from '@argonprotocol/mainchain';
 import { defaultWalletData, type IOtherToken, type IOtherTokenDefinition, type IWallet } from './Wallet.ts';
 import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
@@ -25,7 +25,7 @@ const trackedOtherEthereumTokens = [
   {
     symbol: 'USDC',
     decimals: 6,
-    address: getAddress('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
+    address: null,
     chain: 'ethereum',
     unitOfMeasurement: UnitOfMeasurement.USDC,
   },
@@ -196,11 +196,21 @@ export async function loadTokens(
 }
 
 function getTrackedOtherEthereumTokens(chainConfig?: IEthereumChainConfig): readonly IOtherTokenDefinition[] {
+  const tokens = trackedOtherEthereumTokens.map(token =>
+    token.unitOfMeasurement === UnitOfMeasurement.USDC
+      ? {
+          ...token,
+          address: getAddress(NetworkConfig.get().ethereumNetwork.usdcTokenAddress),
+        }
+      : token,
+  );
+
   if (chainConfig?.chainId !== ETHEREUM_MAINNET_CHAIN_ID) {
-    return trackedOtherEthereumTokens.filter(token => token.unitOfMeasurement === UnitOfMeasurement.ETH);
+    const allowedTokens = [UnitOfMeasurement.ETH, UnitOfMeasurement.USDC];
+    return tokens.filter(token => allowedTokens.includes(token.unitOfMeasurement));
   }
 
-  return trackedOtherEthereumTokens;
+  return tokens;
 }
 
 async function loadEthereumArgonTokens(): Promise<{

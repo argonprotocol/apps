@@ -15,6 +15,7 @@ import {
   USDT_DECIMALS,
   WETH_DECIMALS,
 } from './StableSwapUtils.ts';
+import type { Token } from '@uniswap/sdk-core';
 
 type StableSwapFixture = {
   blockNumber: number;
@@ -52,6 +53,7 @@ type ParsedStableSwapFixturePool = {
   poolAddress: Address;
   poolLiquidity: bigint;
   currentPriceFixed18: bigint;
+  currentSqrtPriceX96: bigint;
 };
 
 export const STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS = getAddress(fixture.tokenAddresses.argonot);
@@ -71,10 +73,9 @@ export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwa
           throw new Error(`Stable swap fixture client does not have slot0 for ${args.address}.`);
         }
 
-        const sqrtPriceX96 = fixed18PriceToSqrtPriceX96(pool.currentPriceFixed18);
         return [
-          sqrtPriceX96,
-          TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96.toString()) as any),
+          pool.currentSqrtPriceX96,
+          TickMath.getTickAtSqrtRatio(JSBI.BigInt(pool.currentSqrtPriceX96.toString()) as any),
           0,
           0,
           0,
@@ -105,7 +106,11 @@ export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwa
       const argonsOutFixed18 = amountOut;
       const priceAfterFixed18 =
         parsedFixture.pool.currentPriceFixed18 + (argonsOutFixed18 * quote.priceImpactFixed18PerArgon) / FIXED_18;
-      const sqrtPriceX96After = fixed18PriceToSqrtPriceX96(priceAfterFixed18);
+      const sqrtPriceX96After = fixed18PriceToSqrtPriceX96(
+        priceAfterFixed18,
+        parsedFixture.tokenBySymbol.ARGN,
+        parsedFixture.tokenBySymbol.USDC,
+      );
 
       if (isMultiHop) {
         return {
@@ -148,6 +153,11 @@ function parseStableSwapFixture(stableSwapFixture: StableSwapFixture) {
     poolAddress: argonUsdcPoolAddress,
     poolLiquidity: BigInt(stableSwapFixture.pool.poolLiquidity),
     currentPriceFixed18: BigInt(stableSwapFixture.pool.currentPriceFixed18),
+    currentSqrtPriceX96: fixed18PriceToSqrtPriceX96(
+      BigInt(stableSwapFixture.pool.currentPriceFixed18),
+      tokenBySymbol.ARGN,
+      tokenBySymbol.USDC,
+    ),
   });
 
   for (const [routeKey, pool] of Object.entries(stableSwapFixture.bridgePools)) {
@@ -162,6 +172,11 @@ function parseStableSwapFixture(stableSwapFixture: StableSwapFixture) {
       poolAddress,
       poolLiquidity: BigInt(pool.poolLiquidity),
       currentPriceFixed18: BigInt(pool.currentPriceFixed18),
+      currentSqrtPriceX96: fixed18PriceToSqrtPriceX96(
+        BigInt(pool.currentPriceFixed18),
+        tokenBySymbol[tokenInSymbol],
+        tokenBySymbol[tokenOutSymbol],
+      ),
     });
   }
 
@@ -172,6 +187,11 @@ function parseStableSwapFixture(stableSwapFixture: StableSwapFixture) {
       poolAddress: argonUsdcPoolAddress,
       poolLiquidity: BigInt(stableSwapFixture.pool.poolLiquidity),
       currentPriceFixed18: BigInt(stableSwapFixture.pool.currentPriceFixed18),
+      currentSqrtPriceX96: fixed18PriceToSqrtPriceX96(
+        BigInt(stableSwapFixture.pool.currentPriceFixed18),
+        tokenBySymbol.ARGN,
+        tokenBySymbol.USDC,
+      ),
     },
     poolsByAddress,
     poolArgonBalance: BigInt(stableSwapFixture.poolArgonBalance),
@@ -184,6 +204,7 @@ function parseStableSwapFixture(stableSwapFixture: StableSwapFixture) {
         } satisfies ParsedStableSwapFixtureQuote,
       ]),
     ) as Record<string, ParsedStableSwapFixtureQuote>,
+    tokenBySymbol,
     tokenByAddress: createStableSwapFixtureTokenAddressMap(tokenBySymbol),
   };
 }
@@ -306,6 +327,17 @@ function normalizeAddress(address: Address | undefined): string {
   return address ? getAddress(address).toLowerCase() : '';
 }
 
-function fixed18PriceToSqrtPriceX96(priceFixed18: bigint) {
-  return encodeSqrtRatioX96((priceFixed18 * 10n ** 6n).toString(), (FIXED_18 * FIXED_18).toString());
+function fixed18PriceToSqrtPriceX96(priceFixed18: bigint, baseToken: Token, quoteToken: Token) {
+  const baseRawUnits = 10n ** BigInt(baseToken.decimals);
+  const quoteRawUnits = 10n ** BigInt(quoteToken.decimals);
+
+  if (baseToken.sortsBefore(quoteToken)) {
+    return BigInt(
+      encodeSqrtRatioX96((priceFixed18 * quoteRawUnits).toString(), (FIXED_18 * baseRawUnits).toString()).toString(),
+    );
+  }
+
+  return BigInt(
+    encodeSqrtRatioX96((FIXED_18 * baseRawUnits).toString(), (priceFixed18 * quoteRawUnits).toString()).toString(),
+  );
 }

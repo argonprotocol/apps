@@ -44,7 +44,6 @@ export interface IStableSwap {
   outputAmount: bigint;
   projectedProfitMicrogons: bigint;
   returnPct: number;
-  tradeUrl: string | null;
   disabledReason?: IStableSwapDisabledReason;
   poolAddress: string;
   poolFee: number;

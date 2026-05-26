@@ -77,7 +77,7 @@
       <div Text>
         Stable Swaps
       </div>
-      <span Badge v-if="stableSwaps.swaps.length">{{ stableSwaps.swaps.length }}</span>
+      <span Badge v-if="config.hasActivatedStableSwaps && stableSwaps.swaps.length">{{ stableSwaps.swaps.length }}</span>
       <div Text v-else>{{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}</div>
       <div ArrowWrapper>
         <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
@@ -127,7 +127,9 @@ import { useFinancials } from '../stores/financials.ts';
 import Spinner from '../../components/Spinner.vue';
 import AlertIcon from '../../assets/alert.svg';
 import { useStableSwaps } from '../stores/stableSwaps.ts';
+import { getConfig } from '../../stores/config.ts';
 
+const config = getConfig();
 const currency = getCurrency();
 const controller = useTreasuryController();
 const financials = useFinancials();
@@ -143,7 +145,11 @@ function openLink(url: string) {
 
 Vue.onMounted(async () => {
   await Promise.all([currency.fetchMainchainRates()]);
-  await stableSwaps.load();
+  try {
+    await stableSwaps.load();
+  } catch (error) {
+    console.error('Failed to load stable swaps', error);
+  }
   isLoaded.value = true;
 });
 </script>
