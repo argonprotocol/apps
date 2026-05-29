@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts';
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
+import { TransactionInfo } from '../lib/TransactionInfo.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -284,6 +286,102 @@ describe('TransactionTracker', () => {
     expect(table.markFinalized).not.toHaveBeenCalled();
     expect(table.updateFinalizedHead).not.toHaveBeenCalled();
     expect(tx.finalizedHeadHeight).toBe(101);
+  });
+
+  it('reserves local nonces above restored pending submissions for concurrent same-account work', async () => {
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        chain: {
+          getHeader: vi.fn(async () => ({ number: { toNumber: () => 125 } })),
+        },
+        system: {
+          accountNextIndex: vi.fn(async () => ({ toNumber: () => 7 })),
+        },
+      },
+    } as any);
+
+    const { tracker } = await createTracker({
+      txs: [
+        createTransaction({
+          id: 10,
+          status: TransactionStatus.Submitted,
+          txNonce: 7,
+          accountAddress: '5Alice',
+          blockHeight: undefined,
+          blockHash: undefined,
+        }),
+      ],
+      finalizedHeight: 125,
+    });
+    vi.spyOn(tracker, 'trackTxResult').mockImplementation(async ({ txResult, extrinsicType, metadata }) => {
+      const txInfo = new TransactionInfo({
+        tx: createTransaction({
+          id: tracker.data.txInfos.length + 20,
+          status: TransactionStatus.Submitted,
+          txNonce: txResult.extrinsic.nonce,
+          accountAddress: txResult.extrinsic.accountAddress,
+          extrinsicType,
+          metadataJson: metadata ?? {},
+          submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
+          submittedAtTime: txResult.extrinsic.submittedTime,
+          blockHeight: undefined,
+          blockHash: undefined,
+          blockTime: undefined,
+          blockExtrinsicIndex: undefined,
+          blockExtrinsicEventsJson: undefined,
+          isFinalized: false,
+        }),
+        txResult,
+      });
+      tracker.data.txInfos.unshift(txInfo);
+      return txInfo;
+    });
+
+    let releaseFirstSign!: () => void;
+    const firstSign = new Promise<void>(resolve => {
+      releaseFirstSign = resolve;
+    });
+    const usedNonces: number[] = [];
+    const createSignedTx = (nonce: number, hash: string) => ({
+      hash: { toHex: () => hash },
+      method: { toHuman: () => ({ section: 'balances', method: 'transferKeepAlive' }) },
+      nonce: { toNumber: () => nonce },
+      send: vi.fn(async () => undefined),
+    });
+
+    const firstTx = {
+      signAsync: vi.fn(async (_signer, options) => {
+        usedNonces.push(options.nonce);
+        await firstSign;
+        return createSignedTx(options.nonce, '0xfirst');
+      }),
+    };
+    const secondTx = {
+      signAsync: vi.fn(async (_signer, options) => {
+        usedNonces.push(options.nonce);
+        return createSignedTx(options.nonce, '0xsecond');
+      }),
+    };
+
+    const firstSubmit = tracker.submitAndWatch({
+      tx: firstTx as any,
+      txSigner: { address: '5Alice' } as any,
+      extrinsicType: ExtrinsicType.Transfer,
+      useLatestNonce: true,
+    });
+    const secondSubmit = tracker.submitAndWatch({
+      tx: secondTx as any,
+      txSigner: { address: '5Alice' } as any,
+      extrinsicType: ExtrinsicType.Transfer,
+      useLatestNonce: true,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    releaseFirstSign();
+    await Promise.all([firstSubmit, secondSubmit]);
+
+    expect(usedNonces).toEqual([8, 9]);
   });
 });
 

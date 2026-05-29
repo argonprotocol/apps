@@ -43,6 +43,7 @@ export class TransactionTracker {
   #blockCache = new LRU<SignedBlock>(25);
   #bestBlockNumber?: number;
   #watchUnsubscribe?: () => void;
+  #nonceLaneByAddress = new Map<string, Promise<void>>();
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -155,41 +156,55 @@ export class TransactionTracker {
     } & ISubmittableOptions,
   ): Promise<TransactionInfo<T>> {
     const { tx, txSigner, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
+    await this.load();
     const client = await getMainchainClient(false);
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
     const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
+    let releaseNonceReservation: VoidFunction | undefined;
     if (useLatestNonce && apiOptions.nonce === undefined) {
-      apiOptions.nonce = await client.rpc.system.accountNextIndex(txSigner.address);
+      const reservation = await this.reserveLatestNonce(client, txSigner.address);
+      apiOptions.nonce = reservation.nonce;
+      releaseNonceReservation = reservation.release;
     }
 
-    const signedTx =
-      'signer' in txSigner
-        ? await tx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
-        : await tx.signAsync(txSigner, apiOptions);
+    let signedTx: SubmittableExtrinsic;
+    let txResult: TxResult;
+    let txInfo: TransactionInfo<T>;
 
-    const txResultExtrinsic = {
-      signedHash: signedTx.hash.toHex(),
-      method: signedTx.method.toHuman(),
-      nonce: signedTx.nonce.toNumber(),
-      accountAddress: txSigner.address,
-      submittedTime: new Date(),
-      submittedAtBlockNumber: submittedAtBlockHeight,
-    };
-    const txResult = new TxResult(client, txResultExtrinsic);
-    const txInfo = await this.trackTxResult({
-      txResult,
-      extrinsicType,
-      metadata,
-    });
     try {
-      await signedTx.send(result => {
+      signedTx =
+        'signer' in txSigner
+          ? await tx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
+          : await tx.signAsync(txSigner, apiOptions);
+
+      const txResultExtrinsic = {
+        signedHash: signedTx.hash.toHex(),
+        method: signedTx.method.toHuman(),
+        nonce: signedTx.nonce.toNumber(),
+        accountAddress: txSigner.address,
+        submittedTime: new Date(),
+        submittedAtBlockNumber: submittedAtBlockHeight,
+      };
+      txResult = new TxResult(client, txResultExtrinsic);
+      txInfo = await this.trackTxResult({
+        txResult,
+        extrinsicType,
+        metadata,
+      });
+    } finally {
+      releaseNonceReservation?.();
+    }
+
+    await signedTx
+      .send(result => {
         txResult.onSubscriptionResult(result);
         void this.handleWatchedResult(txInfo.tx, txResult, result);
+      })
+      .catch(async error => {
+        txResult.submissionError = error as Error;
+        await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
       });
-    } catch (error) {
-      txResult.submissionError = error as Error;
-      await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
-    }
+
     return txInfo;
   }
 
@@ -503,6 +518,50 @@ export class TransactionTracker {
     await table.recordSubmissionError(record, error);
   }
 
+  private async reserveLatestNonce(
+    client: Awaited<ReturnType<typeof getMainchainClient>>,
+    address: string,
+  ): Promise<{ nonce: number; release: VoidFunction }> {
+    const priorLane = this.#nonceLaneByAddress.get(address) ?? Promise.resolve();
+    let releaseLane!: VoidFunction;
+    const lane = new Promise<void>(resolve => {
+      releaseLane = resolve;
+    });
+    const currentLane = priorLane.then(() => lane);
+    this.#nonceLaneByAddress.set(address, currentLane);
+
+    await priorLane;
+    try {
+      const nextChainNonce = (await client.rpc.system.accountNextIndex(address)).toNumber();
+      return {
+        nonce: Math.max(nextChainNonce, this.getNextPendingNonce(address)),
+        release: () => {
+          releaseLane();
+          if (this.#nonceLaneByAddress.get(address) === currentLane) {
+            this.#nonceLaneByAddress.delete(address);
+          }
+        },
+      };
+    } catch (error) {
+      releaseLane();
+      if (this.#nonceLaneByAddress.get(address) === currentLane) {
+        this.#nonceLaneByAddress.delete(address);
+      }
+      throw error;
+    }
+  }
+
+  private getNextPendingNonce(address: string): number {
+    let nextNonce = 0;
+
+    for (const txInfo of this.data.txInfos) {
+      if (!this.reservesNonceLane(txInfo, address) || txInfo.tx.txNonce == null) continue;
+      nextNonce = Math.max(nextNonce, txInfo.tx.txNonce + 1);
+    }
+
+    return nextNonce;
+  }
+
   private async handleWatchedResult(record: ITransactionRecord, txResult: TxResult, result: IWatchedTxResult) {
     try {
       await this.recordWatchStatus(record, result);
@@ -607,6 +666,12 @@ export class TransactionTracker {
       return false;
     }
     return true;
+  }
+
+  private reservesNonceLane(txInfo: TransactionInfo, address: string) {
+    if (txInfo.tx.accountAddress !== address) return false;
+    if (!this.isTrackedAsPending(txInfo)) return false;
+    return !this.isNonResumableWatchStatus(this.getLatestHistoryStatus(txInfo.tx.id));
   }
 
   private isNonResumableWatchStatus(status?: TransactionHistoryStatus) {

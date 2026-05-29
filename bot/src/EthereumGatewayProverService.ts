@@ -1,5 +1,9 @@
 import { minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
-import { buildGatewayActivityProofPayload, TxSubmitter } from '@argonprotocol/mainchain';
+import {
+  buildGatewayActivityProofPayload,
+  getLatestArgonFinalizedExecutionHeader,
+  TxSubmitter,
+} from '@argonprotocol/mainchain';
 import type {
   IEthereumGatewayCatchUpRequest,
   IEthereumGatewayCatchUpResponse,
@@ -36,6 +40,12 @@ export class EthereumGatewayProverService {
 
     this.shouldStop = false;
     this.loopPromise = this.loop();
+
+    try {
+      await this.runBackgroundSweep();
+    } catch (error) {
+      console.error('[EthereumGatewayProverService] Initial catch-up failed', error);
+    }
   }
 
   public async shutdown(): Promise<void> {
@@ -52,6 +62,26 @@ export class EthereumGatewayProverService {
       const client = this.requireClient();
       this.requireExecutionRpcUrl();
       await this.loadGatewayAddress();
+      const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
+      if (!gatewaySyncPause.isNone) {
+        const pause = gatewaySyncPause.unwrap();
+        return {
+          isReady: false,
+          reason:
+            `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce.toBigInt()}` +
+            ` (${pause.reason.type}).`,
+        };
+      }
+
+      const latestExecutionHeaderAnchorHash =
+        await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
+      if (latestExecutionHeaderAnchorHash.isNone) {
+        return {
+          isReady: false,
+          reason: 'Ethereum verifier has not retained a finalized execution header yet.',
+        };
+      }
+
       const delegateBalance = await client.query.system
         .account(this.submitLane.address)
         .then(x => x.data.free.toBigInt());
@@ -82,10 +112,8 @@ export class EthereumGatewayProverService {
 
   private async loop(): Promise<void> {
     try {
-      let waitMs = Math.floor(Math.random() * this.getRelaySweepMs());
-
       while (!this.shouldStop) {
-        await this.wait(waitMs);
+        await this.wait(this.getRelaySweepMs());
         if (this.shouldStop) {
           break;
         }
@@ -95,8 +123,6 @@ export class EthereumGatewayProverService {
         } catch (error) {
           console.error('[EthereumGatewayProverService] Background catch-up failed', error);
         }
-
-        waitMs = this.getRelaySweepMs();
       }
     } finally {
       this.loopPromise = undefined;
@@ -124,11 +150,13 @@ export class EthereumGatewayProverService {
 
       const executionRpcUrl = this.requireExecutionRpcUrl();
       const gatewayAddress = await this.loadGatewayAddress();
-      const proofPlan = await buildGatewayActivityProofPayload(client, {
+      const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
+      const proofPayload = await buildGatewayActivityProofPayload(client, {
         executionRpcUrl,
         gatewayAddress,
+        throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
       });
-      if (proofPlan.latestGatewayActivityNonce <= currentRuntimeGatewayActivityNonce) {
+      if (!proofPayload) {
         return;
       }
 
@@ -138,7 +166,7 @@ export class EthereumGatewayProverService {
         );
       }
 
-      await this.queueCheckpoint(proofPlan.latestGatewayActivityNonce);
+      await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end);
     })();
 
     try {
@@ -210,6 +238,18 @@ export class EthereumGatewayProverService {
     let latestResponse: IEthereumGatewayCatchUpResponse | undefined;
 
     while (true) {
+      const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
+      if (!gatewaySyncPause.isNone) {
+        const pause = gatewaySyncPause.unwrap();
+        return {
+          outcome: 'Rejected',
+          reason:
+            `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce.toBigInt()}` +
+            ` (${pause.reason.type}).`,
+          throughGatewayActivityNonce: pause.lastGoodGatewayActivityNonce.toBigInt(),
+        };
+      }
+
       const currentRuntimeGatewayActivityNonce = await this.loadCurrentRuntimeGatewayActivityNonce(client);
       if (currentRuntimeGatewayActivityNonce >= throughGatewayActivityNonce) {
         return {
@@ -218,16 +258,17 @@ export class EthereumGatewayProverService {
         };
       }
 
-      const proofPlan = await buildGatewayActivityProofPayload(client, {
+      const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
+      const proofPayload = await buildGatewayActivityProofPayload(client, {
         executionRpcUrl,
         gatewayAddress,
+        throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
       });
-      const proofPayload = proofPlan.payload;
       if (!proofPayload) {
         return (
           latestResponse ?? {
             outcome: 'Noop',
-            throughGatewayActivityNonce: proofPlan.payloadUpToGatewayActivityNonce,
+            throughGatewayActivityNonce: currentRuntimeGatewayActivityNonce,
           }
         );
       }
@@ -276,6 +317,10 @@ export class EthereumGatewayProverService {
         );
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
+        if (reason.includes('Transaction is outdated') || reason.includes('Invalid Transaction: Stale')) {
+          this.submitLane.invalidateNonce();
+          continue;
+        }
         if (isRedundantCatchUpError(reason)) {
           return {
             outcome: 'Noop',
@@ -291,7 +336,7 @@ export class EthereumGatewayProverService {
         };
       }
 
-      if (proofPlan.payloadUpToGatewayActivityNonce >= throughGatewayActivityNonce) {
+      if (proofPayload.gatewayActivityNonceRange.end >= throughGatewayActivityNonce) {
         return latestResponse;
       }
     }
@@ -309,11 +354,11 @@ export class EthereumGatewayProverService {
       }
 
       const chainConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-      if (chainConfig.isNone || !chainConfig.unwrap().isEthereum) {
-        throw new HttpError('Mainchain crosschain transfer config is missing the Ethereum gateway address.', 503);
+      if (chainConfig.isNone || !chainConfig.unwrap().isEvm) {
+        throw new HttpError('Ethereum transfer gateway is not configured on this network.', 503);
       }
 
-      return chainConfig.unwrap().asEthereum.gateway.toHex();
+      return chainConfig.unwrap().asEvm.gateway.toHex();
     })();
 
     try {

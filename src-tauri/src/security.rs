@@ -21,6 +21,18 @@ use tauri::AppHandle;
 
 use crate::{ethereum_signer, ssh::SSH, utils::Utils};
 
+const DEFAULT_PRIMARY_ETHEREUM_HD_PREFIX: &str = "m/44'/60'/0'/0'";
+const DEFAULT_COUNCIL_SIGNER_ETHEREUM_HD_PREFIX: &str = "m/44'/60'/1'/0'";
+const DEFAULT_MINTING_AUTHORITY_ETHEREUM_HD_PREFIX: &str = "m/44'/60'/2'/0'";
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EthereumHdPrefixes {
+    pub primary: String,
+    pub council_signer: String,
+    pub minting_authority: String,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Security {
@@ -30,6 +42,7 @@ pub struct Security {
     pub investment_address: String,
     pub operational_address: String,
     pub ethereum_address: String,
+    pub ethereum_hd_prefixes: EthereumHdPrefixes,
     pub ssh_public_key: String,
 }
 
@@ -45,24 +58,6 @@ struct WalletFile {
 #[serde(rename_all = "camelCase")]
 struct WalletMnemonicFile {
     encrypted_mnemonic: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WalletFileCompat {
-    meta: SecurityCompat,
-}
-
-#[derive(serde::Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-struct SecurityCompat {
-    mining_hold_address: String,
-    mining_bot_address: String,
-    vaulting_address: String,
-    investment_address: String,
-    operational_address: String,
-    ethereum_address: Option<String>,
-    ssh_public_key: String,
 }
 
 struct X25519Keypair {
@@ -206,23 +201,6 @@ impl Security {
         Ok(security)
     }
 
-    fn compat_meta_to_security(meta: SecurityCompat, mnemonic: &str) -> Result<Security> {
-        let ethereum_address = match meta.ethereum_address {
-            Some(address) if !address.is_empty() => address,
-            _ => Self::derive_ethereum_address(mnemonic)?,
-        };
-
-        Ok(Security {
-            mining_hold_address: meta.mining_hold_address,
-            mining_bot_address: meta.mining_bot_address,
-            vaulting_address: meta.vaulting_address,
-            investment_address: meta.investment_address,
-            operational_address: meta.operational_address,
-            ethereum_address,
-            ssh_public_key: meta.ssh_public_key,
-        })
-    }
-
     fn migrate_wallet_file(app: &AppHandle) -> Result<Option<Security>> {
         let wallet_path = Self::wallet_path(app);
         if !wallet_path.exists() {
@@ -230,21 +208,14 @@ impl Security {
         }
 
         let raw = fs::read_to_string(&wallet_path)?;
-        let wallet: WalletFileCompat = serde_json::from_str(&raw)?;
-        let needs_ethereum_backfill = wallet
-            .meta
-            .ethereum_address
-            .as_deref()
-            .is_none_or(str::is_empty);
-
-        if needs_ethereum_backfill {
-            let mnemonic = Self::expose_mnemonic(app)?;
-            let security = Self::write_wallet_file(app, &mnemonic)?;
-            log::info!("Backfilled ethereumAddress in wallet.json");
-            Ok(Some(security))
-        } else {
-            Ok(Some(Self::compat_meta_to_security(wallet.meta, "")?))
+        if let Ok(wallet) = serde_json::from_str::<WalletFile>(&raw) {
+            return Ok(Some(wallet.meta));
         }
+
+        let mnemonic = Self::expose_mnemonic(app)?;
+        let security = Self::write_wallet_file(app, &mnemonic)?;
+        log::info!("Rewrote wallet.json with ethereum wallet metadata");
+        Ok(Some(security))
     }
 
     pub fn sr_derive(app: &AppHandle, suri: &str) -> Result<(sr25519::Pair, [u8; 32])> {
@@ -464,7 +435,11 @@ impl Security {
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
         let investment_account = Self::sr_derive_from_mnemonic(mnemonic, "//investment")?;
         let operational_account = Self::sr_derive_from_mnemonic(mnemonic, "//operational")?;
-        let ethereum_address = Self::derive_ethereum_address(mnemonic)?;
+        let ethereum_hd_prefixes = default_ethereum_hd_prefixes();
+        let ethereum_address = Self::derive_ethereum_address(
+            mnemonic,
+            &get_ethereum_hd_path(&ethereum_hd_prefixes.primary, 0),
+        )?;
 
         Ok(Self {
             mining_hold_address: mining_hold_account.0.public().to_ss58check(),
@@ -473,6 +448,7 @@ impl Security {
             investment_address: investment_account.0.public().to_ss58check(),
             operational_address: operational_account.0.public().to_ss58check(),
             ethereum_address,
+            ethereum_hd_prefixes,
             ssh_public_key: public_key.to_string(),
         })
     }
@@ -482,42 +458,21 @@ impl Security {
         Self::save_with_mnemonic(app, &phrase)
     }
 
-    fn derive_ethereum_address(mnemonic: &str) -> Result<String> {
-        let hd_key = ethereum_signer::derive_hd_key(mnemonic)?;
-        let public_key = hd_key.private_key().verifying_key();
-        let encoded = public_key.to_encoded_point(false);
-        let public_key_bytes = encoded.as_bytes();
-        let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
-        Ok(Self::to_checksummed_ethereum_address(&hash[12..]))
+    fn derive_ethereum_address(mnemonic: &str, hd_path: &str) -> Result<String> {
+        ethereum_signer::derive_address_at_path(mnemonic, hd_path)
     }
+}
 
-    pub fn sign_ethereum_personal_message(app: &AppHandle, message: &str) -> Result<String> {
-        let mnemonic = Self::expose_mnemonic(app)?;
-        ethereum_signer::sign_personal_message(&mnemonic, message)
+fn default_ethereum_hd_prefixes() -> EthereumHdPrefixes {
+    EthereumHdPrefixes {
+        primary: DEFAULT_PRIMARY_ETHEREUM_HD_PREFIX.to_string(),
+        council_signer: DEFAULT_COUNCIL_SIGNER_ETHEREUM_HD_PREFIX.to_string(),
+        minting_authority: DEFAULT_MINTING_AUTHORITY_ETHEREUM_HD_PREFIX.to_string(),
     }
+}
 
-    fn to_checksummed_ethereum_address(address_bytes: &[u8]) -> String {
-        let address_hex = hex::encode(address_bytes);
-        let hash_hex = hex::encode(sp_core::hashing::keccak_256(address_hex.as_bytes()));
-        let mut checksummed = String::with_capacity(42);
-        checksummed.push_str("0x");
-
-        for (address_char, hash_char) in address_hex.chars().zip(hash_hex.chars()) {
-            if address_char.is_ascii_digit() {
-                checksummed.push(address_char);
-                continue;
-            }
-
-            let nibble = hash_char.to_digit(16).unwrap_or_default();
-            if nibble >= 8 {
-                checksummed.push(address_char.to_ascii_uppercase());
-            } else {
-                checksummed.push(address_char);
-            }
-        }
-
-        checksummed
-    }
+fn get_ethereum_hd_path(prefix: &str, index: u32) -> String {
+    format!("{prefix}/{index}'")
 }
 
 #[cfg(all(target_os = "macos", not(argon_signed_build)))]
@@ -575,7 +530,7 @@ fn generate_wallet_key_hex() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Security, SecurityCompat};
+    use super::{Security, default_ethereum_hd_prefixes, get_ethereum_hd_path};
     use crate::ethereum_signer;
     use sp_core::Pair;
 
@@ -723,69 +678,35 @@ mod tests {
     #[test]
     fn derive_ethereum_address_matches_known_eip55_vector() {
         let mnemonic = "test test test test test test test test test test test junk";
+        let ethereum_hd_prefixes = default_ethereum_hd_prefixes();
 
-        let ethereum_address =
-            Security::derive_ethereum_address(mnemonic).expect("ethereum address should derive");
+        let ethereum_address = Security::derive_ethereum_address(
+            mnemonic,
+            &get_ethereum_hd_path(&ethereum_hd_prefixes.primary, 0),
+        )
+        .expect("ethereum address should derive");
 
         assert_eq!(
             ethereum_address,
-            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+            "0x5d2d1735e986a9e0fCBc75DE222d55D3D3B4D272"
         );
     }
 
     #[test]
     fn sign_ethereum_personal_message_matches_known_vector() {
         let mnemonic = "test test test test test test test test test test test junk";
+        let ethereum_hd_prefixes = default_ethereum_hd_prefixes();
 
-        let signature = ethereum_signer::sign_personal_message(mnemonic, "hello world")
-            .expect("ethereum signature should derive");
+        let signature = ethereum_signer::sign_personal_message_at_path(
+            mnemonic,
+            &get_ethereum_hd_path(&ethereum_hd_prefixes.primary, 0),
+            "hello world",
+        )
+        .expect("ethereum signature should derive");
 
         assert_eq!(
             signature,
-            "0xa461f509887bd19e312c0c58467ce8ff8e300d3c1a90b608a760c5b80318eaf15fe57c96f9175d6cd4daad4663763baa7e78836e067d0163e9a2ccf2ff753f5b1b"
-        );
-    }
-
-    #[test]
-    fn compat_meta_to_security_preserves_existing_ethereum_address() {
-        let meta = SecurityCompat {
-            mining_hold_address: "hold".to_string(),
-            mining_bot_address: "bot".to_string(),
-            vaulting_address: "vault".to_string(),
-            investment_address: "investment".to_string(),
-            operational_address: "operational".to_string(),
-            ethereum_address: Some("0x1234567890abcdef1234567890abcdef12345678".to_string()),
-            ssh_public_key: "ssh-ed25519 AAAA".to_string(),
-        };
-
-        let security =
-            Security::compat_meta_to_security(meta, "").expect("meta should convert to security");
-
-        assert_eq!(
-            security.ethereum_address,
-            "0x1234567890abcdef1234567890abcdef12345678"
-        );
-    }
-
-    #[test]
-    fn compat_meta_to_security_derives_missing_ethereum_address() {
-        let mnemonic = "test test test test test test test test test test test junk";
-        let meta = SecurityCompat {
-            mining_hold_address: "hold".to_string(),
-            mining_bot_address: "bot".to_string(),
-            vaulting_address: "vault".to_string(),
-            investment_address: "investment".to_string(),
-            operational_address: "operational".to_string(),
-            ethereum_address: None,
-            ssh_public_key: "ssh-ed25519 AAAA".to_string(),
-        };
-
-        let security = Security::compat_meta_to_security(meta, mnemonic)
-            .expect("meta should convert to security");
-
-        assert_eq!(
-            security.ethereum_address,
-            "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+            "0x4126b820e15feace303bcd40ad56978240bf43cd435f9af2d2ee69e9797053866d4e836424774c690dfe24b59d3b07b7a2c01fb4ac5079c7eb495f0d832862031b"
         );
     }
 }

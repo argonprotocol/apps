@@ -146,7 +146,9 @@ async function main(): Promise<void> {
       '- note: workspace docker mode (`yarn docker:up:workspace`) uses ../mainchain directly and does not read these pinned npm versions.',
     );
   }
-  console.info('- next step: run `yarn install` followed by `yarn build:server`');
+  console.info(
+    '- next step: run `YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install` followed by `yarn build:server`',
+  );
 }
 
 function normalizeRef(value: string | undefined): string {

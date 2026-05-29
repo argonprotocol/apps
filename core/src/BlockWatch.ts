@@ -46,7 +46,6 @@ export class BlockWatch {
     'best-blocks': (blocks: [...newBestBlocks: IBlockHeaderInfo[], bestBlock: IBlockHeaderInfo]) => void;
   }>();
   // Tracks all best block headers seen since latest finalized block
-
   public latestHeaders: IBlockHeaderInfo[] = [];
   public finalizedHashes: { [blockNumber: number]: string } = {};
   public isLoaded = createDeferred(false);
@@ -276,6 +275,10 @@ export class BlockWatch {
   public async getBlockTime(blockNumber: number): Promise<Date> {
     const header = await this.getHeader(blockNumber);
     return new Date(header.blockTime);
+  }
+
+  public async getFinalizedApi(): Promise<ApiDecoration<'promise'>> {
+    return this.getApi(this.finalizedBlockHeader);
   }
 
   public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ApiDecoration<'promise'>> {

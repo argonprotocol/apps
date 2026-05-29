@@ -1,10 +1,19 @@
 import { Accountset, getRange } from '@argonprotocol/apps-core';
-import { Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol/mainchain';
-import { BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
+import { hexToU8a, Keyring, KeyringPair, KeyringPair$Json, u8aToHex } from '@argonprotocol/mainchain';
+import {
+  BitcoinNetwork,
+  getBip32Version,
+  getCompressedPubkey,
+  getScureNetwork,
+  HDKey,
+  p2wpkh,
+} from '@argonprotocol/bitcoin';
 import type { Hex, Signature } from 'viem';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
-import { IS_TREASURY_APP } from './Env.ts';
+import { IS_TREASURY_APP, NETWORK_NAME } from './Env.ts';
+
+export type EthereumHdPathPrefix = `m/44'/60'/${string}`;
 
 export class WalletKeys {
   public sshPublicKey: string;
@@ -33,6 +42,9 @@ export class WalletKeys {
    * Ethereum-compatible address used for EVM/Ethereum integrations tied to this wallet.
    */
   public ethereumAddress: string;
+  public ethereumHdPrefixes: ISecurity['ethereumHdPrefixes'];
+  public ethereumHdPath: `m/44'/60'/${string}`;
+  public councilSignerEthereumHdPath: `m/44'/60'/${string}`;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
   private upstreamOperatorAuthKeypair?: KeyringPair;
@@ -47,8 +59,13 @@ export class WalletKeys {
     this.vaultingAddress = security.vaultingAddress;
     this.investmentAddress = security.investmentAddress;
     this.operationalAddress = security.operationalAddress;
-    this.ethereumAddress = security.ethereumAddress;
-    console.log('WalletKeys initialized with mining address:', this.miningBotAddress, security);
+    this.ethereumAddress = security.ethereumAddress.toLowerCase();
+    this.ethereumHdPrefixes = security.ethereumHdPrefixes;
+    this.ethereumHdPath = getEthereumHdPath(this.ethereumHdPrefixes.primary);
+    this.councilSignerEthereumHdPath = getEthereumHdPath(this.ethereumHdPrefixes.councilSigner);
+    if (NETWORK_NAME === 'dev-docker') {
+      console.log('WalletKeys initialized with mining address:', this.miningBotAddress);
+    }
   }
 
   public async exposeMasterMnemonic(): Promise<string> {
@@ -126,12 +143,50 @@ export class WalletKeys {
     return await invokeWithTimeout<Uint8Array>('derive_x25519_public_key', { suri: `//operational//encrypt` }, 60e3);
   }
 
-  public async signEthereumPersonalMessage(message: string): Promise<string> {
-    return await invokeWithTimeout<string>('sign_ethereum_personal_message', { message }, 60e3);
+  public getMintingAuthorityEthereumHdPath(hdIndex: number): `m/44'/60'/${string}` {
+    return getEthereumHdPath(this.ethereumHdPrefixes.mintingAuthority, hdIndex);
   }
 
-  public async signEthereumTransaction(unsignedTransaction: Hex): Promise<Signature> {
-    return await invokeWithTimeout<Signature>('sign_ethereum_transaction', { request: { unsignedTransaction } }, 60e3);
+  public getMintingAuthorityEthereumHdPaths(count: number, startIndex = 0): `m/44'/60'/${string}`[] {
+    return Array.from({ length: count }, (_, offset) => this.getMintingAuthorityEthereumHdPath(startIndex + offset));
+  }
+
+  public async signEthereumPersonalMessage(
+    message: string,
+    hdPath?: string,
+    format: 'ethereum' | 'argon' = 'ethereum',
+  ): Promise<Hex> {
+    const signature = await invokeWithTimeout<Hex>(
+      'sign_ethereum_personal_message',
+      { hdPath: hdPath ?? this.ethereumHdPath, message },
+      60e3,
+    );
+    if (format === 'ethereum') {
+      return signature;
+    }
+
+    const bytes = hexToU8a(signature);
+    if (bytes.length !== 65) {
+      throw new Error(`Expected 65-byte ECDSA signature, received ${bytes.length} bytes`);
+    }
+    if (bytes[64] >= 27) {
+      bytes[64] -= 27;
+    }
+    return u8aToHex(bytes);
+  }
+
+  public async getEthereumAddresses(hdPaths: string[]): Promise<string[]> {
+    return (await invokeWithTimeout<string[]>('derive_ethereum_addresses', { hdPaths }, 60e3)).map(x =>
+      x.toLowerCase(),
+    );
+  }
+
+  public async signEthereumTransaction(unsignedTransaction: Hex, hdPath = this.ethereumHdPath): Promise<Signature> {
+    return await invokeWithTimeout<Signature>(
+      'sign_ethereum_transaction',
+      { hdPath, request: { unsignedTransaction } },
+      60e3,
+    );
   }
 
   public async signEthereumPermit(args: {
@@ -144,6 +199,7 @@ export class WalletKeys {
     return await invokeWithTimeout<{ v: number; r: string; s: string }>(
       'sign_ethereum_permit',
       {
+        hdPath: this.ethereumHdPath,
         request: {
           tokenAddress: args.tokenAddress,
           tokenName: args.tokenName,
@@ -210,6 +266,29 @@ export class WalletKeys {
   }
 }
 
+export async function deriveBitcoinLockHdKey(args: {
+  walletKeys: Pick<WalletKeys, 'getBitcoinChildXpriv'>;
+  bitcoinNetwork: BitcoinNetwork;
+  vaultId: number;
+  hdIndex: number;
+}) {
+  const hdPath = `m/1018'/0'/${args.vaultId}'/0/${args.hdIndex}'`;
+  const ownerBitcoinXpriv = await args.walletKeys.getBitcoinChildXpriv(hdPath, args.bitcoinNetwork);
+  const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
+  const address = p2wpkh(ownerBitcoinPubkey, getScureNetwork(args.bitcoinNetwork)).address;
+
+  return {
+    address,
+    hdIndex: args.hdIndex,
+    ownerBitcoinPubkey,
+    hdPath,
+  };
+}
+
 const BITCOIN_VERSIONS = {
   [BitcoinNetwork.Bitcoin]: { private: 0x0488ade4, public: 0x0488b21e },
 };
+
+export function getEthereumHdPath(prefix: EthereumHdPathPrefix, index = 0): `m/44'/60'/${string}` {
+  return `${prefix}/${index}'`;
+}

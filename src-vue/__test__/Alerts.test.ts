@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import { getBitcoinAlertNotices, getVaultAlertNotice } from '../lib/Alerts.ts';
+import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
+import { VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 
@@ -15,34 +16,64 @@ type TestMismatchPhase =
   | 'readyToResume'
   | 'error';
 
-describe('getVaultAlertNotice', () => {
-  it('uses processing collect metadata while collection is in flight', () => {
-    const notice = getVaultAlertNotice(
+describe('VaultCollectBuilder.getNotice', () => {
+  it('keeps the collect plan visible while a collect step is in flight', () => {
+    const notice = createCollectBuilder(
       vaultSource({
         pendingCollectRevenue: 42n,
         expiringCollectAmount: 7n,
         pendingCollectTxInfo: {
-          tx: { metadataJson: { expectedCollectRevenue: 64n, cosignedUtxoIds: [11, 12] } },
+          tx: { metadataJson: { actionType: 'approveCouncil', expectedCollectRevenue: 0n, cosignedUtxoIds: [] } },
         },
         pendingCosignUtxosById: new Map([[11, { targetValue: 50n }]]),
+        globalCouncilPendingApprovals: 1,
+        mintingAuthorityPendingCollateralizations: [25n, 15n, 10n],
         nextCollectDueDate: 1234,
       }),
-      { getLockByUtxoId: () => undefined },
-    );
+    ).getNotice();
 
     expect(notice).toEqual({
       isProcessing: true,
-      collectRevenue: 64n,
+      collectRevenue: 42n,
       expiringCollectAmount: 7n,
-      signatureCount: 2,
+      signatureCount: 1,
+      councilApprovalCount: 1,
+      collateralizedTransferCount: 3,
+      collateralizedTransferRewardAmount: 50n,
       signaturePenalty: 50n,
-      amountMicrogons: 64n,
+      earningsAmountMicrogons: 92n,
+      amountAtRiskMicrogons: 57n,
       nextDueDate: 1234,
+      transactionCount: 4,
+    });
+  });
+
+  it('surfaces council approvals and collateralizations without bitcoin or revenue work', () => {
+    const notice = createCollectBuilder(
+      vaultSource({
+        globalCouncilPendingApprovals: 2,
+        mintingAuthorityPendingCollateralizations: [25n],
+      }),
+    ).getNotice();
+
+    expect(notice).toEqual({
+      isProcessing: false,
+      collectRevenue: 0n,
+      expiringCollectAmount: 0n,
+      signatureCount: 0,
+      councilApprovalCount: 2,
+      collateralizedTransferCount: 1,
+      collateralizedTransferRewardAmount: 25n,
+      signaturePenalty: 0n,
+      earningsAmountMicrogons: 25n,
+      amountAtRiskMicrogons: 0n,
+      nextDueDate: 0,
+      transactionCount: 2,
     });
   });
 
   it('returns null when there is nothing to collect or sign', () => {
-    expect(getVaultAlertNotice(vaultSource(), { getLockByUtxoId: () => undefined })).toBeNull();
+    expect(createCollectBuilder(vaultSource()).getNotice()).toBeNull();
   });
 });
 
@@ -132,11 +163,24 @@ function vaultSource(
     pendingCollectTxInfo: {
       tx: {
         metadataJson: {
+          actionType: 'approveCouncil' | 'collectRevenue' | 'cosignBitcoin';
           expectedCollectRevenue: bigint;
           cosignedUtxoIds: number[];
         };
       };
     } | null;
+    pendingCollateralizeTxInfosByTransferId: Map<
+      string,
+      {
+        tx: {
+          metadataJson: {
+            actionType: 'collateralizeTransfer';
+          };
+        };
+      }
+    >;
+    globalCouncilPendingApprovals: number;
+    mintingAuthorityPendingCollateralizations: bigint[];
     pendingCosignUtxosById: Map<number, { targetValue: bigint }>;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
     nextCollectDueDate: number;
@@ -144,6 +188,21 @@ function vaultSource(
 ) {
   return {
     createdVault: { securitization: 10_000n },
+    globalCouncil: {
+      data: {
+        pendingApprovals: Array.from({ length: data.globalCouncilPendingApprovals ?? 0 }, () => ({})),
+      },
+    },
+    mintingAuthorities: {
+      data: {
+        authorities: [],
+        pendingCollateralizations: Array.from(
+          data.mintingAuthorityPendingCollateralizations ?? [],
+          mintingAuthorityTip => ({ mintingAuthorityTip }),
+        ),
+        pendingCollateralizeTxInfosByTransferId: data.pendingCollateralizeTxInfosByTransferId ?? new Map(),
+      },
+    },
     data: {
       pendingCollectRevenue: 0n,
       expiringCollectAmount: 0n,
@@ -154,6 +213,16 @@ function vaultSource(
       ...data,
     },
   };
+}
+
+function createCollectBuilder(source: ReturnType<typeof vaultSource>) {
+  return new VaultCollectBuilder({
+    createdVault: source.createdVault,
+    bitcoinLocks: { getLockByUtxoId: () => undefined },
+    globalCouncil: source.globalCouncil,
+    mintingAuthorities: source.mintingAuthorities,
+    data: source.data,
+  } as any);
 }
 
 function bitcoinSource(args: {

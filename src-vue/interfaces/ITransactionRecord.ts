@@ -4,6 +4,7 @@ export enum ExtrinsicType {
   VaultInitialAllocate = 'VaultInitialAllocate',
   VaultIncreaseAllocation = 'VaultIncreaseAllocation',
   VaultCollect = 'VaultCollect',
+  VaultSetCommittedArgonots = 'VaultSetCommittedArgonots',
   VaultSetBitcoinLockDelegate = 'VaultSetBitcoinLockDelegate',
   VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
   OperationalActivateAndClaim = 'OperationalActivateAndClaim',
@@ -18,6 +19,10 @@ export enum ExtrinsicType {
 
   Transfer = 'Transfer',
   CrosschainTransferProve = 'CrosschainTransferProve',
+  CrosschainTransferTransferOut = 'CrosschainTransferTransferOut',
+  CrosschainTransferApproveCouncil = 'CrosschainTransferApproveCouncil',
+  CrosschainTransferCollateralize = 'CrosschainTransferCollateralize',
+  CrosschainTransferRegisterMintingAuthority = 'CrosschainTransferRegisterMintingAuthority',
 
   TreasuryBuyBonds = 'TreasuryBuyBonds',
   TreasuryReleaseBondLot = 'TreasuryReleaseBondLot',

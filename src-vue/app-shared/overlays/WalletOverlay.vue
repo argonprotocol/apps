@@ -50,8 +50,10 @@
           :microgons="getWallet(secondWalletOption).availableMicrogons"
           :micronots="getWallet(secondWalletOption).availableMicronots"
           :minimizedLines="true"
-          :showArrows="secondWalletOption.type === WalletType.ethereum"
-          :targetWalletType="isArgonWalletType(firstWalletOption.type) ? firstWalletOption.type : undefined"
+          :moveDirection="getTransferDirection(secondWalletOption, firstWalletOption)"
+          :networkName="getExternalNetworkName(secondWalletOption, firstWalletOption)"
+          :feeTokenSymbol="getExternalFeeTokenSymbol(secondWalletOption, firstWalletOption)"
+          @openTransferOverlay="openTransferOverlay(secondWalletOption, firstWalletOption, $event.moveToken, $event.availableAmount)"
         />
       </div>
       <div class="px-4" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
@@ -85,6 +87,8 @@
         <EthereumBottom v-else-if="firstWalletOption.type === 'ethereum'" />
       </div>
     </div>
+
+    <WalletTransferOverlay :request="activeTransferOverlay" @close="activeTransferOverlay = undefined" />
   </OverlayBase>
 </template>
 
@@ -101,6 +105,8 @@ import ArgonIntro from './wallet/ArgonIntro.vue';
 import PortalIcon from '../../assets/portal.svg';
 import WrapBehindEdge from '../../assets/wrap-behind-edge.svg';
 import EthereumIntro from './wallet/EthereumIntro.vue';
+import WalletTransferOverlay from './wallet/WalletTransferOverlay.vue';
+import type { IArgonWalletType, IEthereumMoveToken } from '../../interfaces/IEthereumInboundTransferTracker.ts';
 import { type IWallet, WalletType } from '../../lib/Wallet.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { IS_OPERATIONS_APP } from '../../lib/Env.ts';
@@ -110,6 +116,14 @@ const walletStore = useWallets();
 
 const isOpen = Vue.ref(false);
 const isSyncMode = Vue.ref(false);
+const activeTransferOverlay = Vue.ref<{
+  direction: 'transferToArgon' | 'transferOutOfArgon';
+  moveToken: IEthereumMoveToken;
+  availableAmount: bigint;
+  walletType: IArgonWalletType;
+  networkName: string;
+  feeTokenSymbol: string;
+}>();
 const walletOptions = Vue.ref<IWalletOption[]>([
   ...(IS_OPERATIONS_APP
     ? [
@@ -155,6 +169,7 @@ function ensureSyncWalletPair() {
 }
 
 function closeOverlay() {
+  activeTransferOverlay.value = undefined;
   isSyncMode.value = false;
   isOpen.value = false;
   basics.overlayIsOpen = false;
@@ -172,6 +187,7 @@ function handleClickBackdrop() {
 
 function handlePressEsc() {
   if (!isSyncMode.value) return;
+  activeTransferOverlay.value = undefined;
   isSyncMode.value = false;
 }
 
@@ -191,12 +207,14 @@ function handleSelectSecondWallet(option: IWalletOption) {
 
 function toggleIsSyncMode() {
   isSyncMode.value = !isSyncMode.value;
+  activeTransferOverlay.value = undefined;
   if (isSyncMode.value) {
     ensureSyncWalletPair();
   }
 }
 
 function toggleSyncDirection() {
+  activeTransferOverlay.value = undefined;
   const nextSecondWallet = firstWalletOption.value;
   firstWalletOption.value = secondWalletOption.value;
   secondWalletOption.value = nextSecondWallet;
@@ -213,6 +231,69 @@ function getWallet(option: IWalletOption): IWallet {
     return walletStore.investmentWallet;
   } else {
     throw new Error(`Wallet not support: ${option.type}`);
+  }
+}
+
+function getTransferDirection(
+  currentOption: IWalletOption,
+  oppositeOption: IWalletOption,
+): 'transferToArgon' | 'transferOutOfArgon' | undefined {
+  if (currentOption.type === WalletType.ethereum && isArgonWalletType(oppositeOption.type)) {
+    return 'transferToArgon';
+  }
+
+  if (oppositeOption.type === WalletType.ethereum && isArgonWalletType(currentOption.type)) {
+    return 'transferOutOfArgon';
+  }
+}
+
+function getExternalNetworkName(currentOption: IWalletOption, oppositeOption: IWalletOption) {
+  if (currentOption.type === WalletType.ethereum) {
+    return currentOption.name.replace(/ Wallet$/, '');
+  }
+
+  if (oppositeOption.type === WalletType.ethereum) {
+    return oppositeOption.name.replace(/ Wallet$/, '');
+  }
+
+  return '';
+}
+
+function getExternalFeeTokenSymbol(currentOption: IWalletOption, oppositeOption: IWalletOption) {
+  if (currentOption.type === WalletType.ethereum || oppositeOption.type === WalletType.ethereum) {
+    return 'ETH';
+  }
+
+  return '';
+}
+
+function openTransferOverlay(
+  currentOption: IWalletOption,
+  oppositeOption: IWalletOption,
+  moveToken: IEthereumMoveToken,
+  availableAmount: bigint,
+) {
+  if (currentOption.type === WalletType.ethereum && isArgonWalletType(oppositeOption.type)) {
+    activeTransferOverlay.value = {
+      direction: 'transferToArgon',
+      moveToken,
+      availableAmount,
+      walletType: oppositeOption.type,
+      networkName: currentOption.name.replace(/ Wallet$/, ''),
+      feeTokenSymbol: 'ETH',
+    };
+    return;
+  }
+
+  if (oppositeOption.type === WalletType.ethereum && isArgonWalletType(currentOption.type)) {
+    activeTransferOverlay.value = {
+      direction: 'transferOutOfArgon',
+      moveToken,
+      availableAmount,
+      walletType: currentOption.type,
+      networkName: oppositeOption.name.replace(/ Wallet$/, ''),
+      feeTokenSymbol: 'ETH',
+    };
   }
 }
 

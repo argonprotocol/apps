@@ -11,15 +11,20 @@ import {
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { WalletType } from '../lib/Wallet.ts';
 
-const getMainchainClientMock = vi.hoisted(() => vi.fn());
+const { getEthereumGatewayPauseReasonMock, getMainchainClientMock } = vi.hoisted(() => ({
+  getEthereumGatewayPauseReasonMock: vi.fn(),
+  getMainchainClientMock: vi.fn(),
+}));
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: getMainchainClientMock,
+  getEthereumGatewayPauseReason: getEthereumGatewayPauseReasonMock,
 }));
 
 describe('EthereumInboundTransferTracker integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getEthereumGatewayPauseReasonMock.mockResolvedValue(undefined);
   });
 
   it('persists a confirmed transfer and silently nudges the upstream server until Argon catches up', async () => {
@@ -72,6 +77,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
       expect(persisted).toMatchObject({
         transferId: activeTransfer!.transferId,
+        sourceChain: 'Ethereum',
         argonDestinationAddress: walletKeys.investmentAddress,
         gatewayActivityNonce: 7n,
         status: CrosschainInboundTransferStatus.ArgonFinalized,
@@ -199,6 +205,63 @@ describe('EthereumInboundTransferTracker integration', () => {
       });
     });
 
+    await vi.waitFor(async () => {
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
+    });
+  });
+
+  it('surfaces a paused gateway sync immediately and skips the upstream fallback', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    let provenNonce = 6n;
+    const mainchainClient = createMainchainClient({
+      getProvenNonce: () => provenNonce,
+    });
+    getMainchainClientMock.mockResolvedValue(mainchainClient);
+    getEthereumGatewayPauseReasonMock.mockResolvedValue(
+      'Ethereum gateway sync is paused at activity 5 (GatewayStateDrift).',
+    );
+
+    const upstreamCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const, throughGatewayActivityNonce: 7n }));
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      walletKeys,
+      createEthereumClient({
+        sourceAddress: walletKeys.ethereumAddress,
+        destinationAddress: walletKeys.investmentAddress,
+        sourceTxHash: `0x${'36'.repeat(32)}`,
+        sourceBlockNumber: 42,
+        sourceBlockHash: `0x${'47'.repeat(32)}`,
+        sourceLogIndex: 8,
+        gatewayActivityNonce: 7n,
+        waitEstimateMs: 60_000,
+      }),
+      {
+        getEthereumRelayStatus: vi.fn(async () => ({ isReady: true })),
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+      {
+        operatorHost: 'https://upstream.example',
+        requestEthereumGatewayCatchUp: upstreamCatchUp,
+      },
+    );
+
+    const activeTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.investment,
+    });
+
+    await vi.waitFor(() => {
+      expect(activeTransfer?.transferState.error).toBe(
+        'Ethereum gateway sync is paused at activity 5 (GatewayStateDrift).',
+      );
+    });
+    expect(upstreamCatchUp).not.toHaveBeenCalled();
+
+    provenNonce = 7n;
     await vi.waitFor(async () => {
       const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
       expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
@@ -340,6 +403,7 @@ function createMainchainClient(args: {
       })),
       gatewayStateBySourceChain: vi.fn(async () => ({
         isNone: false,
+        isSome: true,
         unwrap: () => ({
           gatewayActivityNonce: {
             toBigInt: () => args.getProvenNonce(),
@@ -434,7 +498,7 @@ async function insertTransferRecord(
 ): Promise<ICrosschainInboundTransferRecord> {
   return (await db.crosschainInboundTransfersTable.upsert({
     transferId: args.transferId,
-    sourceChain: 'ethereum',
+    sourceChain: 'Ethereum',
     token: args.token,
     amountBaseUnits: 5_000_000_000_000n,
     sourceAddress,

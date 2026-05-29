@@ -205,15 +205,32 @@ async fn derive_ed25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], Str
 }
 
 #[tauri::command]
-async fn sign_ethereum_personal_message(app: AppHandle, message: &str) -> Result<String, String> {
-    let signature =
-        Security::sign_ethereum_personal_message(&app, message).map_err(|e| e.to_string())?;
+async fn sign_ethereum_personal_message(
+    app: AppHandle,
+    message: &str,
+    hd_path: String,
+) -> Result<String, String> {
+    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
+    let signature = ethereum_signer::sign_personal_message_at_path(&mnemonic, &hd_path, message)
+        .map_err(|e| e.to_string())?;
     Ok(signature)
+}
+
+#[tauri::command]
+async fn derive_ethereum_addresses(
+    app: AppHandle,
+    hd_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
+    let addresses =
+        ethereum_signer::derive_addresses(&mnemonic, &hd_paths).map_err(|e| e.to_string())?;
+    Ok(addresses)
 }
 
 #[tauri::command]
 async fn sign_ethereum_permit(
     app: AppHandle,
+    hd_path: String,
     signer_policy: State<'_, EthereumSignerPolicyState>,
     request: ethereum_signer::EthereumPermitRequest,
 ) -> Result<ethereum_signer::EthereumPermitSignature, String> {
@@ -222,8 +239,8 @@ async fn sign_ethereum_permit(
         .as_ref()
         .ok_or("Ethereum signer policy has not been configured yet")?;
     let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let signature =
-        ethereum_signer::sign_permit(&mnemonic, policy, &request).map_err(|e| e.to_string())?;
+    let signature = ethereum_signer::sign_permit(&mnemonic, &hd_path, policy, &request)
+        .map_err(|e| e.to_string())?;
     Ok(signature)
 }
 
@@ -234,12 +251,15 @@ async fn set_ethereum_signer_policy(
     request: ethereum_signer::EthereumSignerPolicyRequest,
 ) -> Result<(), String> {
     let security = Security::load(&app).map_err(|e| e.to_string())?;
+    let (delegate_pair, _) =
+        Security::sr_derive(&app, "//vaulting//delegate").map_err(|e| e.to_string())?;
     let allowed_destinations = [
         security.mining_hold_address,
         security.mining_bot_address,
         security.vaulting_address,
         security.investment_address,
         security.operational_address,
+        delegate_pair.public().to_ss58check(),
     ]
     .into_iter()
     .map(|address| {
@@ -259,6 +279,7 @@ async fn set_ethereum_signer_policy(
 #[tauri::command]
 async fn sign_ethereum_transaction(
     app: AppHandle,
+    hd_path: String,
     signer_policy: State<'_, EthereumSignerPolicyState>,
     request: ethereum_signer::EthereumTransactionRequest,
 ) -> Result<ethereum_signer::EthereumTransactionSignature, String> {
@@ -267,7 +288,7 @@ async fn sign_ethereum_transaction(
         .as_ref()
         .ok_or("Ethereum signer policy has not been configured yet")?;
     let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let signed_tx = ethereum_signer::sign_transaction(&mnemonic, policy, &request)
+    let signed_tx = ethereum_signer::sign_transaction(&mnemonic, &hd_path, policy, &request)
         .map_err(|e| e.to_string())?;
     Ok(signed_tx)
 }
@@ -780,6 +801,7 @@ pub fn run() {
             derive_sr25519_address,
             derive_ed25519_seed,
             sign_ethereum_personal_message,
+            derive_ethereum_addresses,
             sign_ethereum_permit,
             set_ethereum_signer_policy,
             sign_ethereum_transaction,

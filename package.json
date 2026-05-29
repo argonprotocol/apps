@@ -20,11 +20,14 @@
     "dev:gateway-certs": "tsx scripts/devGatewayCerts.ts",
     "dev:docker": "yarn build:indexer && yarn build:server && yarn clean:dev:docker && yarn dev:gateway-certs && yarn docker:up && yarn tauri:dev:docker",
     "dev:docker:custom": "ARGON_CHAIN=/chainspec.raw.json yarn dev:docker",
-    "e2e:prepare": "yarn build:server",
+    "dev:argon:add-argn": "tsx e2e/scripts/fundArgonAccount.ts --token=ARGN",
+    "dev:argon:add-argnot": "tsx e2e/scripts/fundArgonAccount.ts --token=ARGNOT",
     "dev:ethereum:add-eth": "tsx e2e/scripts/fundDevEthereumAccount.ts",
     "dev:ethereum:add-usdc": "tsx e2e/scripts/fundDevEthereumAccount.ts --token=USDC",
     "dev:ethereum:add-argn": "tsx e2e/scripts/mintDevEthereumTokens.ts --token=ARGN",
     "dev:ethereum:add-argnot": "tsx e2e/scripts/mintDevEthereumTokens.ts --token=ARGNOT",
+    "dev:ethereum:force-update-global-issuance-council": "tsx e2e/scripts/forceUpdateGlobalIssuanceCouncil.ts",
+    "e2e:prepare": "yarn build:server",
     "e2e:docker": "yarn workspace @argonprotocol/apps-e2e run flows",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -57,8 +60,8 @@
     "@actions/github": "^9.1.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.3-dev.5831d68f",
-    "@argonprotocol/mainchain": "1.4.3-dev.5831d68f",
+    "@argonprotocol/bitcoin": "1.4.5",
+    "@argonprotocol/mainchain": "1.4.5",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
     "@ethereumjs/trie": "^6.2.1",
@@ -128,7 +131,7 @@
     "e2e"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.3-dev.5831d68f",
+    "@argonprotocol/testing": "1.4.5",
     "@scure/bip39": "^1.6.0",
     "@tauri-apps/cli": "^2.11.0",
     "@types/bun": "^1.2.22",
@@ -178,8 +181,8 @@
     }
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.3-dev.5831d68f",
-    "@argonprotocol/bitcoin": "1.4.3-dev.5831d68f",
+    "@argonprotocol/mainchain": "1.4.5",
+    "@argonprotocol/bitcoin": "1.4.5",
     "@polkadot/api": "16.5.6",
     "@polkadot/api-augment": "16.5.6",
     "@polkadot/api-base": "16.5.6",
@@ -199,7 +202,7 @@
     "@polkadot/util-crypto": "14.0.3",
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
     "axios": "^1.15.0",
-    "@argonprotocol/testing": "1.4.3-dev.5831d68f"
+    "@argonprotocol/testing": "1.4.5"
   },
   "resolutions_disabled": {
     "@argonprotocol/mainchain": "portal:../mainchain/client/nodejs",

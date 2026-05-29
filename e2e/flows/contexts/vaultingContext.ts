@@ -30,24 +30,15 @@ export const VAULTING_FLOW_INPUT_DEFINITIONS: ReadonlyArray<IOperationInputDefin
 ];
 
 export function createVaultingFlowContext(flow: IE2EFlowRuntime, flowName: string): IVaultingFlowContext {
+  const input = flow.input as Partial<IVaultingFlowInput>;
+
   return {
     flow,
     flowName,
     input: {
-      serverTab: pickString(flow.input.serverTab, process.env.VAULTING_SERVER_TAB) || 'local',
-      extraFundingArgons:
-        normalizeAmountInput(
-          flow.input.extraFundingArgons ?? process.env.VAULTING_EXTRA_FUNDING_ARGONS,
-          `${flowName}.extraFundingArgons`,
-        ) ?? '1000',
+      serverTab: input.serverTab ?? 'local',
+      extraFundingArgons: normalizeAmountInput(input.extraFundingArgons, `${flowName}.extraFundingArgons`) ?? '1000',
     },
     state: {},
   };
-}
-
-function pickString(primary: unknown, fallback: string | undefined): string {
-  if (typeof primary === 'string' && primary.trim()) {
-    return primary.trim();
-  }
-  return fallback?.trim() ?? '';
 }

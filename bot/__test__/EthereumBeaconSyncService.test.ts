@@ -63,9 +63,27 @@ import {
 const syncKeypair = { address: 'sync-account' } as any;
 
 describe('EthereumBeaconSyncService', () => {
-  const createClient = (startingNonce = 4): ArgonClient =>
+  const createClient = (startingNonce = 4, hasEthereumChainConfig = true): ArgonClient =>
     ({
       isConnected: true,
+      query: {
+        crosschainTransfer: {
+          chainConfigBySourceChain: vi.fn(async () =>
+            hasEthereumChainConfig
+              ? {
+                  isSome: true,
+                  isNone: false,
+                  unwrap: () => ({
+                    isEvm: true,
+                  }),
+                }
+              : {
+                  isSome: false,
+                  isNone: true,
+                },
+          ),
+        },
+      },
       rpc: {
         system: {
           accountNextIndex: vi.fn(async () => ({
@@ -116,6 +134,22 @@ describe('EthereumBeaconSyncService', () => {
       syncAccountAddress: 'sync-account',
       latestSyncCommitteeUpdatePeriod: 11n,
       mode: 'needsBootstrap',
+    });
+  });
+
+  it('stays idle until the Ethereum transfer gateway is configured on-chain', async () => {
+    const service = new EthereumBeaconSyncService(createClient(4, false), {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(createClient()),
+    });
+
+    await service.runOnce();
+
+    expect(mainchainMock.getEthereumBeaconSyncState).not.toHaveBeenCalled();
+    expect(mainchainMock.getNextEthereumBeaconSyncTxs).not.toHaveBeenCalled();
+    expect(service.state()).toMatchObject({
+      mode: 'idle',
+      lastError: 'Ethereum transfer gateway is not configured on this network.',
     });
   });
 
@@ -348,6 +382,39 @@ describe('EthereumBeaconSyncService', () => {
       lastSubmittedTxHash: 'tx-2-hash',
       mode: 'idle',
     });
+  });
+
+  it('treats ExpectedFinalizedHeaderNotStored as idle so the next pass can retry', async () => {
+    const client = createClient(12);
+
+    mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
+      isBootstrapped: true,
+      hasNextSyncCommittee: true,
+      latestFinalizedBlockRoot: '0xabc',
+      latestFinalizedSlot: 800n,
+      nextRecommendedFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      headerInterval: 32n,
+    });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue([{ id: 'tx-1' }]);
+    mainchainMock.submitTx.mockRejectedValue(
+      new Error('ExtrinsicError: ethereumVerifier.ExpectedFinalizedHeaderNotStored'),
+    );
+
+    const service = new EthereumBeaconSyncService(client, {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(client),
+    });
+
+    await service.runOnce();
+
+    expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+    expect(service.state()).toMatchObject({
+      latestFinalizedSlot: 800n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      mode: 'idle',
+    });
+    expect(service.state().lastError).toBeUndefined();
   });
 });
 

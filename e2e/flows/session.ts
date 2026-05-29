@@ -17,6 +17,8 @@ import {
 } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
 
 const DEFAULT_APP_CONNECT_TIMEOUT_MS = 12 * 60_000;
+const APP_CONNECT_PROGRESS_INTERVAL_MS = 20_000;
+const APP_CONNECT_STALL_DIAGNOSTIC_MS = 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
 const CLEANUP_PORT_POLL_INTERVAL_MS = 500;
 const REQUIRED_LOCAL_DOCKER_PORTS = [3261];
@@ -37,6 +39,7 @@ export interface IFlowSessionOptions {
   sessionName?: string;
   sessionMode?: E2ESessionMode;
   appLogsMode?: E2EFlowAppLogsMode;
+  appEnv?: NodeJS.ProcessEnv;
 }
 
 export interface IFlowSession {
@@ -65,6 +68,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   let closed = false;
   const previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
   const previousNetworkConfigOverride = process.env.ARGON_NETWORK_CONFIG_OVERRIDE;
+  const sessionData: Record<string, unknown> = {};
 
   const defaultSessionName = options.sessionName || 'e2e';
   const sessionIdentity = resolveTestSessionIdentity({
@@ -85,6 +89,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     ARGON_DRIVER_WS: driverServer.url,
     ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS?.trim() || '0',
     ARGON_APP_ENABLE_AUTOUPDATE: '0',
+    ...options.appEnv,
   };
 
   // Keep helper commands (btc-cli, funding RPC) pointed at the same compose project as this session.
@@ -103,6 +108,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
         registerTeardown: false,
         composeProjectName,
       });
+      sessionData.sessionArchiveUrl = testNetwork.archiveUrl;
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(testNetwork.networkConfigOverride);
       process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
       const composeEnv = testNetwork.composeEnv;
@@ -111,6 +117,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       devDockerProcess = spawn('yarn', ['tauri:dev:docker'], createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
     } else {
       delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
+      sessionData.sessionArchiveUrl = 'ws://127.0.0.1:9944';
 
       const appCommand = sessionMode === 'stateful' ? ['tauri:dev:docker'] : ['dev:docker'];
       devDockerProcess = spawn('yarn', appCommand, createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
@@ -140,7 +147,27 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
 
   try {
     await driver.connect();
-    await waitForAppConnection(driver, devDockerProcess, DEFAULT_APP_CONNECT_TIMEOUT_MS);
+    await waitForAppConnection({
+      driver,
+      appProcess: devDockerProcess,
+      timeoutMs: DEFAULT_APP_CONNECT_TIMEOUT_MS,
+      appProcessOutput,
+      onStall: async () => {
+        printAppProcessOutputTail(appProcessOutput, 'startup-stall', 40);
+        await printSessionStartupDiagnostics({
+          repoRoot,
+          sessionMode,
+          useTestNetwork,
+          sessionIdentity,
+          composeProjectName,
+          appInstanceName,
+          appPort,
+          driverUrl: driver.getUrl(),
+          appProcess: devDockerProcess,
+          testNetwork,
+        });
+      },
+    });
     await waitForInitialUiReady(driver, devDockerProcess, APP_STARTUP_READY_TIMEOUT_MS);
   } catch (error) {
     printAppProcessOutputTail(appProcessOutput, 'connect-error');
@@ -193,7 +220,10 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       }
       const startedAt = Date.now();
       try {
-        const result = await runFlow(driver, flowName, { input });
+        const result = await runFlow(driver, flowName, {
+          input,
+          initialData: sessionData,
+        });
         return {
           elapsedMs: Date.now() - startedAt,
           data: result.data,
@@ -458,6 +488,8 @@ function createAppSpawnOptions(
 interface IAppProcessOutputTracker {
   appLogsMode: E2EFlowAppLogsMode;
   lines: string[];
+  lastOutputAtMs: number | null;
+  lastOutputLine?: string;
   logFilePath?: string;
   pendingStdout: string;
   pendingStderr: string;
@@ -469,6 +501,7 @@ function createAppProcessOutputTracker(appLogsMode: E2EFlowAppLogsMode, sessionN
   return {
     appLogsMode,
     lines: [],
+    lastOutputAtMs: null,
     logFilePath,
     pendingStdout: '',
     pendingStderr: '',
@@ -516,6 +549,8 @@ function appendAppOutputChunk(tracker: IAppProcessOutputTracker, source: 'stdout
 
 function pushAppOutputLine(tracker: IAppProcessOutputTracker, line: string): void {
   tracker.lines.push(line);
+  tracker.lastOutputAtMs = Date.now();
+  tracker.lastOutputLine = line;
   tracker.stream?.write(`${line}\n`);
   if (tracker.lines.length > APP_PROCESS_OUTPUT_MAX_LINES) {
     tracker.lines.splice(0, tracker.lines.length - APP_PROCESS_OUTPUT_MAX_LINES);
@@ -534,9 +569,13 @@ function collectAppOutputTail(tracker: IAppProcessOutputTracker, lineLimit: numb
   return lines.slice(lines.length - lineLimit);
 }
 
-function printAppProcessOutputTail(tracker: IAppProcessOutputTracker, reason: string): void {
+function printAppProcessOutputTail(
+  tracker: IAppProcessOutputTracker,
+  reason: string,
+  lineLimit = APP_PROCESS_OUTPUT_TAIL_LINES,
+): void {
   if (tracker.appLogsMode !== 'quiet') return;
-  const tail = collectAppOutputTail(tracker, APP_PROCESS_OUTPUT_TAIL_LINES);
+  const tail = collectAppOutputTail(tracker, lineLimit);
   if (tail.length === 0) return;
   console.error(`[E2E] Recent app output (${reason}):`);
   if (tracker.logFilePath) {
@@ -545,6 +584,60 @@ function printAppProcessOutputTail(tracker: IAppProcessOutputTracker, reason: st
   for (const line of tail) {
     console.error(`[E2E] ${line}`);
   }
+}
+
+function summarizeAppStartup(tracker: IAppProcessOutputTracker): {
+  lastOutputAgeMs: number | null;
+  lastOutputLine: string | null;
+  stage: string;
+} {
+  const tail = collectAppOutputTail(tracker, 20);
+  const joinedTail = tail.join('\n');
+  const lastOutputLine = tracker.lastOutputLine ?? tail.at(-1) ?? null;
+  const lastOutputAgeMs = tracker.lastOutputAtMs == null ? null : Date.now() - tracker.lastOutputAtMs;
+
+  let stage = 'no-app-output';
+  if (lastOutputLine?.includes('Waiting for bootstrap archive client')) {
+    stage = 'ethereum-bootstrap-archive';
+  } else if (
+    lastOutputLine?.includes('Still waiting for finalized beacon execution') ||
+    lastOutputLine?.includes('Waiting for finalized beacon execution block >=')
+  ) {
+    stage = 'ethereum-bootstrap-finality';
+  } else if (lastOutputLine?.includes('Requesting beacon bootstrap transaction')) {
+    stage = 'ethereum-bootstrap-tx-build';
+  } else if (
+    lastOutputLine?.includes('Submitting beacon bootstrap sudo transaction') ||
+    lastOutputLine?.includes('Waiting for beacon bootstrap transaction to enter a block')
+  ) {
+    stage = 'ethereum-bootstrap-submit';
+  } else if (lastOutputLine?.includes('deploying the local Ethereum gateway fixture')) {
+    stage = 'ethereum-gateway-deploy';
+  } else if (lastOutputLine?.includes('configuring the local Ethereum gateway on Argon')) {
+    stage = 'ethereum-chain-config';
+  } else if (lastOutputLine?.includes('syncing the Ethereum gateway council to Argon')) {
+    stage = 'ethereum-council-sync';
+  } else if (lastOutputLine?.includes('starting the local Ethereum relayer')) {
+    stage = 'ethereum-relayer-start';
+  } else if (joinedTail.includes('bootstrapping the Ethereum verifier on Argon')) {
+    stage = 'ethereum-bootstrap';
+  } else if (joinedTail.includes('[tauri-dev] Starting Tauri dev')) {
+    stage = 'tauri-dev-start';
+  } else if (joinedTail.includes('[tauri-dev] Enabling e2e features')) {
+    stage = 'tauri-dev-e2e';
+  } else if (joinedTail.includes('Failed to finish local Ethereum setup')) {
+    stage = 'ethereum-setup-error';
+  } else if (joinedTail.includes('Failed to start:')) {
+    stage = 'startup-error';
+  } else if (tail.length > 0) {
+    stage = 'startup-in-progress';
+  }
+
+  return {
+    lastOutputAgeMs,
+    lastOutputLine,
+    stage,
+  };
 }
 
 function closeAppProcessOutputTracker(tracker: IAppProcessOutputTracker): void {
@@ -664,11 +757,23 @@ function readComposePsOutput(repoRoot: string, env: NodeJS.ProcessEnv): string {
   }
 }
 
-async function waitForAppConnection(driver: DriverClient, appProcess: ChildProcess, timeoutMs: number): Promise<void> {
+interface IWaitForAppConnectionOptions {
+  driver: DriverClient;
+  appProcess: ChildProcess;
+  timeoutMs: number;
+  appProcessOutput: IAppProcessOutputTracker;
+  onStall?: () => Promise<void> | void;
+}
+
+async function waitForAppConnection(options: IWaitForAppConnectionOptions): Promise<void> {
+  const { driver, appProcess, timeoutMs, appProcessOutput, onStall } = options;
   console.info(`[E2E] Waiting for app connection (timeout ${timeoutMs}ms)`);
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let timeout: NodeJS.Timeout | null = null;
+    let progressInterval: NodeJS.Timeout | null = null;
+    let hasPrintedStallDiagnostics = false;
+    const startedAt = Date.now();
 
     const finish = (callback: () => void): void => {
       if (settled) return;
@@ -676,6 +781,10 @@ async function waitForAppConnection(driver: DriverClient, appProcess: ChildProce
       if (timeout) {
         clearTimeout(timeout);
         timeout = null;
+      }
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
       }
       appProcess.off('exit', onExit);
       callback();
@@ -702,6 +811,28 @@ async function waitForAppConnection(driver: DriverClient, appProcess: ChildProce
         ),
       timeoutMs,
     );
+
+    progressInterval = setInterval(() => {
+      const elapsedMs = Date.now() - startedAt;
+      const remainingMs = Math.max(0, timeoutMs - elapsedMs);
+      const startup = summarizeAppStartup(appProcessOutput);
+      const lastOutputAge = startup.lastOutputAgeMs == null ? 'n/a' : `${startup.lastOutputAgeMs}`;
+      const lastOutput = startup.lastOutputLine ? ` lastOutput=${startup.lastOutputLine}` : '';
+
+      console.warn(
+        `[E2E] Still waiting for app connection (elapsedMs=${elapsedMs}, remainingMs=${remainingMs}, stage=${startup.stage}, lastOutputAgeMs=${lastOutputAge}, pid=${String(appProcess.pid ?? 'n/a')}, exitCode=${String(appProcess.exitCode)}, signal=${String(appProcess.signalCode)})${lastOutput}`,
+      );
+
+      if (!hasPrintedStallDiagnostics && elapsedMs >= APP_CONNECT_STALL_DIAGNOSTIC_MS) {
+        hasPrintedStallDiagnostics = true;
+        console.warn(`[E2E] App connection appears stalled at stage=${startup.stage}; printing startup diagnostics`);
+        void Promise.resolve(onStall?.()).catch(error => {
+          console.warn(
+            `[E2E] Failed to print startup stall diagnostics: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      }
+    }, APP_CONNECT_PROGRESS_INTERVAL_MS);
 
     appProcess.once('exit', onExit);
     void driver

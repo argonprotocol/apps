@@ -10,7 +10,9 @@ import { Config } from '../../lib/Config.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import type { Db } from '../../lib/Db.ts';
+import { GlobalCouncil } from '../../lib/GlobalCouncil.ts';
 import type { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
+import { MintingAuthorities } from '../../lib/MintingAuthorities.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../lib/MyVault.ts';
 import { TransactionTracker } from '../../lib/TransactionTracker.ts';
 import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
@@ -132,7 +134,18 @@ export async function createBitcoinLocksHarness(args: {
     loadStatsFromFile: async () => undefined,
   });
 
-  const myVault = new MyVault(Promise.resolve(db), vaults, walletKeys, transactionTracker, bitcoinLocks, miningFrames);
+  const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
+  const mintingAuthorities = new MintingAuthorities(Promise.resolve(db), walletKeys, miningFrames, transactionTracker);
+  const myVault = new MyVault(
+    Promise.resolve(db),
+    vaults,
+    walletKeys,
+    transactionTracker,
+    bitcoinLocks,
+    miningFrames,
+    globalCouncil,
+    mintingAuthorities,
+  );
 
   Object.assign(myVault.vaults, {
     load: async () => {},

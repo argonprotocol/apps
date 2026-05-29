@@ -137,6 +137,7 @@ export type IE2EOperationState = 'complete' | 'runnable' | 'processing' | 'uiSta
 
 export interface IE2EFlowExecutionOptions {
   input?: E2ECommandArgs;
+  initialData?: Record<string, unknown>;
 }
 
 export interface IE2EFlowExecutionResult {

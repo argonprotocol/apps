@@ -1,5 +1,7 @@
-import { getClient, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
+import { getClient } from '@argonprotocol/mainchain';
+import { sudo } from '@argonprotocol/testing';
 import { NetworkConfigSettings } from '../../src/NetworkConfig.ts';
+import { submitAndFinalize } from './mainchain.ts';
 
 export interface ISudoFundWalletInput {
   address: string;
@@ -25,10 +27,7 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
         client.tx.ownership.forceSetBalance(input.address, input.micronots),
       ]),
     );
-    const txSubmitter = new TxSubmitter(client, tx, new Keyring({ type: 'sr25519' }).createFromUri('//Alice'));
-    const result = await txSubmitter.submit();
-    await result.waitForInFirstBlock;
-    await result.waitForFinalizedBlock.catch(() => undefined);
+    const result = await submitAndFinalize(client, tx, sudo());
 
     if (result.extrinsicError) {
       throw result.extrinsicError;

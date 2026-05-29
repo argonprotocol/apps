@@ -8,9 +8,9 @@ import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
+import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 
-function createStore() {
+function createStore(options: { txInfos?: TransactionInfo[] } = {}) {
   const blockWatch = Object.assign(Object.create(null), {
     start: async () => undefined,
     events: { on: () => () => undefined },
@@ -23,7 +23,7 @@ function createStore() {
   const transactionTracker = Object.assign(Object.create(null), {
     load: async () => undefined,
     pendingBlockTxInfosAtLoad: [],
-    data: { txInfos: [], txInfosByType: {} },
+    data: { txInfos: options.txInfos ?? [], txInfosByType: {} },
   }) as TransactionTracker;
 
   return new BitcoinLocks(
@@ -183,6 +183,38 @@ describe('BitcoinLocks getActiveLocks', () => {
 
     const active = store.getActiveLocks();
     expect(active.map(x => x.uuid)).toEqual(['pending-init', 'older-active']);
+  });
+
+  it('does not re-mark acknowledged failed requests during transaction recovery', async () => {
+    const store = createStore({
+      txInfos: [
+        {
+          tx: {
+            extrinsicType: ExtrinsicType.BitcoinRequestLock,
+            isFinalized: true,
+            metadataJson: { bitcoin: { uuid: 'failed-acknowledged' } },
+          },
+          getStatus: () => ({ error: { message: 'bitcoinLocks.InsufficientVaultFunds' } }),
+        } as unknown as TransactionInfo,
+      ],
+    });
+    const lock = createLock({
+      uuid: 'failed-acknowledged',
+      status: BitcoinLockStatus.LockFailedAcknowledged,
+      createdAt: '2026-01-05T00:00:00Z',
+    });
+
+    store.data.pendingLocks = [lock];
+
+    const setLockFailed = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      setLockFailed,
+    } as unknown as Awaited<ReturnType<BitcoinLocks['getTable']>>);
+
+    await store['syncFailedBitcoinRequestLocksFromTransactions']();
+
+    expect(setLockFailed).not.toHaveBeenCalled();
+    expect(lock.status).toBe(BitcoinLockStatus.LockFailedAcknowledged);
   });
 
   it('requires Argon-visible candidates before mismatch actions become available', () => {

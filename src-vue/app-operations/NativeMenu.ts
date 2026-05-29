@@ -2,18 +2,27 @@ import * as Vue from 'vue';
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { useOperationsController, OperationsTab } from './stores/controller.ts';
+import { OperationsTab, useOperationsController } from './stores/controller.ts';
 import { checkInstallerIfCloseAllowed, getInstaller } from '../stores/installer.ts';
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
 import { useTour } from '../stores/tour.ts';
 import { WalletType } from '../lib/Wallet.ts';
-import { APP_NAME } from '../lib/Env.ts';
+import { APP_NAME, IS_LOCAL_BUILD, NETWORK_NAME } from '../lib/Env.ts';
 
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
+}
+
+async function showForceUpdateGlobalIssuanceCouncilCommand() {
+  const command = 'yarn dev:ethereum:force-update-global-issuance-council';
+  await tauriMessage(`Run this from the repo root:\n\n${command}`, {
+    title: 'Force Update Global Issuance Council',
+    kind: 'info',
+  });
 }
 
 export async function createMenu() {
@@ -106,6 +115,37 @@ export async function createMenu() {
         text: 'Open Vaulting Wallet',
         action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting }),
       },
+      await PredefinedMenuItem.new({ item: 'Separator' }),
+      await Submenu.new({
+        text: 'Crosschain Transfers',
+        items: [
+          {
+            id: 'experimental-set-argonot-commitment',
+            text: 'Set Vault Argonot Commitment',
+            action: () => basicEmitter.emit('openArgonotCommitmentOverlay'),
+          },
+          {
+            id: 'experimental-create-minting-authority-request',
+            text: 'Register a Minting Authority',
+            action: () => basicEmitter.emit('openMintingAuthorityRequestOverlay'),
+          },
+          {
+            id: 'experimental-relay-gateway-activities',
+            text: 'Relay Gateway Activities',
+            action: () => basicEmitter.emit('openGatewayRelayOverlay'),
+          },
+          ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
+            ? [
+                await PredefinedMenuItem.new({ item: 'Separator' }),
+                {
+                  id: 'experimental-force-update-global-issuance-council',
+                  text: 'Reset Global Issuance Council',
+                  action: () => void showForceUpdateGlobalIssuanceCouncilCommand(),
+                },
+              ]
+            : []),
+        ],
+      }),
     ],
   });
 

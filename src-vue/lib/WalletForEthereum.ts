@@ -1,6 +1,6 @@
 import { type Address, erc20Abi, getAddress } from 'viem';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE } from '@argonprotocol/mainchain';
+import { EvmContracts } from '@argonprotocol/mainchain';
 import { defaultWalletData, type IOtherToken, type IOtherTokenDefinition, type IWallet } from './Wallet.ts';
 import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
 
@@ -166,7 +166,7 @@ function isEthereumArgonFamilyToken(token: IOtherTokenDefinition): boolean {
 }
 
 export function convertEthereumTokenBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigint {
-  return amountBaseUnits / MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
+  return amountBaseUnits / EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
 }
 
 export async function loadTokens(

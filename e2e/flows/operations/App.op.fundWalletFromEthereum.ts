@@ -172,6 +172,8 @@ async function startMoveAndWaitForSettlement(
 
   await context.flow.waitFor(moveTestId, { timeoutMs: 30_000 });
   await context.flow.click(moveTestId, { timeoutMs: 30_000 });
+  await context.flow.waitFor('WalletTransferOverlay.submitTransfer()', { timeoutMs: 30_000 });
+  await context.flow.click('WalletTransferOverlay.submitTransfer()', { timeoutMs: 30_000 });
 
   await context.flow.poll<IAppFundWalletFromEthereumState>(
     nextState => {
@@ -193,8 +195,8 @@ async function startMoveAndWaitForSettlement(
     },
   );
 
-  await context.flow.waitFor('EthereumMoveOverlay.close()', { timeoutMs: 120_000 });
-  await context.flow.click('EthereumMoveOverlay.close()', { timeoutMs: 15_000 });
+  await context.flow.waitFor('WalletTransferOverlay.close()', { timeoutMs: 120_000 });
+  await context.flow.click('WalletTransferOverlay.close()', { timeoutMs: 15_000 });
 }
 
 async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType: IArgonWalletType) {

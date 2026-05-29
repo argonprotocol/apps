@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 
+const gatewayProofMock = vi.hoisted(() => {
+  return {
+    buildGatewayActivityProofPayload: vi.fn(),
+    getLatestArgonFinalizedExecutionHeader: vi.fn(async () => ({ blockNumber: 160n })),
+  };
+});
+
 const mainchainMock = vi.hoisted(() => {
-  const buildGatewayActivityProofPayload = vi.fn();
   const sign = vi.fn();
   const submitSigned = vi.fn();
 
@@ -17,7 +23,6 @@ const mainchainMock = vi.hoisted(() => {
   }
 
   return {
-    buildGatewayActivityProofPayload,
     sign,
     submitSigned,
     TxSubmitter,
@@ -28,8 +33,9 @@ vi.mock('@argonprotocol/mainchain', async () => {
   const actual = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
   return {
     ...actual,
-    buildGatewayActivityProofPayload: mainchainMock.buildGatewayActivityProofPayload,
     TxSubmitter: mainchainMock.TxSubmitter,
+    buildGatewayActivityProofPayload: gatewayProofMock.buildGatewayActivityProofPayload,
+    getLatestArgonFinalizedExecutionHeader: gatewayProofMock.getLatestArgonFinalizedExecutionHeader,
   };
 });
 
@@ -54,12 +60,10 @@ describe('EthereumGatewayProverService', () => {
   });
 
   it('returns Noop when the mainchain helper reports nothing new to prove', async () => {
-    mainchainMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      latestGatewayActivityNonce: 6n,
-      payloadUpToGatewayActivityNonce: 6n,
-      payload: null,
-    });
-    const service = new EthereumGatewayProverService(createSubmitLane(createClient()));
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue(null);
+    const service = new EthereumGatewayProverService(
+      createSubmitLane(createClient({ runtimeGatewayActivityNonce: 5n })),
+    );
 
     await expect(
       service.runToCheckpoint({
@@ -68,11 +72,12 @@ describe('EthereumGatewayProverService', () => {
       }),
     ).resolves.toEqual({
       outcome: 'Noop',
-      throughGatewayActivityNonce: 6n,
+      throughGatewayActivityNonce: 5n,
     });
-    expect(mainchainMock.buildGatewayActivityProofPayload).toHaveBeenCalledWith(expect.anything(), {
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledWith(expect.anything(), {
       executionRpcUrl: 'http://ethereum.test',
       gatewayAddress: '0xgateway',
+      throughExecutionBlockNumber: 160n,
     });
   });
 
@@ -91,24 +96,18 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ tx, accountNextNonce: 9 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    mainchainMock.buildGatewayActivityProofPayload
+    gatewayProofMock.buildGatewayActivityProofPayload
       .mockResolvedValueOnce({
-        latestGatewayActivityNonce: 9n,
-        payloadUpToGatewayActivityNonce: 7n,
-        payload: {
-          previousGatewayActivityNonce: 6n,
-          proof: { batch: 'proof-1' },
-          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-        },
+        previousGatewayActivityNonce: 6n,
+        proof: { batch: 'proof-1' },
+        gatewayActivityNonceRange: { start: 7n, end: 7n },
+        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       })
       .mockResolvedValueOnce({
-        latestGatewayActivityNonce: 9n,
-        payloadUpToGatewayActivityNonce: 9n,
-        payload: {
-          previousGatewayActivityNonce: 7n,
-          proof: { batch: 'proof-2' },
-          activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
-        },
+        previousGatewayActivityNonce: 7n,
+        proof: { batch: 'proof-2' },
+        gatewayActivityNonceRange: { start: 8n, end: 9n },
+        activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
       });
     mainchainMock.sign.mockResolvedValue(signedTx);
     mainchainMock.submitSigned.mockResolvedValue({
@@ -137,38 +136,64 @@ describe('EthereumGatewayProverService', () => {
     expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
   });
 
-  it('maps stale duplicate submits back to Noop', async () => {
+  it('retries with a refreshed nonce when the delegate submit comes back stale', async () => {
     const client = createClient();
     const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const accountNextIndex = client.rpc.system.accountNextIndex as ReturnType<typeof vi.fn>;
+    accountNextIndex.mockResolvedValueOnce({ toNumber: () => 4 }).mockResolvedValueOnce({ toNumber: () => 5 });
 
-    mainchainMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      latestGatewayActivityNonce: 7n,
-      payloadUpToGatewayActivityNonce: 7n,
-      payload: {
+    gatewayProofMock.buildGatewayActivityProofPayload
+      .mockResolvedValueOnce({
         previousGatewayActivityNonce: 6n,
         proof: { batch: 'proof' },
+        gatewayActivityNonceRange: { start: 7n, end: 7n },
         activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-      },
-    });
-    mainchainMock.sign.mockResolvedValue({
-      method: { toHuman: () => ({}) },
-      nonce: { toNumber: () => 4 },
-    });
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
-      },
-      waitForInFirstBlock: Promise.reject(new Error('Invalid Transaction: Stale')),
-    });
+      })
+      .mockResolvedValueOnce({
+        previousGatewayActivityNonce: 6n,
+        proof: { batch: 'proof' },
+        gatewayActivityNonceRange: { start: 7n, end: 7n },
+        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+      });
+    mainchainMock.sign.mockImplementation(async (options?: { nonce?: number }) => ({
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => options?.nonce ?? 0 },
+    }));
+    const staleSubmission = Promise.reject(new Error('Invalid Transaction: Stale'));
+    staleSubmission.catch(() => undefined);
+    mainchainMock.submitSigned
+      .mockResolvedValueOnce({
+        extrinsic: {
+          signedHash: '0xstale',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        waitForInFirstBlock: staleSubmission,
+      })
+      .mockResolvedValueOnce({
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 322,
+          submittedTime: new Date('2026-05-13T16:00:01.000Z'),
+        },
+        blockNumber: 322,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+      });
 
     await expect(
       service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n }),
     ).resolves.toEqual({
-      outcome: 'Noop',
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xrelaytx',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
+      txNonce: 5,
+      txSubmittedAtBlockHeight: 322,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:01.000Z'),
+      estimatedFee: 7n,
       throughGatewayActivityNonce: 7n,
     });
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
   });
 
   it('rejects when the delegate cannot afford the relay reserve', async () => {
@@ -185,14 +210,11 @@ describe('EthereumGatewayProverService', () => {
     });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    mainchainMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      latestGatewayActivityNonce: 7n,
-      payloadUpToGatewayActivityNonce: 7n,
-      payload: {
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof' },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-      },
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
 
     await expect(
@@ -214,6 +236,57 @@ describe('EthereumGatewayProverService', () => {
     });
   });
 
+  it('reports not ready until the verifier retains a finalized execution header anchor', async () => {
+    const service = new EthereumGatewayProverService(
+      createSubmitLane(createClient({ hasLatestExecutionHeaderAnchor: false })),
+    );
+
+    await expect(service.getRelayStatus()).resolves.toEqual({
+      isReady: false,
+      reason: 'Ethereum verifier has not retained a finalized execution header yet.',
+    });
+  });
+
+  it('stays idle when the Ethereum transfer gateway is not configured on this network', async () => {
+    const service = new EthereumGatewayProverService(createSubmitLane(createClient({ hasEthereumChainConfig: false })));
+
+    await expect(service.getRelayStatus()).resolves.toEqual({
+      isReady: false,
+      reason: 'Ethereum transfer gateway is not configured on this network.',
+    });
+
+    await service.start();
+    expect(mainchainMock.sign).not.toHaveBeenCalled();
+
+    await service.shutdown();
+  });
+
+  it('reports when gateway sync is paused and stops catch-up there', async () => {
+    const service = new EthereumGatewayProverService(
+      createSubmitLane(
+        createClient({
+          gatewaySyncPause: {
+            failedGatewayActivityNonce: 5n,
+            lastGoodGatewayActivityNonce: 4n,
+            reason: 'MintingAuthorityNotFound',
+          },
+        }),
+      ),
+    );
+
+    await expect(service.getRelayStatus()).resolves.toEqual({
+      isReady: false,
+      reason: 'Ethereum gateway sync is paused at activity 5 (MintingAuthorityNotFound).',
+    });
+    await expect(
+      service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 5n }),
+    ).resolves.toEqual({
+      outcome: 'Rejected',
+      reason: 'Ethereum gateway sync is paused at activity 5 (MintingAuthorityNotFound).',
+      throughGatewayActivityNonce: 4n,
+    });
+  });
+
   it('skips proof building when the runtime nonce already covers the requested checkpoint', async () => {
     const service = new EthereumGatewayProverService(
       createSubmitLane(createClient({ runtimeGatewayActivityNonce: 7n })),
@@ -225,7 +298,7 @@ describe('EthereumGatewayProverService', () => {
       outcome: 'Noop',
       throughGatewayActivityNonce: 7n,
     });
-    expect(mainchainMock.buildGatewayActivityProofPayload).not.toHaveBeenCalled();
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).not.toHaveBeenCalled();
   });
 
   it('coalesces concurrent catch-up requests into one submission', async () => {
@@ -240,7 +313,7 @@ describe('EthereumGatewayProverService', () => {
       releaseBuildProofPlan = resolve;
     });
 
-    mainchainMock.buildGatewayActivityProofPayload.mockReturnValueOnce(buildProofPlan);
+    gatewayProofMock.buildGatewayActivityProofPayload.mockReturnValueOnce(buildProofPlan);
     mainchainMock.sign.mockResolvedValue(signedTx);
     mainchainMock.submitSigned.mockResolvedValue({
       extrinsic: {
@@ -256,13 +329,10 @@ describe('EthereumGatewayProverService', () => {
     const second = service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n });
 
     releaseBuildProofPlan({
-      latestGatewayActivityNonce: 7n,
-      payloadUpToGatewayActivityNonce: 7n,
-      payload: {
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof' },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-      },
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
 
     await expect(Promise.all([first, second])).resolves.toEqual([
@@ -289,14 +359,11 @@ describe('EthereumGatewayProverService', () => {
         throughGatewayActivityNonce: 7n,
       },
     ]);
-    expect(mainchainMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
     expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
   });
 
-  it('sweeps relay backlog on the background loop', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-
+  it('sweeps relay backlog immediately on start before settling into the background loop', async () => {
     const signedTx = {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
@@ -304,24 +371,18 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    mainchainMock.buildGatewayActivityProofPayload
+    gatewayProofMock.buildGatewayActivityProofPayload
       .mockResolvedValueOnce({
-        latestGatewayActivityNonce: 7n,
-        payloadUpToGatewayActivityNonce: 7n,
-        payload: {
-          previousGatewayActivityNonce: 6n,
-          proof: { batch: 'proof' },
-          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-        },
+        previousGatewayActivityNonce: 6n,
+        proof: { batch: 'proof' },
+        gatewayActivityNonceRange: { start: 7n, end: 7n },
+        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       })
       .mockResolvedValueOnce({
-        latestGatewayActivityNonce: 7n,
-        payloadUpToGatewayActivityNonce: 7n,
-        payload: {
-          previousGatewayActivityNonce: 6n,
-          proof: { batch: 'proof' },
-          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-        },
+        previousGatewayActivityNonce: 6n,
+        proof: { batch: 'proof' },
+        gatewayActivityNonceRange: { start: 7n, end: 7n },
+        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       });
     mainchainMock.sign.mockResolvedValue(signedTx);
     mainchainMock.submitSigned.mockResolvedValue({
@@ -335,11 +396,8 @@ describe('EthereumGatewayProverService', () => {
     });
 
     await service.start();
-    await vi.advanceTimersByTimeAsync(1);
 
-    await vi.waitFor(() => {
-      expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
-    });
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
 
     await service.shutdown();
   });
@@ -357,6 +415,13 @@ function createClient(
     accountNextNonce?: number;
     balance?: bigint;
     existentialDeposit?: bigint;
+    hasEthereumChainConfig?: boolean;
+    gatewaySyncPause?: {
+      failedGatewayActivityNonce: bigint;
+      lastGoodGatewayActivityNonce: bigint;
+      reason: string;
+    };
+    hasLatestExecutionHeaderAnchor?: boolean;
     runtimeGatewayActivityNonce?: bigint;
   } = {},
 ) {
@@ -387,13 +452,27 @@ function createClient(
           }),
         })),
         chainConfigBySourceChain: vi.fn(async () => ({
-          isNone: false,
+          isNone: args.hasEthereumChainConfig === false,
           unwrap: () => ({
-            isEthereum: true,
-            asEthereum: {
+            isEvm: args.hasEthereumChainConfig !== false,
+            asEvm: {
               gateway: {
                 toHex: () => '0xgateway',
               },
+            },
+          }),
+        })),
+        gatewaySyncPauseBySourceChain: vi.fn(async () => ({
+          isNone: args.gatewaySyncPause == null,
+          unwrap: () => ({
+            failedGatewayActivityNonce: {
+              toBigInt: () => args.gatewaySyncPause?.failedGatewayActivityNonce ?? 0n,
+            },
+            lastGoodGatewayActivityNonce: {
+              toBigInt: () => args.gatewaySyncPause?.lastGoodGatewayActivityNonce ?? 0n,
+            },
+            reason: {
+              type: args.gatewaySyncPause?.reason ?? 'Manual',
             },
           }),
         })),
@@ -405,6 +484,11 @@ function createClient(
               toBigInt: () => args.balance ?? 1_000_000n,
             },
           },
+        })),
+      },
+      ethereumVerifier: {
+        latestExecutionHeaderAnchorBlockHash: vi.fn(async () => ({
+          isNone: args.hasLatestExecutionHeaderAnchor === false,
         })),
       },
     },

@@ -29,7 +29,9 @@ export class TransactionInfo<MetadataType = unknown> {
   }
 
   public get waitForPostProcessing(): Promise<void> {
-    return this.postProcessor?.promise ?? this.txResult.waitForFinalizedBlock.then(() => undefined);
+    return (
+      this.postProcessor?.promise.catch(() => undefined) ?? this.txResult.waitForFinalizedBlock.then(() => undefined)
+    );
   }
 
   public get followOnTxInfo(): Promise<TransactionInfo | undefined> {
