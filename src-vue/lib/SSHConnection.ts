@@ -1,4 +1,4 @@
-import { invokeWithTimeout } from './tauriApi';
+import { InvokeTimeout, invokeWithTimeout } from './tauriApi';
 import { listen } from '@tauri-apps/api/event';
 import { IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
 
@@ -60,9 +60,24 @@ export class SSHConnection {
     return this.isConnectedPromise;
   }
 
-  public async runCommandWithTimeout(command: string, timeout: number): Promise<[string, number]> {
+  public async runCommandWithTimeout(command: string, timeout: number, retries = 1): Promise<[string, number]> {
     const payload = { address: this.address, command };
-    return await invokeWithTimeout('ssh_run_command', payload, timeout);
+
+    try {
+      return await invokeWithTimeout('ssh_run_command', payload, timeout);
+    } catch (error) {
+      const canRetry =
+        retries > 0 &&
+        !this.isDestroyed &&
+        (error instanceof InvokeTimeout || String(error) === 'SSHCommandMissingExitStatus');
+      if (!canRetry) {
+        throw error;
+      }
+
+      await this.close().catch(() => undefined);
+      await this.connect();
+      return await this.runCommandWithTimeout(command, timeout, retries - 1);
+    }
   }
 
   public async uploadFileWithTimeout(contents: string, remotePath: string, timeout: number): Promise<void> {
