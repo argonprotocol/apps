@@ -196,6 +196,14 @@ export class InstallerCheck {
     }
 
     if (stepName === InstallStepKey.ServerConnect) {
+      if (
+        this.installer.serverConnectProgress >= 100 ||
+        this.config.serverInstaller.ServerConnect.progress >= 100 ||
+        this.installer.fileUploadProgress > 0 ||
+        this.config.serverInstaller.FileUpload.progress > 0
+      ) {
+        return InstallStepStatusType.Finished;
+      }
       if (!this.config.isServerAdded) {
         return InstallStepStatusType.Started;
       }

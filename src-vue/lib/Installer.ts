@@ -236,13 +236,19 @@ export default class Installer {
       if (this.remoteFilesNeedUpdating) {
         console.info('Uploading account address');
         await server.uploadAccountAddress(this.walletKeys.miningBotAddress);
+        this.fileUploadProgress = 2;
 
         console.info('Uploading core files');
-        await this.uploadCoreFiles(t => (this.fileUploadProgress += (1 / t) * 49));
+        await this.uploadCoreFiles((totalCount, uploadedCount) => {
+          this.fileUploadProgress = 2 + (uploadedCount / totalCount) * 88;
+        });
       }
 
       console.info('Uploading bot config files');
-      await this.uploadBotConfigFiles(t => (this.fileUploadProgress += (1 / t) * 49));
+      await this.uploadBotConfigFiles((totalCount, uploadedCount) => {
+        const startProgress = this.remoteFilesNeedUpdating ? 90 : 0;
+        this.fileUploadProgress = startProgress + (uploadedCount / totalCount) * (99 - startProgress);
+      });
 
       console.info('Starting remote script');
       await server.createLogsDir();
@@ -578,8 +584,9 @@ export default class Installer {
 
     try {
       console.log(`Uploading server to ${remoteDir}`);
+      const uploadStart = totalProgress;
       await SSH.uploadEmbeddedFile(localServerTar, `${workDir}/${serverTar}`, progress => {
-        totalProgress += progress;
+        totalProgress = uploadStart + progress;
         progressFn?.(totalCount, totalProgress);
       });
 

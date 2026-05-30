@@ -1,6 +1,7 @@
 import packageJson from '../../package.json';
 import { Db } from './Db';
 import {
+  BootstrapType,
   ConfigSchema,
   IConfig,
   IConfigCertificationDetailsSchema,
@@ -230,6 +231,20 @@ export class Config implements IConfig {
       const isFirstTimeAppLoad = Object.keys(dbRawData).length === 0;
       if (isFirstTimeAppLoad) {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
+      }
+
+      const hasLegacyAccountState =
+        loadedData.isServerInstalled ||
+        loadedData.miningSetupStatus !== MiningSetupStatus.None ||
+        loadedData.vaultingSetupStatus !== VaultingSetupStatus.None;
+
+      if (!loadedData.bootstrapDetails && hasLegacyAccountState) {
+        loadedData.bootstrapDetails = {
+          type: BootstrapType.Public,
+          routerHost: 'LOADING',
+        };
+        fieldsToSave.add(dbFields.bootstrapDetails);
+        rawData[dbFields.bootstrapDetails] = JsonExt.stringify(loadedData.bootstrapDetails, 2);
       }
 
       const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
@@ -551,7 +566,12 @@ export class Config implements IConfig {
     fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
 
     if (walletHadPreviousLife) {
-      // TODO: Need to set bootstrapDetails
+      loadedData.bootstrapDetails = {
+        type: BootstrapType.Public,
+        routerHost: 'LOADING',
+      };
+      stringifiedData[dbFields.bootstrapDetails] = JsonExt.stringify(loadedData.bootstrapDetails, 2);
+      fieldsToSave.add(dbFields.bootstrapDetails);
     }
   }
 

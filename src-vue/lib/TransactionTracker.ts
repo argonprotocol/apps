@@ -1,5 +1,6 @@
 import {
   ExtrinsicError,
+  type GenericEvent,
   hexToU8a,
   ISubmittableOptions,
   type ISubmittableResult,
@@ -96,16 +97,35 @@ export class TransactionTracker {
             events: [],
           });
         }
-        if (tx.blockExtrinsicEventsJson) {
+        if (tx.blockExtrinsicEventsJson?.length) {
+          const decodeStoredEvents = ({ registry }: Pick<typeof client, 'registry'>): GenericEvent[] =>
+            tx.blockExtrinsicEventsJson.map(({ raw }) =>
+              registry.createType<GenericEvent>('GenericEvent', hexToU8a(raw)),
+            );
+
           try {
-            txResult.events = tx.blockExtrinsicEventsJson.map(({ raw }) =>
-              client.createType('GenericEvent', hexToU8a(raw)),
-            );
+            txResult.events = decodeStoredEvents(client);
           } catch (error) {
-            console.error(
-              `[TransactionTracker] Error restoring events for transaction #${tx.id} (${tx.extrinsicType})`,
-              error,
-            );
+            let restoreError = error;
+            if (tx.blockHash && tx.blockHeight != null && this.blockWatch.getApi) {
+              try {
+                const historicalApi = await this.blockWatch.getApi({
+                  blockNumber: tx.blockHeight,
+                  blockHash: tx.blockHash,
+                });
+                txResult.events = decodeStoredEvents(historicalApi);
+                restoreError = undefined;
+              } catch (historicalError) {
+                restoreError = historicalError;
+              }
+            }
+
+            if (restoreError) {
+              console.error(
+                `[TransactionTracker] Error restoring events for transaction #${tx.id} (${tx.extrinsicType})`,
+                restoreError,
+              );
+            }
           }
         }
         if (tx.blockExtrinsicErrorJson) {
