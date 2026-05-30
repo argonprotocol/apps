@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="relative">
-    <div AlertMenu v-if="isShowingCompletionTooltip" class="z-50 absolute top-6 right-0 pt-[12px]">
+  <div ref="rootRef">
+    <div AlertMenu v-if="isShowingCompletionTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
       <Arrow
         class="absolute top-0 right-6 h-3.5 w-6"
         fill="white"
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div AlertMenu v-else-if="isShowingBonusTooltip" class="z-50 absolute top-6 right-0 pt-[12px]">
+    <div AlertMenu v-else-if="isShowingBonusTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
       <Arrow
         class="absolute top-0 right-6 w-6 h-3.5"
         fill="white"
@@ -59,169 +59,168 @@
       </div>
     </div>
 
-    <div ref="rootRef">
-      <NavigationMenuItem class="pointer-events-auto" @mouseenter="onMenuEnter" @mouseleave="onMenuLeave">
-        <NavigationMenuTrigger
-          Trigger
-          :aria-label="controller.isOperationalRewardsFlowActive ? 'Operational rewards' : 'Operational progress'"
-          class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
-          :class="[
-            controller.isOperationalRewardsFlowActive ? 'w-[42px]' : 'font-mono text-base font-semibold',
-          ]"
-          @focus="onMenuEnter"
-        >
-          <template v-if="controller.isOperationalRewardsFlowActive">
-            <div class="relative flex h-full w-full items-center justify-center">
-              <div class="menu-moon">
-                <div class="menu-moon-crater left-[3px] top-[5px]" />
-                <div class="menu-moon-crater h-[2.5px] w-[2.5px] right-[4px] bottom-[5px]" />
-                <div v-if="hasInviteMoonBase" class="menu-moon-base" />
-              </div>
-              <RocketIcon class="menu-moon-rocket" aria-hidden="true" />
+    <NavigationMenuItem class="pointer-events-auto" @mouseenter="onMenuEnter" @mouseleave="onMenuLeave">
+      <NavigationMenuTrigger
+        Trigger
+        :aria-label="controller.isOperationalRewardsFlowActive ? 'Operational rewards' : 'Operational progress'"
+        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+        :class="[
+          controller.isOperationalRewardsFlowActive ? 'w-[42px]' : 'font-mono text-base font-semibold',
+        ]"
+        @focus="onMenuEnter"
+      >
+        <template v-if="controller.isOperationalRewardsFlowActive">
+          <div class="relative flex h-full w-full items-center justify-center">
+            <div class="menu-moon">
+              <div class="menu-moon-crater left-[3px] top-[5px]" />
+              <div class="menu-moon-crater h-[2.5px] w-[2.5px] right-[4px] bottom-[5px]" />
+              <div v-if="hasInviteMoonBase" class="menu-moon-base" />
             </div>
-          </template>
-
-          <div v-else class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
-            <RocketIcon class="h-[17px] relative top-[2px] mr-[5px] -rotate-45" aria-hidden="true" />
-            {{ controller.completedCertificationStepCount }}/{{ controller.certificationStepCount }}
+            <RocketIcon class="menu-moon-rocket" aria-hidden="true" />
           </div>
-        </NavigationMenuTrigger>
+        </template>
 
-        <NavigationMenuContent
-          class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
-          @mouseenter="onMenuEnter"
-          @mouseleave="onMenuLeave"
-        >
-            <div class="relative">
-              <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                <div v-if="controller.isOperationalRewardsFlowActive" class="w-[26rem] px-4 pt-4 pb-4">
-                  <div v-if="controller.isOperationalActivationReady" class="space-y-3">
-                    <div class="border-b border-slate-300/50 pb-2.5">
-                      <div class="text-lg font-bold text-slate-700">Claim your Rewards</div>
-                      <div class="mt-0.5 text-sm leading-5 text-slate-500">
-                        You've finished the Argon Operational Certification Process! Open to claim your {{ operationalReferralRewardLabel }} reward.
-                      </div>
-                      <button
-                        type="button"
-                        class="bg-argon-button hover:bg-argon-button-hover mt-3 rounded-lg px-3 py-1.5 text-sm font-semibold text-white"
-                        @click="openRewardsActivation()"
-                      >
-                        Open
-                      </button>
-                    </div>
-                  </div>
+        <div v-else class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
+          <RocketIcon class="h-[17px] relative top-[2px] mr-[5px] -rotate-45" aria-hidden="true" />
+          {{ controller.completedCertificationStepCount }}/{{ controller.certificationStepCount }}
+        </div>
+      </NavigationMenuTrigger>
 
-                  <template v-else>
-                    <div class="border-b border-slate-300/50 pb-2.5">
-                    <div class="text-lg font-bold text-slate-700">Operator Referrals</div>
-                    <div class="mt-0.5 text-sm text-slate-500">
-                      Earn {{ operationalReferralRewardLabel }} for both you and each referral who completes the operational checklist. Every
-                      {{ controller.rewardConfig.referralBonusEveryXOperationalSponsees }} referred triggers a
-                      {{ referralBonusRewardLabel }} bonus!
-                    </div>
-                  </div>
-
-                  <OperationalInviteSlots
-                    class="mt-3"
-                    mode="menu"
-                    :progress="controller.inviteSlotProgress"
-                    :rewardConfig="controller.rewardConfig"
-                    :invites="controller.operationalInvites"
-                    :inviteStatusesByCode="controller.operationalInviteStatusesByCode"
-                    @select="openInviteHub"
-                  />
-
-                  <div class="mt-4 ">
-                    <div StatsBox box class="mt-2 grid grid-cols-3 overflow-hidden text-center">
-                      <Tooltip
-                        v-for="stat in referralStats"
-                        :key="stat.label"
-                        asChild
-                        side="bottom"
-                        :content="stat.tooltip">
-                        <div StatWrapper class="border-r border-slate-200/70 px-3 py-2.5 last:border-r-0">
-                          <div Stat class="text-2xl! leading-none">{{ stat.value }}</div>
-                          <div class="mt-1.5 text-xs font-semibold tracking-widest text-slate-400 uppercase">{{ stat.label }}</div>
-                        </div>
-                      </Tooltip>
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="hasUnclaimedRewards"
-                    class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                    <div class="min-w-0">
-                      <div class="text-sm font-semibold text-slate-800">{{ pendingReferralRewardLabel }} unclaimed</div>
-                      <div class="text-xs text-slate-500">Choose where to send rewards.</div>
+      <NavigationMenuContent
+        class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
+        @mouseenter="onMenuEnter"
+        @mouseleave="onMenuLeave"
+      >
+          <div class="relative">
+            <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+              <div v-if="controller.isOperationalRewardsFlowActive" class="w-[26rem] px-4 pt-4 pb-4">
+                <div v-if="controller.isOperationalActivationReady" class="space-y-3">
+                  <div class="border-b border-slate-300/50 pb-2.5">
+                    <div class="text-lg font-bold text-slate-700">Claim your Rewards</div>
+                    <div class="mt-0.5 text-sm leading-5 text-slate-500">
+                      You've finished the Argon Operational Certification Process! Open to claim your {{ operationalReferralRewardLabel }} reward.
                     </div>
                     <button
                       type="button"
-                      class="text-argon-700 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:border-slate-400"
-                      @click="openRewardsClaim()"
+                      class="bg-argon-button hover:bg-argon-button-hover mt-3 rounded-lg px-3 py-1.5 text-sm font-semibold text-white"
+                      @click="openRewardsActivation()"
                     >
-                      Claim
+                      Open
                     </button>
                   </div>
-
-                  <div class="mt-4 flex items-center justify-end border-t border-slate-300/50 pt-3">
-                    <button
-                      type="button"
-                      class="text-argon-700 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:border-slate-400 hover:bg-white"
-                      @click="openInviteHub()"
-                    >
-                      Manage Referral Codes
-                    </button>
-                  </div>
-                  </template>
                 </div>
 
-                <div v-else class="max-w-160 pt-4 pb-2">
-                  <p class="font-light px-5 ">
-                    Complete the following seven steps, and you'll earn
-                    (along with your sponsor) a {{ operationalReferralRewardLabel }} bonus from the Argon Treasury.
-                  </p>
-                  <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
-                    <li
-                      v-for="[stepId, step] of Object.entries(operationalSteps)"
-                      @click="openOverlay(stepId as OperationalStepId, $event)"
-                      class="flex flex-row items-center gap-x-2 py-3 pl-5 pr-2 cursor-pointer"
-                      :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
-                    >
-                      <Checkbox
-                        :size="7"
-                        :isChecked="
-                          controller.isCertificationStepComplete(stepId as OperationalStepId) ||
-                          controller.isCertificationStepUnderway(stepId as OperationalStepId)
-                        "
-                        :isPulsing="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
-                      />
-                      <span class="grow">{{ step.title }}</span>
-                      <span
-                        v-if="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
-                        class="rounded-full border border-argon-300 bg-argon-50 px-2 py-1 text-xs font-medium text-argon-700"
-                      >
-                        Underway
-                      </span>
-                      <span
-                        v-if="controller.getCertificationBlocker(stepId as OperationalStepId)"
-                        class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
-                      >
-                        Requires: {{ controller.getCertificationBlocker(stepId as OperationalStepId)?.title }}
-                      </span>
-                      <a :href="step.documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                    </li>
-                  </ul>
-                  <div class="pt-4 pb-2 px-5 border-t border-slate-500/30">
-                    <a href="https://argon.network/docs/operator-certification" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
-                      Learn more about the Argon's Operator Certification.
-                    </a>
+                <template v-else>
+                  <div class="border-b border-slate-300/50 pb-2.5">
+                  <div class="text-lg font-bold text-slate-700">Operator Referrals</div>
+                  <div class="mt-0.5 text-sm text-slate-500">
+                    Earn {{ operationalReferralRewardLabel }} for both you and each referral who completes the operational checklist. Every
+                    {{ controller.rewardConfig.referralBonusEveryXOperationalSponsees }} referred triggers a
+                    {{ referralBonusRewardLabel }} bonus!
                   </div>
+                </div>
+
+                <OperationalInviteSlots
+                  class="mt-3"
+                  mode="menu"
+                  :progress="controller.inviteSlotProgress"
+                  :rewardConfig="controller.rewardConfig"
+                  :invites="controller.operationalInvites"
+                  :inviteStatusesByCode="controller.operationalInviteStatusesByCode"
+                  @select="openInviteHub"
+                />
+
+                <div class="mt-4 ">
+                  <div StatsBox box class="mt-2 grid grid-cols-3 overflow-hidden text-center">
+                    <Tooltip
+                      v-for="stat in referralStats"
+                      :key="stat.label"
+                      asChild
+                      side="bottom"
+                      :content="stat.tooltip">
+                      <div StatWrapper class="border-r border-slate-200/70 px-3 py-2.5 last:border-r-0">
+                        <div Stat class="text-2xl! leading-none">{{ stat.value }}</div>
+                        <div class="mt-1.5 text-xs font-semibold tracking-widest text-slate-400 uppercase">{{ stat.label }}</div>
+                      </div>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                <div
+                  v-if="hasUnclaimedRewards"
+                  class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+                  <div class="min-w-0">
+                    <div class="text-sm font-semibold text-slate-800">{{ pendingReferralRewardLabel }} unclaimed</div>
+                    <div class="text-xs text-slate-500">Choose where to send rewards.</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="text-argon-700 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:border-slate-400"
+                    @click="openRewardsClaim()"
+                  >
+                    Claim
+                  </button>
+                </div>
+
+                <div class="mt-4 flex items-center justify-end border-t border-slate-300/50 pt-3">
+                  <button
+                    type="button"
+                    class="text-argon-700 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:border-slate-400 hover:bg-white"
+                    @click="openInviteHub()"
+                  >
+                    Manage Referral Codes
+                  </button>
+                </div>
+                </template>
+              </div>
+
+              <div v-else class="max-w-160 pt-4 pb-2">
+                <p class="font-light px-5 ">
+                  Complete the following seven steps, and you'll earn
+                  (along with your sponsor) a {{ operationalReferralRewardLabel }} bonus from the Argon Treasury.
+                </p>
+                <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
+                  <li
+                    v-for="[stepId, step] of Object.entries(operationalSteps)"
+                    @click="openOverlay(stepId as OperationalStepId, $event)"
+                    class="flex flex-row items-center gap-x-2 py-3 pl-5 pr-2 cursor-pointer"
+                    :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
+                  >
+                    <Checkbox
+                      class="shrink-0"
+                      :size="7"
+                      :isChecked="
+                        controller.isCertificationStepComplete(stepId as OperationalStepId) ||
+                        controller.isCertificationStepUnderway(stepId as OperationalStepId)
+                      "
+                      :isPulsing="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
+                    />
+                    <span class="grow">{{ step.title }}</span>
+                    <span
+                      v-if="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
+                      class="rounded-full border border-argon-300 bg-argon-50 px-2 py-1 text-xs font-medium text-argon-700"
+                    >
+                      Underway
+                    </span>
+                    <span
+                      v-if="controller.getCertificationBlocker(stepId as OperationalStepId)"
+                      class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
+                    >
+                      Requires: {{ controller.getCertificationBlocker(stepId as OperationalStepId)?.title }}
+                    </span>
+                    <a :href="step.documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
+                  </li>
+                </ul>
+                <div class="pt-4 pb-2 px-5 border-t border-slate-500/30">
+                  <a href="https://argon.network/docs/operator-certification" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
+                    Learn more about the Argon's Operator Certification.
+                  </a>
                 </div>
               </div>
             </div>
-          </NavigationMenuContent>
-      </NavigationMenuItem>
-    </div>
+          </div>
+        </NavigationMenuContent>
+    </NavigationMenuItem>
   </div>
 </template>
 
@@ -249,6 +248,7 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
+const alertMenuStyle = Vue.ref<Record<string, string>>({});
 const completionNoticeStepId = Vue.computed(() => controller.pendingCompletionNoticeStepId);
 const completionNoticeStepTitle = Vue.computed(() => {
   return completionNoticeStepId.value ? operationalSteps[completionNoticeStepId.value].title : '';
@@ -316,6 +316,17 @@ const hasInviteMoonBase = Vue.computed(() => {
   );
 });
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+
+function updateAlertMenuPosition() {
+  const rect = rootRef.value?.getBoundingClientRect();
+  if (!rect) return;
+
+  alertMenuStyle.value = {
+    top: `${Math.round(rect.bottom + 6)}px`,
+    left: `${Math.round(rect.right)}px`,
+    transform: 'translateX(-100%)',
+  };
+}
 
 function dismissCompletionNotice() {
   controller.dismissCompletionNotice();
@@ -390,6 +401,23 @@ Vue.watch(isOpen, value => {
       void controller.loadOperationalInvites().catch(() => undefined);
     }
   }
+});
+
+Vue.watch(
+  () => isShowingCompletionTooltip.value || isShowingBonusTooltip.value,
+  isShowingAlert => {
+    if (!isShowingAlert) return;
+    void Vue.nextTick().then(updateAlertMenuPosition);
+  },
+  { immediate: true },
+);
+
+Vue.onMounted(() => {
+  window.addEventListener('resize', updateAlertMenuPosition);
+});
+
+Vue.onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateAlertMenuPosition);
 });
 
 function formatArgon(amount: bigint) {
