@@ -1131,6 +1131,7 @@ export class MyVault {
     const { txResult, tx } = txInfo;
     const { vaultId } = tx.metadataJson;
     await txResult.waitForInFirstBlock;
+    await this.#transactionTracker.ensureStoredEvents(txInfo);
     const client = await getMainchainClient(false);
 
     for (const event of txResult.events) {
@@ -1293,6 +1294,7 @@ export class MyVault {
     try {
       const client = await getMainchainClient(true);
       const blockHash = await txResult.waitForFinalizedBlock;
+      await this.#transactionTracker.ensureStoredEvents(txInfo);
       const api = await client.at(blockHash);
       const blockNumber = await api.query.system.number();
       let vaultId: number | undefined;

@@ -464,6 +464,7 @@ export class EthereumOutboundTransferTracker {
     await txInfo.txResult.waitForFinalizedBlock;
     const minimumReadyBlockNumber = txInfo.tx.blockHeight ?? txInfo.tx.finalizedHeadHeight;
 
+    await this.transactionTracker.ensureStoredEvents(txInfo);
     const transferId = await extractTransferId(txInfo);
     const priorTransferId = transfer.transferId;
     const requestFinalizedRecord = await (
