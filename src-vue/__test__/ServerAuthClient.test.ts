@@ -47,11 +47,11 @@ describe('ServerAuthClient', () => {
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
-    await serverAuthClient.ensureAdminOperatorSession(baseUrl);
-    await serverAuthClient.ensureAdminOperatorSession(baseUrl);
+    await serverAuthClient.getAdminOperatorSessionId(baseUrl);
+    await serverAuthClient.getAdminOperatorSessionId(baseUrl);
 
     expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/admin']);
-    expect(fetchCredentials(fetchMock)).toEqual(['include', 'include', 'include']);
+    expect(fetchUrls(fetchMock)[2].searchParams.get('sessionId')).toBe('session-admin-operator');
     expect(walletMock.getOperationalKeypair).toHaveBeenCalledTimes(1);
   });
 
@@ -68,8 +68,8 @@ describe('ServerAuthClient', () => {
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
-    const firstSession = serverAuthClient.ensureAdminOperatorSession(baseUrl);
-    const secondSession = serverAuthClient.ensureAdminOperatorSession(baseUrl);
+    const firstSession = serverAuthClient.getAdminOperatorSessionId(baseUrl);
+    const secondSession = serverAuthClient.getAdminOperatorSessionId(baseUrl);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -81,7 +81,7 @@ describe('ServerAuthClient', () => {
   });
 
   it('creates a fresh session when a forced session check is rejected', async () => {
-    const baseUrl = 'https://stale-cookie.example';
+    const baseUrl = 'https://stale-session.example';
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(createChallenge('nonce-1')))
@@ -93,8 +93,8 @@ describe('ServerAuthClient', () => {
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
-    await serverAuthClient.ensureAdminOperatorSession(baseUrl);
-    await serverAuthClient.ensureAdminOperatorSession(baseUrl, { forceVerify: true });
+    await serverAuthClient.getAdminOperatorSessionId(baseUrl);
+    await serverAuthClient.getAdminOperatorSessionId(baseUrl, { forceVerify: true });
 
     expect(fetchPaths(fetchMock)).toEqual([
       '/auth/challenge',
@@ -113,12 +113,8 @@ describe('ServerAuthClient', () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(emptyResponse(503));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(serverAuthClient.ensureAdminOperatorSession(baseUrl)).rejects.toThrow(
-      'Server auth is not configured.',
-    );
-    await expect(serverAuthClient.ensureAdminOperatorSession(baseUrl)).rejects.toThrow(
-      'Server auth is not configured.',
-    );
+    await expect(serverAuthClient.getAdminOperatorSessionId(baseUrl)).rejects.toThrow('Server auth is not configured.');
+    await expect(serverAuthClient.getAdminOperatorSessionId(baseUrl)).rejects.toThrow('Server auth is not configured.');
 
     expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge']);
     expect(walletMock.getOperationalKeypair).not.toHaveBeenCalled();
@@ -133,7 +129,7 @@ describe('ServerAuthClient', () => {
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
-    await serverAuthClient.ensureTreasurySession(baseUrl);
+    await serverAuthClient.getTreasurySessionId(baseUrl);
 
     expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/treasury-coupon']);
     expect(fetchPayloads(fetchMock)).toMatchObject([
@@ -160,7 +156,14 @@ function createChallenge(nonce = 'nonce', role = UserRole.AdminOperator) {
 }
 
 function createSession(role = UserRole.AdminOperator) {
+  const sessionIdByRole = {
+    [UserRole.AdminOperator]: 'session-admin-operator',
+    [UserRole.TreasuryUser]: 'session-treasury-user',
+    [UserRole.OperationalPartner]: 'session-operational-partner',
+  };
+
   return {
+    sessionId: sessionIdByRole[role],
     role,
     accountId: role === UserRole.AdminOperator ? 'admin-account' : 'treasury-account',
     expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
@@ -179,11 +182,11 @@ function emptyResponse(status: number): Response {
 }
 
 function fetchPaths(fetchMock: ReturnType<typeof vi.fn>): string[] {
-  return fetchMock.mock.calls.map(([url]) => new URL(String(url)).pathname);
+  return fetchUrls(fetchMock).map(url => url.pathname);
 }
 
-function fetchCredentials(fetchMock: ReturnType<typeof vi.fn>): Array<RequestInit['credentials']> {
-  return fetchMock.mock.calls.map(([, init]) => (init as RequestInit | undefined)?.credentials);
+function fetchUrls(fetchMock: ReturnType<typeof vi.fn>): URL[] {
+  return fetchMock.mock.calls.map(([url]) => new URL(String(url)));
 }
 
 function fetchPayloads<T>(fetchMock: ReturnType<typeof vi.fn>): T[] {

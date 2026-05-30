@@ -117,8 +117,9 @@ export class BotWsClient {
   }
 
   private async openWebSocket(): Promise<void> {
+    let sessionId: string;
     try {
-      await this.serverApiClient.ensureAdminOperatorSession({ forceVerify: true });
+      sessionId = await this.serverApiClient.getAdminOperatorSessionId({ forceVerify: true });
     } catch (error) {
       if (!this.connectDeferred.isSettled) {
         this.connectDeferred.reject(error);
@@ -130,7 +131,7 @@ export class BotWsClient {
       return;
     }
 
-    this.webSocket = new WebSocket(this.serverApiClient.getGatewayWebsocketUrl('/bot/'));
+    this.webSocket = new WebSocket(this.serverApiClient.getGatewayWebsocketUrl('/bot/', sessionId));
 
     this.webSocket.addEventListener('open', event => {
       this.reconnectAttempt = 0;

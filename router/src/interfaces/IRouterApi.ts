@@ -45,6 +45,7 @@ export interface IRouterAuthSessionRequest extends IRouterAuthChallenge {
 }
 
 export interface IRouterAuthSessionResponse {
+  sessionId: string;
   expiresAt: string;
   accountId: string;
   role: RouterAuthRole;

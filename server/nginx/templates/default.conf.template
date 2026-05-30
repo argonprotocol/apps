@@ -10,7 +10,7 @@ map $request_method $auth_post_limit_key {
 
 limit_req_zone $auth_post_limit_key zone=auth_post_per_ip:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=http_per_ip:10m rate=30r/s;
-limit_req_zone $binary_remote_addr zone=ws_handshake_per_ip:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=ws_handshake_per_ip:10m rate=15r/s;
 limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
 
 server {
@@ -31,26 +31,22 @@ server {
 
   resolver 127.0.0.11 valid=10s ipv6=off;
 
+  auth_request_set $auth_user_id $upstream_http_x_user_id;
+  auth_request_set $auth_user_role $upstream_http_x_user_role;
+
   location = /_auth_bot {
     internal;
-    proxy_pass http://router:8080/auth/verify/bot;
+    proxy_pass http://router:8080/auth/verify/bot?sessionId=$auth_session_id;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
-    proxy_set_header Cookie $http_cookie;
-    proxy_set_header X-Original-URI $request_uri;
   }
 
   location = /_auth_substrate {
     internal;
-    proxy_pass http://router:8080/auth/verify/substrate;
+    proxy_pass http://router:8080/auth/verify/substrate?sessionId=$auth_session_id;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
-    proxy_set_header Cookie $http_cookie;
-    proxy_set_header X-Original-URI $request_uri;
   }
-
-  auth_request_set $auth_user_id $upstream_http_x_user_id;
-  auth_request_set $auth_user_role $upstream_http_x_user_role;
 
   location /auth/ {
     limit_req zone=http_per_ip burst=60 nodelay;
@@ -63,9 +59,10 @@ server {
   }
 
   location ~ ^/substrate(?:/|$) {
+    set $auth_session_id $arg_sessionId;
     auth_request /_auth_substrate;
     limit_req zone=ws_handshake_per_ip burst=5 nodelay;
-    limit_conn conn_per_ip 10;
+    limit_conn conn_per_ip 20;
     set $substrate_upstream http://argon-miner:9945;
     rewrite ^/substrate/?(.*)$ /$1 break;
     proxy_pass $substrate_upstream;
@@ -81,9 +78,10 @@ server {
   }
 
   location /bot/ {
+    set $auth_session_id $arg_sessionId;
     auth_request /_auth_bot;
     limit_req zone=ws_handshake_per_ip burst=5 nodelay;
-    limit_conn conn_per_ip 10;
+    limit_conn conn_per_ip 20;
     set $bot_upstream http://bot:8080;
     rewrite ^/bot/(.*)$ /$1 break;
     proxy_pass $bot_upstream;

@@ -21,7 +21,12 @@ import type {
   ITreasuryUserInvite,
 } from '@argonprotocol/apps-router';
 import type { BootstrapType, IConfig, IConfigServerDetails, IOperationalReferral } from '../interfaces/IConfig.ts';
-import type { ServerAuthClient, ServerAuthOptions } from './ServerAuthClient.ts';
+import {
+  RequestStatusError,
+  isUnauthenticatedServerAuthError,
+  type ServerAuthClient,
+  type ServerAuthOptions,
+} from './ServerAuthClient.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 
 type ServerInviteDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gatewayPort'>;
@@ -29,6 +34,10 @@ type UpstreamOperatorInviteWalletKeys = Pick<
   WalletKeys,
   'getLiquidLockingKeypair' | 'getOperationalKeypair' | 'getUpstreamOperatorAuthKeypair'
 >;
+type UpstreamOperatorSessionAuth = {
+  getSessionId: () => Promise<string>;
+  invalidateSessionId: () => Promise<void>;
+};
 
 const BOOTSTRAP_LOADING_HOST = 'loading';
 
@@ -42,26 +51,26 @@ export class UpstreamOperatorClient {
     return this.getOperatorHost();
   }
 
-  public getWebsocketUrl(path: string): string {
-    return `${this.requireOperatorHost()}${path.startsWith('/') ? path : `/${path}`}`.replace(/^http/i, 'ws');
+  public getWebsocketUrl(path: string, sessionId?: string): string {
+    return buildAuthenticatedUrl(this.requireOperatorHost(), path, sessionId).replace(/^http/i, 'ws');
   }
 
-  public async ensureTreasurySession(options: ServerAuthOptions = {}): Promise<void> {
+  public async getTreasurySessionId(options: ServerAuthOptions = {}): Promise<string> {
     const operatorHost = this.requireOperatorHost();
     if (!this.serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    await this.serverAuthClient.ensureTreasurySession(operatorHost, options);
+    return await this.serverAuthClient.getTreasurySessionId(operatorHost, options);
   }
 
-  public async ensureOperationalSession(options: ServerAuthOptions = {}): Promise<void> {
+  public async getOperationalSessionId(options: ServerAuthOptions = {}): Promise<string> {
     const operatorHost = this.requireOperatorHost();
     if (!this.serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    await this.serverAuthClient.ensureOperationalSession(operatorHost, options);
+    return await this.serverAuthClient.getOperationalSessionId(operatorHost, options);
   }
 
   public static getBootstrapHost(bootstrapDetails: IConfig['bootstrapDetails']): string | undefined {
@@ -148,29 +157,29 @@ export class UpstreamOperatorClient {
     payload: IInitializeBitcoinLockRequest,
   ): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
     const operatorHost = this.requireOperatorHost();
-    const body = await UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
-      operatorHost,
-      `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
-      payload,
-      {
-        serverAuthClient: this.serverAuthClient,
-        treasuryAuth: true,
-      },
+    const body = await this.requestWithSessionRetry(this.getTreasurySessionAuth(operatorHost), sessionId =>
+      UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
+        operatorHost,
+        `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
+        payload,
+        sessionId,
+      ),
     );
+
     return body.bitcoinLock as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
   }
 
   public async getBitcoinLockCoupons(accountId: string): Promise<IBitcoinLockCouponStatus[]> {
     const operatorHost = this.requireOperatorHost();
-    const body = await UpstreamOperatorClient.request<IListBitcoinLockCouponsResponse>(
-      operatorHost,
-      `/treasury-users/${encodeURIComponent(accountId)}/bitcoin-lock-coupons`,
-      undefined,
-      {
-        serverAuthClient: this.serverAuthClient,
-        treasuryAuth: true,
-      },
+    const body = await this.requestWithSessionRetry(this.getTreasurySessionAuth(operatorHost), sessionId =>
+      UpstreamOperatorClient.request<IListBitcoinLockCouponsResponse>(
+        operatorHost,
+        `/treasury-users/${encodeURIComponent(accountId)}/bitcoin-lock-coupons`,
+        undefined,
+        sessionId,
+      ),
     );
+
     return body.bitcoinLockCoupons;
   }
 
@@ -178,25 +187,29 @@ export class UpstreamOperatorClient {
     payload: IEthereumGatewayCatchUpRequest,
   ): Promise<IEthereumGatewayCatchUpResponse> {
     const operatorHost = this.requireOperatorHost();
-    if (!this.serverAuthClient) {
+    const serverAuthClient = this.serverAuthClient;
+    if (!serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
+    let sessionAuth = this.getTreasurySessionAuth(operatorHost);
     try {
-      await this.serverAuthClient.ensureTreasurySession(operatorHost);
+      await sessionAuth.getSessionId();
     } catch {
-      await this.serverAuthClient.ensureOperationalSession(operatorHost);
+      sessionAuth = this.getOperationalSessionAuth(operatorHost);
     }
 
-    return await UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
-      operatorHost,
-      '/ethereum-relay-request',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JsonExt.stringify(payload),
-        credentials: 'include',
-      },
+    return await this.requestWithSessionRetry(sessionAuth, sessionId =>
+      UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
+        operatorHost,
+        '/ethereum-relay-request',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JsonExt.stringify(payload),
+        },
+        sessionId,
+      ),
     );
   }
 
@@ -221,16 +234,10 @@ export class UpstreamOperatorClient {
     operatorHost: string,
     path: string,
     init?: RequestInit,
-    options: { serverAuthClient?: ServerAuthClient; treasuryAuth?: boolean } = {},
+    sessionId?: string,
   ): Promise<T> {
-    const shouldAuthenticate = !!options.serverAuthClient && !!options.treasuryAuth;
-    if (options.serverAuthClient && options.treasuryAuth) {
-      await options.serverAuthClient.ensureTreasurySession(operatorHost);
-    }
-
-    const response = await fetch(`${operatorHost}${path}`, {
+    const response = await fetch(buildAuthenticatedUrl(operatorHost, path, sessionId), {
       ...init,
-      credentials: shouldAuthenticate ? 'include' : init?.credentials,
       headers: {
         ...(init?.headers as Record<string, string> | undefined),
       },
@@ -252,7 +259,10 @@ export class UpstreamOperatorClient {
     }
 
     if (!response.ok) {
-      throw new Error(responseError ?? `Upstream operator request failed (${response.status}).`);
+      throw new RequestStatusError(
+        responseError ?? `Upstream operator request failed (${response.status}).`,
+        response.status,
+      );
     }
     if (responseError) {
       throw new Error(responseError);
@@ -261,12 +271,7 @@ export class UpstreamOperatorClient {
     return body as T;
   }
 
-  private static postJson<T>(
-    operatorHost: string,
-    path: string,
-    payload: unknown,
-    options?: { serverAuthClient?: ServerAuthClient; treasuryAuth?: boolean },
-  ): Promise<T> {
+  private static postJson<T>(operatorHost: string, path: string, payload: unknown, sessionId?: string): Promise<T> {
     return this.request<T>(
       operatorHost,
       path,
@@ -275,9 +280,63 @@ export class UpstreamOperatorClient {
         headers: { 'Content-Type': 'application/json' },
         body: JsonExt.stringify(payload),
       },
-      options,
+      sessionId,
     );
   }
+
+  private getTreasurySessionAuth(operatorHost: string): UpstreamOperatorSessionAuth {
+    const serverAuthClient = this.serverAuthClient;
+    if (!serverAuthClient) {
+      throw new Error('No upstream operator auth client configured.');
+    }
+
+    return {
+      getSessionId: () => serverAuthClient.getTreasurySessionId(operatorHost),
+      invalidateSessionId: () => serverAuthClient.invalidateTreasurySessionId(operatorHost),
+    };
+  }
+
+  private getOperationalSessionAuth(operatorHost: string): UpstreamOperatorSessionAuth {
+    const serverAuthClient = this.serverAuthClient;
+    if (!serverAuthClient) {
+      throw new Error('No upstream operator auth client configured.');
+    }
+
+    return {
+      getSessionId: () => serverAuthClient.getOperationalSessionId(operatorHost),
+      invalidateSessionId: () => serverAuthClient.invalidateOperationalSessionId(operatorHost),
+    };
+  }
+
+  private async requestWithSessionRetry<T>(
+    sessionAuth: UpstreamOperatorSessionAuth,
+    request: (sessionId: string) => Promise<T>,
+  ): Promise<T> {
+    let sessionId = await sessionAuth.getSessionId();
+
+    try {
+      return await request(sessionId);
+    } catch (error) {
+      if (!isUnauthenticatedServerAuthError(error)) {
+        throw error;
+      }
+
+      await sessionAuth.invalidateSessionId();
+      sessionId = await sessionAuth.getSessionId();
+      return await request(sessionId);
+    }
+  }
+}
+
+function buildAuthenticatedUrl(operatorHost: string, path: string, sessionId?: string): string {
+  const url = `${operatorHost}${path.startsWith('/') ? path : `/${path}`}`;
+  if (!sessionId) {
+    return url;
+  }
+
+  const authenticatedUrl = new URL(url);
+  authenticatedUrl.searchParams.set('sessionId', sessionId);
+  return authenticatedUrl.toString();
 }
 
 function stripScheme(value: string): string {

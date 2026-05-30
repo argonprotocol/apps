@@ -197,6 +197,8 @@ export class BlockWatch {
       this.restartTimer = undefined;
     }
     this.pendingRestart = undefined;
+    this.apiByBlockHash.clear();
+    this.eventsByBlockHash.clear();
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;
