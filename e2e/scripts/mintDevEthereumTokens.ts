@@ -421,7 +421,7 @@ Notes:
   - Migration seeding is one-time per dev chain; restart the dev Ethereum fixture to seed different balances later.
   - Also sudo-bumps the Argon crosschain burn-account liquidity for the seeded assets.
   - Resolves gateway, ARGN, and ARGNOT addresses from Argon runtime Ethereum chain config.
-  - Uses ETH_RPC or ETHEREUM_EXECUTION_RPC_URL if set, otherwise probes local Kurtosis execution RPC ports.
+  - Uses --rpc, ETH_RPC, ETHEREUM_EXECUTION_RPC_URL, or the latest dev Ethereum runtime state.
   - Uses ARGON_ARCHIVE_URL if set, otherwise defaults to ws://127.0.0.1:9944.
   - Uses the built-in local dev admin account if --from is omitted.
   - --amount is a 6-decimal Argon runtime amount for the token selected by the package script.
