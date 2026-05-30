@@ -2,18 +2,22 @@
 
 import { execFileSync, spawn } from 'child_process';
 import { config as loadDotEnv } from 'dotenv';
-import { NetworkConfig, type INetworkConfigOverride } from '@argonprotocol/apps-core';
+import { type INetworkConfigOverride, NetworkConfig } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 import {
   createDevEthereumSetup,
+  type IDevEthereumSetup,
+  type IStartDevEthereumResult,
   readDevEthereumConfigFromEnv,
   readDevEthereumRuntimeState,
   resolveDevEthereumRpcUrl,
   startDevEthereum,
-  type IDevEthereumSetup,
-  type IStartDevEthereumResult,
 } from '../e2e/devEthereum.ts';
+import {
+  startDevEthereumMintingAuthority,
+  type IDevEthereumMintingAuthorityRuntime,
+} from '../e2e/helpers/startDevEthereumMintingAuthority.ts';
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
@@ -46,18 +50,26 @@ async function main(): Promise<void> {
 
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   const devEthereumConfig = readDevEthereumConfigFromEnv();
+  let shouldStartDevEthereumMintingAuthority = false;
   let devEthereumRuntime: { shutdown(): Promise<void> } | undefined;
+  let devEthereumMintingAuthorityRuntime: IDevEthereumMintingAuthorityRuntime | undefined;
+  let devEthereumMintingAuthorityPromise: Promise<void> | undefined;
   let devEthereumSetup: IDevEthereumSetup | undefined;
+  let devDockerArchiveUrl: string | undefined;
+  let isShuttingDown = false;
   if (network === 'dev-docker') {
+    shouldStartDevEthereumMintingAuthority = ['1', 'true', 'yes', 'on'].includes(
+      readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase() ?? '',
+    );
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
 
     const composePorts = await resolveDevDockerComposePorts();
     const devEthereum = devEthereumConfig ? await startDevEthereum(devEthereumConfig) : undefined;
     if (composePorts) {
+      devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archivePort}`;
       Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
       if (devEthereum && devEthereumConfig) {
-        const archiveUrl = `ws://127.0.0.1:${composePorts.archivePort}`;
-        devEthereumSetup = createDevEthereumSetup(archiveUrl, devEthereum, devEthereumConfig);
+        devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, devEthereum, devEthereumConfig);
         Object.assign(tauriEnv, devEthereumSetup.env);
       }
     } else {
@@ -91,15 +103,32 @@ async function main(): Promise<void> {
     }
   }
 
-  if (devEthereumSetup) {
-    devEthereumRuntime = await devEthereumSetup.start();
-  }
-
   console.log(baseConfig);
   const tauriArgs = ['tauri', 'dev', '--config', configJson];
-  if (readNonEmpty(tauriEnv.ARGON_DRIVER_WS)) {
+  const isE2EAppRun = Boolean(readNonEmpty(tauriEnv.ARGON_DRIVER_WS));
+  if (isE2EAppRun) {
     tauriArgs.push('--features', 'e2e-screenshots,e2e-insecure-gateway-certs');
     console.log('[tauri-dev] Enabling e2e features (ARGON_DRIVER_WS detected)');
+  }
+
+  let devEthereumSetupPromise: Promise<void> | undefined;
+  if (devEthereumSetup) {
+    devEthereumSetupPromise = devEthereumSetup
+      .start()
+      .then(runtime => {
+        devEthereumRuntime = runtime;
+        console.log('[tauri-dev][ethereum-ready] local Ethereum relayer is ready');
+      })
+      .catch(error => {
+        console.error(`[tauri-dev] Failed to finish local Ethereum setup: ${(error as Error).message}`);
+        throw error;
+      });
+
+    if (isE2EAppRun) {
+      await devEthereumSetupPromise;
+    } else {
+      void devEthereumSetupPromise;
+    }
   }
 
   const child = spawn('yarn', tauriArgs, {
@@ -108,8 +137,44 @@ async function main(): Promise<void> {
     shell: false,
   });
 
+  if (shouldStartDevEthereumMintingAuthority) {
+    devEthereumMintingAuthorityPromise = (async () => {
+      if (devEthereumSetupPromise) {
+        await devEthereumSetupPromise;
+      }
+      if (isShuttingDown) {
+        return;
+      }
+
+      console.log('[tauri-dev] Starting local Ethereum minting authority');
+      devEthereumMintingAuthorityRuntime = await startDevEthereumMintingAuthority({
+        archiveUrl: devDockerArchiveUrl!,
+        logPrefix: 'tauri-dev',
+        virtualEnv: {
+          app,
+          appInstance: argonAppInstance,
+          network,
+          serverEnvVars: tauriEnv,
+        },
+      });
+      console.log('[tauri-dev][ethereum-ready] local Ethereum minting authority is ready');
+
+      if (isShuttingDown) {
+        await devEthereumMintingAuthorityRuntime.shutdown().catch(() => undefined);
+        devEthereumMintingAuthorityRuntime = undefined;
+      }
+    })().catch(error => {
+      console.error(`[tauri-dev] Failed to start local Ethereum minting authority: ${(error as Error).message}`);
+    });
+  }
+
   child.on('exit', code => {
-    const shutdownPromise = Promise.resolve(devEthereumRuntime?.shutdown()).catch(() => undefined);
+    isShuttingDown = true;
+    const shutdownPromise = (async () => {
+      await devEthereumMintingAuthorityPromise;
+      await devEthereumMintingAuthorityRuntime?.shutdown().catch(() => undefined);
+      await devEthereumRuntime?.shutdown().catch(() => undefined);
+    })();
     void shutdownPromise.finally(() => {
       process.exit(code ?? 0);
     });
@@ -163,7 +228,6 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
   if (joinComposeNetwork) {
     composeEnv.COMPOSE_PROJECT_NAME = joinComposeNetwork;
   }
-
   let archivePort: string;
   let archiveP2pPort: string;
   let bitcoinP2pPort: string;

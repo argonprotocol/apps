@@ -1,32 +1,9 @@
-import { bigIntMin, NetworkConfig } from '@argonprotocol/apps-core';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import type { IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
-
-type IVaultPendingCosign = {
-  targetValue: bigint;
-  dueFrame?: number;
-};
-
-type IVaultAlertSource = {
-  createdVault: { securitization: bigint } | null;
-  data: {
-    pendingCollectRevenue: bigint;
-    expiringCollectAmount: bigint;
-    pendingCollectTxInfo: {
-      tx: {
-        metadataJson: {
-          expectedCollectRevenue: bigint;
-          cosignedUtxoIds: number[];
-        };
-      };
-    } | null;
-    pendingCosignUtxosById: Map<number, IVaultPendingCosign>;
-    myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
-    nextCollectDueDate: number;
-  };
-};
+import type { IVaultCollectNotice } from './VaultCollectBuilder.ts';
 
 type IBitcoinMismatchView = {
   phase:
@@ -66,16 +43,6 @@ type IBitcoinAlertSource = {
   verifyExpirationTime(lock: IBitcoinLockRecord): number;
 };
 
-export type IVaultAlert = {
-  isProcessing: boolean;
-  collectRevenue: bigint;
-  expiringCollectAmount: bigint;
-  signatureCount: number;
-  signaturePenalty: bigint;
-  amountMicrogons: bigint;
-  nextDueDate: number;
-};
-
 export type IBitcoinAlert =
   | {
       kind: 'mismatch';
@@ -106,55 +73,28 @@ export type IBitcoinAlert =
       expiresAt: number;
     };
 
-export function buildAlertSummary(args: { count: number; formattedAmount?: string }): string {
-  const actionLabel = `${args.count} action${args.count === 1 ? '' : 's'}`;
-  if (!args.formattedAmount) {
+export function buildAlertSummary(args: {
+  count: number;
+  formattedAmount?: string;
+  formattedEarnings?: string;
+  formattedAtRisk?: string;
+}): string {
+  const { count, formattedAmount, formattedEarnings, formattedAtRisk } = args;
+  const actionLabel = `${count} action${count === 1 ? '' : 's'}`;
+
+  if (formattedEarnings && formattedAtRisk) {
+    return `You have ${actionLabel} needing your attention, with ${formattedEarnings} in earnings and ${formattedAtRisk} at risk.`;
+  }
+  if (formattedEarnings) {
+    return `You have ${actionLabel} needing your attention, with ${formattedEarnings} in earnings.`;
+  }
+  if (formattedAtRisk) {
+    return `You have ${actionLabel} needing your attention, with ${formattedAtRisk} at risk.`;
+  }
+  if (!formattedAmount) {
     return `You have ${actionLabel} needing your attention.`;
   }
-  return `You have ${actionLabel} needing your attention worth ${args.formattedAmount}.`;
-}
-
-export function getVaultAlertNotice(
-  myVault: IVaultAlertSource,
-  bitcoinLocks: Pick<IBitcoinAlertSource, 'getLockByUtxoId'>,
-): IVaultAlert | null {
-  const processingTxInfo = myVault.data.pendingCollectTxInfo;
-
-  const ownPendingLockUtxoIds = new Set<number>();
-  for (const utxoId of myVault.data.pendingCosignUtxosById.keys()) {
-    if (!bitcoinLocks.getLockByUtxoId(utxoId)) continue;
-    ownPendingLockUtxoIds.add(utxoId);
-  }
-
-  const manualPendingCosignEntries = Array.from(myVault.data.pendingCosignUtxosById.entries()).filter(([utxoId]) => {
-    if (ownPendingLockUtxoIds.has(utxoId)) return false;
-    return !myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.has(utxoId);
-  });
-
-  const signatureCount = manualPendingCosignEntries.length;
-  const signaturePenalty = bigIntMin(
-    manualPendingCosignEntries.reduce((sum, [, entry]) => sum + entry.targetValue, 0n),
-    myVault.createdVault?.securitization ?? 0n,
-  );
-  const processingCollectRevenue = processingTxInfo?.tx.metadataJson.expectedCollectRevenue ?? 0n;
-  const processingSignatureCount = processingTxInfo?.tx.metadataJson.cosignedUtxoIds.length ?? 0;
-  const collectRevenue = processingTxInfo ? processingCollectRevenue : myVault.data.pendingCollectRevenue;
-  const signatureCountToShow = processingTxInfo ? processingSignatureCount : signatureCount;
-  const amountMicrogons = processingTxInfo ? processingCollectRevenue : collectRevenue + signaturePenalty;
-
-  if (collectRevenue <= 0n && signatureCountToShow === 0) {
-    return null;
-  }
-
-  return {
-    isProcessing: Boolean(processingTxInfo),
-    collectRevenue,
-    expiringCollectAmount: myVault.data.expiringCollectAmount,
-    signatureCount: signatureCountToShow,
-    signaturePenalty,
-    amountMicrogons,
-    nextDueDate: myVault.data.nextCollectDueDate,
-  };
+  return `You have ${actionLabel} needing your attention worth ${formattedAmount}.`;
 }
 
 export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: number = Date.now()): IBitcoinAlert[] {
@@ -226,8 +166,8 @@ export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: n
   return alerts.sort(compareBitcoinAlerts);
 }
 
-export function sumAlertAmount(vaultAlert: IVaultAlert | null, bitcoinAlerts: IBitcoinAlert[]): bigint {
-  let total = vaultAlert?.amountMicrogons ?? 0n;
+export function sumBitcoinAlertAmount(bitcoinAlerts: IBitcoinAlert[]): bigint {
+  let total = 0n;
   for (const alert of bitcoinAlerts) {
     total += alert.amountMicrogons;
   }

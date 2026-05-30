@@ -1,27 +1,19 @@
-import { Db } from '../../lib/Db';
 import { IConfigStringified } from '../../interfaces/IConfig';
+import { Db } from '../../lib/Db';
 import PluginSql, { QueryResult } from '@tauri-apps/plugin-sql';
 import { readdir, readFile } from 'node:fs/promises';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
 
 const shouldLogDbQueries = process.env.TEST_DB_DEBUG === '1';
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 let migrationSqlStatementsPromise: Promise<string[]> | null = null;
-
-export async function createMockedDbPromise(allAsObject: { [key: string]: string } = {}): Promise<Db> {
-  return Object.assign(Object.create(Db.prototype), {
-    configTable: {
-      fetchAllAsObject: async () => allAsObject,
-      insertOrReplace: async (obj: Partial<IConfigStringified>) => {},
-    },
-  }) as Db;
-}
 
 export async function createTestDb(): Promise<Db> {
   const database = new TestSqliteDb(':memory:');
-
   const migrationSqlStatements = await getMigrationSqlStatements();
   for (const migrationSql of migrationSqlStatements) {
     await database.exec(migrationSql);
@@ -49,37 +41,8 @@ export async function createTestDb(): Promise<Db> {
       return true;
     },
   } as PluginSql;
+
   return new Db(plugin, false);
-}
-
-async function getMigrationSqlStatements(): Promise<string[]> {
-  return (migrationSqlStatementsPromise ??= Promise.resolve()
-    .then(async () => {
-      const baseDir = Path.resolve(__dirname, '../../../src-tauri/migrations');
-      const migrations = (await readdir(baseDir)).sort((a, b) => a.localeCompare(b));
-      const statements: string[] = [];
-      for (const migration of migrations) {
-        const upFile = Path.join(baseDir, migration, 'up.sql');
-        if (shouldLogDbQueries) {
-          console.log('Migrating', upFile);
-        }
-
-        try {
-          statements.push(await readFile(upFile, 'utf8'));
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-            continue;
-          }
-
-          throw error;
-        }
-      }
-      return statements;
-    })
-    .catch(error => {
-      migrationSqlStatementsPromise = null;
-      throw error;
-    }));
 }
 
 export class TestSqliteDb {
@@ -101,12 +64,12 @@ export class TestSqliteDb {
     };
   }
 
-  public async get<T>(query: string, bindValues?: unknown[]): Promise<T | undefined> {
-    return this.#database.prepare(query).get(...toNodeSqliteParams(bindValues)) as T | undefined;
-  }
-
   public async all<T>(query: string, bindValues?: unknown[]): Promise<T> {
     return this.#database.prepare(query).all(...toNodeSqliteParams(bindValues)) as T;
+  }
+
+  public async get<T>(query: string, bindValues?: unknown[]): Promise<T> {
+    return this.#database.prepare(query).get(...toNodeSqliteParams(bindValues)) as T;
   }
 
   public async close(): Promise<void> {
@@ -114,8 +77,38 @@ export class TestSqliteDb {
   }
 }
 
+async function getMigrationSqlStatements(): Promise<string[]> {
+  return (migrationSqlStatementsPromise ??= Promise.resolve()
+    .then(async () => {
+      const baseDir = Path.resolve(__dirname, '../../../src-tauri/migrations');
+      const migrations = (await readdir(baseDir)).sort((a, b) => a.localeCompare(b));
+      const statements: string[] = [];
+
+      for (const migration of migrations) {
+        const upFile = Path.join(baseDir, migration, 'up.sql');
+        if (shouldLogDbQueries) {
+          console.log('Migrating', upFile);
+        }
+
+        try {
+          statements.push(await readFile(upFile, 'utf8'));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      return statements;
+    })
+    .catch(error => {
+      migrationSqlStatementsPromise = null;
+      throw error;
+    }));
+}
+
 function toNodeSqliteParams(bindValues?: unknown[]): (string | number | Uint8Array | null)[] {
-  // Mirrors src-vue/lib/Utils.ts::toSqlParams, but serializes Date for node:sqlite binding.
   return (bindValues ?? []).map(param => {
     if (param === undefined || param === null) {
       return null;
@@ -137,4 +130,13 @@ function toNodeSqliteParams(bindValues?: unknown[]): (string | number | Uint8Arr
     }
     return param as string | number | Uint8Array;
   });
+}
+
+export async function createMockedDbPromise(allAsObject: { [key: string]: string } = {}): Promise<Db> {
+  return Object.assign(Object.create(Db.prototype), {
+    configTable: {
+      fetchAllAsObject: async () => allAsObject,
+      insertOrReplace: async (obj: Partial<IConfigStringified>) => {},
+    },
+  }) as Db;
 }

@@ -33,11 +33,14 @@ import {
   createBitcoinLocksClientHarness,
   createBitcoinLocksHarness,
 } from './helpers/bitcoinLocksHarness.ts';
-import type Bot from '../../bot/src/Bot.ts';
-import { startServer as startBotServer, type BotServer } from '../../bot/src/server.ts';
-import { BitcoinLockRelayService } from '../../bot/src/BitcoinLockRelayService.ts';
-import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
-import { Db as BotDb } from '../../bot/src/Db.ts';
+import {
+  BitcoinLockRelayService,
+  type Bot,
+  type BotServer,
+  Db as BotDb,
+  DelegateSubmitLane,
+  startServer as startBotServer,
+} from '@argonprotocol/apps-bot';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { RouterServer } from '../../router/src/RouterServer.ts';
 

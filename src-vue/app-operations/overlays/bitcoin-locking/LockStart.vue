@@ -136,7 +136,7 @@ import InputNumber from '../../../components/InputNumber.vue';
 import InputMoney from '../../../components/InputMoney.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
-import { BitcoinLock, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+import { BitcoinLock, MICROGONS_PER_ARGON, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
@@ -311,6 +311,14 @@ async function submitLiquidLock() {
     if (satoshis <= 0n) {
       throw new Error('Please enter a valid amount of Argons to receive.');
     }
+    if (
+      BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis) >
+      (props.vault.availableBitcoinSpace() ?? 0n)
+    ) {
+      throw new Error(
+        "This amount rounds above the vault's remaining capacity. Lower the requested Argons slightly and try again.",
+      );
+    }
 
     await bitcoinLocks.initializeLock({
       satoshis,
@@ -346,20 +354,34 @@ async function setLiquidityVariables() {
         : nextVaultCapacitySatoshis;
   }
 
+  while (
+    nextAvailableSatoshis > 0n &&
+    BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, nextAvailableSatoshis) >
+      nextVaultCapacityLiquidityMicrogons
+  ) {
+    nextAvailableSatoshis -= 1n;
+  }
+
   const nextLiquidityMicrogons = BitcoinLock.calculateRedemptionAmountFromSatoshis(
     currency.priceIndex,
     nextAvailableSatoshis,
   );
+  const nextWholeArgonLiquidityMicrogons =
+    nextLiquidityMicrogons - (nextLiquidityMicrogons % BigInt(MICROGONS_PER_ARGON));
+  const nextWholeArgonSatoshis =
+    nextWholeArgonLiquidityMicrogons > 0n
+      ? await bitcoinLocks.satoshisForArgonLiquidity(nextWholeArgonLiquidityMicrogons)
+      : 0n;
 
   if (syncId !== availableLiquiditySyncId) return;
 
   vaultCapacityLiquidityMicrogons.value = nextVaultCapacityLiquidityMicrogons;
   vaultCapacityBtc.value = currency.convertSatToBtc(nextVaultCapacitySatoshis);
-  availableLiquidityMicrogons.value = nextLiquidityMicrogons;
+  availableLiquidityMicrogons.value = nextWholeArgonLiquidityMicrogons;
   availableLiquidityBtc.value = currency.convertSatToBtc(nextAvailableSatoshis);
 
   if (!hasEditedAmounts.value || (liquidityToReceive.value === 0n && lockSatoshis.value === 0n)) {
-    initializeDefaultAmounts(nextAvailableSatoshis, nextLiquidityMicrogons);
+    initializeDefaultAmounts(nextWholeArgonSatoshis, nextWholeArgonLiquidityMicrogons);
     if (syncId !== availableLiquiditySyncId) return;
   }
 

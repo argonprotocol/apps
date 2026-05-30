@@ -48,6 +48,19 @@ export async function getFinalizedClient(): Promise<ApiDecoration<'promise'>> {
   return client.at(finalized);
 }
 
+export async function getEthereumGatewayPauseReason(
+  finalizedClient?: ApiDecoration<'promise'>,
+): Promise<string | undefined> {
+  const client = finalizedClient ?? (await getFinalizedClient());
+  const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
+  if (gatewaySyncPause.isNone) {
+    return;
+  }
+
+  const pause = gatewaySyncPause.unwrap();
+  return `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce.toBigInt()} (${pause.reason.type}).`;
+}
+
 export function setArchiveClientUrl(url: string) {
   const clients = getMainchainClients();
   return clients.setArchiveClient(url);
@@ -183,6 +196,13 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
   const config = getConfig();
   if (!config.isLoaded) {
     await config.isLoadedPromise;
+  }
+
+  // During local install the gateway root can be up before /substrate is a stable RPC target.
+  // Keep using the archive client until the installer has finished.
+  if (config.isServerInstalling) {
+    mainchainClients.clearPrunedClient();
+    return;
   }
 
   const serverApiClient = getServerApiClient();

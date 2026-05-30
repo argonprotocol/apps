@@ -194,6 +194,16 @@
           </div>
         </div>
       </div>
+      <div class="mt-6 flex justify-end border-t border-slate-200 pt-4">
+        <button
+          data-testid="BitcoinLockingOverlay.acknowledgeFailed()"
+          type="button"
+          class="cursor-pointer rounded-md border border-slate-400 px-5 py-2 text-base font-semibold text-slate-700 hover:bg-slate-100"
+          @click="acknowledgeFailedAndDismiss"
+        >
+          Acknowledge &amp; Dismiss
+        </button>
+      </div>
     </div>
     <LockReadyForBitcoin v-else-if="lockStep === LockStep.ReadyForBitcoin" :personalLock="personalLock!" />
     <LockIsProcessingOnBitcoin v-else-if="lockStep === LockStep.ProcessingOnBitcoin" :personalLock="personalLock!" />
@@ -398,14 +408,27 @@ async function acknowledgeExpiredIfNeeded() {
   await bitcoinLocks.acknowledgeExpiredWaitingForFunding(lock).catch(() => undefined);
 }
 
+async function acknowledgeFailedIfNeeded() {
+  const lock = personalLock.value;
+  if (!lock || lock.status !== BitcoinLockStatus.LockFailed) return;
+  await bitcoinLocks.acknowledgeFailed(lock).catch(() => undefined);
+}
+
 async function closeOverlay() {
   await acknowledgeExpiredIfNeeded();
+  await acknowledgeFailedIfNeeded();
   emit('close', false);
 }
 
 async function startNewLocking() {
   await acknowledgeExpiredIfNeeded();
+  await acknowledgeFailedIfNeeded();
   emit('close', true);
+}
+
+async function acknowledgeFailedAndDismiss() {
+  await acknowledgeFailedIfNeeded();
+  emit('close', false);
 }
 
 function handleVaultsLoaded() {}

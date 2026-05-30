@@ -1,4 +1,4 @@
-import { Keyring, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
+import { Keyring, toFixedNumber } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
   Currency as CurrencyBase,
@@ -10,6 +10,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
@@ -21,6 +22,8 @@ import { MyVaultRecovery } from '../lib/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { Db } from '../lib/Db.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
+import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
+import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -101,7 +104,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         blockNumber = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
       }
       const currentTick = await client.query.ticks.currentTick();
-      const res = await new TxSubmitter(
+      await submitAndFinalize(
         client,
         client.tx.priceIndex.submit({
           btcUsdPrice: toFixedNumber(60_000.5, 18),
@@ -112,8 +115,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
           tick: currentTick.toBigInt(),
         }),
         new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
-      ).submit();
-      await res.waitForInFirstBlock;
+      );
 
       const currency = new CurrencyBase(clients);
       await currency.fetchMainchainRates();
@@ -123,7 +125,23 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const bitcoinLocks = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
-      myVault = new MyVault(Promise.resolve(db), vaults, walletKeys, transactionTracker, bitcoinLocks, miningFrames);
+      const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
+      const mintingAuthorities = new MintingAuthorities(
+        Promise.resolve(db),
+        walletKeys,
+        miningFrames,
+        transactionTracker,
+      );
+      myVault = new MyVault(
+        Promise.resolve(db),
+        vaults,
+        walletKeys,
+        transactionTracker,
+        bitcoinLocks,
+        miningFrames,
+        globalCouncil,
+        mintingAuthorities,
+      );
       vi.spyOn(myVault.vaults, 'load').mockImplementation(async () => {});
       vi.spyOn(myVault.vaults, 'updateRevenue').mockImplementation(async () => {
         return {} as IAllVaultStats;

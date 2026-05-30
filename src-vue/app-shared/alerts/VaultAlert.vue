@@ -1,16 +1,16 @@
 <!-- prettier-ignore -->
 <template>
   <AlertBarRow
-    v-if="variant === 'bar'"
+    v-if="props.variant === 'bar'"
     tone="warn"
     dataTestid="VaultAlert.bar">
     <template #icon>
       <div class="flex items-center gap-x-1.5 text-argon-700/70">
         <MoneyIcon
-          v-if="showMoneyIcon"
+          v-if="notice.collectRevenue > 0n || notice.collateralizedTransferRewardAmount > 0n"
           class="relative h-6 w-6 top-0.5 text-white/85" />
         <SigningIcon
-          v-if="showSigningIcon"
+          v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
           class="h-5 w-5 text-white/85" />
       </div>
     </template>
@@ -21,7 +21,31 @@
       </template>
 
       <template v-else-if="notice.isProcessing">
-        <strong>{{ notice.signatureCount }} co-signature{{ notice.signatureCount === 1 ? ' is' : 's are' }} processing.</strong>
+        <template v-if="hasVaultSecurityWork(notice)">
+          <strong>
+            <template v-if="notice.earningsAmountMicrogons > 0n">
+              {{ formatMoney(notice.earningsAmountMicrogons) }} in earnings
+            </template>
+            <template v-else>Vault security</template>
+            is processing
+          </strong>
+        </template>
+        <template v-else>
+          <strong>{{ notice.signatureCount }} co-signature{{ notice.signatureCount === 1 ? ' is' : 's are' }} processing.</strong>
+        </template>
+      </template>
+
+      <template v-else-if="hasVaultSecurityWork(notice)">
+        <strong>
+          <template v-if="notice.earningsAmountMicrogons > 0n">
+            {{ formatMoney(notice.earningsAmountMicrogons) }} in earnings
+          </template>
+          <template v-else>Vault security</template>
+          needs attention
+        </strong>
+        <span v-if="notice.amountAtRiskMicrogons > 0n" class="text-white/80">
+          ({{ formatMoney(notice.amountAtRiskMicrogons) }} at risk)
+        </span>
       </template>
 
       <template v-else-if="notice.collectRevenue && !notice.signatureCount">
@@ -80,7 +104,12 @@
 
     <template #action>
       <button @click="$emit('open')">
-        {{ buttonLabel }}
+        <template v-if="notice.isProcessing">View Progress</template>
+        <template v-else-if="hasVaultSecurityWork(notice) || (notice.collectRevenue > 0n && notice.signatureCount > 0)">
+          Open Details
+        </template>
+        <template v-else-if="notice.collectRevenue > 0n">Collect Revenue</template>
+        <template v-else>Sign Bitcoin Transactions</template>
       </button>
     </template>
   </AlertBarRow>
@@ -88,30 +117,42 @@
   <AlertDetailRow
     v-else
     dataTestid="VaultAlert.card"
-    :title="cardTitle"
-    :tooltipContent="cardTooltipContent"
-    :sublineClass="cardSublineClass"
-    :buttonLabel="buttonLabel"
+    :title="getCardTitle(notice)"
+    :tooltipContent="getCardTooltipContent(notice)"
+    sublineClass="text-slate-500"
+    :buttonLabel="getButtonLabel(notice)"
     :isLast="isLast"
     @open="$emit('open')">
     <template #icon>
       <div class="flex items-center gap-x-1.5">
         <MoneyIcon
-          v-if="showMoneyIcon"
+          v-if="notice.collectRevenue > 0n || notice.collateralizedTransferRewardAmount > 0n"
           class="relative top-0.5 h-9 w-9 text-argon-700/70" />
         <SigningIcon
-          v-if="showSigningIcon"
+          v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
           class="h-8 w-8 text-argon-700/70" />
       </div>
     </template>
 
     <template #subline>
       <template v-if="notice.isProcessing && notice.collectRevenue">
-        Waiting for your collection transaction to finalize.
+        Waiting for collect to finalize.
       </template>
 
       <template v-else-if="notice.isProcessing">
-        Waiting for your signatures to finalize.
+        <template v-if="hasVaultSecurityWork(notice)">
+          Waiting for vault action to finalize.
+        </template>
+        <template v-else>Waiting for signatures to finalize.</template>
+      </template>
+
+      <template v-else-if="hasVaultSecurityWork(notice)">
+        <template v-if="notice.amountAtRiskMicrogons > 0n">
+          {{ formatMoney(notice.amountAtRiskMicrogons) }} requires further approval.
+        </template>
+        <template v-else>
+          Review pending vault approvals.
+        </template>
       </template>
 
       <template v-else-if="notice.collectRevenue && !notice.signatureCount">
@@ -165,15 +206,20 @@ import SigningIcon from '../../assets/signing.svg?component';
 import CountdownClock from '../../components/CountdownClock.vue';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import type { IVaultAlert } from '../../lib/Alerts.ts';
+import type { IVaultCollectNotice } from '../../lib/VaultCollectBuilder.ts';
 
 dayjs.extend(utc);
 
-const props = defineProps<{
-  notice: IVaultAlert;
-  variant?: 'bar' | 'card';
-  isLast?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    notice: IVaultCollectNotice;
+    variant?: 'bar' | 'card';
+    isLast?: boolean;
+  }>(),
+  {
+    variant: 'card',
+  },
+);
 
 defineEmits<{
   (e: 'open'): void;
@@ -186,79 +232,99 @@ const dueDate = Vue.computed(() => {
   return dayjs.utc(props.notice.nextDueDate);
 });
 
-const variant = Vue.computed(() => props.variant ?? 'card');
+function hasVaultSecurityWork(notice: IVaultCollectNotice): boolean {
+  return notice.councilApprovalCount > 0 || notice.collateralizedTransferCount > 0;
+}
 
-const showMoneyIcon = Vue.computed(() => {
-  return props.notice.collectRevenue > 0n;
-});
-
-const showSigningIcon = Vue.computed(() => {
-  if (props.notice.isProcessing) {
-    return props.notice.collectRevenue <= 0n && props.notice.signatureCount > 0;
-  }
-
-  return props.notice.signatureCount > 0;
-});
-
-const buttonLabel = Vue.computed(() => {
-  if (props.notice.isProcessing) {
+function getButtonLabel(notice: IVaultCollectNotice): string {
+  if (notice.isProcessing) {
     return 'View Progress';
   }
 
-  if (props.notice.collectRevenue && props.notice.signatureCount) {
-    return 'Open Vault Actions';
+  if (hasVaultSecurityWork(notice) || (notice.collectRevenue > 0n && notice.signatureCount > 0)) {
+    return 'Open Details';
   }
 
-  if (props.notice.collectRevenue) {
+  if (notice.collectRevenue > 0n) {
     return 'Collect Revenue';
   }
 
   return 'Sign Bitcoin Transactions';
-});
+}
 
-const cardTitle = Vue.computed(() => {
-  if (props.notice.isProcessing && props.notice.collectRevenue) {
-    return `${formatMoney(props.notice.collectRevenue)} is being collected`;
+function getCardTitle(notice: IVaultCollectNotice): string {
+  if (notice.isProcessing && notice.collectRevenue > 0n) {
+    return `${formatMoney(notice.collectRevenue)} is being collected`;
   }
 
-  if (props.notice.isProcessing) {
-    return `${props.notice.signatureCount} co-signature${props.notice.signatureCount === 1 ? ' is' : 's are'} processing`;
+  if (notice.isProcessing) {
+    if (hasVaultSecurityWork(notice)) {
+      return `${
+        notice.earningsAmountMicrogons > 0n
+          ? `${formatMoney(notice.earningsAmountMicrogons)} in earnings`
+          : 'Vault security'
+      } is processing`;
+    }
+
+    return `${notice.signatureCount} co-signature${notice.signatureCount === 1 ? ' is' : 's are'} processing`;
   }
 
-  if (props.notice.collectRevenue && props.notice.signatureCount) {
+  if (hasVaultSecurityWork(notice)) {
+    if (notice.amountAtRiskMicrogons > 0n) {
+      return `${
+        notice.earningsAmountMicrogons > 0n
+          ? `${formatMoney(notice.earningsAmountMicrogons)} in earnings`
+          : 'Vault security'
+      } with ${formatMoney(notice.amountAtRiskMicrogons)} at risk`;
+    }
+
+    return notice.earningsAmountMicrogons > 0n
+      ? `${formatMoney(notice.earningsAmountMicrogons)} in earnings need attention`
+      : 'Vault security needs attention';
+  }
+
+  if (notice.collectRevenue > 0n && notice.signatureCount > 0) {
     return 'Vault collection and signatures need attention';
   }
 
-  if (props.notice.collectRevenue) {
-    return `${formatMoney(props.notice.collectRevenue)} is waiting to be collected`;
+  if (notice.collectRevenue > 0n) {
+    return `${formatMoney(notice.collectRevenue)} is waiting to be collected`;
   }
 
-  return `${props.notice.signatureCount} bitcoin transaction${props.notice.signatureCount === 1 ? '' : 's'} need${props.notice.signatureCount === 1 ? 's' : ''} signing`;
-});
+  return `${notice.signatureCount} bitcoin transaction${notice.signatureCount === 1 ? '' : 's'} need${notice.signatureCount === 1 ? 's' : ''} signing`;
+}
 
-const cardTooltipContent = Vue.computed(() => {
-  if (props.notice.isProcessing && props.notice.collectRevenue) {
-    return 'Waiting for your revenue collection to finalize.';
+function getCardTooltipContent(notice: IVaultCollectNotice): string {
+  if (hasVaultSecurityWork(notice) && notice.isProcessing) {
+    return 'A vault action is pending.';
   }
 
-  if (props.notice.isProcessing) {
-    return 'Your required bitcoin signatures have been submitted and are waiting to finalize.';
+  if (hasVaultSecurityWork(notice)) {
+    if (notice.amountAtRiskMicrogons > 0n) {
+      return 'Review earnings and at-risk funds.';
+    }
+
+    return 'Review pending vault actions.';
   }
 
-  if (props.notice.collectRevenue && props.notice.signatureCount) {
-    return "Click to co-sign pending bitcoin unlock requests and collect your vault's earnings.";
+  if (notice.isProcessing && notice.collectRevenue > 0n) {
+    return 'Revenue collection is pending.';
   }
 
-  if (props.notice.collectRevenue) {
-    return "Click to collect your vault's earnings.";
+  if (notice.isProcessing) {
+    return 'Bitcoin signatures are pending.';
   }
 
-  return "Sign these bitcoin transactions to avoid forfeiting your vault's security.";
-});
+  if (notice.collectRevenue > 0n && notice.signatureCount > 0) {
+    return 'Collect earnings and sign bitcoin transactions.';
+  }
 
-const cardSublineClass = Vue.computed(() => {
-  return 'text-slate-500';
-});
+  if (notice.collectRevenue > 0n) {
+    return 'Collect your vault earnings.';
+  }
+
+  return 'Sign bitcoin transactions to avoid forfeiting vault security.';
+}
 
 function formatMoney(value: bigint): string {
   return `${currency.symbol}${microgonToMoneyNm(value).formatIfElse('< 1_000', '0,0.00', '0,0')}`;

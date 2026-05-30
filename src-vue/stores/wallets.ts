@@ -50,21 +50,50 @@ export const useWallets = defineStore('wallets', () => {
   const walletForEthereum = new WalletForEthereum(walletKeys.ethereumAddress);
   const walletForBase = new WalletForBase(walletKeys.ethereumAddress);
 
-  void config.isLoadedPromise
-    .then(async () => {
+  void config.isLoadedPromise.then(() => refreshEthereumSignerPolicy()).catch(handleFatalError);
+
+  let hasConfiguredEthereumSignerPolicy = false;
+  let ethereumSignerPolicyPromise: Promise<void> | undefined;
+
+  async function refreshEthereumSignerPolicy() {
+    if (hasConfiguredEthereumSignerPolicy) {
+      return;
+    }
+    if (ethereumSignerPolicyPromise) {
+      return await ethereumSignerPolicyPromise;
+    }
+
+    ethereumSignerPolicyPromise = (async () => {
       const chainConfig = await loadEthereumChainConfig().catch(error => {
         console.warn('Ethereum wallet chain-config load failed', error);
         return undefined;
       });
-      if (!chainConfig) return;
+      if (!chainConfig) {
+        return;
+      }
 
       await walletKeys.configureEthereumSignerPolicy({
         chainId: chainConfig.chainId,
         gatewayAddress: chainConfig.gatewayAddress,
         tokenAddresses: [chainConfig.argonTokenAddress, chainConfig.argonotTokenAddress],
       });
-    })
-    .catch(handleFatalError);
+      hasConfiguredEthereumSignerPolicy = true;
+    })();
+
+    try {
+      await ethereumSignerPolicyPromise;
+    } finally {
+      ethereumSignerPolicyPromise = undefined;
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    const onFocus = () => {
+      void refreshEthereumSignerPolicy().catch(handleFatalError.bind('useWallets'));
+    };
+    window.addEventListener('focus', onFocus);
+    Vue.onScopeDispose(() => window.removeEventListener('focus', onFocus));
+  }
 
   const miningHoldWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningHoldAddress });
   const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningBotAddress });

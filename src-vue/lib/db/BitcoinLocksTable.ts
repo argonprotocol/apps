@@ -154,25 +154,6 @@ export class BitcoinLocksTable extends BaseTable {
     return this.toLockRecord(rawRecords[0]);
   }
 
-  public async setVaultHdKeyIndex(vaultId: number, index: number): Promise<void> {
-    await this.db.execute(
-      `INSERT INTO BitcoinLockVaultHdSeq (vaultId, latestIndex) VALUES (?, ?)
-       ON CONFLICT (vaultId) DO UPDATE SET latestIndex = ? WHERE ? > BitcoinLockVaultHdSeq.latestIndex`,
-      toSqlParams([vaultId, index, index, index]),
-    );
-  }
-
-  public async getNextVaultHdKeyIndex(vaultId: number): Promise<number> {
-    const [{ latestIndex }] = await this.db.select<{ latestIndex: number }[]>(
-      `INSERT INTO BitcoinLockVaultHdSeq (vaultId, latestIndex) VALUES (?, ?)
-       ON CONFLICT (vaultId) DO UPDATE SET latestIndex = BitcoinLockVaultHdSeq.latestIndex + 1
-       RETURNING latestIndex`,
-      toSqlParams([vaultId, 0]),
-    );
-
-    return latestIndex;
-  }
-
   public async setStatus(lock: IBitcoinLockRecord, status: BitcoinLockStatus): Promise<void> {
     if (lock.status === status) return;
     lock.status = status;
@@ -279,6 +260,11 @@ export class BitcoinLocksTable extends BaseTable {
     await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
   }
 
+  public async setLockFailedAcknowledged(lock: IBitcoinLockRecord): Promise<void> {
+    lock.status = BitcoinLockStatus.LockFailedAcknowledged;
+    await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
+  }
+
   public async setLockFundingReadyToResume(lock: IBitcoinLockRecord): Promise<void> {
     lock.status = BitcoinLockStatus.LockFundingReadyToResume;
     await this.db.execute('UPDATE BitcoinLocks SET status = ? WHERE uuid = ?', toSqlParams([lock.status, lock.uuid]));
@@ -323,6 +309,7 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async deleteAll(): Promise<void> {
+    await this.db.walletHdKeysTable.deleteByKeyRole('bitcoinLock');
     await this.db.execute('DELETE FROM BitcoinLockVaultHdSeq', []);
     await this.db.execute('DELETE FROM BitcoinLocks', []);
   }

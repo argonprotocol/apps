@@ -33,6 +33,7 @@ export enum BitcoinLockStatus {
   LockPendingFunding = 'LockPendingFunding', // Argon lock exists and vault securitization is reserved; waiting for Bitcoin funding confirmation/candidate resolution.
   LockExpiredWaitingForFunding = 'LockExpiredWaitingForFunding', // Lock expired before funding could be verified on Argon.
   LockExpiredWaitingForFundingAcknowledged = 'LockExpiredWaitingForFundingAcknowledged', // User has seen the fresh funding-expired state.
+  LockFailedAcknowledged = 'LockFailedAcknowledged', // User has acknowledged the failed Argon-side lock request.
   LockFundingReadyToResume = 'LockFundingReadyToResume', // A mismatch return finished and the user must explicitly resume funding.
 
   LockedAndIsMinting = 'LockedAndIsMinting', // Bitcoin is fully locked but minting is still settling.

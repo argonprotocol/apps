@@ -4,8 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { getClient } from '@argonprotocol/mainchain';
-import { mintingGatewayArtifact } from '@argonprotocol/testing';
+import { EvmContracts, getClient } from '@argonprotocol/mainchain';
 import {
   createPublicClient,
   encodeFunctionData,
@@ -162,7 +161,7 @@ export async function mintDevEthereumTokens(args: MintDevEthereumTokensArgs): Pr
   const [chainId, chainConfig] = await Promise.all([publicClient.getChainId(), loadEthereumChainConfig(archiveUrl)]);
   const migrationCompleted = await publicClient.readContract({
     address: chainConfig.gatewayAddress,
-    abi: mintingGatewayArtifact.abi,
+    abi: EvmContracts.mintingGatewayArtifact.abi,
     functionName: 'migrationCompleted',
   });
 
@@ -193,7 +192,7 @@ export async function mintDevEthereumTokens(args: MintDevEthereumTokensArgs): Pr
     }
   } else {
     const mintData = encodeFunctionData({
-      abi: mintingGatewayArtifact.abi,
+      abi: EvmContracts.mintingGatewayArtifact.abi,
       functionName: 'migrate',
       args: [
         {
@@ -293,11 +292,11 @@ async function loadEthereumChainConfig(archiveUrl: string): Promise<EthereumChai
 
   try {
     const config = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    if (config.isNone || !config.unwrap().isEthereum) {
+    if (config.isNone || !config.unwrap().isEvm) {
       throw new Error('Ethereum chain config is not available on this Argon network.');
     }
 
-    const ethereumConfig = config.unwrap().asEthereum;
+    const ethereumConfig = config.unwrap().asEvm;
     return {
       gatewayAddress: getAddress(ethereumConfig.gateway.toHex()),
       argonTokenAddress: getAddress(ethereumConfig.argonToken.toHex()),

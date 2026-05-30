@@ -8,6 +8,8 @@ import { getCurrency, Currency } from './currency.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getWalletKeys } from './wallets.ts';
+import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
+import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 
 export { type Vaults };
 
@@ -30,7 +32,22 @@ export function getMyVault(): MyVault {
     const bitcoinLocks = getBitcoinLocks();
     const keys = getWalletKeys();
     const miningFrames = getMiningFrames();
-    myVault = new MyVault(dbPromise, vaults, keys, transactionTracker, bitcoinLocks, miningFrames);
+    const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames);
+    globalCouncil.data = reactive(globalCouncil.data) as any;
+
+    const mintingAuthorities = new MintingAuthorities(dbPromise, keys, miningFrames, transactionTracker);
+    mintingAuthorities.data = reactive(mintingAuthorities.data) as any;
+
+    myVault = new MyVault(
+      dbPromise,
+      vaults,
+      keys,
+      transactionTracker,
+      bitcoinLocks,
+      miningFrames,
+      globalCouncil,
+      mintingAuthorities,
+    );
     myVault.data = reactive(myVault.data) as any;
   }
 

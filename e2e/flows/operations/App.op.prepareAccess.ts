@@ -43,6 +43,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
 
     const appReloadMarker = flow.getAppReloadMarker();
     const mnemonic = mnemonicGenerate();
+    flow.setData('walletMnemonic', mnemonic);
 
     await flow.click('WelcomeOverlay.startImportAccount()', { timeoutMs: 10_000 });
 

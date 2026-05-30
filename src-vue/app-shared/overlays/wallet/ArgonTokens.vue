@@ -1,32 +1,37 @@
 <template>
   <ul :class="minimizedLines ? '' : 'border-b border-slate-400/50'">
     <li
-      :class="[minimizedLines ? '' : 'border-t', showArrows ? 'pr-14' : '']"
+      :class="[minimizedLines ? '' : 'border-t', hasMoveButton ? 'pr-14' : '']"
       class="relative flex flex-row gap-x-2 border-slate-400/50 py-2"
     >
       <ArgonIcon class="h-6 w-6" />
       <div class="grow">{{ microgonToArgonNm(props.microgons).format('0,0.[00]') }} ARGN</div>
       <div>{{ currency.symbol }}{{ microgonToMoneyNm(props.microgons).format('0,0.00') }}</div>
-      <EthereumMoveButton
-        v-if="showArrows"
+      <CrosschainMoveButton
+        v-if="props.moveDirection"
         :moveToken="MoveToken.ARGN"
         :availableAmount="props.microgons"
-        :targetWalletType="props.targetWalletType"
-        :open="openMoveToken === MoveToken.ARGN"
-        @update:open="value => onMovePopoverOpenChange(MoveToken.ARGN, value)"
+        :direction="props.moveDirection"
+        :networkName="props.networkName"
+        :feeTokenSymbol="props.feeTokenSymbol"
+        @openTransferOverlay="openTransferOverlay(MoveToken.ARGN, props.microgons)"
       />
     </li>
-    <li :class="[showArrows ? 'pr-14' : '']" class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2">
+    <li
+      :class="[hasMoveButton ? 'pr-14' : '']"
+      class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2"
+    >
       <ArgonotIcon class="h-6 w-6" />
       <div class="grow">{{ micronotToArgonotNm(props.micronots).format('0,0.[00]') }} ARGNOT</div>
       <div>{{ currency.symbol }}{{ micronotToMoneyNm(props.micronots).format('0,0.00') }}</div>
-      <EthereumMoveButton
-        v-if="showArrows"
+      <CrosschainMoveButton
+        v-if="props.moveDirection"
         :moveToken="MoveToken.ARGNOT"
         :availableAmount="props.micronots"
-        :targetWalletType="props.targetWalletType"
-        :open="openMoveToken === MoveToken.ARGNOT"
-        @update:open="value => onMovePopoverOpenChange(MoveToken.ARGNOT, value)"
+        :direction="props.moveDirection"
+        :networkName="props.networkName"
+        :feeTokenSymbol="props.feeTokenSymbol"
+        @openTransferOverlay="openTransferOverlay(MoveToken.ARGNOT, props.micronots)"
       />
     </li>
   </ul>
@@ -36,13 +41,11 @@ import * as Vue from 'vue';
 import { MoveToken } from '@argonprotocol/apps-core';
 import ArgonotIcon from '../../../assets/resources/argonot.svg';
 import ArgonIcon from '../../../assets/resources/argon.svg';
-import { WalletType } from '../../../lib/Wallet.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
-import EthereumMoveButton from './EthereumMoveButton.vue';
+import CrosschainMoveButton from './CrosschainMoveButton.vue';
 
 const currency = getCurrency();
-const openMoveToken = Vue.ref<MoveToken.ARGN | MoveToken.ARGNOT>();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -51,24 +54,35 @@ const props = withDefaults(
     microgons?: bigint;
     micronots?: bigint;
     minimizedLines?: boolean;
-    showArrows?: boolean;
-    targetWalletType?: WalletType.investment | WalletType.miningHold | WalletType.vaulting;
+    moveDirection?: 'transferToArgon' | 'transferOutOfArgon';
+    networkName?: string;
+    feeTokenSymbol?: string;
   }>(),
   {
     microgons: () => 0n,
     micronots: () => 0n,
-    showArrows: false,
+    networkName: '',
+    feeTokenSymbol: '',
   },
 );
 
-function onMovePopoverOpenChange(moveToken: MoveToken.ARGN | MoveToken.ARGNOT, isOpen: boolean) {
-  if (isOpen) {
-    openMoveToken.value = moveToken;
+const emit = defineEmits<{
+  (
+    e: 'openTransferOverlay',
+    value: {
+      moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
+      availableAmount: bigint;
+    },
+  ): void;
+}>();
+
+const hasMoveButton = Vue.computed(() => !!props.moveDirection);
+
+function openTransferOverlay(moveToken: MoveToken.ARGN | MoveToken.ARGNOT, availableAmount: bigint) {
+  if (!props.moveDirection) {
     return;
   }
 
-  if (openMoveToken.value === moveToken) {
-    openMoveToken.value = undefined;
-  }
+  emit('openTransferOverlay', { moveToken, availableAmount });
 }
 </script>

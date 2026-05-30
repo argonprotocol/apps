@@ -7,6 +7,8 @@ import { getMyVault } from '../stores/vaults';
 import { useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
+import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
+import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IAppQueryFn, IAppQueryRefs } from '../interfaces/IAppQueryRefs.ts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -1223,7 +1225,11 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     wallets: useWallets(),
     overlayIsOpen: basics.overlayIsOpen,
     getEthereumMoveTracker,
+    getEthereumOutboundTransferTracker,
     getMainchainClient,
+    openWalletOverlay(walletType) {
+      basicEmitter.emit('openWalletOverlay', { walletType });
+    },
   };
 }
 

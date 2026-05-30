@@ -3,6 +3,7 @@ import { wrapApi } from './ClientWrapper.js';
 import { createTypedEventEmitter } from './utils.js';
 
 export type ArgonQueryClient = ArgonClient | ApiDecoration<'promise'>;
+const stringifyApiLogValue = (_key: string, value: unknown) => (typeof value === 'bigint' ? value.toString() : value);
 
 interface ILastErrorInfo {
   errors: Error[];
@@ -138,7 +139,7 @@ export class MainchainClients {
         }
 
         const argsJson = args.map(getJson);
-        console.error(`[${name}] ${path}(${JSON.stringify(argsJson)}) Error:`, error);
+        console.error(`[${name}] ${path}(${JSON.stringify(argsJson, stringifyApiLogValue)}) Error:`, error);
       },
       onSuccess: (path, result, ...args) => {
         if (!path.includes('query.') && !path.includes('rpc.')) {
@@ -152,7 +153,7 @@ export class MainchainClients {
         if (this.enableApiLogging()) {
           const resultJson = path.endsWith('.system.events') ? `${(result as any).length} events` : getJson(result);
           const argsJson = args.map(getJson);
-          console.log(`[${name}] ${path}(${JSON.stringify(argsJson)})`, resultJson);
+          console.log(`[${name}] ${path}(${JSON.stringify(argsJson, stringifyApiLogValue)})`, resultJson);
         }
       },
     });

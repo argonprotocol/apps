@@ -1,23 +1,31 @@
 import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import {
-  argonTokenArtifact,
+  decodeAddress,
+  decodeEthereumGatewayActivityLog,
   decodeEthereumTransferToArgonStartedLog,
+  EvmContracts,
+  hexToU8a,
   findEthereumTransferToArgonStartedLogIndexes,
-  MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
-  mintingGatewayArtifact,
+  type IArgonQueryable,
+  type PalletCrosschainTransferCouncilApprovalQueueEntry,
+  u8aToHex,
 } from '@argonprotocol/mainchain';
 import {
   type Address,
+  type ContractFunctionArgs,
   createPublicClient,
   defineChain,
   encodeFunctionData,
   getAddress,
+  keccak256,
+  hexToBytes,
   type Hash,
   type Hex,
   http,
   type PublicClient,
   serializeTransaction,
   type TransactionSerializableEIP1559,
+  toHex,
 } from 'viem';
 import type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -38,19 +46,96 @@ export type IEthereumTransferToArgon = {
   gatewayActivityNonce?: bigint;
 };
 
+export type IEthereumTransferOutOfArgon = {
+  targetTxHash: Hash;
+  targetBlockNumber?: number;
+  targetBlockHash?: Hash;
+  gatewayActivityNonce?: bigint;
+};
+
 export type IEthereumChainConfig = {
   chainId: number;
   gatewayAddress: Address;
   argonTokenAddress: Address;
   argonotTokenAddress: Address;
 };
+type IEthereumGatewayCouncilSnapshot = {
+  signers: Address[];
+  weights: bigint[];
+};
+type IEthereumGatewayUpdate = {
+  queueNonce: bigint;
+  kind: bigint;
+  payload: Hex;
+  signatures: Hex[];
+};
+type IEthereumGatewayHashContext = {
+  chainId: bigint;
+  gatewayAddress: Address;
+};
+type IMintingAuthorityDeactivationTarget = {
+  signingKey: Address;
+};
+type IMintingAuthorityActivationTarget = {
+  microgonCollateral: bigint;
+  micronotCollateral: bigint;
+  signingKey: Address;
+};
 
 const ETHEREUM_PUBLIC_CLIENT_OPTIONS = { retryCount: 1, timeout: 15_000 } as const;
 const ethereumChainConfigPromises = new Map<string, Promise<IEthereumChainConfig | undefined>>();
+type EthereumExecutionReceipt = Awaited<ReturnType<PublicClient['getTransactionReceipt']>>;
+type MintingGatewayTransferOutOfArgonAuthorization = {
+  microgonCollateral: bigint;
+  micronotCollateral: bigint;
+  signature: Hex;
+};
+type MintingGatewayTransferOutOfArgonProof = {
+  authorizations: MintingGatewayTransferOutOfArgonAuthorization[];
+};
+export type IEthereumFinalizeTransferOutOfArgonArgs = {
+  request: EvmContracts.MintingGatewayTransferOutOfArgonRequest;
+  proof: MintingGatewayTransferOutOfArgonProof;
+};
+type LoadedCouncil = {
+  totalWeight: bigint;
+  members: {
+    signer: Address;
+    weight: bigint;
+  }[];
+};
+type RelayableGatewayUpdate = {
+  expectedRepaymentMicrogons: bigint;
+  isActivation: boolean;
+  update: IEthereumGatewayUpdate;
+};
+export type IEthereumGatewayRelayPreview = {
+  signerAddress: Address;
+  ethereumBalanceWei: bigint;
+  feeEstimateWei?: bigint;
+  expectedRepaymentMicrogons: bigint;
+  estimatedMicrogonsPerEth: bigint;
+  updateCount: number;
+  activationCount: number;
+  deactivationCount: number;
+  firstQueueNonce?: bigint;
+  lastQueueNonce?: bigint;
+  isPaused: boolean;
+  canRelay: boolean;
+  reason?: 'paused' | 'noActivations' | 'insufficientBalance' | 'repaymentTooLow';
+};
+type IPreparedGatewayRelay = IEthereumGatewayRelayPreview & {
+  publicClient: PublicClient;
+  transaction?: TransactionSerializableEIP1559;
+  unsignedTransaction?: Hex;
+};
 
 export class EthereumClient {
   constructor(
-    private readonly walletKeys: Pick<WalletKeys, 'ethereumAddress' | 'signEthereumPermit' | 'signEthereumTransaction'>,
+    private readonly walletKeys: Pick<
+      WalletKeys,
+      'configureEthereumSignerPolicy' | 'ethereumAddress' | 'signEthereumPermit' | 'signEthereumTransaction'
+    >,
     public readonly executionRpcUrl: string,
   ) {}
 
@@ -71,62 +156,22 @@ export class EthereumClient {
     return Math.max(1_000, Math.floor(getEthereumFinalityMillis() / finalityBlocks));
   }
 
+  public getGatewayActivityWaitEstimateMs() {
+    return this.getTransferToArgonWaitEstimateMs();
+  }
+
+  public getGatewayActivityPollMs() {
+    return this.getTransferToArgonPollMs();
+  }
+
   public async startTransferToArgon(args: {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
   }): Promise<IEthereumTransferToArgon> {
     const { moveToken, amountBaseUnits, destinationAddress } = args;
-    const mainchainClient = await getMainchainClient(false);
-    const chainConfig = await this.loadChainConfig();
-    const tokenAddress =
-      moveToken === MoveToken.ARGNOT ? chainConfig.argonotTokenAddress : chainConfig.argonTokenAddress;
-    const { chain, publicClient } = await this.createExecutionClient();
-    const from = getAddress(this.walletKeys.ethereumAddress);
-    const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits);
-    const latestBlock = await publicClient.getBlock();
-    const permitDeadline = latestBlock.timestamp + 3600n;
-    const [permitNonce, tokenName] = await Promise.all([
-      publicClient.readContract({
-        address: tokenAddress,
-        abi: argonTokenArtifact.abi,
-        functionName: 'nonces',
-        args: [from],
-      }),
-      publicClient.readContract({
-        address: tokenAddress,
-        abi: argonTokenArtifact.abi,
-        functionName: 'name',
-      }),
-    ]);
-    const permitSignature = await this.walletKeys.signEthereumPermit({
-      tokenAddress,
-      tokenName,
-      value: amountBaseUnits,
-      nonce: permitNonce,
-      deadline: permitDeadline,
-    });
-    const argonDestination = mainchainClient.createType('AccountId32', destinationAddress).toHex();
-    const callData = encodeFunctionData({
-      abi: mintingGatewayArtifact.abi,
-      functionName: 'startTransferToArgon',
-      args: [
-        tokenAddress,
-        runtimeAmount,
-        argonDestination,
-        permitDeadline,
-        permitSignature.v,
-        permitSignature.r as Hex,
-        permitSignature.s as Hex,
-      ],
-    });
-    const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
-      publicClient,
-      from,
-      chainId: chain.id,
-      to: chainConfig.gatewayAddress,
-      data: callData,
-    });
+    const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
+    await this.ensureEthereumSignerPolicyConfigured();
     const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
     const sourceTxHash = await publicClient.sendRawTransaction({
       serializedTransaction: serializeTransaction(transaction, signature),
@@ -141,6 +186,122 @@ export class EthereumClient {
     };
   }
 
+  public async estimateTransferToArgonFee(args: {
+    moveToken: IEthereumMoveToken;
+    amountBaseUnits: bigint;
+    destinationAddress: string;
+  }): Promise<bigint> {
+    const { feeEstimateWei } = await this.prepareTransferToArgon(args);
+    return feeEstimateWei;
+  }
+
+  public async estimateFinalizeTransferOutOfArgonFee(args: IEthereumFinalizeTransferOutOfArgonArgs): Promise<bigint> {
+    const chainConfig = await this.loadChainConfig();
+    const { chain, publicClient } = await this.createExecutionClient();
+    const { feeEstimateWei } = await buildEthereumUnsignedTransaction({
+      publicClient,
+      from: getAddress(this.walletKeys.ethereumAddress),
+      chainId: chain.id,
+      to: chainConfig.gatewayAddress,
+      data: encodeFunctionData({
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'finalizeTransferOutOfArgon',
+        args: [args.request, args.proof],
+      }),
+    });
+
+    return feeEstimateWei;
+  }
+
+  public async estimateLikelyFinalizeTransferOutOfArgonFee(
+    args: IEthereumFinalizeTransferOutOfArgonArgs,
+  ): Promise<bigint> {
+    const resolvedExecutionRpcUrl = this.executionRpcUrl.trim();
+    if (!resolvedExecutionRpcUrl) {
+      throw new Error('Ethereum execution RPC is not configured for this app instance.');
+    }
+
+    const publicClient = createEthereumPublicClientForRpc(resolvedExecutionRpcUrl);
+    const data = encodeFunctionData({
+      abi: EvmContracts.mintingGatewayAbi,
+      functionName: 'finalizeTransferOutOfArgon',
+      args: [args.request, args.proof],
+    });
+
+    // Before the transfer is ready on Argon we do not have the real authorization signatures yet,
+    // so use calldata shape plus current fee rates for a provisional quote.
+    return await estimateEthereumFeeWeiForGas(
+      publicClient,
+      estimateFinalizeTransferOutOfArgonGas(data, args.proof.authorizations.length),
+    );
+  }
+
+  public async getNativeBalanceWei(): Promise<bigint> {
+    const { publicClient } = await this.createExecutionClient();
+    return await publicClient.getBalance({
+      address: getAddress(this.walletKeys.ethereumAddress),
+    });
+  }
+
+  public async finalizeTransferOutOfArgon(args: IEthereumFinalizeTransferOutOfArgonArgs): Promise<Hash> {
+    const chainConfig = await this.loadChainConfig();
+    const { chain, publicClient } = await this.createExecutionClient();
+    const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
+      publicClient,
+      from: getAddress(this.walletKeys.ethereumAddress),
+      chainId: chain.id,
+      to: chainConfig.gatewayAddress,
+      data: encodeFunctionData({
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'finalizeTransferOutOfArgon',
+        args: [args.request, args.proof],
+      }),
+    });
+    await this.ensureEthereumSignerPolicyConfigured(chainConfig);
+    const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
+
+    return await publicClient.sendRawTransaction({
+      serializedTransaction: serializeTransaction(transaction, signature),
+    });
+  }
+
+  public async confirmTransferOutOfArgon(transfer: IEthereumTransferOutOfArgon): Promise<IEthereumTransferOutOfArgon> {
+    if (transfer.targetBlockNumber != null && transfer.gatewayActivityNonce != null) {
+      return transfer;
+    }
+
+    const chainConfig = await this.loadChainConfig();
+    const { publicClient } = await this.createExecutionClient();
+    const receipt = await waitForIndexedReceipt(publicClient, transfer.targetTxHash);
+    const transferLog = receipt.logs.find(
+      log =>
+        log.address.toLowerCase() === chainConfig.gatewayAddress.toLowerCase() &&
+        log.topics[0]?.toLowerCase() === EvmContracts.MintingGatewayEvents.TransferOutOfArgonFinalized.topic,
+    );
+    if (!transferLog) {
+      throw new Error(
+        `Ethereum receipt ${receipt.transactionHash} did not emit TransferOutOfArgonFinalized from gateway ${chainConfig.gatewayAddress}`,
+      );
+    }
+
+    const decodedEvent = decodeEthereumGatewayActivityLog({
+      data: transferLog.data,
+      topics: [...transferLog.topics],
+    });
+    if (decodedEvent.kind !== EvmContracts.MintingGatewayEvents.TransferOutOfArgonFinalized.name) {
+      throw new Error(
+        `Ethereum receipt ${receipt.transactionHash} emitted the wrong gateway activity while finalizing a transfer out of Argon.`,
+      );
+    }
+
+    return {
+      ...transfer,
+      targetBlockNumber: Number(receipt.blockNumber),
+      targetBlockHash: receipt.blockHash,
+      gatewayActivityNonce: decodedEvent.gatewayState.gatewayActivityNonce,
+    };
+  }
+
   public async confirmTransferToArgon(transfer: IEthereumTransferToArgon): Promise<IEthereumTransferToArgon> {
     if (
       transfer.sourceBlockNumber !== undefined &&
@@ -152,7 +313,7 @@ export class EthereumClient {
 
     const chainConfig = await this.loadChainConfig();
     const { publicClient } = await this.createExecutionClient();
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: transfer.sourceTxHash });
+    const receipt = await waitForIndexedReceipt(publicClient, transfer.sourceTxHash);
     const logIndexes = findEthereumTransferToArgonStartedLogIndexes(receipt, chainConfig.gatewayAddress);
     const sourceLogIndex = logIndexes[0];
     const transferLog = sourceLogIndex !== undefined ? receipt.logs[sourceLogIndex] : undefined;
@@ -182,6 +343,137 @@ export class EthereumClient {
     };
   }
 
+  public async getReadyGatewayRelayPreview(
+    finalizedClient: IArgonQueryable,
+    relayerArgonAddress: string,
+    signer: { address: string; hdPath: `m/44'/60'/${string}` },
+  ): Promise<IEthereumGatewayRelayPreview> {
+    const {
+      publicClient: _publicClient,
+      transaction: _transaction,
+      unsignedTransaction: _unsignedTransaction,
+      ...preview
+    } = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer);
+    return preview;
+  }
+
+  public async applyReadyGatewayUpdates(
+    finalizedClient: IArgonQueryable,
+    relayerArgonAddress: string,
+    signer: { address: string; hdPath: `m/44'/60'/${string}` },
+  ): Promise<EthereumExecutionReceipt | undefined> {
+    const prepared = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer);
+    if (!prepared.canRelay || !prepared.transaction || !prepared.unsignedTransaction) {
+      return;
+    }
+    await this.ensureEthereumSignerPolicyConfigured();
+    const signature = await this.walletKeys.signEthereumTransaction(prepared.unsignedTransaction, signer.hdPath);
+    const hash = await prepared.publicClient.sendRawTransaction({
+      serializedTransaction: serializeTransaction(prepared.transaction, signature),
+    });
+
+    return await waitForIndexedReceipt(prepared.publicClient, hash);
+  }
+
+  private async prepareReadyGatewayRelay(
+    finalizedClient: IArgonQueryable,
+    relayerArgonAddress: string,
+    signer: { address: string; hdPath: `m/44'/60'/${string}` },
+  ): Promise<IPreparedGatewayRelay> {
+    const relayerArgonAccountId = toArgonAccountIdHex(relayerArgonAddress);
+    const chainConfig = await this.loadChainConfig();
+    const { chain, publicClient } = await this.createExecutionClient();
+    const batch = await getReadyEthereumGatewayUpdates(finalizedClient, publicClient, chainConfig);
+    const signerAddress = getAddress(signer.address);
+    const ethereumBalanceWei = await publicClient.getBalance({ address: signerAddress });
+    const activationCount = batch.updates.filter(
+      update => update.kind === EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityActivate,
+    ).length;
+    const deactivationCount = batch.updates.filter(
+      update => update.kind === EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityDeactivate,
+    ).length;
+    const firstQueueNonce = batch.updates[0]?.queueNonce;
+    const lastQueueNonce = batch.updates.at(-1)?.queueNonce;
+
+    if (batch.paused) {
+      return {
+        publicClient,
+        signerAddress,
+        ethereumBalanceWei,
+        expectedRepaymentMicrogons: batch.expectedRepaymentMicrogons,
+        estimatedMicrogonsPerEth: batch.estimatedMicrogonsPerEth,
+        updateCount: batch.updates.length,
+        activationCount,
+        deactivationCount,
+        firstQueueNonce,
+        lastQueueNonce,
+        isPaused: true,
+        canRelay: false,
+        reason: 'paused',
+      };
+    }
+
+    if (!activationCount || !batch.updates.length || batch.expectedRepaymentMicrogons <= 0n) {
+      return {
+        publicClient,
+        signerAddress,
+        ethereumBalanceWei,
+        expectedRepaymentMicrogons: batch.expectedRepaymentMicrogons,
+        estimatedMicrogonsPerEth: batch.estimatedMicrogonsPerEth,
+        updateCount: batch.updates.length,
+        activationCount,
+        deactivationCount,
+        firstQueueNonce,
+        lastQueueNonce,
+        isPaused: false,
+        canRelay: false,
+        reason: 'noActivations',
+      };
+    }
+    const { transaction, unsignedTransaction, feeEstimateWei } = await buildEthereumUnsignedTransaction({
+      publicClient,
+      from: signerAddress,
+      chainId: chain.id,
+      to: chainConfig.gatewayAddress,
+      data: encodeFunctionData({
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'applyGatewayUpdates',
+        args: [batch.currentCouncil, batch.updates, relayerArgonAccountId] satisfies ContractFunctionArgs<
+          typeof EvmContracts.mintingGatewayAbi,
+          'nonpayable',
+          'applyGatewayUpdates'
+        >,
+      }),
+    });
+
+    const reason =
+      ethereumBalanceWei < feeEstimateWei
+        ? 'insufficientBalance'
+        : batch.estimatedMicrogonsPerEth > 0n &&
+            convertWeiToMicrogons(feeEstimateWei, batch.estimatedMicrogonsPerEth) > batch.expectedRepaymentMicrogons
+          ? 'repaymentTooLow'
+          : undefined;
+
+    return {
+      publicClient,
+      transaction,
+      unsignedTransaction,
+      signerAddress,
+      ethereumBalanceWei,
+      feeEstimateWei,
+      expectedRepaymentMicrogons: batch.expectedRepaymentMicrogons,
+      estimatedMicrogonsPerEth: batch.estimatedMicrogonsPerEth,
+      updateCount: batch.updates.length,
+      activationCount,
+      deactivationCount,
+      firstQueueNonce,
+      lastQueueNonce,
+      isPaused: false,
+      canRelay: !reason,
+      reason,
+    };
+  }
+
   private async loadChainConfig(): Promise<IEthereumChainConfig> {
     const chainConfig = await loadEthereumChainConfigForRpc(this.executionRpcUrl);
     if (!chainConfig) {
@@ -189,6 +481,15 @@ export class EthereumClient {
     }
 
     return chainConfig;
+  }
+
+  private async ensureEthereumSignerPolicyConfigured(chainConfig?: IEthereumChainConfig) {
+    const config = chainConfig ?? (await this.loadChainConfig());
+    await this.walletKeys.configureEthereumSignerPolicy({
+      chainId: config.chainId,
+      gatewayAddress: config.gatewayAddress,
+      tokenAddresses: [config.argonTokenAddress, config.argonotTokenAddress],
+    });
   }
 
   private async createExecutionClient() {
@@ -218,6 +519,71 @@ export class EthereumClient {
       publicClient,
     };
   }
+
+  private async prepareTransferToArgon(args: {
+    moveToken: IEthereumMoveToken;
+    amountBaseUnits: bigint;
+    destinationAddress: string;
+  }) {
+    const { moveToken, amountBaseUnits, destinationAddress } = args;
+    const mainchainClient = await getMainchainClient(false);
+    const chainConfig = await this.loadChainConfig();
+    const tokenAddress =
+      moveToken === MoveToken.ARGNOT ? chainConfig.argonotTokenAddress : chainConfig.argonTokenAddress;
+    const { chain, publicClient } = await this.createExecutionClient();
+    const from = getAddress(this.walletKeys.ethereumAddress);
+    const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits);
+    const latestBlock = await publicClient.getBlock();
+    const permitDeadline = latestBlock.timestamp + 3600n;
+    const [permitNonce, tokenName] = await Promise.all([
+      publicClient.readContract({
+        address: tokenAddress,
+        abi: EvmContracts.argonTokenAbi,
+        functionName: 'nonces',
+        args: [from],
+      }),
+      publicClient.readContract({
+        address: tokenAddress,
+        abi: EvmContracts.argonTokenAbi,
+        functionName: 'name',
+      }),
+    ]);
+    const permitSignature = await this.walletKeys.signEthereumPermit({
+      tokenAddress,
+      tokenName,
+      value: amountBaseUnits,
+      nonce: permitNonce,
+      deadline: permitDeadline,
+    });
+    const argonDestination = mainchainClient.createType('AccountId32', destinationAddress).toHex();
+    const callData = encodeFunctionData({
+      abi: EvmContracts.mintingGatewayAbi,
+      functionName: 'startTransferToArgon',
+      args: [
+        tokenAddress,
+        runtimeAmount,
+        argonDestination,
+        permitDeadline,
+        permitSignature.v,
+        permitSignature.r as Hex,
+        permitSignature.s as Hex,
+      ],
+    });
+    const { transaction, unsignedTransaction, feeEstimateWei } = await buildEthereumUnsignedTransaction({
+      publicClient,
+      from,
+      chainId: chain.id,
+      to: chainConfig.gatewayAddress,
+      data: callData,
+    });
+
+    return {
+      publicClient,
+      transaction,
+      unsignedTransaction,
+      feeEstimateWei,
+    };
+  }
 }
 
 export async function loadEthereumChainConfig(): Promise<IEthereumChainConfig | undefined> {
@@ -242,11 +608,11 @@ async function loadEthereumChainConfigForRpc(executionRpcUrl: string): Promise<I
     const ethereumClient = createEthereumPublicClientForRpc(resolvedExecutionRpcUrl);
     const config = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
 
-    if (config.isNone || !config.unwrap().isEthereum) {
+    if (config.isNone || !config.unwrap().isEvm) {
       return undefined;
     }
 
-    const ethereumConfig = config.unwrap().asEthereum;
+    const ethereumConfig = config.unwrap().asEvm;
     return {
       chainId: await ethereumClient.getChainId(),
       gatewayAddress: getAddress(ethereumConfig.gateway.toHex()),
@@ -289,15 +655,393 @@ function createEthereumPublicClientForRpc(
 }
 
 function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigint {
-  if (amountBaseUnits % MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE !== 0n) {
+  if (amountBaseUnits % EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE !== 0n) {
     throw new Error('Ethereum token balance is not aligned to Argon runtime units.');
   }
 
-  return amountBaseUnits / MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
+  return amountBaseUnits / EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
 }
 
 export function getEthereumExecutionRpcUrl(): string | undefined {
   return NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim() || undefined;
+}
+
+// Keep runtime batching aligned with the integration harness so approval relays hit Ethereum exactly once.
+async function getReadyEthereumGatewayUpdates(
+  finalizedClient: IArgonQueryable,
+  gatewayClient: Pick<PublicClient, 'readContract'>,
+  chainConfig: IEthereumChainConfig,
+  maxQueueEntries = 100,
+): Promise<{
+  currentCouncil: IEthereumGatewayCouncilSnapshot;
+  estimatedMicrogonsPerEth: bigint;
+  expectedRepaymentMicrogons: bigint;
+  paused: boolean;
+  updates: IEthereumGatewayUpdate[];
+}> {
+  const currentCouncilHashOption =
+    await finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum');
+  if (currentCouncilHashOption.isNone) {
+    throw new Error('Active GlobalIssuanceCouncil not found for Ethereum.');
+  }
+
+  const currentCouncilHash = toHexValue(currentCouncilHashOption.unwrap());
+  const councilCache = new Map<Hex, LoadedCouncil>();
+  const currentCouncil = councilToSnapshot(await loadCouncilByHash(finalizedClient, currentCouncilHash, councilCache));
+  const hashContext: IEthereumGatewayHashContext = {
+    chainId: BigInt(chainConfig.chainId),
+    gatewayAddress: chainConfig.gatewayAddress,
+  };
+  const repaymentPricingOption =
+    await finalizedClient.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain(
+      'Ethereum',
+    );
+  const estimatedMicrogonsPerEth = repaymentPricingOption.isSome
+    ? repaymentPricingOption.unwrap().estimatedMicrogonsPerEth.toBigInt()
+    : 0n;
+
+  const [rawArgonApprovalsNonce, rawArgonApprovalsHash, rawPaused] = await Promise.all([
+    gatewayClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'argonApprovalsNonce',
+    }),
+    gatewayClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'argonApprovalsHash',
+    }),
+    gatewayClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'paused',
+    }),
+  ]);
+  const argonApprovalsNonce = rawArgonApprovalsNonce as bigint;
+  const argonApprovalsHash = rawArgonApprovalsHash as Hex;
+  const paused = rawPaused as boolean;
+  const relayableUpdates: RelayableGatewayUpdate[] = [];
+  let lastActivationIndex = -1;
+  let expectedPreviousApprovalHash = argonApprovalsHash;
+
+  if (!paused) {
+    for (let queueNonce = argonApprovalsNonce + 1n; relayableUpdates.length < maxQueueEntries; queueNonce += 1n) {
+      const entryOption = await finalizedClient.query.crosschainTransfer.councilApprovalQueueByDestinationChainAndNonce(
+        'Ethereum',
+        queueNonce,
+      );
+      if (entryOption.isNone) {
+        break;
+      }
+
+      const entry = entryOption.unwrap();
+      const approvingCouncilHash = toHexValue(entry.approvingCouncilHash);
+
+      if (
+        !(await queueEntryIsReady(finalizedClient, entry, approvingCouncilHash, councilCache, hashContext, queueNonce))
+      ) {
+        break;
+      }
+
+      if (toHexValue(entry.previousApprovalHash) !== expectedPreviousApprovalHash) {
+        throw new Error(
+          `Queue nonce ${queueNonce} expected previous approval hash ${expectedPreviousApprovalHash}, received ${toHexValue(entry.previousApprovalHash)}`,
+        );
+      }
+
+      const relayableUpdate = await buildGatewayUpdate(
+        finalizedClient,
+        hashContext,
+        queueNonce,
+        entry,
+        approvingCouncilHash,
+      );
+      relayableUpdates.push(relayableUpdate);
+      if (relayableUpdate.isActivation) {
+        lastActivationIndex = relayableUpdates.length - 1;
+      }
+      expectedPreviousApprovalHash = toHexValue(entry.approvalHash);
+    }
+  }
+
+  const updates: IEthereumGatewayUpdate[] =
+    lastActivationIndex >= 0 ? relayableUpdates.slice(0, lastActivationIndex + 1).map(({ update }) => update) : [];
+  const expectedRepaymentMicrogons =
+    lastActivationIndex >= 0
+      ? relayableUpdates
+          .slice(0, lastActivationIndex + 1)
+          .reduce((sum, { expectedRepaymentMicrogons }) => sum + expectedRepaymentMicrogons, 0n)
+      : 0n;
+
+  return {
+    currentCouncil,
+    estimatedMicrogonsPerEth,
+    expectedRepaymentMicrogons,
+    paused,
+    updates,
+  };
+}
+
+async function buildGatewayUpdate(
+  finalizedClient: IArgonQueryable,
+  hashContext: IEthereumGatewayHashContext,
+  queueNonce: bigint,
+  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
+  approvingCouncilHash: Hex,
+): Promise<RelayableGatewayUpdate> {
+  const signatures = getSortedSignatures(entry.signatures);
+
+  if (entry.target.isMintingAuthorityDeactivation) {
+    const { payload } = validateDeactivationEntry(hashContext, queueNonce, entry, approvingCouncilHash);
+
+    return {
+      expectedRepaymentMicrogons: 0n,
+      isActivation: false,
+      update: {
+        queueNonce,
+        kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityDeactivate,
+        payload,
+        signatures,
+      },
+    };
+  }
+
+  if (!entry.target.isMintingAuthorityActivation) {
+    throw new Error(`Unsupported approval queue target ${entry.target.type}`);
+  }
+
+  const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityActivation));
+  const authorityOption = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
+  if (authorityOption.isNone) {
+    throw new Error(`Minting authority activation ${signingKey} not found for queue nonce ${queueNonce}`);
+  }
+
+  const authority = authorityOption.unwrap();
+  if (authority.destinationChain.type !== 'Ethereum') {
+    throw new Error(
+      `Minting authority ${signingKey} belongs to ${String(authority.destinationChain.type)}, expected Ethereum`,
+    );
+  }
+
+  const target: IMintingAuthorityActivationTarget = {
+    microgonCollateral: authority.gatewayRemainingMicrogonCollateral.toBigInt(),
+    micronotCollateral: authority.gatewayRemainingMicronotCollateral.toBigInt(),
+    signingKey,
+  };
+  const payload = (
+    EvmContracts.encodeMintingGatewayMintingAuthorityActivationTarget as (
+      target: IMintingAuthorityActivationTarget,
+    ) => Hex
+  )(target);
+  const targetPayloadHash = payloadHashFromActivationPayload(hashContext, target);
+  const approvalHash = (
+    EvmContracts.hashMintingGatewayGatewayUpdateApproval as (
+      hashContext: IEthereumGatewayHashContext,
+      args: {
+        queueNonce: bigint;
+        approvingCouncilHash: Hex;
+        kind: bigint;
+        targetId: Hex;
+        targetPayloadHash: Hex;
+        previousUpdateHash: Hex;
+      },
+    ) => Hex
+  )(hashContext, {
+    queueNonce,
+    approvingCouncilHash,
+    kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityActivate,
+    targetId: `0x${signingKey.slice(2).padStart(64, '0').toLowerCase()}`,
+    targetPayloadHash,
+    previousUpdateHash: toHexValue(entry.previousApprovalHash),
+  });
+
+  if (toHexValue(entry.targetPayloadHash) !== targetPayloadHash) {
+    throw new Error(`Queue nonce ${queueNonce} target payload hash does not match authority`);
+  }
+  if (toHexValue(entry.approvalHash) !== approvalHash) {
+    throw new Error(
+      `Queue nonce ${queueNonce} approval hash does not match authority: actual=${toHexValue(entry.approvalHash)} expected=${approvalHash} previous=${toHexValue(entry.previousApprovalHash)} council=${approvingCouncilHash} targetPayload=${toHexValue(entry.targetPayloadHash)}`,
+    );
+  }
+
+  return {
+    expectedRepaymentMicrogons:
+      authority.activationBaseRepaymentQuote.toBigInt() + authority.activationSignatureRepaymentQuote.toBigInt(),
+    isActivation: true,
+    update: {
+      queueNonce,
+      kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityActivate,
+      payload,
+      signatures,
+    },
+  };
+}
+
+async function loadCouncilByHash(
+  client: IArgonQueryable,
+  councilHash: Hex,
+  cache: Map<Hex, LoadedCouncil>,
+): Promise<LoadedCouncil> {
+  const cached = cache.get(councilHash);
+  if (cached) {
+    return cached;
+  }
+
+  const councilOption = await client.query.crosschainTransfer.globalIssuanceCouncilByHash(councilHash);
+  if (councilOption.isNone) {
+    throw new Error(`GlobalIssuanceCouncil ${councilHash} not found.`);
+  }
+
+  const council = councilOption.unwrap();
+  const loaded = {
+    totalWeight: council.totalWeight.toBigInt(),
+    members: [...council.members.entries()]
+      .map(([signer, member]) => ({
+        signer: getAddress(toHexValue(signer)),
+        weight: member.weight.toBigInt(),
+      }))
+      .sort((left, right) => left.signer.localeCompare(right.signer)),
+  };
+
+  cache.set(councilHash, loaded);
+  return loaded;
+}
+
+async function queueEntryIsReady(
+  finalizedClient: IArgonQueryable,
+  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
+  approvingCouncilHash: Hex,
+  councilCache: Map<Hex, LoadedCouncil>,
+  hashContext: IEthereumGatewayHashContext,
+  queueNonce: bigint,
+) {
+  if (entry.target.isMintingAuthorityDeactivation) {
+    validateDeactivationEntry(hashContext, queueNonce, entry, approvingCouncilHash);
+    return true;
+  }
+
+  const approvingCouncil = await loadCouncilByHash(finalizedClient, approvingCouncilHash, councilCache);
+  return queueEntryHasQuorum(entry, approvingCouncil);
+}
+
+function queueEntryHasQuorum(
+  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
+  council: LoadedCouncil,
+): boolean {
+  const signedWeight = [...entry.signatures.entries()].reduce((total, [signer]) => {
+    const signerAddress = getAddress(toHexValue(signer));
+    const member = council.members.find(x => x.signer === signerAddress);
+    if (!member) {
+      throw new Error(`Signature submitted by ${signerAddress}, which is not in the council`);
+    }
+
+    return total + member.weight;
+  }, 0n);
+
+  return signedWeight * 2n > council.totalWeight;
+}
+
+function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnapshot {
+  return {
+    signers: council.members.map(member => member.signer),
+    weights: council.members.map(member => member.weight),
+  };
+}
+
+function payloadHashFromActivationPayload(
+  hashContext: IEthereumGatewayHashContext,
+  target: IMintingAuthorityActivationTarget,
+): Hex {
+  return (
+    EvmContracts.hashMintingGatewayActivateMintingAuthority as (
+      hashContext: IEthereumGatewayHashContext,
+      target: IMintingAuthorityActivationTarget,
+    ) => Hex
+  )(hashContext, target);
+}
+
+function validateDeactivationEntry(
+  hashContext: IEthereumGatewayHashContext,
+  queueNonce: bigint,
+  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
+  approvingCouncilHash: Hex,
+) {
+  const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityDeactivation));
+  const target: IMintingAuthorityDeactivationTarget = { signingKey };
+  const payload = (
+    EvmContracts.encodeMintingGatewayMintingAuthorityDeactivateTarget as (
+      target: IMintingAuthorityDeactivationTarget,
+    ) => Hex
+  )(target);
+  const targetPayloadHash = keccak256(payload);
+  const approvalHash = (
+    EvmContracts.hashMintingGatewayMintingAuthorityDeactivation as (
+      hashContext: IEthereumGatewayHashContext,
+      args: {
+        queueNonce: bigint;
+        previousUpdateHash: Hex;
+        target: IMintingAuthorityDeactivationTarget;
+      },
+    ) => Hex
+  )(hashContext, {
+    queueNonce,
+    previousUpdateHash: toHexValue(entry.previousApprovalHash),
+    target,
+  });
+
+  if (toHexValue(entry.targetPayloadHash) !== targetPayloadHash) {
+    throw new Error(`Queue nonce ${queueNonce} target payload hash does not match deactivation`);
+  }
+  if (toHexValue(entry.approvalHash) !== approvalHash) {
+    throw new Error(
+      `Queue nonce ${queueNonce} approval hash does not match deactivation: actual=${toHexValue(entry.approvalHash)} expected=${approvalHash} previous=${toHexValue(entry.previousApprovalHash)} council=${approvingCouncilHash}`,
+    );
+  }
+
+  const deactivationSignatures = [...entry.signatures.entries()];
+  if (deactivationSignatures.length !== 1) {
+    throw new Error(
+      `Queue nonce ${queueNonce} expected exactly one deactivation signature, received ${deactivationSignatures.length}`,
+    );
+  }
+
+  const [signer] = deactivationSignatures[0];
+  if (getAddress(toHexValue(signer)) !== signingKey) {
+    throw new Error(
+      `Queue nonce ${queueNonce} deactivation signature was submitted by ${getAddress(toHexValue(signer))}, expected ${signingKey}`,
+    );
+  }
+
+  return { payload };
+}
+
+function getSortedSignatures(signatures: PalletCrosschainTransferCouncilApprovalQueueEntry['signatures']): Hex[] {
+  return [...signatures.entries()]
+    .sort(([leftSigner], [rightSigner]) => toHexValue(leftSigner).localeCompare(toHexValue(rightSigner)))
+    .map(([, signature]) => toEvmRecoverableSignature(toHexValue(signature)));
+}
+
+function toHexValue(value: { toHex(): string }): Hex {
+  return value.toHex() as Hex;
+}
+
+function toArgonAccountIdHex(address: string): Hex {
+  return toHex(decodeAddress(address), { size: 32 });
+}
+
+export function toEvmRecoverableSignature(signature: Hex): Hex {
+  const bytes = hexToU8a(signature);
+  if (bytes.length !== 65) {
+    throw new Error(`Expected 65-byte ECDSA signature, received ${bytes.length} bytes.`);
+  }
+  if (bytes[64] <= 1) {
+    bytes[64] += 27;
+  }
+  return u8aToHex(bytes);
+}
+
+function convertWeiToMicrogons(wei: bigint, estimatedMicrogonsPerEth: bigint) {
+  return (wei * estimatedMicrogonsPerEth) / 10n ** 18n;
 }
 
 async function buildEthereumUnsignedTransaction(args: {
@@ -306,7 +1050,7 @@ async function buildEthereumUnsignedTransaction(args: {
   chainId: number;
   to: Address;
   data: Hex;
-}): Promise<{ transaction: TransactionSerializableEIP1559; unsignedTransaction: Hex }> {
+}): Promise<{ transaction: TransactionSerializableEIP1559; unsignedTransaction: Hex; feeEstimateWei: bigint }> {
   const { publicClient, from, chainId, to, data } = args;
   const [nonce, gasEstimate, fees] = await Promise.all([
     publicClient.getTransactionCount({ address: from, blockTag: 'pending' }),
@@ -319,13 +1063,16 @@ async function buildEthereumUnsignedTransaction(args: {
     publicClient.estimateFeesPerGas(),
   ]);
   const fallbackGasPrice = fees.gasPrice ?? (await publicClient.getGasPrice());
+  const gas = (gasEstimate * 12n) / 10n;
+  const maxFeePerGas = fees.maxFeePerGas ?? fallbackGasPrice;
+  const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? fallbackGasPrice;
 
   const transaction: TransactionSerializableEIP1559 = {
     chainId,
     nonce,
-    gas: (gasEstimate * 12n) / 10n,
-    maxFeePerGas: fees.maxFeePerGas ?? fallbackGasPrice,
-    maxPriorityFeePerGas: fees.maxPriorityFeePerGas ?? fallbackGasPrice,
+    gas,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
     to,
     value: 0n,
     data,
@@ -336,7 +1083,19 @@ async function buildEthereumUnsignedTransaction(args: {
   return {
     transaction,
     unsignedTransaction: serializeTransaction(transaction),
+    feeEstimateWei: gas * maxFeePerGas,
   };
+}
+
+async function estimateEthereumFeeWeiForGas(publicClient: PublicClient, gas: bigint) {
+  const fees = await publicClient.estimateFeesPerGas();
+  const fallbackGasPrice = fees.gasPrice ?? (await publicClient.getGasPrice());
+  return gas * (fees.maxFeePerGas ?? fallbackGasPrice);
+}
+
+function estimateFinalizeTransferOutOfArgonGas(data: Hex, authorizationCount: number) {
+  const calldataGas = hexToBytes(data).reduce((total, nextByte) => total + (nextByte === 0 ? 4n : 16n), 0n);
+  return 21_000n + calldataGas + 145_000n + BigInt(authorizationCount) * 45_000n;
 }
 
 function getEthereumFinalityMillis(): number {
@@ -348,4 +1107,35 @@ function getEthereumFinalityMillis(): number {
   }
 
   return value;
+}
+
+async function waitForIndexedReceipt(publicClient: PublicClient, hash: Hash): Promise<EthereumExecutionReceipt> {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.blockNumber !== null) {
+    return receipt;
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 120_000) {
+    try {
+      const nextReceipt = await publicClient.getTransactionReceipt({ hash });
+      if (nextReceipt.blockNumber !== null) {
+        return nextReceipt;
+      }
+    } catch (error) {
+      const errorText =
+        error instanceof Error
+          ? [error.message, 'details' in error && typeof error.details === 'string' ? error.details : undefined]
+              .filter(Boolean)
+              .join(' ')
+          : String(error);
+      if (!errorText.includes('indexing is in progress')) {
+        throw error;
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`Timed out waiting for Ethereum receipt ${hash} to include a block number.`);
 }

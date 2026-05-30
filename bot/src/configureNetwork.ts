@@ -1,4 +1,4 @@
-import { NetworkConfig, NetworkConfigSettings } from '@argonprotocol/apps-core';
+import { NetworkConfig, NetworkConfigSettings, type INetworkConfigOverride } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 
 export async function configureNetwork(archiveUrl?: string): Promise<void> {
@@ -21,4 +21,33 @@ export async function configureNetwork(archiveUrl?: string): Promise<void> {
     await NetworkConfig.updateConfig(client);
     await client.disconnect();
   }
+
+  const runtimeOverride = readRuntimeOverride(networkName);
+  if (runtimeOverride) {
+    NetworkConfig.setRuntimeOverride(networkName, runtimeOverride);
+  }
+}
+
+function readRuntimeOverride(networkName: keyof typeof NetworkConfigSettings): INetworkConfigOverride | undefined {
+  const rawOverride = process.env.ARGON_NETWORK_CONFIG_OVERRIDE?.trim();
+  const envExecutionRpcUrl = process.env.ETHEREUM_EXECUTION_RPC_URL?.trim();
+  const parsedOverride = rawOverride ? (JSON.parse(rawOverride) as INetworkConfigOverride) : undefined;
+
+  if (!parsedOverride && !envExecutionRpcUrl) {
+    return;
+  }
+
+  const baseOverride = parsedOverride ?? {};
+  return {
+    ...baseOverride,
+    ...(envExecutionRpcUrl
+      ? {
+          ethereumNetwork: {
+            ...baseOverride.ethereumNetwork,
+            executionRpcUrl: envExecutionRpcUrl,
+          },
+        }
+      : {}),
+    archiveUrl: baseOverride.archiveUrl ?? NetworkConfigSettings[networkName].archiveUrl,
+  };
 }

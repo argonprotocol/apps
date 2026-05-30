@@ -131,8 +131,7 @@ export class MyVaultRecovery {
       for (let i = 0; i < maxTries; i++) {
         const next = await bitcoinLocks.getDerivedPubkey(vaultId, i);
         if (u8aEq(ownerPubkey, next.ownerBitcoinPubkey)) {
-          const table = await bitcoinLocks.getTable();
-          await table.setVaultHdKeyIndex(vaultId, i);
+          await bitcoinLocks.trackDerivedBitcoinLockKey(vaultId, next);
           return next;
         }
       }

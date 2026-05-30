@@ -43,6 +43,9 @@ type IBasicEmitter = {
   openVaultCollect: void;
   openVaultMembersOverlay: void;
   openTreasuryBondsOverlay: void;
+  openArgonotCommitmentOverlay: void;
+  openMintingAuthorityRequestOverlay: void;
+  openGatewayRelayOverlay: void;
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
   resumeBitcoinFunding: IBitcoinLockRecord;

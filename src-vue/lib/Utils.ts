@@ -2,6 +2,7 @@ import { getPercent, JsonExt, percentOf } from '@argonprotocol/apps-core';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
+import { formatEther } from 'viem';
 
 export { getPercent, percentOf };
 export { convertFromSqliteFields } from '@argonprotocol/apps-core';
@@ -17,6 +18,15 @@ export async function getInstanceConfigDir(): Promise<string> {
 
 export function abbreviateAddress(address: string, length = 4) {
   return address.slice(0, 6) + '...' + address.slice(-length);
+}
+
+export function formatEvmNativeFeeWei(valueWei: bigint, maximumFractionDigits = 14) {
+  const [wholePart, fractionalPart = ''] = formatEther(valueWei).split('.');
+  const trimmedFractionalPart = fractionalPart.replace(/0+$/, '').slice(0, maximumFractionDigits);
+
+  return trimmedFractionalPart
+    ? `${BigInt(wholePart).toLocaleString('en-US')}.${trimmedFractionalPart}`
+    : BigInt(wholePart).toLocaleString('en-US');
 }
 
 export function toSqlParams(

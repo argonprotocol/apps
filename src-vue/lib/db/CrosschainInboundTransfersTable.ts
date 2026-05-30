@@ -59,14 +59,15 @@ export class CrosschainInboundTransfersTable extends BaseTable {
   }
 
   public async getLatestPendingByToken(
+    sourceChain: string,
     token: MoveToken.ARGN | MoveToken.ARGNOT,
   ): Promise<ICrosschainInboundTransferRecord | undefined> {
     const records = await this.db.select<ICrosschainInboundTransferRecord[]>(
       `SELECT * FROM CrosschainInboundTransfers
-        WHERE token = ? AND status != ?
+        WHERE sourceChain = ? AND token = ? AND status != ?
         ORDER BY updatedAt DESC, createdAt DESC
         LIMIT 1`,
-      toSqlParams([token, CrosschainInboundTransferStatus.ArgonFinalized]),
+      toSqlParams([sourceChain, token, CrosschainInboundTransferStatus.ArgonFinalized]),
     );
     return convertFromSqliteFields<ICrosschainInboundTransferRecord[]>(records, this.fields)[0];
   }
@@ -144,6 +145,7 @@ export class CrosschainInboundTransfersTable extends BaseTable {
   }
 
   public async insertSourceSubmitted(args: {
+    sourceChain: string;
     transferId: string;
     token: MoveToken.ARGN | MoveToken.ARGNOT;
     amountBaseUnits: bigint;
@@ -151,10 +153,11 @@ export class CrosschainInboundTransfersTable extends BaseTable {
     argonDestinationAddress: string;
     sourceTxHash: Hash;
   }) {
-    const { transferId, token, amountBaseUnits, sourceAddress, argonDestinationAddress, sourceTxHash } = args;
+    const { sourceChain, transferId, token, amountBaseUnits, sourceAddress, argonDestinationAddress, sourceTxHash } =
+      args;
     return this.upsert({
       transferId,
-      sourceChain: 'ethereum',
+      sourceChain,
       token,
       amountBaseUnits,
       sourceAddress,

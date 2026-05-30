@@ -25,6 +25,9 @@
       <WalletOverlay />
       <MoveCapitalOverlay />
       <TreasuryBondsOverlay />
+      <ArgonotCommitmentOverlay />
+      <MintingAuthorityRequestOverlay />
+      <GatewayRelayOverlay />
       <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <OperationalOverlay />
@@ -79,6 +82,9 @@ import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverla
 import Portfolio from './panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays/MoveCapitalOverlay.vue';
 import TreasuryBondsOverlay from './overlays/TreasuryBondsOverlay.vue';
+import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
+import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOverlay.vue';
+import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
 import VaultMembersOverlay from './overlays/VaultMembersOverlay.vue';
 import OperationalOverlay from './overlays/OperationalOverlay.vue';

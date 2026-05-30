@@ -55,7 +55,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type { BitcoinLockRelayStatus, IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { TransactionTracker } from './TransactionTracker.ts';
-import { WalletKeys } from './WalletKeys.ts';
+import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
@@ -351,6 +351,7 @@ export default class BitcoinLocks {
 
       await this.#transactionTracker.load();
       await this.syncFailedBitcoinRequestLocksFromTransactions();
+      await this.migrateLegacyBitcoinLockHdKeys();
       for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
         const { tx } = txInfo;
         if (tx.extrinsicType === ExtrinsicType.BitcoinRequestLock) {
@@ -450,19 +451,69 @@ export default class BitcoinLocks {
   }
 
   private async getNextUtxoPubkey(args: { vault: Vault }) {
+    await this.load();
     const { vault } = args;
-    const table = await this.getTable();
-
-    // get bitcoin xpriv to generate the pubkey
-    const nextIndex = await table.getNextVaultHdKeyIndex(vault.vaultId);
-    return this.getDerivedPubkey(vault.vaultId, nextIndex);
+    const db = await this.dbPromise;
+    const scopeKey = vault.vaultId.toString();
+    const derivedPubkey = await this.getDerivedPubkey(
+      vault.vaultId,
+      await db.walletHdKeysTable.getNextHdKeyIndex({
+        keyRole: 'bitcoinLock',
+        scopeKey,
+      }),
+    );
+    await this.trackDerivedBitcoinLockKey(vault.vaultId, derivedPubkey);
+    return derivedPubkey;
   }
 
   public async getDerivedPubkey(vaultId: number, index: number) {
-    const hdPath = `m/1018'/0'/${vaultId}'/0/${index}'`;
-    const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(hdPath, this.bitcoinNetwork);
-    const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
-    return { ownerBitcoinPubkey, hdPath };
+    return await deriveBitcoinLockHdKey({
+      walletKeys: this.walletKeys,
+      bitcoinNetwork: this.bitcoinNetwork,
+      vaultId,
+      hdIndex: index,
+    });
+  }
+
+  public async trackDerivedBitcoinLockKey(
+    vaultId: number,
+    derivedPubkey: Awaited<ReturnType<BitcoinLocks['getDerivedPubkey']>>,
+  ): Promise<void> {
+    const db = await this.dbPromise;
+    await db.walletHdKeysTable.upsert({
+      keyRole: 'bitcoinLock',
+      scopeKey: vaultId.toString(),
+      hdIndex: derivedPubkey.hdIndex,
+      hdPath: derivedPubkey.hdPath,
+      address: derivedPubkey.address,
+      publicKeyHex: u8aToHex(derivedPubkey.ownerBitcoinPubkey),
+    });
+  }
+
+  private async migrateLegacyBitcoinLockHdKeys(): Promise<void> {
+    const db = await this.dbPromise;
+    const legacyRows = await db.select<{ vaultId: number; latestIndex: number }[]>(
+      'SELECT vaultId, latestIndex FROM BitcoinLockVaultHdSeq',
+      [],
+    );
+    if (!legacyRows.length) {
+      return;
+    }
+
+    for (const { vaultId, latestIndex } of legacyRows) {
+      const scopeKey = vaultId.toString();
+      const nextHdIndex = await db.walletHdKeysTable.getNextHdKeyIndex({
+        keyRole: 'bitcoinLock',
+        scopeKey,
+      });
+      if (nextHdIndex > latestIndex) {
+        continue;
+      }
+
+      await this.trackDerivedBitcoinLockKey(vaultId, await this.getDerivedPubkey(vaultId, latestIndex));
+    }
+
+    await db.execute('DELETE FROM BitcoinLockVaultHdSeq', []);
   }
 
   public async satoshisForArgonLiquidity(microgonLiquidity: bigint): Promise<bigint> {
@@ -833,45 +884,50 @@ export default class BitcoinLocks {
 
   private async onBitcoinLockFinalized(txInfo: TransactionInfo<IBitcoinRequestLockMetadata>) {
     const postProcessor = txInfo.createPostProcessor();
-    const genericClient = await getMainchainClient(true);
-    const txResult = txInfo.txResult;
-    const blockHash = await txResult.waitForFinalizedBlock.catch(error => {
-      if (!txResult.extrinsicError) throw error;
-    });
-    const uuid = txInfo.tx.metadataJson.bitcoin.uuid;
-    const table = await this.getTable();
+    try {
+      const genericClient = await getMainchainClient(true);
+      const txResult = txInfo.txResult;
+      const blockHash = await txResult.waitForFinalizedBlock.catch(error => {
+        if (!txResult.extrinsicError) throw error;
+      });
+      const uuid = txInfo.tx.metadataJson.bitcoin.uuid;
+      const table = await this.getTable();
 
-    if (txResult.extrinsicError) {
-      const errorJson = BitcoinLocks.toBlockExtrinsicErrorJson(txResult.extrinsicError);
-      const pendingLock = this.data.pendingLocks.find(lock => lock.uuid === uuid);
-      if (pendingLock) {
-        await table.setLockFailed(pendingLock, errorJson);
-      } else {
-        const failedRecord = await table.setLockFailedByUuid(uuid, errorJson);
-        if (failedRecord) {
-          const pendingIdx = this.data.pendingLocks.findIndex(lock => lock.uuid === uuid);
-          if (pendingIdx >= 0) {
-            this.data.pendingLocks.splice(pendingIdx, 1, failedRecord);
+      if (txResult.extrinsicError) {
+        const errorJson = BitcoinLocks.toBlockExtrinsicErrorJson(txResult.extrinsicError);
+        const pendingLock = this.data.pendingLocks.find(lock => lock.uuid === uuid);
+        if (pendingLock) {
+          await table.setLockFailed(pendingLock, errorJson);
+        } else {
+          const failedRecord = await table.setLockFailedByUuid(uuid, errorJson);
+          if (failedRecord) {
+            const pendingIdx = this.data.pendingLocks.findIndex(lock => lock.uuid === uuid);
+            if (pendingIdx >= 0) {
+              this.data.pendingLocks.splice(pendingIdx, 1, failedRecord);
+            }
           }
         }
+        postProcessor.resolve();
+        return;
       }
+
+      const typeClient = await genericClient.at(blockHash!);
+      const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
+      const record = await this.finalizePendingRecord(
+        { uuid },
+        {
+          lock,
+          createdAtArgonBlockHeight: createdAtHeight,
+          finalFee: txResult.finalFee!,
+        },
+      );
       postProcessor.resolve();
-      return;
+
+      return record;
+    } catch (error) {
+      postProcessor.reject(error as Error);
+      throw error;
     }
-
-    const typeClient = await genericClient.at(blockHash!);
-    const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
-    const record = await this.finalizePendingRecord(
-      { uuid },
-      {
-        lock,
-        createdAtArgonBlockHeight: createdAtHeight,
-        finalFee: txResult.finalFee!,
-      },
-    );
-    postProcessor.resolve();
-
-    return record;
   }
 
   public static toBlockExtrinsicErrorJson(error: unknown): IBitcoinLockBlockExtrinsicError {
@@ -898,7 +954,12 @@ export default class BitcoinLocks {
       if (!error) continue;
 
       const pendingLock = this.data.pendingLocks.find(lock => lock.uuid === uuid);
-      if (pendingLock && pendingLock.status !== BitcoinLockStatus.LockFailed) {
+      if (
+        pendingLock &&
+        !pendingLock.utxoId &&
+        pendingLock.status !== BitcoinLockStatus.LockFailed &&
+        pendingLock.status !== BitcoinLockStatus.LockFailedAcknowledged
+      ) {
         await table.setLockFailed(pendingLock, BitcoinLocks.toBlockExtrinsicErrorJson(error));
       }
     }
@@ -1600,7 +1661,11 @@ export default class BitcoinLocks {
   }
 
   public isInactiveForVaultDisplay(lock: Pick<IBitcoinLockRecord, 'status'>): boolean {
-    return this.isFinishedStatus(lock) || lock.status === BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged;
+    return (
+      this.isFinishedStatus(lock) ||
+      lock.status === BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged ||
+      lock.status === BitcoinLockStatus.LockFailedAcknowledged
+    );
   }
 
   public isReleaseStatus(lock: Pick<IBitcoinLockRecord, 'status'>): boolean {
@@ -1788,6 +1853,11 @@ export default class BitcoinLocks {
 
   public async acknowledgeExpiredWaitingForFunding(lock: IBitcoinLockRecord): Promise<void> {
     await this.runInQueueForUtxo(lock, 30e3, () => this.acknowledgeExpiredWaitingForFundingUnqueued(lock));
+  }
+
+  public async acknowledgeFailed(lock: IBitcoinLockRecord): Promise<void> {
+    const lockTable = await this.getTable();
+    await lockTable.setLockFailedAcknowledged(lock);
   }
 
   public getLatestMismatchAcceptTxInfo(utxoId: number): TransactionInfo | undefined {

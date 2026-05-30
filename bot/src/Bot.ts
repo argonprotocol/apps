@@ -239,9 +239,9 @@ export default class Bot {
         });
       }
 
-      await this.relayService.start();
       await this.ethereumBeaconSyncService?.start();
       await this.ethereumGatewayProverService.start();
+      await this.relayService.start();
 
       this.biddingRules = this.loadBiddingRules();
       this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;

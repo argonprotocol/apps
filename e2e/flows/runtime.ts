@@ -49,7 +49,7 @@ export async function executeFlow(
   flow: IE2EFlowDefinition,
   execution: IE2EFlowExecutionOptions = {},
 ): Promise<IE2EFlowExecutionResult> {
-  const data = new Map<string, unknown>();
+  const data = new Map<string, unknown>(Object.entries(execution.initialData ?? {}));
   const input = normalizeInput(execution.input);
   const defaultTimeoutMs = flow.defaultTimeoutMs ?? DEFAULT_FLOW_TIMEOUT_MS;
   let activeOperationName = '';

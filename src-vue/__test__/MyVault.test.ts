@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MiningFrames } from '@argonprotocol/apps-core';
 import { MyVault } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
-import type { TransactionInfo } from '../lib/TransactionInfo.ts';
+import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { TxAttemptState, type TransactionTracker } from '../lib/TransactionTracker.ts';
 import * as mainchainStore from '../stores/mainchain.ts';
 import { ExtrinsicType, TransactionStatus, type ITransactionRecord } from '../lib/db/TransactionsTable.ts';
@@ -13,6 +13,11 @@ import {
 import { createMockWalletKeys } from './helpers/wallet.ts';
 
 type IMyVaultTestTarget = {
+  buildPendingOrphanCosignTxs(args: {
+    finalizedClient: unknown;
+    submitClient: unknown;
+    vaultId: number;
+  }): Promise<Array<{ tx: unknown; metadata: unknown }>>;
   buildCosignTx(args: {
     utxoId: number;
     releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
@@ -480,6 +485,252 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
+  it('reuses the pending collect tx instead of resubmitting collect work', async () => {
+    const txInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultCollect,
+      metadataJson: {
+        vaultId: 7,
+        actionType: 'collectRevenue',
+        expectedCollectRevenue: 0n,
+        cosignedUtxoIds: [],
+        moveTo: 'VaultingHold',
+      },
+    }) as TransactionInfo<any>;
+    const { myVault, submitAndWatch } = createVault({ submitAndWatch: vi.fn() });
+    myVault.data.pendingCollectTxInfo = txInfo;
+    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({} as any);
+
+    const result = await myVault.collect({ moveTo: 'VaultingHold' as any });
+
+    expect(result).toBe(txInfo);
+    expect(submitAndWatch).not.toHaveBeenCalled();
+
+    getFinalizedClient.mockRestore();
+  });
+
+  it('returns the in-flight collect tx without starting collateralization work', async () => {
+    const collectTxInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultCollect,
+      metadataJson: {
+        vaultId: 7,
+        actionType: 'collectRevenue',
+        expectedCollectRevenue: 40n,
+        cosignedUtxoIds: [],
+        moveTo: 'VaultingHold',
+      },
+    }) as TransactionInfo<any>;
+    const { myVault, mintingAuthorities, submitAndWatch } = createVault();
+    myVault.data.pendingCollectTxInfo = collectTxInfo;
+
+    const result = await myVault.collect({ moveTo: 'VaultingHold' as any });
+
+    expect(result).toBe(collectTxInfo);
+    expect(submitAndWatch).not.toHaveBeenCalled();
+    expect(mintingAuthorities.refresh).not.toHaveBeenCalled();
+    expect(mintingAuthorities.collateralize).not.toHaveBeenCalled();
+  });
+
+  it('submits collect work without starting collateralization work inline', async () => {
+    const collectTxInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultCollect,
+      metadataJson: {
+        vaultId: 7,
+        actionType: 'collectRevenue',
+        expectedCollectRevenue: 40n,
+        cosignedUtxoIds: [],
+        moveTo: 'VaultingHold',
+      },
+    }) as TransactionInfo<any>;
+    const { myVault, mintingAuthorities, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(collectTxInfo),
+    });
+    myVault.data.createdVault = { vaultId: 7 } as any;
+    myVault.data.metadata = { id: 7 } as any;
+    mintingAuthorities.refresh.mockResolvedValue([{ transferId: '0xaaa' }, { transferId: '0xbbb' }]);
+    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({} as any);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
+    vi.spyOn(myVault.collectBuilder, 'buildPendingSubmission').mockResolvedValue({
+      tx: { kind: 'collect' } as any,
+      metadata: {
+        vaultId: 7,
+        actionType: 'collectRevenue',
+        councilApprovalCount: 0,
+        expectedCollectRevenue: 40n,
+        cosignedUtxoIds: [],
+        cosignedOrphanUtxos: [],
+        moveTo: 'VaultingHold' as any,
+      },
+      submittedCosignUtxoIds: [],
+    });
+    vi.spyOn(myVault as any, 'onVaultCollect').mockResolvedValue(undefined);
+
+    const result = await myVault.collect({ moveTo: 'VaultingHold' as any });
+
+    expect(result).toBe(collectTxInfo);
+    expect(submitAndWatch).toHaveBeenCalledTimes(1);
+    expect(mintingAuthorities.collateralize).not.toHaveBeenCalled();
+
+    getFinalizedClient.mockRestore();
+    getMainchainClient.mockRestore();
+  });
+
+  it('does not silently sponsor crosschain transfers when no collect batch is available', async () => {
+    const { myVault, mintingAuthorities } = createVault();
+    myVault.data.createdVault = { vaultId: 7 } as any;
+    myVault.data.metadata = { id: 7 } as any;
+    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({} as any);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
+    vi.spyOn(myVault.collectBuilder, 'buildPendingSubmission').mockResolvedValue(undefined);
+
+    await expect(myVault.collect({ moveTo: 'VaultingHold' as any })).rejects.toThrow(
+      'No vault actions are currently available to submit.',
+    );
+    expect(mintingAuthorities.collateralize).not.toHaveBeenCalled();
+
+    getFinalizedClient.mockRestore();
+    getMainchainClient.mockRestore();
+  });
+
+  it('batches council approvals into collect work', async () => {
+    const buildApprovePendingGatewayUpdateTxs = vi.fn(async () => [{ kind: 'queue-approval' }]);
+    const batchAll = vi.fn(() => ({ kind: 'batch' }));
+    const collect = vi.fn(() => ({ kind: 'collect' }));
+    const client = {
+      query: {
+        vaults: {
+          pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+        },
+      },
+      tx: {
+        crosschainTransfer: {},
+        utility: {
+          batchAll,
+        },
+        vaults: {
+          collect,
+        },
+      },
+    };
+    const { myVault, globalCouncil, mintingAuthorities } = createVault();
+    myVault.data.createdVault = {
+      vaultId: 7,
+    } as any;
+    globalCouncil.refresh.mockResolvedValue([
+      { approvalHash: '0x' + '11'.repeat(32) },
+      { approvalHash: '0x' + '22'.repeat(32) },
+    ]);
+    globalCouncil.buildApprovePendingGatewayUpdateTxs = buildApprovePendingGatewayUpdateTxs;
+    mintingAuthorities.refresh.mockResolvedValue([
+      {
+        authorityIndex: 2,
+        destinationSigningKey: '0x' + '33'.repeat(20),
+        transferId: '0x' + '44'.repeat(32),
+        authorizationHash: '0x' + '55'.repeat(32),
+        microgonCollateral: 0n,
+        micronotCollateral: 25n,
+      },
+    ]);
+    vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'buildPendingOrphanCosignTxs').mockResolvedValue([]);
+
+    const submission = await myVault.collectBuilder.buildPendingSubmission({
+      client: client as any,
+      finalizedClient: {} as any,
+      moveTo: 'VaultingHold' as any,
+    });
+
+    expect(buildApprovePendingGatewayUpdateTxs).toHaveBeenCalledWith(client, [
+      { approvalHash: '0x' + '11'.repeat(32) },
+      { approvalHash: '0x' + '22'.repeat(32) },
+    ]);
+    expect(collect).toHaveBeenCalledWith(7);
+    expect(batchAll).toHaveBeenCalledWith([{ kind: 'queue-approval' }, { kind: 'collect' }]);
+    expect(submission).toEqual({
+      tx: { kind: 'batch' },
+      metadata: {
+        vaultId: 7,
+        actionType: 'collectRevenue',
+        councilApprovalCount: 2,
+        expectedCollectRevenue: 40n,
+        cosignedUtxoIds: [],
+        cosignedOrphanUtxos: [],
+        moveTo: 'VaultingHold',
+      },
+      submittedCosignUtxoIds: [],
+    });
+  });
+
+  it('does not let collateralization block collect work', async () => {
+    const buildApprovePendingGatewayUpdateTxs = vi.fn(async () => []);
+    const batchAll = vi.fn(() => ({ kind: 'batch' }));
+    const collect = vi.fn(() => ({ kind: 'collect' }));
+    const client = {
+      query: {
+        vaults: {
+          pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+        },
+      },
+      tx: {
+        crosschainTransfer: {},
+        utility: {
+          batchAll,
+        },
+        vaults: {
+          collect,
+        },
+      },
+    };
+    const { myVault, globalCouncil, mintingAuthorities } = createVault();
+    myVault.data.createdVault = {
+      vaultId: 7,
+    } as any;
+    globalCouncil.refresh.mockResolvedValue([]);
+    globalCouncil.buildApprovePendingGatewayUpdateTxs = buildApprovePendingGatewayUpdateTxs;
+    mintingAuthorities.refresh.mockResolvedValue([
+      {
+        authorityIndex: 2,
+        destinationSigningKey: '0x' + '33'.repeat(20),
+        transferId: '0x' + '44'.repeat(32),
+        authorizationHash: '0x' + '55'.repeat(32),
+        microgonCollateral: 0n,
+        micronotCollateral: 25n,
+      },
+      {
+        authorityIndex: 3,
+        destinationSigningKey: '0x' + '44'.repeat(20),
+        transferId: '0x' + '66'.repeat(32),
+        authorizationHash: '0x' + '77'.repeat(32),
+        microgonCollateral: 0n,
+        micronotCollateral: 15n,
+      },
+    ]);
+    vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'buildPendingOrphanCosignTxs').mockResolvedValue([]);
+
+    const submission = await myVault.collectBuilder.buildPendingSubmission({
+      client: client as any,
+      finalizedClient: {} as any,
+      moveTo: 'VaultingHold' as any,
+    });
+
+    expect(buildApprovePendingGatewayUpdateTxs).toHaveBeenCalledWith(client, []);
+    expect(batchAll).not.toHaveBeenCalled();
+    expect(collect).toHaveBeenCalledWith(7);
+    expect(submission).toEqual({
+      tx: { kind: 'collect' },
+      metadata: {
+        vaultId: 7,
+        actionType: 'collectRevenue',
+        councilApprovalCount: 0,
+        expectedCollectRevenue: 40n,
+        cosignedUtxoIds: [],
+        cosignedOrphanUtxos: [],
+        moveTo: 'VaultingHold',
+      },
+      submittedCosignUtxoIds: [],
+    });
+  });
+
   it('ignores failed orphan cosign txs', async () => {
     const txInfo = createTxInfo({
       status: TransactionStatus.TimedOutWaitingForBlock,
@@ -514,6 +765,7 @@ function createVault(args?: {
 }) {
   const blockWatch = {
     finalizedBlockHeader: { blockNumber: args?.finalizedHeight ?? 100 },
+    getFinalizedApi: vi.fn(async () => ({})),
     getHeader: vi.fn(async (blockHeight: number) => {
       return {
         blockNumber: blockHeight,
@@ -615,6 +867,64 @@ function createVault(args?: {
     getFrameDate: vi.fn(() => new Date('2026-01-01T00:00:00Z')),
   } as unknown as MiningFrames;
   const bitcoinLocks = {} as BitcoinLocks;
+  const globalCouncil = {
+    data: {
+      isReady: true,
+      councilSigner: undefined,
+      pendingApprovals: [],
+    },
+    load: vi.fn(async () => undefined),
+    refresh: vi.fn(async () => []),
+    relayApprovedGatewayUpdates: vi.fn(async () => undefined),
+    subscribe: vi.fn(async () => undefined),
+    unsubscribe: vi.fn(),
+    buildApprovePendingGatewayUpdateTxs: vi.fn(async () => []),
+  } as {
+    data: {
+      isReady: boolean;
+      councilSigner?: string;
+      pendingApprovals: { approvalHash: string }[];
+    };
+    load: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+    relayApprovedGatewayUpdates: ReturnType<typeof vi.fn>;
+    subscribe: ReturnType<typeof vi.fn>;
+    unsubscribe: ReturnType<typeof vi.fn>;
+    buildApprovePendingGatewayUpdateTxs: ReturnType<typeof vi.fn>;
+  };
+  const mintingAuthorities = {
+    data: {
+      isReady: true,
+      authorities: [],
+      pendingCollateralizations: [],
+      pendingCollateralizeTxInfosByTransferId: new Map(),
+    },
+    load: vi.fn(async () => undefined),
+    refresh: vi.fn(async () => []),
+    collateralize: vi.fn(async () => undefined),
+    subscribe: vi.fn(async () => undefined),
+    unsubscribe: vi.fn(),
+  } as {
+    data: {
+      isReady: boolean;
+      authorities: unknown[];
+      pendingCollateralizeTxInfosByTransferId: Map<string, unknown>;
+      pendingCollateralizations: Array<{
+        authorityIndex: number;
+        destinationSigningKey: string;
+        transferId: string;
+        authorizationHash: string;
+        mintingAuthorityTip?: bigint;
+        microgonCollateral: bigint;
+        micronotCollateral: bigint;
+      }>;
+    };
+    load: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+    collateralize: ReturnType<typeof vi.fn>;
+    subscribe: ReturnType<typeof vi.fn>;
+    unsubscribe: ReturnType<typeof vi.fn>;
+  };
 
   const myVault = new MyVault(
     Promise.resolve({
@@ -627,9 +937,11 @@ function createVault(args?: {
     transactionTracker,
     bitcoinLocks,
     miningFrames,
+    globalCouncil as any,
+    mintingAuthorities as any,
   );
 
-  return { myVault, blockWatch, submitAndWatch, transactionTracker, trackTxResult };
+  return { myVault, blockWatch, submitAndWatch, transactionTracker, trackTxResult, globalCouncil, mintingAuthorities };
 }
 
 function createMockTxResultTx() {
