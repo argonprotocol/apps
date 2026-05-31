@@ -235,7 +235,7 @@ Notes:
   - Sends USDC from the local dev mock USDC contract when --token USDC is provided.
   - USDC uses 6-decimal base units.
   - Reads the mock USDC address from e2e/artifacts/dev-ethereum.json, DEV_ETHEREUM_USDC_ADDRESS, or --token-address.
-  - Uses ETH_RPC or ETHEREUM_EXECUTION_RPC_URL if set, otherwise probes local Kurtosis execution RPC ports.
+  - Uses --rpc, ETH_RPC, ETHEREUM_EXECUTION_RPC_URL, or the latest dev Ethereum runtime state.
   - Waits for the funding transaction receipt before returning.
 `);
 }

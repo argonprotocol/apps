@@ -8,7 +8,7 @@ describe.skipIf(skipE2E).sequential('Ethereum transfer-out flow', () => {
     'preseeds a same-user authority and transfers ARGN to Ethereum',
     async () => {
       const session = await createFlowSession({
-        useTestNetwork: false,
+        useTestNetwork: true,
         sessionName: 'ethereum-transfer-out-spec',
         appEnv: {
           ARGON_DEV_ETHEREUM: '1',

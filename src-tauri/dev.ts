@@ -56,6 +56,7 @@ async function main(): Promise<void> {
   let devEthereumMintingAuthorityPromise: Promise<void> | undefined;
   let devEthereumSetup: IDevEthereumSetup | undefined;
   let devDockerArchiveUrl: string | undefined;
+  let devEthereumExecutionRpcUrl: string | undefined;
   let isShuttingDown = false;
   if (network === 'dev-docker') {
     shouldStartDevEthereumMintingAuthority = ['1', 'true', 'yes', 'on'].includes(
@@ -63,10 +64,21 @@ async function main(): Promise<void> {
     );
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
 
+    console.log('[tauri-dev] Resolving dev-docker compose ports');
     const composePorts = await resolveDevDockerComposePorts();
-    const devEthereum = devEthereumConfig ? await startDevEthereum(devEthereumConfig) : undefined;
+    const devEthereum = devEthereumConfig
+      ? await (async () => {
+          console.log(
+            `[tauri-dev] Launching local dev Ethereum (preset=${devEthereumConfig.beaconPreset}, secondsPerSlot=${devEthereumConfig.secondsPerSlot})`,
+          );
+          return await startDevEthereum(devEthereumConfig);
+        })()
+      : undefined;
     if (composePorts) {
       devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archivePort}`;
+      console.log(
+        `[tauri-dev] Resolved compose ports archive=${composePorts.archivePort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
+      );
       Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
       if (devEthereum && devEthereumConfig) {
         devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, devEthereum, devEthereumConfig);
@@ -81,7 +93,9 @@ async function main(): Promise<void> {
       ? JSON.parse(inheritedOverride)
       : undefined;
     const ethereumExecutionRpcUrl = await resolveRuntimeEthereumExecutionRpcUrl(devEthereum, inheritedRuntimeOverride);
+    devEthereumExecutionRpcUrl = ethereumExecutionRpcUrl;
     const ethereumUsdcTokenAddress = await resolveRuntimeEthereumUsdcTokenAddress(
+      ethereumExecutionRpcUrl,
       devEthereum,
       inheritedRuntimeOverride,
     );
@@ -124,11 +138,7 @@ async function main(): Promise<void> {
         throw error;
       });
 
-    if (isE2EAppRun) {
-      await devEthereumSetupPromise;
-    } else {
-      void devEthereumSetupPromise;
-    }
+    void devEthereumSetupPromise.catch(() => undefined);
   }
 
   const child = spawn('yarn', tauriArgs, {
@@ -149,6 +159,7 @@ async function main(): Promise<void> {
       console.log('[tauri-dev] Starting local Ethereum minting authority');
       devEthereumMintingAuthorityRuntime = await startDevEthereumMintingAuthority({
         archiveUrl: devDockerArchiveUrl!,
+        executionRpcUrl: devEthereumExecutionRpcUrl,
         logPrefix: 'tauri-dev',
         virtualEnv: {
           app,
@@ -266,7 +277,13 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
     ))!;
     const notaryPort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'notary', 9925))!;
     // then after resolving ports:
+    console.log(
+      `[tauri-dev] Resolving notary archive host via ws://127.0.0.1:${notaryPort} with MinIO port ${notebookArchivePort}`,
+    );
     notaryArchiveHost = await resolveNotaryArchiveHost(notaryPort, notebookArchivePort);
+    console.log(
+      `[tauri-dev] Resolved notary archive host${notaryArchiveHost ? ` ${notaryArchiveHost}` : ' unavailable'}`,
+    );
   } catch (error) {
     console.warn(`[tauri-dev] Failed to resolve compose ports: ${(error as Error).message}`);
     return null;
@@ -329,6 +346,7 @@ async function resolveDevDockerNetworkConfigOverride(
   const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
   let runtimeConfig: RuntimeChainConfig;
   try {
+    console.log(`[tauri-dev] Loading runtime chain config from ${archiveUrl}`);
     runtimeConfig = await loadRuntimeConfig(archiveUrl);
   } catch (error) {
     console.warn(`[tauri-dev] Failed to load runtime chain config: ${(error as Error).message}`);
@@ -379,6 +397,7 @@ async function resolveRuntimeEthereumExecutionRpcUrl(
 }
 
 async function resolveRuntimeEthereumUsdcTokenAddress(
+  executionRpcUrl: string | undefined,
   devEthereum?: IStartDevEthereumResult,
   inheritedOverride?: RuntimeNetworkConfigOverride,
 ): Promise<string | undefined> {
@@ -393,7 +412,8 @@ async function resolveRuntimeEthereumUsdcTokenAddress(
   }
 
   try {
-    return readNonEmpty((await readDevEthereumRuntimeState())?.usdcTokenAddress);
+    const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
+    return readNonEmpty(runtimeState?.usdcTokenAddress);
   } catch (error) {
     console.warn(`[tauri-dev] Dev Ethereum USDC address unavailable: ${(error as Error).message}`);
     return undefined;

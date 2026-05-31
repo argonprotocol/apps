@@ -81,6 +81,7 @@ export interface IDevEthereumRuntimeState {
   serverExecutionRpcUrl: string;
   serverBeaconApiUrl: string;
   usdcTokenAddress: Address;
+  setupStatus: 'starting' | 'ready';
   updatedAt: string;
 }
 
@@ -142,7 +143,10 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
     serverBeaconApiUrl: rewriteLocalUrlHost(endpoints.beaconApiUrl, 'host.docker.internal'),
     usdcTokenAddress,
   };
-  await writeDevEthereumRuntimeState(result);
+  await writeDevEthereumRuntimeState({
+    ...result,
+    setupStatus: 'starting',
+  });
   return result;
 }
 
@@ -200,7 +204,7 @@ export function createDevEthereumSetup(
 
         setupStep = 'starting the local Ethereum relayer';
         console.log(`[tauri-dev] ${setupStep}`);
-        return await startDevEthereumRelayer({
+        const runtime = await startDevEthereumRelayer({
           archiveUrl,
           beaconApiUrl: devEthereum.beaconApiUrl,
           executionRpcUrl: devEthereum.executionRpcUrl,
@@ -210,6 +214,11 @@ export function createDevEthereumSetup(
           relayerPollMs: config.relayerPollMs,
           syncKeypair: relayer,
         });
+        await writeDevEthereumRuntimeState({
+          ...devEthereum,
+          setupStatus: 'ready',
+        });
+        return runtime;
       } catch (error) {
         throw new Error(`Failed while ${setupStep}: ${(error as Error).message}`);
       }
@@ -269,9 +278,11 @@ export async function sendDevEthereumAdminTransaction(args: {
   };
 }
 
-export async function readDevEthereumRuntimeState(): Promise<IDevEthereumRuntimeState | undefined> {
+export async function readDevEthereumRuntimeState(
+  executionRpcUrl?: string,
+): Promise<IDevEthereumRuntimeState | undefined> {
   try {
-    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(), 'utf8');
+    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl), 'utf8');
     return JSON.parse(raw) as IDevEthereumRuntimeState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -288,22 +299,28 @@ export async function resolveDevEthereumRpcUrl(args: { rpcUrl?: string; logPrefi
   if (explicitRpc) return explicitRpc;
   if (envRpc) return envRpc;
 
-  const candidates = await detectExecutionRpcUrls();
-  if (!candidates.length) {
-    throw new Error(
-      'Unable to detect a local Ethereum execution RPC. Pass --rpc http://127.0.0.1:<port>, set ETH_RPC or ETHEREUM_EXECUTION_RPC_URL, or start the local Kurtosis devnet first.',
-    );
+  const runtimeState = await readDevEthereumRuntimeState();
+  const runtimeRpc = readNonEmpty(runtimeState?.executionRpcUrl);
+  if (runtimeRpc) {
+    try {
+      const chainId = await rpcCall<string>(runtimeRpc, 'eth_chainId', []);
+      if (!runtimeState?.chainId || chainId === runtimeState.chainId) {
+        return runtimeRpc;
+      }
+
+      console.warn(
+        `[${logPrefix}] Ignoring dev Ethereum runtime state at ${runtimeRpc} because it reported chainId ${chainId}, expected ${runtimeState.chainId}.`,
+      );
+    } catch (error) {
+      console.warn(
+        `[${logPrefix}] Ignoring unreadable dev Ethereum runtime state at ${runtimeRpc}: ${(error as Error).message}`,
+      );
+    }
   }
 
-  if (candidates.length > 1) {
-    const selected = candidates.at(-1)!;
-    console.warn(
-      `[${logPrefix}] Multiple execution RPC endpoints detected (${candidates.join(', ')}). Using newest ${selected}. Override with --rpc if needed.`,
-    );
-    return selected;
-  }
-
-  return candidates[0];
+  throw new Error(
+    'Unable to resolve a local Ethereum execution RPC. Pass --rpc http://127.0.0.1:<port>, set ETH_RPC or ETHEREUM_EXECUTION_RPC_URL, or start the local Kurtosis devnet first.',
+  );
 }
 
 async function ensureDevEthereumBeaconBootstrap(
@@ -504,24 +521,36 @@ function createDevEthereumChain(chainId: number, rpcUrl: string) {
 }
 
 async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
-  const statePath = getDevEthereumRuntimeStatePath();
-  await fs.mkdir(path.dirname(statePath), { recursive: true });
-  await fs.writeFile(
-    statePath,
-    `${JSON.stringify(
-      {
-        ...state,
-        updatedAt: new Date().toISOString(),
-      } satisfies IDevEthereumRuntimeState,
-      null,
-      2,
-    )}\n`,
-    'utf8',
-  );
+  const runtimeState = {
+    ...state,
+    updatedAt: new Date().toISOString(),
+  } satisfies IDevEthereumRuntimeState;
+  const latestStatePath = getDevEthereumRuntimeStatePath();
+  const scopedStatePath = getDevEthereumRuntimeStatePath(state.executionRpcUrl);
+  const serialized = `${JSON.stringify(runtimeState, null, 2)}\n`;
+
+  await Promise.all([
+    fs.mkdir(path.dirname(latestStatePath), { recursive: true }),
+    fs.mkdir(path.dirname(scopedStatePath), { recursive: true }),
+  ]);
+  await Promise.all([
+    fs.writeFile(latestStatePath, serialized, 'utf8'),
+    fs.writeFile(scopedStatePath, serialized, 'utf8'),
+  ]);
 }
 
-function getDevEthereumRuntimeStatePath(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'artifacts', 'dev-ethereum.json');
+function getDevEthereumRuntimeStatePath(executionRpcUrl?: string): string {
+  if (!executionRpcUrl) {
+    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'artifacts', 'dev-ethereum.json');
+  }
+
+  const safeExecutionRpcUrl = executionRpcUrl.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+  return path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    'artifacts',
+    'dev-ethereum',
+    `${safeExecutionRpcUrl}.json`,
+  );
 }
 
 async function ensureDevEthereumChainConfig(
@@ -672,32 +701,6 @@ async function ensureDevEthereumGatewayActiveCouncil(
   } finally {
     await client.disconnect().catch(() => undefined);
   }
-}
-
-async function detectExecutionRpcUrls(): Promise<string[]> {
-  const candidates: string[] = [];
-  const portRangeSize = 32;
-  const portStart = 32_000;
-  const portScanLimit = 1_024;
-
-  // Mirror TestEthereum.launch() in @argonprotocol/testing, which allocates the
-  // first free 32-port execution block starting near 32000 for each devnet.
-  for (let rangeStart = portStart; rangeStart < portStart + portScanLimit; rangeStart += portRangeSize) {
-    for (let port = rangeStart; port < rangeStart + portRangeSize; port += 1) {
-      const rpcUrl = `http://127.0.0.1:${port}`;
-      try {
-        const chainId = await rpcCall<string>(rpcUrl, 'eth_chainId', []);
-        if (typeof chainId === 'string') {
-          candidates.push(rpcUrl);
-          break;
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  return candidates;
 }
 
 async function loadLocalGatewayCouncilFloorMicrogonsPerArgonot(archiveUrl: string): Promise<bigint> {

@@ -1,11 +1,11 @@
 import { MainchainClients, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import type { ArgonClient } from '@argonprotocol/mainchain';
-import { getEthereumBeaconSyncState, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { EvmContracts, getClient, getEthereumBeaconSyncState, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
 import type { IEthereumMintingAuthorityStatus, VaultActor } from '../actors/VaultActor.ts';
-import { resolveDevEthereumRpcUrl } from '../devEthereum.ts';
+import { readDevEthereumRuntimeState, resolveDevEthereumRpcUrl } from '../devEthereum.ts';
 import {
   collectVaultOperatorsByEffectiveCouncilSigner,
   forceUpdateGlobalIssuanceCouncil,
@@ -23,6 +23,7 @@ export type IDevEthereumMintingAuthorityRuntime = {
 export async function startDevEthereumMintingAuthority(args: {
   archiveUrl: string;
   logPrefix?: string;
+  executionRpcUrl?: string;
   virtualEnv?: {
     app?: string;
     appInstance?: string;
@@ -30,7 +31,26 @@ export async function startDevEthereumMintingAuthority(args: {
     serverEnvVars?: NodeJS.ProcessEnv;
   };
 }): Promise<IDevEthereumMintingAuthorityRuntime> {
-  seedVirtualFrontendGlobals(args.virtualEnv);
+  const executionRpcUrl = await resolveDevEthereumRpcUrl({
+    rpcUrl: args.executionRpcUrl,
+    logPrefix: args.logPrefix,
+  });
+  NetworkConfig.setNetwork('dev-docker');
+  NetworkConfig.setRuntimeOverride('dev-docker', {
+    ethereumNetwork: {
+      executionRpcUrl,
+      finalityBlocks: 16,
+    },
+  });
+  seedVirtualFrontendGlobals({
+    ...args.virtualEnv,
+    network: args.virtualEnv?.network ?? 'dev-docker',
+  });
+  await waitForDevEthereumGatewayReady({
+    archiveUrl: args.archiveUrl,
+    executionRpcUrl,
+    logPrefix: args.logPrefix ?? 'dev-ethereum-minting-authority',
+  });
   const { VaultActor } = await import('../actors/VaultActor.ts');
   const clients = new MainchainClients(args.archiveUrl, () => false);
   const actor = await VaultActor.load({
@@ -58,6 +78,7 @@ export async function startDevEthereumMintingAuthority(args: {
       actor,
       archiveUrl: args.archiveUrl,
       client: await getClient(),
+      executionRpcUrl,
       logPrefix: args.logPrefix ?? 'dev-ethereum-minting-authority',
     });
 
@@ -93,10 +114,10 @@ async function activateDevEthereumMintingAuthority(args: {
   actor: VaultActor;
   archiveUrl: string;
   client: ArgonClient;
+  executionRpcUrl: string;
   logPrefix: string;
 }) {
-  const { actor, archiveUrl, client, logPrefix } = args;
-  const executionRpcUrl = await resolveDevEthereumRpcUrl({ logPrefix });
+  const { actor, archiveUrl, client, executionRpcUrl, logPrefix } = args;
   const ethereumClient = createPublicClient({
     transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
   });
@@ -430,4 +451,60 @@ function seedVirtualFrontendGlobals(args?: {
 
   Object.assign(virtualWindow, globals);
   Object.assign(globalThis as Record<string, unknown>, globals);
+}
+
+async function waitForDevEthereumGatewayReady(args: {
+  archiveUrl: string;
+  executionRpcUrl: string;
+  logPrefix: string;
+}) {
+  const publicClient = createPublicClient({
+    transport: http(args.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+  });
+  const client = await getClient(args.archiveUrl);
+
+  try {
+    await waitFor(
+      2 * 60_000,
+      `${args.logPrefix}: dev Ethereum gateway readiness`,
+      async () => {
+        const runtimeState = await readDevEthereumRuntimeState(args.executionRpcUrl);
+        if (runtimeState?.setupStatus !== 'ready' || runtimeState.executionRpcUrl !== args.executionRpcUrl) {
+          return;
+        }
+
+        const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
+        const [beaconSyncState, chainConfig] = await Promise.all([
+          getEthereumBeaconSyncState(client),
+          finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum'),
+        ]);
+        if (!beaconSyncState.isBootstrapped || chainConfig.isNone || !chainConfig.unwrap().isEvm) {
+          return;
+        }
+
+        const ethereumConfig = chainConfig.unwrap().asEvm;
+        const gatewayAddress = getAddress(ethereumConfig.gateway.toHex());
+        if ((await publicClient.getChainId()) !== Number(ethereumConfig.chainId.toString())) {
+          return;
+        }
+
+        try {
+          await publicClient.readContract({
+            address: gatewayAddress,
+            abi: EvmContracts.mintingGatewayAbi,
+            functionName: 'argonApprovalsNonce',
+          });
+          return gatewayAddress;
+        } catch {
+          return;
+        }
+      },
+      {
+        pollMs: 1_000,
+        timeoutMessage: `${args.logPrefix}: local Ethereum gateway never became readable on ${args.executionRpcUrl}.`,
+      },
+    );
+  } finally {
+    await client.disconnect().catch(() => undefined);
+  }
 }

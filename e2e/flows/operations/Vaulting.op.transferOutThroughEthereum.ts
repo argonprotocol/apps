@@ -38,12 +38,14 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
       flow.isVisible('WalletOverlay'),
       readOutboundTransferState(flow),
     ]);
+    const transferCompleted = flow.getData<boolean>('Vaulting.op.transferOutThroughEthereum.completed') ?? false;
 
     const isComplete =
-      transferState.phase === 'confirmedOnEthereum' &&
-      !transferState.isSubmitting &&
-      !transferState.hasPersistedTransfer &&
-      !transferState.error;
+      transferCompleted ||
+      (transferState.phase === 'confirmedOnEthereum' &&
+        !transferState.isSubmitting &&
+        !transferState.hasPersistedTransfer &&
+        !transferState.error);
 
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
@@ -73,6 +75,8 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
   },
 
   async run({ flow, flowName }, state) {
+    flow.setData('Vaulting.op.transferOutThroughEthereum.completed', false);
+
     if (state.chainState.error) {
       throw new Error(state.chainState.error);
     }
@@ -131,6 +135,13 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
     if ((await flow.isVisible('WalletTransferOverlay.close()')).clickable) {
       await flow.click('WalletTransferOverlay.close()', { timeoutMs: 15_000 });
     }
+
+    const overlayCloseButton = await flow.isVisible('OverlayBase.clickClose()');
+    if (overlayCloseButton.clickable) {
+      await flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
+    }
+
+    flow.setData('Vaulting.op.transferOutThroughEthereum.completed', true);
   },
 });
 
