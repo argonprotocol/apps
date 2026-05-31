@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div
-    class="bg-white/95 min-h-14 w-full flex flex-row items-center select-none"
+    class="bg-white/95 relative z-[2500] flex min-h-14 w-full flex-row items-center select-none"
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >
@@ -22,7 +22,7 @@
 
     <NavigationMenuRoot
       v-if="controller.isLoaded && !controller.isImporting"
-      class="grow pointer-events-none relative mr-3 flex flex-row items-center justify-end w-1/3"
+      class="relative z-[2501] mr-3 flex w-1/3 grow flex-row items-center justify-end pointer-events-none"
       :class="[wallets.isLoaded ? '' : 'opacity-20']"
       :model-value="navigationMenuValue"
       :delay-duration="0"
@@ -39,10 +39,7 @@
         <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
           <PortfolioMenu ref="currencyMenuRef" />
         </div>
-        <div
-          :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
-          class="relative"
-        >
+        <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
           <AccountMenu ref="accountMenuRef" />
         </div>
       </NavigationMenuList>

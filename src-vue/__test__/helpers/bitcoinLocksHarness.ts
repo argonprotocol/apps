@@ -58,6 +58,7 @@ export async function createBitcoinLocksClientHarness(args: {
   esploraHost: string;
   network: string;
   upstreamOperatorClient?: UpstreamOperatorClient;
+  walletKeys?: WalletKeys;
 }): Promise<BitcoinLocksClientHarness> {
   const { archiveUrl, esploraHost, upstreamOperatorClient } = args;
 
@@ -67,7 +68,7 @@ export async function createBitcoinLocksClientHarness(args: {
   const db = await createTestDb();
   setDbPromise(Promise.resolve(db));
 
-  const walletKeys = createMockWalletKeys();
+  const walletKeys = args.walletKeys ?? createMockWalletKeys();
 
   const currency = new CurrencyBase(clients);
   await currency.fetchMainchainRates();

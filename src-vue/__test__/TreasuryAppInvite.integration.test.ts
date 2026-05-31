@@ -20,6 +20,7 @@ import {
 } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
+import { ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type {
@@ -33,6 +34,7 @@ import {
   createBitcoinLocksClientHarness,
   createBitcoinLocksHarness,
 } from './helpers/bitcoinLocksHarness.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 import {
   BitcoinLockRelayService,
   type Bot,
@@ -105,11 +107,15 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       network: 'dev-docker',
     });
     let operatorHost = '';
+    const operatorServerAuthClient = new ServerAuthClient(() => operatorHarness.walletKeys);
+    const treasuryWalletKeys = createMockWalletKeys();
+    const treasuryServerAuthClient = new ServerAuthClient(() => treasuryWalletKeys);
     const treasuryHarness = await createBitcoinLocksClientHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
       network: 'dev-docker',
-      upstreamOperatorClient: new UpstreamOperatorClient(undefined, () => operatorHost || undefined),
+      walletKeys: treasuryWalletKeys,
+      upstreamOperatorClient: new UpstreamOperatorClient(treasuryServerAuthClient, () => operatorHost || undefined),
     });
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'treasury-app-invite-'));
 
@@ -188,6 +194,9 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         port: 0,
         localNodeUrl: network.archiveUrl,
         mainNodeUrl: network.archiveUrl,
+        auth: {
+          adminOperatorAccountId: operatorHarness.walletKeys.operationalAddress,
+        },
       });
       routerServer.start();
       await routerServer.waitForListening();
@@ -202,7 +211,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const { inviteSecret, inviteCode } = InviteCodes.create();
 
       // Operator issues the invite and should see it tracked immediately in the router api.
-      const createdInvite = await createTreasuryAppInvite(operatorHost, {
+      const createdInvite = await createTreasuryAppInvite(operatorHost, operatorServerAuthClient, {
         name: 'Casey',
         fromName: expectedFromName,
         inviteCode,
@@ -212,7 +221,9 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       });
       expect(createdInvite.bitcoinLockCoupon?.coupon.offerCode).toBeTruthy();
 
-      const issuedInvite = (await getTreasuryAppInvites(operatorHost)).find(x => x.inviteCode === inviteCode);
+      const issuedInvite = (await getTreasuryAppInvites(operatorHost, operatorServerAuthClient)).find(
+        x => x.inviteCode === inviteCode,
+      );
       expect(issuedInvite?.lastClickedAt).toBeFalsy();
 
       // Claiming the invite should update click tracking on the operator api.
@@ -237,21 +248,26 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       ).rejects.toThrow('already claimed by a different account');
 
       const clickedInvite = await waitFor(30e3, 'router invite click tracked', async () => {
-        const invite = (await getTreasuryAppInvites(operatorHost)).find(x => x.inviteCode === inviteCode);
+        const invite = (await getTreasuryAppInvites(operatorHost, operatorServerAuthClient)).find(
+          x => x.inviteCode === inviteCode,
+        );
         if (!invite?.lastClickedAt) return;
         return invite;
       });
       expect(clickedInvite.lastClickedAt).toBeTruthy();
 
       await expect(
-        new UpstreamOperatorClient(undefined, () => operatorHost).initializeBitcoinLock(coupon.coupon.offerCode, {
-          ownerAccountId: operatorHarness.walletKeys.liquidLockingAddress,
-          ownerBitcoinPubkey: '02deadbeef',
-          requestedSatoshis,
-          microgonsAtTargetPerBtc:
-            treasuryHarness.currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN),
-        }),
-      ).rejects.toThrow('claimed by a different account');
+        new UpstreamOperatorClient(treasuryServerAuthClient, () => operatorHost).initializeBitcoinLock(
+          coupon.coupon.offerCode,
+          {
+            ownerAccountId: operatorHarness.walletKeys.liquidLockingAddress,
+            ownerBitcoinPubkey: '02deadbeef',
+            requestedSatoshis,
+            microgonsAtTargetPerBtc:
+              treasuryHarness.currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN),
+          },
+        ),
+      ).rejects.toThrow('Forbidden');
 
       // The treasury app user requests relay-backed lock creation.
       const { txInfo } = await treasuryHarness.bitcoinLocks.initializeLock({
@@ -331,22 +347,44 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
   });
 });
 
-async function createTreasuryAppInvite(operatorHost: string, payload: ITreasuryUserInviteCreateRequest) {
-  const body = await routerRequest<ICreateTreasuryInviteResponse>(operatorHost, '/treasury-users/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JsonExt.stringify(payload),
-  });
+async function createTreasuryAppInvite(
+  operatorHost: string,
+  serverAuthClient: ServerAuthClient,
+  payload: ITreasuryUserInviteCreateRequest,
+) {
+  const body = await routerRequest<ICreateTreasuryInviteResponse>(
+    operatorHost,
+    serverAuthClient,
+    '/treasury-users/create',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JsonExt.stringify(payload),
+    },
+  );
   return body.invite;
 }
 
-async function getTreasuryAppInvites(operatorHost: string) {
-  const body = await routerRequest<IListTreasuryInvitesResponse>(operatorHost, '/treasury-users/invites');
+async function getTreasuryAppInvites(operatorHost: string, serverAuthClient: ServerAuthClient) {
+  const body = await routerRequest<IListTreasuryInvitesResponse>(
+    operatorHost,
+    serverAuthClient,
+    '/treasury-users/invites',
+  );
   return body.invites;
 }
 
-async function routerRequest<T>(operatorHost: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${operatorHost}${path}`, init);
+async function routerRequest<T>(
+  operatorHost: string,
+  serverAuthClient: ServerAuthClient,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const sessionId = await serverAuthClient.getAdminOperatorSessionId(operatorHost);
+  const url = new URL(`${operatorHost}${path}`);
+  url.searchParams.set('sessionId', sessionId);
+
+  const response = await fetch(url, init);
   const rawBody = await response.text();
 
   if (!response.ok) {

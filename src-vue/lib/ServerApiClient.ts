@@ -18,7 +18,12 @@ import type {
   ITreasuryUserInviteCreateRequest,
 } from '@argonprotocol/apps-router';
 import { type IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
-import { type ServerAuthClient, type ServerAuthOptions } from './ServerAuthClient.ts';
+import {
+  RequestStatusError,
+  isUnauthenticatedServerAuthError,
+  type ServerAuthClient,
+  type ServerAuthOptions,
+} from './ServerAuthClient.ts';
 
 export type ServerGatewayDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gatewayPort' | 'type'>;
 
@@ -64,29 +69,34 @@ interface IBitcoinLatestBlocks extends ILatestBlocks {
 type RequestOptions = {
   init?: RequestInit;
   timeoutMs?: number;
-  adminOperatorAuth?: ServerAuthClient;
+  sessionId?: string;
 };
 
-type ClientRequestOptions = Omit<RequestOptions, 'adminOperatorAuth'> & {
+type ClientRequestOptions = Omit<RequestOptions, 'sessionId'> & {
   adminOperatorAuth?: boolean;
 };
+
+type AdminOperatorServerAuthClient = Pick<
+  ServerAuthClient,
+  'getAdminOperatorSessionId' | 'invalidateAdminOperatorSessionId'
+>;
 
 export class ServerApiClient {
   constructor(
     private readonly getServerDetails: () => ServerGatewayDetails,
-    private readonly serverAuthClient: ServerAuthClient,
+    private readonly serverAuthClient: AdminOperatorServerAuthClient,
   ) {}
 
-  public getGatewayHttpUrl(path = ''): string {
-    return ServerApiClient.getGatewayHttpUrl(this.getServerDetails(), path);
+  public getGatewayHttpUrl(path = '', sessionId?: string): string {
+    return ServerApiClient.getGatewayHttpUrl(this.getServerDetails(), path, sessionId);
   }
 
-  public getGatewayWebsocketUrl(path: string): string {
-    return ServerApiClient.getGatewayWebsocketUrl(this.getServerDetails(), path);
+  public getGatewayWebsocketUrl(path: string, sessionId?: string): string {
+    return ServerApiClient.getGatewayWebsocketUrl(this.getServerDetails(), path, sessionId);
   }
 
-  public async ensureAdminOperatorSession(options: ServerAuthOptions = {}): Promise<void> {
-    await this.serverAuthClient.ensureAdminOperatorSession(this.getGatewayHttpUrl(), options);
+  public async getAdminOperatorSessionId(options: ServerAuthOptions = {}): Promise<string> {
+    return await this.serverAuthClient.getAdminOperatorSessionId(this.getGatewayHttpUrl(), options);
   }
 
   public async isGatewayReady(): Promise<boolean> {
@@ -158,11 +168,32 @@ export class ServerApiClient {
     return body.invite;
   }
 
-  private request<T>(path: string, options: ClientRequestOptions = {}): Promise<T> {
-    return ServerApiClient.request<T>(this.getServerDetails(), path, {
-      ...options,
-      adminOperatorAuth: options.adminOperatorAuth ? this.serverAuthClient : undefined,
-    });
+  private async request<T>(path: string, options: ClientRequestOptions = {}): Promise<T> {
+    const { adminOperatorAuth, ...requestOptions } = options;
+    if (!adminOperatorAuth) {
+      return await ServerApiClient.request<T>(this.getServerDetails(), path, requestOptions);
+    }
+
+    let sessionId = await this.getAdminOperatorSessionId();
+
+    try {
+      return await ServerApiClient.request<T>(this.getServerDetails(), path, {
+        ...requestOptions,
+        sessionId,
+      });
+    } catch (error) {
+      if (!isUnauthenticatedServerAuthError(error)) {
+        throw error;
+      }
+
+      this.serverAuthClient.invalidateAdminOperatorSessionId(this.getGatewayHttpUrl());
+      sessionId = await this.getAdminOperatorSessionId();
+
+      return await ServerApiClient.request<T>(this.getServerDetails(), path, {
+        ...requestOptions,
+        sessionId,
+      });
+    }
   }
 
   private postJson<T>(path: string, payload: unknown, options: ClientRequestOptions = {}): Promise<T> {
@@ -176,7 +207,7 @@ export class ServerApiClient {
     });
   }
 
-  public static getGatewayHttpUrl(serverDetails: ServerGatewayDetails, path = ''): string {
+  public static getGatewayHttpUrl(serverDetails: ServerGatewayDetails, path = '', sessionId?: string): string {
     if (!serverDetails.ipAddress) {
       throw new Error('No server IP address configured');
     }
@@ -184,11 +215,18 @@ export class ServerApiClient {
     const host = getGatewayHost(serverDetails);
     const port = serverDetails.gatewayPort && serverDetails.gatewayPort !== 443 ? `:${serverDetails.gatewayPort}` : '';
     const normalizedPath = path ? (path.startsWith('/') ? path : `/${path}`) : '';
-    return `https://${host}${port}${normalizedPath}`;
+    const url = `https://${host}${port}${normalizedPath}`;
+    if (!sessionId) {
+      return url;
+    }
+
+    const authenticatedUrl = new URL(url);
+    authenticatedUrl.searchParams.set('sessionId', sessionId);
+    return authenticatedUrl.toString();
   }
 
-  public static getGatewayWebsocketUrl(serverDetails: ServerGatewayDetails, path: string): string {
-    return this.getGatewayHttpUrl(serverDetails, path).replace(/^http/i, 'ws');
+  public static getGatewayWebsocketUrl(serverDetails: ServerGatewayDetails, path: string, sessionId?: string): string {
+    return this.getGatewayHttpUrl(serverDetails, path, sessionId).replace(/^http/i, 'ws');
   }
 
   public static async isGatewayReady(serverDetails: ServerGatewayDetails): Promise<boolean> {
@@ -270,18 +308,13 @@ export class ServerApiClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
-    const baseUrl = this.getGatewayHttpUrl(serverDetails);
     const abortController = new AbortController();
     const timeoutMs = options.timeoutMs ?? 10e3;
     const timeout = setTimeout(() => abortController.abort(), timeoutMs);
-    if (options.adminOperatorAuth) {
-      await options.adminOperatorAuth.ensureAdminOperatorSession(baseUrl);
-    }
 
     try {
-      const response = await fetch(`${baseUrl}${path}`, {
+      const response = await fetch(this.getGatewayHttpUrl(serverDetails, path, options.sessionId), {
         ...options.init,
-        credentials: options.adminOperatorAuth ? 'include' : options.init?.credentials,
         headers: {
           ...(options.init?.headers as Record<string, string> | undefined),
         },
@@ -304,7 +337,7 @@ export class ServerApiClient {
       }
 
       if (!response.ok) {
-        throw new Error(error ?? `Server API request failed (${response.status}).`);
+        throw new RequestStatusError(error ?? `Server API request failed (${response.status}).`, response.status);
       }
       if (error) {
         throw new Error(error);

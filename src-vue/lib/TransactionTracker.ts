@@ -1,5 +1,6 @@
 import {
   ExtrinsicError,
+  type GenericEvent,
   hexToU8a,
   ISubmittableOptions,
   type ISubmittableResult,
@@ -96,17 +97,12 @@ export class TransactionTracker {
             events: [],
           });
         }
-        if (tx.blockExtrinsicEventsJson) {
-          try {
-            txResult.events = tx.blockExtrinsicEventsJson.map(({ raw }) =>
-              client.createType('GenericEvent', hexToU8a(raw)),
-            );
-          } catch (error) {
-            console.error(
-              `[TransactionTracker] Error restoring events for transaction #${tx.id} (${tx.extrinsicType})`,
-              error,
-            );
-          }
+        const txInfo = new TransactionInfo({
+          tx,
+          txResult,
+        });
+        if (this.shouldRestoreStoredEventsAtLoad(txInfo)) {
+          await this.ensureStoredEvents(txInfo);
         }
         if (tx.blockExtrinsicErrorJson) {
           txResult.extrinsicError = new ExtrinsicError(
@@ -121,10 +117,6 @@ export class TransactionTracker {
         }
         // Mark txResult as non-reactive to avoid issues with private fields
         Vue.markRaw(txResult);
-        const txInfo = new TransactionInfo({
-          tx,
-          txResult,
-        });
         this.data.txInfos.push(txInfo);
         this.data.txInfosByType[tx.extrinsicType] = txInfo;
       }
@@ -145,6 +137,44 @@ export class TransactionTracker {
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;
+  }
+
+  public async ensureStoredEvents(txInfo: TransactionInfo): Promise<void> {
+    if (txInfo.txResult.events.length || !txInfo.tx.blockExtrinsicEventsJson?.length) {
+      return;
+    }
+
+    const client = await getMainchainClient(false);
+    const decodeStoredEvents = ({ registry }: Pick<typeof client, 'registry'>): GenericEvent[] =>
+      txInfo.tx.blockExtrinsicEventsJson.map(({ raw }) =>
+        registry.createType<GenericEvent>('GenericEvent', hexToU8a(raw)),
+      );
+
+    try {
+      txInfo.txResult.events = decodeStoredEvents(client);
+      return;
+    } catch (error) {
+      let restoreError = error;
+      if (txInfo.tx.blockHash && txInfo.tx.blockHeight != null && this.blockWatch.getApi) {
+        try {
+          const historicalApi = await this.blockWatch.getApi({
+            blockNumber: txInfo.tx.blockHeight,
+            blockHash: txInfo.tx.blockHash,
+          });
+          txInfo.txResult.events = decodeStoredEvents(historicalApi);
+          restoreError = undefined;
+        } catch (historicalError) {
+          restoreError = historicalError;
+        }
+      }
+
+      if (restoreError) {
+        console.error(
+          `[TransactionTracker] Error restoring events for transaction #${txInfo.tx.id} (${txInfo.tx.extrinsicType})`,
+          restoreError,
+        );
+      }
+    }
   }
 
   public async submitAndWatch<T>(
@@ -681,5 +711,9 @@ export class TransactionTracker {
       status === TransactionHistoryStatus.Usurped ||
       status === TransactionHistoryStatus.Invalid
     );
+  }
+
+  private shouldRestoreStoredEventsAtLoad(txInfo: TransactionInfo) {
+    return !!txInfo.tx.blockExtrinsicEventsJson?.length && this.isPendingTxInfoAtLoad(txInfo);
   }
 }

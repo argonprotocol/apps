@@ -188,7 +188,7 @@ impl SSH {
     }
 
     pub async fn upload_file(&self, contents: &[u8], remote_path: &str) -> Result<()> {
-        let escaped_remote = format!("'{}'", remote_path.replace('\'', "'\\''"));
+        let escaped_remote = shell_escape_remote_path(remote_path);
         let mut channel = self.open_channel().await?;
         let scp_command = format!("cat > {escaped_remote}");
         channel.exec(true, scp_command).await?;
@@ -213,7 +213,7 @@ impl SSH {
         let path = Utils::get_embedded_path(app, file_name)?;
         let file = File::open(&path).await?;
 
-        let escaped_remote = format!("'{}'", remote_path.replace('\'', "'\\''"));
+        let escaped_remote = shell_escape_remote_path(remote_path);
         // ensure old file is removed
         let _ = self.run_command(format!("rm -f {escaped_remote}")).await;
 
@@ -259,8 +259,7 @@ impl SSH {
         local_download_path: &str,
         event_progress_key: String,
     ) -> Result<()> {
-        // Escape the remote path safely for single-quoted shell
-        let escaped_remote = format!("'{}'", remote_path.replace('\'', "'\\''"));
+        let escaped_remote = shell_escape_remote_path(remote_path);
 
         // Best-effort: get remote file size for progress (may fail; then size=0)
         let mut remote_size: u64 = 0;
@@ -358,6 +357,27 @@ impl SSH {
 
         Ok((private_key_openssh, public_key_openssh))
     }
+}
+
+fn shell_escape_remote_path(remote_path: &str) -> String {
+    let escape = |value: &str| value.replace('\'', "'\\''");
+
+    if let Some(stripped) = remote_path.strip_prefix('~') {
+        if stripped.is_empty() {
+            return "~".to_string();
+        }
+
+        if let Some((user, rest)) = stripped.split_once('/') {
+            let prefix = format!("~{user}/");
+            return if rest.is_empty() {
+                prefix.trim_end_matches('/').to_string()
+            } else {
+                format!("{prefix}'{}'", escape(rest))
+            };
+        }
+    }
+
+    format!("'{}'", escape(remote_path))
 }
 
 struct ClientHandler {}

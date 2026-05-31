@@ -213,8 +213,8 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
     }
 
     try {
-      await serverApiClient.ensureAdminOperatorSession({ forceVerify: true });
-      await mainchainClients.setPrunedClient(serverApiClient.getGatewayWebsocketUrl('/substrate'));
+      const sessionId = await serverApiClient.getAdminOperatorSessionId({ forceVerify: true });
+      await mainchainClients.setPrunedClient(serverApiClient.getGatewayWebsocketUrl('/substrate', sessionId));
     } catch (error) {
       mainchainClients.clearPrunedClient();
       throw error;
@@ -225,15 +225,16 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
 
   const upstreamOperatorClient = getUpstreamOperatorClient();
   if (upstreamOperatorClient.operatorHost && config.upstreamOperator) {
+    let sessionId: string | undefined;
     if (IS_TREASURY_APP) {
-      await upstreamOperatorClient.ensureTreasurySession({ forceVerify: true });
+      sessionId = await upstreamOperatorClient.getTreasurySessionId({ forceVerify: true });
     } else if (IS_OPERATIONS_APP) {
-      await upstreamOperatorClient.ensureOperationalSession({
+      sessionId = await upstreamOperatorClient.getOperationalSessionId({
         forceVerify: true,
       });
     }
 
-    await mainchainClients.setPrunedClient(upstreamOperatorClient.getWebsocketUrl('/substrate'));
+    await mainchainClients.setPrunedClient(upstreamOperatorClient.getWebsocketUrl('/substrate', sessionId));
     return;
   }
 

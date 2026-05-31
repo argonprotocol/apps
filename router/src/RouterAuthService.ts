@@ -25,14 +25,12 @@ export class RouterAuthService {
   private readonly challengesByNonce = new Map<string, IRouterAuthChallenge>();
   private readonly db?: Db;
   private readonly adminOperatorAccountId?: string;
-  private readonly sessionCookieName: string;
   private readonly sessionTtlSeconds: number;
   private readonly challengeTtlMs: number;
 
   constructor(options: IRouterAuthServiceOptions = {}) {
     this.db = options.db;
     this.adminOperatorAccountId = options.adminOperatorAccountId?.trim() || undefined;
-    this.sessionCookieName = `argon_session_${this.adminOperatorAccountId}`;
 
     this.sessionTtlSeconds = options.sessionTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
     this.challengeTtlMs = options.challengeTtlMs ?? DEFAULT_CHALLENGE_TTL_MS;
@@ -65,7 +63,7 @@ export class RouterAuthService {
     return challenge;
   }
 
-  public createSession(request: IRouterAuthSessionRequest): IRouterAuthSessionResponse & { sessionId: string } {
+  public createSession(request: IRouterAuthSessionRequest): IRouterAuthSessionResponse {
     this.assertEnabled();
 
     const challenge = this.challengesByNonce.get(request.nonce);
@@ -169,17 +167,8 @@ export class RouterAuthService {
     res.sendStatus(204);
   }
 
-  public setSessionCookie(res: Response, session: { sessionId: string }): void {
-    const sessionId = encodeURIComponent(session.sessionId);
-
-    res.setHeader(
-      'Set-Cookie',
-      `${this.sessionCookieName}=${sessionId}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${this.sessionTtlSeconds}`,
-    );
-  }
-
   private getRequestUser(req: Request): IUserRecord | null {
-    const sessionId = getCookie(req, this.sessionCookieName);
+    const sessionId = getSessionId(req);
     if (!sessionId) return null;
 
     const session = this.db!.sessionsTable.fetchBySessionId(sessionId);
@@ -258,18 +247,8 @@ export class RouterAuthService {
   }
 }
 
-function getCookie(req: Request, name: string): string | null {
-  const cookieHeader = req.headers.cookie;
-  if (!cookieHeader) return null;
-
-  for (const part of cookieHeader.split(';')) {
-    const [key, ...valueParts] = part.trim().split('=');
-    if (key === name) {
-      return decodeURIComponent(valueParts.join('='));
-    }
-  }
-
-  return null;
+function getSessionId(req: Request): string | null {
+  return new URL(req.originalUrl || req.url, 'http://localhost').searchParams.get('sessionId');
 }
 
 function sendAuthError(res: Response): void {

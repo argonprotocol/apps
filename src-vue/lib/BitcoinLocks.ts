@@ -912,6 +912,7 @@ export default class BitcoinLocks {
       }
 
       const typeClient = await genericClient.at(blockHash!);
+      await this.#transactionTracker.ensureStoredEvents(txInfo);
       const { lock, createdAtHeight } = await BitcoinLock.getBitcoinLockFromTxResult(typeClient, txResult);
       const record = await this.finalizePendingRecord(
         { uuid },

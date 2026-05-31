@@ -700,7 +700,7 @@ pub fn run() {
             });
 
             init_config_instance_dir(handle, &relative_config_dir)?;
-            migrations::backup_current_instance_database(handle).map_err(|e| e.to_string())?;
+            tauri::async_runtime::block_on(run_db_migrations(handle.clone()))?;
 
             let window = app.get_webview_window("main").unwrap();
 

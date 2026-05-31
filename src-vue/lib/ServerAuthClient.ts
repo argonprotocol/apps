@@ -14,8 +14,8 @@ export type ServerAuthOptions = {
 };
 
 type VerifiedServerSession = {
+  sessionId: string;
   expiresAt: number;
-  verifiedUntil: number;
 };
 
 export type ServerAuthWalletKeys = Pick<
@@ -23,50 +23,86 @@ export type ServerAuthWalletKeys = Pick<
   'operationalAddress' | 'getOperationalKeypair' | 'getUpstreamOperatorAuthKeypair'
 >;
 
+export class RequestStatusError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+export function isUnauthenticatedServerAuthError(error: unknown): boolean {
+  if (!(error instanceof RequestStatusError)) return false;
+  return error.status === 401 || error.status === 403;
+}
+
 const failedAuthRetryMs = 60_000;
-const verifiedSessionTtlMs = 30_000;
 const refreshSessionBeforeExpiryMs = 60_000;
 
 export class ServerAuthClient {
   private failedAuthBySessionKey = new Map<string, { message: string; retryAfter: number }>();
-  private sessionPromisesBySessionKey = new Map<string, Promise<void>>();
+  private sessionPromisesBySessionKey = new Map<string, Promise<VerifiedServerSession>>();
   private verifiedSessionsBySessionKey = new Map<string, VerifiedServerSession>();
 
   constructor(private readonly getWalletKeys: () => ServerAuthWalletKeys) {}
 
-  public async ensureAdminOperatorSession(baseUrl: string, options: ServerAuthOptions = {}): Promise<void> {
+  public async getAdminOperatorSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
     const walletKeys = this.getWalletKeys();
-    await this.ensureSession(
+    const session = await this.ensureSession(
       baseUrl,
       walletKeys.operationalAddress,
       UserRole.AdminOperator,
       () => walletKeys.getOperationalKeypair(),
       options,
     );
+    return session.sessionId;
   }
 
-  public async ensureTreasurySession(baseUrl: string, options: ServerAuthOptions = {}): Promise<void> {
+  public invalidateAdminOperatorSessionId(baseUrl: string): void {
+    const walletKeys = this.getWalletKeys();
+    const cacheKey = getCacheKey(baseUrl, walletKeys.operationalAddress, UserRole.AdminOperator);
+    this.invalidateSession(cacheKey);
+  }
+
+  public async getTreasurySessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
     const walletKeys = this.getWalletKeys();
     const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    await this.ensureSession(
+    const session = await this.ensureSession(
       baseUrl,
       authKeypair.address,
       UserRole.TreasuryUser,
       () => Promise.resolve(authKeypair),
       options,
     );
+    return session.sessionId;
   }
 
-  public async ensureOperationalSession(baseUrl: string, options: ServerAuthOptions = {}): Promise<void> {
+  public async invalidateTreasurySessionId(baseUrl: string): Promise<void> {
     const walletKeys = this.getWalletKeys();
     const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    await this.ensureSession(
+    const cacheKey = getCacheKey(baseUrl, authKeypair.address, UserRole.TreasuryUser);
+    this.invalidateSession(cacheKey);
+  }
+
+  public async getOperationalSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
+    const walletKeys = this.getWalletKeys();
+    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
+    const session = await this.ensureSession(
       baseUrl,
       authKeypair.address,
       UserRole.OperationalPartner,
       () => Promise.resolve(authKeypair),
       options,
     );
+    return session.sessionId;
+  }
+
+  public async invalidateOperationalSessionId(baseUrl: string): Promise<void> {
+    const walletKeys = this.getWalletKeys();
+    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
+    const cacheKey = getCacheKey(baseUrl, authKeypair.address, UserRole.OperationalPartner);
+    this.invalidateSession(cacheKey);
   }
 
   private async ensureSession(
@@ -75,7 +111,7 @@ export class ServerAuthClient {
     role: ServerAuthRole,
     getAuthKeypair: () => Promise<KeyringPair>,
     options: ServerAuthOptions,
-  ): Promise<void> {
+  ): Promise<VerifiedServerSession> {
     const cacheKey = getCacheKey(baseUrl, authAccountId, role);
     const existingPromise = this.sessionPromisesBySessionKey.get(cacheKey);
     if (existingPromise) return existingPromise;
@@ -99,7 +135,7 @@ export class ServerAuthClient {
     getAuthKeypair: () => Promise<KeyringPair>,
     options: ServerAuthOptions,
     cacheKey: string,
-  ): Promise<void> {
+  ): Promise<VerifiedServerSession> {
     const failedAuth = this.failedAuthBySessionKey.get(cacheKey);
     if (failedAuth && failedAuth.retryAfter > Date.now()) {
       throw new Error(failedAuth.message);
@@ -108,20 +144,19 @@ export class ServerAuthClient {
 
     const cachedSession = this.verifiedSessionsBySessionKey.get(cacheKey);
     if (cachedSession && cachedSession.expiresAt - refreshSessionBeforeExpiryMs > Date.now()) {
-      if (!options.forceVerify && cachedSession.verifiedUntil > Date.now()) {
-        return;
+      if (!options.forceVerify) {
+        return cachedSession;
       }
 
       try {
-        if (await verifySession(baseUrl, role)) {
-          this.markSessionVerified(cacheKey, cachedSession.expiresAt);
-          return;
+        if (await verifySession(baseUrl, role, cachedSession.sessionId)) {
+          return this.markSessionVerified(cacheKey, cachedSession.sessionId, cachedSession.expiresAt);
         }
       } catch {
         // Fall through to signing a fresh challenge below.
       }
     }
-    this.verifiedSessionsBySessionKey.delete(cacheKey);
+    this.invalidateSession(cacheKey);
 
     try {
       const challenge = await requestAuth<IServerAuthChallenge>(`${baseUrl}/auth/challenge`, {
@@ -141,28 +176,36 @@ export class ServerAuthClient {
         throw new Error('Server auth session was not created.');
       }
 
-      if (!(await verifySession(baseUrl, role))) {
+      if (!(await verifySession(baseUrl, role, session.sessionId))) {
         throw new Error('Server auth session was not accepted.');
       }
 
-      this.markSessionVerified(cacheKey, Date.parse(session.expiresAt));
+      return this.markSessionVerified(cacheKey, session.sessionId, Date.parse(session.expiresAt));
     } catch (error) {
       this.markAuthFailed(cacheKey, error);
       throw error;
     }
   }
 
-  private markSessionVerified(cacheKey: string, expiresAt: number): void {
+  private markSessionVerified(cacheKey: string, sessionId: string, expiresAt: number): VerifiedServerSession {
     this.failedAuthBySessionKey.delete(cacheKey);
-    this.verifiedSessionsBySessionKey.set(cacheKey, {
+    const session = {
+      sessionId,
       expiresAt,
-      verifiedUntil: Date.now() + verifiedSessionTtlMs,
-    });
+    };
+    this.verifiedSessionsBySessionKey.set(cacheKey, session);
+    return session;
   }
 
   private markAuthFailed(cacheKey: string, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     this.failedAuthBySessionKey.set(cacheKey, { message, retryAfter: Date.now() + failedAuthRetryMs });
+  }
+
+  private invalidateSession(cacheKey: string): void {
+    this.failedAuthBySessionKey.delete(cacheKey);
+    this.sessionPromisesBySessionKey.delete(cacheKey);
+    this.verifiedSessionsBySessionKey.delete(cacheKey);
   }
 }
 
@@ -174,7 +217,6 @@ async function requestAuth<T>(url: string, payload: unknown): Promise<T | null> 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
     body: JsonExt.stringify(payload),
   });
   const rawBody = await response.text();
@@ -188,10 +230,11 @@ async function requestAuth<T>(url: string, payload: unknown): Promise<T | null> 
   return JsonExt.parse<T>(rawBody);
 }
 
-async function verifySession(baseUrl: string, role: ServerAuthRole): Promise<boolean> {
-  const response = await fetch(`${baseUrl}${getVerifyPath(role)}`, {
-    credentials: 'include',
-  });
+async function verifySession(baseUrl: string, role: ServerAuthRole, sessionId: string): Promise<boolean> {
+  const verifyUrl = new URL(`${baseUrl}${getVerifyPath(role)}`);
+  verifyUrl.searchParams.set('sessionId', sessionId);
+
+  const response = await fetch(verifyUrl, { cache: 'no-store' });
 
   return response.ok;
 }

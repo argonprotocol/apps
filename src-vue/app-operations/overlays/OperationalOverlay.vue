@@ -32,6 +32,7 @@
           :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
         >
           <Checkbox
+            class="shrink-0"
             :size="7"
             :isChecked="
               controller.isCertificationStepComplete(stepId as OperationalStepId) ||

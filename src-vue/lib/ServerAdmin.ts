@@ -262,11 +262,11 @@ export class ServerAdmin {
   }
 
   public async removeAllLogFiles(): Promise<void> {
-    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/*`, 10e3);
+    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/*`, 60e3);
   }
 
   public async removeLogStep(stepKey: string): Promise<void> {
-    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/step-${stepKey}.*`, 10e3);
+    await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/step-${stepKey}.*`, 60e3);
   }
 
   public async startInstallerScript(): Promise<void> {

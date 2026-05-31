@@ -142,6 +142,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       data: { txInfos: [] },
       pendingBlockTxInfosAtLoad: [],
       load: vi.fn(async () => {}),
+      ensureStoredEvents: vi.fn(async () => {}),
       submitAndWatch: vi.fn(async () =>
         createTransferOutTxInfo({
           transferId: onChainTransferId,
@@ -250,6 +251,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       data: { txInfos: [] },
       pendingBlockTxInfosAtLoad: [],
       load: vi.fn(async () => {}),
+      ensureStoredEvents: vi.fn(async () => {}),
       submitAndWatch: vi.fn(async () => ({
         ...txInfo,
         txResult: {
@@ -345,6 +347,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       data: { txInfos: [] },
       pendingBlockTxInfosAtLoad: [],
       load: vi.fn(async () => {}),
+      ensureStoredEvents: vi.fn(async () => {}),
     };
 
     const tracker = new EthereumOutboundTransferTracker(
@@ -404,6 +407,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       data: { txInfos: [] },
       pendingBlockTxInfosAtLoad: [],
       load: vi.fn(async () => {}),
+      ensureStoredEvents: vi.fn(async () => {}),
       submitAndWatch: vi.fn(async () =>
         createTransferOutTxInfo({
           transferId: onChainTransferId,

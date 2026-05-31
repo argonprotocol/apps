@@ -204,6 +204,27 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.finalizedBlockHeader).toBe(finalizedHeader);
   });
 
+  it('drops cached block APIs when subscriptions stop', async () => {
+    const firstBlockApi = { query: { system: { events: vi.fn() } } };
+    const secondBlockApi = { query: { system: { events: vi.fn() } } };
+    const firstPrunedClient = { at: vi.fn().mockResolvedValue(firstBlockApi) };
+    const secondPrunedClient = { at: vi.fn().mockResolvedValue(secondBlockApi) };
+    const clients = createClients(firstPrunedClient, {}) as any;
+    const blockWatch = new BlockWatch(clients);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+    getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+    const block = createHeaderInfo(110, '0xblock', '0xparent');
+    expect(await blockWatch.getApi(block)).toBe(firstBlockApi);
+
+    clients.prunedClientPromise = Promise.resolve(secondPrunedClient);
+    blockWatch.stop();
+
+    expect(await blockWatch.getApi(block)).toBe(secondBlockApi);
+    expect(firstPrunedClient.at).toHaveBeenCalledOnce();
+    expect(secondPrunedClient.at).toHaveBeenCalledOnce();
+  });
+
   it('queues a follow-up restart requested during an active restart', async () => {
     vi.useFakeTimers();
 

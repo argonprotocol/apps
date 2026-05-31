@@ -78,7 +78,6 @@ export class RouterServer {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       if (requestOrigin) {
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Vary', 'Origin');
       }
 
@@ -114,11 +113,9 @@ export class RouterServer {
     app.post(
       '/auth/login',
       express.text({ type: '*/*' }),
-      safeJsonRoute<IRouterAuthSessionResponse>(async (req, res) => {
-        const { sessionId, ...session } = routerAuth.createSession(requireBody<IRouterAuthSessionRequest>(req));
-        routerAuth.setSessionCookie(res, { sessionId });
-        return session;
-      }),
+      safeJsonRoute<IRouterAuthSessionResponse>(async req =>
+        routerAuth.createSession(requireBody<IRouterAuthSessionRequest>(req)),
+      ),
     );
 
     app.get('/auth/verify/admin', (req, res) => {
