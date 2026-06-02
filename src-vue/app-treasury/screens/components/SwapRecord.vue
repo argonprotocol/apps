@@ -122,7 +122,7 @@ async function openCurrentTrade() {
   const inputCurrency = await StableSwaps.getInputCurrency(props.swap.inputToken);
   if (!inputCurrency) return;
 
-  const swapUrl = StableSwaps.buildStableSwapUniswapUrl(walletOutputAmount.value, inputCurrency);
+  const swapUrl = await StableSwaps.buildStableSwapUniswapUrl(walletOutputAmount.value, inputCurrency);
   if (!swapUrl) return;
 
   await tauriOpenUrl(swapUrl);

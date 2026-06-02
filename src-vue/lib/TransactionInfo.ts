@@ -19,6 +19,14 @@ type IProgressCallback = (args: IProgressCallbackArgs, error?: Error) => void | 
 
 const REQUIRED_FINALIZATION_BLOCKS = 4;
 
+export function getArgonFinalityBlocks() {
+  return REQUIRED_FINALIZATION_BLOCKS;
+}
+
+export function getArgonFinalityMillis() {
+  return getArgonFinalityBlocks() * TICK_MILLIS;
+}
+
 export class TransactionInfo<MetadataType = unknown> {
   public tx: ITransactionRecord<MetadataType>;
   public txResult: TxResult;

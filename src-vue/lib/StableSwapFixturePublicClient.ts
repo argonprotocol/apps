@@ -20,6 +20,7 @@ import type { Token } from '@uniswap/sdk-core';
 type StableSwapFixture = {
   blockNumber: number;
   tokenAddresses: {
+    argon: string;
     argonot: string;
   };
   pool: {
@@ -56,6 +57,7 @@ type ParsedStableSwapFixturePool = {
   currentSqrtPriceX96: bigint;
 };
 
+export const STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS = getAddress(fixture.tokenAddresses.argon);
 export const STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS = getAddress(fixture.tokenAddresses.argonot);
 
 export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwapFixture = fixture): PublicClient {
@@ -213,7 +215,7 @@ type StableSwapFixtureTokenSymbol = 'ARGN' | 'USDC' | 'USDT' | 'WETH' | 'ARGNOT'
 
 function createStableSwapFixtureTokens(stableSwapFixture: StableSwapFixture) {
   return {
-    ARGN: getStableSwapArgonToken(),
+    ARGN: getStableSwapArgonToken(getAddress(stableSwapFixture.tokenAddresses.argon)),
     USDC: getStableSwapUsdcToken(),
     USDT: getStableSwapUsdtToken(),
     WETH: getStableSwapWethToken(),

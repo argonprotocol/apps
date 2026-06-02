@@ -3,7 +3,7 @@ import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestDb } from './helpers/db.ts';
 import {
   MintingAuthorities,
-  getPendingMintingAuthorityCollateralizations,
+  getPendingMintingAuthorizations,
   getOwnedEthereumMintingAuthorities,
   getNextMintingAuthoritySigner,
   restoreOwnedEthereumMintingAuthorities,
@@ -11,7 +11,6 @@ import {
 import { getEthereumHdPath } from '../lib/WalletKeys.ts';
 import { DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES } from '../lib/MemoryWalletKeys.ts';
 import { mnemonicToAccount } from 'viem/accounts';
-import * as mainchainStore from '../stores/mainchain.ts';
 
 const TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 
@@ -155,7 +154,7 @@ describe('MintingAuthorities', () => {
     expect(nextSigner.authorityIndex).toBe(103);
   });
 
-  it('subtracts local pending collateral reservations before planning the next transfer', async () => {
+  it('subtracts local pending minting authorizations before planning the next transfer', async () => {
     const authority = {
       signer: '0x' + '11'.repeat(20),
       authorityIndex: 0,
@@ -207,7 +206,7 @@ describe('MintingAuthorities', () => {
       },
     };
 
-    const collateralizations = await getPendingMintingAuthorityCollateralizations(
+    const authorizations = await getPendingMintingAuthorizations(
       client as any,
       [authority as any],
       [
@@ -221,8 +220,8 @@ describe('MintingAuthorities', () => {
       ],
     );
 
-    expect(collateralizations).toHaveLength(1);
-    expect(collateralizations[0]).toMatchObject({
+    expect(authorizations).toHaveLength(1);
+    expect(authorizations[0]).toMatchObject({
       transferId: '0x' + '02'.repeat(32),
       authorityIndex: 0,
       microgonCollateral: 70n,
@@ -231,7 +230,7 @@ describe('MintingAuthorities', () => {
     });
   });
 
-  it('does not surface collateralization work when no active minting authority is available', async () => {
+  it('does not surface minting-authorization work when no active minting authority is available', async () => {
     const client = {
       query: {
         crosschainTransfer: {
@@ -241,9 +240,9 @@ describe('MintingAuthorities', () => {
       },
     };
 
-    const collateralizations = await getPendingMintingAuthorityCollateralizations(client as any, []);
+    const authorizations = await getPendingMintingAuthorizations(client as any, []);
 
-    expect(collateralizations).toEqual([]);
+    expect(authorizations).toEqual([]);
     expect(client.query.crosschainTransfer.chainConfigBySourceChain).not.toHaveBeenCalled();
     expect(client.query.crosschainTransfer.pendingCollateralizationRequestsByChain).not.toHaveBeenCalled();
   });
@@ -300,20 +299,18 @@ describe('MintingAuthorities', () => {
       },
     };
 
-    const genericCollateralizations = await getPendingMintingAuthorityCollateralizations(client as any, [
-      authority as any,
-    ]);
-    const exactCollateralizations = await getPendingMintingAuthorityCollateralizations(
+    const genericAuthorizations = await getPendingMintingAuthorizations(client as any, [authority as any]);
+    const exactAuthorizations = await getPendingMintingAuthorizations(
       client as any,
       [authority as any],
       [],
       secondTransferId,
     );
 
-    expect(genericCollateralizations).toHaveLength(1);
-    expect(genericCollateralizations[0].transferId).toBe(firstTransferId);
-    expect(exactCollateralizations).toHaveLength(1);
-    expect(exactCollateralizations[0]).toMatchObject({
+    expect(genericAuthorizations).toHaveLength(1);
+    expect(genericAuthorizations[0].transferId).toBe(firstTransferId);
+    expect(exactAuthorizations).toHaveLength(1);
+    expect(exactAuthorizations[0]).toMatchObject({
       transferId: secondTransferId,
       authorityIndex: 0,
       microgonCollateral: 100n,
@@ -321,8 +318,8 @@ describe('MintingAuthorities', () => {
     });
   });
 
-  it('batches all current sponsorship opportunities with utility.batch', async () => {
-    const collateralizeTransfer = vi.fn((transferId: string) => ({ kind: 'collateralize', transferId }));
+  it('batches all current minting authorizations with utility.batch', async () => {
+    const collateralizeTransfer = vi.fn((transferId: string) => ({ kind: 'collateralizeTransfer', transferId }));
     const batch = vi.fn(txs => ({ kind: 'batch', txs }));
     const submitAndWatch = vi.fn(async (args: { metadata: unknown; tx: unknown }) => ({
       tx: { metadataJson: args.metadata },
@@ -338,7 +335,7 @@ describe('MintingAuthorities', () => {
         .mockResolvedValueOnce(`0x${'11'.repeat(64)}1c`)
         .mockResolvedValueOnce(`0x${'22'.repeat(64)}1c`),
     };
-    const collateralizations = [
+    const pendingMintingAuthorizations = [
       {
         transferId: '0x' + '01'.repeat(32),
         authorityIndex: 2,
@@ -358,78 +355,82 @@ describe('MintingAuthorities', () => {
     ];
     const mintingAuthorities = {
       data: {
-        pendingCollateralizations: collateralizations,
-        pendingCollateralizeTxInfosByTransferId: new Map(),
+        pendingMintingAuthorizations,
+        pendingMintingAuthorizeTxInfosByTransferId: new Map(),
       },
       load: vi.fn(async () => {}),
-      walletKeys,
-      transactionTracker: { submitAndWatch },
-      onCollateralize: vi.fn(async () => undefined),
-    };
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
-      tx: {
-        crosschainTransfer: {
-          collateralizeTransfer,
-        },
-        utility: {
-          batch,
+      miningFrames: {
+        blockWatch: {
+          clients: {
+            get: vi.fn(async () => ({
+              tx: {
+                crosschainTransfer: {
+                  collateralizeTransfer,
+                },
+                utility: {
+                  batch,
+                },
+              },
+            })),
+          },
         },
       },
-    } as any);
+      walletKeys,
+      transactionTracker: { submitAndWatch },
+      onAuthorize: vi.fn(async () => undefined),
+    };
 
-    await MintingAuthorities.prototype.collateralize.call(mintingAuthorities);
+    await MintingAuthorities.prototype.authorize.call(mintingAuthorities);
 
     expect(collateralizeTransfer).toHaveBeenNthCalledWith(
       1,
-      collateralizations[0].transferId,
+      pendingMintingAuthorizations[0].transferId,
       `0x${'11'.repeat(64)}1c`,
-      collateralizations[0].microgonCollateral,
-      collateralizations[0].micronotCollateral,
+      pendingMintingAuthorizations[0].microgonCollateral,
+      pendingMintingAuthorizations[0].micronotCollateral,
     );
     expect(collateralizeTransfer).toHaveBeenNthCalledWith(
       2,
-      collateralizations[1].transferId,
+      pendingMintingAuthorizations[1].transferId,
       `0x${'22'.repeat(64)}1c`,
-      collateralizations[1].microgonCollateral,
-      collateralizations[1].micronotCollateral,
+      pendingMintingAuthorizations[1].microgonCollateral,
+      pendingMintingAuthorizations[1].micronotCollateral,
     );
     expect(batch).toHaveBeenCalledWith([
-      { kind: 'collateralize', transferId: collateralizations[0].transferId },
-      { kind: 'collateralize', transferId: collateralizations[1].transferId },
+      { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[0].transferId },
+      { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[1].transferId },
     ]);
     expect(submitAndWatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tx: {
           kind: 'batch',
           txs: [
-            { kind: 'collateralize', transferId: collateralizations[0].transferId },
-            { kind: 'collateralize', transferId: collateralizations[1].transferId },
+            { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[0].transferId },
+            { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[1].transferId },
           ],
         },
         metadata: {
-          actionType: 'collateralizeTransfer',
-          collateralizations: [
+          actionType: 'authorizeTransfer',
+          authorizations: [
             {
-              authorityIndex: collateralizations[0].authorityIndex,
-              transferId: collateralizations[0].transferId,
-              mintingAuthorityTip: collateralizations[0].mintingAuthorityTip,
-              microgonCollateral: collateralizations[0].microgonCollateral,
-              micronotCollateral: collateralizations[0].micronotCollateral,
+              authorityIndex: pendingMintingAuthorizations[0].authorityIndex,
+              transferId: pendingMintingAuthorizations[0].transferId,
+              mintingAuthorityTip: pendingMintingAuthorizations[0].mintingAuthorityTip,
+              microgonCollateral: pendingMintingAuthorizations[0].microgonCollateral,
+              micronotCollateral: pendingMintingAuthorizations[0].micronotCollateral,
             },
             {
-              authorityIndex: collateralizations[1].authorityIndex,
-              transferId: collateralizations[1].transferId,
-              mintingAuthorityTip: collateralizations[1].mintingAuthorityTip,
-              microgonCollateral: collateralizations[1].microgonCollateral,
-              micronotCollateral: collateralizations[1].micronotCollateral,
+              authorityIndex: pendingMintingAuthorizations[1].authorityIndex,
+              transferId: pendingMintingAuthorizations[1].transferId,
+              mintingAuthorityTip: pendingMintingAuthorizations[1].mintingAuthorityTip,
+              microgonCollateral: pendingMintingAuthorizations[1].microgonCollateral,
+              micronotCollateral: pendingMintingAuthorizations[1].micronotCollateral,
             },
           ],
         },
         useLatestNonce: true,
       }),
     );
-
-    getMainchainClient.mockRestore();
   });
 });
 

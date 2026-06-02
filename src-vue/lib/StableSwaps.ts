@@ -59,10 +59,13 @@ type StableSwapInputRoute = {
 };
 
 type StableSwapsOptions = {
+  argonTokenAddress?: Address;
   argonotTokenAddress?: Address;
 };
 
 export class StableSwaps {
+  private argonTokenPromise: Promise<Token> | undefined;
+
   constructor(
     private readonly client: PublicClient,
     private readonly options: StableSwapsOptions = {},
@@ -140,7 +143,7 @@ export class StableSwaps {
   }
 
   public async getActivePoolMetadata(blockNumber?: bigint): Promise<IStableSwapPoolMetadata> {
-    const argonToken = getStableSwapArgonToken();
+    const argonToken = await this.getArgonToken();
     const usdcToken = getStableSwapUsdcToken();
     const argonIsToken0 = argonToken.sortsBefore(usdcToken);
 
@@ -202,7 +205,7 @@ export class StableSwaps {
     blockNumber?: bigint;
   }): Promise<IStableSwapMarketSnapshot> {
     const { microgonsPerUsd, targetPriceFixed18, pool, blockNumber } = args;
-    const currentPriceFixed18 = this.getCurrentPriceFixed18(pool);
+    const currentPriceFixed18 = await this.getCurrentPriceFixed18(pool);
 
     let discountedEthereumArgonAmount = 0n;
     let costToTargetMicrogons = 0n;
@@ -249,8 +252,9 @@ export class StableSwaps {
     blockNumber?: bigint;
   }): Promise<IStableSwapQuoteResult | null> {
     const { pool, targetPriceFixed18, blockNumber } = args;
+    const argonToken = await this.getArgonToken();
     const poolArgonBalance = await this.client.readContract({
-      address: getStableSwapArgonTokenAddress(),
+      address: getStableSwapArgonTokenAddress(argonToken.address),
       abi: erc20Abi,
       functionName: 'balanceOf',
       args: [pool.poolAddress],
@@ -329,9 +333,9 @@ export class StableSwaps {
     throwOnError?: boolean;
   }): Promise<IStableSwapQuoteResult | null> {
     const { pool, amountOut, blockNumber, throwOnError = false } = args;
-    const argonToken = getStableSwapArgonToken();
+    const argonToken = await this.getArgonToken();
     const usdcToken = getStableSwapUsdcToken();
-    const route = args.route ?? new UniswapV3Route([createStableSwapSdkPool(pool)], usdcToken, argonToken);
+    const route = args.route ?? new UniswapV3Route([createStableSwapSdkPool(pool, argonToken)], usdcToken, argonToken);
 
     try {
       const quotedAmountOut = CurrencyAmount.fromRawAmount(argonToken, amountOut.toString());
@@ -350,7 +354,7 @@ export class StableSwaps {
 
       const { amountIn, sqrtPriceX96After } = decodeStableSwapExactOutputQuote(quoteResult.data, route.pools.length);
       const tickAfter = TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96After.toString()) as any);
-      const quotedPool = createStableSwapSdkPool(pool, {
+      const quotedPool = createStableSwapSdkPool(pool, argonToken, {
         sqrtPriceX96: sqrtPriceX96After,
         liquidity: pool.poolLiquidity,
         tickCurrent: tickAfter,
@@ -370,18 +374,29 @@ export class StableSwaps {
     }
   }
 
-  public getCurrentPriceFixed18(pool: IStableSwapPoolMetadata, state?: StableSwapSdkPoolState): bigint {
-    return stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, state).priceOf(getStableSwapArgonToken()));
+  public async getCurrentPriceFixed18(pool: IStableSwapPoolMetadata, state?: StableSwapSdkPoolState): Promise<bigint> {
+    const argonToken = await this.getArgonToken();
+    return stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, argonToken, state).priceOf(argonToken));
   }
 
-  public static buildStableSwapUniswapUrl(argonAmountMicrogons: bigint, inputCurrency?: string): string | null {
+  public static async buildStableSwapUniswapUrl(
+    argonAmountMicrogons: bigint,
+    inputCurrency?: string,
+    options: Pick<StableSwapsOptions, 'argonTokenAddress'> = {},
+  ): Promise<string | null> {
     if (argonAmountMicrogons <= 0n) {
+      return null;
+    }
+
+    const chainConfig = options.argonTokenAddress ? undefined : await loadEthereumChainConfig();
+    const argonTokenAddress = options.argonTokenAddress ?? chainConfig?.argonTokenAddress;
+    if (!argonTokenAddress) {
       return null;
     }
 
     const ethereumArgonAmount = microgonsToEthereumArgonBaseUnits(argonAmountMicrogons);
     const inputCurrencyParam = inputCurrency ? `&inputCurrency=${inputCurrency}` : '';
-    return `https://app.uniswap.org/#/swap?chain=mainnet${inputCurrencyParam}&outputCurrency=${getStableSwapArgonTokenAddress()}&field=output&value=${formatUnits(ethereumArgonAmount, ETHEREUM_ARGON_DECIMALS)}`;
+    return `https://app.uniswap.org/#/swap?chain=mainnet${inputCurrencyParam}&outputCurrency=${getStableSwapArgonTokenAddress(argonTokenAddress)}&field=output&value=${formatUnits(ethereumArgonAmount, ETHEREUM_ARGON_DECIMALS)}`;
   }
 
   public static async getInputCurrency(
@@ -407,7 +422,7 @@ export class StableSwaps {
     blockNumber?: bigint;
   }): Promise<StableSwapInputRoute[]> {
     const { activePool, microgonsPerUsd, inputTokenPricesMicrogons, blockNumber } = args;
-    const argonToken = getStableSwapArgonToken();
+    const argonToken = await this.getArgonToken();
     const usdcToken = getStableSwapUsdcToken();
     const argonUsdcPool = this.createRoutePoolMetadata(activePool, argonToken, usdcToken);
     const routes: StableSwapInputRoute[] = [
@@ -518,6 +533,31 @@ export class StableSwaps {
       return argonotTokenAddress ? getStableSwapArgonotToken(argonotTokenAddress) : null;
     } catch {
       return null;
+    }
+  }
+
+  private async getArgonToken(): Promise<Token> {
+    const argonTokenPromise =
+      this.argonTokenPromise ??
+      (async () => {
+        const argonTokenAddress =
+          this.options.argonTokenAddress ?? (await loadEthereumChainConfig())?.argonTokenAddress;
+        if (!argonTokenAddress) {
+          throw new Error('Ethereum gateway chain config is not available on this Argon network.');
+        }
+
+        return getStableSwapArgonToken(argonTokenAddress);
+      })();
+    this.argonTokenPromise = argonTokenPromise;
+
+    try {
+      return await argonTokenPromise;
+    } catch (error) {
+      if (this.argonTokenPromise === argonTokenPromise) {
+        this.argonTokenPromise = undefined;
+      }
+
+      throw error;
     }
   }
 

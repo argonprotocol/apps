@@ -1,4 +1,4 @@
-import { MoveToken } from '@argonprotocol/apps-core';
+import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { nanoid } from 'nanoid';
 import { formatEther } from 'viem';
@@ -12,6 +12,7 @@ import {
   loadEthereumChainConfig,
   toEvmRecoverableSignature,
 } from './EthereumClient.ts';
+import { getCappedPercent } from './Utils.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
@@ -19,23 +20,37 @@ import {
   CrosschainOutboundTransferStatus,
   type ICrosschainOutboundTransferRecord,
 } from './db/CrosschainOutboundTransfersTable.ts';
+import {
+  completeOutboundTransferProgress,
+  createCrosschainTransferProgress,
+  formatCrosschainBlockStepDetail,
+  hydrateCrosschainTransferProgress,
+  OUTBOUND_TRANSFER_STEP_TITLES,
+  setOutboundArgonStepProgress,
+  setOutboundEthereumStepProgress,
+  setOutboundMintingAuthorizationStepProgress,
+  type ICrosschainTransferProgress,
+} from './CrosschainTransferProgress.ts';
 import { WalletType } from './Wallet.ts';
 import type { WalletKeys } from './WalletKeys.ts';
-import type { MintingAuthorities } from './MintingAuthorities.ts';
+import type { MintingAuthorities, IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 
 const NETWORK = 'Ethereum';
-
 type IEthereumOutboundTransferClient = Pick<
   EthereumClient,
   | 'estimateFinalizeTransferOutOfArgonFee'
   | 'getNativeBalanceWei'
   | 'finalizeTransferOutOfArgon'
   | 'confirmTransferOutOfArgon'
+  | 'getTransactionProgress'
+  | 'getTransactionFinalityPollMs'
+  | 'waitForTransactionFinality'
 > &
   Partial<Pick<EthereumClient, 'estimateLikelyFinalizeTransferOutOfArgonFee'>>;
 
 type ICrosschainTransferOutMetadata = {
   actionType: 'transferOutToEthereum';
+  localTransferId: string;
   moveToken: IEthereumMoveToken;
   amount: bigint;
   sourceWalletType: IArgonWalletType;
@@ -45,24 +60,16 @@ type ICrosschainTransferOutMetadata = {
 export type IEthereumOutboundTransferState = {
   isSubmitting: boolean;
   hasPersistedTransfer: boolean;
-  isCollateralizingOnArgon: boolean;
-  awaitingCollateralizationLabel?: string;
-  remainingCollateralMicrogons?: bigint;
+  needsAcknowledgement: boolean;
   amount?: bigint;
   sourceWalletType?: IArgonWalletType;
-  phase:
-    | 'idle'
-    | 'preparing'
-    | 'confirmingArgon'
-    | 'awaitingCollateralization'
-    | 'confirmingEthereum'
-    | 'confirmedOnEthereum';
+  progress: ICrosschainTransferProgress;
   error: string;
   ethereumFeeEstimateWei?: bigint;
 };
 
 export type IEthereumOutboundActiveTransfer = {
-  transferId: string;
+  id: string;
   moveToken: IEthereumMoveToken;
   transferState: IEthereumOutboundTransferState;
   persistedRecord?: ICrosschainOutboundTransferRecord;
@@ -78,6 +85,7 @@ export class EthereumOutboundTransferTracker {
   #loadPromise?: Promise<void>;
   #resumePromises = new Map<string, Promise<void>>();
   #pendingTransferOutPromises = new Map<string, Promise<void>>();
+  #pendingArgonProgressByTransferId = new Map<string, { txId: number; unsubscribe: VoidFunction }>();
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -85,7 +93,7 @@ export class EthereumOutboundTransferTracker {
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: IEthereumOutboundTransferClient,
-    private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'collateralize'>,
+    private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'authorize'>,
   ) {}
 
   public async load(): Promise<void> {
@@ -97,12 +105,13 @@ export class EthereumOutboundTransferTracker {
     return this.#loadPromise;
   }
 
-  public getTransfer(transferId: string): IEthereumOutboundActiveTransfer | undefined {
-    const transfer = this.data.transfersById[transferId];
+  public getTransfer(id: string): IEthereumOutboundActiveTransfer | undefined {
+    const transfer = this.data.transfersById[id];
     if (
       transfer?.persistedRecord &&
       transfer.transferState.hasPersistedTransfer &&
-      !transfer.transferState.isSubmitting
+      !transfer.transferState.isSubmitting &&
+      !transfer.transferState.needsAcknowledgement
     ) {
       void this.resumeTrackedTransfer(transfer.persistedRecord);
     }
@@ -121,6 +130,38 @@ export class EthereumOutboundTransferTracker {
 
   public getTransferStateForToken(moveToken: IEthereumMoveToken): IEthereumOutboundTransferState {
     return this.getLatestTransfer(moveToken)?.transferState ?? createEmptyTransferState();
+  }
+
+  public async getTransferOutUnavailableReason(): Promise<string | undefined> {
+    await this.blockWatch.start();
+    const client = await getMainchainClient(false);
+    const latestExecutionHeaderAnchorHash = await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
+    if (latestExecutionHeaderAnchorHash.isNone) {
+      return 'Ethereum state is still syncing. Transfers out will be available once finalized Ethereum state is available on Argon.';
+    }
+
+    const latestExecutionHeader = await client.query.ethereumVerifier.executionHeaderAnchors(
+      latestExecutionHeaderAnchorHash.unwrap().toHex(),
+    );
+    if (latestExecutionHeader.isNone) {
+      return 'Ethereum state is still syncing. Transfers out will be available once finalized Ethereum state is available on Argon.';
+    }
+
+    const anchor = latestExecutionHeader.unwrap();
+    const anchorTimestampMillis = anchor.timestampMillis.toBigInt();
+    const currentBlockTimeMillis = BigInt(this.blockWatch.bestBlockHeader.blockTime);
+    const ageMillis =
+      currentBlockTimeMillis > anchorTimestampMillis ? currentBlockTimeMillis - anchorTimestampMillis : 0n;
+    const maxAgeMillis =
+      client.consts.crosschainTransfer.maxVerifiedExecutionBlockAgeTicks.toBigInt() * BigInt(NetworkConfig.tickMillis);
+    if (ageMillis <= maxAgeMillis) {
+      return;
+    }
+
+    const minuteMillis = 60_000n;
+    const ageMinutes = Number((ageMillis + minuteMillis - 1n) / minuteMillis);
+    const maxAgeMinutes = Number((maxAgeMillis + minuteMillis - 1n) / minuteMillis);
+    return `Ethereum state is still syncing ${ageMinutes} minutes behind. Transfers out will be available once it is within about ${maxAgeMinutes} minutes.`;
   }
 
   public async estimateFeeRangeWei(args: {
@@ -178,8 +219,8 @@ export class EthereumOutboundTransferTracker {
     return [lowEstimateWei, highEstimateWei] as const;
   }
 
-  public clearCompletedTransfer(transferId: string) {
-    const transfer = this.data.transfersById[transferId];
+  public clearCompletedTransfer(id: string) {
+    const transfer = this.data.transfersById[id];
     if (!transfer) {
       return;
     }
@@ -188,10 +229,45 @@ export class EthereumOutboundTransferTracker {
       return;
     }
 
-    if (this.data.latestTransferIdByToken[transfer.moveToken] === transferId) {
-      delete this.data.latestTransferIdByToken[transfer.moveToken];
+    this.discardTransfer(id, transfer.moveToken, transfer.persistedRecord?.transferId);
+  }
+
+  public async acknowledgeFailedTransfer(id: string) {
+    const transfer = this.data.transfersById[id];
+    if (!transfer?.transferState.needsAcknowledgement) {
+      return;
     }
-    delete this.data.transfersById[transferId];
+
+    if (hasUnacknowledgedFailure(transfer.persistedRecord)) {
+      const db = await this.dbPromise;
+      transfer.persistedRecord = await db.crosschainOutboundTransfersTable.acknowledgeFailed(id);
+    }
+
+    this.discardTransfer(id, transfer.moveToken, transfer.persistedRecord?.transferId);
+  }
+
+  public async retryFailedTransfer(id: string) {
+    const transfer = this.data.transfersById[id];
+    if (!transfer?.persistedRecord || !hasUnacknowledgedFailure(transfer.persistedRecord)) {
+      return transfer;
+    }
+
+    const db = await this.dbPromise;
+    const retriedRecord = await db.crosschainOutboundTransfersTable.patch(id, {
+      failureReason: null,
+      isFailureAcknowledged: false,
+    });
+    if (!retriedRecord) {
+      return transfer;
+    }
+
+    transfer.persistedRecord = retriedRecord;
+    transfer.transferState.error = '';
+    transfer.transferState.isSubmitting = true;
+    transfer.transferState.hasPersistedTransfer = true;
+    transfer.transferState.needsAcknowledgement = false;
+    void this.resumeTrackedTransfer(retriedRecord);
+    return transfer;
   }
 
   public async startMove(args: {
@@ -220,22 +296,31 @@ export class EthereumOutboundTransferTracker {
     );
     if (existingTransfer) {
       void this.resumeTrackedTransfer(existingTransfer);
-      return this.getTransfer(existingTransfer.transferId);
+      return this.getTransfer(existingTransfer.id);
     }
 
     if (amount <= 0n) {
       return;
     }
 
+    const transferOutUnavailableReason = await this.getTransferOutUnavailableReason();
+    if (transferOutUnavailableReason) {
+      throw new Error(transferOutUnavailableReason);
+    }
+
     const transfer = this.trackTransfer(nanoid(), moveToken);
-    this.data.latestTransferIdByToken[moveToken] = transfer.transferId;
+    this.data.latestTransferIdByToken[moveToken] = transfer.id;
     transfer.transferState = {
       ...createEmptyTransferState(),
       amount,
       sourceWalletType,
       isSubmitting: true,
-      phase: 'preparing',
+      needsAcknowledgement: false,
     };
+    transfer.transferState.progress = setOutboundArgonStepProgress(transfer.transferState.progress, {
+      progressPct: 0,
+      detail: 'Submitting to Argon miners...',
+    });
 
     void this.runStartMove({
       amount,
@@ -247,98 +332,19 @@ export class EthereumOutboundTransferTracker {
     return transfer;
   }
 
-  public async startTransfer(args: {
-    transferId: string;
-    moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
-    finalizeRequest: IEthereumFinalizeTransferOutOfArgonArgs['request'];
-    collateralizedArgonBlockNumber?: number;
-    collateralizedArgonBlockHash?: string;
-    authorizations: IEthereumFinalizeTransferOutOfArgonArgs['proof']['authorizations'];
-  }): Promise<IEthereumOutboundActiveTransfer> {
-    await this.load();
-
-    const db = await this.dbPromise;
-    const finalizeArgs = {
-      request: args.finalizeRequest,
-      proof: { authorizations: args.authorizations },
-    } satisfies IEthereumFinalizeTransferOutOfArgonArgs;
-
-    const existingTransfer = await db.crosschainOutboundTransfersTable.get(args.transferId);
-    if (existingTransfer) {
-      const persistedRecord =
-        existingTransfer.status === CrosschainOutboundTransferStatus.RequestFinalizedOnArgon
-          ? await db.crosschainOutboundTransfersTable.recordCollateralized({
-              transferId: existingTransfer.transferId,
-              collateralizedMicrogons: sumCollateral(args.authorizations, 'microgonCollateral'),
-              collateralizedMicronots: sumCollateral(args.authorizations, 'micronotCollateral'),
-              collateralizedArgonBlockNumber: args.collateralizedArgonBlockNumber,
-              collateralizedArgonBlockHash: args.collateralizedArgonBlockHash,
-              finalizeRequestJson: finalizeArgs.request,
-              finalizeProofJson: finalizeArgs.proof,
-            })
-          : existingTransfer;
-      void this.resumeTrackedTransfer(persistedRecord ?? existingTransfer);
-      return this.trackTransfer(existingTransfer.transferId, existingTransfer.token);
-    }
-
-    const requestFinalizedRecord = await db.crosschainOutboundTransfersTable.insertRequestFinalizedOnArgon({
-      transferId: args.transferId,
-      destinationChain: NETWORK,
-      token: args.moveToken,
-      amount: args.finalizeRequest.amount,
-      argonSourceAddress: args.finalizeRequest.argonAccountId,
-      destinationAddress: args.finalizeRequest.recipient,
-    });
-    if (!requestFinalizedRecord) {
-      throw new Error(`Transfer ${args.transferId} could not be persisted before Ethereum finalization.`);
-    }
-
-    const persistedRecord = await db.crosschainOutboundTransfersTable.recordCollateralized({
-      transferId: requestFinalizedRecord.transferId,
-      collateralizedMicrogons: sumCollateral(args.authorizations, 'microgonCollateral'),
-      collateralizedMicronots: sumCollateral(args.authorizations, 'micronotCollateral'),
-      collateralizedArgonBlockNumber: args.collateralizedArgonBlockNumber,
-      collateralizedArgonBlockHash: args.collateralizedArgonBlockHash,
-      finalizeRequestJson: finalizeArgs.request,
-      finalizeProofJson: finalizeArgs.proof,
-    });
-    if (!persistedRecord) {
-      throw new Error(`Transfer ${args.transferId} could not be updated after collateralization.`);
-    }
-
-    const transfer = this.trackTransfer(persistedRecord.transferId, persistedRecord.token);
-    transfer.persistedRecord = persistedRecord;
-    transfer.transferState = {
-      ...transfer.transferState,
-      amount: persistedRecord.amount,
-      sourceWalletType: getSourceWalletTypeForAddress(this.walletKeys, persistedRecord.argonSourceAddress),
-      isSubmitting: true,
-      hasPersistedTransfer: true,
-      phase: 'confirmingEthereum',
-    };
-
-    if (transfer.transferState.ethereumFeeEstimateWei == null) {
-      transfer.transferState.ethereumFeeEstimateWei =
-        await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee(finalizeArgs);
-    }
-
-    void this.resumeTrackedTransfer(persistedRecord);
-    return transfer;
-  }
-
-  private trackTransfer(transferId: string, moveToken: IEthereumMoveToken, markLatest = true) {
-    let transfer = this.data.transfersById[transferId];
+  private trackTransfer(id: string, moveToken: IEthereumMoveToken, markLatest = true) {
+    let transfer = this.data.transfersById[id];
     if (!transfer) {
-      this.data.transfersById[transferId] = {
-        transferId,
+      this.data.transfersById[id] = {
+        id,
         moveToken,
         transferState: createEmptyTransferState(),
       };
-      transfer = this.data.transfersById[transferId];
+      transfer = this.data.transfersById[id];
     }
 
     if (markLatest) {
-      this.data.latestTransferIdByToken[moveToken] = transferId;
+      this.data.latestTransferIdByToken[moveToken] = id;
     }
     return transfer;
   }
@@ -352,13 +358,18 @@ export class EthereumOutboundTransferTracker {
     await this.transactionTracker.load();
     await this.blockWatch.start();
 
-    const records = await (await this.dbPromise).crosschainOutboundTransfersTable.fetchAll();
+    const db = await this.dbPromise;
+    const records = await db.crosschainOutboundTransfersTable.fetchAll();
     for (const record of [...records].reverse()) {
-      if (record.destinationChain !== NETWORK || record.status === CrosschainOutboundTransferStatus.TargetFinalized) {
+      if (
+        record.destinationChain !== NETWORK ||
+        record.status === CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain ||
+        isAcknowledgedFailure(record)
+      ) {
         continue;
       }
 
-      const transfer = this.trackTransfer(record.transferId, record.token, false);
+      const transfer = this.trackTransfer(record.id, record.token, false);
       const latestTransferId = this.data.latestTransferIdByToken[record.token];
       const latestRecord = latestTransferId ? this.data.transfersById[latestTransferId]?.persistedRecord : undefined;
       if (
@@ -367,7 +378,7 @@ export class EthereumOutboundTransferTracker {
         (record.updatedAt.getTime() === latestRecord.updatedAt.getTime() &&
           record.createdAt.getTime() > latestRecord.createdAt.getTime())
       ) {
-        this.data.latestTransferIdByToken[record.token] = record.transferId;
+        this.data.latestTransferIdByToken[record.token] = record.id;
       }
       transfer.persistedRecord = record;
       void this.resumeTrackedTransfer(record);
@@ -384,14 +395,23 @@ export class EthereumOutboundTransferTracker {
         continue;
       }
 
-      const transfer = this.trackTransfer(txInfo.tx.extrinsicHash, txInfo.tx.metadataJson.moveToken);
+      const transfer = this.trackTransfer(
+        txInfo.tx.metadataJson.localTransferId ?? txInfo.tx.extrinsicHash,
+        txInfo.tx.metadataJson.moveToken,
+      );
       transfer.transferState = {
         ...createEmptyTransferState(),
         amount: txInfo.tx.metadataJson.amount,
         sourceWalletType: txInfo.tx.metadataJson.sourceWalletType,
         isSubmitting: true,
-        phase: 'confirmingArgon',
+        needsAcknowledgement: false,
       };
+      transfer.transferState.progress = setOutboundArgonStepProgress(transfer.transferState.progress, {
+        progressPct: Math.max(0, txInfo.getStatus().progressPct),
+        detail: 'Submitted to Argon miners...',
+        confirmations: txInfo.getStatus().confirmations,
+        expectedConfirmations: txInfo.getStatus().expectedConfirmations,
+      });
       void this.resumePendingTransferOut(txInfo, transfer);
     }
   }
@@ -417,6 +437,7 @@ export class EthereumOutboundTransferTracker {
         extrinsicType: ExtrinsicType.CrosschainTransferTransferOut,
         metadata: {
           actionType: 'transferOutToEthereum',
+          localTransferId: transfer.id,
           moveToken,
           amount,
           sourceWalletType,
@@ -425,12 +446,29 @@ export class EthereumOutboundTransferTracker {
         useLatestNonce: true,
       });
 
-      transfer.transferState.phase = 'confirmingArgon';
-      await this.completeTransferOutOnArgon(txInfo, transfer);
+      const db = await this.dbPromise;
+      const persistedRecord = await db.crosschainOutboundTransfersTable.recordRequestSubmittedToArgon({
+        id: transfer.id,
+        destinationChain: NETWORK,
+        token: moveToken,
+        amount,
+        argonSourceAddress: getSourceWalletAddress(this.walletKeys, sourceWalletType),
+        destinationAddress: this.walletKeys.ethereumAddress,
+        argonRequestTransactionId: txInfo.tx.id,
+        progressJson: transfer.transferState.progress,
+      });
+      if (!persistedRecord) {
+        throw new Error(`Transfer ${transfer.id} could not be persisted after Argon submission.`);
+      }
+
+      transfer.persistedRecord = persistedRecord;
+      transfer.transferState.hasPersistedTransfer = true;
+      await this.completeTransferOutOnArgon(txInfo, transfer, persistedRecord);
     } catch (error) {
-      transfer.transferState.error =
-        error instanceof Error ? error.message : 'Unable to move funds from Argon to Ethereum.';
-      transfer.transferState.isSubmitting = false;
+      await this.failTransfer(
+        transfer.id,
+        error instanceof Error ? error.message : 'Unable to move funds from Argon to Ethereum.',
+      );
     }
   }
 
@@ -443,11 +481,12 @@ export class EthereumOutboundTransferTracker {
       return existingResumePromise;
     }
 
-    const resumePromise = this.completeTransferOutOnArgon(txInfo, transfer).catch(error => {
-      transfer.transferState.error =
-        error instanceof Error ? error.message : 'Unable to resume the Argon transfer to Ethereum.';
-      transfer.transferState.isSubmitting = false;
-    });
+    const resumePromise = this.completeTransferOutOnArgon(txInfo, transfer, transfer.persistedRecord).catch(error =>
+      this.failTransfer(
+        transfer.id,
+        error instanceof Error ? error.message : 'Unable to resume the Argon transfer to Ethereum.',
+      ),
+    );
     this.#pendingTransferOutPromises.set(txInfo.tx.extrinsicHash, resumePromise);
 
     try {
@@ -460,73 +499,130 @@ export class EthereumOutboundTransferTracker {
   private async completeTransferOutOnArgon(
     txInfo: TransactionInfo<ICrosschainTransferOutMetadata>,
     transfer: IEthereumOutboundActiveTransfer,
+    persistedRecord?: ICrosschainOutboundTransferRecord,
   ) {
-    await txInfo.txResult.waitForFinalizedBlock;
-    const minimumReadyBlockNumber = txInfo.tx.blockHeight ?? txInfo.tx.finalizedHeadHeight;
-
-    await this.transactionTracker.ensureStoredEvents(txInfo);
-    const transferId = await extractTransferId(txInfo);
-    const priorTransferId = transfer.transferId;
-    const requestFinalizedRecord = await (
-      await this.dbPromise
-    ).crosschainOutboundTransfersTable.insertRequestFinalizedOnArgon({
-      transferId,
-      destinationChain: NETWORK,
-      token: txInfo.tx.metadataJson.moveToken,
-      amount: txInfo.tx.metadataJson.amount,
-      argonSourceAddress: getSourceWalletAddress(this.walletKeys, txInfo.tx.metadataJson.sourceWalletType),
-      destinationAddress: txInfo.tx.metadataJson.destinationAddress,
+    const initialStatus = txInfo.getStatus();
+    transfer.transferState.progress = setOutboundArgonStepProgress(transfer.transferState.progress, {
+      progressPct: Math.max(0, initialStatus.progressPct),
+      detail: formatCrosschainBlockStepDetail({
+        blockType: 'Argon',
+        confirmations: initialStatus.confirmations,
+        expectedConfirmations: initialStatus.expectedConfirmations,
+      }),
+      confirmations: initialStatus.confirmations,
+      expectedConfirmations: initialStatus.expectedConfirmations,
     });
-    if (!requestFinalizedRecord) {
-      throw new Error(`Transfer ${transferId} could not be persisted after Argon finalization.`);
-    }
 
-    transfer.transferId = transferId;
-    this.data.transfersById[transferId] = transfer;
-    this.data.latestTransferIdByToken[transfer.moveToken] = transferId;
-    if (priorTransferId !== transferId) {
-      delete this.data.transfersById[priorTransferId];
-    }
-    transfer.persistedRecord = requestFinalizedRecord;
-    transfer.transferState.hasPersistedTransfer = true;
-    transfer.transferState.phase = 'awaitingCollateralization';
+    const unsubscribeProgress = txInfo.subscribeToProgress((progressArgs, error) => {
+      transfer.transferState.progress = setOutboundArgonStepProgress(transfer.transferState.progress, {
+        progressPct: progressArgs.progressPct,
+        detail: formatCrosschainBlockStepDetail({
+          blockType: 'Argon',
+          confirmations: progressArgs.confirmations,
+          expectedConfirmations: progressArgs.expectedConfirmations,
+        }),
+        confirmations: progressArgs.confirmations,
+        expectedConfirmations: progressArgs.expectedConfirmations,
+      });
 
-    await this.completeRequestFinalizedTransfer(transfer, requestFinalizedRecord, minimumReadyBlockNumber);
+      if (error) {
+        transfer.transferState.error = error.message;
+      }
+    });
+
+    try {
+      await txInfo.txResult.waitForFinalizedBlock;
+      const minimumReadyBlockNumber = txInfo.tx.blockHeight ?? txInfo.tx.finalizedHeadHeight;
+
+      await this.transactionTracker.ensureStoredEvents(txInfo);
+      const transferId = await extractTransferId(txInfo);
+      const argonFinalizedProgress = setOutboundMintingAuthorizationStepProgress(
+        setOutboundArgonStepProgress(transfer.transferState.progress, {
+          progressPct: 100,
+          detail: 'Argon finalized.',
+        }),
+        {
+          progressPct: 0,
+          detail: 'Waiting for Minting Authorization (0% authorized)',
+        },
+      );
+      const db = await this.dbPromise;
+      const argonFinalizedRecord = await db.crosschainOutboundTransfersTable.recordRequestFinalizedOnArgon({
+        id: transfer.id,
+        transferId,
+        progressJson: argonFinalizedProgress,
+      });
+      if (!argonFinalizedRecord) {
+        throw new Error(`Transfer ${transfer.id} could not be persisted after Argon finalization.`);
+      }
+
+      transfer.persistedRecord = argonFinalizedRecord;
+      transfer.transferState.progress = argonFinalizedProgress;
+      transfer.transferState.hasPersistedTransfer = true;
+      await this.completeRequestFinalizedTransfer(transfer, argonFinalizedRecord, minimumReadyBlockNumber);
+    } finally {
+      unsubscribeProgress();
+    }
   }
 
   private async resumeTrackedTransfer(record: ICrosschainOutboundTransferRecord) {
-    const existingResumePromise = this.#resumePromises.get(record.transferId);
+    const existingResumePromise = this.#resumePromises.get(record.id);
     if (existingResumePromise) {
       return existingResumePromise;
     }
 
     const resumePromise = this.runResumeTrackedTransfer(record);
-    this.#resumePromises.set(record.transferId, resumePromise);
+    this.#resumePromises.set(record.id, resumePromise);
 
     try {
       await resumePromise;
     } finally {
-      this.#resumePromises.delete(record.transferId);
+      this.#resumePromises.delete(record.id);
     }
   }
 
   private async runResumeTrackedTransfer(record: ICrosschainOutboundTransferRecord) {
-    const transfer = this.trackTransfer(record.transferId, record.token, false);
-    const isComplete = record.status === CrosschainOutboundTransferStatus.TargetFinalized;
+    const transfer = this.trackTransfer(record.id, record.token, false);
+    const isComplete = record.status === CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain;
+    const hasFailure = hasUnacknowledgedFailure(record);
     transfer.persistedRecord = record;
     transfer.transferState = {
       ...createEmptyTransferState(),
       amount: record.amount,
       sourceWalletType: getSourceWalletTypeForAddress(this.walletKeys, record.argonSourceAddress),
       ethereumFeeEstimateWei: transfer.transferState.ethereumFeeEstimateWei,
-      isSubmitting: !isComplete,
+      isSubmitting: !isComplete && !hasFailure,
       hasPersistedTransfer: !isComplete,
-      phase: getTransferPhase(record.status),
-      error: '',
+      needsAcknowledgement: hasFailure,
+      progress: createOutboundProgressFromRecord(record),
+      error: record.failureReason ?? '',
     };
 
     try {
+      if (isAcknowledgedFailure(record)) {
+        this.discardTransfer(record.id, record.token, record.transferId);
+        return;
+      }
+
       if (isComplete) {
+        return;
+      }
+
+      if (hasFailure) {
+        return;
+      }
+
+      if (record.status === CrosschainOutboundTransferStatus.RequestSubmittedToArgon) {
+        const pendingTxInfo = this.transactionTracker.findLatestTxInfo<ICrosschainTransferOutMetadata>(
+          candidate =>
+            candidate.tx.id === record.argonRequestTransactionId ||
+            candidate.tx.metadataJson.localTransferId === record.id,
+        );
+        if (!pendingTxInfo) {
+          throw new Error(`Transfer ${record.id} is missing its pending Argon transaction.`);
+        }
+
+        await this.completeTransferOutOnArgon(pendingTxInfo, transfer, record);
         return;
       }
 
@@ -537,9 +633,10 @@ export class EthereumOutboundTransferTracker {
 
       await this.finalizeOnEthereum(transfer, record);
     } catch (error) {
-      transfer.transferState.error =
-        error instanceof Error ? error.message : 'Unable to finalize the Ethereum transfer.';
-      transfer.transferState.isSubmitting = false;
+      await this.failTransfer(
+        record.id,
+        error instanceof Error ? error.message : 'Unable to finalize the Ethereum transfer.',
+      );
     }
   }
 
@@ -548,21 +645,27 @@ export class EthereumOutboundTransferTracker {
     record: ICrosschainOutboundTransferRecord,
     minimumReadyBlockNumber?: number,
   ) {
-    transfer.transferState.phase = 'awaitingCollateralization';
-    transfer.transferState.awaitingCollateralizationLabel = undefined;
-    transfer.transferState.remainingCollateralMicrogons = undefined;
     transfer.transferState.error = '';
+    if (!record.transferId) {
+      throw new Error(`Transfer ${record.id} is missing its Argon transfer id.`);
+    }
+
+    transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
+      progressPct: 0,
+      detail: 'Waiting for Minting Authorization (0% authorized)',
+    });
     const readyTransfer = await waitForReadyTransfer(
       record.transferId,
       this.blockWatch,
       async finalizedHeader => {
-        await this.tryAutoCollateralizeTransfer(record.transferId, transfer, finalizedHeader);
+        await this.tryAutoAuthorizeTransfer(record.transferId!, transfer, finalizedHeader);
       },
       minimumReadyBlockNumber,
     );
-    transfer.transferState.isCollateralizingOnArgon = false;
-    transfer.transferState.awaitingCollateralizationLabel = undefined;
-    transfer.transferState.remainingCollateralMicrogons = undefined;
+    transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
+      progressPct: 100,
+      detail: 'Minting Authorization complete.',
+    });
 
     if (transfer.transferState.ethereumFeeEstimateWei == null) {
       transfer.transferState.ethereumFeeEstimateWei = await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee(
@@ -570,19 +673,24 @@ export class EthereumOutboundTransferTracker {
       );
     }
 
-    const collateralizedRecord = (await (
-      await this.dbPromise
-    ).crosschainOutboundTransfersTable.recordCollateralized({
-      transferId: record.transferId,
-      collateralizedMicrogons: readyTransfer.collateralizedMicrogons,
-      collateralizedMicronots: readyTransfer.collateralizedMicronots,
-      collateralizedArgonBlockNumber: readyTransfer.blockNumber,
-      collateralizedArgonBlockHash: readyTransfer.blockHash,
+    transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+      progressPct: 0,
+      detail: 'Preparing Ethereum transfer...',
+    });
+    const db = await this.dbPromise;
+    const mintingAuthorizedRecord = (await db.crosschainOutboundTransfersTable.recordMintingAuthorized({
+      id: record.id,
+      mintingAuthorizationTransactionId: transfer.persistedRecord?.mintingAuthorizationTransactionId,
+      mintingAuthorizedMicrogons: readyTransfer.mintingAuthorizedMicrogons,
+      mintingAuthorizedMicronots: readyTransfer.mintingAuthorizedMicronots,
+      mintingAuthorizedArgonBlockNumber: readyTransfer.blockNumber,
+      mintingAuthorizedArgonBlockHash: readyTransfer.blockHash,
       finalizeRequestJson: readyTransfer.finalizeArgs.request,
       finalizeProofJson: readyTransfer.finalizeArgs.proof,
+      progressJson: transfer.transferState.progress,
     }))!;
-    transfer.persistedRecord = collateralizedRecord;
-    await this.finalizeOnEthereum(transfer, collateralizedRecord);
+    transfer.persistedRecord = mintingAuthorizedRecord;
+    await this.finalizeOnEthereum(transfer, mintingAuthorizedRecord);
   }
 
   private async finalizeOnEthereum(
@@ -592,10 +700,14 @@ export class EthereumOutboundTransferTracker {
     const finalizeRequest = record.finalizeRequestJson;
     const finalizeProof = record.finalizeProofJson;
     if (!finalizeRequest || !finalizeProof) {
-      throw new Error(`Transfer ${record.transferId} is missing the finalized Ethereum proof payload.`);
+      throw new Error(`Transfer ${record.id} is missing the finalized Ethereum proof payload.`);
     }
 
-    transfer.transferState.phase = 'confirmingEthereum';
+    transfer.transferState.error = '';
+    transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+      progressPct: 0,
+      detail: 'Preparing Ethereum transfer...',
+    });
     if (transfer.transferState.ethereumFeeEstimateWei == null) {
       transfer.transferState.ethereumFeeEstimateWei = await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee({
         request: finalizeRequest,
@@ -605,55 +717,90 @@ export class EthereumOutboundTransferTracker {
     await this.ensureSufficientEthereumFeeBalance(transfer.transferState.ethereumFeeEstimateWei);
 
     let activeRecord = record;
-    if (activeRecord.status === CrosschainOutboundTransferStatus.Collateralized) {
+    if (activeRecord.status === CrosschainOutboundTransferStatus.MintingAuthorized) {
+      transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+        progressPct: 0,
+        detail: 'Submitting transfer to Ethereum...',
+      });
       const targetTxHash = await this.ethereumClient.finalizeTransferOutOfArgon({
         request: finalizeRequest,
         proof: finalizeProof,
       });
-      activeRecord = (await (
-        await this.dbPromise
-      ).crosschainOutboundTransfersTable.recordTargetSubmitted({
-        transferId: activeRecord.transferId,
+      const db = await this.dbPromise;
+      activeRecord = (await db.crosschainOutboundTransfersTable.recordTransferSubmittedToTargetChain({
+        id: activeRecord.id,
         targetTxHash,
+        progressJson: transfer.transferState.progress,
       }))!;
       transfer.persistedRecord = activeRecord;
     }
 
+    if (!activeRecord.targetTxHash) {
+      throw new Error(`Transfer ${activeRecord.id} is missing its Ethereum transaction hash.`);
+    }
+    const targetTxHash = activeRecord.targetTxHash;
+
+    const finalizedProgress = await this.ethereumClient.waitForTransactionFinality({
+      txHash: targetTxHash,
+      blockNumber: activeRecord.targetBlockNumber,
+      blockHash: activeRecord.targetBlockHash,
+      onProgress: txProgress => {
+        transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+          progressPct: txProgress.progressPct,
+          detail: formatCrosschainBlockStepDetail({
+            blockType: 'Ethereum',
+            confirmations: txProgress.confirmations,
+            expectedConfirmations: txProgress.expectedConfirmations,
+          }),
+          confirmations: txProgress.confirmations,
+          expectedConfirmations: txProgress.expectedConfirmations,
+        });
+      },
+      onRpcDelay: txProgress => {
+        transfer.transferState.error = '';
+        transfer.transferState.isSubmitting = true;
+        transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+          progressPct: Math.max(
+            txProgress?.progressPct ?? transfer.transferState.progress.steps[2]?.progressPct ?? 0,
+            1,
+          ),
+          detail: 'Submitted to Ethereum. Waiting for the RPC to confirm the transfer...',
+          hint: 'We will keep checking in the background.',
+        });
+      },
+    });
+
+    const confirmedTarget = await this.ethereumClient.confirmTransferOutOfArgon({
+      targetTxHash,
+      targetBlockNumber: finalizedProgress.blockNumber,
+      targetBlockHash: finalizedProgress.blockHash,
+      gatewayActivityNonce: activeRecord.gatewayActivityNonce,
+    });
     if (
-      activeRecord.status === CrosschainOutboundTransferStatus.TargetSubmitted ||
-      activeRecord.targetBlockNumber == null ||
-      activeRecord.gatewayActivityNonce == null
+      confirmedTarget.targetBlockNumber == null ||
+      confirmedTarget.targetBlockHash == null ||
+      confirmedTarget.gatewayActivityNonce == null
     ) {
-      const confirmedTarget = await this.ethereumClient.confirmTransferOutOfArgon({
-        targetTxHash: activeRecord.targetTxHash!,
-        targetBlockNumber: activeRecord.targetBlockNumber,
-        targetBlockHash: activeRecord.targetBlockHash,
-        gatewayActivityNonce: activeRecord.gatewayActivityNonce,
-      });
-      if (
-        confirmedTarget.targetBlockNumber == null ||
-        confirmedTarget.targetBlockHash == null ||
-        confirmedTarget.gatewayActivityNonce == null
-      ) {
-        throw new Error(
-          `Ethereum transfer ${activeRecord.transferId} was missing finalized receipt details after confirmation.`,
-        );
-      }
-
-      activeRecord = (await (
-        await this.dbPromise
-      ).crosschainOutboundTransfersTable.recordTargetFinalized({
-        transferId: activeRecord.transferId,
-        targetBlockNumber: confirmedTarget.targetBlockNumber,
-        targetBlockHash: confirmedTarget.targetBlockHash,
-        gatewayActivityNonce: confirmedTarget.gatewayActivityNonce,
-      }))!;
-      transfer.persistedRecord = activeRecord;
+      throw new Error(`Ethereum transfer ${activeRecord.id} was missing finalized receipt details after confirmation.`);
     }
 
-    transfer.transferState.phase = 'confirmedOnEthereum';
+    const db = await this.dbPromise;
+    activeRecord = (await db.crosschainOutboundTransfersTable.recordTransferFinalizedOnTargetChain({
+      id: activeRecord.id,
+      targetBlockNumber: confirmedTarget.targetBlockNumber,
+      targetBlockHash: confirmedTarget.targetBlockHash,
+      gatewayActivityNonce: confirmedTarget.gatewayActivityNonce,
+      progressJson: transfer.transferState.progress,
+    }))!;
+    transfer.persistedRecord = activeRecord;
+
+    transfer.transferState.progress = completeOutboundTransferProgress(
+      transfer.transferState.progress,
+      'Confirmed on Ethereum.',
+    );
     transfer.transferState.isSubmitting = false;
     transfer.transferState.hasPersistedTransfer = false;
+    transfer.transferState.needsAcknowledgement = false;
   }
 
   private async ensureSufficientEthereumFeeBalance(feeEstimateWei: bigint) {
@@ -670,7 +817,7 @@ export class EthereumOutboundTransferTracker {
     );
   }
 
-  private async tryAutoCollateralizeTransfer(
+  private async tryAutoAuthorizeTransfer(
     transferId: string,
     transfer: IEthereumOutboundActiveTransfer,
     finalizedHeader: BlockWatch['finalizedBlockHeader'],
@@ -679,10 +826,53 @@ export class EthereumOutboundTransferTracker {
       return;
     }
 
-    const pendingTxInfo = this.mintingAuthorities.data.pendingCollateralizeTxInfosByTransferId.get(transferId);
-    if (pendingTxInfo?.tx.metadataJson.collateralizations.some(x => x.transferId === transferId)) {
-      transfer.transferState.isCollateralizingOnArgon = !pendingTxInfo.isPostProcessed;
-      transfer.transferState.awaitingCollateralizationLabel = undefined;
+    const matchesPendingAuthorization = (candidate?: TransactionInfo<IMintingAuthorityAuthorizeMetadata>) => {
+      if (!candidate) {
+        return false;
+      }
+      if (candidate.tx.extrinsicType !== ExtrinsicType.CrosschainTransferAuthorize) {
+        return false;
+      }
+      if (candidate.isPostProcessed || candidate.txResult.submissionError || candidate.txResult.extrinsicError) {
+        return false;
+      }
+
+      const trackedTransferId = transfer.persistedRecord?.mintingAuthorizationTransactionId;
+      if (candidate.tx.id === trackedTransferId) {
+        return true;
+      }
+
+      const isLiveTx =
+        candidate.tx.status === TransactionStatus.Submitted ||
+        candidate.tx.status === TransactionStatus.InBlock ||
+        candidate.tx.status === TransactionStatus.Finalized;
+      if (!isLiveTx) {
+        return false;
+      }
+
+      for (const { transferId: authorizedTransferId } of candidate.tx.metadataJson.authorizations) {
+        if (authorizedTransferId === transferId) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    let pendingTxInfo = this.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId);
+    if (!matchesPendingAuthorization(pendingTxInfo)) {
+      pendingTxInfo = this.transactionTracker.findLatestTxInfo<IMintingAuthorityAuthorizeMetadata>(candidate =>
+        matchesPendingAuthorization(candidate),
+      );
+    }
+
+    if (pendingTxInfo && matchesPendingAuthorization(pendingTxInfo)) {
+      await this.attachPendingArgonProgress({
+        transferId,
+        transfer,
+        txInfo: pendingTxInfo,
+        initialDetail: 'Submitting Minting Authorization to Argon...',
+      });
       transfer.transferState.error = '';
       return;
     }
@@ -690,12 +880,12 @@ export class EthereumOutboundTransferTracker {
     const finalizedClient = await this.blockWatch.getApi(finalizedHeader);
     await this.mintingAuthorities.refresh(finalizedClient);
     const transferIdLower = transferId.toLowerCase();
-    const remainingCollateralMicrogons = (
+    const remainingMintingAuthorizationMicrogons = (
       await finalizedClient.query.crosschainTransfer.pendingCollateralizationRequestsByChain(NETWORK)
     )
       .find(request => request.transferId.toHex().toLowerCase() === transferIdLower)
       ?.remainingCollateral.toBigInt();
-    const ownAuthorityAlreadyCollateralized = this.mintingAuthorities.data.authorities.some(authority =>
+    const ownAuthorityAlreadyAuthorized = this.mintingAuthorities.data.authorities.some(authority =>
       authority.activePendingTransferIds.includes(transferIdLower),
     );
     const ownAuthorityPendingActivation = this.mintingAuthorities.data.authorities.some(
@@ -703,46 +893,172 @@ export class EthereumOutboundTransferTracker {
     );
 
     try {
-      const txInfo = await this.mintingAuthorities.collateralize(transferId);
-      transfer.transferState.isCollateralizingOnArgon = !txInfo.isPostProcessed;
-      transfer.transferState.awaitingCollateralizationLabel = undefined;
-      transfer.transferState.remainingCollateralMicrogons = remainingCollateralMicrogons;
+      const txInfo = await this.mintingAuthorities.authorize(transferId);
+      await this.attachPendingArgonProgress({
+        transferId,
+        transfer,
+        txInfo,
+        initialDetail: 'Submitting Minting Authorization to Argon...',
+      });
+      transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
+        progressPct: 0,
+        detail: 'Submitting Minting Authorization to Argon...',
+        remainingMintingAuthorizationMicrogons,
+      });
       transfer.transferState.error = '';
 
       if (!txInfo.isPostProcessed) {
         void txInfo.waitForPostProcessing.finally(() => {
-          const activeTransfer = this.data.transfersById[transferId];
-          if (activeTransfer?.transferState.phase === 'awaitingCollateralization') {
-            activeTransfer.transferState.isCollateralizingOnArgon = false;
-            void this.tryAutoCollateralizeTransfer(transferId, activeTransfer, this.blockWatch.finalizedBlockHeader);
+          if (transfer.transferState.hasPersistedTransfer) {
+            void this.tryAutoAuthorizeTransfer(transferId, transfer, this.blockWatch.finalizedBlockHeader);
           }
         });
       }
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message === `Transfer ${transferId} is not currently available to collateralize.`
+        error.message === `Transfer ${transferId} is not currently available to authorize.`
       ) {
         const relayPauseReason = ownAuthorityPendingActivation
           ? await getEthereumGatewayPauseReason(finalizedClient)
           : undefined;
-        let awaitingCollateralizationLabel =
-          'Waiting for a minting authority to collateralize this transfer on Argon...';
-        if (ownAuthorityAlreadyCollateralized) {
-          awaitingCollateralizationLabel =
-            'Waiting for another minting authority to add the remaining collateral on Argon...';
+        let detail = 'Waiting for Minting Authorization (0% authorized)';
+        let approvalPercent = 0;
+        if (remainingMintingAuthorizationMicrogons != null && transfer.transferState.amount) {
+          const authorizedMicrogons = transfer.transferState.amount - remainingMintingAuthorizationMicrogons;
+          approvalPercent = getCappedPercent(authorizedMicrogons, transfer.transferState.amount);
+          detail = `Waiting for Minting Authorization (${approvalPercent}% authorized)`;
+        }
+        if (ownAuthorityAlreadyAuthorized) {
+          detail = detail.replace('Waiting for', 'Waiting for the remaining');
         }
 
-        transfer.transferState.isCollateralizingOnArgon = false;
-        transfer.transferState.remainingCollateralMicrogons = remainingCollateralMicrogons;
+        transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
+          progressPct: approvalPercent,
+          detail,
+          approvalPercent,
+          remainingMintingAuthorizationMicrogons,
+        });
         transfer.transferState.error = relayPauseReason ?? '';
-        transfer.transferState.awaitingCollateralizationLabel = awaitingCollateralizationLabel;
         return;
       }
 
-      console.warn(`[EthereumOutboundTransferTracker] Unable to auto-collateralize transfer ${transferId}`, error);
-      transfer.transferState.isCollateralizingOnArgon = false;
+      console.warn(
+        `[EthereumOutboundTransferTracker] Unable to auto-submit Minting Authorization for ${transferId}`,
+        error,
+      );
     }
+  }
+
+  private async attachPendingArgonProgress(args: {
+    transferId: string;
+    transfer: IEthereumOutboundActiveTransfer;
+    txInfo: TransactionInfo;
+    initialDetail: string;
+  }) {
+    const { transferId, transfer, txInfo, initialDetail } = args;
+    const existing = this.#pendingArgonProgressByTransferId.get(transferId);
+    if (existing?.txId === txInfo.tx.id) {
+      return;
+    }
+
+    existing?.unsubscribe();
+    this.#pendingArgonProgressByTransferId.delete(transferId);
+
+    const status = txInfo.getStatus();
+    transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
+      progressPct: Math.max(0, status.progressPct),
+      detail: initialDetail,
+      confirmations: status.confirmations,
+      expectedConfirmations: status.expectedConfirmations,
+    });
+    if (transfer.persistedRecord) {
+      const db = await this.dbPromise;
+      const persistedRecord = await db.crosschainOutboundTransfersTable.patch(transfer.persistedRecord.id, {
+        mintingAuthorizationTransactionId: txInfo.tx.id,
+        progressJson: transfer.transferState.progress,
+      });
+      if (persistedRecord) {
+        transfer.persistedRecord = persistedRecord;
+      }
+    }
+
+    const unsubscribe = txInfo.subscribeToProgress((progressArgs, error) => {
+      transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
+        progressPct: progressArgs.progressPct,
+        detail: formatCrosschainBlockStepDetail({
+          blockType: 'Argon',
+          confirmations: progressArgs.confirmations,
+          expectedConfirmations: progressArgs.expectedConfirmations,
+        }),
+        confirmations: progressArgs.confirmations,
+        expectedConfirmations: progressArgs.expectedConfirmations,
+      });
+
+      if (error) {
+        if (isTransferAlreadyFullyCoveredError(error)) {
+          transfer.transferState.error = '';
+          return;
+        }
+        transfer.transferState.error = error.message;
+      }
+    });
+
+    this.#pendingArgonProgressByTransferId.set(transferId, { txId: txInfo.tx.id, unsubscribe });
+
+    void txInfo.waitForPostProcessing.finally(() => {
+      const tracked = this.#pendingArgonProgressByTransferId.get(transferId);
+      if (tracked?.txId !== txInfo.tx.id) {
+        return;
+      }
+
+      tracked.unsubscribe();
+      this.#pendingArgonProgressByTransferId.delete(transferId);
+    });
+  }
+
+  private async failTransfer(id: string, errorMessage: string) {
+    const transfer = this.data.transfersById[id];
+    if (!transfer) {
+      return;
+    }
+
+    if (transfer.persistedRecord) {
+      const db = await this.dbPromise;
+      const failedRecord = await db.crosschainOutboundTransfersTable.recordFailed({
+        id,
+        failureReason: errorMessage,
+        progressJson: transfer.transferState.progress,
+      });
+      if (failedRecord) {
+        transfer.persistedRecord = failedRecord;
+      }
+    }
+
+    transfer.transferState.error = errorMessage;
+    transfer.transferState.isSubmitting = false;
+    transfer.transferState.hasPersistedTransfer = !!transfer.persistedRecord;
+    transfer.transferState.needsAcknowledgement = true;
+  }
+
+  private discardTransfer(id: string, moveToken: IEthereumMoveToken, transferId?: string) {
+    this.clearPendingArgonProgress(transferId);
+
+    if (this.data.latestTransferIdByToken[moveToken] === id) {
+      delete this.data.latestTransferIdByToken[moveToken];
+    }
+
+    delete this.data.transfersById[id];
+  }
+
+  private clearPendingArgonProgress(transferId: string | undefined) {
+    if (!transferId) {
+      return;
+    }
+
+    const tracked = this.#pendingArgonProgressByTransferId.get(transferId);
+    tracked?.unsubscribe();
+    this.#pendingArgonProgressByTransferId.delete(transferId);
   }
 }
 
@@ -750,25 +1066,48 @@ function createEmptyTransferState(): IEthereumOutboundTransferState {
   return {
     isSubmitting: false,
     hasPersistedTransfer: false,
-    isCollateralizingOnArgon: false,
-    awaitingCollateralizationLabel: undefined,
-    remainingCollateralMicrogons: undefined,
-    phase: 'idle',
+    needsAcknowledgement: false,
+    progress: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
     error: '',
   };
 }
 
-function getTransferPhase(status: CrosschainOutboundTransferStatus): IEthereumOutboundTransferState['phase'] {
-  if (status === CrosschainOutboundTransferStatus.RequestFinalizedOnArgon) {
-    return 'awaitingCollateralization';
+function createOutboundProgressFromRecord(record: ICrosschainOutboundTransferRecord): ICrosschainTransferProgress {
+  if (record.progressJson?.steps?.length === OUTBOUND_TRANSFER_STEP_TITLES.length) {
+    return hydrateCrosschainTransferProgress(record.progressJson.steps);
   }
+
+  if (record.status === CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain) {
+    const progress = createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES);
+    return completeOutboundTransferProgress(progress, 'Confirmed on Ethereum.');
+  }
+
   if (
-    status === CrosschainOutboundTransferStatus.Collateralized ||
-    status === CrosschainOutboundTransferStatus.TargetSubmitted
+    record.status === CrosschainOutboundTransferStatus.MintingAuthorized ||
+    record.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain
   ) {
-    return 'confirmingEthereum';
+    return setOutboundEthereumStepProgress(createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES), {
+      progressPct: 0,
+      detail: record.targetTxHash
+        ? 'Submitted to Ethereum. Waiting for confirmation...'
+        : 'Preparing Ethereum transfer...',
+    });
   }
-  return 'confirmedOnEthereum';
+
+  if (record.status === CrosschainOutboundTransferStatus.RequestFinalizedOnArgon) {
+    return setOutboundMintingAuthorizationStepProgress(
+      createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+      {
+        progressPct: 0,
+        detail: 'Waiting for Minting Authorization (0% authorized)',
+      },
+    );
+  }
+
+  return setOutboundArgonStepProgress(createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES), {
+    progressPct: 0,
+    detail: 'Submitting to Argon miners...',
+  });
 }
 
 async function extractTransferId(txInfo: TransactionInfo<ICrosschainTransferOutMetadata>) {
@@ -798,14 +1137,7 @@ function getSourceWalletAddress(walletKeys: WalletKeys, sourceWalletType: IArgon
 }
 
 async function getSourceWalletKeypair(walletKeys: WalletKeys, sourceWalletType: IArgonWalletType) {
-  switch (sourceWalletType) {
-    case WalletType.investment:
-      return await walletKeys.getInvestmentKeypair();
-    case WalletType.miningHold:
-      return await walletKeys.getMiningHoldKeypair();
-    case WalletType.vaulting:
-      return await walletKeys.getVaultingKeypair();
-  }
+  return await walletKeys.getWalletKeypair(sourceWalletType);
 }
 
 function getSourceWalletTypeForAddress(
@@ -846,21 +1178,33 @@ function sumCollateral(
   return authorizations.reduce((total, authorization) => total + authorization.micronotCollateral, 0n);
 }
 
+function hasUnacknowledgedFailure(record: ICrosschainOutboundTransferRecord | undefined): boolean {
+  return !!record?.failureReason && !record.isFailureAcknowledged;
+}
+
+function isAcknowledgedFailure(record: ICrosschainOutboundTransferRecord | undefined): boolean {
+  return !!record?.failureReason && record.isFailureAcknowledged;
+}
+
+function isTransferAlreadyFullyCoveredError(error: Error) {
+  return error.message.includes('cannot accept more collateral because it is already fully covered');
+}
+
 async function waitForReadyTransfer(
   transferId: string,
   blockWatch: BlockWatch,
-  onAwaitingCollateralization?: (finalizedHeader: BlockWatch['finalizedBlockHeader']) => Promise<void>,
+  onAwaitingMintingAuthorization?: (finalizedHeader: BlockWatch['finalizedBlockHeader']) => Promise<void>,
   minimumBlockNumber?: number,
 ): Promise<{
   blockHash: string;
   blockNumber: number;
-  collateralizedMicrogons: bigint;
-  collateralizedMicronots: bigint;
+  mintingAuthorizedMicrogons: bigint;
+  mintingAuthorizedMicronots: bigint;
   finalizeArgs: IEthereumFinalizeTransferOutOfArgonArgs;
 }> {
   await blockWatch.start();
   if (minimumBlockNumber == null || blockWatch.finalizedBlockHeader.blockNumber >= minimumBlockNumber) {
-    await onAwaitingCollateralization?.(blockWatch.finalizedBlockHeader);
+    await onAwaitingMintingAuthorization?.(blockWatch.finalizedBlockHeader);
     const readyTransfer = await readReadyTransferAtHeader(transferId, blockWatch, blockWatch.finalizedBlockHeader);
     if (readyTransfer) {
       return readyTransfer;
@@ -885,7 +1229,7 @@ async function waitForReadyTransfer(
       lastSeenBlockHash = latestHeader.blockHash;
       isChecking = true;
 
-      void Promise.resolve(onAwaitingCollateralization?.(latestHeader))
+      void Promise.resolve(onAwaitingMintingAuthorization?.(latestHeader))
         .then(() => readReadyTransferAtHeader(transferId, blockWatch, latestHeader))
         .then(ready => {
           if (!ready) {
@@ -914,8 +1258,8 @@ async function readReadyTransferAtHeader(
   | {
       blockHash: string;
       blockNumber: number;
-      collateralizedMicrogons: bigint;
-      collateralizedMicronots: bigint;
+      mintingAuthorizedMicrogons: bigint;
+      mintingAuthorizedMicronots: bigint;
       finalizeArgs: IEthereumFinalizeTransferOutOfArgonArgs;
     }
   | undefined
@@ -961,8 +1305,8 @@ async function readReadyTransferAtHeader(
   return {
     blockHash: finalizedHeader.blockHash,
     blockNumber: finalizedHeader.blockNumber,
-    collateralizedMicrogons: sumCollateral(authorizations, 'microgonCollateral'),
-    collateralizedMicronots: sumCollateral(authorizations, 'micronotCollateral'),
+    mintingAuthorizedMicrogons: sumCollateral(authorizations, 'microgonCollateral'),
+    mintingAuthorizedMicronots: sumCollateral(authorizations, 'micronotCollateral'),
     finalizeArgs: {
       request,
       proof: { authorizations },

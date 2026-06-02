@@ -2,14 +2,16 @@ import { Vaults } from '../lib/Vaults';
 import { getDbPromise } from './helpers/dbPromise';
 import { MyVault } from '../lib/MyVault.ts';
 import { reactive } from 'vue';
-import { NETWORK_NAME } from './config.ts';
+import { getConfig, NETWORK_NAME } from './config.ts';
 import { getMiningFrames } from './mainchain.ts';
-import { getCurrency, Currency } from './currency.ts';
+import { getCurrency } from './currency.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getWalletKeys } from './wallets.ts';
 import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
+import { getServerApiClient } from './server.ts';
+import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 
 export { type Vaults };
 
@@ -35,7 +37,14 @@ export function getMyVault(): MyVault {
     const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames);
     globalCouncil.data = reactive(globalCouncil.data) as any;
 
-    const mintingAuthorities = new MintingAuthorities(dbPromise, keys, miningFrames, transactionTracker);
+    const mintingAuthorities = new MintingAuthorities(dbPromise, keys, miningFrames, transactionTracker, async () => {
+      const config = getConfig();
+      await config.isLoadedPromise;
+      return {
+        serverApiClient: config.serverDetails.ipAddress ? getServerApiClient() : undefined,
+        upstreamOperatorClient: getUpstreamOperatorClient(),
+      };
+    });
     mintingAuthorities.data = reactive(mintingAuthorities.data) as any;
 
     myVault = new MyVault(

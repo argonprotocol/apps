@@ -182,7 +182,9 @@ export class ServerAuthClient {
 
       return this.markSessionVerified(cacheKey, session.sessionId, Date.parse(session.expiresAt));
     } catch (error) {
-      this.markAuthFailed(cacheKey, error);
+      if (shouldCacheAuthFailure(error)) {
+        this.markAuthFailed(cacheKey, error);
+      }
       throw error;
     }
   }
@@ -224,10 +226,22 @@ async function requestAuth<T>(url: string, payload: unknown): Promise<T | null> 
   if (response.status === 503) return null;
   if (!response.ok) {
     const error = parseError(rawBody);
-    throw new Error(error || `Server auth request failed (${response.status}).`);
+    throw new RequestStatusError(error || `Server auth request failed (${response.status}).`, response.status);
   }
 
   return JsonExt.parse<T>(rawBody);
+}
+
+function shouldCacheAuthFailure(error: unknown): boolean {
+  if (error instanceof RequestStatusError) {
+    return true;
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message === 'Server auth is not configured.';
 }
 
 async function verifySession(baseUrl: string, role: ServerAuthRole, sessionId: string): Promise<boolean> {

@@ -2,6 +2,7 @@ import { BaseTable, IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import type { Hash } from 'viem';
 import { MoveToken } from '@argonprotocol/apps-core';
+import type { ICrosschainTransferProgress } from '../CrosschainTransferProgress.ts';
 
 export enum CrosschainInboundTransferStatus {
   SourceSubmitted = 'SourceSubmitted',
@@ -10,7 +11,7 @@ export enum CrosschainInboundTransferStatus {
 }
 
 export interface ICrosschainInboundTransferRecord {
-  transferId: string;
+  id: string;
   sourceChain: string;
   token: MoveToken;
   amountBaseUnits: bigint;
@@ -23,23 +24,40 @@ export interface ICrosschainInboundTransferRecord {
   gatewayActivityNonce?: bigint;
   argonBlockNumber?: number;
   argonBlockHash?: string;
+  failureReason?: string;
+  isFailureAcknowledged: boolean;
+  progressJson: ICrosschainTransferProgress;
   status: CrosschainInboundTransferStatus;
   createdAt: Date;
   updatedAt: Date;
 }
 
 type ICrosschainInboundTransferRecordKey = keyof ICrosschainInboundTransferRecord;
-export type ICrosschainInboundTransferInsert = Omit<ICrosschainInboundTransferRecord, 'createdAt' | 'updatedAt'>;
-export type ICrosschainInboundTransferPatch = Partial<Omit<ICrosschainInboundTransferInsert, 'transferId'>>;
+export type ICrosschainInboundTransferInsert = Omit<
+  ICrosschainInboundTransferRecord,
+  'createdAt' | 'updatedAt' | 'failureReason' | 'isFailureAcknowledged'
+> & {
+  failureReason?: string | null;
+  isFailureAcknowledged?: boolean;
+};
+export type ICrosschainInboundTransferPatch = Partial<
+  Omit<ICrosschainInboundTransferInsert, 'id' | 'failureReason'>
+> & {
+  failureReason?: string | null;
+};
 
 export class CrosschainInboundTransfersTable extends BaseTable {
   private bigIntFields: ICrosschainInboundTransferRecordKey[] = ['amountBaseUnits', 'gatewayActivityNonce'];
+  private booleanFields: ICrosschainInboundTransferRecordKey[] = ['isFailureAcknowledged'];
   private dateFields: ICrosschainInboundTransferRecordKey[] = ['createdAt', 'updatedAt'];
+  private jsonFields: ICrosschainInboundTransferRecordKey[] = ['progressJson'];
 
   private get fields(): IFieldTypes {
     return {
+      boolean: this.booleanFields,
       bigint: this.bigIntFields,
       date: this.dateFields,
+      json: this.jsonFields,
     };
   }
 
@@ -50,10 +68,10 @@ export class CrosschainInboundTransfersTable extends BaseTable {
     return convertFromSqliteFields<ICrosschainInboundTransferRecord[]>(records, this.fields);
   }
 
-  public async get(transferId: string): Promise<ICrosschainInboundTransferRecord | undefined> {
+  public async get(id: string): Promise<ICrosschainInboundTransferRecord | undefined> {
     const records = await this.db.select<ICrosschainInboundTransferRecord[]>(
-      `SELECT * FROM CrosschainInboundTransfers WHERE transferId = ? LIMIT 1`,
-      toSqlParams([transferId]),
+      `SELECT * FROM CrosschainInboundTransfers WHERE id = ? LIMIT 1`,
+      toSqlParams([id]),
     );
     return convertFromSqliteFields<ICrosschainInboundTransferRecord[]>(records, this.fields)[0];
   }
@@ -64,7 +82,7 @@ export class CrosschainInboundTransfersTable extends BaseTable {
   ): Promise<ICrosschainInboundTransferRecord | undefined> {
     const records = await this.db.select<ICrosschainInboundTransferRecord[]>(
       `SELECT * FROM CrosschainInboundTransfers
-        WHERE sourceChain = ? AND token = ? AND status != ?
+        WHERE sourceChain = ? AND token = ? AND status != ? AND isFailureAcknowledged = 0
         ORDER BY updatedAt DESC, createdAt DESC
         LIMIT 1`,
       toSqlParams([sourceChain, token, CrosschainInboundTransferStatus.ArgonFinalized]),
@@ -74,7 +92,7 @@ export class CrosschainInboundTransfersTable extends BaseTable {
 
   public async upsert(args: ICrosschainInboundTransferInsert): Promise<ICrosschainInboundTransferRecord | undefined> {
     const {
-      transferId,
+      id,
       sourceChain,
       token,
       amountBaseUnits,
@@ -87,12 +105,15 @@ export class CrosschainInboundTransfersTable extends BaseTable {
       gatewayActivityNonce,
       argonBlockNumber,
       argonBlockHash,
+      failureReason,
+      isFailureAcknowledged = false,
+      progressJson,
       status,
     } = args;
 
     const records = await this.db.select<ICrosschainInboundTransferRecord[]>(
       `INSERT INTO CrosschainInboundTransfers (
-        transferId,
+        id,
         sourceChain,
         token,
         amountBaseUnits,
@@ -105,9 +126,12 @@ export class CrosschainInboundTransfersTable extends BaseTable {
         gatewayActivityNonce,
         argonBlockNumber,
         argonBlockHash,
+        failureReason,
+        isFailureAcknowledged,
+        progressJson,
         status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(transferId) DO UPDATE SET
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
         sourceChain = excluded.sourceChain,
         token = excluded.token,
         amountBaseUnits = excluded.amountBaseUnits,
@@ -120,11 +144,14 @@ export class CrosschainInboundTransfersTable extends BaseTable {
         gatewayActivityNonce = excluded.gatewayActivityNonce,
         argonBlockNumber = excluded.argonBlockNumber,
         argonBlockHash = excluded.argonBlockHash,
+        failureReason = excluded.failureReason,
+        isFailureAcknowledged = excluded.isFailureAcknowledged,
+        progressJson = excluded.progressJson,
         status = excluded.status,
         updatedAt = CURRENT_TIMESTAMP
       RETURNING *`,
       toSqlParams([
-        transferId,
+        id,
         sourceChain,
         token,
         amountBaseUnits,
@@ -137,6 +164,9 @@ export class CrosschainInboundTransfersTable extends BaseTable {
         gatewayActivityNonce,
         argonBlockNumber,
         argonBlockHash,
+        failureReason,
+        isFailureAcknowledged,
+        progressJson,
         status,
       ]),
     );
@@ -146,74 +176,116 @@ export class CrosschainInboundTransfersTable extends BaseTable {
 
   public async insertSourceSubmitted(args: {
     sourceChain: string;
-    transferId: string;
+    id: string;
     token: MoveToken.ARGN | MoveToken.ARGNOT;
     amountBaseUnits: bigint;
     sourceAddress?: string;
     argonDestinationAddress: string;
     sourceTxHash: Hash;
+    progressJson: ICrosschainTransferProgress;
   }) {
-    const { sourceChain, transferId, token, amountBaseUnits, sourceAddress, argonDestinationAddress, sourceTxHash } =
-      args;
+    const {
+      sourceChain,
+      id,
+      token,
+      amountBaseUnits,
+      sourceAddress,
+      argonDestinationAddress,
+      sourceTxHash,
+      progressJson,
+    } = args;
     return this.upsert({
-      transferId,
+      id,
       sourceChain,
       token,
       amountBaseUnits,
       sourceAddress,
       argonDestinationAddress,
       sourceTxHash,
+      failureReason: null,
+      isFailureAcknowledged: false,
+      progressJson,
       status: CrosschainInboundTransferStatus.SourceSubmitted,
     });
   }
 
   public async recordConfirmedSourceTransfer(args: {
-    transferId: string;
+    id: string;
     sourceBlockNumber: number;
     sourceBlockHash: Hash;
     sourceLogIndex: number;
     gatewayActivityNonce: bigint;
+    progressJson?: ICrosschainTransferProgress;
   }) {
-    const { transferId, sourceBlockNumber, sourceBlockHash, sourceLogIndex, gatewayActivityNonce } = args;
-    return this.patch(transferId, {
+    const { id, sourceBlockNumber, sourceBlockHash, sourceLogIndex, gatewayActivityNonce, progressJson } = args;
+    return this.patch(id, {
       sourceBlockNumber,
       sourceBlockHash,
       sourceLogIndex,
       gatewayActivityNonce,
+      failureReason: null,
+      isFailureAcknowledged: false,
+      progressJson,
     });
   }
 
-  public async recordSourceFinalized(transferId: string) {
-    return this.patch(transferId, {
+  public async recordSourceFinalized(id: string, progressJson?: ICrosschainTransferProgress) {
+    return this.patch(id, {
+      failureReason: null,
+      isFailureAcknowledged: false,
+      progressJson,
       status: CrosschainInboundTransferStatus.SourceFinalized,
     });
   }
 
-  public async recordArgonFinalized(args: { transferId: string; argonBlockNumber?: number; argonBlockHash?: string }) {
-    const { transferId, argonBlockNumber, argonBlockHash } = args;
-    return this.patch(transferId, {
+  public async recordArgonFinalized(args: {
+    id: string;
+    argonBlockNumber?: number;
+    argonBlockHash?: string;
+    progressJson?: ICrosschainTransferProgress;
+  }) {
+    const { id, argonBlockNumber, argonBlockHash, progressJson } = args;
+    return this.patch(id, {
       argonBlockNumber,
       argonBlockHash,
+      failureReason: null,
+      isFailureAcknowledged: false,
+      progressJson,
       status: CrosschainInboundTransferStatus.ArgonFinalized,
     });
   }
 
+  public async recordFailed(args: { id: string; failureReason: string; progressJson?: ICrosschainTransferProgress }) {
+    const { id, failureReason, progressJson } = args;
+    return this.patch(id, {
+      failureReason,
+      isFailureAcknowledged: false,
+      progressJson,
+    });
+  }
+
+  public async acknowledgeFailed(id: string) {
+    return this.patch(id, {
+      isFailureAcknowledged: true,
+    });
+  }
+
   public async patch(
-    transferId: string,
+    id: string,
     patch: ICrosschainInboundTransferPatch,
   ): Promise<ICrosschainInboundTransferRecord | undefined> {
     const patchEntries = Object.entries(patch).filter(([, value]) => value !== undefined);
     if (!patchEntries.length) {
-      return await this.get(transferId);
+      return await this.get(id);
     }
 
     const fieldsSql = patchEntries.map(([key]) => `${key} = ?`).join(', ');
     const records = await this.db.select<ICrosschainInboundTransferRecord[]>(
       `UPDATE CrosschainInboundTransfers
       SET ${fieldsSql}, updatedAt = CURRENT_TIMESTAMP
-      WHERE transferId = ?
+      WHERE id = ?
       RETURNING *`,
-      toSqlParams([...patchEntries.map(([, value]) => value), transferId]),
+      toSqlParams([...patchEntries.map(([, value]) => value), id]),
     );
 
     return convertFromSqliteFields<ICrosschainInboundTransferRecord[]>(records, this.fields)[0];

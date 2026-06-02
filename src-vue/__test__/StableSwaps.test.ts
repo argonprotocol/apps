@@ -5,6 +5,7 @@ import JSBI from 'jsbi';
 import { StableSwaps } from '../lib/StableSwaps.ts';
 import {
   createStableSwapFixturePublicClient,
+  STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS,
   STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
 } from '../lib/StableSwapFixturePublicClient.ts';
 import {
@@ -83,13 +84,15 @@ describe('StableSwaps', () => {
     expect(wallet.purchases[1].currentProfitMicrogons).toBe(100_000n);
   });
 
-  it('builds a Uniswap exact-output link with Argon prefilled and no input token override', () => {
-    const url = StableSwaps.buildStableSwapUniswapUrl(12_340_000n)!;
+  it('builds a Uniswap exact-output link with Argon prefilled and no input token override', async () => {
+    const url = await StableSwaps.buildStableSwapUniswapUrl(12_340_000n, undefined, {
+      argonTokenAddress: STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS,
+    });
 
     expect(url).toContain('https://app.uniswap.org/#/swap?');
     expect(url).toContain('chain=mainnet');
     expect(url).toContain('field=output');
-    expect(url).toContain('outputCurrency=0x6A9143639D8b70D50b031fFaD55d4CC65EA55155');
+    expect(url).toContain(`outputCurrency=${STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS}`);
     expect(url).toContain('value=12.34');
     expect(url).not.toContain('inputCurrency=');
   });
@@ -117,15 +120,18 @@ describe('StableSwaps', () => {
     });
 
     try {
-      const argonToken = getStableSwapArgonToken();
+      const argonToken = getStableSwapArgonToken(STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS);
       const sqrtPriceX96 = encodeSqrtRatioX96((1n * 10n ** BigInt(argonToken.decimals)).toString(), '970000');
-      const pool = createStableSwapSdkPool({
-        poolFee: 500,
-        poolLiquidity: 1_000_000_000_000_000_000n,
-        currentSqrtPriceX96: BigInt(sqrtPriceX96.toString()),
-        currentTick: TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96.toString()) as any),
-        argonIsToken0: false,
-      });
+      const pool = createStableSwapSdkPool(
+        {
+          poolFee: 500,
+          poolLiquidity: 1_000_000_000_000_000_000n,
+          currentSqrtPriceX96: BigInt(sqrtPriceX96.toString()),
+          currentTick: TickMath.getTickAtSqrtRatio(JSBI.BigInt(sqrtPriceX96.toString()) as any),
+          argonIsToken0: false,
+        },
+        argonToken,
+      );
 
       expect(stableSwapSdkPriceToFixed18(pool.priceOf(argonToken))).toBe(970_000_000_000_000_000n);
     } finally {
@@ -142,6 +148,7 @@ describe('StableSwaps', () => {
 
     try {
       const stableSwaps = new StableSwaps(createStableSwapFixturePublicClient(), {
+        argonTokenAddress: STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS,
         argonotTokenAddress: STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
       });
 
@@ -165,6 +172,7 @@ describe('StableSwaps', () => {
 
   it('loads active swaps from the fixture public client', async () => {
     const stableSwaps = new StableSwaps(createStableSwapFixturePublicClient(), {
+      argonTokenAddress: STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS,
       argonotTokenAddress: STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS,
     });
 

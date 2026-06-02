@@ -161,6 +161,11 @@ Vue.onMounted(() => {
       return;
     }
 
+    if (balanceChange.transfers.every(x => x.transferType !== 'transfer')) {
+      console.log('Skipping transfer overlay');
+      return;
+    }
+
     if (wallet.type === 'vaulting' && config.vaultingSetupStatus !== VaultingSetupStatus.Finished) {
       console.log('Skipping vaulting wallet change - no created vault');
       return;

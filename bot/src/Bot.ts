@@ -232,15 +232,16 @@ export default class Bot {
       this.errorMessage = null;
       this.delegateSubmitLane.client = this.localClient;
 
-      if (!this.ethereumBeaconSyncService && this.options.ethereumBeaconApiUrl) {
+      if (!this.ethereumBeaconSyncService) {
         this.ethereumBeaconSyncService = new EthereumBeaconSyncService(this.localClient, {
           beaconApiUrl: this.options.ethereumBeaconApiUrl,
           submitLane: this.delegateSubmitLane,
         });
       }
 
-      await this.ethereumBeaconSyncService?.start();
-      await this.ethereumGatewayProverService.start();
+      // Ethereum sync should report its own status, but it should not block bot readiness.
+      void this.ethereumBeaconSyncService.start();
+      void this.ethereumGatewayProverService.start();
       await this.relayService.start();
 
       this.biddingRules = this.loadBiddingRules();

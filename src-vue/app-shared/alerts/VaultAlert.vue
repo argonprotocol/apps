@@ -7,7 +7,7 @@
     <template #icon>
       <div class="flex items-center gap-x-1.5 text-argon-700/70">
         <MoneyIcon
-          v-if="notice.collectRevenue > 0n || notice.collateralizedTransferRewardAmount > 0n"
+          v-if="notice.collectRevenue > 0n || notice.authorizedTransferRewardAmount > 0n"
           class="relative h-6 w-6 top-0.5 text-white/85" />
         <SigningIcon
           v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
@@ -51,7 +51,7 @@
       <template v-else-if="notice.collectRevenue && !notice.signatureCount">
         <strong>{{ formatMoney(notice.collectRevenue) }} is waiting to be collected</strong>
         <span class="text-white/80">
-          <CountdownClock :time="dueDate" v-slot="{ hours, minutes, days, seconds }">
+          <CountdownClock :time="collectDueDate" v-slot="{ hours, minutes, days, seconds }">
             <template v-if="hours || minutes || days || seconds > 0">
               ({{ formatMoney(notice.expiringCollectAmount) }} expires in
               <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
@@ -74,8 +74,8 @@
           signing at a penalty of {{ formatMoney(notice.signaturePenalty) }}
         </strong>
         <span class="text-white/80">
-          (expires in
-          <CountdownClock :time="dueDate" v-slot="{ hours, minutes, days }">
+          (due in
+          <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
             <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
             <template v-else>
               <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
@@ -96,8 +96,25 @@
           signing
         </strong>
         <span class="text-white/80">
-          ({{ formatMoney(notice.expiringCollectAmount) }} expires and
-          {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization.)
+          ({{ formatMoney(notice.expiringCollectAmount) }} expires in
+          <CountdownClock :time="collectDueDate" v-slot="{ hours, minutes, days, seconds }">
+            <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+            <span v-else-if="hours || minutes > 1">
+              <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+              <span v-if="hours && minutes">&nbsp;</span>
+              <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+            </span>
+            <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
+          </CountdownClock>
+          and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+          <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
+            <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+            <template v-else>
+              <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+              <span v-if="hours && minutes">&nbsp;</span>
+              <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+            </template>
+          </CountdownClock>)
         </span>
       </template>
     </div>
@@ -126,7 +143,7 @@
     <template #icon>
       <div class="flex items-center gap-x-1.5">
         <MoneyIcon
-          v-if="notice.collectRevenue > 0n || notice.collateralizedTransferRewardAmount > 0n"
+          v-if="notice.collectRevenue > 0n || notice.authorizedTransferRewardAmount > 0n"
           class="relative top-0.5 h-9 w-9 text-argon-700/70" />
         <SigningIcon
           v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
@@ -157,7 +174,7 @@
 
       <template v-else-if="notice.collectRevenue && !notice.signatureCount">
         {{ formatMoney(notice.expiringCollectAmount) }} expires in
-        <CountdownClock :time="dueDate" v-slot="{ hours, minutes, days, seconds }">
+        <CountdownClock :time="collectDueDate" v-slot="{ hours, minutes, days, seconds }">
           <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
           <span v-else-if="hours || minutes > 1">
             <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
@@ -169,8 +186,8 @@
       </template>
 
       <template v-else-if="!notice.collectRevenue && notice.signatureCount">
-        {{ formatMoney(notice.signaturePenalty) }} is at risk in
-        <CountdownClock :time="dueDate" v-slot="{ hours, minutes, days }">
+        {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+        <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
           <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
           <template v-else>
             <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
@@ -181,8 +198,18 @@
       </template>
 
       <template v-else>
-        {{ formatMoney(notice.expiringCollectAmount) }} expires and {{ formatMoney(notice.signaturePenalty) }} is at risk in
-        <CountdownClock :time="dueDate" v-slot="{ hours, minutes, days }">
+        {{ formatMoney(notice.expiringCollectAmount) }} expires in
+        <CountdownClock :time="collectDueDate" v-slot="{ hours, minutes, days, seconds }">
+          <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+          <span v-else-if="hours || minutes > 1">
+            <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+            <span v-if="hours && minutes">&nbsp;</span>
+            <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+          </span>
+          <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
+        </CountdownClock>
+        and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+        <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
           <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
           <template v-else>
             <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
@@ -228,12 +255,16 @@ defineEmits<{
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const dueDate = Vue.computed(() => {
-  return dayjs.utc(props.notice.nextDueDate);
+const collectDueDate = Vue.computed(() => {
+  return dayjs.utc(props.notice.nextCollectDueDate);
+});
+
+const cosignDueDate = Vue.computed(() => {
+  return dayjs.utc(props.notice.nextCosignDueDate);
 });
 
 function hasVaultSecurityWork(notice: IVaultCollectNotice): boolean {
-  return notice.councilApprovalCount > 0 || notice.collateralizedTransferCount > 0;
+  return notice.councilApprovalCount > 0 || notice.authorizedTransferCount > 0;
 }
 
 function getButtonLabel(notice: IVaultCollectNotice): string {

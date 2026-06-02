@@ -1,13 +1,24 @@
-import { bigIntMax, bigIntMin, createDeferred, IDeferred, MiningFrames, MoveToken } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigIntMin,
+  createDeferred,
+  IDeferred,
+  MiningFrames,
+  MoveToken,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import { ApiDecoration, EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@argonprotocol/mainchain';
 import { u8aConcat } from '@polkadot/util';
-import { getMainchainClient } from '../stores/mainchain.ts';
 import type { Db } from './Db.ts';
+import { createEthereumPublicClient, getEthereumExecutionRpcUrl, getEthereumFinalityMillis } from './EthereumClient.ts';
+import { requestEthereumGatewayCatchUpThroughOperator, type ServerApiClient } from './ServerApiClient.ts';
+import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
 
 const MINTING_AUTHORITY_SIGNER_SCAN_BATCH_SIZE = 16;
 const MINTING_AUTHORITY_SIGNER_SCAN_LIMIT = 128;
@@ -26,7 +37,7 @@ export type IEthereumMintingAuthority = {
   activePendingTransferIds: string[];
 };
 
-export type IMintingAuthorityCollateralization = {
+export type IMintingAuthorityAuthorization = {
   transferId: string;
   authorityIndex: number;
   moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
@@ -39,9 +50,9 @@ export type IMintingAuthorityCollateralization = {
   securityAmountMicrogons: bigint;
 };
 
-export type IMintingAuthorityCollateralizeMetadata = {
-  actionType: 'collateralizeTransfer';
-  collateralizations: Array<{
+export type IMintingAuthorityAuthorizeMetadata = {
+  actionType: 'authorizeTransfer';
+  authorizations: Array<{
     authorityIndex: number;
     transferId: string;
     mintingAuthorityTip: bigint;
@@ -58,32 +69,39 @@ export type IMintingAuthorityRegisterMetadata = {
   micronotCollateral: bigint;
 };
 
-type ILocalPendingCollateralization = IMintingAuthorityCollateralizeMetadata['collateralizations'][number];
+type ILocalPendingAuthorization = IMintingAuthorityAuthorizeMetadata['authorizations'][number];
 
 export class MintingAuthorities {
   public data: {
     isReady: boolean;
     authorities: IEthereumMintingAuthority[];
-    pendingCollateralizations: IMintingAuthorityCollateralization[];
-    pendingCollateralizeTxInfosByTransferId: Map<string, TransactionInfo<IMintingAuthorityCollateralizeMetadata>>;
+    pendingMintingAuthorizations: IMintingAuthorityAuthorization[];
+    pendingMintingAuthorizeTxInfosByTransferId: Map<string, TransactionInfo<IMintingAuthorityAuthorizeMetadata>>;
   };
 
   #subscriptions: VoidFunction[] = [];
   #isSubscribing = false;
   #waitForLoad?: IDeferred;
   #updateSeq = 0;
+  #lastPendingActivationRelayLocatorIndex?: bigint;
+  #pendingActivationRelayPromise?: Promise<void>;
+  #lastPendingActivationRelayCheckAt = 0;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
     public readonly walletKeys: WalletKeys,
     private readonly miningFrames: MiningFrames,
     private readonly transactionTracker: TransactionTracker,
+    private readonly getGatewayRelayClients?: () => Promise<{
+      serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
+      upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
+    }>,
   ) {
     this.data = {
       isReady: false,
       authorities: [],
-      pendingCollateralizations: [],
-      pendingCollateralizeTxInfosByTransferId: new Map(),
+      pendingMintingAuthorizations: [],
+      pendingMintingAuthorizeTxInfosByTransferId: new Map(),
     };
   }
 
@@ -95,8 +113,8 @@ export class MintingAuthorities {
       await this.miningFrames.blockWatch.start();
       await this.refresh(await this.miningFrames.blockWatch.getFinalizedApi());
       for (const txInfo of this.transactionTracker.pendingBlockTxInfosAtLoad) {
-        if (txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferCollateralize) {
-          void this.onCollateralize(txInfo as TransactionInfo<IMintingAuthorityCollateralizeMetadata>);
+        if (txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferAuthorize) {
+          void this.onAuthorize(txInfo as TransactionInfo<IMintingAuthorityAuthorizeMetadata>);
           continue;
         }
         if (txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferRegisterMintingAuthority) {
@@ -114,25 +132,28 @@ export class MintingAuthorities {
   public async refresh(
     finalizedClient: ApiDecoration<'promise'>,
     updateSeq = ++this.#updateSeq,
-  ): Promise<IMintingAuthorityCollateralization[]> {
+  ): Promise<IMintingAuthorityAuthorization[]> {
     const db = await this.dbPromise;
     const authorities = await getOwnedEthereumMintingAuthorities(
       finalizedClient,
       this.walletKeys,
       db.walletHdKeysTable,
     );
-    const pendingCollateralizations = await getPendingMintingAuthorityCollateralizations(
+    const pendingMintingAuthorizations = await getPendingMintingAuthorizations(
       finalizedClient,
       authorities,
-      getPendingLocalCollateralizations(this.transactionTracker.data.txInfos),
+      getPendingLocalAuthorizations(this.transactionTracker.data.txInfos),
     );
     if (updateSeq !== this.#updateSeq) {
-      return this.data.pendingCollateralizations;
+      return this.data.pendingMintingAuthorizations;
     }
 
     this.data.authorities = authorities;
-    this.data.pendingCollateralizations = pendingCollateralizations;
-    return pendingCollateralizations;
+    this.data.pendingMintingAuthorizations = pendingMintingAuthorizations;
+    void this.syncPendingActivationRelay(authorities).catch(error =>
+      console.error(`Error requesting pending minting-authority activation relay`, error),
+    );
+    return pendingMintingAuthorizations;
   }
 
   public async restoreSignerIndexes(
@@ -150,7 +171,10 @@ export class MintingAuthorities {
     }
 
     this.data.authorities = authorities;
-    this.data.pendingCollateralizations = [];
+    this.data.pendingMintingAuthorizations = [];
+    void this.syncPendingActivationRelay(authorities).catch(error =>
+      console.error(`Error requesting restored minting-authority activation relay`, error),
+    );
     return authorities;
   }
 
@@ -161,6 +185,7 @@ export class MintingAuthorities {
     try {
       const sub = this.miningFrames.blockWatch.events.on('finalized', headers => {
         void (async () => {
+          const hasPendingActivation = this.data.authorities.some(authority => authority.isPendingActivation);
           let latestMatchingHeader;
           for (const header of headers) {
             const events = await this.miningFrames.blockWatch.getEvents(header);
@@ -171,8 +196,13 @@ export class MintingAuthorities {
             }
           }
 
-          if (!latestMatchingHeader) return;
-          await this.refresh(await this.miningFrames.blockWatch.getApi(latestMatchingHeader), ++this.#updateSeq);
+          if (latestMatchingHeader) {
+            await this.refresh(await this.miningFrames.blockWatch.getApi(latestMatchingHeader), ++this.#updateSeq);
+            return;
+          }
+          if (!hasPendingActivation) return;
+
+          await this.syncPendingActivationRelay(this.data.authorities);
         })().catch(error => console.error(`Error refreshing minting authorities from block events`, error));
       });
       this.#subscriptions.push(sub);
@@ -225,7 +255,7 @@ export class MintingAuthorities {
         publicKeyHex: null,
       });
 
-      const client = await getMainchainClient(false);
+      const client = await this.miningFrames.blockWatch.clients.get(false);
       const txSigner = await this.walletKeys.getVaultingKeypair();
       const payload = u8aToHex(
         u8aConcat(
@@ -271,67 +301,67 @@ export class MintingAuthorities {
     }
   }
 
-  public async collateralize(transferId?: string): Promise<TransactionInfo<IMintingAuthorityCollateralizeMetadata>> {
+  public async authorize(transferId?: string): Promise<TransactionInfo<IMintingAuthorityAuthorizeMetadata>> {
     if (transferId) {
-      const pendingTxInfo = this.data.pendingCollateralizeTxInfosByTransferId.get(transferId);
+      const pendingTxInfo = this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId);
       if (pendingTxInfo && !pendingTxInfo.isPostProcessed) {
         return pendingTxInfo;
       }
-      this.data.pendingCollateralizeTxInfosByTransferId.delete(transferId);
+      this.data.pendingMintingAuthorizeTxInfosByTransferId.delete(transferId);
     }
 
     await this.load();
-    let nextCollateralization = transferId
-      ? this.data.pendingCollateralizations.find(x => x.transferId === transferId)
-      : this.data.pendingCollateralizations[0];
-    if (!nextCollateralization) {
+    let nextAuthorization = transferId
+      ? this.data.pendingMintingAuthorizations.find(x => x.transferId === transferId)
+      : this.data.pendingMintingAuthorizations[0];
+    if (!nextAuthorization) {
       const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
       await this.refresh(finalizedClient);
-      nextCollateralization = transferId
-        ? this.data.pendingCollateralizations.find(x => x.transferId === transferId)
-        : this.data.pendingCollateralizations[0];
-      if (!nextCollateralization && transferId) {
-        nextCollateralization = (
-          await getPendingMintingAuthorityCollateralizations(
+      nextAuthorization = transferId
+        ? this.data.pendingMintingAuthorizations.find(x => x.transferId === transferId)
+        : this.data.pendingMintingAuthorizations[0];
+      if (!nextAuthorization && transferId) {
+        nextAuthorization = (
+          await getPendingMintingAuthorizations(
             finalizedClient,
             this.data.authorities,
-            getPendingLocalCollateralizations(this.transactionTracker.data.txInfos),
+            getPendingLocalAuthorizations(this.transactionTracker.data.txInfos),
             transferId,
           )
         )[0];
       }
     }
-    if (!nextCollateralization) {
+    if (!nextAuthorization) {
       if (transferId) {
-        throw new Error(`Transfer ${transferId} is not currently available to collateralize.`);
+        throw new Error(`Transfer ${transferId} is not currently available to authorize.`);
       }
-      throw new Error('No collateralized transfers are currently available to fund.');
+      throw new Error('No pending minting authorizations are currently available.');
     }
 
-    const client = await getMainchainClient(false);
+    const client = await this.miningFrames.blockWatch.clients.get(false);
     const txSigner = await this.walletKeys.getVaultingKeypair();
-    const collateralizations = transferId ? [nextCollateralization] : [...this.data.pendingCollateralizations];
+    const authorizations = transferId ? [nextAuthorization] : [...this.data.pendingMintingAuthorizations];
     const txs = await Promise.all(
-      collateralizations.map(async collateralization =>
+      authorizations.map(async authorization =>
         client.tx.crosschainTransfer.collateralizeTransfer(
-          collateralization.transferId,
+          authorization.transferId,
           await this.walletKeys.signEthereumPersonalMessage(
-            collateralization.authorizationHash,
-            this.walletKeys.getMintingAuthorityEthereumHdPath(collateralization.authorityIndex),
+            authorization.authorizationHash,
+            this.walletKeys.getMintingAuthorityEthereumHdPath(authorization.authorityIndex),
             'argon',
           ),
-          collateralization.microgonCollateral,
-          collateralization.micronotCollateral,
+          authorization.microgonCollateral,
+          authorization.micronotCollateral,
         ),
       ),
     );
     const txInfo = await this.transactionTracker.submitAndWatch({
       tx: txs.length === 1 ? txs[0] : client.tx.utility.batch(txs),
       txSigner,
-      extrinsicType: ExtrinsicType.CrosschainTransferCollateralize,
+      extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
       metadata: {
-        actionType: 'collateralizeTransfer',
-        collateralizations: collateralizations.map(
+        actionType: 'authorizeTransfer',
+        authorizations: authorizations.map(
           ({
             authorityIndex,
             transferId: nextTransferId,
@@ -346,11 +376,11 @@ export class MintingAuthorities {
             micronotCollateral,
           }),
         ),
-      } satisfies IMintingAuthorityCollateralizeMetadata,
+      } satisfies IMintingAuthorityAuthorizeMetadata,
       useLatestNonce: true,
     });
 
-    void this.onCollateralize(txInfo);
+    void this.onAuthorize(txInfo);
     return txInfo;
   }
 
@@ -382,10 +412,10 @@ export class MintingAuthorities {
     }
   }
 
-  public async onCollateralize(txInfo: TransactionInfo<IMintingAuthorityCollateralizeMetadata>): Promise<void> {
-    const { collateralizations } = txInfo.tx.metadataJson;
-    for (const { transferId } of collateralizations) {
-      this.data.pendingCollateralizeTxInfosByTransferId.set(transferId, txInfo);
+  public async onAuthorize(txInfo: TransactionInfo<IMintingAuthorityAuthorizeMetadata>): Promise<void> {
+    const { authorizations } = txInfo.tx.metadataJson;
+    for (const { transferId } of authorizations) {
+      this.data.pendingMintingAuthorizeTxInfosByTransferId.set(transferId, txInfo);
     }
     const postProcessor = txInfo.createPostProcessor();
 
@@ -400,10 +430,93 @@ export class MintingAuthorities {
       postProcessor.reject(error as Error);
       throw error;
     } finally {
-      for (const { transferId } of collateralizations) {
-        if (this.data.pendingCollateralizeTxInfosByTransferId.get(transferId) === txInfo) {
-          this.data.pendingCollateralizeTxInfosByTransferId.delete(transferId);
+      for (const { transferId } of authorizations) {
+        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId) === txInfo) {
+          this.data.pendingMintingAuthorizeTxInfosByTransferId.delete(transferId);
         }
+      }
+    }
+  }
+
+  private async syncPendingActivationRelay(authorities: IEthereumMintingAuthority[]): Promise<void> {
+    if (!authorities.some(authority => authority.isPendingActivation)) {
+      this.#lastPendingActivationRelayLocatorIndex = undefined;
+      return;
+    }
+    if (this.#pendingActivationRelayPromise) {
+      return;
+    }
+
+    const now = Date.now();
+    const relayCheckMs = getEthereumFinalityMillis();
+    if (now - this.#lastPendingActivationRelayCheckAt < relayCheckMs) {
+      return;
+    }
+    this.#lastPendingActivationRelayCheckAt = now;
+
+    const { serverApiClient, upstreamOperatorClient } = (await this.getGatewayRelayClients?.()) ?? {};
+    if (!serverApiClient && !upstreamOperatorClient?.operatorHost) {
+      return;
+    }
+
+    const client = await this.miningFrames.blockWatch.clients.get(false);
+    const gatewayState = await client.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
+    const currentRuntimeGatewayActivityNonce = gatewayState.isSome
+      ? gatewayState.unwrap().gatewayActivityNonce.toBigInt()
+      : 0n;
+    if (!getEthereumExecutionRpcUrl()) {
+      return;
+    }
+
+    const chainConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    if (chainConfig.isNone || !chainConfig.unwrap().isEvm) {
+      return;
+    }
+
+    const ethereumClient = createEthereumPublicClient();
+    const gatewayAddress = chainConfig.unwrap().asEvm.gateway.toHex();
+    const latestLocatorIndex = await ethereumClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: gatewayAddress,
+      functionName: 'latestActivityBlockLocatorIndex',
+    });
+    if (latestLocatorIndex === 0n || latestLocatorIndex === this.#lastPendingActivationRelayLocatorIndex) {
+      return;
+    }
+
+    const latestLocator: EvmContracts.MintingGatewayActivityBlockLocator = await ethereumClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: gatewayAddress,
+      functionName: 'activityBlockLocators',
+      args: [latestLocatorIndex],
+    });
+    if (latestLocator.endGatewayActivityNonce <= currentRuntimeGatewayActivityNonce) {
+      this.#lastPendingActivationRelayLocatorIndex = latestLocatorIndex;
+      return;
+    }
+
+    const relayPromise = (async () => {
+      const relayError = await requestEthereumGatewayCatchUpThroughOperator({
+        throughGatewayActivityNonce: latestLocator.endGatewayActivityNonce,
+        serverApiClient,
+        upstreamOperatorClient: upstreamOperatorClient?.operatorHost ? upstreamOperatorClient : undefined,
+      });
+      if (relayError) {
+        console.warn(
+          `[MintingAuthorities] Unable to request relay for pending activation through gateway activity ${latestLocator.endGatewayActivityNonce}: ${relayError}`,
+        );
+        return;
+      }
+
+      this.#lastPendingActivationRelayLocatorIndex = latestLocatorIndex;
+    })();
+    this.#pendingActivationRelayPromise = relayPromise;
+
+    try {
+      await relayPromise;
+    } finally {
+      if (this.#pendingActivationRelayPromise === relayPromise) {
+        this.#pendingActivationRelayPromise = undefined;
       }
     }
   }
@@ -552,13 +665,13 @@ export async function getNextMintingAuthoritySigner(args: {
   throw new Error('Unable to derive an unused minting-authority signing key.');
 }
 
-export async function getPendingMintingAuthorityCollateralizations(
+export async function getPendingMintingAuthorizations(
   finalizedClient: ApiDecoration<'promise'>,
   authorities: IEthereumMintingAuthority[],
-  pendingLocalCollateralizations: ILocalPendingCollateralization[] = [],
+  pendingLocalAuthorizations: ILocalPendingAuthorization[] = [],
   preferredTransferId?: string,
-): Promise<IMintingAuthorityCollateralization[]> {
-  const activeAuthorities = createActiveAuthorities(authorities, pendingLocalCollateralizations);
+): Promise<IMintingAuthorityAuthorization[]> {
+  const activeAuthorities = createActiveAuthorities(authorities, pendingLocalAuthorizations);
   if (activeAuthorities.length === 0) return [];
 
   const chainConfigOption = await finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
@@ -569,11 +682,11 @@ export async function getPendingMintingAuthorityCollateralizations(
   const evmChainConfig = chainConfigOption.unwrap().asEvm;
   const minTransferCollateralIncrement =
     finalizedClient.consts.crosschainTransfer.minTransferCollateralIncrement.toBigInt();
-  const pendingTransfers = await loadPendingCollateralizationTransfers(finalizedClient);
+  const pendingTransfers = await loadPendingAuthorizationTransfers(finalizedClient);
   const transfersToPlan = preferredTransferId
     ? pendingTransfers.filter(x => x.transferId.toLowerCase() === preferredTransferId.toLowerCase())
     : pendingTransfers;
-  const collateralizations: IMintingAuthorityCollateralization[] = [];
+  const authorizations: IMintingAuthorityAuthorization[] = [];
 
   for (const { pendingRequest, transferId, transfer, epochMicrogonsPerArgonot } of transfersToPlan) {
     if (!activeAuthorities.some(x => x.availableMicrogons > 0n || x.availableMicronots > 0n)) {
@@ -614,7 +727,7 @@ export async function getPendingMintingAuthorityCollateralizations(
         microgonsPerArgonot: epochMicrogonsPerArgonot,
       };
 
-      collateralizations.push({
+      authorizations.push({
         transferId,
         authorityIndex: authority.authorityIndex,
         moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
@@ -644,12 +757,12 @@ export async function getPendingMintingAuthorityCollateralizations(
     }
   }
 
-  return collateralizations;
+  return authorizations;
 }
 
 function createActiveAuthorities(
   authorities: IEthereumMintingAuthority[],
-  pendingLocalCollateralizations: ILocalPendingCollateralization[],
+  pendingLocalAuthorizations: ILocalPendingAuthorization[],
 ) {
   const activeAuthorities = authorities
     .filter(authority => authority.isActive && authority.authorityIndex != null)
@@ -662,7 +775,7 @@ function createActiveAuthorities(
     }));
 
   const authoritiesByIndex = new Map(activeAuthorities.map(authority => [authority.authorityIndex, authority]));
-  for (const { authorityIndex, transferId, microgonCollateral, micronotCollateral } of pendingLocalCollateralizations) {
+  for (const { authorityIndex, transferId, microgonCollateral, micronotCollateral } of pendingLocalAuthorizations) {
     const authority = authoritiesByIndex.get(authorityIndex);
     if (!authority) continue;
 
@@ -674,20 +787,20 @@ function createActiveAuthorities(
   return activeAuthorities.filter(x => x.availableMicronots > 0n || x.availableMicrogons > 0n);
 }
 
-async function loadPendingCollateralizationTransfers(finalizedClient: ApiDecoration<'promise'>) {
+async function loadPendingAuthorizationTransfers(finalizedClient: ApiDecoration<'promise'>) {
   const pendingRequests =
     await finalizedClient.query.crosschainTransfer.pendingCollateralizationRequestsByChain('Ethereum');
   const transferIds = pendingRequests.map(request => request.transferId.toHex());
   const transferOptions = transferIds.length
     ? await finalizedClient.query.crosschainTransfer.transferOutById.multi(transferIds)
     : [];
-  type PendingCollateralizationTransfer = {
+  type PendingAuthorizationTransfer = {
     pendingRequest: (typeof pendingRequests)[number];
     transferId: string;
     transfer: ReturnType<(typeof transferOptions)[number]['unwrap']>;
     epochMicrogonsPerArgonot: bigint;
   };
-  const transfersToPlan: PendingCollateralizationTransfer[] = [];
+  const transfersToPlan: PendingAuthorizationTransfer[] = [];
 
   for (const [index, pendingRequest] of pendingRequests.entries()) {
     const transferOption = transferOptions[index];
@@ -705,15 +818,15 @@ async function loadPendingCollateralizationTransfers(finalizedClient: ApiDecorat
   return transfersToPlan;
 }
 
-function getPendingLocalCollateralizations(txInfos: TransactionInfo[]) {
+function getPendingLocalAuthorizations(txInfos: TransactionInfo[]) {
   return txInfos
     .filter(
       txInfo =>
-        txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferCollateralize &&
+        txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferAuthorize &&
         (txInfo.tx.status === TransactionStatus.Submitted || txInfo.tx.status === TransactionStatus.InBlock) &&
         !txInfo.txResult.submissionError,
     )
-    .flatMap(({ tx }) => (tx.metadataJson as IMintingAuthorityCollateralizeMetadata).collateralizations);
+    .flatMap(({ tx }) => (tx.metadataJson as IMintingAuthorityAuthorizeMetadata).authorizations);
 }
 
 function planTransferCollateral(args: {

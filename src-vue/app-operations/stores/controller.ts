@@ -9,12 +9,14 @@ import { createDeferred, MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import handleFatalError from '../../stores/helpers/handleFatalError.ts';
 import Importer from '../../lib/Importer.ts';
 import {
+  ensureOperatorAccountRegistered,
   getOperationalChainProgressFromAccount,
   getOperationalRewardConfig,
   type IOperationalChainProgress,
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
 } from '../../lib/OperationalAccount.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getServerApiClient } from '../../stores/server.ts';
@@ -26,7 +28,7 @@ import LiquidLock from '../overlays/operational/LiquidLock.vue';
 import AcquireBonds from '../overlays/operational/AcquireBonds.vue';
 import WinMiningSeats from '../overlays/operational/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
-import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
+import { MiningSetupStatus, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 
 export enum OperationsTab {
@@ -142,6 +144,7 @@ export const useOperationsController = defineStore('operationsController', () =>
     rewardsEarnedAmount: 0n,
     rewardsCollectedAmount: 0n,
     isOperational: false,
+    hasSponsor: false,
   });
   const rewardConfig = Vue.ref<IOperationalRewardConfig>({
     operationalReferralReward: defaultRewardAmount,
@@ -348,6 +351,7 @@ export const useOperationsController = defineStore('operationsController', () =>
         console.error('[Operations Controller] Unable to load bitcoin lock progress.', error);
       }),
     ]);
+    void registerExistingOperationalAccountIfNeeded();
 
     // detect newly completed steps and queue completion notices
     Vue.watch(
@@ -381,6 +385,25 @@ export const useOperationsController = defineStore('operationsController', () =>
 
     isLoaded.value = true;
     isLoadedResolve();
+  }
+
+  async function registerExistingOperationalAccountIfNeeded() {
+    const feePayers: WalletType[] = [];
+
+    if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) {
+      feePayers.push(WalletType.vaulting);
+    }
+    if (config.miningSetupStatus === MiningSetupStatus.Finished) {
+      feePayers.push(WalletType.miningBot);
+      feePayers.push(WalletType.miningHold);
+    }
+    if (!feePayers.length) return;
+
+    try {
+      await ensureOperatorAccountRegistered({ walletKeys, config: config as Config, feePayers });
+    } catch (error) {
+      console.error('[Operations Controller] Unable to register an existing operational account.', error);
+    }
   }
 
   async function importFromMnemonic(mnemonic: string) {

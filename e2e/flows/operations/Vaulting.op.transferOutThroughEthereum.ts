@@ -11,14 +11,14 @@ const ETHEREUM_TRANSFER_TIMEOUT_MS = 12 * 60_000;
 type ITransferOutThroughEthereumChainState = {
   availableMicrogons: bigint;
   amount: bigint;
-  awaitingCollateralizationLabel: string;
+  progressPct: number;
+  currentStepLabel: string;
+  currentStepDetail: string;
   error: string;
   ethereumFeeEstimateWei?: bigint;
   hasPersistedTransfer: boolean;
-  isCollateralizingOnArgon: boolean;
   isSubmitting: boolean;
-  phase: string;
-  remainingCollateralMicrogons?: bigint;
+  remainingMintingAuthorizationMicrogons?: bigint;
 };
 
 type ITransferOutThroughEthereumUiState = {
@@ -42,7 +42,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
 
     const isComplete =
       transferCompleted ||
-      (transferState.phase === 'confirmedOnEthereum' &&
+      (transferState.progressPct === 100 &&
         !transferState.isSubmitting &&
         !transferState.hasPersistedTransfer &&
         !transferState.error);
@@ -68,7 +68,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
         dashboardVisible: dashboard.visible,
         walletOverlayVisible: walletOverlay.visible,
       },
-      phase: transferState.phase,
+      phase: transferState.currentStepLabel || undefined,
       state: operationState,
       blockers: isComplete || dashboard.visible ? [] : blockers,
     };
@@ -82,7 +82,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
     }
 
     if (
-      state.chainState.phase !== 'confirmedOnEthereum' &&
+      state.chainState.progressPct !== 100 &&
       !state.chainState.isSubmitting &&
       !state.chainState.hasPersistedTransfer
     ) {
@@ -121,7 +121,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutThroughEthereumSt
         }
 
         return (
-          nextState.chainState.phase === 'confirmedOnEthereum' &&
+          nextState.chainState.progressPct === 100 &&
           !nextState.chainState.isSubmitting &&
           !nextState.chainState.hasPersistedTransfer
         );
@@ -157,14 +157,15 @@ async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
       return {
         availableMicrogons: refs.wallets.vaultingWallet.availableMicrogons.toString(),
         amount: transferState.amount?.toString() ?? '0',
-        awaitingCollateralizationLabel: transferState.awaitingCollateralizationLabel ?? '',
+        progressPct: transferState.progress.overallProgressPct,
+        currentStepLabel: transferState.progress.currentStepLabel,
+        currentStepDetail: transferState.progress.currentStepDetail ?? '',
         error: transferState.error,
         ethereumFeeEstimateWei: transferState.ethereumFeeEstimateWei?.toString(),
         hasPersistedTransfer: transferState.hasPersistedTransfer,
-        isCollateralizingOnArgon: transferState.isCollateralizingOnArgon,
         isSubmitting: transferState.isSubmitting,
-        phase: transferState.phase,
-        remainingCollateralMicrogons: transferState.remainingCollateralMicrogons?.toString(),
+        remainingMintingAuthorizationMicrogons:
+          transferState.progress.currentStepRemainingMintingAuthorizationMicrogons?.toString(),
       };
     },
     {
@@ -177,29 +178,29 @@ async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
     | {
         availableMicrogons: string;
         amount: string;
-        awaitingCollateralizationLabel: string;
+        progressPct: number;
+        currentStepLabel: string;
+        currentStepDetail: string;
         error: string;
         ethereumFeeEstimateWei?: string;
         hasPersistedTransfer: boolean;
-        isCollateralizingOnArgon: boolean;
         isSubmitting: boolean;
-        phase: string;
-        remainingCollateralMicrogons?: string;
+        remainingMintingAuthorizationMicrogons?: string;
       }
     | undefined;
 
   return {
     availableMicrogons: state ? BigInt(state.availableMicrogons) : 0n,
     amount: state ? BigInt(state.amount) : 0n,
-    awaitingCollateralizationLabel: state?.awaitingCollateralizationLabel ?? '',
+    progressPct: state?.progressPct ?? 0,
+    currentStepLabel: state?.currentStepLabel ?? '',
+    currentStepDetail: state?.currentStepDetail ?? '',
     error: state?.error ?? '',
     ethereumFeeEstimateWei: state?.ethereumFeeEstimateWei ? BigInt(state.ethereumFeeEstimateWei) : undefined,
     hasPersistedTransfer: state?.hasPersistedTransfer ?? false,
-    isCollateralizingOnArgon: state?.isCollateralizingOnArgon ?? false,
     isSubmitting: state?.isSubmitting ?? false,
-    phase: state?.phase ?? 'idle',
-    remainingCollateralMicrogons: state?.remainingCollateralMicrogons
-      ? BigInt(state.remainingCollateralMicrogons)
+    remainingMintingAuthorizationMicrogons: state?.remainingMintingAuthorizationMicrogons
+      ? BigInt(state.remainingMintingAuthorizationMicrogons)
       : undefined,
   };
 }

@@ -177,7 +177,7 @@
               <div v-else class="max-w-160 pt-4 pb-2">
                 <p class="font-light px-5 ">
                   Complete the following seven steps, and you'll earn
-                  (along with your sponsor) a {{ operationalReferralRewardLabel }} bonus from the Argon Treasury.
+                  <template v-if="controller.chainProgress.hasSponsor">(along with your sponsor)</template> a {{ operationalReferralRewardLabel }} bonus from the Argon Treasury.
                 </p>
                 <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
                   <li

@@ -1,6 +1,7 @@
 {
   "blockNumber": 1,
   "tokenAddresses": {
+    "argon": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
     "argonot": "0x1111111111111111111111111111111111111111"
   },
   "pool": {

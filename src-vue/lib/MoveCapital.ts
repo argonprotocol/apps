@@ -266,15 +266,7 @@ export class MoveCapital {
   }
 
   private async getSigner(moveFrom: MoveFrom) {
-    const walletType = this.getWalletTypeFromMove(moveFrom);
-    switch (walletType) {
-      case WalletType.miningHold:
-        return await this.walletKeys.getMiningHoldKeypair();
-      case WalletType.miningBot:
-        return await this.walletKeys.getMiningBotKeypair();
-      case WalletType.vaulting:
-        return await this.walletKeys.getVaultingKeypair();
-    }
+    return await this.walletKeys.getWalletKeypair(this.getWalletTypeFromMove(moveFrom));
   }
 
   public checkAddressType(address: string): {

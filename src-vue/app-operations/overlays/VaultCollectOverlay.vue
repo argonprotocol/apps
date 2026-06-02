@@ -3,7 +3,7 @@
   <OverlayBase
     :isOpen="isOpen"
     :showCloseIcon="true"
-    title="Vault Actions"
+    :title="overlayTitle"
     @close="closeOverlay"
     class="">
     <div box class="flex flex-col gap-y-6 px-5 py-3">
@@ -33,8 +33,7 @@
                   <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
                 </span>;
                 if not,
-                <template v-if="collectRevenue === myVault.data.expiringCollectAmount">it</template>
-                <strong v-else>
+                <strong>
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
                 </strong>
@@ -58,7 +57,7 @@
             {{ manualPendingCosignCount }} transaction{{ manualPendingCosignCount === 1 ? '' : 's' }}
           </strong>
           that must be signed. Failure to do so within
-          <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days }">
+          <CountdownClock :time="nextCosignDueDate" v-slot="{ hours, minutes, days }">
             <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
             <template v-else>
               <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
@@ -77,7 +76,7 @@
           class="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <p>
             <template v-if="collectRevenue || manualPendingCosignCount">This submit will also record</template>
-            <template v-else>The next transaction will record</template>
+            <template v-else>The next transaction will record </template>
             <strong>
               {{ councilApprovalCount }} council approval{{ councilApprovalCount === 1 ? '' : 's' }}
             </strong>
@@ -100,8 +99,8 @@
           <div class="mb-3 text-sm font-semibold text-slate-700">
             {{
               activeCollectTransactionCount === 1
-                ? 'Submitting vault action on Argon...'
-                : `Submitting ${activeCollectTransactionCount} vault actions on Argon...`
+                ? 'Submitting...'
+                : `Submitting ${activeCollectTransactionCount} transactions...`
             }}
           </div>
 
@@ -145,7 +144,7 @@
 
         <button
           @click="submitSponsor"
-          :disabled="isSponsorBusy || collateralizedTransferCount === 0"
+          :disabled="isSponsorBusy || authorizedTransferCount === 0"
           class="bg-argon-600 hover:bg-argon-700 mt-2 mb-1 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white disabled:cursor-default disabled:opacity-40">
           {{ sponsorButtonLabel }}
         </button>
@@ -183,7 +182,7 @@ import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
 import InputMenu from '../../components/InputMenu.vue';
 import { MoveTo } from '@argonprotocol/apps-core';
 import { TransactionInfo } from '../../lib/TransactionInfo.ts';
-import type { IMintingAuthorityCollateralizeMetadata } from '../../lib/MintingAuthorities.ts';
+import type { IMintingAuthorityAuthorizeMetadata } from '../../lib/MintingAuthorities.ts';
 
 dayjs.extend(utc);
 
@@ -200,11 +199,12 @@ const moveTo = Vue.ref<MoveTo>(MoveTo.VaultingHold);
 
 const collectRevenue = Vue.ref(0n);
 const councilApprovalCount = Vue.ref(0);
-const collateralizedTransferCount = Vue.ref(0);
-const collateralizedTransferRewardAmount = Vue.ref(0n);
+const authorizedTransferCount = Vue.ref(0);
+const authorizedTransferRewardAmount = Vue.ref(0n);
 const manualPendingCosignCount = Vue.ref(0);
 const manualPendingCosignSum = Vue.ref(0n);
 const nextCollectDueDate = Vue.ref(dayjs.utc(0));
+const nextCosignDueDate = Vue.ref(dayjs.utc(0));
 const registeredMintingAuthorityCount = Vue.ref(0);
 
 const isSubmittingCollect = Vue.ref(false);
@@ -241,8 +241,8 @@ const activeCollectTxInfos = Vue.computed(() => {
 
 const activeSponsorTxInfos = Vue.computed(() => {
   return getUniqueTransactionInfos([
-    ...myVault.mintingAuthorities.data.pendingCollateralizeTxInfosByTransferId.values(),
-  ]) as TransactionInfo<IMintingAuthorityCollateralizeMetadata>[];
+    ...myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.values(),
+  ]) as TransactionInfo<IMintingAuthorityAuthorizeMetadata>[];
 });
 
 const hasCollectWork = Vue.computed(() => {
@@ -264,10 +264,7 @@ const showCollectSection = Vue.computed(() => {
 const showSponsorSection = Vue.computed(() => {
   return (
     registeredMintingAuthorityCount.value > 0 &&
-    (collateralizedTransferCount.value > 0 ||
-      isSponsorBusy.value ||
-      !!sponsorError.value ||
-      !!sponsorUpdateMessage.value)
+    (authorizedTransferCount.value > 0 || isSponsorBusy.value || !!sponsorError.value || !!sponsorUpdateMessage.value)
   );
 });
 
@@ -281,7 +278,7 @@ const showSponsorProgress = Vue.computed(() => {
 
 const activeSponsorOpportunityCount = Vue.computed(() => {
   return activeSponsorTxInfos.value.reduce((sum, txInfo) => {
-    return sum + txInfo.tx.metadataJson.collateralizations.length;
+    return sum + txInfo.tx.metadataJson.authorizations.length;
   }, 0);
 });
 
@@ -289,20 +286,27 @@ const activeSponsorRewardAmount = Vue.computed(() => {
   return activeSponsorTxInfos.value.reduce((sum, txInfo) => {
     return (
       sum +
-      txInfo.tx.metadataJson.collateralizations.reduce(
-        (txSum, { mintingAuthorityTip }) => txSum + mintingAuthorityTip,
-        0n,
-      )
+      txInfo.tx.metadataJson.authorizations.reduce((txSum, { mintingAuthorityTip }) => txSum + mintingAuthorityTip, 0n)
     );
   }, 0n);
 });
 
 const sponsorOpportunityCount = Vue.computed(() => {
-  return collateralizedTransferCount.value || activeSponsorOpportunityCount.value;
+  return authorizedTransferCount.value || activeSponsorOpportunityCount.value;
 });
 
 const sponsorRewardAmount = Vue.computed(() => {
-  return collateralizedTransferRewardAmount.value || activeSponsorRewardAmount.value;
+  return authorizedTransferRewardAmount.value || activeSponsorRewardAmount.value;
+});
+
+const overlayTitle = Vue.computed(() => {
+  if (collectRevenue.value > 0n && manualPendingCosignCount.value > 0) {
+    return 'Collect Revenue and Cosign';
+  }
+  if (collectRevenue.value > 0n) {
+    return 'Collect Revenue';
+  }
+  return 'Vault Approvals';
 });
 
 const collectButtonLabel = Vue.computed(() => {
@@ -343,11 +347,12 @@ function syncNoticeState() {
   const notice = myVault.collectBuilder.getNotice();
   collectRevenue.value = notice?.collectRevenue ?? 0n;
   councilApprovalCount.value = notice?.councilApprovalCount ?? 0;
-  collateralizedTransferCount.value = notice?.collateralizedTransferCount ?? 0;
-  collateralizedTransferRewardAmount.value = notice?.collateralizedTransferRewardAmount ?? 0n;
+  authorizedTransferCount.value = notice?.authorizedTransferCount ?? 0;
+  authorizedTransferRewardAmount.value = notice?.authorizedTransferRewardAmount ?? 0n;
   manualPendingCosignCount.value = notice?.signatureCount ?? 0;
   manualPendingCosignSum.value = notice?.signaturePenalty ?? 0n;
-  nextCollectDueDate.value = dayjs.utc(notice?.nextDueDate ?? 0);
+  nextCollectDueDate.value = dayjs.utc(notice?.nextCollectDueDate ?? 0);
+  nextCosignDueDate.value = dayjs.utc(notice?.nextCosignDueDate ?? 0);
   registeredMintingAuthorityCount.value = myVault.mintingAuthorities.data.authorities.length;
 }
 
@@ -355,10 +360,11 @@ Vue.watch(
   () => [
     myVault.data.pendingCollectRevenue,
     myVault.data.nextCollectDueDate,
+    myVault.data.nextCosignDueDate,
     myVault.data.expiringCollectAmount,
     myVault.globalCouncil.data.pendingApprovals.length,
     myVault.mintingAuthorities.data.authorities.length,
-    myVault.mintingAuthorities.data.pendingCollateralizations.length,
+    myVault.mintingAuthorities.data.pendingMintingAuthorizations.length,
     myVault.data.pendingCosignUtxosById.size,
     myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.size,
   ],
@@ -388,7 +394,7 @@ async function submitCollect() {
 }
 
 async function submitSponsor() {
-  if (isSponsorBusy.value || collateralizedTransferCount.value === 0) {
+  if (isSponsorBusy.value || authorizedTransferCount.value === 0) {
     return;
   }
 
@@ -398,7 +404,7 @@ async function submitSponsor() {
   sponsorProgressLabel.value = 'Preparing transaction...';
 
   try {
-    await myVault.mintingAuthorities.collateralize();
+    await myVault.mintingAuthorities.authorize();
   } catch (error) {
     sponsorError.value = error instanceof Error ? error.message : `${error}`;
     isSubmittingSponsor.value = false;
@@ -457,7 +463,7 @@ function maybeCloseOverlay() {
     collectRevenue.value === 0n &&
     manualPendingCosignCount.value === 0 &&
     councilApprovalCount.value === 0 &&
-    collateralizedTransferCount.value === 0 &&
+    authorizedTransferCount.value === 0 &&
     !collectError.value &&
     !sponsorUpdateMessage.value &&
     !sponsorError.value
@@ -552,21 +558,21 @@ function getSponsorCompletionMessage(txInfos: TransactionInfo[]) {
   let earnedRewardAmount = 0n;
 
   for (const txInfo of txInfos as TransactionInfo<{
-    collateralizations: Array<{ mintingAuthorityTip: bigint }>;
+    authorizations: Array<{ mintingAuthorityTip: bigint }>;
   }>[]) {
     const errorCode = txInfo.tx.blockExtrinsicErrorJson?.errorCode;
     if (errorCode && errorCode !== 'TransferOutAlreadyReady' && errorCode !== 'InvalidTransferCollateralUpdate') {
       return '';
     }
 
-    const collateralizations = txInfo.tx.metadataJson.collateralizations;
+    const authorizations = txInfo.tx.metadataJson.authorizations;
     const completedForTx = txInfo.tx.blockExtrinsicErrorJson
       ? (txInfo.tx.blockExtrinsicErrorJson.batchInterruptedIndex ?? 0)
-      : collateralizations.length;
+      : authorizations.length;
 
-    attemptedCount += collateralizations.length;
+    attemptedCount += authorizations.length;
     completedCount += completedForTx;
-    earnedRewardAmount += collateralizations
+    earnedRewardAmount += authorizations
       .slice(0, completedForTx)
       .reduce((sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip, 0n);
   }

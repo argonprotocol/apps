@@ -15,8 +15,12 @@ interface IDisconnectLogInfo {
   time: number;
 }
 
+type IClientType = 'archive' | 'pruned';
+type IClientConnectionState = 'connected' | 'disconnected';
+
 export class MainchainClients {
   public events = createTypedEventEmitter<{
+    'connection-state-changed': (hasConnectedClient: boolean) => void;
     degraded: (error: Error | undefined, clientType: 'archive' | 'pruned') => void;
     working: (apiPath: string, clientType: 'archive' | 'pruned') => void;
     'on-pruned-client': (client: ArgonClient, url: string) => void;
@@ -34,6 +38,11 @@ export class MainchainClients {
     archive: { errors: [], lastErrorTime: 0 },
     pruned: { errors: [], lastErrorTime: 0 },
   };
+  private readonly connectionStateByClient: Record<IClientType, IClientConnectionState> = {
+    archive: 'disconnected',
+    pruned: 'disconnected',
+  };
+  private readonly currentClientByType: { archive?: ArgonClient; pruned?: ArgonClient } = {};
   private readonly lastDisconnectLogByClient: { archive: IDisconnectLogInfo; pruned: IDisconnectLogInfo } = {
     archive: { message: '', time: 0 },
     pruned: { message: '', time: 0 },
@@ -48,7 +57,7 @@ export class MainchainClients {
     this.archiveUrl = archiveUrl;
     this.archiveClientPromise = (
       connectedArchiveClient ? Promise.resolve(connectedArchiveClient) : getMainchainClientOrThrow(archiveUrl)
-    ).then(x => this.wrapClient(x, 'archive'));
+    ).then(client => this.wrapClient(client, 'archive'));
   }
 
   public async setArchiveClient(url: string) {
@@ -60,10 +69,12 @@ export class MainchainClients {
         // Previous connection failed, try to reconnect
       }
     }
-    const client = getMainchainClientOrThrow(url).then(x => this.wrapClient(x, 'archive'));
+    const previousClientPromise = this.archiveClientPromise;
     this.archiveUrl = url;
-    this.archiveClientPromise = client;
-    return this.archiveClientPromise;
+    this.archiveClientPromise = getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'archive'));
+    const connectedClient = await this.archiveClientPromise;
+    void previousClientPromise.then(previousClient => previousClient.disconnect()).catch(() => undefined);
+    return connectedClient;
   }
 
   public async setPrunedClient(url: string): Promise<ArgonClient> {
@@ -72,9 +83,9 @@ export class MainchainClients {
     }
 
     const previousClientPromise = this.prunedClientPromise;
-    const client = await getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'pruned'));
-    this.prunedClientPromise = Promise.resolve(client);
     this.prunedUrl = url;
+    this.prunedClientPromise = getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'pruned'));
+    const client = await this.prunedClientPromise;
     this.events.emit('on-pruned-client', client, url);
     void previousClientPromise?.then(previousClient => previousClient.disconnect()).catch(() => undefined);
     return this.prunedClientPromise;
@@ -86,6 +97,8 @@ export class MainchainClients {
 
     this.prunedClientPromise = undefined;
     this.prunedUrl = undefined;
+    this.currentClientByType.pruned = undefined;
+    this.setConnectionState('pruned', 'disconnected');
     void previousClientPromise.then(previousClient => previousClient.disconnect()).catch(() => undefined);
   }
 
@@ -109,23 +122,24 @@ export class MainchainClients {
     ]);
   }
 
-  private wrapClient(client: ArgonClient, clientType: 'archive' | 'pruned'): ArgonClient {
+  public hasConnectedClient(): boolean {
+    if (this.connectionStateByClient.archive === 'connected') {
+      return true;
+    }
+
+    if (!this.prunedClientPromise) {
+      return false;
+    }
+
+    return this.connectionStateByClient.pruned === 'connected';
+  }
+
+  private wrapClient(client: ArgonClient, clientType: IClientType): ArgonClient {
     let apiError: Error | undefined;
     const name = clientType === 'archive' ? 'ARCHIVE_RPC' : 'PRUNED_RPC';
     const api = wrapApi(client, name, {
       onError: (path, error, ...args) => {
-        const disconnectMessage = error instanceof Error ? error.message : '';
-        const lowered = disconnectMessage.toLowerCase();
-        const isDisconnect = lowered.includes('disconnected from ws://') || lowered.includes('abnormal closure');
-        if (isDisconnect) {
-          if (!this.isShuttingDown) {
-            const logInfo = this.lastDisconnectLogByClient[clientType];
-            const shouldLog = logInfo.message !== disconnectMessage || Date.now() - logInfo.time > 5_000;
-            if (shouldLog) {
-              this.lastDisconnectLogByClient[clientType] = { message: disconnectMessage, time: Date.now() };
-              console.info(`[${name}] ${path} disconnected: ${disconnectMessage}`);
-            }
-          }
+        if (this.currentClientByType[clientType] !== api || this.connectionStateByClient[clientType] !== 'connected') {
           return;
         }
 
@@ -145,6 +159,9 @@ export class MainchainClients {
         if (!path.includes('query.') && !path.includes('rpc.')) {
           return; // not api calls
         }
+        if (this.currentClientByType[clientType] !== api) {
+          return;
+        }
         apiError = undefined;
         if (this.lastErrorByClient[clientType]) {
           this.lastErrorByClient[clientType] = { errors: [], lastErrorTime: 0 };
@@ -157,13 +174,44 @@ export class MainchainClients {
         }
       },
     });
+    this.currentClientByType[clientType] = api;
+    this.setConnectionState(clientType, 'connected');
     api.on('disconnected', () => {
+      if (this.currentClientByType[clientType] !== api) {
+        return;
+      }
+
+      this.setConnectionState(clientType, 'disconnected');
       this.events.emit('degraded', undefined, clientType);
+      if (this.isShuttingDown) {
+        return;
+      }
+
+      const disconnectMessage = `${name} disconnected`;
+      const logInfo = this.lastDisconnectLogByClient[clientType];
+      const shouldLog = logInfo.message !== disconnectMessage || Date.now() - logInfo.time > 5_000;
+      if (shouldLog) {
+        this.lastDisconnectLogByClient[clientType] = { message: disconnectMessage, time: Date.now() };
+        console.info(`[${name}] transport disconnected`);
+      }
     });
     api.on('connected', () => {
+      if (this.currentClientByType[clientType] !== api) {
+        return;
+      }
+      this.setConnectionState(clientType, 'connected');
       if (!apiError) this.events.emit('working', '', clientType);
     });
     return api;
+  }
+
+  private setConnectionState(clientType: IClientType, connectionState: IClientConnectionState): void {
+    if (this.connectionStateByClient[clientType] === connectionState) {
+      return;
+    }
+
+    this.connectionStateByClient[clientType] = connectionState;
+    this.events.emit('connection-state-changed', this.hasConnectedClient());
   }
 }
 

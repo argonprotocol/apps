@@ -227,12 +227,12 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
         argnMoveSettled:
           !argnTransfer.isSubmitting &&
           !argnTransfer.hasPersistedTransfer &&
-          argnTransfer.phase === 'confirmedOnArgon' &&
+          argnTransfer.progress.overallProgressPct === 100 &&
           argnTransfer.targetWalletType === args.targetWalletType,
         argnotMoveSettled:
           !argnotTransfer.isSubmitting &&
           !argnotTransfer.hasPersistedTransfer &&
-          argnotTransfer.phase === 'confirmedOnArgon' &&
+          argnotTransfer.progress.overallProgressPct === 100 &&
           argnotTransfer.targetWalletType === args.targetWalletType,
         argnMoveError: argnTransfer.error,
         argnotMoveError: argnotTransfer.error,

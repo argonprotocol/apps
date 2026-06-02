@@ -27,8 +27,9 @@ describe('VaultCollectBuilder.getNotice', () => {
         },
         pendingCosignUtxosById: new Map([[11, { targetValue: 50n }]]),
         globalCouncilPendingApprovals: 1,
-        mintingAuthorityPendingCollateralizations: [25n, 15n, 10n],
+        pendingMintingAuthorizationTips: [25n, 15n, 10n],
         nextCollectDueDate: 1234,
+        nextCosignDueDate: 5678,
       }),
     ).getNotice();
 
@@ -36,23 +37,24 @@ describe('VaultCollectBuilder.getNotice', () => {
       isProcessing: true,
       collectRevenue: 42n,
       expiringCollectAmount: 7n,
+      nextCollectDueDate: 1234,
       signatureCount: 1,
+      nextCosignDueDate: 5678,
       councilApprovalCount: 1,
-      collateralizedTransferCount: 3,
-      collateralizedTransferRewardAmount: 50n,
+      authorizedTransferCount: 3,
+      authorizedTransferRewardAmount: 50n,
       signaturePenalty: 50n,
       earningsAmountMicrogons: 92n,
       amountAtRiskMicrogons: 57n,
-      nextDueDate: 1234,
       transactionCount: 4,
     });
   });
 
-  it('surfaces council approvals and collateralizations without bitcoin or revenue work', () => {
+  it('surfaces council approvals and minting authorizations without bitcoin or revenue work', () => {
     const notice = createCollectBuilder(
       vaultSource({
         globalCouncilPendingApprovals: 2,
-        mintingAuthorityPendingCollateralizations: [25n],
+        pendingMintingAuthorizationTips: [25n],
       }),
     ).getNotice();
 
@@ -60,14 +62,15 @@ describe('VaultCollectBuilder.getNotice', () => {
       isProcessing: false,
       collectRevenue: 0n,
       expiringCollectAmount: 0n,
+      nextCollectDueDate: 0,
       signatureCount: 0,
+      nextCosignDueDate: 0,
       councilApprovalCount: 2,
-      collateralizedTransferCount: 1,
-      collateralizedTransferRewardAmount: 25n,
+      authorizedTransferCount: 1,
+      authorizedTransferRewardAmount: 25n,
       signaturePenalty: 0n,
       earningsAmountMicrogons: 25n,
       amountAtRiskMicrogons: 0n,
-      nextDueDate: 0,
       transactionCount: 2,
     });
   });
@@ -169,21 +172,22 @@ function vaultSource(
         };
       };
     } | null;
-    pendingCollateralizeTxInfosByTransferId: Map<
+    pendingMintingAuthorizeTxInfosByTransferId: Map<
       string,
       {
         tx: {
           metadataJson: {
-            actionType: 'collateralizeTransfer';
+            actionType: 'authorizeTransfer';
           };
         };
       }
     >;
     globalCouncilPendingApprovals: number;
-    mintingAuthorityPendingCollateralizations: bigint[];
+    pendingMintingAuthorizationTips: bigint[];
     pendingCosignUtxosById: Map<number, { targetValue: bigint }>;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
     nextCollectDueDate: number;
+    nextCosignDueDate: number;
   }> = {},
 ) {
   return {
@@ -196,11 +200,10 @@ function vaultSource(
     mintingAuthorities: {
       data: {
         authorities: [],
-        pendingCollateralizations: Array.from(
-          data.mintingAuthorityPendingCollateralizations ?? [],
-          mintingAuthorityTip => ({ mintingAuthorityTip }),
-        ),
-        pendingCollateralizeTxInfosByTransferId: data.pendingCollateralizeTxInfosByTransferId ?? new Map(),
+        pendingMintingAuthorizations: Array.from(data.pendingMintingAuthorizationTips ?? [], mintingAuthorityTip => ({
+          mintingAuthorityTip,
+        })),
+        pendingMintingAuthorizeTxInfosByTransferId: data.pendingMintingAuthorizeTxInfosByTransferId ?? new Map(),
       },
     },
     data: {
@@ -210,6 +213,7 @@ function vaultSource(
       pendingCosignUtxosById: new Map(),
       myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
       nextCollectDueDate: 0,
+      nextCosignDueDate: 0,
       ...data,
     },
   };

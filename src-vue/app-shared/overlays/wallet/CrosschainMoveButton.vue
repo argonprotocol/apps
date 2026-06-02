@@ -65,15 +65,27 @@
             class="h-4"
           />
 
+          <div class="text-center font-medium text-slate-700">
+            {{ progressView.stepLabel }}
+          </div>
+
           <div class="text-center font-light text-slate-500">
-            {{ progressView.progressLabel }}
-            <template v-if="progressView.remainingCollateralMicrogons">
+            {{ progressView.detail }}
+            <template v-if="progressView.remainingMintingAuthorizationMicrogons">
               (
               {{
-                microgonToArgonNm(progressView.remainingCollateralMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0')
+                microgonToArgonNm(progressView.remainingMintingAuthorizationMicrogons).formatIfElse(
+                  '< 1_000',
+                  '0,0.00',
+                  '0,0',
+                )
               }}
               ARGN remaining)
             </template>
+          </div>
+
+          <div v-if="progressView.hint" class="text-center text-xs font-light text-slate-500">
+            {{ progressView.hint }}
           </div>
 
           <div
@@ -111,6 +123,7 @@ import type {
   IEthereumInboundTransferState,
   IEthereumMoveToken,
 } from '../../../interfaces/IEthereumInboundTransferTracker.ts';
+import { hydrateCrosschainTransferProgress } from '../../../lib/CrosschainTransferProgress.ts';
 import type { IEthereumOutboundTransferState } from '../../../lib/EthereumOutboundTransferTracker.ts';
 import type { IEthereumInboundActiveTransfer } from '../../../lib/EthereumInboundTransferTracker.ts';
 import MoveArrow from '../../../assets/move-arrow.svg';
@@ -139,14 +152,18 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 type ITransferProgressView = {
   progressPct: number;
-  progressLabel: string;
+  stepLabel: string;
+  detail: string;
+  hint?: string;
   error: string;
-  remainingCollateralMicrogons?: bigint;
+  remainingMintingAuthorizationMicrogons?: bigint;
 };
 
 const isHovered = Vue.ref(false);
-const currentTimeMs = Vue.ref(Date.now());
 const hasActiveEthereumTransferConfig = Vue.ref(false);
+const progressNow = Vue.ref(Date.now());
+
+let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 const inboundTransfer = Vue.computed(() => {
   if (props.direction !== 'transferToArgon' || !hasActiveEthereumTransferConfig.value) {
@@ -212,64 +229,36 @@ const isMoveDisabled = Vue.computed(() => {
 });
 const progressView = Vue.computed(() => {
   if (outboundTransfer.value) {
-    return getOutboundProgress(outboundTransfer.value.transferState);
+    return getTransferProgressView(outboundTransfer.value.transferState, progressNow.value);
   }
   if (inboundTransfer.value) {
-    return getInboundProgress(inboundTransfer.value.transferState, currentTimeMs.value);
+    return getTransferProgressView(inboundTransfer.value.transferState, progressNow.value);
   }
 
-  return { progressPct: 0, progressLabel: '', error: '' } satisfies ITransferProgressView;
+  return { progressPct: 0, stepLabel: '', detail: '', error: '' } satisfies ITransferProgressView;
 });
-
-let progressTimer: ReturnType<typeof setInterval> | undefined;
 const refreshEthereumTransferConfigOnFocus = () => {
   void refreshEthereumTransferConfig();
 };
 
-Vue.watch(
-  () => inboundTransfer.value?.transferState.argonReadiness?.pollMs,
-  () => {
-    const pollMs =
-      inboundTransfer.value?.transferState.phase === 'confirmingArgon'
-        ? inboundTransfer.value.transferState.argonReadiness?.pollMs
-        : undefined;
-
-    if (!pollMs) {
-      clearProgressTimer();
-      return;
-    }
-
-    currentTimeMs.value = Date.now();
-    clearProgressTimer();
-    progressTimer = setInterval(() => {
-      currentTimeMs.value = Date.now();
-    }, pollMs);
-  },
-  { immediate: true },
-);
-
 Vue.onUnmounted(() => {
-  clearProgressTimer();
+  if (progressRefreshInterval) {
+    clearInterval(progressRefreshInterval);
+  }
   window.removeEventListener('focus', refreshEthereumTransferConfigOnFocus);
 });
 
 Vue.onMounted(() => {
   void refreshEthereumTransferConfig();
+  progressRefreshInterval = setInterval(() => {
+    progressNow.value = Date.now();
+  }, 1_000);
   window.addEventListener('focus', refreshEthereumTransferConfigOnFocus);
 });
 
 function openTransferOverlay() {
   isHovered.value = false;
   emit('openTransferOverlay');
-}
-
-function clearProgressTimer() {
-  if (!progressTimer) {
-    return;
-  }
-
-  clearInterval(progressTimer);
-  progressTimer = undefined;
 }
 
 async function refreshEthereumTransferConfig() {
@@ -306,60 +295,27 @@ function getArgonWalletLabel(walletType?: IArgonWalletType) {
   }
 }
 
-function isTransferPending(transferState: { isSubmitting: boolean; hasPersistedTransfer: boolean }) {
-  return transferState.isSubmitting || transferState.hasPersistedTransfer;
+function isTransferPending(transferState: {
+  isSubmitting: boolean;
+  hasPersistedTransfer: boolean;
+  needsAcknowledgement: boolean;
+}) {
+  return transferState.isSubmitting || transferState.hasPersistedTransfer || transferState.needsAcknowledgement;
 }
 
-function getOutboundProgress(transferState: IEthereumOutboundTransferState): ITransferProgressView {
-  switch (transferState.phase) {
-    case 'preparing':
-      return { progressPct: 5, progressLabel: 'Preparing transfer...', error: transferState.error };
-    case 'confirmingArgon':
-      return { progressPct: 25, progressLabel: 'Confirming on Argon...', error: transferState.error };
-    case 'awaitingCollateralization':
-      return {
-        progressPct: 55,
-        progressLabel: transferState.isCollateralizingOnArgon
-          ? 'Collateralizing transfer on Argon...'
-          : (transferState.awaitingCollateralizationLabel ?? 'Waiting for transfer collateralization on Argon...'),
-        remainingCollateralMicrogons:
-          transferState.isCollateralizingOnArgon || !transferState.remainingCollateralMicrogons
-            ? undefined
-            : transferState.remainingCollateralMicrogons,
-        error: transferState.error,
-      };
-    case 'confirmingEthereum':
-      return { progressPct: 85, progressLabel: 'Finalizing on destination network...', error: transferState.error };
-    default:
-      return { progressPct: 0, progressLabel: '', error: transferState.error };
-  }
-}
-
-function getInboundProgress(transferState: IEthereumInboundTransferState, now: number): ITransferProgressView {
-  switch (transferState.phase) {
-    case 'preparing':
-      return { progressPct: 5, progressLabel: 'Preparing transfer...', error: transferState.error };
-    case 'confirmingEthereum':
-      return { progressPct: 30, progressLabel: 'Confirming on Ethereum...', error: transferState.error };
-    case 'confirmingArgon':
-      return {
-        progressPct: getInboundArgonProgress(transferState.argonReadiness, now),
-        progressLabel: 'Confirming on Argon...',
-        error: transferState.error,
-      };
-    default:
-      return { progressPct: 0, progressLabel: '', error: transferState.error };
-  }
-}
-
-function getInboundArgonProgress(argonReadiness: IEthereumInboundTransferState['argonReadiness'], now: number) {
-  if (!argonReadiness) {
-    return 75;
-  }
-
-  const elapsedMs = now - argonReadiness.startedAt;
-  const expectedProgress = Math.min(20, Math.floor((elapsedMs * 20) / Math.max(1, argonReadiness.estimatedDurationMs)));
-  return Math.min(92, 70 + Math.max(3, expectedProgress));
+function getTransferProgressView(
+  transferState: IEthereumOutboundTransferState | IEthereumInboundTransferState,
+  nowMs: number,
+): ITransferProgressView {
+  const displayProgress = hydrateCrosschainTransferProgress(transferState.progress.steps, nowMs);
+  return {
+    progressPct: displayProgress.overallProgressPct,
+    stepLabel: displayProgress.currentStepLabel,
+    detail: displayProgress.currentStepDetail ?? '',
+    hint: displayProgress.currentStepHint,
+    remainingMintingAuthorizationMicrogons: displayProgress.currentStepRemainingMintingAuthorizationMicrogons,
+    error: transferState.error,
+  };
 }
 </script>
 

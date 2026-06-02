@@ -1,4 +1,4 @@
-import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
+import { getObjectStringProperty, MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import {
   decodeAddress,
   decodeEthereumGatewayActivityLog,
@@ -21,15 +21,22 @@ import {
   hexToBytes,
   type Hash,
   type Hex,
+  HttpRequestError,
   http,
   type PublicClient,
+  RpcRequestError,
   serializeTransaction,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
+  WaitForTransactionReceiptTimeoutError,
   type TransactionSerializableEIP1559,
   toHex,
 } from 'viem';
 import type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
+import { sleep } from './Utils.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { SERVER_ENV_VARS } from './Env.ts';
+import { getArgonFinalityMillis } from './TransactionInfo.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 
 export type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
@@ -58,6 +65,23 @@ export type IEthereumChainConfig = {
   gatewayAddress: Address;
   argonTokenAddress: Address;
   argonotTokenAddress: Address;
+};
+export type IEthereumTransactionProgress = {
+  blockNumber?: number;
+  blockHash?: Hash;
+  confirmations: number;
+  expectedConfirmations: number;
+  progressPct: number;
+  isFinalized: boolean;
+};
+export type IFinalizedEthereumTransactionProgress = IEthereumTransactionProgress & {
+  blockNumber: number;
+  blockHash: Hash;
+};
+type IEthereumSubmissionClient = {
+  sendRawTransaction(args: { serializedTransaction: Hex }): Promise<Hash>;
+  getTransaction(args: { hash: Hash }): Promise<unknown>;
+  getTransactionReceipt(args: { hash: Hash }): Promise<unknown>;
 };
 type IEthereumGatewayCouncilSnapshot = {
   signers: Address[];
@@ -143,21 +167,36 @@ export class EthereumClient {
     return this.walletKeys.ethereumAddress;
   }
 
-  public getTransferToArgonWaitEstimateMs() {
-    return getEthereumFinalityMillis() + NetworkConfig.tickMillis * 4;
-  }
-
-  public getTransferToArgonPollMs() {
+  public getTransactionFinalityBlocks() {
     const finalityBlocks = NetworkConfig.get().ethereumNetwork.finalityBlocks;
     if (!Number.isFinite(finalityBlocks) || finalityBlocks <= 0) {
       throw new Error('Ethereum finality blocks are missing from the network config.');
     }
 
-    return Math.max(1_000, Math.floor(getEthereumFinalityMillis() / finalityBlocks));
+    return finalityBlocks;
+  }
+
+  public getTransactionFinalityWaitEstimateMs() {
+    return getEthereumFinalityMillis();
+  }
+
+  public getTransactionFinalityPollMs() {
+    return Math.max(
+      1_000,
+      Math.floor(this.getTransactionFinalityWaitEstimateMs() / this.getTransactionFinalityBlocks()),
+    );
+  }
+
+  public getTransferToArgonWaitEstimateMs() {
+    return getTransferToArgonWaitEstimateMs();
+  }
+
+  public getTransferToArgonPollMs() {
+    return this.getTransactionFinalityPollMs();
   }
 
   public getGatewayActivityWaitEstimateMs() {
-    return this.getTransferToArgonWaitEstimateMs();
+    return getGatewayActivityWaitEstimateMs();
   }
 
   public getGatewayActivityPollMs() {
@@ -173,8 +212,10 @@ export class EthereumClient {
     const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
     await this.ensureEthereumSignerPolicyConfigured();
     const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
-    const sourceTxHash = await publicClient.sendRawTransaction({
+    const sourceTxHash = await submitEthereumTransaction({
+      publicClient,
       serializedTransaction: serializeTransaction(transaction, signature),
+      fallbackErrorMessage: 'Unable to submit the Ethereum transaction right now.',
     });
 
     return {
@@ -243,6 +284,95 @@ export class EthereumClient {
     });
   }
 
+  public async getTransactionProgress(args: {
+    txHash: Hash;
+    blockNumber?: number;
+    blockHash?: Hash;
+  }): Promise<IEthereumTransactionProgress> {
+    const { txHash, blockNumber, blockHash } = args;
+    const { publicClient } = await this.createExecutionClient();
+    const expectedConfirmations = this.getTransactionFinalityBlocks();
+    let receiptBlockNumber = blockNumber;
+    let receiptBlockHash = blockHash;
+
+    if (receiptBlockNumber == null) {
+      const receipt = await getIndexedReceiptIfAvailable(publicClient, txHash);
+      receiptBlockNumber = receipt?.blockNumber != null ? Number(receipt.blockNumber) : undefined;
+      receiptBlockHash = receipt?.blockHash ?? undefined;
+    }
+
+    if (receiptBlockNumber == null) {
+      return {
+        confirmations: -1,
+        expectedConfirmations,
+        progressPct: 0,
+        isFinalized: false,
+      };
+    }
+
+    const latestExecutionBlockNumber = Number(await publicClient.getBlockNumber());
+    const confirmations = Math.max(0, latestExecutionBlockNumber - receiptBlockNumber);
+    const progressPct = Math.min(
+      100,
+      Math.round((Math.min(confirmations, expectedConfirmations) / expectedConfirmations) * 100),
+    );
+
+    return {
+      blockNumber: receiptBlockNumber,
+      blockHash: receiptBlockHash,
+      confirmations,
+      expectedConfirmations,
+      progressPct,
+      isFinalized: confirmations >= expectedConfirmations,
+    };
+  }
+
+  public async waitForTransactionFinality(args: {
+    txHash: Hash;
+    blockNumber?: number;
+    blockHash?: Hash;
+    onProgress?: (progress: IEthereumTransactionProgress) => void;
+    onRpcDelay?: (progress?: IEthereumTransactionProgress) => void;
+  }): Promise<IFinalizedEthereumTransactionProgress> {
+    const { txHash, onProgress, onRpcDelay } = args;
+    let blockNumber = args.blockNumber;
+    let blockHash = args.blockHash;
+    let lastProgress: IEthereumTransactionProgress | undefined;
+
+    while (true) {
+      try {
+        const progress = await this.getTransactionProgress({
+          txHash,
+          blockNumber,
+          blockHash,
+        });
+        lastProgress = progress;
+        blockNumber = progress.blockNumber ?? blockNumber;
+        blockHash = progress.blockHash ?? blockHash;
+        onProgress?.(progress);
+
+        if (!progress.isFinalized || blockNumber == null || !blockHash) {
+          await sleep(this.getTransactionFinalityPollMs());
+          continue;
+        }
+
+        return {
+          ...progress,
+          blockNumber,
+          blockHash,
+        };
+      } catch (error) {
+        if (error instanceof HttpRequestError || error instanceof RpcRequestError) {
+          onRpcDelay?.(lastProgress);
+          await sleep(this.getTransactionFinalityPollMs());
+          continue;
+        }
+
+        throw error;
+      }
+    }
+  }
+
   public async finalizeTransferOutOfArgon(args: IEthereumFinalizeTransferOutOfArgonArgs): Promise<Hash> {
     const chainConfig = await this.loadChainConfig();
     const { chain, publicClient } = await this.createExecutionClient();
@@ -259,9 +389,10 @@ export class EthereumClient {
     });
     await this.ensureEthereumSignerPolicyConfigured(chainConfig);
     const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
-
-    return await publicClient.sendRawTransaction({
+    return await submitEthereumTransaction({
+      publicClient,
       serializedTransaction: serializeTransaction(transaction, signature),
+      fallbackErrorMessage: 'Unable to submit the Ethereum transfer right now.',
     });
   }
 
@@ -368,8 +499,10 @@ export class EthereumClient {
     }
     await this.ensureEthereumSignerPolicyConfigured();
     const signature = await this.walletKeys.signEthereumTransaction(prepared.unsignedTransaction, signer.hdPath);
-    const hash = await prepared.publicClient.sendRawTransaction({
+    const hash = await submitEthereumTransaction({
+      publicClient: prepared.publicClient,
       serializedTransaction: serializeTransaction(prepared.transaction, signature),
+      fallbackErrorMessage: 'Unable to submit the Ethereum relay transaction right now.',
     });
 
     return await waitForIndexedReceipt(prepared.publicClient, hash);
@@ -664,6 +797,19 @@ function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigin
 
 export function getEthereumExecutionRpcUrl(): string | undefined {
   return NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim() || undefined;
+}
+
+export function getEthereumBeaconApiUrl(configuredBeaconApiUrl?: string): string | undefined {
+  if (!configuredBeaconApiUrl) {
+    return undefined;
+  }
+
+  const resolvedConfiguredBeaconApiUrl = configuredBeaconApiUrl.trim();
+  if (resolvedConfiguredBeaconApiUrl) {
+    return resolvedConfiguredBeaconApiUrl;
+  }
+
+  return NetworkConfig.get().ethereumNetwork.beaconApiUrl.trim() || undefined;
 }
 
 // Keep runtime batching aligned with the integration harness so approval relays hit Ethereum exactly once.
@@ -1098,44 +1244,161 @@ function estimateFinalizeTransferOutOfArgonGas(data: Hex, authorizationCount: nu
   return 21_000n + calldataGas + 145_000n + BigInt(authorizationCount) * 45_000n;
 }
 
-function getEthereumFinalityMillis(): number {
+export function getEthereumFinalityMillis(): number {
   const raw = SERVER_ENV_VARS.ETHEREUM_FINALITY_MILLIS?.trim();
   const value = Number.parseInt(raw ?? '', 10);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error('ETHEREUM_FINALITY_MILLIS is missing from the server environment.');
+  if (Number.isFinite(value) && value > 0) {
+    return value;
   }
 
-  return value;
+  const finalityBlocks = NetworkConfig.get().ethereumNetwork.finalityBlocks;
+  if (Number.isFinite(finalityBlocks) && finalityBlocks > 0) {
+    return finalityBlocks * 12_000;
+  }
+
+  throw new Error('Ethereum finality timing is missing from both the server environment and network config.');
+}
+
+export function getTransferToArgonWaitEstimateMs() {
+  return getEthereumFinalityMillis() + getArgonFinalityMillis();
+}
+
+export function getGatewayActivityWaitEstimateMs() {
+  return getTransferToArgonWaitEstimateMs();
+}
+
+export function getEthereumUserErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const shortMessage = getObjectStringProperty(error, 'shortMessage')?.trim();
+  if (shortMessage) {
+    return shortMessage;
+  }
+
+  const firstParagraph = error.message
+    .split('\n\n')[0]
+    ?.split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join(' ');
+  if (firstParagraph) {
+    return firstParagraph;
+  }
+
+  return fallback;
+}
+
+export async function submitEthereumTransaction(args: {
+  publicClient: IEthereumSubmissionClient;
+  serializedTransaction: Hex;
+  fallbackErrorMessage: string;
+}): Promise<Hash> {
+  const { publicClient, serializedTransaction, fallbackErrorMessage } = args;
+  const derivedHash = keccak256(serializedTransaction);
+
+  try {
+    return await publicClient.sendRawTransaction({ serializedTransaction });
+  } catch (error) {
+    if (await isSubmittedEthereumTransactionVisible(publicClient, derivedHash)) {
+      return derivedHash;
+    }
+
+    throw new Error(getEthereumUserErrorMessage(error, fallbackErrorMessage));
+  }
 }
 
 async function waitForIndexedReceipt(publicClient: PublicClient, hash: Hash): Promise<EthereumExecutionReceipt> {
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  if (receipt.blockNumber !== null) {
-    return receipt;
-  }
-
   const startedAt = Date.now();
   while (Date.now() - startedAt < 120_000) {
     try {
-      const nextReceipt = await publicClient.getTransactionReceipt({ hash });
-      if (nextReceipt.blockNumber !== null) {
-        return nextReceipt;
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        pollingInterval: 500,
+        timeout: 5_000,
+      });
+      if (receipt.blockNumber !== null) {
+        return receipt;
       }
     } catch (error) {
-      const errorText =
-        error instanceof Error
-          ? [error.message, 'details' in error && typeof error.details === 'string' ? error.details : undefined]
-              .filter(Boolean)
-              .join(' ')
-          : String(error);
-      if (!errorText.includes('indexing is in progress')) {
+      if (!(error instanceof WaitForTransactionReceiptTimeoutError) && !isIndexingInProgressError(error)) {
         throw error;
       }
     }
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const indexedReceipt = await getIndexedReceiptIfAvailable(publicClient, hash);
+    if (indexedReceipt) {
+      return indexedReceipt;
+    }
+
+    await sleep(500);
   }
 
   throw new Error(`Timed out waiting for Ethereum receipt ${hash} to include a block number.`);
+}
+
+async function getIndexedReceiptIfAvailable(
+  publicClient: PublicClient,
+  hash: Hash,
+): Promise<EthereumExecutionReceipt | undefined> {
+  try {
+    const receipt = await publicClient.getTransactionReceipt({ hash });
+    return receipt.blockNumber !== null ? receipt : undefined;
+  } catch (error) {
+    if (error instanceof TransactionReceiptNotFoundError || isIndexingInProgressError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function isSubmittedEthereumTransactionVisible(
+  publicClient: Pick<IEthereumSubmissionClient, 'getTransaction' | 'getTransactionReceipt'>,
+  hash: Hash,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (await isEthereumTransactionVisibleAtRpc(publicClient, hash)) {
+      return true;
+    }
+    await sleep(500);
+  }
+
+  return false;
+}
+
+async function isEthereumTransactionVisibleAtRpc(
+  publicClient: Pick<IEthereumSubmissionClient, 'getTransaction' | 'getTransactionReceipt'>,
+  hash: Hash,
+): Promise<boolean> {
+  try {
+    await publicClient.getTransaction({ hash });
+    return true;
+  } catch (error) {
+    if (!(error instanceof TransactionNotFoundError)) {
+      return false;
+    }
+  }
+
+  try {
+    return !!(await publicClient.getTransactionReceipt({ hash }));
+  } catch (error) {
+    if (error instanceof TransactionReceiptNotFoundError || isIndexingInProgressError(error)) {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+function isIndexingInProgressError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return [error.message, getObjectStringProperty(error, 'details')]
+    .filter(Boolean)
+    .join(' ')
+    .includes('indexing is in progress');
 }

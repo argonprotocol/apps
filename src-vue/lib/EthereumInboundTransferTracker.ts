@@ -1,13 +1,25 @@
 import { MoveToken } from '@argonprotocol/apps-core';
 import { nanoid } from 'nanoid';
 import type { IArgonWalletType, IEthereumInboundTransferState } from '../interfaces/IEthereumInboundTransferTracker.ts';
+import {
+  completeInboundTransferProgress,
+  createCrosschainTransferProgress,
+  formatCrosschainBlockStepDetail,
+  hydrateCrosschainTransferProgress,
+  INBOUND_TRANSFER_STEP_TITLES,
+  setInboundArgonStepProgress,
+  setInboundEthereumStepProgress,
+  setInboundRelayStepProgress,
+  type ICrosschainTransferProgress,
+} from './CrosschainTransferProgress.ts';
 import { EthereumClient, type IEthereumMoveToken } from './EthereumClient.ts';
+import { sleep } from './Utils.ts';
 import {
   CrosschainInboundTransferStatus,
   type ICrosschainInboundTransferRecord,
 } from './db/CrosschainInboundTransfersTable.ts';
 import type { Db } from './Db.ts';
-import type { ServerApiClient } from './ServerApiClient.ts';
+import { requestEthereumGatewayCatchUpThroughOperator, type ServerApiClient } from './ServerApiClient.ts';
 import { getEthereumGatewayPauseReason, getMainchainClient } from '../stores/mainchain.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
@@ -16,15 +28,12 @@ import type { WalletKeys } from './WalletKeys.ts';
 
 export type {
   IArgonWalletType,
-  IEthereumInboundArgonProgress,
-  IEthereumInboundArgonReadiness,
-  IEthereumInboundTransferPhase,
   IEthereumInboundTransferState,
   IEthereumMoveToken,
 } from '../interfaces/IEthereumInboundTransferTracker.ts';
 
 export type IEthereumInboundActiveTransfer = {
-  transferId: string;
+  id: string;
   moveToken: IEthereumMoveToken;
   transferState: IEthereumInboundTransferState;
   persistedRecord?: ICrosschainInboundTransferRecord;
@@ -36,8 +45,12 @@ type IEthereumInboundTransferClient = Pick<
   | 'executionRpcUrl'
   | 'startTransferToArgon'
   | 'confirmTransferToArgon'
+  | 'getTransactionProgress'
+  | 'getTransactionFinalityPollMs'
+  | 'getTransactionFinalityBlocks'
   | 'getTransferToArgonPollMs'
   | 'getTransferToArgonWaitEstimateMs'
+  | 'waitForTransactionFinality'
 > &
   Partial<Pick<EthereumClient, 'estimateTransferToArgonFee'>>;
 
@@ -52,6 +65,8 @@ export class EthereumInboundTransferTracker {
   #loadPromise?: Promise<void>;
   #resumePromises = new Map<string, Promise<void>>();
   #lastCatchUpRequestAt = new Map<string, number>();
+  #argonRelayStartBlockByTransferId = new Map<string, number>();
+  #argonFinalizationStartBlockByTransferId = new Map<string, number>();
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -76,21 +91,21 @@ export class EthereumInboundTransferTracker {
     return this.#loadPromise;
   }
 
-  public getTransfer(transferId: string): IEthereumInboundActiveTransfer | undefined {
-    return this.data.transfersById[transferId];
+  public getTransfer(id: string): IEthereumInboundActiveTransfer | undefined {
+    return this.data.transfersById[id];
   }
 
   public getTransferStateForToken(moveToken: IEthereumMoveToken): IEthereumInboundTransferState {
-    const transferId = this.data.latestTransferIdByToken[moveToken];
-    if (!transferId) {
+    const id = this.data.latestTransferIdByToken[moveToken];
+    if (!id) {
       return createEmptyTransferState();
     }
 
-    return this.getTransferState(transferId);
+    return this.getTransferState(id);
   }
 
-  public clearCompletedTransfer(transferId: string) {
-    const transfer = this.data.transfersById[transferId];
+  public clearCompletedTransfer(id: string) {
+    const transfer = this.data.transfersById[id];
     if (!transfer) {
       return;
     }
@@ -99,7 +114,21 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    this.discardTransfer(transferId, transfer.moveToken);
+    this.discardTransfer(id, transfer.moveToken);
+  }
+
+  public async acknowledgeFailedTransfer(id: string) {
+    const transfer = this.data.transfersById[id];
+    if (!transfer?.transferState.needsAcknowledgement) {
+      return;
+    }
+
+    if (hasUnacknowledgedFailure(transfer.persistedRecord)) {
+      const db = await this.dbPromise;
+      transfer.persistedRecord = await db.crosschainInboundTransfersTable.acknowledgeFailed(id);
+    }
+
+    this.discardTransfer(id, transfer.moveToken);
   }
 
   public async startMove(args: {
@@ -114,26 +143,30 @@ export class EthereumInboundTransferTracker {
     const existingTransfer = await db.crosschainInboundTransfersTable.getLatestPendingByToken('Ethereum', moveToken);
     if (existingTransfer) {
       void this.resumeTrackedMove(existingTransfer);
-      return this.getTransfer(existingTransfer.transferId);
+      return this.getTransfer(existingTransfer.id);
     }
 
     if (amountBaseUnits <= 0n) {
       return;
     }
 
-    const transferId = nanoid();
-    const transfer = this.trackTransfer(transferId, moveToken);
+    const id = nanoid();
+    const transfer = this.trackTransfer(id, moveToken);
 
-    this.data.latestTransferIdByToken[moveToken] = transferId;
+    this.data.latestTransferIdByToken[moveToken] = id;
     transfer.transferState = {
       ...createEmptyTransferState(),
       isSubmitting: true,
+      needsAcknowledgement: false,
       targetWalletType,
-      phase: 'preparing',
     };
+    transfer.transferState.progress = setInboundEthereumStepProgress(transfer.transferState.progress, {
+      progressPct: 0,
+      detail: 'Preparing Ethereum transfer...',
+    });
     void this.runStartMove({
       db,
-      transferId,
+      id,
       moveToken,
       amountBaseUnits,
       targetWalletType,
@@ -168,19 +201,19 @@ export class EthereumInboundTransferTracker {
     });
   }
 
-  private getTransferState(transferId: string): IEthereumInboundTransferState {
-    return this.data.transfersById[transferId].transferState;
+  private getTransferState(id: string): IEthereumInboundTransferState {
+    return this.data.transfersById[id].transferState;
   }
 
-  private trackTransfer(transferId: string, moveToken: IEthereumMoveToken): IEthereumInboundActiveTransfer {
-    let transfer = this.data.transfersById[transferId];
+  private trackTransfer(id: string, moveToken: IEthereumMoveToken): IEthereumInboundActiveTransfer {
+    let transfer = this.data.transfersById[id];
     if (!transfer) {
-      this.data.transfersById[transferId] = {
-        transferId,
+      this.data.transfersById[id] = {
+        id,
         moveToken,
         transferState: createEmptyTransferState(),
       };
-      transfer = this.data.transfersById[transferId];
+      transfer = this.data.transfersById[id];
     }
 
     return transfer;
@@ -203,9 +236,9 @@ export class EthereumInboundTransferTracker {
         continue;
       }
 
-      const transfer = this.trackTransfer(record.transferId, moveToken);
+      const transfer = this.trackTransfer(record.id, moveToken);
       transfer.persistedRecord = record;
-      this.data.latestTransferIdByToken[moveToken] ??= record.transferId;
+      this.data.latestTransferIdByToken[moveToken] ??= record.id;
       void this.resumeTrackedMove(record);
     }
   }
@@ -216,23 +249,23 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    const existingResumePromise = this.#resumePromises.get(record.transferId);
+    const existingResumePromise = this.#resumePromises.get(record.id);
     if (existingResumePromise) {
       return existingResumePromise;
     }
 
     const resumePromise = this.runResumeTrackedMove(record, moveToken);
-    this.#resumePromises.set(record.transferId, resumePromise);
+    this.#resumePromises.set(record.id, resumePromise);
 
     try {
       await resumePromise;
     } finally {
-      this.#resumePromises.delete(record.transferId);
+      this.#resumePromises.delete(record.id);
     }
   }
 
   private async runResumeTrackedMove(record: ICrosschainInboundTransferRecord, moveToken: IEthereumMoveToken) {
-    const transfer = this.trackTransfer(record.transferId, moveToken);
+    const transfer = this.trackTransfer(record.id, moveToken);
     let targetWalletType: IArgonWalletType | undefined;
     if (record.argonDestinationAddress === this.walletKeys.investmentAddress) {
       targetWalletType = WalletType.investment;
@@ -246,19 +279,29 @@ export class EthereumInboundTransferTracker {
       throw new Error(`Unable to determine target wallet type for ${record.argonDestinationAddress}.`);
     }
 
-    this.data.latestTransferIdByToken[moveToken] ??= record.transferId;
+    this.data.latestTransferIdByToken[moveToken] ??= record.id;
     transfer.transferState = {
       ...createEmptyTransferState(),
-      isSubmitting: true,
+      isSubmitting: !hasUnacknowledgedFailure(record),
       hasPersistedTransfer: true,
+      needsAcknowledgement: hasUnacknowledgedFailure(record),
       targetWalletType,
-      phase:
-        record.status === CrosschainInboundTransferStatus.SourceSubmitted ? 'confirmingEthereum' : 'confirmingArgon',
+      progress: createInboundProgressFromRecord(record),
+      error: record.failureReason ?? '',
     };
 
     try {
+      if (isAcknowledgedFailure(record)) {
+        this.discardTransfer(record.id, moveToken);
+        return;
+      }
+
       if (record.status === CrosschainInboundTransferStatus.ArgonFinalized) {
-        this.discardTransfer(record.transferId, moveToken);
+        this.discardTransfer(record.id, moveToken);
+        return;
+      }
+
+      if (hasUnacknowledgedFailure(record)) {
         return;
       }
 
@@ -275,21 +318,22 @@ export class EthereumInboundTransferTracker {
 
       await this.waitForArgonFinalization(transfer);
     } catch (error) {
-      const transferState = this.getTransferState(record.transferId);
-      transferState.error = error instanceof Error ? error.message : 'Unable to resume the Ethereum transfer.';
-      transferState.isSubmitting = false;
+      await this.failTransfer(
+        record.id,
+        error instanceof Error ? error.message : 'Unable to resume the Ethereum transfer.',
+      );
     }
   }
 
   private async runStartMove(args: {
     db: Db;
-    transferId: string;
+    id: string;
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     targetWalletType: IArgonWalletType;
   }) {
-    const { db, transferId, moveToken, amountBaseUnits, targetWalletType } = args;
-    const transfer = this.trackTransfer(transferId, moveToken);
+    const { db, id, moveToken, amountBaseUnits, targetWalletType } = args;
+    const transfer = this.trackTransfer(id, moveToken);
     const transferState = transfer.transferState;
 
     try {
@@ -302,7 +346,6 @@ export class EthereumInboundTransferTracker {
         destinationAddress = this.walletKeys.vaultingAddress;
       }
 
-      transferState.phase = 'confirmingEthereum';
       const submittedTransfer = await this.ethereumClient.startTransferToArgon({
         moveToken,
         amountBaseUnits,
@@ -312,79 +355,99 @@ export class EthereumInboundTransferTracker {
 
       transfer.persistedRecord = await db.crosschainInboundTransfersTable.insertSourceSubmitted({
         sourceChain: 'Ethereum',
-        transferId,
+        id,
         token: submittedTransfer.moveToken,
         amountBaseUnits: submittedTransfer.amountBaseUnits,
         sourceAddress: this.ethereumClient.sourceAddress,
         argonDestinationAddress: submittedTransfer.destinationAddress,
         sourceTxHash: submittedTransfer.sourceTxHash,
+        progressJson: transferState.progress,
       });
       if (!transfer.persistedRecord) {
-        throw new Error(`Transfer ${transferId} could not be persisted after Ethereum submission.`);
+        throw new Error(`Transfer ${id} could not be persisted after Ethereum submission.`);
       }
 
-      const confirmedTransfer = await this.ethereumClient.confirmTransferToArgon(submittedTransfer);
-      transfer.persistedRecord = await db.crosschainInboundTransfersTable.recordConfirmedSourceTransfer({
-        transferId,
-        sourceBlockNumber: confirmedTransfer.sourceBlockNumber!,
-        sourceBlockHash: confirmedTransfer.sourceBlockHash!,
-        sourceLogIndex: confirmedTransfer.sourceLogIndex!,
-        gatewayActivityNonce: confirmedTransfer.gatewayActivityNonce!,
-      });
-      if (!transfer.persistedRecord) {
-        throw new Error(`Transfer ${transferId} could not record its confirmed Ethereum details.`);
-      }
-
-      transfer.persistedRecord = await db.crosschainInboundTransfersTable.recordSourceFinalized(transferId);
-      if (!transfer.persistedRecord) {
-        throw new Error(`Transfer ${transferId} could not record its finalized Ethereum state.`);
-      }
-
+      transfer.persistedRecord = await this.confirmSourceTransfer(transfer.persistedRecord);
       await this.waitForArgonFinalization(transfer);
     } catch (error) {
-      transferState.error = error instanceof Error ? error.message : 'Unable to move funds from Ethereum.';
-      transferState.isSubmitting = false;
+      await this.failTransfer(id, error instanceof Error ? error.message : 'Unable to move funds from Ethereum.');
     }
   }
 
   private async confirmSourceTransfer(record: ICrosschainInboundTransferRecord) {
-    const transferState = this.getTransferState(record.transferId);
-    transferState.phase = 'confirmingEthereum';
+    const transferState = this.getTransferState(record.id);
+    transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
+      progressPct: 0,
+      detail: 'Submitted to Ethereum. Waiting for confirmation...',
+    });
 
     if (record.token !== MoveToken.ARGN && record.token !== MoveToken.ARGNOT) {
-      throw new Error(`Persisted inbound transfer ${record.transferId} is not an Ethereum Argon transfer.`);
+      throw new Error(`Persisted inbound transfer ${record.id} is not an Ethereum Argon transfer.`);
     }
     if (!record.sourceTxHash) {
-      throw new Error(`Persisted inbound transfer ${record.transferId} is missing its source transaction hash.`);
+      throw new Error(`Persisted inbound transfer ${record.id} is missing its source transaction hash.`);
     }
 
-    const confirmedTransfer = await this.ethereumClient.confirmTransferToArgon({
-      moveToken: record.token,
-      amountBaseUnits: record.amountBaseUnits,
-      destinationAddress: record.argonDestinationAddress,
-      executionRpcUrl: this.ethereumClient.executionRpcUrl,
-      sourceTxHash: record.sourceTxHash,
-      sourceBlockNumber: record.sourceBlockNumber,
-      sourceBlockHash: record.sourceBlockHash,
-      sourceLogIndex: record.sourceLogIndex,
-      gatewayActivityNonce: record.gatewayActivityNonce,
-    });
     const table = (await this.dbPromise).crosschainInboundTransfersTable;
+    const activeRecord = record;
+    const sourceTxHash = activeRecord.sourceTxHash;
+    if (!sourceTxHash) {
+      throw new Error(`Persisted inbound transfer ${record.id} is missing its source transaction hash.`);
+    }
+    const finalizedProgress = await this.ethereumClient.waitForTransactionFinality({
+      txHash: sourceTxHash,
+      blockNumber: activeRecord.sourceBlockNumber,
+      blockHash: activeRecord.sourceBlockHash,
+      onProgress: txProgress => {
+        transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
+          progressPct: txProgress.progressPct,
+          detail: formatCrosschainBlockStepDetail({
+            blockType: 'Ethereum',
+            confirmations: txProgress.confirmations,
+            expectedConfirmations: txProgress.expectedConfirmations,
+          }),
+          confirmations: txProgress.confirmations,
+          expectedConfirmations: txProgress.expectedConfirmations,
+        });
+      },
+      onRpcDelay: txProgress => {
+        transferState.error = '';
+        transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
+          progressPct: Math.max(txProgress?.progressPct ?? transferState.progress.steps[0]?.progressPct ?? 0, 1),
+          detail: 'Submitted to Ethereum. Waiting for the RPC to confirm the transfer...',
+        });
+      },
+    });
 
+    const confirmedTransfer = await this.ethereumClient.confirmTransferToArgon({
+      moveToken: activeRecord.token,
+      amountBaseUnits: activeRecord.amountBaseUnits,
+      destinationAddress: activeRecord.argonDestinationAddress,
+      executionRpcUrl: this.ethereumClient.executionRpcUrl,
+      sourceTxHash,
+      sourceBlockNumber: finalizedProgress.blockNumber,
+      sourceBlockHash: finalizedProgress.blockHash,
+      sourceLogIndex: activeRecord.sourceLogIndex,
+      gatewayActivityNonce: activeRecord.gatewayActivityNonce,
+    });
     const confirmedRecord = await table.recordConfirmedSourceTransfer({
-      transferId: record.transferId,
+      id: activeRecord.id,
       sourceBlockNumber: confirmedTransfer.sourceBlockNumber!,
       sourceBlockHash: confirmedTransfer.sourceBlockHash!,
       sourceLogIndex: confirmedTransfer.sourceLogIndex!,
       gatewayActivityNonce: confirmedTransfer.gatewayActivityNonce!,
     });
     if (!confirmedRecord) {
-      throw new Error(`Transfer ${record.transferId} could not record its confirmed Ethereum details.`);
+      throw new Error(`Transfer ${activeRecord.id} could not record its confirmed Ethereum details.`);
     }
 
-    const persistedRecord = await table.recordSourceFinalized(record.transferId);
+    transferState.progress = setInboundRelayStepProgress(transferState.progress, {
+      progressPct: 0,
+      detail: 'Waiting for Argon to receive finalized Ethereum state...',
+    });
+    const persistedRecord = await table.recordSourceFinalized(activeRecord.id, transferState.progress);
     if (!persistedRecord) {
-      throw new Error(`Transfer ${record.transferId} could not record its finalized Ethereum state.`);
+      throw new Error(`Transfer ${activeRecord.id} could not record its finalized Ethereum state.`);
     }
 
     return persistedRecord;
@@ -392,12 +455,6 @@ export class EthereumInboundTransferTracker {
 
   private async waitForArgonFinalization(transfer: IEthereumInboundActiveTransfer) {
     const transferState = transfer.transferState;
-    transferState.phase = 'confirmingArgon';
-    transferState.argonReadiness = {
-      startedAt: Date.now(),
-      estimatedDurationMs: this.ethereumClient.getTransferToArgonWaitEstimateMs(),
-      pollMs: this.ethereumClient.getTransferToArgonPollMs(),
-    };
     transferState.error = '';
 
     const db = await this.dbPromise;
@@ -413,32 +470,70 @@ export class EthereumInboundTransferTracker {
       const client = await getMainchainClient(false);
       const finalizedHead = await client.rpc.chain.getFinalizedHead();
       const finalizedClient = await client.at(finalizedHead);
+      const finalizedHeader = await client.rpc.chain.getHeader(finalizedHead);
+      const finalizedArgonHeight = finalizedHeader.number.toNumber();
+      const latestRetainedAnchorHash = await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
+      const latestRetainedAnchor = latestRetainedAnchorHash.isNone
+        ? undefined
+        : await client.query.ethereumVerifier.executionHeaderAnchors(latestRetainedAnchorHash.unwrap().toHex());
+      const latestRetainedBlockNumber =
+        latestRetainedAnchor && latestRetainedAnchor.isSome
+          ? Number(latestRetainedAnchor.unwrap().blockNumber.toBigInt())
+          : undefined;
       const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
       if (
         gatewayState.isSome &&
         gatewayState.unwrap().gatewayActivityNonce.toBigInt() >= persistedRecord.gatewayActivityNonce!
       ) {
-        const finalizedHeader = await client.rpc.chain.getHeader(finalizedHead);
         transfer.persistedRecord = await db.crosschainInboundTransfersTable.recordArgonFinalized({
-          transferId: persistedRecord.transferId,
-          argonBlockNumber: finalizedHeader.number.toNumber(),
+          id: persistedRecord.id,
+          argonBlockNumber: finalizedArgonHeight,
           argonBlockHash: finalizedHead.toHex(),
+          progressJson: transferState.progress,
         });
         if (!transfer.persistedRecord) {
-          throw new Error(`Transfer ${persistedRecord.transferId} could not record its Argon finalization.`);
+          throw new Error(`Transfer ${persistedRecord.id} could not record its Argon finalization.`);
         }
 
-        transferState.phase = 'confirmedOnArgon';
+        transferState.progress = completeInboundTransferProgress(transferState.progress, 'Confirmed on Argon.');
         transferState.isSubmitting = false;
         transferState.hasPersistedTransfer = false;
-        transferState.argonReadiness = undefined;
         return;
       }
 
+      if (
+        latestRetainedBlockNumber != null &&
+        persistedRecord.sourceBlockNumber != null &&
+        latestRetainedBlockNumber < persistedRecord.sourceBlockNumber
+      ) {
+        const relayStartBlockNumber =
+          this.#argonRelayStartBlockByTransferId.get(persistedRecord.id) ?? latestRetainedBlockNumber;
+        this.#argonRelayStartBlockByTransferId.set(persistedRecord.id, relayStartBlockNumber);
+
+        const totalRelayBlocks = Math.max(1, persistedRecord.sourceBlockNumber - relayStartBlockNumber);
+        const relayedBlocks = Math.max(0, latestRetainedBlockNumber - relayStartBlockNumber);
+        transferState.progress = setInboundRelayStepProgress(transferState.progress, {
+          progressPct: Math.min(99, Math.round((Math.min(relayedBlocks, totalRelayBlocks) / totalRelayBlocks) * 100)),
+          detail: `Ethereum block ${latestRetainedBlockNumber.toLocaleString()} of ${persistedRecord.sourceBlockNumber.toLocaleString()}`,
+        });
+      } else {
+        const argonStartHeight =
+          this.#argonFinalizationStartBlockByTransferId.get(persistedRecord.id) ?? finalizedArgonHeight;
+        this.#argonFinalizationStartBlockByTransferId.set(persistedRecord.id, argonStartHeight);
+        const finalizedArgonBlocks = Math.max(0, finalizedArgonHeight - argonStartHeight);
+        const expectedArgonBlocks = 4;
+        transferState.progress = setInboundArgonStepProgress(transferState.progress, {
+          progressPct: Math.min(
+            99,
+            Math.round((Math.min(finalizedArgonBlocks, expectedArgonBlocks) / expectedArgonBlocks) * 100),
+          ),
+          detail: `Argon block ${Math.min(expectedArgonBlocks, finalizedArgonBlocks) + 1} of ${expectedArgonBlocks}`,
+          hint: 'Waiting for the relay to finalize on Argon.',
+        });
+      }
+
       await this.requestBackendCatchUp(transfer);
-      await new Promise<void>(resolve => {
-        setTimeout(resolve, this.ethereumClient.getTransferToArgonPollMs());
-      });
+      await sleep(this.ethereumClient.getTransferToArgonPollMs());
     }
   }
 
@@ -480,76 +575,64 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    if (!shouldRetry(this.#lastCatchUpRequestAt.get(record.transferId), CATCH_UP_RETRY_MS)) {
+    if (!shouldRetry(this.#lastCatchUpRequestAt.get(record.id), CATCH_UP_RETRY_MS)) {
       return;
     }
 
     const throughGatewayActivityNonce = record.gatewayActivityNonce;
+    const currentStepStartedAt =
+      transfer.transferState.progress.steps[transfer.transferState.progress.currentStep - 1]?.startedAt;
     const hasExceededWaitEstimate =
-      transfer.transferState.argonReadiness !== undefined &&
-      Date.now() - transfer.transferState.argonReadiness.startedAt >=
-        this.ethereumClient.getTransferToArgonWaitEstimateMs();
+      currentStepStartedAt !== undefined &&
+      Date.now() - currentStepStartedAt >= this.ethereumClient.getTransferToArgonWaitEstimateMs();
     const upstreamOperatorHost = this.upstreamOperatorClient.operatorHost;
-    if (this.serverApiClient) {
-      this.#lastCatchUpRequestAt.set(record.transferId, Date.now());
-      let localRelayError = '';
-
-      try {
-        const relayStatus = await this.serverApiClient.getEthereumRelayStatus();
-        if (relayStatus.isReady) {
-          const response = await this.serverApiClient.requestEthereumGatewayCatchUp({
-            sourceChain: 'Ethereum',
-            throughGatewayActivityNonce,
-          });
-          if (response.outcome !== 'Rejected') {
-            transfer.transferState.error = '';
-            return;
-          }
-
-          localRelayError = response.reason;
-        } else {
-          localRelayError = relayStatus.reason ?? '';
-        }
-      } catch (error) {
-        console.warn('[EthereumInboundTransferTracker] Local server catch-up request failed', error);
-        localRelayError = error instanceof Error ? error.message : String(error);
-      }
-
-      if (!upstreamOperatorHost) {
-        transfer.transferState.error = shouldSurfaceRelayError(localRelayError, hasExceededWaitEstimate)
-          ? localRelayError
-          : '';
-        return;
-      }
-    }
-
-    if (upstreamOperatorHost) {
-      this.#lastCatchUpRequestAt.set(record.transferId, Date.now());
-      try {
-        const response = await this.upstreamOperatorClient.requestEthereumGatewayCatchUp({
-          sourceChain: 'Ethereum',
-          throughGatewayActivityNonce,
-        });
-        transfer.transferState.error =
-          response.outcome === 'Rejected' && shouldSurfaceRelayError(response.reason, hasExceededWaitEstimate)
-            ? response.reason
-            : '';
-      } catch (error) {
-        console.warn('[EthereumInboundTransferTracker] Upstream catch-up request failed', error);
-        const message = error instanceof Error ? error.message : String(error);
-        transfer.transferState.error = shouldSurfaceRelayError(message, hasExceededWaitEstimate) ? message : '';
-      }
+    if (this.serverApiClient || upstreamOperatorHost) {
+      this.#lastCatchUpRequestAt.set(record.id, Date.now());
+      const relayError = await requestEthereumGatewayCatchUpThroughOperator({
+        throughGatewayActivityNonce,
+        serverApiClient: this.serverApiClient,
+        upstreamOperatorClient: upstreamOperatorHost ? this.upstreamOperatorClient : undefined,
+      });
+      transfer.transferState.error = shouldSurfaceRelayError(relayError ?? '', hasExceededWaitEstimate)
+        ? (relayError ?? '')
+        : '';
     }
   }
 
-  private discardTransfer(transferId: string, moveToken: IEthereumMoveToken) {
-    this.#lastCatchUpRequestAt.delete(transferId);
+  private discardTransfer(id: string, moveToken: IEthereumMoveToken) {
+    this.#lastCatchUpRequestAt.delete(id);
+    this.#argonRelayStartBlockByTransferId.delete(id);
+    this.#argonFinalizationStartBlockByTransferId.delete(id);
 
-    if (this.data.latestTransferIdByToken[moveToken] === transferId) {
+    if (this.data.latestTransferIdByToken[moveToken] === id) {
       delete this.data.latestTransferIdByToken[moveToken];
     }
 
-    delete this.data.transfersById[transferId];
+    delete this.data.transfersById[id];
+  }
+
+  private async failTransfer(id: string, errorMessage: string) {
+    const transfer = this.data.transfersById[id];
+    if (!transfer) {
+      return;
+    }
+
+    if (transfer.persistedRecord) {
+      const db = await this.dbPromise;
+      const failedRecord = await db.crosschainInboundTransfersTable.recordFailed({
+        id,
+        failureReason: errorMessage,
+        progressJson: transfer.transferState.progress,
+      });
+      if (failedRecord) {
+        transfer.persistedRecord = failedRecord;
+      }
+    }
+
+    transfer.transferState.error = errorMessage;
+    transfer.transferState.isSubmitting = false;
+    transfer.transferState.hasPersistedTransfer = !!transfer.persistedRecord;
+    transfer.transferState.needsAcknowledgement = true;
   }
 }
 
@@ -557,9 +640,35 @@ function createEmptyTransferState(): IEthereumInboundTransferState {
   return {
     isSubmitting: false,
     hasPersistedTransfer: false,
-    phase: 'idle',
+    needsAcknowledgement: false,
+    progress: createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES),
     error: '',
   };
+}
+
+function createInboundProgressFromRecord(record: ICrosschainInboundTransferRecord): ICrosschainTransferProgress {
+  if (record.progressJson?.steps?.length === INBOUND_TRANSFER_STEP_TITLES.length) {
+    return hydrateCrosschainTransferProgress(record.progressJson.steps);
+  }
+
+  if (record.status === CrosschainInboundTransferStatus.ArgonFinalized) {
+    return completeInboundTransferProgress(
+      createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES),
+      'Confirmed on Argon.',
+    );
+  }
+
+  if (record.status === CrosschainInboundTransferStatus.SourceFinalized) {
+    return setInboundRelayStepProgress(createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES), {
+      progressPct: 0,
+      detail: 'Waiting for Argon to receive finalized Ethereum state...',
+    });
+  }
+
+  return setInboundEthereumStepProgress(createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES), {
+    progressPct: 0,
+    detail: 'Submitting transfer to Ethereum...',
+  });
 }
 
 function getMoveToken(record: ICrosschainInboundTransferRecord): IEthereumMoveToken | undefined {
@@ -585,4 +694,12 @@ function shouldWaitForRelay(reason: string): boolean {
     reason.includes('Vault delegate needs more funds before Ethereum relays can run.') ||
     reason.includes('Vault delegate cannot afford Ethereum gateway relay.')
   );
+}
+
+function hasUnacknowledgedFailure(record: ICrosschainInboundTransferRecord | undefined): boolean {
+  return !!record?.failureReason && !record.isFailureAcknowledged;
+}
+
+function isAcknowledgedFailure(record: ICrosschainInboundTransferRecord | undefined): boolean {
+  return !!record?.failureReason && record.isFailureAcknowledged;
 }

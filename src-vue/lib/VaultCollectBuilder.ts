@@ -31,14 +31,15 @@ export type IVaultCollectNotice = {
   isProcessing: boolean;
   collectRevenue: bigint;
   expiringCollectAmount: bigint;
+  nextCollectDueDate: number;
   signatureCount: number;
+  nextCosignDueDate: number;
   councilApprovalCount: number;
-  collateralizedTransferCount: number;
-  collateralizedTransferRewardAmount: bigint;
+  authorizedTransferCount: number;
+  authorizedTransferRewardAmount: bigint;
   signaturePenalty: bigint;
   earningsAmountMicrogons: bigint;
   amountAtRiskMicrogons: bigint;
-  nextDueDate: number;
   transactionCount: number;
 };
 
@@ -63,21 +64,16 @@ export class VaultCollectBuilder {
     const collectRevenue = myVault.data.pendingCollectRevenue;
     const signatureCount = manualPendingCosignEntries.length;
     const councilApprovalCount = myVault.globalCouncil.data.pendingApprovals.length;
-    const pendingCollateralizations = myVault.mintingAuthorities.data.pendingCollateralizations;
-    const collateralizedTransferCount = pendingCollateralizations.length;
-    const collateralizedTransferRewardAmount = pendingCollateralizations.reduce(
+    const pendingMintingAuthorizations = myVault.mintingAuthorities.data.pendingMintingAuthorizations;
+    const authorizedTransferCount = pendingMintingAuthorizations.length;
+    const authorizedTransferRewardAmount = pendingMintingAuthorizations.reduce(
       (sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip,
       0n,
     );
-    const earningsAmountMicrogons = collectRevenue + collateralizedTransferRewardAmount;
+    const earningsAmountMicrogons = collectRevenue + authorizedTransferRewardAmount;
     const amountAtRiskMicrogons = myVault.data.expiringCollectAmount + signaturePenalty;
 
-    if (
-      collectRevenue <= 0n &&
-      signatureCount === 0 &&
-      councilApprovalCount === 0 &&
-      collateralizedTransferCount === 0
-    ) {
+    if (collectRevenue <= 0n && signatureCount === 0 && councilApprovalCount === 0 && authorizedTransferCount === 0) {
       return null;
     }
 
@@ -86,19 +82,20 @@ export class VaultCollectBuilder {
     return {
       isProcessing: Boolean(
         myVault.data.pendingCollectTxInfo ||
-          myVault.mintingAuthorities.data.pendingCollateralizeTxInfosByTransferId.size,
+          myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.size,
       ),
       collectRevenue,
       expiringCollectAmount: myVault.data.expiringCollectAmount,
+      nextCollectDueDate: myVault.data.nextCollectDueDate,
       signatureCount,
+      nextCosignDueDate: myVault.data.nextCosignDueDate,
       councilApprovalCount,
-      collateralizedTransferCount,
-      collateralizedTransferRewardAmount,
+      authorizedTransferCount,
+      authorizedTransferRewardAmount,
       signaturePenalty,
       earningsAmountMicrogons,
       amountAtRiskMicrogons,
-      nextDueDate: myVault.data.nextCollectDueDate,
-      transactionCount: Number(hasCollectWork || councilApprovalCount > 0) + collateralizedTransferCount,
+      transactionCount: Number(hasCollectWork || councilApprovalCount > 0) + authorizedTransferCount,
     };
   }
 

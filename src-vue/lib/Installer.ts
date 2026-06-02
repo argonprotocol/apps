@@ -22,7 +22,7 @@ import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
 import * as semver from 'semver';
 import { TxSubmitter } from '@argonprotocol/mainchain';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { getEthereumExecutionRpcUrl } from './EthereumClient.ts';
+import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumClient.ts';
 import { MyVault } from './MyVault.ts';
 
 dayjs.extend(utc);
@@ -628,7 +628,7 @@ export default class Installer {
   ): Promise<void> {
     const server = await this.getServer();
     const delegateKeypair = await this.walletKeys.getVaultDelegateKeypair();
-    const ethereumBeaconApiUrl = this.config.ethereumBeaconApiUrl?.trim() || undefined;
+    const ethereumBeaconApiUrl = getEthereumBeaconApiUrl(this.config.ethereumBeaconApiUrl);
     const ethereumExecutionRpcUrl = getEthereumExecutionRpcUrl();
 
     await server.createConfigDir();

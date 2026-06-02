@@ -41,6 +41,7 @@ import { Config } from '../lib/Config.ts';
 import { EthereumClient, loadEthereumChainConfig } from '../lib/EthereumClient.ts';
 import { EthereumInboundTransferTracker } from '../lib/EthereumInboundTransferTracker.ts';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
+import { createCrosschainTransferProgress, OUTBOUND_TRANSFER_STEP_TITLES } from '../lib/CrosschainTransferProgress.ts';
 import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
@@ -476,7 +477,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
   );
 
   it.sequential(
-    'transfers Argon to Ethereum, collateralizes it, and proves finalization back',
+    'transfers Argon to Ethereum, authorizes it, and proves finalization back',
     async () => {
       if (!didActivateMintingAuthority) {
         throw new Error('Run the whole EthereumCrosschain integration suite. Phase 2 must complete before phase 3.');
@@ -490,8 +491,8 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       );
 
       await mintingAuthorities.refresh(await getFinalizedClient(client));
-      const pendingCollateralization = mintingAuthorities.data.pendingCollateralizations[0];
-      expect(pendingCollateralization).toBeDefined();
+      const pendingMintingAuthorization = mintingAuthorities.data.pendingMintingAuthorizations[0];
+      expect(pendingMintingAuthorization).toBeDefined();
 
       const startingEthereumBalance = BigInt(
         (await publicClient.readContract({
@@ -502,60 +503,72 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         })) as bigint,
       );
 
-      const collateralizeTx = await mintingAuthorities.collateralize();
-      await collateralizeTx.txResult.waitForFinalizedBlock;
-      await collateralizeTx.waitForPostProcessing;
-      const collateralizedArgonBlockId =
-        collateralizeTx.tx.blockHash ?? (await collateralizeTx.txResult.waitForInFirstBlock);
-      const collateralizedArgonBlockHash =
-        typeof collateralizedArgonBlockId === 'string' ? collateralizedArgonBlockId : toHex(collateralizedArgonBlockId);
-      const collateralizedArgonBlockNumber = await client.rpc.chain
-        .getHeader(collateralizedArgonBlockHash)
+      const authorizeTx = await mintingAuthorities.authorize();
+      await authorizeTx.txResult.waitForFinalizedBlock;
+      await authorizeTx.waitForPostProcessing;
+      const authorizedArgonBlockId = authorizeTx.tx.blockHash ?? (await authorizeTx.txResult.waitForInFirstBlock);
+      const mintingAuthorizedArgonBlockHash =
+        typeof authorizedArgonBlockId === 'string' ? authorizedArgonBlockId : toHex(authorizedArgonBlockId);
+      const mintingAuthorizedArgonBlockNumber = await client.rpc.chain
+        .getHeader(mintingAuthorizedArgonBlockHash)
         .then(x => x.number.toNumber());
 
-      const transferId = pendingCollateralization.transferId;
-      expect(pendingCollateralization.moveToken).toBe(MoveToken.ARGN);
+      const transferId = pendingMintingAuthorization.transferId;
+      expect(pendingMintingAuthorization.moveToken).toBe(MoveToken.ARGN);
 
-      const collateralizationSignature = await walletKeys.signEthereumPersonalMessage(
-        pendingCollateralization.authorizationHash,
-        walletKeys.getMintingAuthorityEthereumHdPath(pendingCollateralization.authorityIndex),
+      const authorizationSignature = await walletKeys.signEthereumPersonalMessage(
+        pendingMintingAuthorization.authorizationHash,
+        walletKeys.getMintingAuthorityEthereumHdPath(pendingMintingAuthorization.authorityIndex),
       );
-      const outboundTransfer = await outboundTracker.startTransfer({
+      const outboundTransferId = 'outbound-minting-authorized-transfer';
+      await db.crosschainOutboundTransfersTable.upsert({
+        id: outboundTransferId,
         transferId,
-        moveToken: pendingCollateralization.moveToken,
-        finalizeRequest: pendingCollateralization.finalizeRequest,
-        collateralizedArgonBlockNumber,
-        collateralizedArgonBlockHash,
-        authorizations: [
-          {
-            microgonCollateral: pendingCollateralization.microgonCollateral,
-            micronotCollateral: pendingCollateralization.micronotCollateral,
-            signature: collateralizationSignature,
-          },
-        ],
+        destinationChain: 'Ethereum',
+        token: pendingMintingAuthorization.moveToken,
+        amount: pendingMintingAuthorization.finalizeRequest.amount,
+        argonSourceAddress: pendingMintingAuthorization.finalizeRequest.argonAccountId,
+        destinationAddress: pendingMintingAuthorization.finalizeRequest.recipient,
+        mintingAuthorizedMicrogons: pendingMintingAuthorization.microgonCollateral,
+        mintingAuthorizedMicronots: pendingMintingAuthorization.micronotCollateral,
+        mintingAuthorizedArgonBlockNumber,
+        mintingAuthorizedArgonBlockHash,
+        finalizeRequestJson: pendingMintingAuthorization.finalizeRequest,
+        finalizeProofJson: {
+          authorizations: [
+            {
+              microgonCollateral: pendingMintingAuthorization.microgonCollateral,
+              micronotCollateral: pendingMintingAuthorization.micronotCollateral,
+              signature: authorizationSignature,
+            },
+          ],
+        },
+        progressJson: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+        status: CrosschainOutboundTransferStatus.MintingAuthorized,
       });
+      await outboundTracker.load();
 
       await vi.waitFor(async () => {
-        const activeTransfer = outboundTracker.getTransfer(transferId);
+        const activeTransfer = outboundTracker.getTransfer(outboundTransferId);
         if (activeTransfer?.transferState.error) {
           throw new Error(activeTransfer.transferState.error);
         }
 
-        const persisted = await db.crosschainOutboundTransfersTable.get(transferId);
+        const persisted = await db.crosschainOutboundTransfersTable.getByTransferId(transferId);
         expect(persisted).toMatchObject({
           transferId,
           destinationChain: 'Ethereum',
-          collateralizedMicrogons: pendingCollateralization.microgonCollateral,
-          collateralizedMicronots: pendingCollateralization.micronotCollateral,
-          collateralizedArgonBlockNumber,
-          collateralizedArgonBlockHash,
-          status: CrosschainOutboundTransferStatus.TargetFinalized,
+          mintingAuthorizedMicrogons: pendingMintingAuthorization.microgonCollateral,
+          mintingAuthorizedMicronots: pendingMintingAuthorization.micronotCollateral,
+          mintingAuthorizedArgonBlockNumber,
+          mintingAuthorizedArgonBlockHash,
+          status: CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain,
         });
-        expect(activeTransfer?.transferState.phase).toBe('confirmedOnEthereum');
+        expect(activeTransfer?.transferState.progress.overallProgressPct).toBe(100);
         expect(activeTransfer?.transferState.isSubmitting).toBe(false);
       }, 120_000);
 
-      const finalizedOutbound = await db.crosschainOutboundTransfersTable.get(transferId);
+      const finalizedOutbound = await db.crosschainOutboundTransfersTable.getByTransferId(transferId);
       expect(finalizedOutbound?.targetBlockNumber).toBeDefined();
       expect(finalizedOutbound?.targetBlockNumber).not.toBeNull();
       expect(finalizedOutbound?.gatewayActivityNonce).toBeDefined();
@@ -563,7 +576,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
       const finalizeReceipt = await waitForMinedExecutionReceipt(ethereum, finalizedOutbound!.targetTxHash!);
       const finalizedTransferId = EvmContracts.hashMintingGatewayTransferOutOfArgonRequest(
-        pendingCollateralization.finalizeRequest,
+        pendingMintingAuthorization.finalizeRequest,
       );
       const [isFinalizedTransferOut, argonBalance, argonotBalance] = await Promise.all([
         publicClient.readContract({
@@ -592,7 +605,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       if (finalArgonBalance !== expectedFinalArgonBalance) {
         throw new Error(
           JSON.stringify({
-            request: pendingCollateralization.finalizeRequest,
+            request: pendingMintingAuthorization.finalizeRequest,
             targetTxHash: finalizedOutbound!.targetTxHash,
             receiptStatus: finalizeReceipt.status,
             isFinalizedTransferOut,
@@ -637,13 +650,13 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       await mintingAuthorities.refresh(await getFinalizedClient(client));
       const authority = mintingAuthorities.data.authorities[0];
       expect(authority).toBeDefined();
-      expect(mintingAuthorities.data.pendingCollateralizations).toHaveLength(0);
+      expect(mintingAuthorities.data.pendingMintingAuthorizations).toHaveLength(0);
       expect(authority.pendingReservedMicrogonCollateral).toBe(0n);
       expect(authority.pendingReservedMicronotCollateral).toBe(0n);
       expect(authority.gatewayRemainingMicronotCollateral).toBe(990_000n);
       expect(authority.gatewayRemainingMicronotCollateral - authority.pendingReservedMicronotCollateral).toBe(990_000n);
 
-      expect(outboundTransfer.persistedRecord?.transferId).toBe(transferId);
+      expect(outboundTracker.getTransfer(outboundTransferId)?.persistedRecord?.transferId).toBe(transferId);
       didTransferArgonToEthereum = true;
     },
     420_000,
@@ -668,12 +681,12 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       expect(transfer).toBeDefined();
 
       await vi.waitFor(async () => {
-        const activeTransfer = tracker.getTransfer(transfer!.transferId);
+        const activeTransfer = tracker.getTransfer(transfer!.id);
         if (activeTransfer?.transferState.error) {
           throw new Error(activeTransfer.transferState.error);
         }
 
-        const persisted = await db.crosschainInboundTransfersTable.get(transfer!.transferId);
+        const persisted = await db.crosschainInboundTransfersTable.get(transfer!.id);
         if (persisted?.gatewayActivityNonce) {
           await beaconSyncService.runOnce();
           const response = await gatewayProverService.runToCheckpoint({
@@ -686,7 +699,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         }
 
         expect(persisted).toMatchObject({
-          transferId: transfer!.transferId,
+          id: transfer!.id,
           token: MoveToken.ARGN,
           argonDestinationAddress: walletKeys.investmentAddress,
           status: CrosschainInboundTransferStatus.ArgonFinalized,
@@ -703,13 +716,12 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         expect(balance).toBe(startingBalance + 250n);
       }, 30_000);
 
-      expect(tracker.getTransferStateForToken(MoveToken.ARGN)).toMatchObject({
-        isSubmitting: false,
-        hasPersistedTransfer: false,
-        targetWalletType: WalletType.investment,
-        phase: 'confirmedOnArgon',
-        error: '',
-      });
+      const transferState = tracker.getTransferStateForToken(MoveToken.ARGN);
+      expect(transferState.isSubmitting).toBe(false);
+      expect(transferState.hasPersistedTransfer).toBe(false);
+      expect(transferState.targetWalletType).toBe(WalletType.investment);
+      expect(transferState.progress.overallProgressPct).toBe(100);
+      expect(transferState.error).toBe('');
     },
     420_000,
   );

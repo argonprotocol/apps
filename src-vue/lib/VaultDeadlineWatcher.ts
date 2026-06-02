@@ -9,6 +9,7 @@ interface CollectFrame {
 export interface VaultDeadlineState {
   pendingCollectRevenue: bigint;
   nextCollectDueDate: number;
+  nextCosignDueDate: number;
   expiringCollectAmount: bigint;
 }
 
@@ -17,7 +18,7 @@ export function computeCollectDeadline(args: {
   cosignDueFrames: Iterable<number | undefined>;
   currentFrameId: number;
   timeToCollectFrames: number;
-}): { nextCollectFrame: number; expiringCollectAmount: bigint } {
+}): { nextCollectFrame: number; nextCosignFrame?: number; expiringCollectAmount: bigint } {
   const { collectFrames, currentFrameId, timeToCollectFrames } = args;
 
   let nextCollectFrame = currentFrameId + timeToCollectFrames;
@@ -40,12 +41,14 @@ export function computeCollectDeadline(args: {
     }
   }
 
+  nextCollectFrame = Math.max(currentFrameId + 1, nextCollectFrame);
+
+  let nextCosignFrame: number | undefined;
   if (earliestCosignDueFrame < Number.MAX_SAFE_INTEGER) {
-    nextCollectFrame = Math.min(nextCollectFrame, earliestCosignDueFrame);
+    nextCosignFrame = Math.max(currentFrameId + 1, earliestCosignDueFrame);
   }
 
-  nextCollectFrame = Math.max(currentFrameId + 1, nextCollectFrame);
-  return { nextCollectFrame, expiringCollectAmount };
+  return { nextCollectFrame, nextCosignFrame, expiringCollectAmount };
 }
 
 export class VaultDeadlineWatcher {
@@ -131,18 +134,20 @@ export class VaultDeadlineWatcher {
   }
 
   private emitState(): void {
-    const { nextCollectFrame, expiringCollectAmount } = computeCollectDeadline({
+    const { nextCollectFrame, nextCosignFrame, expiringCollectAmount } = computeCollectDeadline({
       collectFrames: this.collectFrames,
       cosignDueFrames: this.cosignDueFrames.values(),
       currentFrameId: this.currentFrameId,
       timeToCollectFrames: this.timeToCollectFrames,
     });
 
-    const dueDateMs = this.miningFrames.getFrameDate(nextCollectFrame).getTime();
+    const nextCollectDueDate = this.miningFrames.getFrameDate(nextCollectFrame).getTime();
+    const nextCosignDueDate = nextCosignFrame ? this.miningFrames.getFrameDate(nextCosignFrame).getTime() : 0;
 
     this.onChange({
       pendingCollectRevenue: this.pendingCollectRevenue,
-      nextCollectDueDate: dueDateMs,
+      nextCollectDueDate,
+      nextCosignDueDate,
       expiringCollectAmount,
     });
   }

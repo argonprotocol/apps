@@ -24,6 +24,7 @@ import {
   type ServerAuthClient,
   type ServerAuthOptions,
 } from './ServerAuthClient.ts';
+import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 
 export type ServerGatewayDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gatewayPort' | 'type'>;
 
@@ -360,4 +361,52 @@ function getGatewayHost(serverDetails: ServerGatewayDetails): string {
 
 function isLoopbackIp(ipAddress: string): boolean {
   return ipAddress === '127.0.0.1' || ipAddress === '::1';
+}
+
+export async function requestEthereumGatewayCatchUpThroughOperator(args: {
+  throughGatewayActivityNonce: bigint;
+  serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
+  upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
+}): Promise<string | undefined> {
+  const { throughGatewayActivityNonce, serverApiClient, upstreamOperatorClient } = args;
+  let localRelayError = '';
+
+  if (serverApiClient) {
+    try {
+      const relayStatus = await serverApiClient.getEthereumRelayStatus();
+      if (relayStatus.isReady) {
+        const response = await serverApiClient.requestEthereumGatewayCatchUp({
+          sourceChain: 'Ethereum',
+          throughGatewayActivityNonce,
+        });
+        if (response.outcome !== 'Rejected') {
+          return;
+        }
+
+        localRelayError = response.reason;
+      } else {
+        localRelayError = relayStatus.reason ?? '';
+      }
+    } catch (error) {
+      localRelayError = error instanceof Error ? error.message : String(error);
+    }
+
+    if (!upstreamOperatorClient?.operatorHost) {
+      return localRelayError;
+    }
+  }
+
+  if (!upstreamOperatorClient?.operatorHost) {
+    return;
+  }
+
+  try {
+    const response = await upstreamOperatorClient.requestEthereumGatewayCatchUp({
+      sourceChain: 'Ethereum',
+      throughGatewayActivityNonce,
+    });
+    return response.outcome === 'Rejected' ? response.reason : undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }

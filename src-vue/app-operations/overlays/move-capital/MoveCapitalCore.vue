@@ -595,7 +595,11 @@ Vue.onMounted(async () => {
     const isMoveTx =
       txInfo.tx.extrinsicType === ExtrinsicType.Transfer ||
       txInfo.tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation;
-    if (isMoveTx && txInfo.tx.metadataJson.moveFrom === moveFrom.value) {
+    if (
+      isMoveTx &&
+      txInfo.tx.metadataJson.moveFrom === moveFrom.value &&
+      txInfo.tx.metadataJson.assetsToMove?.[props.moveToken] > 0n
+    ) {
       const metdata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
       pendingTxInfo.value = txInfo;
       isProcessing.value = true;

@@ -61,8 +61,9 @@ export class BlockWatch {
   private readonly clientEventUnsubscribes: (() => void)[] = [];
   private finalizedAheadRecoveryFailures: number = 0;
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
-  private pendingRestart: { reason: string; source: ISubscriptionSource } | undefined;
+  private pendingRestart: { reason: string; source: ISubscriptionSource; delayMs?: number } | undefined;
   private isRestarting: boolean = false;
+  private readonly failedRestartDelayMs = 2_500;
 
   constructor(
     public clients: MainchainClients,
@@ -231,9 +232,9 @@ export class BlockWatch {
   public getRpcClient(headerOrNumber: Header | number): Promise<ArgonClient> {
     const headerNumber = typeof headerOrNumber === 'number' ? headerOrNumber : headerOrNumber.number.toNumber();
 
-    if (this.activeSource === 'pruned') {
+    if (this.activeSource === 'pruned' && this.clients.prunedClientPromise) {
       if (this.isSafeForPrunedClient(headerNumber)) {
-        return this.clients.prunedClientPromise!;
+        return this.clients.prunedClientPromise;
       }
     }
     return this.clients.archiveClientPromise;
@@ -512,11 +513,11 @@ export class BlockWatch {
     return { client: await this.clients.archiveClientPromise, source };
   }
 
-  private scheduleRestart(source: ISubscriptionSource, reason: string): void {
-    if (!this.unsubscribe && !this.isRestarting && !this.isLoaded.isSettled) {
+  private scheduleRestart(source: ISubscriptionSource, reason: string, delayMs = 250): void {
+    if (!this.unsubscribe && !this.isRestarting && !this.isLoaded.isSettled && this.subscriptionGeneration === 0) {
       return;
     }
-    this.pendingRestart = { reason, source };
+    this.pendingRestart = { reason, source, delayMs };
     if (this.isRestarting || this.restartTimer) {
       return;
     }
@@ -533,7 +534,7 @@ export class BlockWatch {
         return;
       }
       void this.restart(pendingRestart.source, pendingRestart.reason);
-    }, 250);
+    }, delayMs);
   }
 
   private async restart(source: ISubscriptionSource, reason: string): Promise<void> {
@@ -551,6 +552,11 @@ export class BlockWatch {
       await this.start(source);
     } catch (error) {
       console.error('[BlockWatch]: Failed to restart subscriptions', { reason, error });
+      this.pendingRestart = {
+        source,
+        reason: `Retrying failed restart after ${reason}`,
+        delayMs: this.failedRestartDelayMs,
+      };
     } finally {
       this.isRestarting = false;
       const pendingRestart = this.pendingRestart;
@@ -558,7 +564,7 @@ export class BlockWatch {
         return;
       }
       this.pendingRestart = undefined;
-      this.scheduleRestart(pendingRestart.source, pendingRestart.reason);
+      this.scheduleRestart(pendingRestart.source, pendingRestart.reason, pendingRestart.delayMs);
     }
   }
 

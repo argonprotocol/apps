@@ -9,6 +9,7 @@ import {
   type Option,
   type PalletOperationalAccountsOperationalAccount,
   type SubmittableExtrinsic,
+  TxSubmitter,
   type u128,
   type u32,
   u8aToHex,
@@ -19,6 +20,7 @@ import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { Config } from '../stores/config.ts';
 import type { IOperationalReferral } from '../interfaces/IConfig.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
+import { WalletType } from './Wallet.ts';
 import { WalletKeys } from './WalletKeys.ts';
 
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
@@ -57,6 +59,7 @@ export type IOperationalChainProgress = {
   rewardsEarnedAmount: bigint;
   rewardsCollectedAmount: bigint;
   isOperational: boolean;
+  hasSponsor: boolean;
 };
 
 export type IOperationalRewardsClaimAvailability = {
@@ -66,6 +69,8 @@ export type IOperationalRewardsClaimAvailability = {
   claimableNow: bigint;
   minimumClaimAmount: bigint;
 };
+
+let setupOperatorAccountPromise: Promise<boolean> | undefined;
 
 function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAddr: string, domain: string) {
   const domainBytes = stringToU8a(domain);
@@ -144,8 +149,8 @@ export async function buildOperatorAccountRegistrationTx(args: {
 }): Promise<SubmittableExtrinsic | undefined> {
   const { config, walletKeys } = args;
   const client = args.client ?? (await getMainchainClient(false));
-  const existing = await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
-  if (!existing.isEmpty) return;
+  const existing = await loadOperationalAccount(walletKeys, client);
+  if (existing.isSome) return;
 
   const upstreamOperator = config.upstreamOperator;
 
@@ -203,6 +208,28 @@ export async function buildOperatorAccountRegistrationTx(args: {
   });
 }
 
+export async function ensureOperatorAccountRegistered(args: {
+  walletKeys: WalletKeys;
+  config: Config;
+  feePayers: WalletType[];
+  client?: ArgonClient;
+}): Promise<boolean> {
+  if (setupOperatorAccountPromise) {
+    return await setupOperatorAccountPromise;
+  }
+
+  const promise = registerOperatorAccount(args);
+  setupOperatorAccountPromise = promise;
+
+  try {
+    return await promise;
+  } finally {
+    if (setupOperatorAccountPromise === promise) {
+      setupOperatorAccountPromise = undefined;
+    }
+  }
+}
+
 export async function getOperationalRewardConfig(client?: ArgonClient): Promise<IOperationalRewardConfig> {
   client ??= await getMainchainClient(false);
   const consts = client.consts.operationalAccounts as typeof client.consts.operationalAccounts &
@@ -244,7 +271,7 @@ export async function getOperationalRewardsClaimAvailability(
 ): Promise<IOperationalRewardsClaimAvailability> {
   client ??= await getMainchainClient(false);
 
-  const accountRaw = await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
+  const accountRaw = await loadOperationalAccount(walletKeys, client);
   const account = accountRaw.isSome ? accountRaw.unwrap() : undefined;
   const rawPendingRewards = account
     ? account.rewardsEarnedAmount.toBigInt() - account.rewardsCollectedAmount.toBigInt()
@@ -302,6 +329,61 @@ export async function subscribeOperationalAccount(
   return unsubscribe;
 }
 
+export async function loadOperationalAccount(
+  walletKeys: WalletKeys,
+  client?: ArgonClient,
+): Promise<Option<PalletOperationalAccountsOperationalAccount>> {
+  client ??= await getMainchainClient(false);
+  return await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
+}
+
+async function registerOperatorAccount(args: {
+  walletKeys: WalletKeys;
+  config: Config;
+  feePayers: WalletType[];
+  client?: ArgonClient;
+}): Promise<boolean> {
+  const client = args.client ?? (await getMainchainClient(false));
+  const tx = await buildOperatorAccountRegistrationTx({
+    walletKeys: args.walletKeys,
+    config: args.config,
+    client,
+  });
+  if (!tx) {
+    return false;
+  }
+
+  const uniqueFeePayers = [...new Set(args.feePayers)];
+  let txSigner: KeyringPair | undefined;
+
+  for (const walletType of uniqueFeePayers) {
+    const signer = await args.walletKeys.getWalletKeypair(walletType);
+    const [account, fee] = await Promise.all([
+      client.query.system.account(signer.address),
+      tx.paymentInfo(signer.address),
+    ]);
+
+    if (account.data.free.toBigInt() >= fee.partialFee.toBigInt()) {
+      txSigner = signer;
+      break;
+    }
+  }
+
+  if (!txSigner) {
+    console.info('[OperationalAccount] Skipping startup registration repair; no funded fee payer found.', {
+      feePayers: args.feePayers,
+    });
+    return false;
+  }
+
+  const txResult = await new TxSubmitter(client, tx, txSigner).submit({
+    useLatestNonce: true,
+  });
+  await txResult.waitForInFirstBlock;
+
+  return true;
+}
+
 export function getOperationalChainProgressFromAccount(
   accountRaw: Option<PalletOperationalAccountsOperationalAccount>,
 ): IOperationalChainProgress {
@@ -322,6 +404,7 @@ export function getOperationalChainProgressFromAccount(
     rewardsEarnedAmount: 0n,
     rewardsCollectedAmount: 0n,
     isOperational: false,
+    hasSponsor: false,
   };
 
   if (!accountRaw.isSome) return entry;
@@ -350,6 +433,7 @@ export function getOperationalChainProgressFromAccount(
     rewardsEarnedAmount: account.rewardsEarnedAmount.toBigInt(),
     rewardsCollectedAmount: account.rewardsCollectedAmount.toBigInt(),
     isOperational: account.isOperational.toPrimitive(),
+    hasSponsor: account.sponsor.isSome,
   };
 }
 

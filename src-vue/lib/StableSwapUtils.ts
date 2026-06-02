@@ -48,14 +48,14 @@ export const STABLE_SWAP_TRANSFER_EVENT = erc20Abi.find(item => item.type === 'e
 export const STABLE_SWAP_USDT_TOKEN_ADDRESS = getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7');
 export const STABLE_SWAP_WETH_TOKEN_ADDRESS = getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
 
-export function getStableSwapArgonTokenAddress(): Address {
-  return getAddress(NetworkConfig.get().ethereumNetwork.argonTokenAddress);
+export function getStableSwapArgonTokenAddress(argonTokenAddress: string): Address {
+  return getAddress(argonTokenAddress);
 }
 
-export function getStableSwapArgonToken(): Token {
+export function getStableSwapArgonToken(argonTokenAddress: string): Token {
   return new Token(
     STABLE_SWAP_CHAIN_ID,
-    getAddress(NetworkConfig.get().ethereumNetwork.argonTokenAddress),
+    getStableSwapArgonTokenAddress(argonTokenAddress),
     ETHEREUM_ARGON_DECIMALS,
     'ARGN',
     'Argon',
@@ -84,8 +84,11 @@ export function getStableSwapArgonotToken(address: Address): Token {
   return new Token(STABLE_SWAP_CHAIN_ID, getAddress(address), ETHEREUM_ARGONOT_DECIMALS, 'ARGNOT', 'Argonot');
 }
 
-export function createStableSwapSdkPool(pool: StableSwapPoolLike, state?: StableSwapSdkPoolState): UniswapV3Pool {
-  const argonToken = getStableSwapArgonToken();
+export function createStableSwapSdkPool(
+  pool: StableSwapPoolLike,
+  argonToken: Token,
+  state?: StableSwapSdkPoolState,
+): UniswapV3Pool {
   const usdcToken = getStableSwapUsdcToken();
   const poolState = state ?? {
     sqrtPriceX96: pool.currentSqrtPriceX96,
