@@ -3,7 +3,7 @@ import { hexToU8a, Keyring, type KeyringPair, type KeyringPair$Json, u8aToHex } 
 import { bip39, BitcoinNetwork, getBip32Version, HDKey } from '@argonprotocol/bitcoin';
 import { x25519 } from '@noble/curves/ed25519';
 import { mnemonicToAccount } from 'viem/accounts';
-import { parseSignature, parseTransaction, type Address, type Hex, type Signature } from 'viem';
+import { bytesToHex, parseSignature, parseTransaction, type Address, type Hex, type Signature } from 'viem';
 import type ISecurity from '../interfaces/ISecurity.ts';
 import { getEthereumHdPath, WalletKeys } from './WalletKeys.ts';
 
@@ -76,6 +76,14 @@ export class MemoryWalletKeys extends WalletKeys {
 
   public async exposeMasterMnemonic(): Promise<string> {
     return this.masterMnemonic;
+  }
+
+  public async exportEthereumPrivateKey(): Promise<Hex> {
+    const privateKey = this.getEthereumAccount().getHdKey().privateKey;
+    if (!privateKey) {
+      throw new Error('Unable to derive the Ethereum private key.');
+    }
+    return bytesToHex(privateKey);
   }
 
   public async exportMiningBotAccountJson(passphrase: string): Promise<KeyringPair$Json> {

@@ -1,4 +1,8 @@
-import { getGatewayActivityWaitEstimateMs, getTransferToArgonWaitEstimateMs } from './EthereumClient.ts';
+import {
+  getEthereumFinalityMillis,
+  getGatewayActivityWaitEstimateMs,
+  getTransferToArgonWaitEstimateMs,
+} from './EthereumClient.ts';
 
 export type ICrosschainTransferStepStatus = 'pending' | 'active' | 'complete';
 
@@ -91,10 +95,10 @@ export function formatCrosschainBlockStepDetail(args: {
   expectedConfirmations: number;
 }) {
   const { blockType, confirmations, expectedConfirmations } = args;
-  const totalBlocks = Math.max(1, expectedConfirmations + 1);
-  const currentBlock = Math.min(totalBlocks, Math.max(1, confirmations + 2));
+  const totalConfirmations = Math.max(1, expectedConfirmations);
+  const currentConfirmation = Math.min(totalConfirmations, Math.max(0, confirmations + 1));
 
-  return `${blockType} block ${currentBlock} of ${totalBlocks}`;
+  return `${blockType} confirmation ${currentConfirmation} of ${totalConfirmations}`;
 }
 
 function pendingStep(step: ICrosschainTransferStepProgress): ICrosschainTransferStepProgress {
@@ -131,6 +135,7 @@ export function setInboundEthereumStepProgress(
       status: 'active',
       progressPct: args.progressPct,
       startedAt: steps[0].startedAt ?? Date.now(),
+      estimatedDurationMs: steps[0].estimatedDurationMs ?? getEthereumFinalityMillis(),
       detail: args.detail,
       confirmations: args.confirmations,
       expectedConfirmations: args.expectedConfirmations,
@@ -314,7 +319,6 @@ function getDisplayedStepProgress(step: ICrosschainTransferStepProgress, nowMs: 
     step.status !== 'active' ||
     step.startedAt == null ||
     step.estimatedDurationMs == null ||
-    step.confirmations != null ||
     actualProgressPct >= 99
   ) {
     return actualProgressPct;

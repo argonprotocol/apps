@@ -1,19 +1,19 @@
 import JSBI from 'jsbi';
-import { CurrencyAmount, Token, TradeType } from '@uniswap/sdk-core';
+import { ChainId, CurrencyAmount, Token, TradeType } from '@uniswap/sdk-core';
 import { FeeAmount, Pool as UniswapV3Pool, Route as UniswapV3Route, SwapQuoter, TickMath } from '@uniswap/v3-sdk';
-import { erc20Abi, formatUnits, getAddress, type Address, type Hex, type PublicClient } from 'viem';
+import { type Address, erc20Abi, formatUnits, getAddress, type Hex, type PublicClient } from 'viem';
 import {
   createStableSwapSdkPool,
-  ETHEREUM_ARGONOT_DECIMALS,
   ETHEREUM_ARGON_DECIMALS,
+  ETHEREUM_ARGONOT_DECIMALS,
   ethereumArgonBaseUnitsToMicrogons,
   fixed18ToMicrogons,
   FIXED_18,
   getStableSwapArgonotToken,
   getStableSwapArgonToken,
-  getStableSwapArgonTokenAddress,
-  getStableSwapUsdtToken,
+  getStableSwapChainConfig,
   getStableSwapUsdcToken,
+  getStableSwapUsdtToken,
   getStableSwapWethToken,
   microgonsToEthereumArgonBaseUnits,
   ONE_ETHEREUM_ARGON,
@@ -22,9 +22,9 @@ import {
   stableSwapSdkPriceToFixed18,
   UNISWAP_V3_POOL_STATE_ABI,
   USDC_DECIMALS,
-  USDT_DECIMALS,
   usdcToFixed18,
   usdcToMicrogons,
+  USDT_DECIMALS,
   WETH_DECIMALS,
 } from './StableSwapUtils.ts';
 import type {
@@ -39,7 +39,6 @@ import { loadEthereumChainConfig } from './EthereumClient.ts';
 
 export const STABLE_SWAP_QUOTE_TOLERANCE_ETHEREUM_ARGON_AMOUNT = 10n ** 12n;
 const UNISWAP_FEE_TIERS = [FeeAmount.LOWEST, FeeAmount.LOW, FeeAmount.MEDIUM, FeeAmount.HIGH] as const;
-const UNISWAP_V3_QUOTER_V2_ADDRESS = getAddress('0x61fFE014bA17989E743c5F6cB21bF9697530B21e');
 
 type StableSwapRoutePoolMetadata = {
   poolAddress: Address;
@@ -61,10 +60,12 @@ type StableSwapInputRoute = {
 type StableSwapsOptions = {
   argonTokenAddress?: Address;
   argonotTokenAddress?: Address;
+  chainId?: number;
 };
 
 export class StableSwaps {
   private argonTokenPromise: Promise<Token> | undefined;
+  private chainIdPromise: Promise<number> | undefined;
 
   constructor(
     private readonly client: PublicClient,
@@ -116,6 +117,9 @@ export class StableSwaps {
           inputRoute.inputTokenPriceMicrogons,
         );
         const projectedProfitMicrogons = outputValueMicrogons - inputAmountMicrogons;
+        if (projectedProfitMicrogons <= 0n) {
+          return null;
+        }
 
         const swap: IStableSwap = {
           inputToken: inputRoute.inputToken,
@@ -143,13 +147,17 @@ export class StableSwaps {
   }
 
   public async getActivePoolMetadata(blockNumber?: bigint): Promise<IStableSwapPoolMetadata> {
-    const argonToken = await this.getArgonToken();
-    const usdcToken = getStableSwapUsdcToken();
+    const chainId = await this.getEthereumChainId();
+    const argonToken = await this.getArgonToken(chainId);
+    const usdcToken = getStableSwapUsdcToken(chainId);
     const argonIsToken0 = argonToken.sortsBefore(usdcToken);
+    const factoryAddress = getStableSwapChainConfig(chainId).uniswapV3.factory;
 
     const pools = await Promise.all(
       UNISWAP_FEE_TIERS.map(async poolFee => {
-        const poolAddress = getAddress(UniswapV3Pool.getAddress(argonToken, usdcToken, poolFee));
+        const poolAddress = getAddress(
+          UniswapV3Pool.getAddress(argonToken, usdcToken, poolFee, undefined, factoryAddress),
+        );
 
         try {
           const [poolLiquidity, slot0] = (await Promise.all([
@@ -252,9 +260,9 @@ export class StableSwaps {
     blockNumber?: bigint;
   }): Promise<IStableSwapQuoteResult | null> {
     const { pool, targetPriceFixed18, blockNumber } = args;
-    const argonToken = await this.getArgonToken();
+    const argonToken = await this.getArgonToken(await this.getEthereumChainId());
     const poolArgonBalance = await this.client.readContract({
-      address: getStableSwapArgonTokenAddress(argonToken.address),
+      address: getAddress(argonToken.address),
       abi: erc20Abi,
       functionName: 'balanceOf',
       args: [pool.poolAddress],
@@ -333,8 +341,9 @@ export class StableSwaps {
     throwOnError?: boolean;
   }): Promise<IStableSwapQuoteResult | null> {
     const { pool, amountOut, blockNumber, throwOnError = false } = args;
-    const argonToken = await this.getArgonToken();
-    const usdcToken = getStableSwapUsdcToken();
+    const chainId = await this.getEthereumChainId();
+    const argonToken = await this.getArgonToken(chainId);
+    const usdcToken = getStableSwapUsdcToken(chainId);
     const route = args.route ?? new UniswapV3Route([createStableSwapSdkPool(pool, argonToken)], usdcToken, argonToken);
 
     try {
@@ -344,7 +353,7 @@ export class StableSwaps {
       });
 
       const quoteResult = await this.client.call({
-        to: UNISWAP_V3_QUOTER_V2_ADDRESS,
+        to: getStableSwapChainConfig(chainId).uniswapV3.quoterV2,
         data: calldata as Hex,
         blockNumber,
       });
@@ -375,14 +384,15 @@ export class StableSwaps {
   }
 
   public async getCurrentPriceFixed18(pool: IStableSwapPoolMetadata, state?: StableSwapSdkPoolState): Promise<bigint> {
-    const argonToken = await this.getArgonToken();
+    const chainId = await this.getEthereumChainId();
+    const argonToken = await this.getArgonToken(chainId);
     return stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, argonToken, state).priceOf(argonToken));
   }
 
   public static async buildStableSwapUniswapUrl(
     argonAmountMicrogons: bigint,
     inputCurrency?: string,
-    options: Pick<StableSwapsOptions, 'argonTokenAddress'> = {},
+    options: Pick<StableSwapsOptions, 'argonTokenAddress'> & { chainId?: number } = {},
   ): Promise<string | null> {
     if (argonAmountMicrogons <= 0n) {
       return null;
@@ -394,24 +404,32 @@ export class StableSwaps {
       return null;
     }
 
+    const chainId = options.chainId ?? chainConfig?.chainId;
+    const uniswapChain = chainId === 11155111 ? 'sepolia' : 'mainnet';
     const ethereumArgonAmount = microgonsToEthereumArgonBaseUnits(argonAmountMicrogons);
+    const chainParam = `chain=${uniswapChain}`;
     const inputCurrencyParam = inputCurrency ? `&inputCurrency=${inputCurrency}` : '';
-    return `https://app.uniswap.org/#/swap?chain=mainnet${inputCurrencyParam}&outputCurrency=${getStableSwapArgonTokenAddress(argonTokenAddress)}&field=output&value=${formatUnits(ethereumArgonAmount, ETHEREUM_ARGON_DECIMALS)}`;
+    const outputAmount = formatUnits(ethereumArgonAmount, ETHEREUM_ARGON_DECIMALS);
+    return `https://app.uniswap.org/#/swap?${chainParam}${inputCurrencyParam}&outputCurrency=${getAddress(argonTokenAddress)}&field=output&value=${outputAmount}`;
   }
 
   public static async getInputCurrency(
     inputToken: IStableSwapInputTokenSymbol,
     options: { argonotTokenAddress?: Address } = {},
   ): Promise<string | undefined> {
+    const chainConfig = await loadEthereumChainConfig();
+    const chainId = chainConfig?.chainId ?? ChainId.MAINNET;
+    const stableSwapChain = getStableSwapChainConfig(chainId);
+
     switch (inputToken) {
       case UnitOfMeasurement.USDC:
-        return getStableSwapUsdcToken().address;
+        return getStableSwapUsdcToken(chainId).address;
       case UnitOfMeasurement.USDT:
-        return getStableSwapUsdtToken().address;
+        return stableSwapChain.tokenAddresses.usdt;
       case UnitOfMeasurement.ETH:
         return 'ETH';
       case UnitOfMeasurement.ARGNOT:
-        return options.argonotTokenAddress ?? (await loadEthereumChainConfig())?.argonotTokenAddress;
+        return options.argonotTokenAddress ?? chainConfig?.argonotTokenAddress;
     }
   }
 
@@ -422,8 +440,9 @@ export class StableSwaps {
     blockNumber?: bigint;
   }): Promise<StableSwapInputRoute[]> {
     const { activePool, microgonsPerUsd, inputTokenPricesMicrogons, blockNumber } = args;
-    const argonToken = await this.getArgonToken();
-    const usdcToken = getStableSwapUsdcToken();
+    const chainId = await this.getEthereumChainId();
+    const argonToken = await this.getArgonToken(chainId);
+    const usdcToken = getStableSwapUsdcToken(chainId);
     const argonUsdcPool = this.createRoutePoolMetadata(activePool, argonToken, usdcToken);
     const routes: StableSwapInputRoute[] = [
       {
@@ -441,7 +460,7 @@ export class StableSwaps {
         inputToken: UnitOfMeasurement.USDT,
         inputTokenDecimals: USDT_DECIMALS,
         inputTokenPriceMicrogons: inputTokenPricesMicrogons?.[UnitOfMeasurement.USDT] ?? microgonsPerUsd,
-        inputTokenSdk: getStableSwapUsdtToken(),
+        inputTokenSdk: getStableSwapUsdtToken(chainId),
         usdcToken,
         argonToken,
         argonUsdcPool,
@@ -452,7 +471,7 @@ export class StableSwaps {
             inputToken: UnitOfMeasurement.ETH,
             inputTokenDecimals: WETH_DECIMALS,
             inputTokenPriceMicrogons: ethTokenPriceMicrogons,
-            inputTokenSdk: getStableSwapWethToken(),
+            inputTokenSdk: getStableSwapWethToken(chainId),
             usdcToken,
             argonToken,
             argonUsdcPool,
@@ -509,7 +528,7 @@ export class StableSwaps {
       return null;
     }
 
-    const argonotToken = await this.getArgonotToken();
+    const argonotToken = await this.getArgonotToken(args.argonToken.chainId);
     if (!argonotToken) {
       return null;
     }
@@ -526,17 +545,17 @@ export class StableSwaps {
     });
   }
 
-  private async getArgonotToken(): Promise<Token | null> {
+  private async getArgonotToken(chainId: number): Promise<Token | null> {
     try {
       const argonotTokenAddress =
         this.options.argonotTokenAddress ?? (await loadEthereumChainConfig())?.argonotTokenAddress;
-      return argonotTokenAddress ? getStableSwapArgonotToken(argonotTokenAddress) : null;
+      return argonotTokenAddress ? getStableSwapArgonotToken(argonotTokenAddress, chainId) : null;
     } catch {
       return null;
     }
   }
 
-  private async getArgonToken(): Promise<Token> {
+  private async getArgonToken(chainId: number): Promise<Token> {
     const argonTokenPromise =
       this.argonTokenPromise ??
       (async () => {
@@ -546,7 +565,7 @@ export class StableSwaps {
           throw new Error('Ethereum gateway chain config is not available on this Argon network.');
         }
 
-        return getStableSwapArgonToken(argonTokenAddress);
+        return getStableSwapArgonToken(argonTokenAddress, chainId);
       })();
     this.argonTokenPromise = argonTokenPromise;
 
@@ -584,9 +603,10 @@ export class StableSwaps {
     blockNumber?: bigint,
   ): Promise<StableSwapRoutePoolMetadata | null> {
     const [token0, token1] = sortUniswapTokens(tokenA, tokenB);
+    const factoryAddress = getStableSwapChainConfig(await this.getEthereumChainId()).uniswapV3.factory;
     const pools = await Promise.all(
       UNISWAP_FEE_TIERS.map(async poolFee => {
-        const poolAddress = getAddress(UniswapV3Pool.getAddress(tokenA, tokenB, poolFee));
+        const poolAddress = getAddress(UniswapV3Pool.getAddress(tokenA, tokenB, poolFee, undefined, factoryAddress));
 
         try {
           const [poolLiquidity, slot0] = (await Promise.all([
@@ -630,6 +650,23 @@ export class StableSwaps {
           return left.poolLiquidity > right.poolLiquidity ? -1 : 1;
         })[0] ?? null
     );
+  }
+
+  private async getEthereumChainId(): Promise<number> {
+    if (!this.chainIdPromise && this.options.chainId) {
+      this.chainIdPromise = Promise.resolve(this.options.chainId);
+    }
+    this.chainIdPromise ??= loadEthereumChainConfig().then(x => x?.chainId ?? ChainId.MAINNET);
+
+    const chainIdPromise = this.chainIdPromise;
+    try {
+      return await chainIdPromise;
+    } catch (error) {
+      if (this.chainIdPromise === chainIdPromise) {
+        this.chainIdPromise = undefined;
+      }
+      throw error;
+    }
   }
 }
 

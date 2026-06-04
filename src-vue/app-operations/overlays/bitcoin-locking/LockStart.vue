@@ -227,7 +227,9 @@ const couponMaxBtcLabel = Vue.computed(() => {
     return numeral(currency.convertSatToBtc(lockSatoshis.value)).format('0,0.[00000000]');
   }
 
-  return numeral(currency.convertSatToBtc(props.coupon.coupon.maxSatoshis)).format('0,0.[00000000]');
+  return numeral(availableLiquidityBtc.value || currency.convertSatToBtc(props.coupon.coupon.maxSatoshis)).format(
+    '0,0.[00000000]',
+  );
 });
 
 const neededMicrogons = Vue.computed(() => {
@@ -343,31 +345,17 @@ function closeOverlay() {
 
 async function setLiquidityVariables() {
   const syncId = ++availableLiquiditySyncId;
-  const nextVaultCapacityLiquidityMicrogons = props.vault.availableBitcoinSpace() ?? 0n;
-  const nextVaultCapacitySatoshis = await bitcoinLocks.satoshisForArgonLiquidity(nextVaultCapacityLiquidityMicrogons);
-  let nextAvailableSatoshis = nextVaultCapacitySatoshis;
-
-  if (props.coupon && isOperatorCouponLock.value) {
-    nextAvailableSatoshis =
-      props.coupon.coupon.maxSatoshis < nextVaultCapacitySatoshis
-        ? props.coupon.coupon.maxSatoshis
-        : nextVaultCapacitySatoshis;
-  }
-
-  while (
-    nextAvailableSatoshis > 0n &&
-    BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, nextAvailableSatoshis) >
-      nextVaultCapacityLiquidityMicrogons
-  ) {
-    nextAvailableSatoshis -= 1n;
-  }
-
-  const nextLiquidityMicrogons = BitcoinLock.calculateRedemptionAmountFromSatoshis(
-    currency.priceIndex,
-    nextAvailableSatoshis,
-  );
+  const {
+    availableSatoshis: nextAvailableSatoshis,
+    availableLiquidityMicrogons: nextAvailableLiquidityMicrogons,
+    vaultCapacitySatoshis: nextVaultCapacitySatoshis,
+    vaultCapacityLiquidityMicrogons: nextVaultCapacityLiquidityMicrogons,
+  } = await bitcoinLocks.getLockableBitcoinCapacity({
+    vault: props.vault,
+    maxSatoshis: props.coupon && isOperatorCouponLock.value ? props.coupon.coupon.maxSatoshis : undefined,
+  });
   const nextWholeArgonLiquidityMicrogons =
-    nextLiquidityMicrogons - (nextLiquidityMicrogons % BigInt(MICROGONS_PER_ARGON));
+    nextAvailableLiquidityMicrogons - (nextAvailableLiquidityMicrogons % BigInt(MICROGONS_PER_ARGON));
   const nextWholeArgonSatoshis =
     nextWholeArgonLiquidityMicrogons > 0n
       ? await bitcoinLocks.satoshisForArgonLiquidity(nextWholeArgonLiquidityMicrogons)

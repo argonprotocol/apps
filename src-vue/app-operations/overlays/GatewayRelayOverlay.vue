@@ -32,7 +32,7 @@
 
       <div v-else-if="preview" class="space-y-5">
         <p class="text-sm leading-6 text-slate-500">
-          This sends ready Ethereum gateway updates using your council signer wallet. Collect still records council approvals and collateralizes transfers separately; this step is only for the outbound Ethereum relay.
+          This sends ready Ethereum gateway updates using your Ethereum wallet. Collect still records council approvals and collateralizes transfers separately; this step is only for the outbound Ethereum relay.
         </p>
 
         <div v-if="submitSuccessHash" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -187,7 +187,7 @@ const previewMessage = Vue.computed(() => {
   }
 
   if (preview.value.canRelay) {
-    return 'These minting-authority updates are ready to relay to Ethereum from the council signer wallet shown above.';
+    return 'These minting-authority updates are ready to relay to Ethereum from the wallet shown above.';
   }
 
   if (preview.value.reason === 'paused') {
@@ -196,7 +196,7 @@ const previewMessage = Vue.computed(() => {
 
   if (preview.value.reason === 'insufficientBalance') {
     const missingWei = (preview.value.feeEstimateWei ?? 0n) - preview.value.ethereumBalanceWei;
-    return `The council signer wallet needs about ${formatEth(missingWei)} more ETH to cover this relay.`;
+    return `This wallet needs about ${formatEth(missingWei)} more ETH to cover this relay.`;
   }
 
   if (preview.value.reason === 'repaymentTooLow') {

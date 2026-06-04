@@ -432,6 +432,101 @@ describe('MintingAuthorities', () => {
       }),
     );
   });
+
+  it('requests pending-activation catch-up from the next runtime gateway nonce', async () => {
+    const requestEthereumGatewayCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const }));
+    const getEthereumRelayStatus = vi.fn(async () => ({ isReady: true }));
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve({} as any),
+      {} as any,
+      {
+        blockWatch: {
+          clients: {
+            get: vi.fn(async () => ({
+              query: {
+                crosschainTransfer: {
+                  gatewayStateBySourceChain: vi.fn(async () => ({
+                    isSome: true,
+                    unwrap: () => ({
+                      gatewayActivityNonce: { toBigInt: () => 7n },
+                    }),
+                  })),
+                },
+              },
+            })),
+          },
+        },
+      } as any,
+      { pendingBlockTxInfosAtLoad: [], data: { txInfos: [] } } as any,
+      async () => ({
+        serverApiClient: {
+          getEthereumRelayStatus,
+          requestEthereumGatewayCatchUp,
+        },
+      }),
+    );
+    const syncPendingActivationRelay = (
+      mintingAuthorities as unknown as {
+        syncPendingActivationRelay: (
+          authorities: Array<{ isPendingActivation: boolean; signer: string }>,
+        ) => Promise<void>;
+      }
+    ).syncPendingActivationRelay.bind(mintingAuthorities);
+
+    await syncPendingActivationRelay([{ isPendingActivation: true, signer: '0xabc' }]);
+
+    expect(getEthereumRelayStatus).toHaveBeenCalled();
+    expect(requestEthereumGatewayCatchUp).toHaveBeenCalledWith({
+      sourceChain: 'Ethereum',
+      throughGatewayActivityNonce: 8n,
+    });
+  });
+
+  it('does not re-request pending-activation catch-up until the runtime nonce or pending signer set changes', async () => {
+    const requestEthereumGatewayCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const }));
+    const getEthereumRelayStatus = vi.fn(async () => ({ isReady: true }));
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve({} as any),
+      {} as any,
+      {
+        blockWatch: {
+          clients: {
+            get: vi.fn(async () => ({
+              query: {
+                crosschainTransfer: {
+                  gatewayStateBySourceChain: vi.fn(async () => ({
+                    isSome: true,
+                    unwrap: () => ({
+                      gatewayActivityNonce: { toBigInt: () => 7n },
+                    }),
+                  })),
+                },
+              },
+            })),
+          },
+        },
+      } as any,
+      { pendingBlockTxInfosAtLoad: [], data: { txInfos: [] } } as any,
+      async () => ({
+        serverApiClient: {
+          getEthereumRelayStatus,
+          requestEthereumGatewayCatchUp,
+        },
+      }),
+    );
+    const syncPendingActivationRelay = (
+      mintingAuthorities as unknown as {
+        syncPendingActivationRelay: (
+          authorities: Array<{ isPendingActivation: boolean; signer: string }>,
+        ) => Promise<void>;
+      }
+    ).syncPendingActivationRelay.bind(mintingAuthorities);
+
+    await syncPendingActivationRelay([{ isPendingActivation: true, signer: '0xabc' }]);
+    await syncPendingActivationRelay([{ isPendingActivation: true, signer: '0xabc' }]);
+
+    expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(1);
+  });
 });
 
 function someAuthority(accountId: string, signer: string) {

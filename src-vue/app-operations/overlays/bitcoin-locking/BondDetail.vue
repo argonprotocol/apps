@@ -2,7 +2,6 @@
   <div class="flex flex-row gap-8 px-10 pt-6 pb-8">
     <div class="relative w-28 shrink-0 pt-1">
       <BondIcon class="w-28 opacity-50" />
-      <ArgonIcon class="absolute top-[73%] left-1/2 w-3 -translate-x-1/2 -translate-y-1/2 text-slate-700/70" />
     </div>
 
     <div class="grow">
@@ -55,7 +54,6 @@ import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { BondLot, type IFrameBondSummary } from '@argonprotocol/apps-core';
 import BondIcon from '../../../assets/bond.svg?component';
-import ArgonIcon from '../../../assets/currencies/argon.svg?component';
 
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);

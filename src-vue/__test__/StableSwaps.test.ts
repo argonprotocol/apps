@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ChainId } from '@uniswap/sdk-core';
 import { parseUnits } from 'viem';
 import { encodeSqrtRatioX96, TickMath } from '@uniswap/v3-sdk';
 import JSBI from 'jsbi';
@@ -14,7 +15,7 @@ import {
   stableSwapSdkPriceToFixed18,
 } from '../lib/StableSwapUtils.ts';
 import { hydrateStableSwapWallet } from '../lib/StableSwapWallet.ts';
-import { StableSwapProofStatus, type IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
+import { type IStableSwapPurchaseRecord, StableSwapProofStatus } from '../lib/db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
@@ -84,8 +85,8 @@ describe('StableSwaps', () => {
     expect(wallet.purchases[1].currentProfitMicrogons).toBe(100_000n);
   });
 
-  it('builds a Uniswap exact-output link with Argon prefilled and no input token override', async () => {
-    const url = await StableSwaps.buildStableSwapUniswapUrl(12_340_000n, undefined, {
+  it('builds a Uniswap output-prefill link with Argon and ETH prefilled', async () => {
+    const url = await StableSwaps.buildStableSwapUniswapUrl(12_340_000n, 'ETH', {
       argonTokenAddress: STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS,
     });
 
@@ -94,7 +95,7 @@ describe('StableSwaps', () => {
     expect(url).toContain('field=output');
     expect(url).toContain(`outputCurrency=${STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS}`);
     expect(url).toContain('value=12.34');
-    expect(url).not.toContain('inputCurrency=');
+    expect(url).toContain('inputCurrency=ETH');
   });
 
   it('resolves stable swap input tokens to Uniswap input currencies', async () => {
@@ -120,7 +121,7 @@ describe('StableSwaps', () => {
     });
 
     try {
-      const argonToken = getStableSwapArgonToken(STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS);
+      const argonToken = getStableSwapArgonToken(STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS, ChainId.MAINNET);
       const sqrtPriceX96 = encodeSqrtRatioX96((1n * 10n ** BigInt(argonToken.decimals)).toString(), '970000');
       const pool = createStableSwapSdkPool(
         {

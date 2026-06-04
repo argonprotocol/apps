@@ -12,6 +12,11 @@
       <SecuritySettingsMnemonics v-if="currentScreen === 'mnemonics'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsSSHAccess v-if="currentScreen === 'ssh'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsEncrypt v-if="currentScreen === 'encrypt'" @close="closeOverlay" @goTo="goTo" />
+      <SecuritySettingsExportEthereumPrivateKey
+        v-if="currentScreen === 'ethereum-export'"
+        @close="closeOverlay"
+        @goTo="goTo"
+      />
     </div>
   </OverlayBase>
 </template>
@@ -21,6 +26,7 @@ import * as Vue from 'vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
+import SecuritySettingsExportEthereumPrivateKey from './security-settings/ExportEthereumPrivateKey.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
 import SecuritySettingsSSHAccess from './security-settings/SSHAccess.vue';
 import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
@@ -29,7 +35,7 @@ import { useBasics } from '../../stores/basics.ts';
 const basics = useBasics();
 
 const isOpen = Vue.ref(false);
-const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt'>('overview');
+const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'ethereum-export'>('overview');
 const overlayWidth = Vue.ref(640);
 
 const title = Vue.computed(() => {
@@ -41,6 +47,8 @@ const title = Vue.computed(() => {
     return 'Connect to Mining Machine';
   } else if (currentScreen.value === 'mnemonics') {
     return 'Account Recovery Mnemonic';
+  } else if (currentScreen.value === 'ethereum-export') {
+    return 'Export Ethereum Private Key';
   }
   throw new Error('Invalid screen name');
 });
@@ -60,7 +68,7 @@ function goBack() {
   currentScreen.value = 'overview';
 }
 
-function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh') {
+function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh' | 'ethereum-export') {
   currentScreen.value = screen;
   if (screen === 'overview') {
     overlayWidth.value = 640;
@@ -68,7 +76,7 @@ function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh') {
     overlayWidth.value = 640;
   } else if (screen === 'mnemonics') {
     overlayWidth.value = 740;
-  } else if (screen === 'ssh') {
+  } else if (screen === 'ssh' || screen === 'ethereum-export') {
     overlayWidth.value = 740;
   }
 }

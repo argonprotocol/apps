@@ -35,6 +35,8 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     loadPromise = (async () => {
       await config.isLoadedPromise;
       await currency.isLoadedPromise;
+      marketError.value = '';
+      isLoadingMarket.value = true;
       const stableSwaps = await getStableSwaps();
       const targetPriceFixed18 = getTargetPriceFixed18();
 
@@ -55,8 +57,11 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
       await loadPromise;
     } catch (error) {
       loadPromise = undefined;
+      marketError.value = error instanceof Error ? error.message : String(error);
       console.error('Stable swaps failed to load', error);
       throw new Error('Stable swaps failed to load', { cause: error });
+    } finally {
+      isLoadingMarket.value = false;
     }
   }
 

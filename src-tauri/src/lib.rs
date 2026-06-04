@@ -180,6 +180,16 @@ async fn expose_mnemonic(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn export_default_ethereum_private_key(app: AppHandle) -> Result<String, String> {
+    let security = Security::load(&app).map_err(|e| e.to_string())?;
+    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
+    let hd_path = format!("{}/0'", security.ethereum_hd_prefixes.primary);
+    let private_key = ethereum_signer::export_private_key_at_path(&mnemonic, &hd_path)
+        .map_err(|e| e.to_string())?;
+    Ok(private_key)
+}
+
+#[tauri::command]
 async fn derive_sr25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], String> {
     let (_pair, seed) = Security::sr_derive(&app, suri).map_err(|e| e.to_string())?;
     Ok(seed)
@@ -810,6 +820,7 @@ pub fn run() {
             decrypt_x25519_message,
             derive_bitcoin_extended_key,
             expose_mnemonic,
+            export_default_ethereum_private_key,
             overwrite_mnemonic,
             measure_latency,
             load_instance,

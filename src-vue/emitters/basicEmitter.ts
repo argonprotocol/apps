@@ -4,14 +4,12 @@ import { PortfolioTab } from '../app-operations/panels/interfaces/IPortfolioTab.
 import { OperationalStepId } from '../app-operations/stores/controller.ts';
 import { ICurrencyKey, MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import type { SignClientTypes } from '@walletconnect/types';
 
 type IBasicEmitter = {
   openWalletOverlay: {
     walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
     showGuidance?: boolean;
   };
-  openSigningOverlay: SignClientTypes.EventArguments['session_request'];
   openMoveCapitalOverlay: {
     walletType: WalletType.miningHold | WalletType.vaulting;
     moveTo?: MoveTo;
@@ -19,7 +17,7 @@ type IBasicEmitter = {
   };
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' } | undefined;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'ethereum-export' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;

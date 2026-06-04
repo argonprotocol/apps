@@ -10,7 +10,7 @@ import {
 import { ApiDecoration, EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@argonprotocol/mainchain';
 import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
-import { createEthereumPublicClient, getEthereumExecutionRpcUrl, getEthereumFinalityMillis } from './EthereumClient.ts';
+import { getGatewayActivityWaitEstimateMs } from './EthereumClient.ts';
 import { requestEthereumGatewayCatchUpThroughOperator, type ServerApiClient } from './ServerApiClient.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import type { WalletKeys } from './WalletKeys.ts';
@@ -83,9 +83,9 @@ export class MintingAuthorities {
   #isSubscribing = false;
   #waitForLoad?: IDeferred;
   #updateSeq = 0;
-  #lastPendingActivationRelayLocatorIndex?: bigint;
   #pendingActivationRelayPromise?: Promise<void>;
-  #lastPendingActivationRelayCheckAt = 0;
+  #lastPendingActivationRelayKey?: string;
+  #lastPendingActivationRelayRequestAt = 0;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -439,20 +439,18 @@ export class MintingAuthorities {
   }
 
   private async syncPendingActivationRelay(authorities: IEthereumMintingAuthority[]): Promise<void> {
-    if (!authorities.some(authority => authority.isPendingActivation)) {
-      this.#lastPendingActivationRelayLocatorIndex = undefined;
+    const pendingActivationSigners = authorities
+      .filter(authority => authority.isPendingActivation)
+      .map(authority => authority.signer.toLowerCase())
+      .sort();
+    if (!pendingActivationSigners.length) {
+      this.#lastPendingActivationRelayKey = undefined;
+      this.#lastPendingActivationRelayRequestAt = 0;
       return;
     }
     if (this.#pendingActivationRelayPromise) {
       return;
     }
-
-    const now = Date.now();
-    const relayCheckMs = getEthereumFinalityMillis();
-    if (now - this.#lastPendingActivationRelayCheckAt < relayCheckMs) {
-      return;
-    }
-    this.#lastPendingActivationRelayCheckAt = now;
 
     const { serverApiClient, upstreamOperatorClient } = (await this.getGatewayRelayClients?.()) ?? {};
     if (!serverApiClient && !upstreamOperatorClient?.operatorHost) {
@@ -464,51 +462,30 @@ export class MintingAuthorities {
     const currentRuntimeGatewayActivityNonce = gatewayState.isSome
       ? gatewayState.unwrap().gatewayActivityNonce.toBigInt()
       : 0n;
-    if (!getEthereumExecutionRpcUrl()) {
+    const nextGatewayActivityNonce = currentRuntimeGatewayActivityNonce + 1n;
+    const relayKey = `${nextGatewayActivityNonce}:${pendingActivationSigners.join(',')}`;
+    const now = Date.now();
+    const relayRetryMs = getGatewayActivityWaitEstimateMs();
+    if (
+      relayKey === this.#lastPendingActivationRelayKey &&
+      now - this.#lastPendingActivationRelayRequestAt < relayRetryMs
+    ) {
       return;
     }
-
-    const chainConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    if (chainConfig.isNone || !chainConfig.unwrap().isEvm) {
-      return;
-    }
-
-    const ethereumClient = createEthereumPublicClient();
-    const gatewayAddress = chainConfig.unwrap().asEvm.gateway.toHex();
-    const latestLocatorIndex = await ethereumClient.readContract({
-      abi: EvmContracts.mintingGatewayAbi,
-      address: gatewayAddress,
-      functionName: 'latestActivityBlockLocatorIndex',
-    });
-    if (latestLocatorIndex === 0n || latestLocatorIndex === this.#lastPendingActivationRelayLocatorIndex) {
-      return;
-    }
-
-    const latestLocator: EvmContracts.MintingGatewayActivityBlockLocator = await ethereumClient.readContract({
-      abi: EvmContracts.mintingGatewayAbi,
-      address: gatewayAddress,
-      functionName: 'activityBlockLocators',
-      args: [latestLocatorIndex],
-    });
-    if (latestLocator.endGatewayActivityNonce <= currentRuntimeGatewayActivityNonce) {
-      this.#lastPendingActivationRelayLocatorIndex = latestLocatorIndex;
-      return;
-    }
+    this.#lastPendingActivationRelayKey = relayKey;
+    this.#lastPendingActivationRelayRequestAt = now;
 
     const relayPromise = (async () => {
       const relayError = await requestEthereumGatewayCatchUpThroughOperator({
-        throughGatewayActivityNonce: latestLocator.endGatewayActivityNonce,
+        throughGatewayActivityNonce: nextGatewayActivityNonce,
         serverApiClient,
         upstreamOperatorClient: upstreamOperatorClient?.operatorHost ? upstreamOperatorClient : undefined,
       });
       if (relayError) {
         console.warn(
-          `[MintingAuthorities] Unable to request relay for pending activation through gateway activity ${latestLocator.endGatewayActivityNonce}: ${relayError}`,
+          `[MintingAuthorities] Unable to request relay for pending activation through gateway activity ${nextGatewayActivityNonce}: ${relayError}`,
         );
-        return;
       }
-
-      this.#lastPendingActivationRelayLocatorIndex = latestLocatorIndex;
     })();
     this.#pendingActivationRelayPromise = relayPromise;
 

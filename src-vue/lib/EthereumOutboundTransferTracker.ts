@@ -9,6 +9,7 @@ import {
   EthereumClient,
   type IEthereumFinalizeTransferOutOfArgonArgs,
   type IEthereumMoveToken,
+  getEthereumUserErrorMessage,
   loadEthereumChainConfig,
   toEvmRecoverableSignature,
 } from './EthereumClient.ts';
@@ -34,6 +35,7 @@ import {
 import { WalletType } from './Wallet.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { MintingAuthorities, IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
+import { existentialDepositMicrogons, existentialDepositMicronots } from './WalletForArgon.ts';
 
 const NETWORK = 'Ethereum';
 type IEthereumOutboundTransferClient = Pick<
@@ -219,6 +221,25 @@ export class EthereumOutboundTransferTracker {
     return [lowEstimateWei, highEstimateWei] as const;
   }
 
+  public async getMaximumTransferOutAmount(
+    availableAmount: bigint,
+    moveToken: MoveToken.ARGN | MoveToken.ARGNOT,
+  ): Promise<bigint> {
+    if (availableAmount <= 0n) {
+      return 0n;
+    }
+
+    const client = await getMainchainClient(false);
+    const tipBasisPoints = BigInt(
+      client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints.toNumber(),
+    );
+    return calculateMaximumTransferOutAmount(
+      availableAmount,
+      tipBasisPoints,
+      moveToken === MoveToken.ARGNOT ? existentialDepositMicronots : existentialDepositMicrogons,
+    );
+  }
+
   public clearCompletedTransfer(id: string) {
     const transfer = this.data.transfersById[id];
     if (!transfer) {
@@ -273,9 +294,19 @@ export class EthereumOutboundTransferTracker {
   public async startMove(args: {
     moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
     amount: bigint;
+    availableAmount?: bigint;
     sourceWalletType: IArgonWalletType;
   }): Promise<IEthereumOutboundActiveTransfer | undefined> {
-    const { moveToken, amount, sourceWalletType } = args;
+    const { moveToken, amount, availableAmount, sourceWalletType } = args;
+    if (availableAmount != null) {
+      const maximumAmount = await this.getMaximumTransferOutAmount(availableAmount, moveToken);
+      if (amount > maximumAmount) {
+        throw new Error(
+          `A small ${moveToken} tip is reserved and the account must keep its minimum balance, so you cannot move the full balance.`,
+        );
+      }
+    }
+
     await this.load();
 
     const latestTransfer = this.getLatestTransfer(moveToken);
@@ -385,20 +416,28 @@ export class EthereumOutboundTransferTracker {
     }
 
     for (const txInfo of findPendingTransferOutTxInfos(this.transactionTracker.data.txInfos)) {
-      const existingRecord = await (
-        await this.dbPromise
-      ).crosschainOutboundTransfersTable.getLatestPendingByDestinationChainAndToken(
-        NETWORK,
-        txInfo.tx.metadataJson.moveToken,
+      const transferId = txInfo.tx.metadataJson.localTransferId ?? txInfo.tx.extrinsicHash;
+      const existingRecord = records.find(
+        record => record.id === transferId || record.argonRequestTransactionId === txInfo.tx.id,
       );
       if (existingRecord) {
         continue;
       }
 
-      const transfer = this.trackTransfer(
-        txInfo.tx.metadataJson.localTransferId ?? txInfo.tx.extrinsicHash,
-        txInfo.tx.metadataJson.moveToken,
-      );
+      const transfer = this.trackTransfer(transferId, txInfo.tx.metadataJson.moveToken, false);
+      const latestTransferId = this.data.latestTransferIdByToken[txInfo.tx.metadataJson.moveToken];
+      let latestTransfer = latestTransferId ? this.data.transfersById[latestTransferId] : undefined;
+      latestTransfer ??= transfer;
+      const latestPersistedRecord = latestTransfer?.persistedRecord;
+      const shouldPromotePendingTransfer =
+        latestTransfer === transfer ||
+        !latestPersistedRecord ||
+        hasUnacknowledgedFailure(latestPersistedRecord) ||
+        txInfo.tx.submittedAtTime.getTime() >= latestPersistedRecord.createdAt.getTime();
+      if (shouldPromotePendingTransfer) {
+        this.data.latestTransferIdByToken[txInfo.tx.metadataJson.moveToken] = transfer.id;
+      }
+
       transfer.transferState = {
         ...createEmptyTransferState(),
         amount: txInfo.tx.metadataJson.amount,
@@ -465,9 +504,13 @@ export class EthereumOutboundTransferTracker {
       transfer.transferState.hasPersistedTransfer = true;
       await this.completeTransferOutOnArgon(txInfo, transfer, persistedRecord);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unable to move funds from Argon to Ethereum.';
       await this.failTransfer(
         transfer.id,
-        error instanceof Error ? error.message : 'Unable to move funds from Argon to Ethereum.',
+        errorMessage ===
+          'Transaction failed due to insufficient funds. Please ensure your account has enough balance to cover the transaction fees.'
+          ? `A small ${moveToken} tip is reserved and the account must keep its minimum balance, so you cannot move the full balance.`
+          : errorMessage,
       );
     }
   }
@@ -584,7 +627,9 @@ export class EthereumOutboundTransferTracker {
   private async runResumeTrackedTransfer(record: ICrosschainOutboundTransferRecord) {
     const transfer = this.trackTransfer(record.id, record.token, false);
     const isComplete = record.status === CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain;
-    const hasFailure = hasUnacknowledgedFailure(record);
+    const isSubmittedToEthereum =
+      record.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain && !!record.targetTxHash;
+    const hasFailure = hasUnacknowledgedFailure(record) && !isSubmittedToEthereum;
     transfer.persistedRecord = record;
     transfer.transferState = {
       ...createEmptyTransferState(),
@@ -595,7 +640,7 @@ export class EthereumOutboundTransferTracker {
       hasPersistedTransfer: !isComplete,
       needsAcknowledgement: hasFailure,
       progress: createOutboundProgressFromRecord(record),
-      error: record.failureReason ?? '',
+      error: hasFailure ? (record.failureReason ?? '') : '',
     };
 
     try {
@@ -704,20 +749,25 @@ export class EthereumOutboundTransferTracker {
     }
 
     transfer.transferState.error = '';
-    transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
-      progressPct: 0,
-      detail: 'Preparing Ethereum transfer...',
-    });
-    if (transfer.transferState.ethereumFeeEstimateWei == null) {
-      transfer.transferState.ethereumFeeEstimateWei = await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee({
-        request: finalizeRequest,
-        proof: finalizeProof,
-      });
-    }
-    await this.ensureSufficientEthereumFeeBalance(transfer.transferState.ethereumFeeEstimateWei);
-
     let activeRecord = record;
     if (activeRecord.status === CrosschainOutboundTransferStatus.MintingAuthorized) {
+      transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+        progressPct: 0,
+        detail: 'Preparing Ethereum transfer...',
+      });
+      if (transfer.transferState.ethereumFeeEstimateWei == null) {
+        try {
+          transfer.transferState.ethereumFeeEstimateWei =
+            await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee({
+              request: finalizeRequest,
+              proof: finalizeProof,
+            });
+        } catch (error) {
+          throw new Error(getEthereumUserErrorMessage(error, 'Unable to prepare the Ethereum transfer right now.'));
+        }
+      }
+      await this.ensureSufficientEthereumFeeBalance(transfer.transferState.ethereumFeeEstimateWei);
+
       transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
         progressPct: 0,
         detail: 'Submitting transfer to Ethereum...',
@@ -733,6 +783,11 @@ export class EthereumOutboundTransferTracker {
         progressJson: transfer.transferState.progress,
       }))!;
       transfer.persistedRecord = activeRecord;
+    } else {
+      transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+        progressPct: Math.max(transfer.transferState.progress.steps[2]?.progressPct ?? 0, 1),
+        detail: 'Submitted to Ethereum. Waiting for confirmation...',
+      });
     }
 
     if (!activeRecord.targetTxHash) {
@@ -745,15 +800,32 @@ export class EthereumOutboundTransferTracker {
       blockNumber: activeRecord.targetBlockNumber,
       blockHash: activeRecord.targetBlockHash,
       onProgress: txProgress => {
+        const visibleConfirmationGoal = 4;
+        const visibleConfirmationCount =
+          txProgress.confirmations < 0 ? 0 : Math.min(visibleConfirmationGoal, txProgress.confirmations + 1);
+
+        let progressPct = 1;
+        let detail = 'Submitted to Ethereum. Waiting for confirmation...';
+        let hint: string | undefined;
+
+        if (visibleConfirmationCount > 0) {
+          progressPct = Math.round((visibleConfirmationCount / visibleConfirmationGoal) * 100);
+          detail =
+            visibleConfirmationCount === visibleConfirmationGoal
+              ? 'Submitted to Ethereum.'
+              : `Ethereum confirmation ${visibleConfirmationCount} of ${visibleConfirmationGoal}`;
+          hint =
+            visibleConfirmationCount === visibleConfirmationGoal
+              ? 'You can close this and check back later.'
+              : undefined;
+        }
+
         transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
-          progressPct: txProgress.progressPct,
-          detail: formatCrosschainBlockStepDetail({
-            blockType: 'Ethereum',
-            confirmations: txProgress.confirmations,
-            expectedConfirmations: txProgress.expectedConfirmations,
-          }),
-          confirmations: txProgress.confirmations,
-          expectedConfirmations: txProgress.expectedConfirmations,
+          progressPct,
+          detail,
+          hint,
+          confirmations: visibleConfirmationCount,
+          expectedConfirmations: visibleConfirmationGoal,
         });
       },
       onRpcDelay: txProgress => {
@@ -765,7 +837,7 @@ export class EthereumOutboundTransferTracker {
             1,
           ),
           detail: 'Submitted to Ethereum. Waiting for the RPC to confirm the transfer...',
-          hint: 'We will keep checking in the background.',
+          hint: 'You can close this and check back later.',
         });
       },
     });
@@ -927,8 +999,11 @@ export class EthereumOutboundTransferTracker {
         if (remainingMintingAuthorizationMicrogons != null && transfer.transferState.amount) {
           const authorizedMicrogons = transfer.transferState.amount - remainingMintingAuthorizationMicrogons;
           approvalPercent = getCappedPercent(authorizedMicrogons, transfer.transferState.amount);
-          detail = `Waiting for Minting Authorization (${approvalPercent}% authorized)`;
+        } else {
+          approvalPercent = 100;
         }
+        const displayedApprovalPercent = Math.round(approvalPercent);
+        detail = `Waiting for Minting Authorization (${displayedApprovalPercent}% authorized)`;
         if (ownAuthorityAlreadyAuthorized) {
           detail = detail.replace('Waiting for', 'Waiting for the remaining');
         }
@@ -936,7 +1011,7 @@ export class EthereumOutboundTransferTracker {
         transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
           progressPct: approvalPercent,
           detail,
-          approvalPercent,
+          approvalPercent: displayedApprovalPercent,
           remainingMintingAuthorizationMicrogons,
         });
         transfer.transferState.error = relayPauseReason ?? '';
@@ -1020,6 +1095,22 @@ export class EthereumOutboundTransferTracker {
   private async failTransfer(id: string, errorMessage: string) {
     const transfer = this.data.transfersById[id];
     if (!transfer) {
+      return;
+    }
+
+    if (
+      transfer.persistedRecord?.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain &&
+      transfer.persistedRecord.targetTxHash
+    ) {
+      transfer.transferState.error = '';
+      transfer.transferState.isSubmitting = true;
+      transfer.transferState.hasPersistedTransfer = true;
+      transfer.transferState.needsAcknowledgement = false;
+      transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+        progressPct: Math.max(transfer.transferState.progress.steps[2]?.progressPct ?? 0, 1),
+        detail: 'Submitted to Ethereum. Waiting for confirmation...',
+        hint: 'We will keep checking in the background.',
+      });
       return;
     }
 
@@ -1188,6 +1279,27 @@ function isAcknowledgedFailure(record: ICrosschainOutboundTransferRecord | undef
 
 function isTransferAlreadyFullyCoveredError(error: Error) {
   return error.message.includes('cannot accept more collateral because it is already fully covered');
+}
+
+function calculateMaximumTransferOutAmount(
+  availableAmount: bigint,
+  tipBasisPoints: bigint,
+  existentialDeposit: bigint,
+) {
+  const spendableAmount = availableAmount > existentialDeposit ? availableAmount - existentialDeposit : 0n;
+  if (tipBasisPoints <= 0n) {
+    return spendableAmount;
+  }
+
+  let amount = (spendableAmount * 10_000n) / (10_000n + tipBasisPoints);
+  while (amount > 0n && amount + calculateTransferOutMintingAuthorityTip(amount, tipBasisPoints) > spendableAmount) {
+    amount -= 1n;
+  }
+  return amount;
+}
+
+function calculateTransferOutMintingAuthorityTip(amount: bigint, tipBasisPoints: bigint) {
+  return (amount * tipBasisPoints) / 10_000n;
 }
 
 async function waitForReadyTransfer(

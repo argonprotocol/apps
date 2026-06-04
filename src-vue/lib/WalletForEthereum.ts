@@ -104,7 +104,7 @@ export class WalletForEthereum {
         address: this.address,
         error,
       });
-      this.data.fetchErrorMsg = error instanceof Error ? error.message : 'Unable to load Ethereum token balances.';
+      this.data.fetchErrorMsg = 'Unable to load Ethereum token balances.';
     } finally {
       this.isLoadingBalances = false;
     }

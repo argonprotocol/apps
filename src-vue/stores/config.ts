@@ -10,13 +10,21 @@ import { getWalletsForArgon, getWalletKeys } from './wallets.ts';
 import { WalletRecovery } from '../lib/WalletRecovery.ts';
 import { getMainchainClients, getMiningFrames } from './mainchain.ts';
 
+type GlobalConfigState = typeof globalThis & {
+  __argonConfig?: Vue.Reactive<Config>;
+};
+
+const globalConfigState = globalThis as GlobalConfigState;
+
 // Preserve the singleton Config instance across Vite HMR reloads so dev hot updates
 // do not trip Config's ensureOnlyOneInstance guard.
-let config: Vue.Reactive<Config> | undefined = import.meta.hot?.data.config;
+let config: Vue.Reactive<Config> | undefined = globalConfigState.__argonConfig ?? import.meta.hot?.data.config;
+globalConfigState.__argonConfig = config;
 
 if (import.meta.hot) {
   import.meta.hot.dispose(data => {
     data.config = config;
+    globalConfigState.__argonConfig = config;
   });
 }
 
@@ -28,7 +36,7 @@ export function getConfig(): Vue.Reactive<Config> {
     console.log('Initializing config');
     const dbPromise = getDbPromise();
     const walletKeys = getWalletKeys();
-    config = Vue.reactive(
+    config = globalConfigState.__argonConfig = Vue.reactive(
       new Config(dbPromise, walletKeys, async onProgress => {
         const myVault = getMyVault();
         const clients = getMainchainClients();

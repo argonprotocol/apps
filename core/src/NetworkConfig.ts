@@ -142,5 +142,7 @@ export interface IEthereumNetworkConfig {
 }
 
 export interface IBaseNetworkConfig {
+  chainId: number;
   rpcUrl: string;
+  usdcTokenAddress: string;
 }

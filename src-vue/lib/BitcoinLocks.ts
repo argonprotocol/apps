@@ -8,7 +8,7 @@ import {
   getScureNetwork,
   p2wshScriptHexToAddress,
 } from '@argonprotocol/bitcoin';
-import { Address, NETWORK, OutScript, TEST_NETWORK } from '@scure/btc-signer';
+import { Address, OutScript } from '@scure/btc-signer';
 import {
   ApiDecoration,
   ArgonClient,
@@ -17,8 +17,8 @@ import {
   hexToU8a,
   type IBitcoinLockConfig,
   type SubmittableExtrinsic,
-  type TxSigningAccount,
   TxResult,
+  type TxSigningAccount,
   u8aToHex,
   Vault,
 } from '@argonprotocol/mainchain';
@@ -45,9 +45,9 @@ import {
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
+  getPercent,
   IBlockHeaderInfo,
   IDeferred,
-  getPercent,
   MiningFrames,
   NetworkConfig,
   SATOSHIS_PER_BITCOIN,
@@ -57,7 +57,7 @@ import type { BitcoinLockRelayStatus, IBitcoinLockCouponStatus } from '@argonpro
 import { TransactionTracker } from './TransactionTracker.ts';
 import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
-import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from './db/TransactionsTable.ts';
+import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
 
@@ -519,6 +519,39 @@ export default class BitcoinLocks {
   public async satoshisForArgonLiquidity(microgonLiquidity: bigint): Promise<bigint> {
     await this.#currency.load(true);
     return BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, microgonLiquidity);
+  }
+
+  public async getLockableBitcoinCapacity(args: { vault: Vault; maxSatoshis?: bigint }): Promise<{
+    availableSatoshis: bigint;
+    availableLiquidityMicrogons: bigint;
+    vaultCapacitySatoshis: bigint;
+    vaultCapacityLiquidityMicrogons: bigint;
+  }> {
+    const { vault, maxSatoshis } = args;
+    const vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace() ?? 0n;
+    const vaultCapacitySatoshis = await this.satoshisForArgonLiquidity(vaultCapacityLiquidityMicrogons);
+    let availableSatoshis =
+      maxSatoshis != null && maxSatoshis < vaultCapacitySatoshis ? maxSatoshis : vaultCapacitySatoshis;
+
+    while (
+      availableSatoshis > 0n &&
+      BitcoinLock.calculateRedemptionAmountFromSatoshis(this.#currency.priceIndex, availableSatoshis) >
+        vaultCapacityLiquidityMicrogons
+    ) {
+      availableSatoshis -= 1n;
+    }
+
+    const availableLiquidityMicrogons = BitcoinLock.calculateRedemptionAmountFromSatoshis(
+      this.#currency.priceIndex,
+      availableSatoshis,
+    );
+
+    return {
+      availableSatoshis,
+      availableLiquidityMicrogons,
+      vaultCapacitySatoshis,
+      vaultCapacityLiquidityMicrogons,
+    };
   }
 
   private async canPayMinimumFee(args: {

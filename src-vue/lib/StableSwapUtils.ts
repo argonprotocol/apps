@@ -36,7 +36,6 @@ export const UNISWAP_V3_POOL_EVENTS_ABI = uniswapV3PoolEventsArtifact.abi as Abi
 
 export const FIXED_18 = 10n ** 18n;
 export const USDC_TO_FIXED_18_FACTOR = 10n ** 12n;
-export const STABLE_SWAP_CHAIN_ID = ChainId.MAINNET;
 export const ETHEREUM_ARGON_DECIMALS = 18;
 export const USDC_DECIMALS = 6;
 export const USDT_DECIMALS = 6;
@@ -45,26 +44,59 @@ export const ETHEREUM_ARGONOT_DECIMALS = 18;
 export const ONE_ETHEREUM_ARGON = 10n ** BigInt(ETHEREUM_ARGON_DECIMALS);
 export const ETHEREUM_ARGON_BASE_UNITS_PER_MICROGON = 10n ** 12n;
 export const STABLE_SWAP_TRANSFER_EVENT = erc20Abi.find(item => item.type === 'event' && item.name === 'Transfer')!;
-export const STABLE_SWAP_USDT_TOKEN_ADDRESS = getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7');
-export const STABLE_SWAP_WETH_TOKEN_ADDRESS = getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
 
-export function getStableSwapArgonTokenAddress(argonTokenAddress: string): Address {
-  return getAddress(argonTokenAddress);
-}
+type StableSwapChainConfig = {
+  chainId: ChainId.MAINNET | ChainId.SEPOLIA;
+  tokenAddresses: {
+    weth: Address;
+    usdt: Address;
+  };
+  uniswapV3: {
+    factory: Address;
+    quoterV2: Address;
+  };
+};
 
-export function getStableSwapArgonToken(argonTokenAddress: string): Token {
-  return new Token(
-    STABLE_SWAP_CHAIN_ID,
-    getStableSwapArgonTokenAddress(argonTokenAddress),
-    ETHEREUM_ARGON_DECIMALS,
-    'ARGN',
-    'Argon',
+const stableSwapChainConfigById: Record<ChainId.MAINNET | ChainId.SEPOLIA, StableSwapChainConfig> = {
+  [ChainId.MAINNET]: {
+    chainId: ChainId.MAINNET,
+    tokenAddresses: {
+      usdt: getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7'),
+      weth: getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
+    },
+    uniswapV3: {
+      factory: getAddress('0x1F98431c8aD98523631AE4a59f267346ea31F984'),
+      quoterV2: getAddress('0x61fFE014bA17989E743c5F6cB21bF9697530B21e'),
+    },
+  },
+  [ChainId.SEPOLIA]: {
+    chainId: ChainId.SEPOLIA,
+    tokenAddresses: {
+      usdt: getAddress('0xaa8e23fb1079ea71e0a56f48a2aa51851d8433d0'),
+      weth: getAddress('0xfff9976782d46cc05630d1f6ebab18b2324d6b14'),
+    },
+    uniswapV3: {
+      factory: getAddress('0x0227628f3F023bb0B980b67D528571c95c6DaC1c'),
+      quoterV2: getAddress('0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3'),
+    },
+  },
+};
+
+export function getStableSwapChainConfig(chainId: number) {
+  return (
+    stableSwapChainConfigById[chainId as StableSwapChainConfig['chainId']] ?? stableSwapChainConfigById[ChainId.MAINNET]
   );
 }
 
-export function getStableSwapUsdcToken(): Token {
+export function getStableSwapArgonToken(argonTokenAddress: string, chainId: number): Token {
+  const stableSwapChain = getStableSwapChainConfig(chainId);
+  return new Token(stableSwapChain.chainId, getAddress(argonTokenAddress), ETHEREUM_ARGON_DECIMALS, 'ARGN', 'Argon');
+}
+
+export function getStableSwapUsdcToken(chainId: number): Token {
+  const stableSwapChain = getStableSwapChainConfig(chainId);
   return new Token(
-    STABLE_SWAP_CHAIN_ID,
+    stableSwapChain.chainId,
     getAddress(NetworkConfig.get().ethereumNetwork.usdcTokenAddress),
     USDC_DECIMALS,
     'USDC',
@@ -72,16 +104,30 @@ export function getStableSwapUsdcToken(): Token {
   );
 }
 
-export function getStableSwapUsdtToken(): Token {
-  return new Token(STABLE_SWAP_CHAIN_ID, STABLE_SWAP_USDT_TOKEN_ADDRESS, USDT_DECIMALS, 'USDT', 'Tether USD');
+export function getStableSwapUsdtToken(chainId: number): Token {
+  const stableSwapChain = getStableSwapChainConfig(chainId);
+  return new Token(stableSwapChain.chainId, stableSwapChain.tokenAddresses.usdt, USDT_DECIMALS, 'USDT', 'Tether USD');
 }
 
-export function getStableSwapWethToken(): Token {
-  return new Token(STABLE_SWAP_CHAIN_ID, STABLE_SWAP_WETH_TOKEN_ADDRESS, WETH_DECIMALS, 'WETH', 'Wrapped Ether');
+export function getStableSwapWethToken(chainId: number): Token {
+  const stableSwapChain = getStableSwapChainConfig(chainId);
+  return new Token(
+    stableSwapChain.chainId,
+    stableSwapChain.tokenAddresses.weth,
+    WETH_DECIMALS,
+    'WETH',
+    'Wrapped Ether',
+  );
 }
 
-export function getStableSwapArgonotToken(address: Address): Token {
-  return new Token(STABLE_SWAP_CHAIN_ID, getAddress(address), ETHEREUM_ARGONOT_DECIMALS, 'ARGNOT', 'Argonot');
+export function getStableSwapArgonotToken(address: Address, chainId: number): Token {
+  return new Token(
+    getStableSwapChainConfig(chainId).chainId,
+    getAddress(address),
+    ETHEREUM_ARGONOT_DECIMALS,
+    'ARGNOT',
+    'Argonot',
+  );
 }
 
 export function createStableSwapSdkPool(
@@ -89,7 +135,7 @@ export function createStableSwapSdkPool(
   argonToken: Token,
   state?: StableSwapSdkPoolState,
 ): UniswapV3Pool {
-  const usdcToken = getStableSwapUsdcToken();
+  const usdcToken = getStableSwapUsdcToken(argonToken.chainId);
   const poolState = state ?? {
     sqrtPriceX96: pool.currentSqrtPriceX96,
     liquidity: pool.poolLiquidity,

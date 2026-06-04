@@ -312,10 +312,7 @@ export class EthereumClient {
 
     const latestExecutionBlockNumber = Number(await publicClient.getBlockNumber());
     const confirmations = Math.max(0, latestExecutionBlockNumber - receiptBlockNumber);
-    const progressPct = Math.min(
-      100,
-      Math.round((Math.min(confirmations, expectedConfirmations) / expectedConfirmations) * 100),
-    );
+    const progressPct = Math.min(100, (Math.min(confirmations, expectedConfirmations) / expectedConfirmations) * 100);
 
     return {
       blockNumber: receiptBlockNumber,

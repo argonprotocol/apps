@@ -43,8 +43,10 @@ describe('VaultCollectBuilder.getNotice', () => {
       councilApprovalCount: 1,
       authorizedTransferCount: 3,
       authorizedTransferRewardAmount: 50n,
+      pendingAuthorizedTransferCount: 0,
+      pendingAuthorizedTransferRewardAmount: 0n,
       signaturePenalty: 50n,
-      earningsAmountMicrogons: 92n,
+      earningsAmountMicrogons: 42n,
       amountAtRiskMicrogons: 57n,
       transactionCount: 4,
     });
@@ -68,8 +70,10 @@ describe('VaultCollectBuilder.getNotice', () => {
       councilApprovalCount: 2,
       authorizedTransferCount: 1,
       authorizedTransferRewardAmount: 25n,
+      pendingAuthorizedTransferCount: 0,
+      pendingAuthorizedTransferRewardAmount: 0n,
       signaturePenalty: 0n,
-      earningsAmountMicrogons: 25n,
+      earningsAmountMicrogons: 0n,
       amountAtRiskMicrogons: 0n,
       transactionCount: 2,
     });

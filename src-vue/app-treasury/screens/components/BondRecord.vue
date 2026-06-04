@@ -6,7 +6,8 @@
         <div FirstRow>
           <span class="font-semibold">{{ numeral(bondLot.bonds).format('0,0') }} Bonds</span>
           <span class="font-light">
-            bought {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).format('M/D/YYYY [at] h:mm a') }}
+            bought
+            {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).local().format('M/D/YYYY [at] h:mm a') }}
           </span>
           <div v-if="isReleasing" class="text-sm text-amber-700">
             Releasing
@@ -34,7 +35,7 @@
             @mouseleave="isActionHovered = false"
           >
             <button
-              @click.stop="openLiquidateOverlay($event, bondLot)"
+              @click.stop="emit('liquidate', bondLot)"
               :disabled="isReleasing"
               class="bg-argon-600 border-argon-800 hover:bg-argon-700 cursor-pointer rounded-md border px-5 text-white hover:shadow-lg"
             >
@@ -62,7 +63,7 @@
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
-          <span>Josh's Vault</span>
+          <span>{{ vaultLabel }}</span>
         </div>
       </div>
     </section>
@@ -79,12 +80,14 @@ import { getCurrency } from '../../../stores/currency.ts';
 import CountdownClock from '../../../components/CountdownClock.vue';
 import { BondLot } from '@argonprotocol/apps-core';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
+import { getVaults } from '../../../stores/vaults.ts';
 import BigNumber from 'bignumber.js';
 
 dayjs.extend(utc);
 
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
+const vaults = getVaults();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -99,18 +102,19 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  liquidate: [event: MouseEvent, bondLot: BondLot];
+  liquidate: [bondLot: BondLot];
 }>();
 
 const isActionHovered = Vue.ref(false);
+const vaultLabel = Vue.computed(() => {
+  const vault = vaults.vaultsById[props.bondLot.vaultId];
+  const name = vault?.name?.trim();
+  return name ? `${name} Vault` : `Vault #${props.bondLot.vaultId}`;
+});
 
 function returnToDate(investment: bigint, earnings: bigint): number {
   const pctBn = BigNumber(earnings).dividedBy(investment);
   return pctBn.multipliedBy(100).toNumber();
-}
-
-function openLiquidateOverlay(event: MouseEvent, bondLot: BondLot) {
-  emit('liquidate', event, bondLot);
 }
 </script>
 

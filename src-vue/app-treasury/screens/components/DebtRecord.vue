@@ -13,8 +13,9 @@
         </div>
         <div SecondRow>
           <span>
-            Backed by {{ satToBtcNm(lockSummary.satoshis).format('0,0.[000000]') }} of BTC from Josh's Vault, which
-            locked on {{ dayjs.utc(lockSummary.createdAt).format('M/D/YYYY [at] h:mm a') }}
+            Backed by {{ satToBtcNm(lockSummary.satoshis).format('0,0.[000000]') }} of BTC from {{ vaultLabel }}, which
+            locked on
+            {{ dayjs.utc(lockSummary.createdAt).local().format('M/D/YYYY [at] h:mm a') }}
           </span>
         </div>
       </div>
@@ -32,12 +33,14 @@ import { ILockSummary } from '../../stores/financials.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
+import { getVaults } from '../../../stores/vaults.ts';
 import BigNumber from 'bignumber.js';
 
 dayjs.extend(utc);
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
+const vaults = getVaults();
 
 const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
@@ -58,6 +61,11 @@ const emit = defineEmits<{
 
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
+const vaultLabel = Vue.computed(() => {
+  const vault = vaults.vaultsById[props.lockSummary.record.vaultId];
+  const name = vault?.name?.trim();
+  return name ? `${name} Vault` : `Vault #${props.lockSummary.record.vaultId}`;
+});
 const mismatchAcceptProgress = Vue.computed(() => {
   if (!lockRecord.value.utxoId) {
     return { progressPct: 0, error: '' };

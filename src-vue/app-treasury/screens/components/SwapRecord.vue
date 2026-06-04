@@ -7,7 +7,7 @@
     >
       <div class="rounded border border-slate-500/20 px-2 py-4 text-center">
         <div :class="walletOutputAmount ? 'text-argon-600' : 'text-slate-600/90'" class="text-4xl font-bold">
-          +{{ numeral(swap.returnPct).format('0,0.[00]') }}%
+          {{ swap.returnPct > 0 ? '+' : '' }}{{ numeral(swap.returnPct).format('0,0.[00]') }}%
         </div>
         <div :class="walletOutputAmount ? 'text-argon-600/70' : 'text-slate-600/90'" class="mt-1 text-sm font-bold">
           ON ETHEREUM
@@ -120,7 +120,7 @@ const walletOutputAmount = Vue.computed(() => {
 
 async function openCurrentTrade() {
   const inputCurrency = await StableSwaps.getInputCurrency(props.swap.inputToken);
-  if (!inputCurrency) return;
+  if (!inputCurrency && props.swap.inputToken !== UnitOfMeasurement.ETH) return;
 
   const swapUrl = await StableSwaps.buildStableSwapUniswapUrl(walletOutputAmount.value, inputCurrency);
   if (!swapUrl) return;

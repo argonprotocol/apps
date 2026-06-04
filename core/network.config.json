@@ -13,7 +13,9 @@
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": ""
+      "chainId": 8453,
+      "rpcUrl": "",
+      "usdcTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -34,7 +36,9 @@
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": ""
+      "chainId": 8453,
+      "rpcUrl": "",
+      "usdcTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -52,10 +56,12 @@
       "beaconApiUrl": "https://ethereum-sepolia-beacon-api.publicnode.com",
       "executionRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
       "finalityBlocks": 32,
-      "usdcTokenAddress": "0x74ce1e12998fB861A612CD6C65244f8620e2937A"
+      "usdcTokenAddress": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
     },
     "baseNetwork": {
-      "rpcUrl": "https://mainnet.base.org"
+      "chainId": 84532,
+      "rpcUrl": "https://sepolia.base.org",
+      "usdcTokenAddress": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
     },
     "ticksBetweenFrames": 1440,
     "slotBiddingStartAfterTicks": 17280,
@@ -76,7 +82,9 @@
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": "https://mainnet.base.org"
+      "chainId": 8453,
+      "rpcUrl": "https://mainnet.base.org",
+      "usdcTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     },
     "ticksBetweenFrames": 1440,
     "slotBiddingStartAfterTicks": 55661,

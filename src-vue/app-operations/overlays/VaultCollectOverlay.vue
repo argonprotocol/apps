@@ -8,7 +8,7 @@
     class="">
     <div box class="flex flex-col gap-y-6 px-5 py-3">
       <div
-        v-if="!showCollectSection && !showSponsorSection"
+        v-if="!showCollectSection && !showMintingAuthorizeSection"
         class="rounded-md border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600">
         No vault actions are currently available.
       </div>
@@ -112,56 +112,75 @@
         </div>
       </section>
 
-      <section v-if="showSponsorSection" class="flex flex-col gap-y-3 border-t border-slate-200 pt-6">
+      <section v-if="showMintingAuthorizeSection" class="flex flex-col gap-y-3 border-t border-slate-200 pt-6">
         <div>
-          <div class="text-lg font-semibold text-slate-800">Sponsor Crosschain Transfers</div>
-          <p class="mt-2 text-sm text-slate-600">
-            You have
+          <div class="text-lg font-semibold text-slate-800">Authorize Crosschain Transfers</div>
+          <p v-if="isMintingAuthorizeBusy && pendingAuthorizedTransferCount > 0" class="mt-2 text-sm text-slate-600">
+            Authorizing
             <strong>
-              {{ sponsorOpportunityCount }} sponsorship opportunit{{ sponsorOpportunityCount === 1 ? 'y' : 'ies' }}
+              {{ pendingAuthorizedTransferCount }} crosschain transfer{{
+                pendingAuthorizedTransferCount === 1 ? '' : 's'
+              }}
             </strong>
-            ready on Argon
-            <template v-if="sponsorRewardAmount > 0n">
+            <template v-if="pendingAuthorizedTransferRewardAmount > 0n">
               for
               <strong>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(sponsorRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(pendingAuthorizedTransferRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
               </strong>.
             </template>
             <span v-else>.</span>
           </p>
+
+          <p v-else-if="mintingAuthorizeOpportunityCount > 0" class="mt-2 text-sm text-slate-600">
+            You have
+            <strong>
+              {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? 'y' : 'ies' }}
+            </strong>
+            ready on Argon
+            <template v-if="mintingAuthorizeRewardAmount > 0n">
+              for
+              <strong>
+                {{ currency.symbol
+                }}{{ microgonToMoneyNm(mintingAuthorizeRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              </strong>.
+            </template>
+            <span v-else>.</span>
+          </p>
+
+          <p v-else class="mt-2 text-sm text-slate-600">No crosschain authorizations are currently available.</p>
         </div>
 
         <div
-          v-if="sponsorUpdateMessage"
+          v-if="mintingAuthorizeUpdateMessage"
           class="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-          {{ sponsorUpdateMessage }}
+          {{ mintingAuthorizeUpdateMessage }}
         </div>
 
-        <div v-if="sponsorError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {{ sponsorError }}
+        <div v-if="mintingAuthorizeError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {{ mintingAuthorizeError }}
         </div>
 
         <button
-          @click="submitSponsor"
-          :disabled="isSponsorBusy || authorizedTransferCount === 0"
+          @click="submitMintingAuthorize"
+          :disabled="isMintingAuthorizeBusy || authorizedTransferCount === 0"
           class="bg-argon-600 hover:bg-argon-700 mt-2 mb-1 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white disabled:cursor-default disabled:opacity-40">
-          {{ sponsorButtonLabel }}
+          {{ mintingAuthorizeButtonLabel }}
         </button>
 
-        <div v-if="showSponsorProgress" class="rounded-md border border-slate-200 bg-slate-50 px-4 py-4">
+        <div v-if="showMintingAuthorizeProgress" class="rounded-md border border-slate-200 bg-slate-50 px-4 py-4">
           <div class="mb-3 text-sm font-semibold text-slate-700">
             {{
-              activeSponsorTransactionCount === 1
-                ? 'Submitting sponsorship on Argon...'
-                : `Submitting ${activeSponsorTransactionCount} sponsorship transactions on Argon...`
+              activeMintingAuthorizeTransactionCount === 1
+                ? 'Submitting crosschain authorization on Argon...'
+                : `Submitting ${activeMintingAuthorizeTransactionCount} crosschain authorizations on Argon...`
             }}
           </div>
 
-          <ProgressBar :progress="sponsorProgressPct" :showLabel="false" class="h-4" />
+          <ProgressBar :progress="mintingAuthorizeProgressPct" :showLabel="false" class="h-4" />
 
           <div class="mt-3 text-sm text-slate-500">
-            {{ sponsorProgressLabel || 'Preparing transaction...' }}
+            {{ mintingAuthorizeProgressLabel || 'Preparing transaction...' }}
           </div>
         </div>
       </section>
@@ -201,6 +220,8 @@ const collectRevenue = Vue.ref(0n);
 const councilApprovalCount = Vue.ref(0);
 const authorizedTransferCount = Vue.ref(0);
 const authorizedTransferRewardAmount = Vue.ref(0n);
+const pendingAuthorizedTransferCount = Vue.ref(0);
+const pendingAuthorizedTransferRewardAmount = Vue.ref(0n);
 const manualPendingCosignCount = Vue.ref(0);
 const manualPendingCosignSum = Vue.ref(0n);
 const nextCollectDueDate = Vue.ref(dayjs.utc(0));
@@ -213,12 +234,12 @@ const collectProgressLabel = Vue.ref('');
 const collectError = Vue.ref('');
 const activeCollectTransactionCount = Vue.ref(0);
 
-const isSubmittingSponsor = Vue.ref(false);
-const sponsorProgressPct = Vue.ref(0);
-const sponsorProgressLabel = Vue.ref('');
-const sponsorError = Vue.ref('');
-const sponsorUpdateMessage = Vue.ref('');
-const activeSponsorTransactionCount = Vue.ref(0);
+const isSubmittingMintingAuthorize = Vue.ref(false);
+const mintingAuthorizeProgressPct = Vue.ref(0);
+const mintingAuthorizeProgressLabel = Vue.ref('');
+const mintingAuthorizeError = Vue.ref('');
+const mintingAuthorizeUpdateMessage = Vue.ref('');
+const activeMintingAuthorizeTransactionCount = Vue.ref(0);
 
 const latestMyPendingBitcoinCosignTxInfo = Vue.computed(() => {
   return Array.from(myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.values()).at(-1);
@@ -239,7 +260,7 @@ const activeCollectTxInfos = Vue.computed(() => {
   return getUniqueTransactionInfos(txInfos);
 });
 
-const activeSponsorTxInfos = Vue.computed(() => {
+const activeMintingAuthorizeTxInfos = Vue.computed(() => {
   return getUniqueTransactionInfos([
     ...myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.values(),
   ]) as TransactionInfo<IMintingAuthorityAuthorizeMetadata>[];
@@ -253,18 +274,21 @@ const isCollectBusy = Vue.computed(() => {
   return isSubmittingCollect.value || activeCollectTxInfos.value.length > 0;
 });
 
-const isSponsorBusy = Vue.computed(() => {
-  return isSubmittingSponsor.value || activeSponsorTxInfos.value.length > 0;
+const isMintingAuthorizeBusy = Vue.computed(() => {
+  return isSubmittingMintingAuthorize.value || activeMintingAuthorizeTxInfos.value.length > 0;
 });
 
 const showCollectSection = Vue.computed(() => {
   return hasCollectWork.value || isCollectBusy.value || !!collectError.value;
 });
 
-const showSponsorSection = Vue.computed(() => {
+const showMintingAuthorizeSection = Vue.computed(() => {
   return (
     registeredMintingAuthorityCount.value > 0 &&
-    (authorizedTransferCount.value > 0 || isSponsorBusy.value || !!sponsorError.value || !!sponsorUpdateMessage.value)
+    (authorizedTransferCount.value > 0 ||
+      isMintingAuthorizeBusy.value ||
+      !!mintingAuthorizeError.value ||
+      !!mintingAuthorizeUpdateMessage.value)
   );
 });
 
@@ -272,31 +296,16 @@ const showCollectProgress = Vue.computed(() => {
   return isCollectBusy.value || collectProgressPct.value > 0;
 });
 
-const showSponsorProgress = Vue.computed(() => {
-  return isSponsorBusy.value || sponsorProgressPct.value > 0;
+const showMintingAuthorizeProgress = Vue.computed(() => {
+  return isMintingAuthorizeBusy.value || mintingAuthorizeProgressPct.value > 0;
 });
 
-const activeSponsorOpportunityCount = Vue.computed(() => {
-  return activeSponsorTxInfos.value.reduce((sum, txInfo) => {
-    return sum + txInfo.tx.metadataJson.authorizations.length;
-  }, 0);
+const mintingAuthorizeOpportunityCount = Vue.computed(() => {
+  return authorizedTransferCount.value;
 });
 
-const activeSponsorRewardAmount = Vue.computed(() => {
-  return activeSponsorTxInfos.value.reduce((sum, txInfo) => {
-    return (
-      sum +
-      txInfo.tx.metadataJson.authorizations.reduce((txSum, { mintingAuthorityTip }) => txSum + mintingAuthorityTip, 0n)
-    );
-  }, 0n);
-});
-
-const sponsorOpportunityCount = Vue.computed(() => {
-  return authorizedTransferCount.value || activeSponsorOpportunityCount.value;
-});
-
-const sponsorRewardAmount = Vue.computed(() => {
-  return authorizedTransferRewardAmount.value || activeSponsorRewardAmount.value;
+const mintingAuthorizeRewardAmount = Vue.computed(() => {
+  return authorizedTransferRewardAmount.value;
 });
 
 const overlayTitle = Vue.computed(() => {
@@ -325,17 +334,17 @@ const collectButtonLabel = Vue.computed(() => {
   return 'Submit Vault Actions';
 });
 
-const sponsorButtonLabel = Vue.computed(() => {
-  if (isSponsorBusy.value) {
+const mintingAuthorizeButtonLabel = Vue.computed(() => {
+  if (isMintingAuthorizeBusy.value) {
     return 'Submitting...';
   }
-  if (sponsorOpportunityCount.value === 1) {
-    return 'Sponsor Crosschain Transfer';
+  if (mintingAuthorizeOpportunityCount.value === 1) {
+    return 'Crosschain Transfer Authorization';
   }
-  if (sponsorOpportunityCount.value === 0) {
-    return 'Sponsor Crosschain Transfers';
+  if (mintingAuthorizeOpportunityCount.value === 0) {
+    return 'Crosschain Transfer Authorizations';
   }
-  return `Sponsor ${sponsorOpportunityCount.value} Crosschain Transfers`;
+  return `${mintingAuthorizeOpportunityCount.value} Crosschain Transfer Authorizations`;
 });
 
 function closeOverlay() {
@@ -349,6 +358,8 @@ function syncNoticeState() {
   councilApprovalCount.value = notice?.councilApprovalCount ?? 0;
   authorizedTransferCount.value = notice?.authorizedTransferCount ?? 0;
   authorizedTransferRewardAmount.value = notice?.authorizedTransferRewardAmount ?? 0n;
+  pendingAuthorizedTransferCount.value = notice?.pendingAuthorizedTransferCount ?? 0;
+  pendingAuthorizedTransferRewardAmount.value = notice?.pendingAuthorizedTransferRewardAmount ?? 0n;
   manualPendingCosignCount.value = notice?.signatureCount ?? 0;
   manualPendingCosignSum.value = notice?.signaturePenalty ?? 0n;
   nextCollectDueDate.value = dayjs.utc(notice?.nextCollectDueDate ?? 0);
@@ -365,6 +376,7 @@ Vue.watch(
     myVault.globalCouncil.data.pendingApprovals.length,
     myVault.mintingAuthorities.data.authorities.length,
     myVault.mintingAuthorities.data.pendingMintingAuthorizations.length,
+    myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.size,
     myVault.data.pendingCosignUtxosById.size,
     myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.size,
   ],
@@ -393,23 +405,23 @@ async function submitCollect() {
   }
 }
 
-async function submitSponsor() {
-  if (isSponsorBusy.value || authorizedTransferCount.value === 0) {
+async function submitMintingAuthorize() {
+  if (isMintingAuthorizeBusy.value || authorizedTransferCount.value === 0) {
     return;
   }
 
-  isSubmittingSponsor.value = true;
-  sponsorError.value = '';
-  sponsorUpdateMessage.value = '';
-  sponsorProgressLabel.value = 'Preparing transaction...';
+  isSubmittingMintingAuthorize.value = true;
+  mintingAuthorizeError.value = '';
+  mintingAuthorizeUpdateMessage.value = '';
+  mintingAuthorizeProgressLabel.value = 'Preparing transaction...';
 
   try {
     await myVault.mintingAuthorities.authorize();
   } catch (error) {
-    sponsorError.value = error instanceof Error ? error.message : `${error}`;
-    isSubmittingSponsor.value = false;
-    sponsorProgressPct.value = 0;
-    sponsorProgressLabel.value = '';
+    mintingAuthorizeError.value = error instanceof Error ? error.message : `${error}`;
+    isSubmittingMintingAuthorize.value = false;
+    mintingAuthorizeProgressPct.value = 0;
+    mintingAuthorizeProgressLabel.value = '';
   }
 }
 
@@ -431,23 +443,23 @@ Vue.watch(
 );
 
 Vue.watch(
-  activeSponsorTxInfos,
+  activeMintingAuthorizeTxInfos,
   (txInfos, previousTxInfos, onCleanup) => {
     if (!txInfos.length && previousTxInfos?.length) {
-      const sponsorCompletionMessage = getSponsorCompletionMessage(previousTxInfos);
-      if (sponsorCompletionMessage) {
-        sponsorError.value = '';
-        sponsorUpdateMessage.value = sponsorCompletionMessage;
+      const mintingAuthorizeCompletionMessage = getMintingAuthorizeCompletionMessage(previousTxInfos);
+      if (mintingAuthorizeCompletionMessage) {
+        mintingAuthorizeError.value = '';
+        mintingAuthorizeUpdateMessage.value = mintingAuthorizeCompletionMessage;
       }
     }
 
     trackTransactionProgress({
       txInfos,
-      isSubmitting: isSubmittingSponsor,
-      progressPct: sponsorProgressPct,
-      progressLabel: sponsorProgressLabel,
-      activeTransactionCount: activeSponsorTransactionCount,
-      error: sponsorError,
+      isSubmitting: isSubmittingMintingAuthorize,
+      progressPct: mintingAuthorizeProgressPct,
+      progressLabel: mintingAuthorizeProgressLabel,
+      activeTransactionCount: activeMintingAuthorizeTransactionCount,
+      error: mintingAuthorizeError,
       onIdle: maybeCloseOverlay,
       onCleanup,
     });
@@ -459,14 +471,14 @@ function maybeCloseOverlay() {
   syncNoticeState();
   if (
     activeCollectTxInfos.value.length === 0 &&
-    activeSponsorTxInfos.value.length === 0 &&
+    activeMintingAuthorizeTxInfos.value.length === 0 &&
     collectRevenue.value === 0n &&
     manualPendingCosignCount.value === 0 &&
     councilApprovalCount.value === 0 &&
     authorizedTransferCount.value === 0 &&
     !collectError.value &&
-    !sponsorUpdateMessage.value &&
-    !sponsorError.value
+    !mintingAuthorizeUpdateMessage.value &&
+    !mintingAuthorizeError.value
   ) {
     closeOverlay();
   }
@@ -552,7 +564,7 @@ function getUniqueTransactionInfos(txInfos: TransactionInfo[]) {
   return [...uniqueTxInfos.values()].sort((left, right) => left.tx.createdAt.getTime() - right.tx.createdAt.getTime());
 }
 
-function getSponsorCompletionMessage(txInfos: TransactionInfo[]) {
+function getMintingAuthorizeCompletionMessage(txInfos: TransactionInfo[]) {
   let attemptedCount = 0;
   let completedCount = 0;
   let earnedRewardAmount = 0n;
@@ -582,11 +594,11 @@ function getSponsorCompletionMessage(txInfos: TransactionInfo[]) {
   }
 
   if (completedCount > 0) {
-    return `Sponsored ${completedCount} of ${attemptedCount} opportunit${
-      attemptedCount === 1 ? 'y' : 'ies'
-    }, earning ${currency.symbol}${microgonToMoneyNm(earnedRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0')}. Any missed opportunities will stay available if they still need sponsorship.`;
+    return `Authorized ${completedCount} of ${attemptedCount} crosschain transfer${
+      attemptedCount === 1 ? '' : 's'
+    }, earning ${currency.symbol}${microgonToMoneyNm(earnedRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0')}. Any missed authorizations will stay available as needed.`;
   }
 
-  return 'Another sponsor claimed this opportunity before your transaction landed. Any remaining sponsorship opportunities will stay available.';
+  return 'Another minting authority claimed this opportunity before your transaction landed. Any remaining minting authorizations will stay available.';
 }
 </script>

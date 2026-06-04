@@ -7,7 +7,11 @@
     <template #icon>
       <div class="flex items-center gap-x-1.5 text-argon-700/70">
         <MoneyIcon
-          v-if="notice.collectRevenue > 0n || notice.authorizedTransferRewardAmount > 0n"
+          v-if="
+            notice.collectRevenue > 0n ||
+            notice.authorizedTransferRewardAmount > 0n ||
+            notice.pendingAuthorizedTransferRewardAmount > 0n
+          "
           class="relative h-6 w-6 top-0.5 text-white/85" />
         <SigningIcon
           v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
@@ -21,13 +25,18 @@
       </template>
 
       <template v-else-if="notice.isProcessing">
-        <template v-if="hasVaultSecurityWork(notice)">
+        <template v-if="notice.pendingAuthorizedTransferCount > 0">
           <strong>
-            <template v-if="notice.earningsAmountMicrogons > 0n">
-              {{ formatMoney(notice.earningsAmountMicrogons) }} in earnings
+            <template v-if="notice.pendingAuthorizedTransferRewardAmount > 0n">
+              {{ formatMoney(notice.pendingAuthorizedTransferRewardAmount) }} in crosschain authorization rewards
             </template>
-            <template v-else>Vault security</template>
+            <template v-else>Crosschain transfer authorization</template>
             is processing
+          </strong>
+        </template>
+        <template v-else-if="hasVaultSecurityWork(notice)">
+          <strong>
+            Vault approvals are processing
           </strong>
         </template>
         <template v-else>
@@ -36,13 +45,7 @@
       </template>
 
       <template v-else-if="hasVaultSecurityWork(notice)">
-        <strong>
-          <template v-if="notice.earningsAmountMicrogons > 0n">
-            {{ formatMoney(notice.earningsAmountMicrogons) }} in earnings
-          </template>
-          <template v-else>Vault security</template>
-          needs attention
-        </strong>
+        <strong>{{ getVaultSecurityTitle(notice) }}</strong>
         <span v-if="notice.amountAtRiskMicrogons > 0n" class="text-white/80">
           ({{ formatMoney(notice.amountAtRiskMicrogons) }} at risk)
         </span>
@@ -143,7 +146,11 @@
     <template #icon>
       <div class="flex items-center gap-x-1.5">
         <MoneyIcon
-          v-if="notice.collectRevenue > 0n || notice.authorizedTransferRewardAmount > 0n"
+          v-if="
+            notice.collectRevenue > 0n ||
+            notice.authorizedTransferRewardAmount > 0n ||
+            notice.pendingAuthorizedTransferRewardAmount > 0n
+          "
           class="relative top-0.5 h-9 w-9 text-argon-700/70" />
         <SigningIcon
           v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
@@ -157,17 +164,25 @@
       </template>
 
       <template v-else-if="notice.isProcessing">
-        <template v-if="hasVaultSecurityWork(notice)">
-          Waiting for vault action to finalize.
+        <template v-if="notice.pendingAuthorizedTransferCount > 0">
+          Waiting for crosschain authorization to finalize.
+        </template>
+        <template v-else-if="hasVaultSecurityWork(notice)">
+          Waiting for vault approvals to finalize.
         </template>
         <template v-else>Waiting for signatures to finalize.</template>
       </template>
 
       <template v-else-if="hasVaultSecurityWork(notice)">
+        <template
+          v-if="hasAvailableAuthorizationWork(notice) && !notice.councilApprovalCount && notice.amountAtRiskMicrogons <= 0n"
+        >
+          {{ getAuthorizationOpportunityText(notice) }} ready on Argon.
+        </template>
         <template v-if="notice.amountAtRiskMicrogons > 0n">
           {{ formatMoney(notice.amountAtRiskMicrogons) }} requires further approval.
         </template>
-        <template v-else>
+        <template v-else-if="!hasAvailableAuthorizationWork(notice) || notice.councilApprovalCount > 0">
           Review pending vault approvals.
         </template>
       </template>
@@ -264,7 +279,15 @@ const cosignDueDate = Vue.computed(() => {
 });
 
 function hasVaultSecurityWork(notice: IVaultCollectNotice): boolean {
-  return notice.councilApprovalCount > 0 || notice.authorizedTransferCount > 0;
+  return (
+    notice.councilApprovalCount > 0 ||
+    hasAvailableAuthorizationWork(notice) ||
+    notice.pendingAuthorizedTransferCount > 0
+  );
+}
+
+function hasAvailableAuthorizationWork(notice: IVaultCollectNotice): boolean {
+  return notice.authorizedTransferCount > 0;
 }
 
 function getButtonLabel(notice: IVaultCollectNotice): string {
@@ -289,29 +312,29 @@ function getCardTitle(notice: IVaultCollectNotice): string {
   }
 
   if (notice.isProcessing) {
+    if (notice.pendingAuthorizedTransferCount > 0) {
+      return notice.pendingAuthorizedTransferRewardAmount > 0n
+        ? `${formatMoney(notice.pendingAuthorizedTransferRewardAmount)} in crosschain authorization rewards is processing`
+        : 'Crosschain transfer authorization is processing';
+    }
+
     if (hasVaultSecurityWork(notice)) {
-      return `${
-        notice.earningsAmountMicrogons > 0n
-          ? `${formatMoney(notice.earningsAmountMicrogons)} in earnings`
-          : 'Vault security'
-      } is processing`;
+      return 'Vault approvals are processing';
     }
 
     return `${notice.signatureCount} co-signature${notice.signatureCount === 1 ? ' is' : 's are'} processing`;
   }
 
   if (hasVaultSecurityWork(notice)) {
-    if (notice.amountAtRiskMicrogons > 0n) {
-      return `${
-        notice.earningsAmountMicrogons > 0n
-          ? `${formatMoney(notice.earningsAmountMicrogons)} in earnings`
-          : 'Vault security'
-      } with ${formatMoney(notice.amountAtRiskMicrogons)} at risk`;
+    if (hasAvailableAuthorizationWork(notice) && !notice.councilApprovalCount && notice.amountAtRiskMicrogons <= 0n) {
+      return `${getAuthorizationOpportunityText(notice)} need${notice.authorizedTransferCount === 1 ? 's' : ''} attention`;
     }
 
-    return notice.earningsAmountMicrogons > 0n
-      ? `${formatMoney(notice.earningsAmountMicrogons)} in earnings need attention`
-      : 'Vault security needs attention';
+    if (notice.amountAtRiskMicrogons > 0n) {
+      return `Vault approvals with ${formatMoney(notice.amountAtRiskMicrogons)} at risk`;
+    }
+
+    return 'Vault approvals need attention';
   }
 
   if (notice.collectRevenue > 0n && notice.signatureCount > 0) {
@@ -326,13 +349,21 @@ function getCardTitle(notice: IVaultCollectNotice): string {
 }
 
 function getCardTooltipContent(notice: IVaultCollectNotice): string {
+  if (notice.pendingAuthorizedTransferCount > 0) {
+    return 'Crosschain transfer authorization is pending.';
+  }
+
   if (hasVaultSecurityWork(notice) && notice.isProcessing) {
-    return 'A vault action is pending.';
+    return 'Vault approvals are pending.';
   }
 
   if (hasVaultSecurityWork(notice)) {
+    if (hasAvailableAuthorizationWork(notice) && !notice.councilApprovalCount && notice.amountAtRiskMicrogons <= 0n) {
+      return 'Review crosschain transfer authorization opportunities.';
+    }
+
     if (notice.amountAtRiskMicrogons > 0n) {
-      return 'Review earnings and at-risk funds.';
+      return 'Review pending vault approvals and at-risk funds.';
     }
 
     return 'Review pending vault actions.';
@@ -359,6 +390,23 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
 
 function formatMoney(value: bigint): string {
   return `${currency.symbol}${microgonToMoneyNm(value).formatIfElse('< 1_000', '0,0.00', '0,0')}`;
+}
+
+function getAuthorizationOpportunityText(notice: IVaultCollectNotice): string {
+  const label = `${notice.authorizedTransferCount} crosschain authorization opportunit${notice.authorizedTransferCount === 1 ? 'y' : 'ies'}`;
+  if (notice.authorizedTransferRewardAmount <= 0n) {
+    return label;
+  }
+
+  return `${label} worth ${formatMoney(notice.authorizedTransferRewardAmount)}`;
+}
+
+function getVaultSecurityTitle(notice: IVaultCollectNotice): string {
+  if (hasAvailableAuthorizationWork(notice) && !notice.councilApprovalCount && notice.amountAtRiskMicrogons <= 0n) {
+    return `${getAuthorizationOpportunityText(notice)} need${notice.authorizedTransferCount === 1 ? 's' : ''} attention`;
+  }
+
+  return 'Vault approvals need attention';
 }
 </script>
 

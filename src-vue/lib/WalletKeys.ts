@@ -73,6 +73,10 @@ export class WalletKeys {
     return await invokeWithTimeout<string>('expose_mnemonic', {}, 60e3);
   }
 
+  public async exportEthereumPrivateKey(): Promise<Hex> {
+    return await invokeWithTimeout<Hex>('export_default_ethereum_private_key', {}, 60e3);
+  }
+
   // TODO: move to a refunding proxy account.
   public async exportMiningBotAccountJson(passphrase: string): Promise<KeyringPair$Json> {
     const miningBotAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);

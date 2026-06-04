@@ -44,7 +44,6 @@
       </SelectPortal>
     </SelectRoot>
     <CopyAddressMenu :walletType="selectedOption.type" :showSingleAddress="true" :showBorder="true" />
-    <ConnectMenu v-if="selectedOption.type === WalletType.ethereum" />
     <div
       NotDraggable
       v-if="props.showPortal"
@@ -90,7 +89,6 @@ import {
   SelectValue,
   SelectViewport,
 } from 'reka-ui';
-import ConnectMenu from './ConnectMenu.vue';
 import CopyAddressMenu from '../../../app-operations/screens/components/CopyAddressMenu.vue';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import PortalIcon from '../../../assets/portal.svg';

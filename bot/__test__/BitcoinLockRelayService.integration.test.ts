@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
+import BigNumber from 'bignumber.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sudo } from '@argonprotocol/testing';
 import {
@@ -112,6 +113,72 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
       await expect(harness.service.relayBitcoinLock(createRelayRequest())).rejects.toThrow('Vault securitization');
       expect(getCouponStatus(harness.db, 'offer-code')?.status).toBe('Open');
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('uses redemption liquidity for securitization preflight and logs the compared values', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService & {
+      latestVault?: unknown;
+      vaultId?: number;
+    };
+
+    try {
+      const coupon = insertCoupon(harness.db);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      service.vaultId = 1;
+      service.latestVault = {
+        vaultId: 1,
+        bitcoinLockDelegateAccount: sudo().address,
+        availableSecuritization: () => 1_020_000n,
+        securitizationRatioBN: () => new BigNumber(1),
+      };
+      harness.clients.get = vi.fn(async () => ({
+        query: {
+          priceIndex: {
+            current: vi.fn(async () => ({
+              isSome: true,
+              unwrap: () => ({
+                btcUsdPrice: { toBigInt: () => 1_000_000_000_000_000_000n },
+                argonotUsdPrice: { toBigInt: () => 1_000_000_000_000_000_000n },
+                argonUsdPrice: { toBigInt: () => 800_000_000_000_000_000n },
+                argonUsdTargetPrice: { toBigInt: () => 1_000_000_000_000_000_000n },
+                argonTimeWeightedAverageLiquidity: { toBigInt: () => 1_000_000_000_000_000_000n },
+                tick: { toNumber: () => 1 },
+              }),
+            })),
+          },
+        },
+      })) as any;
+
+      const preflight = (await service.checkRelayCapacity(coupon, {
+        ...createRelayRequest(coupon.offerCode),
+        requestedSatoshis: 25_000n,
+        microgonsAtTargetPerBtc: 4_000_000_000n,
+      })) as {
+        canSubmit: boolean;
+        reason?: string;
+        statusCode?: number;
+      };
+
+      expect(preflight).toEqual({
+        canSubmit: false,
+        reason: 'Vault securitization is currently exhausted for this lock request.',
+        statusCode: 409,
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[BitcoinLockRelayService] Vault securitization is currently exhausted for this lock request.',
+        expect.objectContaining({
+          vaultId: 1,
+          requiredLiquidityMicrogons: '1054800',
+          requiredSecuritizationMicrogons: '1054800',
+          availableSecuritizationMicrogons: '1020000',
+          totalRequiredSecuritizationMicrogons: '1054800',
+        }),
+      );
     } finally {
       await harness.cleanup();
     }

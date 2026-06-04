@@ -54,7 +54,6 @@ type IEthereumInboundTransferClient = Pick<
 > &
   Partial<Pick<EthereumClient, 'estimateTransferToArgonFee'>>;
 
-const CATCH_UP_RETRY_MS = 30_000;
 export class EthereumInboundTransferTracker {
   public data = {
     transfersById: {} as Record<string, IEthereumInboundActiveTransfer>,
@@ -64,6 +63,8 @@ export class EthereumInboundTransferTracker {
   #hasLoadedPendingMoves = false;
   #loadPromise?: Promise<void>;
   #resumePromises = new Map<string, Promise<void>>();
+  #lastCatchUpProgressKey = new Map<string, string>();
+  #lastCatchUpProgressAt = new Map<string, number>();
   #lastCatchUpRequestAt = new Map<string, number>();
   #argonRelayStartBlockByTransferId = new Map<string, number>();
   #argonFinalizationStartBlockByTransferId = new Map<string, number>();
@@ -575,19 +576,32 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    if (!shouldRetry(this.#lastCatchUpRequestAt.get(record.id), CATCH_UP_RETRY_MS)) {
-      return;
+    const throughGatewayActivityNonce = record.gatewayActivityNonce;
+    const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
+    const argonGatewayActivityNonce = gatewayState.isSome ? gatewayState.unwrap().gatewayActivityNonce.toBigInt() : 0n;
+    const relayProgressKey = `${latestRetainedAnchor.unwrap().blockNumber.toBigInt()}:${argonGatewayActivityNonce}:${throughGatewayActivityNonce}`;
+    const now = Date.now();
+    if (this.#lastCatchUpProgressKey.get(record.id) !== relayProgressKey) {
+      this.#lastCatchUpProgressKey.set(record.id, relayProgressKey);
+      this.#lastCatchUpProgressAt.set(record.id, now);
     }
 
-    const throughGatewayActivityNonce = record.gatewayActivityNonce;
     const currentStepStartedAt =
       transfer.transferState.progress.steps[transfer.transferState.progress.currentStep - 1]?.startedAt;
-    const hasExceededWaitEstimate =
-      currentStepStartedAt !== undefined &&
-      Date.now() - currentStepStartedAt >= this.ethereumClient.getTransferToArgonWaitEstimateMs();
+    const waitEstimateMs = this.ethereumClient.getTransferToArgonWaitEstimateMs();
+    const hasExceededWaitEstimate = currentStepStartedAt !== undefined && now - currentStepStartedAt >= waitEstimateMs;
+    const lastCatchUpRequestAt = this.#lastCatchUpRequestAt.get(record.id);
+    if (lastCatchUpRequestAt !== undefined) {
+      const progressStartedAt = this.#lastCatchUpProgressAt.get(record.id) ?? now;
+      const hasStalled = now - progressStartedAt >= waitEstimateMs;
+      if (!hasStalled || now - lastCatchUpRequestAt < waitEstimateMs) {
+        return;
+      }
+    }
+
     const upstreamOperatorHost = this.upstreamOperatorClient.operatorHost;
     if (this.serverApiClient || upstreamOperatorHost) {
-      this.#lastCatchUpRequestAt.set(record.id, Date.now());
+      this.#lastCatchUpRequestAt.set(record.id, now);
       const relayError = await requestEthereumGatewayCatchUpThroughOperator({
         throughGatewayActivityNonce,
         serverApiClient: this.serverApiClient,
@@ -600,6 +614,8 @@ export class EthereumInboundTransferTracker {
   }
 
   private discardTransfer(id: string, moveToken: IEthereumMoveToken) {
+    this.#lastCatchUpProgressKey.delete(id);
+    this.#lastCatchUpProgressAt.delete(id);
     this.#lastCatchUpRequestAt.delete(id);
     this.#argonRelayStartBlockByTransferId.delete(id);
     this.#argonFinalizationStartBlockByTransferId.delete(id);
@@ -679,10 +695,6 @@ function getMoveToken(record: ICrosschainInboundTransferRecord): IEthereumMoveTo
   if (record.token === MoveToken.ARGN || record.token === MoveToken.ARGNOT) {
     return record.token;
   }
-}
-
-function shouldRetry(lastAttemptAt: number | undefined, retryMs: number): boolean {
-  return lastAttemptAt === undefined || Date.now() - lastAttemptAt >= retryMs;
 }
 
 function shouldSurfaceRelayError(reason: string, hasExceededWaitEstimate: boolean): boolean {

@@ -30,7 +30,7 @@
               }"
               :class="twMerge(
                 'absolute z-50 pointer-events-auto min-h-40 w-6/12 focus:outline-none',
-                IS_TREASURY_APP && !config.showWelcomeOverlay ? 'ml-[160px]' : '',
+                IS_TREASURY_APP && !config.showWelcomeOverlay ? '' : '',
                 props.leaveBlank ? '' : 'bg-white border border-black/40 rounded-lg shadow-2xl',
                 props.overflowScroll ? 'flex max-h-[85vh] flex-col overflow-hidden' : '',
                 props.class,

@@ -102,11 +102,12 @@ export async function buildStableSwapPurchaseFromTransaction(args: {
     argonPriceCache,
   );
   const costBasisFixed18 = usdcToFixed18(costBasisUsdc);
-  const argonTokenAddress = (await loadEthereumChainConfig())?.argonTokenAddress;
+  const chainConfig = await loadEthereumChainConfig();
+  const argonTokenAddress = chainConfig?.argonTokenAddress;
   if (!argonTokenAddress) {
     throw new Error('Ethereum gateway chain config is not available on this Argon network.');
   }
-  const argonToken = getStableSwapArgonToken(argonTokenAddress);
+  const argonToken = getStableSwapArgonToken(argonTokenAddress, chainConfig.chainId);
 
   return {
     walletAddress,

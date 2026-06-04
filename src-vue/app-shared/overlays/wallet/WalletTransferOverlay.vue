@@ -134,12 +134,26 @@
         <InputToken
           v-model="amount"
           :min="0n"
-          :max="props.request.availableAmount"
+          :max="availableTransferAmount"
           :suffix="` ${props.request.moveToken}`"
           class="w-full"
         />
         <div class="mt-1 text-xs text-slate-400">
-          Available: {{ formatTokenAmount(props.request.availableAmount) }} {{ props.request.moveToken }}
+          <template
+            v-if="
+              props.request.direction === 'transferOutOfArgon' &&
+              hasActiveEthereumTransferConfig &&
+              maximumTransferOutAmount == null
+            "
+          >
+            Calculating max you can move...
+          </template>
+          <template v-else>
+            Max you can move: {{ formatTokenAmount(availableTransferAmount) }} {{ props.request.moveToken }}
+            <template v-if="reservedTransferOutTip > 0n">
+              ({{ formatTokenAmount(reservedTransferOutTip) }} {{ props.request.moveToken }} reserved for tip)
+            </template>
+          </template>
         </div>
       </div>
 
@@ -235,7 +249,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MoveToken } from '@argonprotocol/apps-core';
+import { bigIntMax, MoveToken } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import InputToken from '../../../components/InputToken.vue';
 import ProgressBar from '../../../components/ProgressBar.vue';
@@ -257,6 +271,7 @@ import { getCurrency } from '../../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../../stores/moveToEthereum.ts';
 import { useWallets } from '../../../stores/wallets.ts';
+import { existentialDepositMicrogons, existentialDepositMicronots } from '../../../lib/WalletForArgon.ts';
 import OverlayBase from '../OverlayBase.vue';
 import { loadEthereumChainConfig } from '../../../lib/EthereumClient.ts';
 
@@ -297,6 +312,7 @@ const isEstimatingTransferOutOfArgonFee = Vue.ref(false);
 const transferToArgonFeeEstimateWei = Vue.ref<bigint>();
 const isEstimatingTransferToArgonFee = Vue.ref(false);
 const hasActiveEthereumTransferConfig = Vue.ref(false);
+const maximumTransferOutAmount = Vue.ref<bigint>();
 const progressNow = Vue.ref(Date.now());
 
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
@@ -320,13 +336,37 @@ const transferToArgon = Vue.computed(() => {
   return transferId ? transferToArgonTracker.getTransfer(transferId) : undefined;
 });
 
+const availableTransferAmount = Vue.computed(() =>
+  props.request?.direction === 'transferOutOfArgon'
+    ? (maximumTransferOutAmount.value ?? props.request.availableAmount)
+    : (props.request?.availableAmount ?? 0n),
+);
+const minimumRetainedTransferAmount = Vue.computed(() => {
+  if (props.request?.direction !== 'transferOutOfArgon' || maximumTransferOutAmount.value == null) {
+    return 0n;
+  }
+
+  const minimumBalance =
+    props.request.moveToken === MoveToken.ARGNOT ? existentialDepositMicronots : existentialDepositMicrogons;
+  return (props.request.availableAmount ?? 0n) < minimumBalance
+    ? (props.request.availableAmount ?? 0n)
+    : minimumBalance;
+});
+const reservedTransferOutTip = Vue.computed(() =>
+  props.request?.direction === 'transferOutOfArgon'
+    ? bigIntMax(
+        (props.request.availableAmount ?? 0n) - availableTransferAmount.value - minimumRetainedTransferAmount.value,
+        0n,
+      )
+    : 0n,
+);
 const canSubmit = Vue.computed(
   () =>
     !!props.request &&
     hasActiveEthereumTransferConfig.value &&
     !transferOutOfArgonUnavailableReason.value &&
     amount.value > 0n &&
-    amount.value <= props.request.availableAmount,
+    amount.value <= availableTransferAmount.value,
 );
 const processingProgress = Vue.computed(() => {
   if (isTransferProcessing(transferOutOfArgon.value)) {
@@ -347,6 +387,7 @@ Vue.watch(
 
     if (!request) {
       amount.value = 0n;
+      maximumTransferOutAmount.value = undefined;
       transferOutOfArgonFeeEstimateWei.value = undefined;
       transferOutOfArgonFeeEstimateError.value = '';
       transferOutOfArgonUnavailableReason.value = '';
@@ -357,9 +398,19 @@ Vue.watch(
     }
 
     void refreshEthereumTransferConfig();
+  },
+  { immediate: true },
+);
 
-    if (amount.value === 0n || amount.value > request.availableAmount) {
-      amount.value = request.availableAmount;
+Vue.watch(
+  availableTransferAmount,
+  nextAvailableAmount => {
+    if (!props.request) {
+      return;
+    }
+
+    if (amount.value === 0n || amount.value > nextAvailableAmount) {
+      amount.value = nextAvailableAmount;
     }
   },
   { immediate: true },
@@ -376,6 +427,38 @@ Vue.onUnmounted(() => {
     clearInterval(progressRefreshInterval);
   }
 });
+
+Vue.watch(
+  () => [props.request?.direction, props.request?.availableAmount, hasActiveEthereumTransferConfig.value] as const,
+  async ([direction, availableAmount, hasActiveEthereumTransferConfig], _, onCleanup) => {
+    maximumTransferOutAmount.value = undefined;
+
+    if (direction !== 'transferOutOfArgon' || availableAmount == null || !hasActiveEthereumTransferConfig) {
+      return;
+    }
+
+    let isCancelled = false;
+    onCleanup(() => {
+      isCancelled = true;
+    });
+
+    try {
+      const transferOutOfArgonTracker = getEthereumOutboundTransferTracker();
+      const maxAmount = await transferOutOfArgonTracker.getMaximumTransferOutAmount(
+        availableAmount,
+        props.request!.moveToken,
+      );
+      if (!isCancelled) {
+        maximumTransferOutAmount.value = maxAmount;
+      }
+    } catch (error) {
+      if (!isCancelled) {
+        console.warn('[WalletTransferOverlay] Unable to load max transfer-out amount', error);
+      }
+    }
+  },
+  { immediate: true, flush: 'post' },
+);
 
 Vue.watch(
   () => [props.request?.direction, hasActiveEthereumTransferConfig.value] as const,
@@ -524,6 +607,7 @@ async function submitTransfer() {
       await transferOutOfArgonTracker.startMove({
         moveToken: props.request.moveToken,
         amount: amount.value,
+        availableAmount: props.request.availableAmount,
         sourceWalletType: props.request.walletType,
       });
       return;

@@ -32,7 +32,7 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0.00') }}</span>
+              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0') }}</span>
               <label>External Treasury Bonds</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">

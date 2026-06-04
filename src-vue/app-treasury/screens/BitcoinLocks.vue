@@ -21,7 +21,7 @@
             <button
               @click="openLockingOverlay"
               :class="
-                financials.savingsTotalReadyToUse
+                canStartLocking
                   ? 'bg-argon-button hover:bg-argon-button-hover border-transparent text-white'
                   : 'pointer-events-none border-gray-500 bg-white text-gray-500 opacity-40'
               "
@@ -47,7 +47,14 @@
               />
             </div>
 
-            <div v-if="financials.savingsTotalReadyToUse" class="text-argon-600 relative text-xl leading-8 font-bold">
+            <div v-if="currentCoupon" class="text-argon-600 relative text-xl leading-8 font-bold">
+              {{ couponProviderLabel }} has offered your first liquid lock up to {{ currency.symbol
+              }}{{ couponOfferValueLabel }} for free!
+            </div>
+            <div
+              v-else-if="financials.savingsTotalReadyToUse"
+              class="text-argon-600 relative text-xl leading-8 font-bold"
+            >
               Your account has {{ currency.symbol
               }}{{ microgonToMoneyNm(financials.savingsTotalReadyToUse).format('0,0.00') }} in savings that is
               <br />
@@ -216,7 +223,7 @@ const walletKeys = getWalletKeys();
 
 const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
-let vault: Vault | undefined;
+const vault = Vue.shallowRef<Vault | undefined>();
 const availableSecuritizationMicrogons = Vue.ref(0n);
 const vaultSecuritizationMicrogons = Vue.ref(0n);
 const coupons = Vue.ref<IBitcoinLockCouponStatus[]>([]);
@@ -227,11 +234,25 @@ const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<ILockSummary | undefined>();
+const couponOfferLiquidityMicrogons = Vue.ref<bigint>();
 
 const currentCoupon = Vue.computed(() => {
   return coupons.value.find(
     coupon => coupon.status === 'Open' && coupon.coupon.vaultId === config.upstreamOperator?.vaultId,
   );
+});
+
+const couponProviderLabel = Vue.computed(() => {
+  return config.upstreamOperator?.name || 'The vault operator';
+});
+
+const couponOfferValueLabel = Vue.computed(() => {
+  if (!currentCoupon.value) return '0.00';
+  return microgonToMoneyNm(couponOfferLiquidityMicrogons.value ?? 0n).format('0,0.00');
+});
+
+const canStartLocking = Vue.computed(() => {
+  return financials.savingsTotalReadyToUse > 0n || !!currentCoupon.value;
 });
 
 function openDetail(lock: ILockSummary) {
@@ -277,11 +298,13 @@ async function onRatchetSubmitted() {
 
 let unsubVault: (() => void) | undefined;
 let unsubMiningFrames: (() => void) | undefined;
+let couponOfferSyncId = 0;
 
 function updateAvailableSpace(rawVault: Vault) {
-  vault = rawVault;
+  vault.value = rawVault;
   vaultSecuritizationMicrogons.value = rawVault.securitization;
   availableSecuritizationMicrogons.value = rawVault.availableSecuritization();
+  void syncCouponOfferValue();
 }
 
 async function loadCurrentCoupon() {
@@ -292,6 +315,22 @@ async function loadCurrentCoupon() {
   }
 
   coupons.value = await upstreamOperatorClient.getBitcoinLockCoupons(walletKeys.liquidLockingAddress);
+  await syncCouponOfferValue();
+}
+
+async function syncCouponOfferValue() {
+  const syncId = ++couponOfferSyncId;
+  if (!vault.value || !currentCoupon.value) {
+    couponOfferLiquidityMicrogons.value = undefined;
+    return;
+  }
+
+  const { availableLiquidityMicrogons } = await bitcoinLocks.getLockableBitcoinCapacity({
+    vault: vault.value,
+    maxSatoshis: currentCoupon.value.coupon.maxSatoshis,
+  });
+  if (syncId !== couponOfferSyncId) return;
+  couponOfferLiquidityMicrogons.value = availableLiquidityMicrogons;
 }
 
 function openArgonWallet() {
