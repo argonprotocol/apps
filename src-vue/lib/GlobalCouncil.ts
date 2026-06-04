@@ -269,9 +269,7 @@ export class GlobalCouncil {
     try {
       await relayPromise;
     } finally {
-      if (this.#pendingRelayPromise === relayPromise) {
-        this.#pendingRelayPromise = undefined;
-      }
+      this.#pendingRelayPromise = undefined;
     }
   }
 }

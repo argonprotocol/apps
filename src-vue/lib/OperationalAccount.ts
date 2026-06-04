@@ -224,9 +224,7 @@ export async function ensureOperatorAccountRegistered(args: {
   try {
     return await promise;
   } finally {
-    if (setupOperatorAccountPromise === promise) {
-      setupOperatorAccountPromise = undefined;
-    }
+    setupOperatorAccountPromise = undefined;
   }
 }
 

@@ -1,12 +1,4 @@
-import {
-  bigIntMax,
-  bigIntMin,
-  createDeferred,
-  IDeferred,
-  MiningFrames,
-  MoveToken,
-  NetworkConfig,
-} from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, createDeferred, IDeferred, MiningFrames, MoveToken } from '@argonprotocol/apps-core';
 import { ApiDecoration, EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@argonprotocol/mainchain';
 import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
@@ -492,9 +484,7 @@ export class MintingAuthorities {
     try {
       await relayPromise;
     } finally {
-      if (this.#pendingActivationRelayPromise === relayPromise) {
-        this.#pendingActivationRelayPromise = undefined;
-      }
+      this.#pendingActivationRelayPromise = undefined;
     }
   }
 }

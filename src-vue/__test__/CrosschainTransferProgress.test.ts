@@ -32,7 +32,7 @@ describe('CrosschainTransferProgress', () => {
     expect(displayProgress.overallProgressPct).toBeCloseTo(50, 1);
   });
 
-  it('does not smooth over confirmation-driven progress', () => {
+  it('allows confirmation-driven progress to keep moving between updates', () => {
     const progress = setOutboundMintingAuthorizationStepProgress(
       createCrosschainTransferProgress([
         'Finalizing on Argon',
@@ -52,6 +52,6 @@ describe('CrosschainTransferProgress', () => {
       Date.now() + getGatewayActivityWaitEstimateMs() / 2,
     );
 
-    expect(displayProgress.overallProgressPct).toBe(progress.overallProgressPct);
+    expect(displayProgress.overallProgressPct).toBeCloseTo(50, 1);
   });
 });

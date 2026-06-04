@@ -256,6 +256,8 @@ export class WalletKeys {
       case WalletType.ethereum:
         throw new Error('Ethereum wallets do not have an Argon keypair.');
     }
+
+    throw new Error('Unsupported wallet type.');
   }
 
   public get liquidLockingAddress(): string {

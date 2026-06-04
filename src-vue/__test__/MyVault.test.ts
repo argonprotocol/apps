@@ -28,7 +28,7 @@ type IMyVaultTestTarget = {
   }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined>;
   onCosignResult(txInfo: TransactionInfo<{ utxoId: number }>): Promise<void>;
   recordPendingCosignUtxos(rawUtxoIds: Iterable<unknown>, updateSeq: number): Promise<void>;
-  updateCollectDueDate(): void;
+  updateCollectDeadlines(): void;
   trackTxResultFee(txResult: unknown): Promise<void>;
 };
 
@@ -399,7 +399,7 @@ describe('MyVault cosign recovery', () => {
     const { myVault } = createVault();
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     const testVault = myVault as unknown as IMyVaultTestTarget;
-    vi.spyOn(testVault, 'updateCollectDueDate').mockImplementation(() => undefined);
+    vi.spyOn(testVault, 'updateCollectDeadlines').mockImplementation(() => undefined);
 
     myVault.data.pendingCosignUtxosById.set(16, { targetValue: 1_000n });
     myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.set(16, txInfo as TransactionInfo<{ utxoId: number }>);

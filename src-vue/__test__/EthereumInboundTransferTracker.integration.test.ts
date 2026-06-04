@@ -498,7 +498,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     await vi.waitFor(() => {
       const transferState = tracker.getTransferStateForToken(MoveToken.ARGN);
       expect(transferState.progress.currentStepLabel).toBe('Step 1 of 3: Finalizing on Ethereum');
-      expect(transferState.progress.currentStepDetail).toBe('Ethereum block 2 of 3');
+      expect(transferState.progress.currentStepDetail).toBe('Ethereum confirmation 1 of 2');
       expect(transferState.hasPersistedTransfer).toBe(true);
     });
 

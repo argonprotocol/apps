@@ -432,9 +432,9 @@ export class EthereumClient {
 
   public async confirmTransferToArgon(transfer: IEthereumTransferToArgon): Promise<IEthereumTransferToArgon> {
     if (
-      transfer.sourceBlockNumber !== undefined &&
-      transfer.sourceLogIndex !== undefined &&
-      transfer.gatewayActivityNonce !== undefined
+      transfer.sourceBlockNumber != null &&
+      transfer.sourceLogIndex != null &&
+      transfer.gatewayActivityNonce != null
     ) {
       return transfer;
     }

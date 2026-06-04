@@ -294,15 +294,16 @@ async function activateDevEthereumMintingAuthority(args: {
     throw new Error(`${logPrefix}: minting authority activation approval disappeared before it could be signed.`);
   }
 
+  const relaySignerAddress = getAddress(actor.walletKeys.ethereumAddress);
   const relaySignerBalance = await ethereumClient.getBalance({
-    address: getAddress(status.councilSigner),
+    address: relaySignerAddress,
   });
   const minimumRelayBalanceWei = 10n ** 17n;
 
   if (relaySignerBalance < minimumRelayBalanceWei) {
-    console.info(`[${logPrefix}] funding council signer ETH for gateway relay`);
+    console.info(`[${logPrefix}] funding gateway relay signer ETH`);
     await fundDevEthereumAccount({
-      to: status.councilSigner,
+      to: relaySignerAddress,
       rpcUrl: executionRpcUrl,
       amountBaseUnits: minimumRelayBalanceWei - relaySignerBalance,
     });

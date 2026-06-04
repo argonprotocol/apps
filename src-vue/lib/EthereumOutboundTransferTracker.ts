@@ -994,7 +994,7 @@ export class EthereumOutboundTransferTracker {
         const relayPauseReason = ownAuthorityPendingActivation
           ? await getEthereumGatewayPauseReason(finalizedClient)
           : undefined;
-        let detail = 'Waiting for Minting Authorization (0% authorized)';
+        let detail: string;
         let approvalPercent = 0;
         if (remainingMintingAuthorizationMicrogons != null && transfer.transferState.amount) {
           const authorizedMicrogons = transfer.transferState.amount - remainingMintingAuthorizationMicrogons;

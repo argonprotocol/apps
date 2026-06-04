@@ -64,21 +64,31 @@ function togglePrivateKeyVisibility() {
 async function copyToClipboard() {
   if (!privateKey.value || !isPrivateKeyVisible.value) return;
 
-  await navigator.clipboard.writeText(privateKey.value);
-  isCopied.value = true;
+  try {
+    await navigator.clipboard.writeText(privateKey.value);
+    isCopied.value = true;
 
-  setTimeout(() => {
-    isCopied.value = false;
-  }, 2000);
+    setTimeout(() => {
+      isCopied.value = false;
+    }, 2000);
 
-  clearTimeout(clipboardClearTimer);
-  const copiedValue = privateKey.value;
-  clipboardClearTimer = setTimeout(async () => {
-    const currentClipboard = await navigator.clipboard.readText();
-    if (currentClipboard === copiedValue) {
-      await navigator.clipboard.writeText('');
-    }
-  }, 180_000);
+    clearTimeout(clipboardClearTimer);
+    const copiedValue = privateKey.value;
+    clipboardClearTimer = setTimeout(() => {
+      void (async () => {
+        try {
+          const currentClipboard = await navigator.clipboard.readText();
+          if (currentClipboard === copiedValue) {
+            await navigator.clipboard.writeText('');
+          }
+        } catch {
+          // Ignore clipboard cleanup failures after the key has already been copied.
+        }
+      })();
+    }, 180_000);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Unable to copy the Ethereum private key.';
+  }
 }
 
 Vue.onMounted(() => {
