@@ -15,6 +15,8 @@ export class MiningMachineError extends Error {
 }
 
 // DigitalOcean API response types
+const DEFAULT_DIGITALOCEAN_IMAGE = 'ubuntu-24-04-x64';
+
 type IDropletActionLink = { id: number; rel: string; href: string };
 type ICreateDropletResponse = {
   links: { actions: IDropletActionLink[] };
@@ -144,7 +146,7 @@ export class MiningMachine {
         name: dropletName,
         region,
         size,
-        image: 'ubuntu-25-04-x64',
+        image: DEFAULT_DIGITALOCEAN_IMAGE,
         ssh_keys: [sshKey],
         tags: [miningBotAccountAddress],
       }),
@@ -154,6 +156,9 @@ export class MiningMachine {
     if (createRes.status !== 202) {
       console.log('[MINING_MACHINE] DigitalOcean setup response', createRes, createData);
       const extraDetail = (createData as any).message ?? '';
+      if (extraDetail.toLowerCase().includes('invalid image')) {
+        throw new MiningMachineError(`DigitalOcean default image ${DEFAULT_DIGITALOCEAN_IMAGE} is no longer supported`);
+      }
       throw new MiningMachineError(`Failed to create DigitalOcean droplet${extraDetail ? ` - ${extraDetail}` : ''}`);
     }
     progressFn?.(60);
