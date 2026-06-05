@@ -30,7 +30,7 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target universal-apple-darwin'
+            args: '--target universal-apple-darwin -vv'
           - platform: 'windows-latest'
             args: ''
           - platform: 'ubuntu-22.04'
@@ -122,6 +122,15 @@ jobs:
           APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
           printf '%s' "$APPLE_API_KEY_PRIVATE" > "$APPLE_API_KEY_PATH"
           chmod 600 "$APPLE_API_KEY_PATH"
+
+      - name: Log macOS signing context
+        if: matrix.platform == 'macos-latest'
+        run: |
+          set -euxo pipefail
+          sw_vers
+          xcrun notarytool --version
+          xcrun --find codesign
+          yarn tauri --version
 
       - name: Build and Publish Operations Stable
         if: ${{ env.BUILDS == 'all' }}
