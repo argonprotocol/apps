@@ -507,6 +507,7 @@ export class EthereumInboundTransferTracker {
         persistedRecord.sourceBlockNumber != null &&
         latestRetainedBlockNumber < persistedRecord.sourceBlockNumber
       ) {
+        const remainingRelayBlocks = persistedRecord.sourceBlockNumber - latestRetainedBlockNumber;
         const relayStartBlockNumber =
           this.#argonRelayStartBlockByTransferId.get(persistedRecord.id) ?? latestRetainedBlockNumber;
         this.#argonRelayStartBlockByTransferId.set(persistedRecord.id, relayStartBlockNumber);
@@ -515,7 +516,7 @@ export class EthereumInboundTransferTracker {
         const relayedBlocks = Math.max(0, latestRetainedBlockNumber - relayStartBlockNumber);
         transferState.progress = setInboundRelayStepProgress(transferState.progress, {
           progressPct: Math.min(99, Math.round((Math.min(relayedBlocks, totalRelayBlocks) / totalRelayBlocks) * 100)),
-          detail: `Ethereum block ${latestRetainedBlockNumber.toLocaleString()} of ${persistedRecord.sourceBlockNumber.toLocaleString()}`,
+          detail: `Waiting for ${remainingRelayBlocks.toLocaleString()} Ethereum blocks to sync`,
         });
       } else {
         const argonStartHeight =
@@ -663,10 +664,6 @@ function createEmptyTransferState(): IEthereumInboundTransferState {
 }
 
 function createInboundProgressFromRecord(record: ICrosschainInboundTransferRecord): ICrosschainTransferProgress {
-  if (record.progressJson?.steps?.length === INBOUND_TRANSFER_STEP_TITLES.length) {
-    return hydrateCrosschainTransferProgress(record.progressJson.steps);
-  }
-
   if (record.status === CrosschainInboundTransferStatus.ArgonFinalized) {
     return completeInboundTransferProgress(
       createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES),

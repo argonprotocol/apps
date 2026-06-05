@@ -155,7 +155,7 @@ export class MiningMachine {
 
     if (createRes.status !== 202) {
       console.log('[MINING_MACHINE] DigitalOcean setup response', createRes, createData);
-      const extraDetail = (createData as any).message ?? '';
+      const extraDetail = (createData as { message?: string }).message ?? '';
       if (extraDetail.toLowerCase().includes('invalid image')) {
         throw new MiningMachineError(`DigitalOcean default image ${DEFAULT_DIGITALOCEAN_IMAGE} is no longer supported`);
       }

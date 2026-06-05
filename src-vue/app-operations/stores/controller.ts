@@ -337,20 +337,20 @@ export const useOperationsController = defineStore('operationsController', () =>
     if (operationalAccountUnsubscribe) return;
     rewardConfig.value = await getOperationalRewardConfig();
 
-    await Promise.all([
-      subscribeOperationalAccount(walletKeys, x => {
-        chainProgress.value = x;
+    void subscribeOperationalAccount(walletKeys, x => {
+      chainProgress.value = x;
+    })
+      .then(unsub => {
+        operationalAccountUnsubscribe = unsub;
       })
-        .then(unsub => {
-          operationalAccountUnsubscribe = unsub;
-        })
-        .catch(error => {
-          console.error('[Operations Controller] Unable to subscribe to operational progress.', error);
-        }),
-      bitcoinLocks.load().catch(error => {
-        console.error('[Operations Controller] Unable to load bitcoin lock progress.', error);
-      }),
-    ]);
+      .catch(error => {
+        console.error('[Operations Controller] Unable to subscribe to operational progress.', error);
+      });
+
+    void bitcoinLocks.load().catch(error => {
+      console.error('[Operations Controller] Unable to load bitcoin lock progress.', error);
+    });
+
     void registerExistingOperationalAccountIfNeeded();
 
     // detect newly completed steps and queue completion notices

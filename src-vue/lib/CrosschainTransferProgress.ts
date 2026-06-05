@@ -34,7 +34,7 @@ export interface ICrosschainTransferProgress {
 
 export const INBOUND_TRANSFER_STEP_TITLES = [
   'Finalizing on Ethereum',
-  'Relaying to Argon',
+  'Proving to Argon',
   'Finalizing on Argon',
 ] as const;
 export const OUTBOUND_TRANSFER_STEP_TITLES = [

@@ -788,7 +788,7 @@ async function insertTransferRecord(
     gatewayActivityNonce: args.gatewayActivityNonce,
     progressJson: createCrosschainTransferProgress([
       'Finalizing on Ethereum',
-      'Relaying to Argon',
+      'Proving to Argon',
       'Finalizing on Argon',
     ]),
     status: args.status,
