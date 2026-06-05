@@ -350,6 +350,9 @@ export class WalletsForArgon {
 
       const blocks = [...neededBlockNumbers].sort((a, b) => a - b);
       console.info('Recovering wallet history from blocks with transfers', blocks);
+      if (blocks.length === 0) {
+        latestBlockNumberSynced = latestFinalizedNumber;
+      }
       for (const blockNumber of blocks) {
         const blockHeader = await this.blockWatch.getHeader(blockNumber);
         await this.processBlock(

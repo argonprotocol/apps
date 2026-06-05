@@ -32,7 +32,7 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0.00') }}</span>
+              <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0') }}</span>
               <label>External Treasury Bonds</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
@@ -433,6 +433,10 @@ type MapItem = {
   status?: TileStatus;
 };
 
+type IBondMapLot = IFrameBondLot & {
+  status: TileStatus;
+};
+
 function deriveExternalLockStatus(ext: IExternalBitcoinLock): BitcoinLockStatus {
   // isPending is set from BitcoinLock.isFunded — true means funded
   if (ext.isPending) return BitcoinLockStatus.LockPendingFunding;
@@ -465,13 +469,11 @@ function handleBondTileClick(key: string) {
     basicEmitter.emit('openTreasuryBondsOverlay');
     return;
   }
-  if (key.startsWith('lot:') || key.startsWith('account:')) {
-    const bondLot = currentTreasuryBondFrame.value.bondLots.find(bondLot => bondLot.id === key);
-    if (bondLot) {
-      selectedFrameBondLot.value = bondLot;
-      showBondDetailOverlay.value = true;
-    }
-    return;
+
+  const bondLot = currentBondMapLots.value.find(bondLot => bondLot.id === key);
+  if (bondLot) {
+    selectedFrameBondLot.value = bondLot;
+    showBondDetailOverlay.value = true;
   }
 }
 
@@ -567,13 +569,45 @@ const bitcoinMapRemainder = Vue.computed(() => {
 const bondMapTotal = Vue.computed(() => {
   const used = bondMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
 
-  // Keep current bond lot tiles truthful to the current frame. The remainder alone carries
-  // the tomorrow projection, so reduced next-frame capacity only affects the available block.
+  // Keep bond lot tiles aligned with the runtime bond lots. The remainder carries
+  // next-frame purchase capacity, while pending tiles show lots that are not yet in the frame snapshot.
   return used + vaultingBreakdown.treasuryBondMicrogonsAvailable;
 });
 
 const internalTreasuryBondMicrogonsSecured = Vue.computed(() => {
   return vaultingBreakdown.treasuryBondCapacityUsedMicrogons;
+});
+
+const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
+  const frameBondLots = currentTreasuryBondFrame.value.bondLots;
+  const activeBondLots = (vaultBondState.value?.bondLots ?? []).filter(bondLot => bondLot.activeBonds > 0);
+  const operatorAccountId = myVault.createdVault?.operatorAccountId;
+
+  return activeBondLots.map(bondLot => {
+    // Preserve frame-specific earnings metadata when the selected frame includes this lot.
+    const frameBondLot =
+      frameBondLots.find(frameBondLot => frameBondLot.details?.id === bondLot.id) ??
+      frameBondLots.find(frameBondLot => frameBondLot.accountId === bondLot.accountId && frameBondLot.details == null);
+
+    if (frameBondLot) {
+      return {
+        ...frameBondLot,
+        bonds: bondLot.bonds,
+        details: bondLot,
+        status: 'active',
+      };
+    }
+
+    return {
+      id: bondLot.id > 0 ? `lot:${bondLot.id}` : `account:${bondLot.accountId}:${bondLot.id}`,
+      accountId: bondLot.accountId,
+      bonds: bondLot.bonds,
+      prorata: 0n,
+      isOperator: bondLot.accountId === operatorAccountId,
+      details: bondLot,
+      status: 'pending',
+    };
+  });
 });
 
 const bondMapItems = Vue.computed((): MapItem[] => {
@@ -600,24 +634,23 @@ const bondMapItems = Vue.computed((): MapItem[] => {
     return items;
   }
 
-  // Current frame: bond lot tiles from the runtime bond snapshot.
-  const frameBondLots = currentTreasuryBondFrame.value.bondLots;
+  // Current frame: show the runtime bond lots, and mark any lots missing from the
+  // current frame snapshot as pending so fresh purchases still appear immediately.
   const items: MapItem[] = [];
 
-  for (const bondLot of frameBondLots) {
-    if (bondLot.bonds > 0) {
-      const bondMicrogons = BondLot.bondsToMicrogons(bondLot.bonds);
-      items.push({
-        id: bondLot.id,
-        label: formatMoney(bondMicrogons),
-        amount: bondMicrogons,
-        emphasis: bondLot.isOperator ? 'strong' : 'default',
-      });
-    }
+  for (const bondLot of currentBondMapLots.value) {
+    const bondMicrogons = bondLot.details?.activeBondMicrogons ?? BondLot.bondsToMicrogons(bondLot.bonds);
+    items.push({
+      id: bondLot.id,
+      label: formatMoney(bondMicrogons),
+      amount: bondMicrogons,
+      emphasis: bondLot.isOperator ? 'strong' : 'default',
+      status: bondLot.status,
+    });
   }
 
   // If no frame data yet, fall back to aggregated data
-  if (frameBondLots.length === 0) {
+  if (items.length === 0) {
     if (internalTreasuryBondMicrogonsSecured.value > 0n) {
       items.push({
         id: 'internal-bonds',

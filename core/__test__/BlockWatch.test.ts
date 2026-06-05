@@ -254,6 +254,31 @@ describe('BlockWatch archive recovery', () => {
     }
   });
 
+  it('retries a failed restart until subscriptions recover', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const blockWatch = new BlockWatch(createClients({}, {}) as any);
+      const blockWatchInternal = getInternalBlockWatch(blockWatch);
+
+      blockWatchInternal.unsubscribe = vi.fn();
+      const startMock = vi.spyOn(blockWatch, 'start').mockImplementation(async () => {
+        blockWatchInternal.unsubscribe = vi.fn();
+        if (startMock.mock.calls.length === 1) {
+          throw new Error('offline');
+        }
+      });
+
+      await blockWatchInternal.restart('archive', 'Detected archive client degradation');
+      expect(startMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(startMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('unsubscribes client event listeners on destroy', () => {
     const clientEventUnsubscribes = [vi.fn(), vi.fn(), vi.fn()];
     const blockWatch = new BlockWatch(createClients({}, {}, clientEventUnsubscribes) as any);
@@ -313,7 +338,7 @@ function getInternalBlockWatch(blockWatch: BlockWatch) {
   return blockWatch as unknown as {
     activeSource: 'archive' | 'pruned';
     restart(source: 'archive' | 'pruned', reason: string): Promise<void>;
-    scheduleRestart(source: 'archive' | 'pruned', reason: string): void;
+    scheduleRestart(source: 'archive' | 'pruned', reason: string, delayMs?: number): void;
     setFinalizedHeader(header: ReturnType<typeof createHeader>): Promise<void>;
     unsubscribe?: () => void;
   };

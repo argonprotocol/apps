@@ -16,9 +16,11 @@ import {
 } from '@argonprotocol/apps-core';
 import {
   type ArgonClient,
+  BitcoinLock,
   type FrameSystemEventRecord,
   type GenericEvent,
   type ISubmittableResult,
+  PriceIndex,
   type SignedBlock,
   Vault,
 } from '@argonprotocol/mainchain';
@@ -330,6 +332,8 @@ export class BitcoinLockRelayService {
 
     const { requestedSatoshis, microgonsAtTargetPerBtc } = request;
     const { expirationTick, maxSatoshis } = coupon;
+    const client = await this.clients.get(false);
+    const priceIndex = await new PriceIndex().load(client);
     const latestVault = this.latestVault;
     if (!latestVault) {
       throw new Error('Bitcoin lock relay vault failed to load.');
@@ -361,7 +365,8 @@ export class BitcoinLockRelayService {
     const pendingSubmittedRelays = this.db.bitcoinLockRelaysTable
       .fetchNonTerminal()
       .filter(relay => relay.status === 'Submitted');
-    const requiredLiquidity = (requestedSatoshis * microgonsAtTargetPerBtc) / SATOSHIS_PER_BITCOIN;
+    const lockedTargetPrice = (requestedSatoshis * microgonsAtTargetPerBtc) / SATOSHIS_PER_BITCOIN;
+    const requiredLiquidity = BitcoinLock.calculateRedemptionAmount(priceIndex, lockedTargetPrice);
     const requiredSecuritization = bigNumberToBigInt(
       latestVault.securitizationRatioBN().multipliedBy(requiredLiquidity),
     );
@@ -369,8 +374,22 @@ export class BitcoinLockRelayService {
       (total, relay) => total + (relay.securitizationUsedMicrogons ?? 0n),
       0n,
     );
+    const availableSecuritization = latestVault.availableSecuritization();
 
-    if (latestVault.availableSecuritization() < requiredSecuritization + pendingSubmittedSecuritization) {
+    if (availableSecuritization < requiredSecuritization + pendingSubmittedSecuritization) {
+      const totalRequiredSecuritization = requiredSecuritization + pendingSubmittedSecuritization;
+      console.warn('[BitcoinLockRelayService] Vault securitization is currently exhausted for this lock request.', {
+        offerCode: coupon.offerCode,
+        vaultId: latestVault.vaultId,
+        requestedSatoshis: requestedSatoshis.toString(),
+        microgonsAtTargetPerBtc: microgonsAtTargetPerBtc.toString(),
+        lockedTargetPrice: lockedTargetPrice.toString(),
+        requiredLiquidityMicrogons: requiredLiquidity.toString(),
+        requiredSecuritizationMicrogons: requiredSecuritization.toString(),
+        pendingSubmittedSecuritizationMicrogons: pendingSubmittedSecuritization.toString(),
+        availableSecuritizationMicrogons: availableSecuritization.toString(),
+        totalRequiredSecuritizationMicrogons: totalRequiredSecuritization.toString(),
+      });
       return {
         canSubmit: false,
         reason: 'Vault securitization is currently exhausted for this lock request.',

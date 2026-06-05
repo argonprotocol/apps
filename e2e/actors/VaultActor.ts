@@ -223,15 +223,15 @@ export class VaultActor {
     return await this.globalCouncil.relayApprovedGatewayUpdates();
   }
 
-  public async collateralizeNextPendingTransfer(client: ArgonClient): Promise<boolean> {
+  public async authorizeNextPendingTransfer(client: ArgonClient): Promise<boolean> {
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
-    const pendingCollateralizations = await this.mintingAuthorities.refresh(finalizedClient);
-    const nextPending = pendingCollateralizations[0];
+    const pendingMintingAuthorizations = await this.mintingAuthorities.refresh(finalizedClient);
+    const nextPending = pendingMintingAuthorizations[0];
     if (!nextPending) {
       return false;
     }
 
-    const txInfo = await this.mintingAuthorities.collateralize(nextPending.transferId);
+    const txInfo = await this.mintingAuthorities.authorize(nextPending.transferId);
     await txInfo.waitForPostProcessing;
     return true;
   }

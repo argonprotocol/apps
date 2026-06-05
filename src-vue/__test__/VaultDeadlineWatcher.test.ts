@@ -6,7 +6,7 @@ describe('computeCollectDeadline', () => {
     [
       'defaults to the next collection window when nothing is pending',
       { collectFrames: [], cosignDueFrames: [], currentFrameId: 120, timeToCollectFrames: 5 },
-      { nextCollectFrame: 125, expiringCollectAmount: 0n },
+      { nextCollectFrame: 125, nextCosignFrame: undefined, expiringCollectAmount: 0n },
     ],
     [
       'uses the oldest uncollected frame still inside the collection window',
@@ -21,7 +21,7 @@ describe('computeCollectDeadline', () => {
         currentFrameId: 120,
         timeToCollectFrames: 3,
       },
-      { nextCollectFrame: 121, expiringCollectAmount: 4n },
+      { nextCollectFrame: 121, nextCosignFrame: undefined, expiringCollectAmount: 4n },
     ],
     [
       'prefers the earliest cosign due frame when it arrives sooner than revenue collection',
@@ -34,12 +34,12 @@ describe('computeCollectDeadline', () => {
         currentFrameId: 120,
         timeToCollectFrames: 5,
       },
-      { nextCollectFrame: 122, expiringCollectAmount: 5n },
+      { nextCollectFrame: 124, nextCosignFrame: 122, expiringCollectAmount: 5n },
     ],
     [
       'clamps deadlines earlier than the next frame',
       { collectFrames: [], cosignDueFrames: [118], currentFrameId: 120, timeToCollectFrames: 5 },
-      { nextCollectFrame: 121, expiringCollectAmount: 0n },
+      { nextCollectFrame: 125, nextCosignFrame: 121, expiringCollectAmount: 0n },
     ],
   ])('%s', (_label, args, expected) => {
     expect(computeCollectDeadline(args)).toEqual(expected);

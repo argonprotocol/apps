@@ -144,6 +144,22 @@ describe('ServerAuthClient', () => {
     ]);
     expect(walletMock.upstreamOperatorAuthSigner.sign).toHaveBeenCalledTimes(1);
   });
+
+  it('does not cache transport failures as auth failures', async () => {
+    const baseUrl = 'https://transport-failure.example';
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Load failed'))
+      .mockResolvedValueOnce(jsonResponse(createChallenge('nonce-1')))
+      .mockResolvedValueOnce(jsonResponse(createSession()))
+      .mockResolvedValueOnce(emptyResponse(204));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(serverAuthClient.getAdminOperatorSessionId(baseUrl)).rejects.toThrow('Load failed');
+    await expect(serverAuthClient.getAdminOperatorSessionId(baseUrl)).resolves.toBe('session-admin-operator');
+
+    expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/challenge', '/auth/login', '/auth/verify/admin']);
+  });
 });
 
 function createChallenge(nonce = 'nonce', role = UserRole.AdminOperator) {

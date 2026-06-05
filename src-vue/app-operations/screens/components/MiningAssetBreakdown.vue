@@ -137,7 +137,7 @@
         {{ microgonToArgonNm(breakdown.stakedSeatMicronots).format('0,0.[00]') }} ARGNOT Staked
         <template #tooltip>
           <p class="break-words whitespace-normal">
-            These argonots are expected to be earned during the remainder of your active mining seats.
+            These argonots are staked for your mining seats and are slashable if you break the mining rules. If you simply run this app, you will not break the rules.
           </p>
         </template>
       </SubItem>

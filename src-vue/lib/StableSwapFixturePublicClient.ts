@@ -1,4 +1,5 @@
 import JSBI from 'jsbi';
+import { ChainId, type Token } from '@uniswap/sdk-core';
 import { Pool as UniswapV3Pool, SwapQuoter, TickMath, encodeSqrtRatioX96 } from '@uniswap/v3-sdk';
 import { getAddress, type Address, type Hex, type PublicClient } from 'viem';
 import fixture from '../../e2e/argon/uniswap/test-stable-swaps.json';
@@ -15,11 +16,11 @@ import {
   USDT_DECIMALS,
   WETH_DECIMALS,
 } from './StableSwapUtils.ts';
-import type { Token } from '@uniswap/sdk-core';
 
 type StableSwapFixture = {
   blockNumber: number;
   tokenAddresses: {
+    argon: string;
     argonot: string;
   };
   pool: {
@@ -56,6 +57,7 @@ type ParsedStableSwapFixturePool = {
   currentSqrtPriceX96: bigint;
 };
 
+export const STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS = getAddress(fixture.tokenAddresses.argon);
 export const STABLE_SWAP_FIXTURE_ARGONOT_TOKEN_ADDRESS = getAddress(fixture.tokenAddresses.argonot);
 
 export function createStableSwapFixturePublicClient(stableSwapFixture: StableSwapFixture = fixture): PublicClient {
@@ -213,11 +215,11 @@ type StableSwapFixtureTokenSymbol = 'ARGN' | 'USDC' | 'USDT' | 'WETH' | 'ARGNOT'
 
 function createStableSwapFixtureTokens(stableSwapFixture: StableSwapFixture) {
   return {
-    ARGN: getStableSwapArgonToken(),
-    USDC: getStableSwapUsdcToken(),
-    USDT: getStableSwapUsdtToken(),
-    WETH: getStableSwapWethToken(),
-    ARGNOT: getStableSwapArgonotToken(getAddress(stableSwapFixture.tokenAddresses.argonot)),
+    ARGN: getStableSwapArgonToken(getAddress(stableSwapFixture.tokenAddresses.argon), ChainId.MAINNET),
+    USDC: getStableSwapUsdcToken(ChainId.MAINNET),
+    USDT: getStableSwapUsdtToken(ChainId.MAINNET),
+    WETH: getStableSwapWethToken(ChainId.MAINNET),
+    ARGNOT: getStableSwapArgonotToken(getAddress(stableSwapFixture.tokenAddresses.argonot), ChainId.MAINNET),
   };
 }
 

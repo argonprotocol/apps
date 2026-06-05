@@ -29,6 +29,10 @@ export function formatEvmNativeFeeWei(valueWei: bigint, maximumFractionDigits = 
     : BigInt(wholePart).toLocaleString('en-US');
 }
 
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export function toSqlParams(
   params: (bigint | number | string | Uint8Array | Date | boolean | object | null | undefined)[],
 ): (string | number | Uint8Array | null | Date)[] {

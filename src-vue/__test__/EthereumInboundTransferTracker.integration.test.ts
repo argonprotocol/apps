@@ -1,15 +1,23 @@
 import { MoveToken } from '@argonprotocol/apps-core';
+import { nanoid } from 'nanoid';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import {
+  createCrosschainTransferProgress,
+  INBOUND_TRANSFER_STEP_TITLES,
+  setInboundRelayStepProgress,
+} from '../lib/CrosschainTransferProgress.ts';
 import { EthereumInboundTransferTracker } from '../lib/EthereumInboundTransferTracker.ts';
-import type { EthereumClient } from '../lib/EthereumClient.ts';
+import type { EthereumClient, IEthereumTransactionProgress } from '../lib/EthereumClient.ts';
 import {
   CrosschainInboundTransferStatus,
   type ICrosschainInboundTransferRecord,
 } from '../lib/db/CrosschainInboundTransfersTable.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { WalletType } from '../lib/Wallet.ts';
+
+type IWaitForTransactionFinalityArgs = Parameters<EthereumClient['waitForTransactionFinality']>[0];
 
 const { getEthereumGatewayPauseReasonMock, getMainchainClientMock } = vi.hoisted(() => ({
   getEthereumGatewayPauseReasonMock: vi.fn(),
@@ -74,9 +82,9 @@ describe('EthereumInboundTransferTracker integration', () => {
     });
 
     await vi.waitFor(async () => {
-      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
       expect(persisted).toMatchObject({
-        transferId: activeTransfer!.transferId,
+        id: activeTransfer!.id,
         sourceChain: 'Ethereum',
         argonDestinationAddress: walletKeys.investmentAddress,
         gatewayActivityNonce: 7n,
@@ -84,7 +92,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       });
     });
 
-    expect(activeTransfer?.transferState.phase).toBe('confirmedOnArgon');
+    expect(activeTransfer?.transferState.progress.overallProgressPct).toBe(100);
     expect(activeTransfer?.transferState.isSubmitting).toBe(false);
   });
 
@@ -147,7 +155,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     });
 
     await vi.waitFor(async () => {
-      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
       expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
     });
   });
@@ -206,9 +214,103 @@ describe('EthereumInboundTransferTracker integration', () => {
     });
 
     await vi.waitFor(async () => {
-      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
       expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
     });
+  });
+
+  it('retries inbound catch-up only after relay progress stays stalled for the full wait estimate', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const db = await createTestDb();
+      const walletKeys = createMockWalletKeys();
+      const requestEthereumGatewayCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const }));
+      const mainchainClient = createMainchainClient({
+        getProvenNonce: () => 6n,
+      });
+      getMainchainClientMock.mockResolvedValue(mainchainClient);
+
+      const tracker = new EthereumInboundTransferTracker(
+        Promise.resolve(db),
+        createTransactionTracker(),
+        walletKeys,
+        createEthereumClient({
+          sourceAddress: walletKeys.ethereumAddress,
+          destinationAddress: walletKeys.investmentAddress,
+          sourceTxHash: `0x${'37'.repeat(32)}`,
+          sourceBlockNumber: 42,
+          sourceBlockHash: `0x${'48'.repeat(32)}`,
+          sourceLogIndex: 8,
+          gatewayActivityNonce: 7n,
+          waitEstimateMs: 1_000,
+        }),
+        {
+          getEthereumRelayStatus: vi.fn(async () => ({ isReady: true })),
+          requestEthereumGatewayCatchUp,
+        },
+        {
+          operatorHost: undefined,
+          requestEthereumGatewayCatchUp: vi.fn(),
+        },
+      );
+
+      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+        id: nanoid(),
+        token: MoveToken.ARGN,
+        argonDestinationAddress: walletKeys.investmentAddress,
+        sourceTxHash: `0x${'37'.repeat(32)}`,
+        sourceBlockNumber: 42,
+        sourceBlockHash: `0x${'48'.repeat(32)}`,
+        sourceLogIndex: 8,
+        gatewayActivityNonce: 7n,
+        status: CrosschainInboundTransferStatus.SourceFinalized,
+      });
+      const progress = setInboundRelayStepProgress(createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES), {
+        progressPct: 0,
+        detail: 'Waiting for Argon to receive finalized Ethereum state...',
+      });
+      const activeTransfer = {
+        id: persistedRecord.id,
+        moveToken: MoveToken.ARGN,
+        persistedRecord,
+        transferState: {
+          ...tracker.getTransferStateForToken(MoveToken.ARGN),
+          hasPersistedTransfer: true,
+          isSubmitting: true,
+          targetWalletType: WalletType.investment,
+          progress,
+        },
+      };
+      (
+        tracker as unknown as {
+          data: {
+            transfersById: Record<string, unknown>;
+            latestTransferIdByToken: Partial<Record<MoveToken.ARGN | MoveToken.ARGNOT, string>>;
+          };
+        }
+      ).data.transfersById[persistedRecord.id] = activeTransfer;
+
+      const requestBackendCatchUp = (
+        tracker as unknown as {
+          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+        }
+      ).requestBackendCatchUp.bind(tracker);
+
+      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer);
+      expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(999);
+      await requestBackendCatchUp(activeTransfer);
+      expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await requestBackendCatchUp(activeTransfer);
+      expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('surfaces a paused gateway sync immediately and skips the upstream fallback', async () => {
@@ -263,7 +365,7 @@ describe('EthereumInboundTransferTracker integration', () => {
 
     provenNonce = 7n;
     await vi.waitFor(async () => {
-      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.transferId);
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
       expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
     });
   });
@@ -277,7 +379,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     getMainchainClientMock.mockResolvedValue(mainchainClient);
 
     const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
-      transferId: 'eth-transfer-1',
+      id: 'eth-transfer-1',
       token: MoveToken.ARGNOT,
       argonDestinationAddress: walletKeys.vaultingAddress,
       sourceTxHash: `0x${'55'.repeat(32)}`,
@@ -311,7 +413,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     await tracker.load();
 
     await vi.waitFor(async () => {
-      const updated = await db.crosschainInboundTransfersTable.get(persistedRecord.transferId);
+      const updated = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
       expect(updated).toMatchObject({
         status: CrosschainInboundTransferStatus.ArgonFinalized,
         argonBlockNumber: 144,
@@ -319,13 +421,148 @@ describe('EthereumInboundTransferTracker integration', () => {
       });
     });
 
-    expect(tracker.getTransferStateForToken(MoveToken.ARGNOT)).toEqual({
+    const transferState = tracker.getTransferStateForToken(MoveToken.ARGNOT);
+    expect(transferState).toMatchObject({
       isSubmitting: false,
       hasPersistedTransfer: false,
       targetWalletType: WalletType.vaulting,
-      phase: 'confirmedOnArgon',
       error: '',
     });
+    expect(transferState.progress.overallProgressPct).toBe(100);
+  });
+
+  it('restores a source-submitted transfer into the Ethereum finalization step before completion', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const releaseEthereumFinality = createDeferredPromise<void>();
+    const mainchainClient = createMainchainClient({
+      getProvenNonce: () => 9n,
+    });
+    getMainchainClientMock.mockResolvedValue(mainchainClient);
+
+    const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+      id: 'eth-transfer-midflight',
+      token: MoveToken.ARGN,
+      argonDestinationAddress: walletKeys.investmentAddress,
+      sourceTxHash: `0x${'77'.repeat(32)}`,
+      sourceBlockNumber: 54,
+      sourceBlockHash: `0x${'88'.repeat(32)}`,
+      sourceLogIndex: 0,
+      gatewayActivityNonce: 0n,
+      status: CrosschainInboundTransferStatus.SourceSubmitted,
+    });
+
+    const finalizedProgress = {
+      blockNumber: 54,
+      blockHash: `0x${'88'.repeat(32)}`,
+      confirmations: 2,
+      expectedConfirmations: 2,
+      progressPct: 100,
+      isFinalized: true,
+    } satisfies IEthereumTransactionProgress;
+    const ethereumClient = createEthereumClient({
+      sourceAddress: walletKeys.ethereumAddress,
+      destinationAddress: persistedRecord.argonDestinationAddress,
+      sourceTxHash: persistedRecord.sourceTxHash!,
+      sourceBlockNumber: finalizedProgress.blockNumber,
+      sourceBlockHash: finalizedProgress.blockHash,
+      sourceLogIndex: 5,
+      gatewayActivityNonce: 9n,
+    });
+    ethereumClient.waitForTransactionFinality = vi.fn(async ({ onProgress }: IWaitForTransactionFinalityArgs) => {
+      onProgress?.({
+        ...finalizedProgress,
+        confirmations: 0,
+        progressPct: 0,
+        isFinalized: false,
+      });
+      await releaseEthereumFinality.promise;
+      onProgress?.(finalizedProgress);
+      return finalizedProgress;
+    });
+
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      {
+        operatorHost: undefined,
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+    );
+
+    await tracker.load();
+
+    await vi.waitFor(() => {
+      const transferState = tracker.getTransferStateForToken(MoveToken.ARGN);
+      expect(transferState.progress.currentStepLabel).toBe('Step 1 of 3: Finalizing on Ethereum');
+      expect(transferState.progress.currentStepDetail).toBe('Ethereum confirmation 1 of 2');
+      expect(transferState.hasPersistedTransfer).toBe(true);
+    });
+
+    releaseEthereumFinality.resolve();
+
+    await vi.waitFor(async () => {
+      const updated = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
+      expect(updated?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
+    });
+  });
+
+  it('persists a failed inbound transfer until it is acknowledged', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    getMainchainClientMock.mockResolvedValue(
+      createMainchainClient({
+        getProvenNonce: () => 0n,
+      }),
+    );
+
+    const ethereumClient = createEthereumClient({
+      sourceAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.vaultingAddress,
+      sourceTxHash: `0x${'91'.repeat(32)}`,
+      sourceBlockNumber: 44,
+      sourceBlockHash: `0x${'92'.repeat(32)}`,
+      sourceLogIndex: 3,
+      gatewayActivityNonce: 8n,
+    });
+    ethereumClient.waitForTransactionFinality = vi.fn(async () => {
+      throw new Error('rpc stalled');
+    });
+
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      {
+        operatorHost: undefined,
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+    );
+
+    const activeTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.vaulting,
+    });
+
+    await vi.waitFor(async () => {
+      const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
+      expect(persisted?.failureReason).toBe('rpc stalled');
+      expect(persisted?.isFailureAcknowledged).toBe(false);
+      expect(activeTransfer?.transferState.needsAcknowledgement).toBe(true);
+      expect(activeTransfer?.transferState.error).toBe('rpc stalled');
+    });
+
+    await tracker.acknowledgeFailedTransfer(activeTransfer!.id);
+
+    const acknowledged = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
+    expect(acknowledged?.isFailureAcknowledged).toBe(true);
+    expect(tracker.getTransfer(activeTransfer!.id)).toBeUndefined();
   });
 });
 
@@ -345,9 +582,22 @@ function createEthereumClient(args: {
   | 'executionRpcUrl'
   | 'startTransferToArgon'
   | 'confirmTransferToArgon'
+  | 'getTransactionProgress'
+  | 'getTransactionFinalityPollMs'
+  | 'getTransactionFinalityBlocks'
   | 'getTransferToArgonPollMs'
   | 'getTransferToArgonWaitEstimateMs'
+  | 'waitForTransactionFinality'
 > {
+  const finalizedProgress = {
+    blockNumber: args.sourceBlockNumber,
+    blockHash: args.sourceBlockHash,
+    confirmations: 2,
+    expectedConfirmations: 2,
+    progressPct: 100,
+    isFinalized: true,
+  } satisfies IEthereumTransactionProgress;
+
   return {
     sourceAddress: args.sourceAddress,
     executionRpcUrl: 'http://ethereum.test',
@@ -369,8 +619,25 @@ function createEthereumClient(args: {
       sourceLogIndex: args.sourceLogIndex,
       gatewayActivityNonce: args.gatewayActivityNonce,
     })),
+    getTransactionProgress: vi.fn(
+      async () =>
+        ({
+          blockNumber: args.sourceBlockNumber,
+          blockHash: args.sourceBlockHash,
+          confirmations: 2,
+          expectedConfirmations: 2,
+          progressPct: 100,
+          isFinalized: true,
+        }) satisfies IEthereumTransactionProgress,
+    ),
+    getTransactionFinalityPollMs: () => 1,
+    getTransactionFinalityBlocks: () => 2,
     getTransferToArgonPollMs: () => args.pollMs ?? 1,
     getTransferToArgonWaitEstimateMs: () => args.waitEstimateMs ?? 1_000,
+    waitForTransactionFinality: vi.fn(async ({ onProgress }: IWaitForTransactionFinalityArgs) => {
+      onProgress?.(finalizedProgress);
+      return finalizedProgress;
+    }),
   };
 }
 
@@ -481,11 +748,22 @@ function createTransactionTracker(
   } as unknown as TransactionTracker;
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function insertTransferRecord(
   db: Awaited<ReturnType<typeof createTestDb>>,
   sourceAddress: string,
   args: {
-    transferId: string;
+    id: string;
     token: MoveToken.ARGN | MoveToken.ARGNOT;
     argonDestinationAddress: string;
     sourceTxHash: `0x${string}`;
@@ -497,7 +775,7 @@ async function insertTransferRecord(
   },
 ): Promise<ICrosschainInboundTransferRecord> {
   return (await db.crosschainInboundTransfersTable.upsert({
-    transferId: args.transferId,
+    id: args.id,
     sourceChain: 'Ethereum',
     token: args.token,
     amountBaseUnits: 5_000_000_000_000n,
@@ -508,6 +786,11 @@ async function insertTransferRecord(
     sourceBlockHash: args.sourceBlockHash,
     sourceLogIndex: args.sourceLogIndex,
     gatewayActivityNonce: args.gatewayActivityNonce,
+    progressJson: createCrosschainTransferProgress([
+      'Finalizing on Ethereum',
+      'Relaying to Argon',
+      'Finalizing on Argon',
+    ]),
     status: args.status,
   }))!;
 }

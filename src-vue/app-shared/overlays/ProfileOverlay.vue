@@ -36,7 +36,7 @@
             class="inner-input-shadow mt-2 w-full rounded-lg border border-slate-400/70 bg-white px-2.5 py-1.5 text-lg font-normal text-slate-700 placeholder:text-slate-300 outline-none transition focus:border-argon-500 focus:ring-2 focus:ring-argon-500/15"
           />
           <div class="mt-2 text-xs text-slate-500">
-            Start with a capital letter and use up to 18 letters or numbers.
+            Start with a capital letter and use up to 18 letters or numbers (no spaces).
           </div>
         </div>
 

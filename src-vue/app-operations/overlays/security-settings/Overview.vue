@@ -33,11 +33,11 @@
     </li>
     <li class="h-[1px] border-t border-slate-300 border-dashed my-4" />
     <li
-      @click="goTo('export')"
+      @click="goTo('ethereum-export')"
       class="group flex flex-row items-center cursor-pointer hover:text-argon-600 hover:bg-gradient-to-r hover:from-transparent hover:to-argon-menu-hover/70 rounded-md py-4"
     >
       <ExportIcon class="w-5 h-5 mr-2 opacity-70 group-hover:text-argon-600" />
-      Export Account Backup File
+      Export Ethereum Private Key
     </li>
   </ul>
 </template>
@@ -54,7 +54,7 @@ const controller = useOperationsController();
 
 const emit = defineEmits(['close', 'goTo']);
 
-function goTo(screen: 'encrypt' | 'mnemonics' | 'ssh' | 'export') {
+function goTo(screen: 'encrypt' | 'mnemonics' | 'ssh' | 'ethereum-export') {
   emit('goTo', screen);
 }
 </script>

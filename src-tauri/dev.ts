@@ -62,6 +62,7 @@ async function main(): Promise<void> {
     shouldStartDevEthereumMintingAuthority = ['1', 'true', 'yes', 'on'].includes(
       readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase() ?? '',
     );
+    if (app.startsWith('treasury')) shouldStartDevEthereumMintingAuthority = false;
     await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');

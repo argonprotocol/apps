@@ -23,7 +23,6 @@ import {
   FIXED_18,
   fixed18ToMicrogons,
   getStableSwapArgonToken,
-  getStableSwapArgonTokenAddress,
   isLikelyRateLimit,
   STABLE_SWAP_TRANSFER_EVENT,
   stableSwapSdkPriceToFixed18,
@@ -33,6 +32,7 @@ import {
   usdcToFixed18,
   usdcToMicrogons,
 } from './StableSwapUtils.ts';
+import { loadEthereumChainConfig } from './EthereumClient.ts';
 
 export { buildStableSwapReceiptProofs, type StableSwapReceiptProof };
 
@@ -102,6 +102,12 @@ export async function buildStableSwapPurchaseFromTransaction(args: {
     argonPriceCache,
   );
   const costBasisFixed18 = usdcToFixed18(costBasisUsdc);
+  const chainConfig = await loadEthereumChainConfig();
+  const argonTokenAddress = chainConfig?.argonTokenAddress;
+  if (!argonTokenAddress) {
+    throw new Error('Ethereum gateway chain config is not available on this Argon network.');
+  }
+  const argonToken = getStableSwapArgonToken(argonTokenAddress, chainConfig.chainId);
 
   return {
     walletAddress,
@@ -121,7 +127,7 @@ export async function buildStableSwapPurchaseFromTransaction(args: {
       microgonsPerUsd,
     ),
     uniswapPriceMicrogons: fixed18ToMicrogons(
-      stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, lastPoolState).priceOf(getStableSwapArgonToken())),
+      stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, argonToken, lastPoolState).priceOf(argonToken)),
       microgonsPerUsd,
     ),
     argonBlockNumber: argonPriceSnapshot.argonBlockNumber,
@@ -202,6 +208,10 @@ export async function syncStableSwapWallet(args: {
   currentPriceMicrogons: bigint;
 }): Promise<{ walletSnapshot: IStableSwapWalletSnapshot | null; message: string }> {
   const { db, client, walletAddress, pool, blockWatch, microgonsPerUsd, currentPriceMicrogons } = args;
+  const argonTokenAddress = (await loadEthereumChainConfig())?.argonTokenAddress;
+  if (!argonTokenAddress) {
+    throw new Error('Ethereum gateway chain config is not available on this Argon network.');
+  }
 
   const currentBlockNumber = Number(await client.getBlockNumber());
   let syncState = await db.stableSwapSyncStateTable.get(walletAddress);
@@ -220,7 +230,7 @@ export async function syncStableSwapWallet(args: {
 
   if (syncState.lastScannedBlockNumber < currentBlockNumber) {
     const transferLogs = await client.getLogs({
-      address: getStableSwapArgonTokenAddress(),
+      address: argonTokenAddress,
       event: STABLE_SWAP_TRANSFER_EVENT,
       args: {
         to: walletAddress,

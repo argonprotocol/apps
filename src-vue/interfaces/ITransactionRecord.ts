@@ -21,7 +21,7 @@ export enum ExtrinsicType {
   CrosschainTransferProve = 'CrosschainTransferProve',
   CrosschainTransferTransferOut = 'CrosschainTransferTransferOut',
   CrosschainTransferApproveCouncil = 'CrosschainTransferApproveCouncil',
-  CrosschainTransferCollateralize = 'CrosschainTransferCollateralize',
+  CrosschainTransferAuthorize = 'CrosschainTransferAuthorize',
   CrosschainTransferRegisterMintingAuthority = 'CrosschainTransferRegisterMintingAuthority',
 
   TreasuryBuyBonds = 'TreasuryBuyBonds',

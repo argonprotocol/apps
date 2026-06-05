@@ -7,13 +7,15 @@
     "indexerHost": "http://localhost:55154",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
+      "beaconApiUrl": "",
       "executionRpcUrl": "",
       "finalityBlocks": 16,
-      "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": ""
+      "chainId": 8453,
+      "rpcUrl": "",
+      "usdcTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -28,13 +30,15 @@
     "indexerHost": "http://localhost:3262",
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
+      "beaconApiUrl": "",
       "executionRpcUrl": "",
       "finalityBlocks": 16,
-      "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": ""
+      "chainId": 8453,
+      "rpcUrl": "",
+      "usdcTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     },
     "ticksBetweenFrames": 10,
     "slotBiddingStartAfterTicks": 0,
@@ -49,13 +53,15 @@
     "indexerHost": "https://indexer.testnet.argonprotocol.org",
     "websiteHost": "https://staging.argon.network",
     "ethereumNetwork": {
-      "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "beaconApiUrl": "https://ethereum-sepolia-beacon-api.publicnode.com",
+      "executionRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
       "finalityBlocks": 32,
-      "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
-      "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+      "usdcTokenAddress": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
     },
     "baseNetwork": {
-      "rpcUrl": "https://mainnet.base.org"
+      "chainId": 84532,
+      "rpcUrl": "https://sepolia.base.org",
+      "usdcTokenAddress": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
     },
     "ticksBetweenFrames": 1440,
     "slotBiddingStartAfterTicks": 17280,
@@ -70,13 +76,15 @@
     "indexerHost": "https://indexer.argon.network",
     "websiteHost": "https://argon.network",
     "ethereumNetwork": {
+      "beaconApiUrl": "https://ethereum-beacon-api.publicnode.com",
       "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
       "finalityBlocks": 32,
-      "argonTokenAddress": "0x6A9143639D8b70D50b031fFaD55d4CC65EA55155",
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
     "baseNetwork": {
-      "rpcUrl": "https://mainnet.base.org"
+      "chainId": 8453,
+      "rpcUrl": "https://mainnet.base.org",
+      "usdcTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
     },
     "ticksBetweenFrames": 1440,
     "slotBiddingStartAfterTicks": 55661,

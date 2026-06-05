@@ -40,7 +40,10 @@
       @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)"
       :Selected="controller.selectedTab === TreasuryTab.BitcoinLocks || undefined"
     >
-      <div Text>Bitcoin Locks</div>
+      <div Text class="flex flex-row items-center gap-x-2">
+        <span>Bitcoin Locks</span>
+        <GiftIcon v-if="hasUnredeemedCoupon" class="h-4 w-4 text-argon-600/80" />
+      </div>
       <div Text>
         <AlertIcon AlertIcon v-if="financials.liquidProblemRecords.length" class="h-6 w-6 text-argon-600" />
         <Spinner SpinnerIcon v-else-if="financials.liquidPrelockedRecords.length" />
@@ -61,7 +64,10 @@
       :Selected="controller.selectedTab === TreasuryTab.ArgonBonds || undefined"
     >
       <div Text>Argon Bonds</div>
-      <div Text>{{ currency.symbol }}{{ microgonToMoneyNm(financials.bondsTotalValue).format('0,0.00') }}</div>
+      <div Text class="inline-flex items-center">
+        <span>{{ currency.symbol }}</span>
+        <FormattedMoney :isLoaded="myBonds.isLoaded" :value="bondsTotalValue" />
+      </div>
       <div ArrowWrapper>
         <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
         <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
@@ -120,6 +126,7 @@ import ArrowRightBg from '../../assets/arrow-right-bg.svg';
 import { getCurrency } from '../../stores/currency.ts';
 import { TreasuryTab, useTreasuryController } from '../stores/controller.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { GiftIcon } from '@heroicons/vue/24/outline';
 import DiscordIcon from '../../assets/discord.svg';
 import InstructionsIcon from '../../assets/instructions.svg';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
@@ -128,19 +135,47 @@ import Spinner from '../../components/Spinner.vue';
 import AlertIcon from '../../assets/alert.svg';
 import { useStableSwaps } from '../stores/stableSwaps.ts';
 import { getConfig } from '../../stores/config.ts';
+import { getUpstreamOperatorClient } from '../../stores/upstreamOperator.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
+import { useMyBonds } from '../../stores/myBonds.ts';
+import FormattedMoney from '../../components/FormattedMoney.vue';
 
 const config = getConfig();
 const currency = getCurrency();
 const controller = useTreasuryController();
 const financials = useFinancials();
 const stableSwaps = useStableSwaps();
+const walletKeys = getWalletKeys();
+const myBonds = useMyBonds();
 
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.ref(false);
+const hasUnredeemedCoupon = Vue.ref(false);
+const bondsTotalValue = Vue.computed(() => {
+  return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n);
+});
 
 function openLink(url: string) {
   void tauriOpenUrl(url);
+}
+
+async function loadCouponState() {
+  const upstreamOperatorClient = getUpstreamOperatorClient();
+  const vaultId = config.upstreamOperator?.vaultId;
+
+  if (!upstreamOperatorClient.operatorHost || !vaultId) {
+    hasUnredeemedCoupon.value = false;
+    return;
+  }
+
+  try {
+    const coupons = await upstreamOperatorClient.getBitcoinLockCoupons(walletKeys.liquidLockingAddress);
+    hasUnredeemedCoupon.value = coupons.some(coupon => coupon.status === 'Open' && coupon.coupon.vaultId === vaultId);
+  } catch (error) {
+    console.error('Failed to load bitcoin lock coupons', error);
+    hasUnredeemedCoupon.value = false;
+  }
 }
 
 Vue.onMounted(async () => {
@@ -150,7 +185,12 @@ Vue.onMounted(async () => {
   } catch (error) {
     console.error('Failed to load stable swaps', error);
   }
+  await loadCouponState();
   isLoaded.value = true;
+});
+
+Vue.watch([() => config.upstreamOperator?.vaultId, () => config.bootstrapDetails?.routerHost], () => {
+  void loadCouponState();
 });
 </script>
 
@@ -199,15 +239,18 @@ Vue.onMounted(async () => {
         @apply opacity-100;
       }
       [ArrowWrapper] {
-        @apply top-[-4px] left-[calc(100%-2px)] aspect-square h-[calc(100%+8px)] w-auto translate-y-0 pr-[6px] pb-[8px];
+        @apply top-[-4px] left-[calc(100%-2px)] z-2 aspect-square h-[calc(100%+8px)] w-auto translate-y-0 pr-[6px] pb-[8px];
         &::before {
           @apply block;
         }
         .Component.Arrow[InactiveArrow] {
-          @apply hidden;
+          @apply block;
+          path {
+            fill: var(--color-argon-20) !important;
+          }
         }
         .Component.Arrow[ActiveArrow] {
-          @apply block;
+          @apply hidden;
         }
         [ArrowRightBg] {
           @apply hidden;

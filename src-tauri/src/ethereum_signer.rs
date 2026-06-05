@@ -102,6 +102,14 @@ pub fn derive_address_at_path(mnemonic: &str, hd_path: &str) -> Result<String> {
     derive_ethereum_address_from_hd_key(derive_hd_key_with_path(mnemonic, hd_path)?)
 }
 
+pub fn export_private_key_at_path(mnemonic: &str, hd_path: &str) -> Result<String> {
+    let hd_key = derive_hd_key_with_path(mnemonic, hd_path)?;
+    Ok(format!(
+        "0x{}",
+        hex::encode(hd_key.private_key().to_bytes())
+    ))
+}
+
 pub fn derive_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<String>> {
     ensure!(
         hd_paths.len() <= 64,

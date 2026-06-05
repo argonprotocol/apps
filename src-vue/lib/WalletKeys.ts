@@ -12,6 +12,7 @@ import type { Hex, Signature } from 'viem';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { IS_TREASURY_APP, NETWORK_NAME } from './Env.ts';
+import { WalletType } from './Wallet.ts';
 
 export type EthereumHdPathPrefix = `m/44'/60'/${string}`;
 
@@ -70,6 +71,10 @@ export class WalletKeys {
 
   public async exposeMasterMnemonic(): Promise<string> {
     return await invokeWithTimeout<string>('expose_mnemonic', {}, 60e3);
+  }
+
+  public async exportEthereumPrivateKey(): Promise<Hex> {
+    return await invokeWithTimeout<Hex>('export_default_ethereum_private_key', {}, 60e3);
   }
 
   // TODO: move to a refunding proxy account.
@@ -234,6 +239,25 @@ export class WalletKeys {
   public async getMiningBotKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public async getWalletKeypair(walletType: WalletType): Promise<KeyringPair> {
+    switch (walletType) {
+      case WalletType.miningHold:
+        return await this.getMiningHoldKeypair();
+      case WalletType.miningBot:
+        return await this.getMiningBotKeypair();
+      case WalletType.vaulting:
+        return await this.getVaultingKeypair();
+      case WalletType.operational:
+        return await this.getOperationalKeypair();
+      case WalletType.investment:
+        return await this.getInvestmentKeypair();
+      case WalletType.ethereum:
+        throw new Error('Ethereum wallets do not have an Argon keypair.');
+    }
+
+    throw new Error('Unsupported wallet type.');
   }
 
   public get liquidLockingAddress(): string {

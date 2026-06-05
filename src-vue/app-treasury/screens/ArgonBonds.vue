@@ -73,7 +73,7 @@
         <div class="w-1/3 border-b border-slate-400/30 py-5">
           <div class="text-argon-600 inline-flex text-5xl font-bold">
             <span>{{ currency.symbol }}</span>
-            <FormattedMoney :isLoaded="financials.bondsIsLoaded" :value="financials.bondsTotalValue" />
+            <FormattedMoney :isLoaded="myBonds.isLoaded" :value="bondsTotalValue" />
           </div>
           <div>Total Capital Invested</div>
         </div>
@@ -81,7 +81,7 @@
         <div class="w-1/3 border-b border-slate-400/30 py-5">
           <div class="text-argon-600 inline-flex text-5xl font-bold">
             <span>{{ currency.symbol }}</span>
-            <FormattedMoney :isLoaded="financials.bondsIsLoaded" :value="financials.bondsTotalProfits" />
+            <FormattedMoney :isLoaded="myBonds.isLoaded" :value="bondsTotalProfits" />
           </div>
           <div>Distributed Profits</div>
         </div>
@@ -117,9 +117,9 @@
             v-for="bondLot in myBonds.bondLots"
             :key="bondLot.id"
             :bondLot="bondLot"
-            :isReleasing="releasingLotIds[bondLot.id]"
-            @click="releaseBondLot(bondLot)"
-            @unlock="releaseBondLot(bondLot)"
+            :isReleasing="bondLot.isReleasing"
+            @click="openDetail(bondLot)"
+            @liquidate="openDetail"
           />
         </section>
       </div>
@@ -130,6 +130,12 @@
     </div>
 
     <BuyBondsOverlay v-if="showBondsOverlay" @close="showBondsOverlay = false" @submitted="onSubmitted" />
+    <BondDetailOverlay
+      v-if="showDetailOverlay && selectedBondLot"
+      :bondLot="selectedBondLot"
+      @close="closeDetail"
+      @submitted="onSubmitted"
+    />
   </div>
 </template>
 
@@ -150,13 +156,12 @@ import BuyBondsOverlay from '../overlays/BuyBondsOverlay.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
 import CurvedArrow from '../../components/CurvedArrow.vue';
 import BondIcon from '../../assets/bond.svg?component';
-import { getTransactionTracker } from '../../stores/transactions.ts';
-import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../stores/financials.ts';
 import BondRecord from './components/BondRecord.vue';
+import BondDetailOverlay from '../overlays/BondDetailOverlay.vue';
 
 dayjs.extend(utc);
 
@@ -168,13 +173,19 @@ const miningFrames = getMiningFrames();
 const config = getConfig();
 const myBonds = useMyBonds();
 const bondMarket = getBondMarket();
-const transactionTracker = getTransactionTracker();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.ref(false);
 const showBondsOverlay = Vue.ref(false);
+const showDetailOverlay = Vue.ref(false);
 const vaultTotalCapacity = Vue.ref(0n);
-const releasingLotIds = Vue.ref<Record<number, boolean>>({});
+const selectedBondLot = Vue.ref<BondLot | undefined>();
+const bondsTotalValue = Vue.computed(() => {
+  return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n);
+});
+const bondsTotalProfits = Vue.computed(() => {
+  return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.lifetimeEarnings, 0n);
+});
 
 const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[myBonds.vaultId]);
 
@@ -190,35 +201,14 @@ async function onSubmitted() {
   await refreshMarketData();
 }
 
-async function releaseBondLot(lot: BondLot) {
-  if (releasingLotIds.value[lot.id]) return;
+function openDetail(bondLot: BondLot) {
+  selectedBondLot.value = bondLot;
+  showDetailOverlay.value = true;
+}
 
-  releasingLotIds.value = { ...releasingLotIds.value, [lot.id]: true };
-  try {
-    const client = await getMainchainClient(false);
-    const signer = await walletKeys.getInvestmentKeypair();
-    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLot: lot });
-    const info = await transactionTracker.submitAndWatch({
-      tx,
-      txSigner: signer,
-      extrinsicType: ExtrinsicType.TreasuryReleaseBondLot,
-      metadata: {
-        bondLotId: lot.id,
-        releasedBondMicrogons: lot.bondMicrogons,
-      },
-    });
-
-    info.subscribeToProgress((args, error) => {
-      if (args.progressPct >= 100 && !error) {
-        void onSubmitted();
-      }
-      if (error) {
-        releasingLotIds.value = { ...releasingLotIds.value, [lot.id]: false };
-      }
-    });
-  } catch {
-    releasingLotIds.value = { ...releasingLotIds.value, [lot.id]: false };
-  }
+function closeDetail() {
+  showDetailOverlay.value = false;
+  selectedBondLot.value = undefined;
 }
 
 async function refreshMarketData() {

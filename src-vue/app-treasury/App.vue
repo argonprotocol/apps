@@ -24,7 +24,6 @@
       <AboutOverlay />
       <VaultsOverlay />
       <WalletOverlay />
-      <SigningOverlay />
       <JurisdictionOverlay />
       <TransactionsOverlay />
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
@@ -57,7 +56,6 @@ import StableSwapsScreen from './screens/StableSwaps.vue';
 import { TreasuryTab, useTreasuryController } from './stores/controller.ts';
 import VaultsOverlay from './overlays/VaultsOverlay.vue';
 import WalletOverlay from '../app-shared/overlays/WalletOverlay.vue';
-import SigningOverlay from './overlays/SigningOverlay.vue';
 import InterestFreeLiabilities from './screens/InterestFreeLiabilities.vue';
 import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 

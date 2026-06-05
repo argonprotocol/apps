@@ -55,7 +55,7 @@
                   </div>
                   <template v-if="props.showSingleAddress">
                     <div class="h-px w-full bg-slate-400/30 my-2" />
-                    <img :src="qrCode" class="w-full mt-4" :alt="`QR Code Wallet Address`" />
+                    <img :src="qrCode" class="w-40 max-w-full mt-4 mx-auto" :alt="`QR Code Wallet Address`" />
                   </template>
                   <template #copied>
                     <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
@@ -67,7 +67,7 @@
                       </div>
                       <template v-if="props.showSingleAddress">
                         <div class="h-px w-full bg-slate-400/30 my-2" />
-                        <img :src="qrCode" class="w-full mt-2" :alt="`QR Code Wallet Address`" />
+                        <img :src="qrCode" class="w-40 max-w-full mt-2 mx-auto" :alt="`QR Code Wallet Address`" />
                       </template>
                     </div>
                   </template>
@@ -99,6 +99,15 @@
                   </template>
                 </CopyToClipboard>
               </DropdownMenuItem>
+              <DropdownMenuItem
+                v-if="walletType === WalletType.ethereum && props.showSingleAddress"
+                @select.prevent="openEthereumPrivateKeyExport"
+                class="flex justify-center border-t border-slate-400/30 py-2"
+              >
+                <span class="text-center text-argon-600 underline decoration-transparent underline-offset-2 hover:decoration-current">
+                  Export Private Key
+                </span>
+              </DropdownMenuItem>
             </div>
             <DropdownMenuArrow :width="18" :height="10" class="mt-[0px] fill-white stroke-gray-300" />
           </DropdownMenuContent>
@@ -125,6 +134,7 @@ import CopyIcon from '../../../assets/copy.svg';
 import { abbreviateAddress } from '../../../lib/Utils.ts';
 import { IWallet, WalletType } from '../../../lib/Wallet.ts';
 import { useWallets } from '../../../stores/wallets.ts';
+import basicEmitter from '../../../emitters/basicEmitter.ts';
 import QRCode from 'qrcode';
 
 const props = defineProps<{
@@ -194,6 +204,11 @@ function closeMenu() {
   }
   mouseLeaveTimeoutId = undefined;
   isOpen.value = false;
+}
+
+function openEthereumPrivateKeyExport() {
+  closeMenu();
+  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ethereum-export' });
 }
 
 function clickOutside(e: PointerDownOutsideEvent) {

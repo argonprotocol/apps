@@ -28,7 +28,7 @@ type IMyVaultTestTarget = {
   }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined>;
   onCosignResult(txInfo: TransactionInfo<{ utxoId: number }>): Promise<void>;
   recordPendingCosignUtxos(rawUtxoIds: Iterable<unknown>, updateSeq: number): Promise<void>;
-  updateCollectDueDate(): void;
+  updateCollectDeadlines(): void;
   trackTxResultFee(txResult: unknown): Promise<void>;
 };
 
@@ -399,7 +399,7 @@ describe('MyVault cosign recovery', () => {
     const { myVault } = createVault();
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     const testVault = myVault as unknown as IMyVaultTestTarget;
-    vi.spyOn(testVault, 'updateCollectDueDate').mockImplementation(() => undefined);
+    vi.spyOn(testVault, 'updateCollectDeadlines').mockImplementation(() => undefined);
 
     myVault.data.pendingCosignUtxosById.set(16, { targetValue: 1_000n });
     myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.set(16, txInfo as TransactionInfo<{ utxoId: number }>);
@@ -527,7 +527,7 @@ describe('MyVault cosign recovery', () => {
     expect(result).toBe(collectTxInfo);
     expect(submitAndWatch).not.toHaveBeenCalled();
     expect(mintingAuthorities.refresh).not.toHaveBeenCalled();
-    expect(mintingAuthorities.collateralize).not.toHaveBeenCalled();
+    expect(mintingAuthorities.authorize).not.toHaveBeenCalled();
   });
 
   it('submits collect work without starting collateralization work inline', async () => {
@@ -568,7 +568,7 @@ describe('MyVault cosign recovery', () => {
 
     expect(result).toBe(collectTxInfo);
     expect(submitAndWatch).toHaveBeenCalledTimes(1);
-    expect(mintingAuthorities.collateralize).not.toHaveBeenCalled();
+    expect(mintingAuthorities.authorize).not.toHaveBeenCalled();
 
     getFinalizedClient.mockRestore();
     getMainchainClient.mockRestore();
@@ -585,7 +585,7 @@ describe('MyVault cosign recovery', () => {
     await expect(myVault.collect({ moveTo: 'VaultingHold' as any })).rejects.toThrow(
       'No vault actions are currently available to submit.',
     );
-    expect(mintingAuthorities.collateralize).not.toHaveBeenCalled();
+    expect(mintingAuthorities.authorize).not.toHaveBeenCalled();
 
     getFinalizedClient.mockRestore();
     getMainchainClient.mockRestore();
@@ -896,20 +896,20 @@ function createVault(args?: {
     data: {
       isReady: true,
       authorities: [],
-      pendingCollateralizations: [],
-      pendingCollateralizeTxInfosByTransferId: new Map(),
+      pendingMintingAuthorizations: [],
+      pendingMintingAuthorizeTxInfosByTransferId: new Map(),
     },
     load: vi.fn(async () => undefined),
     refresh: vi.fn(async () => []),
-    collateralize: vi.fn(async () => undefined),
+    authorize: vi.fn(async () => undefined),
     subscribe: vi.fn(async () => undefined),
     unsubscribe: vi.fn(),
   } as {
     data: {
       isReady: boolean;
       authorities: unknown[];
-      pendingCollateralizeTxInfosByTransferId: Map<string, unknown>;
-      pendingCollateralizations: Array<{
+      pendingMintingAuthorizeTxInfosByTransferId: Map<string, unknown>;
+      pendingMintingAuthorizations: Array<{
         authorityIndex: number;
         destinationSigningKey: string;
         transferId: string;
@@ -921,7 +921,7 @@ function createVault(args?: {
     };
     load: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
-    collateralize: ReturnType<typeof vi.fn>;
+    authorize: ReturnType<typeof vi.fn>;
     subscribe: ReturnType<typeof vi.fn>;
     unsubscribe: ReturnType<typeof vi.fn>;
   };

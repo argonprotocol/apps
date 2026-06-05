@@ -167,7 +167,7 @@ export class ServerAdmin {
     const envState = envStateRaw ? parseEnv(envStateRaw) : {};
     return {
       oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0'),
-      ethereumBeaconApiUrl: envState.ETHEREUM_BEACON_API_URL?.trim() || undefined,
+      ethereumBeaconApiUrl: envState.ETHEREUM_BEACON_API_URL?.trim() || '',
     };
   }
 
@@ -230,8 +230,8 @@ export class ServerAdmin {
   }
 
   public async startBotDocker(): Promise<void> {
-    // do a restart to load the mounted file
-    await this.runComposeCommand(`restart bot`, 10e3);
+    // Recreate the bot so env_file changes are re-read.
+    await this.runComposeCommand(`up -d --no-deps --force-recreate bot`, 20e3);
   }
 
   public async restartDocker(): Promise<void> {

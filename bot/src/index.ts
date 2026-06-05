@@ -22,11 +22,13 @@ const bitcoinInitializerDelegateKeypair = await loadKeypair(requireEnv('VAULT_DE
 const db = new Db(datadir);
 db.migrate();
 await configureNetwork(archiveRpcUrl);
+const ethereumBeaconApiUrl =
+  process.env.ETHEREUM_BEACON_API_URL?.trim() || NetworkConfig.get().ethereumNetwork.beaconApiUrl.trim() || undefined;
 const bot = new Bot({
   db,
   oldestFrameIdToSync: oldestFrameIdToSync,
   bitcoinInitializerDelegateKeypair,
-  ethereumBeaconApiUrl: process.env.ETHEREUM_BEACON_API_URL,
+  ethereumBeaconApiUrl,
   ...requireAll({
     datadir,
     bidderKeypair,

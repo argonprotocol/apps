@@ -60,15 +60,15 @@ export async function startDevEthereumMintingAuthority(args: {
   const getClient = async () => await clients.get(false);
 
   let isShutdown = false;
-  let shouldStopCollateralizing = false;
-  let collateralizeTransfersPromise: Promise<void> | undefined;
+  let shouldStopAuthorizing = false;
+  let authorizeTransfersPromise: Promise<void> | undefined;
   const shutdown = async () => {
     if (isShutdown) {
       return;
     }
     isShutdown = true;
-    shouldStopCollateralizing = true;
-    await collateralizeTransfersPromise?.catch(() => undefined);
+    shouldStopAuthorizing = true;
+    await authorizeTransfersPromise?.catch(() => undefined);
     await actor.dispose();
     await clients.disconnect();
   };
@@ -82,17 +82,17 @@ export async function startDevEthereumMintingAuthority(args: {
       logPrefix: args.logPrefix ?? 'dev-ethereum-minting-authority',
     });
 
-    collateralizeTransfersPromise = (async () => {
-      while (!shouldStopCollateralizing) {
+    authorizeTransfersPromise = (async () => {
+      while (!shouldStopAuthorizing) {
         try {
           const client = await getClient();
-          const didCollateralize = await actor.collateralizeNextPendingTransfer(client);
-          if (!didCollateralize) {
+          const didAuthorize = await actor.authorizeNextPendingTransfer(client);
+          if (!didAuthorize) {
             await new Promise(resolve => setTimeout(resolve, 1_000));
           }
         } catch (error) {
           console.warn(
-            `[${args.logPrefix ?? 'dev-ethereum-minting-authority'}] Unable to collateralize pending Ethereum transfer`,
+            `[${args.logPrefix ?? 'dev-ethereum-minting-authority'}] Unable to authorize pending Ethereum transfer`,
             error,
           );
           await new Promise(resolve => setTimeout(resolve, 1_000));
@@ -294,15 +294,16 @@ async function activateDevEthereumMintingAuthority(args: {
     throw new Error(`${logPrefix}: minting authority activation approval disappeared before it could be signed.`);
   }
 
+  const relaySignerAddress = getAddress(actor.walletKeys.ethereumAddress);
   const relaySignerBalance = await ethereumClient.getBalance({
-    address: getAddress(status.councilSigner),
+    address: relaySignerAddress,
   });
   const minimumRelayBalanceWei = 10n ** 17n;
 
   if (relaySignerBalance < minimumRelayBalanceWei) {
-    console.info(`[${logPrefix}] funding council signer ETH for gateway relay`);
+    console.info(`[${logPrefix}] funding gateway relay signer ETH`);
     await fundDevEthereumAccount({
-      to: status.councilSigner,
+      to: relaySignerAddress,
       rpcUrl: executionRpcUrl,
       amountBaseUnits: minimumRelayBalanceWei - relaySignerBalance,
     });

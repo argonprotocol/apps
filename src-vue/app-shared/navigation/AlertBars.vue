@@ -283,7 +283,7 @@ const bondMarket = getBondMarket();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isRestarting = Vue.ref(false);
-const isApiClientDegraded = Vue.ref(false);
+const isApiClientDegraded = Vue.ref(!clients.hasConnectedClient());
 const isExpanded = Vue.ref(false);
 const showVaultCollectOverlay = Vue.ref(false);
 const showBitcoinLockingOverlay = Vue.ref(false);
@@ -333,11 +333,8 @@ const singleBitcoinMismatchCanAct = Vue.computed(() => {
   );
 });
 
-clients.events.on('working', () => {
-  isApiClientDegraded.value = false;
-});
-clients.events.on('degraded', () => {
-  isApiClientDegraded.value = true;
+clients.events.on('connection-state-changed', hasConnectedClient => {
+  isApiClientDegraded.value = !hasConnectedClient;
 });
 
 function markResumedFunding(lock: IBitcoinLockRecord) {

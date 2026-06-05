@@ -9,13 +9,10 @@
     </template>
 
     <div
-      v-if="isTransferOutOfArgonProcessing(transferOutOfArgon) || isTransferToArgonProcessing(transferToArgon)"
+      v-if="isTransferProcessing(transferOutOfArgon) || isTransferProcessing(transferToArgon)"
       class="flex flex-col gap-4 p-5 text-sm text-slate-700"
     >
-      <p
-        v-if="isTransferOutOfArgonProcessing(transferOutOfArgon) && transferOutOfArgon"
-        class="font-light text-slate-700"
-      >
+      <p v-if="isTransferProcessing(transferOutOfArgon) && transferOutOfArgon" class="font-light text-slate-700">
         Moving
         <strong>
           {{ formatTokenAmount(transferOutOfArgon.transferState.amount ?? 0n) }} {{ props.request?.moveToken }}
@@ -50,15 +47,27 @@
         class="h-4"
       />
 
+      <div class="text-center font-medium text-slate-700">
+        {{ processingProgress.stepLabel }}
+      </div>
+
       <div class="text-center font-light text-slate-500">
-        {{ processingProgress.progressLabel }}
-        <template v-if="processingProgress.remainingCollateralMicrogons">
+        {{ processingProgress.detail }}
+        <template v-if="processingProgress.remainingMintingAuthorizationMicrogons">
           (
           {{
-            microgonToArgonNm(processingProgress.remainingCollateralMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0')
+            microgonToArgonNm(processingProgress.remainingMintingAuthorizationMicrogons).formatIfElse(
+              '< 1_000',
+              '0,0.00',
+              '0,0',
+            )
           }}
           ARGN remaining)
         </template>
+      </div>
+
+      <div v-if="processingProgress.hint" class="text-center text-xs font-light text-slate-500">
+        {{ processingProgress.hint }}
       </div>
 
       <div
@@ -125,12 +134,26 @@
         <InputToken
           v-model="amount"
           :min="0n"
-          :max="props.request.availableAmount"
+          :max="availableTransferAmount"
           :suffix="` ${props.request.moveToken}`"
           class="w-full"
         />
         <div class="mt-1 text-xs text-slate-400">
-          Available: {{ formatTokenAmount(props.request.availableAmount) }} {{ props.request.moveToken }}
+          <template
+            v-if="
+              props.request.direction === 'transferOutOfArgon' &&
+              hasActiveEthereumTransferConfig &&
+              maximumTransferOutAmount == null
+            "
+          >
+            Calculating max you can move...
+          </template>
+          <template v-else>
+            Max you can move: {{ formatTokenAmount(availableTransferAmount) }} {{ props.request.moveToken }}
+            <template v-if="reservedTransferOutTip > 0n">
+              ({{ formatTokenAmount(reservedTransferOutTip) }} {{ props.request.moveToken }} reserved for tip)
+            </template>
+          </template>
         </div>
       </div>
 
@@ -190,6 +213,13 @@
       </div>
 
       <div
+        v-if="props.request.direction === 'transferOutOfArgon' && transferOutOfArgonUnavailableReason"
+        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-900"
+      >
+        {{ transferOutOfArgonUnavailableReason }}
+      </div>
+
+      <div
         v-if="formError"
         class="min-w-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm leading-5 [overflow-wrap:anywhere] break-words whitespace-pre-wrap text-red-700"
       >
@@ -219,7 +249,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MoveToken } from '@argonprotocol/apps-core';
+import { bigIntMax, MoveToken } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import InputToken from '../../../components/InputToken.vue';
 import ProgressBar from '../../../components/ProgressBar.vue';
@@ -228,6 +258,7 @@ import type {
   IEthereumInboundTransferState,
   IEthereumMoveToken,
 } from '../../../interfaces/IEthereumInboundTransferTracker.ts';
+import { hydrateCrosschainTransferProgress } from '../../../lib/CrosschainTransferProgress.ts';
 import type { IEthereumInboundActiveTransfer } from '../../../lib/EthereumInboundTransferTracker.ts';
 import type {
   IEthereumOutboundActiveTransfer,
@@ -240,6 +271,7 @@ import { getCurrency } from '../../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../../stores/moveToEthereum.ts';
 import { useWallets } from '../../../stores/wallets.ts';
+import { existentialDepositMicrogons, existentialDepositMicronots } from '../../../lib/WalletForArgon.ts';
 import OverlayBase from '../OverlayBase.vue';
 import { loadEthereumChainConfig } from '../../../lib/EthereumClient.ts';
 
@@ -264,20 +296,26 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 type ITransferProgressView = {
   progressPct: number;
-  progressLabel: string;
+  stepLabel: string;
+  detail: string;
+  hint?: string;
   error: string;
-  remainingCollateralMicrogons?: bigint;
+  remainingMintingAuthorizationMicrogons?: bigint;
 };
 
 const amount = Vue.ref<bigint>(0n);
 const formError = Vue.ref('');
-const currentTimeMs = Vue.ref(Date.now());
 const transferOutOfArgonFeeEstimateWei = Vue.ref<readonly [bigint, bigint]>();
 const transferOutOfArgonFeeEstimateError = Vue.ref('');
+const transferOutOfArgonUnavailableReason = Vue.ref('');
 const isEstimatingTransferOutOfArgonFee = Vue.ref(false);
 const transferToArgonFeeEstimateWei = Vue.ref<bigint>();
 const isEstimatingTransferToArgonFee = Vue.ref(false);
 const hasActiveEthereumTransferConfig = Vue.ref(false);
+const maximumTransferOutAmount = Vue.ref<bigint>();
+const progressNow = Vue.ref(Date.now());
+
+let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 const transferOutOfArgon = Vue.computed(() => {
   if (!props.request || props.request.direction !== 'transferOutOfArgon' || !hasActiveEthereumTransferConfig.value) {
@@ -298,26 +336,49 @@ const transferToArgon = Vue.computed(() => {
   return transferId ? transferToArgonTracker.getTransfer(transferId) : undefined;
 });
 
+const availableTransferAmount = Vue.computed(() =>
+  props.request?.direction === 'transferOutOfArgon'
+    ? (maximumTransferOutAmount.value ?? props.request.availableAmount)
+    : (props.request?.availableAmount ?? 0n),
+);
+const minimumRetainedTransferAmount = Vue.computed(() => {
+  if (props.request?.direction !== 'transferOutOfArgon' || maximumTransferOutAmount.value == null) {
+    return 0n;
+  }
+
+  const minimumBalance =
+    props.request.moveToken === MoveToken.ARGNOT ? existentialDepositMicronots : existentialDepositMicrogons;
+  return (props.request.availableAmount ?? 0n) < minimumBalance
+    ? (props.request.availableAmount ?? 0n)
+    : minimumBalance;
+});
+const reservedTransferOutTip = Vue.computed(() =>
+  props.request?.direction === 'transferOutOfArgon'
+    ? bigIntMax(
+        (props.request.availableAmount ?? 0n) - availableTransferAmount.value - minimumRetainedTransferAmount.value,
+        0n,
+      )
+    : 0n,
+);
 const canSubmit = Vue.computed(
   () =>
     !!props.request &&
     hasActiveEthereumTransferConfig.value &&
+    !transferOutOfArgonUnavailableReason.value &&
     amount.value > 0n &&
-    amount.value <= props.request.availableAmount,
+    amount.value <= availableTransferAmount.value,
 );
 const processingProgress = Vue.computed(() => {
-  if (isTransferOutOfArgonProcessing(transferOutOfArgon.value)) {
-    return getTransferOutOfArgonProgress(transferOutOfArgon.value);
+  if (isTransferProcessing(transferOutOfArgon.value)) {
+    return getTransferProgressView(transferOutOfArgon.value?.transferState, progressNow.value);
   }
 
-  if (isTransferToArgonProcessing(transferToArgon.value)) {
-    return getTransferToArgonProgress(transferToArgon.value, currentTimeMs.value);
+  if (isTransferProcessing(transferToArgon.value)) {
+    return getTransferProgressView(transferToArgon.value?.transferState, progressNow.value);
   }
 
-  return { progressPct: 0, progressLabel: '', error: '' } satisfies ITransferProgressView;
+  return { progressPct: 0, stepLabel: '', detail: '', error: '' } satisfies ITransferProgressView;
 });
-
-let progressTimer: ReturnType<typeof setInterval> | undefined;
 
 Vue.watch(
   () => props.request,
@@ -326,22 +387,106 @@ Vue.watch(
 
     if (!request) {
       amount.value = 0n;
+      maximumTransferOutAmount.value = undefined;
       transferOutOfArgonFeeEstimateWei.value = undefined;
       transferOutOfArgonFeeEstimateError.value = '';
+      transferOutOfArgonUnavailableReason.value = '';
       isEstimatingTransferOutOfArgonFee.value = false;
       transferToArgonFeeEstimateWei.value = undefined;
       isEstimatingTransferToArgonFee.value = false;
-      clearProgressTimer();
       return;
     }
 
     void refreshEthereumTransferConfig();
+  },
+  { immediate: true },
+);
 
-    if (amount.value === 0n || amount.value > request.availableAmount) {
-      amount.value = request.availableAmount;
+Vue.watch(
+  availableTransferAmount,
+  nextAvailableAmount => {
+    if (!props.request) {
+      return;
+    }
+
+    if (amount.value === 0n || amount.value > nextAvailableAmount) {
+      amount.value = nextAvailableAmount;
     }
   },
   { immediate: true },
+);
+
+Vue.onMounted(() => {
+  progressRefreshInterval = setInterval(() => {
+    progressNow.value = Date.now();
+  }, 1_000);
+});
+
+Vue.onUnmounted(() => {
+  if (progressRefreshInterval) {
+    clearInterval(progressRefreshInterval);
+  }
+});
+
+Vue.watch(
+  () => [props.request?.direction, props.request?.availableAmount, hasActiveEthereumTransferConfig.value] as const,
+  async ([direction, availableAmount, hasActiveEthereumTransferConfig], _, onCleanup) => {
+    maximumTransferOutAmount.value = undefined;
+
+    if (direction !== 'transferOutOfArgon' || availableAmount == null || !hasActiveEthereumTransferConfig) {
+      return;
+    }
+
+    let isCancelled = false;
+    onCleanup(() => {
+      isCancelled = true;
+    });
+
+    try {
+      const transferOutOfArgonTracker = getEthereumOutboundTransferTracker();
+      const maxAmount = await transferOutOfArgonTracker.getMaximumTransferOutAmount(
+        availableAmount,
+        props.request!.moveToken,
+      );
+      if (!isCancelled) {
+        maximumTransferOutAmount.value = maxAmount;
+      }
+    } catch (error) {
+      if (!isCancelled) {
+        console.warn('[WalletTransferOverlay] Unable to load max transfer-out amount', error);
+      }
+    }
+  },
+  { immediate: true, flush: 'post' },
+);
+
+Vue.watch(
+  () => [props.request?.direction, hasActiveEthereumTransferConfig.value] as const,
+  async ([direction, hasActiveEthereumTransferConfig], _, onCleanup) => {
+    transferOutOfArgonUnavailableReason.value = '';
+
+    if (direction !== 'transferOutOfArgon' || !hasActiveEthereumTransferConfig) {
+      return;
+    }
+
+    let isCancelled = false;
+    onCleanup(() => {
+      isCancelled = true;
+    });
+
+    try {
+      const transferOutOfArgonTracker = getEthereumOutboundTransferTracker();
+      const unavailableReason = await transferOutOfArgonTracker.getTransferOutUnavailableReason();
+      if (!isCancelled) {
+        transferOutOfArgonUnavailableReason.value = unavailableReason ?? '';
+      }
+    } catch (error) {
+      if (!isCancelled) {
+        console.warn('[WalletTransferOverlay] Unable to check transfer-out availability', error);
+      }
+    }
+  },
+  { immediate: true, flush: 'post' },
 );
 
 Vue.watch(
@@ -445,32 +590,6 @@ Vue.watch(
   { immediate: true, flush: 'post' },
 );
 
-Vue.watch(
-  () => transferToArgon.value?.transferState.argonReadiness?.pollMs,
-  () => {
-    const pollMs =
-      transferToArgon.value?.transferState.phase === 'confirmingArgon'
-        ? transferToArgon.value.transferState.argonReadiness?.pollMs
-        : undefined;
-
-    if (!pollMs) {
-      clearProgressTimer();
-      return;
-    }
-
-    currentTimeMs.value = Date.now();
-    clearProgressTimer();
-    progressTimer = setInterval(() => {
-      currentTimeMs.value = Date.now();
-    }, pollMs);
-  },
-  { immediate: true },
-);
-
-Vue.onUnmounted(() => {
-  clearProgressTimer();
-});
-
 async function submitTransfer() {
   if (!props.request || !canSubmit.value) {
     return;
@@ -488,6 +607,7 @@ async function submitTransfer() {
       await transferOutOfArgonTracker.startMove({
         moveToken: props.request.moveToken,
         amount: amount.value,
+        availableAmount: props.request.availableAmount,
         sourceWalletType: props.request.walletType,
       });
       return;
@@ -509,12 +629,17 @@ async function retryTransfer() {
     return;
   }
 
+  const transferOutOfArgonTracker = getEthereumOutboundTransferTracker();
+  if (transferOutOfArgon.value?.transferState.needsAcknowledgement) {
+    await transferOutOfArgonTracker.retryFailedTransfer(transferOutOfArgon.value.id);
+    return;
+  }
+
   if (!hasActiveEthereumTransferConfig.value) {
     formError.value = 'Ethereum transfer gateway is not configured on this network.';
     return;
   }
 
-  const transferOutOfArgonTracker = getEthereumOutboundTransferTracker();
   await transferOutOfArgonTracker.startMove({
     moveToken: props.request.moveToken,
     amount: transferOutOfArgon.value?.transferState.amount ?? amount.value,
@@ -522,29 +647,29 @@ async function retryTransfer() {
   });
 }
 
-function closeOverlay() {
+async function closeOverlay() {
   const transfer = props.request?.direction === 'transferOutOfArgon' ? transferOutOfArgon.value : transferToArgon.value;
 
-  if (transfer && !transfer.transferState.isSubmitting && !transfer.transferState.hasPersistedTransfer) {
+  if (!transfer) {
+    emit('close');
+    return;
+  }
+
+  if (transfer.transferState.needsAcknowledgement) {
     if (props.request?.direction === 'transferOutOfArgon') {
-      const transferOutOfArgonTracker = getEthereumOutboundTransferTracker();
-      transferOutOfArgonTracker.clearCompletedTransfer(transfer.transferId);
+      await getEthereumOutboundTransferTracker().acknowledgeFailedTransfer(transfer.id);
     } else {
-      const transferToArgonTracker = getEthereumMoveTracker();
-      transferToArgonTracker.clearCompletedTransfer(transfer.transferId);
+      await getEthereumMoveTracker().acknowledgeFailedTransfer(transfer.id);
+    }
+  } else if (!transfer.transferState.isSubmitting && !transfer.transferState.hasPersistedTransfer) {
+    if (props.request?.direction === 'transferOutOfArgon') {
+      getEthereumOutboundTransferTracker().clearCompletedTransfer(transfer.id);
+    } else {
+      getEthereumMoveTracker().clearCompletedTransfer(transfer.id);
     }
   }
 
   emit('close');
-}
-
-function clearProgressTimer() {
-  if (!progressTimer) {
-    return;
-  }
-
-  clearInterval(progressTimer);
-  progressTimer = undefined;
 }
 
 async function refreshEthereumTransferConfig() {
@@ -553,6 +678,7 @@ async function refreshEthereumTransferConfig() {
   } catch (error) {
     console.warn('[WalletTransferOverlay] Unable to load Ethereum chain config', error);
     hasActiveEthereumTransferConfig.value = false;
+    transferOutOfArgonUnavailableReason.value = '';
   }
 }
 
@@ -587,35 +713,41 @@ function getExternalFeeBalanceWei(networkName?: string) {
   return 0n;
 }
 
-function isTransferOutOfArgonProcessing(transfer: IEthereumOutboundActiveTransfer | undefined) {
+function isTransferProcessing(
+  transfer:
+    | {
+        transferState: {
+          isSubmitting: boolean;
+          hasPersistedTransfer: boolean;
+          needsAcknowledgement: boolean;
+          error: string;
+          progress: { overallProgressPct: number };
+        };
+      }
+    | undefined,
+) {
   if (!transfer) {
     return false;
   }
 
   const { transferState } = transfer;
   return (
-    transferState.isSubmitting || transferState.hasPersistedTransfer || transferState.phase === 'confirmedOnEthereum'
+    transferState.isSubmitting ||
+    transferState.hasPersistedTransfer ||
+    transferState.needsAcknowledgement ||
+    transferState.progress.overallProgressPct === 100
   );
-}
-
-function isTransferToArgonProcessing(transfer: IEthereumInboundActiveTransfer | undefined) {
-  if (!transfer) {
-    return false;
-  }
-
-  const { transferState } = transfer;
-  return transferState.isSubmitting || transferState.hasPersistedTransfer || transferState.phase === 'confirmedOnArgon';
 }
 
 function isSubmittingTransfer(
   transferOut: IEthereumOutboundActiveTransfer | undefined,
   transferIn: IEthereumInboundActiveTransfer | undefined,
 ) {
-  if (isTransferOutOfArgonProcessing(transferOut)) {
+  if (isTransferProcessing(transferOut)) {
     return !!transferOut?.transferState.isSubmitting;
   }
 
-  if (isTransferToArgonProcessing(transferIn)) {
+  if (isTransferProcessing(transferIn)) {
     return !!transferIn?.transferState.isSubmitting;
   }
 
@@ -623,113 +755,25 @@ function isSubmittingTransfer(
 }
 
 function shouldShowRetryTransfer(transfer: IEthereumOutboundActiveTransfer | undefined) {
-  return !!transfer?.transferState.hasPersistedTransfer && !transfer.transferState.isSubmitting;
+  return !!transfer?.transferState.needsAcknowledgement && transfer.transferState.hasPersistedTransfer;
 }
 
-function getTransferOutOfArgonProgress(transfer: IEthereumOutboundActiveTransfer | undefined): ITransferProgressView {
-  if (!transfer) {
-    return { progressPct: 0, progressLabel: '', error: '' };
-  }
-
-  return {
-    progressPct: getTransferOutOfArgonProgressPct(transfer.transferState),
-    progressLabel: getTransferOutOfArgonProgressLabel(transfer.transferState),
-    remainingCollateralMicrogons:
-      transfer.transferState.phase === 'awaitingCollateralization' && !transfer.transferState.isCollateralizingOnArgon
-        ? transfer.transferState.remainingCollateralMicrogons
-        : undefined,
-    error: transfer.transferState.error,
-  };
-}
-
-function getTransferOutOfArgonProgressPct(transferState: IEthereumOutboundTransferState): number {
-  switch (transferState.phase) {
-    case 'preparing':
-      return 5;
-    case 'confirmingArgon':
-      return 25;
-    case 'awaitingCollateralization':
-      return 55;
-    case 'confirmingEthereum':
-      return 85;
-    case 'confirmedOnEthereum':
-      return 100;
-    default:
-      return 0;
-  }
-}
-
-function getTransferOutOfArgonProgressLabel(transferState: IEthereumOutboundTransferState) {
-  switch (transferState.phase) {
-    case 'preparing':
-      return 'Preparing transfer...';
-    case 'confirmingArgon':
-      return 'Confirming on Argon...';
-    case 'awaitingCollateralization':
-      return transferState.isCollateralizingOnArgon
-        ? 'Collateralizing transfer on Argon...'
-        : (transferState.awaitingCollateralizationLabel ?? 'Waiting for transfer collateralization on Argon...');
-    case 'confirmingEthereum':
-      return 'Finalizing on destination network...';
-    case 'confirmedOnEthereum':
-      return 'Confirmed on destination network.';
-    default:
-      return '';
-  }
-}
-
-function getTransferToArgonProgress(
-  transfer: IEthereumInboundActiveTransfer | undefined,
-  now: number,
+function getTransferProgressView(
+  transferState: IEthereumOutboundTransferState | IEthereumInboundTransferState | undefined,
+  nowMs: number,
 ): ITransferProgressView {
-  if (!transfer) {
-    return { progressPct: 0, progressLabel: '', error: '' };
+  if (!transferState) {
+    return { progressPct: 0, stepLabel: '', detail: '', error: '' };
   }
 
+  const displayProgress = hydrateCrosschainTransferProgress(transferState.progress.steps, nowMs);
   return {
-    progressPct: getTransferToArgonProgressPct(transfer.transferState, now),
-    progressLabel: getTransferToArgonProgressLabel(transfer.transferState),
-    error: transfer.transferState.error,
+    progressPct: displayProgress.overallProgressPct,
+    stepLabel: displayProgress.currentStepLabel,
+    detail: displayProgress.currentStepDetail ?? '',
+    hint: displayProgress.currentStepHint,
+    remainingMintingAuthorizationMicrogons: displayProgress.currentStepRemainingMintingAuthorizationMicrogons,
+    error: transferState.error,
   };
-}
-
-function getTransferToArgonProgressPct(transferState: IEthereumInboundTransferState, now: number): number {
-  switch (transferState.phase) {
-    case 'preparing':
-      return 5;
-    case 'confirmingEthereum':
-      return 30;
-    case 'confirmingArgon':
-      return getTransferToArgonArgonProgress(transferState.argonReadiness, now);
-    case 'confirmedOnArgon':
-      return 100;
-    default:
-      return 0;
-  }
-}
-
-function getTransferToArgonProgressLabel(transferState: IEthereumInboundTransferState) {
-  switch (transferState.phase) {
-    case 'preparing':
-      return 'Preparing transfer...';
-    case 'confirmingEthereum':
-      return 'Confirming on Ethereum...';
-    case 'confirmingArgon':
-      return 'Confirming on Argon...';
-    case 'confirmedOnArgon':
-      return 'Confirmed on Argon.';
-    default:
-      return '';
-  }
-}
-
-function getTransferToArgonArgonProgress(argonReadiness: IEthereumInboundTransferState['argonReadiness'], now: number) {
-  if (!argonReadiness) {
-    return 75;
-  }
-
-  const elapsedMs = now - argonReadiness.startedAt;
-  const expectedProgress = Math.min(20, Math.floor((elapsedMs * 20) / Math.max(1, argonReadiness.estimatedDurationMs)));
-  return Math.min(92, 70 + Math.max(3, expectedProgress));
 }
 </script>

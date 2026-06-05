@@ -7,7 +7,12 @@ import type { Db } from './Db.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { getFinalizedClient } from '../stores/mainchain.ts';
-import { EthereumClient, getEthereumExecutionRpcUrl, type IEthereumGatewayRelayPreview } from './EthereumClient.ts';
+import {
+  EthereumClient,
+  getEthereumExecutionRpcUrl,
+  getEthereumFinalityMillis,
+  type IEthereumGatewayRelayPreview,
+} from './EthereumClient.ts';
 const COUNCIL_SIGNER_REGISTRATION_MESSAGE_KEY = 'argon/council-signer/v2';
 
 export type IGlobalCouncilApproval = {
@@ -25,6 +30,10 @@ export class GlobalCouncil {
   #isSubscribing = false;
   #waitForLoad?: IDeferred;
   #updateSeq = 0;
+  #pendingRelayPromise?: Promise<void>;
+  #lastRelayCheckAt = 0;
+  #lastSharedRelayQueueKey?: string;
+  #lastSharedRelayQueueSeenAt = 0;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -58,17 +67,19 @@ export class GlobalCouncil {
     updateSeq = ++this.#updateSeq,
   ): Promise<IGlobalCouncilApproval[]> {
     const db = await this.dbPromise;
-    const { councilSigner, pendingApprovals } = await getPendingCouncilApprovals(
-      finalizedClient,
-      this.walletKeys,
-      db.walletHdKeysTable,
-    );
+    const { councilSigner, pendingApprovals, hasSignedApprovalsAwaitingRelay, sharedRelayQueueKey } =
+      await getPendingCouncilApprovals(finalizedClient, this.walletKeys, db.walletHdKeysTable);
     if (updateSeq !== this.#updateSeq) {
       return this.data.pendingApprovals;
     }
 
     this.data.councilSigner = councilSigner;
     this.data.pendingApprovals = pendingApprovals;
+    void this.syncApprovedGatewayRelay({
+      councilSigner,
+      hasSignedApprovalsAwaitingRelay,
+      sharedRelayQueueKey,
+    }).catch(error => console.error(`Error relaying approved gateway updates`, error));
     return pendingApprovals;
   }
 
@@ -174,16 +185,13 @@ export class GlobalCouncil {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
 
-    const [councilSignerAddress] = await this.walletKeys.getEthereumAddresses([
-      this.walletKeys.councilSignerEthereumHdPath,
-    ]);
     const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
     return await new EthereumClient(this.walletKeys, executionRpcUrl).applyReadyGatewayUpdates(
       finalizedClient,
       delegateAddress,
       {
-        address: councilSignerAddress,
-        hdPath: this.walletKeys.councilSignerEthereumHdPath,
+        address: this.walletKeys.ethereumAddress,
+        hdPath: this.walletKeys.ethereumHdPath,
       },
     );
   }
@@ -197,18 +205,72 @@ export class GlobalCouncil {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
 
-    const [councilSignerAddress] = await this.walletKeys.getEthereumAddresses([
-      this.walletKeys.councilSignerEthereumHdPath,
-    ]);
     const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
     return await new EthereumClient(this.walletKeys, executionRpcUrl).getReadyGatewayRelayPreview(
       finalizedClient,
       delegateAddress,
       {
-        address: councilSignerAddress,
-        hdPath: this.walletKeys.councilSignerEthereumHdPath,
+        address: this.walletKeys.ethereumAddress,
+        hdPath: this.walletKeys.ethereumHdPath,
       },
     );
+  }
+
+  private async syncApprovedGatewayRelay(args: {
+    councilSigner?: string;
+    hasSignedApprovalsAwaitingRelay: boolean;
+    sharedRelayQueueKey?: string;
+  }): Promise<void> {
+    const { councilSigner, hasSignedApprovalsAwaitingRelay, sharedRelayQueueKey } = args;
+    if (!councilSigner || this.#pendingRelayPromise) {
+      return;
+    }
+    if (!hasSignedApprovalsAwaitingRelay && !sharedRelayQueueKey) {
+      this.#lastSharedRelayQueueKey = undefined;
+      this.#lastSharedRelayQueueSeenAt = 0;
+      return;
+    }
+
+    const now = Date.now();
+    const relayCheckMs = getEthereumFinalityMillis();
+    if (now - this.#lastRelayCheckAt < relayCheckMs) {
+      return;
+    }
+    this.#lastRelayCheckAt = now;
+
+    const relayPromise = (async () => {
+      if (hasSignedApprovalsAwaitingRelay) {
+        this.#lastSharedRelayQueueKey = undefined;
+        this.#lastSharedRelayQueueSeenAt = 0;
+        await this.relayApprovedGatewayUpdates();
+        return;
+      }
+
+      if (this.#lastSharedRelayQueueKey !== sharedRelayQueueKey) {
+        this.#lastSharedRelayQueueKey = sharedRelayQueueKey;
+        this.#lastSharedRelayQueueSeenAt = now;
+        return;
+      }
+
+      const relayableGatewayUpdateStaleMs = getEthereumFinalityMillis() * 3;
+      if (now - this.#lastSharedRelayQueueSeenAt < relayableGatewayUpdateStaleMs) {
+        return;
+      }
+
+      const preview = await this.getReadyGatewayRelayPreview();
+      if (!preview.canRelay) {
+        return;
+      }
+
+      await this.relayApprovedGatewayUpdates();
+    })();
+    this.#pendingRelayPromise = relayPromise;
+
+    try {
+      await relayPromise;
+    } finally {
+      this.#pendingRelayPromise = undefined;
+    }
   }
 }
 
@@ -216,7 +278,12 @@ async function getPendingCouncilApprovals(
   finalizeClient: ApiDecoration<'promise'>,
   walletKeys: WalletKeys,
   walletHdKeysTable: WalletHdKeysTable,
-): Promise<{ councilSigner?: string; pendingApprovals: IGlobalCouncilApproval[] }> {
+): Promise<{
+  councilSigner?: string;
+  pendingApprovals: IGlobalCouncilApproval[];
+  hasSignedApprovalsAwaitingRelay: boolean;
+  sharedRelayQueueKey?: string;
+}> {
   const [councilSignerAddress] = await walletKeys.getEthereumAddresses([walletKeys.councilSignerEthereumHdPath]);
   await walletHdKeysTable.upsert({
     keyRole: 'councilSigner',
@@ -243,13 +310,17 @@ async function getPendingCouncilApprovals(
   const councilSigner = councilSignerOption.isSome ? councilSignerOption.unwrap().toHex() : undefined;
   const pendingApprovals: IGlobalCouncilApproval[] = [];
   const canSignCouncilApprovals = councilSigner?.toLowerCase() === councilSignerAddress.toLowerCase();
+  let hasSignedApprovalsAwaitingRelay = false;
+  let sharedRelayQueueKey: string | undefined;
 
   if (canSignCouncilApprovals && !councilApprovalCursorOption.isNone) {
     const lastSyncedNonce = gatewayStateOption.isSome ? gatewayStateOption.unwrap().argonApprovalsNonce.toBigInt() : 0n;
     const lastSignedNonce = councilApprovalCursorOption.unwrap().toBigInt();
+    const nextPendingQueueNonce = nextQueueNonce.toBigInt();
+    hasSignedApprovalsAwaitingRelay = lastSignedNonce > lastSyncedNonce;
     for (
       let queueNonce = bigIntMax(lastSyncedNonce, lastSignedNonce) + 1n;
-      queueNonce <= nextQueueNonce.toBigInt();
+      queueNonce <= nextPendingQueueNonce;
       queueNonce += 1n
     ) {
       const entryOption = await finalizeClient.query.crosschainTransfer.councilApprovalQueueByDestinationChainAndNonce(
@@ -267,7 +338,11 @@ async function getPendingCouncilApprovals(
 
       pendingApprovals.push({ approvalHash: entry.approvalHash.toHex() });
     }
+
+    if (!hasSignedApprovalsAwaitingRelay && pendingApprovals.length === 0 && nextPendingQueueNonce > lastSyncedNonce) {
+      sharedRelayQueueKey = `${lastSyncedNonce}:${nextPendingQueueNonce}`;
+    }
   }
 
-  return { councilSigner, pendingApprovals };
+  return { councilSigner, pendingApprovals, hasSignedApprovalsAwaitingRelay, sharedRelayQueueKey };
 }

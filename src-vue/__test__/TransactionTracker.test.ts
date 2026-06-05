@@ -48,7 +48,7 @@ describe('TransactionTracker', () => {
 
   it('restores in-block extrinsic errors without finalizing non-finalized transactions', async () => {
     const tx = createTransaction({
-      id: 11,
+      id: 12,
       status: TransactionStatus.InBlock,
       isFinalized: false,
       blockExtrinsicErrorJson: {

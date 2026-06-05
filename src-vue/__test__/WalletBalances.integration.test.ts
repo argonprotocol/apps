@@ -11,6 +11,7 @@ import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
 import { WalletLedgerTable } from '../lib/db/WalletLedgerTable.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { WalletTransfersTable } from '../lib/db/WalletTransfersTable.ts';
+import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 const REORG_DELETION_WAIT_MS = 10_000;
@@ -290,6 +291,41 @@ describe
         const transfers = await new WalletTransfersTable(db).fetchAll();
         console.log('3. Total Transfer Entries - ', transfers.length, transfers);
         expect(transfers).toHaveLength(transferCount);
+      } finally {
+        await walletsForArgon.close();
+        blockWatch.stop();
+        await db.close();
+      }
+    });
+
+    it.sequential('should skip stale empty indexer gaps on restart', async () => {
+      const db = await createTestDb();
+      const blockWatch = new BlockWatch(clients);
+      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      try {
+        await blockWatch.start();
+        const staleBlock = Math.max(blockWatch.finalizedBlockHeader.blockNumber - 2, 0);
+        const staleHeader = await blockWatch.getHeader(staleBlock);
+
+        await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
+          blockNumber: staleHeader.blockNumber,
+          blockHash: staleHeader.blockHash,
+          blockTime: staleHeader.blockTime,
+          parentHash: staleHeader.parentHash,
+          isFinalized: true,
+          isProcessed: true,
+        });
+
+        vi.spyOn(walletsForArgon, 'lookupTransferOrClaimBlocks').mockResolvedValue({ asOfBlock: staleBlock });
+        // @ts-expect-error set a small backlog to force using indexer
+        walletsForArgon.blockBacklogBeforeUsingIndexer = 1;
+
+        await walletsForArgon.resumeWalletSync();
+
+        // @ts-expect-error - private
+        expect(walletsForArgon.blockHistory).toHaveLength(1);
+        // @ts-expect-error - private
+        expect(walletsForArgon.blockHistory[0].blockNumber).toBe(blockWatch.finalizedBlockHeader.blockNumber);
       } finally {
         await walletsForArgon.close();
         blockWatch.stop();

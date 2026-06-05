@@ -127,30 +127,29 @@ export const useFinancials = defineStore('financials', () => {
 
   // Argon Bonds ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  const bondsTotalValue = Vue.ref(0n);
-  const bondsTotalProfits = Vue.ref(0n);
+  const bondsTotalValue = Vue.computed(() => {
+    return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n);
+  });
+  const bondsTotalProfits = Vue.computed(() => {
+    return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.lifetimeEarnings, 0n);
+  });
 
-  const bondsInvestments = Vue.ref<IPerformanceReturnInput[]>([]);
+  const bondsInvestments = Vue.computed<IPerformanceReturnInput[]>(() => {
+    return myBonds.bondLots.map(bondLot => {
+      return {
+        startingDate: miningFrames.getFrameDate(bondLot.createdFrame),
+        startingCapital: bondLot.bondMicrogons,
+        endingDate: new Date(),
+        endingCapital: bondLot.bondMicrogons + bondLot.lifetimeEarnings,
+        bondLot,
+      };
+    });
+  });
   const bondsPerformanceReturn = Vue.computed(() => {
     return calculatePerformanceReturn(bondsInvestments.value).percent;
   });
 
-  const bondsIsLoaded = Vue.ref(false);
-
-  function loadBonds() {
-    bondsTotalValue.value = myBonds.bondTotals.activeBondMicrogons;
-    bondsTotalProfits.value = myBonds.bondTotals.lifetimeEarnings;
-    bondsInvestments.value = myBonds.bondLots.map(bondLot => {
-      return {
-        startingDate: miningFrames.getFrameDate(bondLot.createdFrame),
-        startingCapital: bondLot.activeBondMicrogons,
-        endingDate: new Date(),
-        endingCapital: bondLot.activeBondMicrogons + bondLot.lifetimeEarnings,
-        bondLot,
-      };
-    });
-    bondsIsLoaded.value = true;
-  }
+  const bondsIsLoaded = Vue.computed(() => myBonds.isLoaded);
 
   // Bitcoin Liquid Locks ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -251,7 +250,8 @@ export const useFinancials = defineStore('financials', () => {
   async function convertLockRecordToSummary(lock: IBitcoinLockRecord): Promise<ILockSummary> {
     const btc = currency.convertSatToBtc(lock.satoshis);
     const valueOfBtc = currency.convertBtcToMicrogon(btc);
-    const totalFees = lock.ratchets.reduce((t, r) => t + r.txFee + r.securityFee, 0n);
+    const grossFees = lock.ratchets.reduce((t, r) => t + r.txFee + r.securityFee, 0n);
+    const totalFees = bigIntMax(grossFees - (lock.lockDetails?.couponFeesPaid ?? 0n), 0n);
     const totalLiquidity = lock.ratchets.reduce((t, r) => t + r.mintAmount, 0n);
     const startingCapital = lock.ratchets[0]?.lockedTargetPrice ?? lock.lockedTargetPrice;
     const liquidityPromised = lock.ratchets[0]?.mintAmount ?? lock.liquidityPromised;
@@ -400,8 +400,6 @@ export const useFinancials = defineStore('financials', () => {
     await Promise.all([myBonds.load(), bitcoinLocks.load(), currency.fetchMainchainRates(), vaultStore.load()]);
 
     loadSavings();
-    loadBonds();
-
     await Promise.all([loadVaults(), loadLocks()]);
     startLockSummaryProgressRefresh();
 

@@ -125,12 +125,20 @@
           </div>
 
           <div class="mt-4 flex grow flex-col">
+            <section
+              v-if="stableSwaps.marketError"
+              class="mx-9 flex min-h-20 flex-col items-center rounded border border-rose-300/50 bg-rose-50/60 px-6 py-12 text-center text-rose-700"
+            >
+              <p class="font-medium">Stable swaps could not load.</p>
+              <p class="mt-2 text-sm text-rose-700/80">{{ stableSwaps.marketError }}</p>
+            </section>
+
             <section v-if="stableSwaps.swaps.length" class="mx-9 flex flex-col gap-y-2 pb-10">
               <SwapRecord v-for="swap of stableSwaps.swaps" :swap="swap" />
             </section>
 
             <section
-              v-else
+              v-else-if="!stableSwaps.marketError"
               class="mx-9 flex min-h-20 flex-col items-center rounded border border-slate-400/20 bg-slate-400/5 px-6 py-16 text-center text-slate-600/60"
             >
               <p>
@@ -301,7 +309,11 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
 }
 
 Vue.onMounted(async () => {
-  await stableSwaps.load();
+  try {
+    await stableSwaps.load();
+  } catch {
+    // The store exposes the underlying marketError for this screen.
+  }
 
   finishSetCurrencyKey(currencyKey.value);
   currencyRotationInterval = setInterval(() => {
@@ -314,7 +326,6 @@ Vue.onMounted(async () => {
       clearInterval(currencyRotationInterval);
     }
   }, 5e3);
-
   isLoaded.value = true;
 });
 

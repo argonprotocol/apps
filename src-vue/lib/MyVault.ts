@@ -96,6 +96,7 @@ export class MyVault {
     releasedExternalUtxoIds: Set<number>;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, TransactionInfo<{ utxoId: number }>>;
     nextCollectDueDate: number;
+    nextCosignDueDate: number;
     expiringCollectAmount: bigint;
     finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
     currentFrameId: number;
@@ -159,6 +160,7 @@ export class MyVault {
       pendingCosignUtxosById: new Map(),
       myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
       nextCollectDueDate: 0,
+      nextCosignDueDate: 0,
       expiringCollectAmount: 0n,
       currentFrameId: 0,
       externalLocks: {},
@@ -313,7 +315,7 @@ export class MyVault {
 
       const sub2 = await client.query.vaults.revenuePerFrameByVault(vaultId, async x => {
         await this.updateRevenueStats(x);
-        this.updateCollectDueDate();
+        this.updateCollectDeadlines();
       });
 
       const sub3 = await client.query.vaults.pendingCosignByVaultId(vaultId, async x => {
@@ -321,12 +323,12 @@ export class MyVault {
         await this.recordPendingCosignUtxos(x, updateSeq, client);
       });
       const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
-        this.updateCollectDueDate();
+        this.updateCollectDeadlines();
       });
 
       const { unsubscribe: sub5 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
-        this.updateCollectDueDate();
+        this.updateCollectDeadlines();
       });
 
       const sub6 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
@@ -385,9 +387,9 @@ export class MyVault {
     }
   }
 
-  private updateCollectDueDate() {
+  private updateCollectDeadlines() {
     const cosignDueFrames = [...this.data.pendingCosignUtxosById.values()].map(x => x.dueFrame);
-    const { nextCollectFrame, expiringCollectAmount } = computeCollectDeadline({
+    const { nextCollectFrame, nextCosignFrame, expiringCollectAmount } = computeCollectDeadline({
       collectFrames: this.#collectFrames,
       cosignDueFrames,
       currentFrameId: this.data.currentFrameId,
@@ -395,6 +397,7 @@ export class MyVault {
     });
     this.data.expiringCollectAmount = expiringCollectAmount;
     this.data.nextCollectDueDate = this.miningFrames.getFrameDate(nextCollectFrame).getTime();
+    this.data.nextCosignDueDate = nextCosignFrame ? this.miningFrames.getFrameDate(nextCosignFrame).getTime() : 0;
   }
 
   private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>, updateSeq: number, client: ArgonClient) {
@@ -423,7 +426,7 @@ export class MyVault {
 
     this.data.pendingCosignUtxosById = pendingCosignUtxosById;
     this.data.myPendingBitcoinCosignTxInfosByUtxoId = myPendingBitcoinCosignTxInfosByUtxoId;
-    this.updateCollectDueDate();
+    this.updateCollectDeadlines();
   }
 
   public async cosignMyLock(

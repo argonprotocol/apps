@@ -36,9 +36,12 @@
           :maxDecimals="0"
         />
         <div class="mt-1 text-xs text-slate-400">
-          Wallet: {{ currency.symbol }}{{ microgonToMoneyNm(props.walletBalance).format('0,0.00') }}
-          <template v-if="vaultAvailableCapacity < props.walletBalance">
-            · Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0') }}
+          Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0.00') }}
+          <template v-if="reserveLimitsPurchase">
+            · Keeps {{ currency.symbol }}{{ microgonToMoneyNm(operationalReserveMicrogons).format('0,0.00') }} in wallet for operational reserves
+          </template>
+          <template v-else-if="vaultCapacityLimitsPurchase">
+            · Vault capacity limits this purchase
           </template>
         </div>
       </div>
@@ -72,7 +75,7 @@ import { MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
 import InputMoney from '../../components/InputMoney.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
-import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import { ExtrinsicType, TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
 import { getCurrency } from '../../stores/currency.ts';
@@ -81,6 +84,8 @@ import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import { getBondMarket } from '../../stores/myBonds.ts';
 import { getVaults } from '../../stores/vaults.ts';
+import { MyVault } from '../../lib/MyVault.ts';
+import { getSpendableMicrogons } from '../../lib/WalletForArgon.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
@@ -126,8 +131,30 @@ const vaultAvailableCapacity = Vue.computed(() => {
   );
 });
 
+const spendableWalletBalance = Vue.computed(() => {
+  return getSpendableMicrogons(props.walletBalance, MyVault.OperationalReserves);
+});
+
+const operationalReserveMicrogons = Vue.computed(() => {
+  return props.walletBalance - spendableWalletBalance.value;
+});
+
+const purchaseCapacity = Vue.computed(() => {
+  return spendableWalletBalance.value < vaultAvailableCapacity.value
+    ? spendableWalletBalance.value
+    : vaultAvailableCapacity.value;
+});
+
+const reserveLimitsPurchase = Vue.computed(() => {
+  return spendableWalletBalance.value < props.walletBalance && purchaseCapacity.value === spendableWalletBalance.value;
+});
+
+const vaultCapacityLimitsPurchase = Vue.computed(() => {
+  return vaultAvailableCapacity.value < spendableWalletBalance.value;
+});
+
 const maxPurchaseAmount = Vue.computed(() => {
-  const max = props.walletBalance < vaultAvailableCapacity.value ? props.walletBalance : vaultAvailableCapacity.value;
+  const max = purchaseCapacity.value;
   return max - (max % MICROGONS_PER_ARGON_BIGINT);
 });
 
@@ -139,6 +166,25 @@ function resetProgress() {
   progressMessage.value = '';
   progressError.value = '';
   isSubmitting.value = false;
+}
+
+function trackTxInfo(info: TransactionInfo) {
+  unsubProgress?.();
+  txInfo.value = info;
+  isSubmitting.value = false;
+
+  unsubProgress = info.subscribeToProgress((args, error) => {
+    progressPct.value = args.progressPct;
+    progressMessage.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
+
+    if (error) {
+      progressError.value = error.message ?? 'Transaction failed.';
+    }
+
+    if (args.progressPct >= 100 && !error) {
+      emit('submitted');
+    }
+  });
 }
 
 async function submit() {
@@ -167,19 +213,7 @@ async function submit() {
       },
     });
 
-    txInfo.value = info;
-    unsubProgress = info.subscribeToProgress((args, error) => {
-      progressPct.value = args.progressPct;
-      progressMessage.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
-
-      if (error) {
-        progressError.value = error.message ?? 'Transaction failed.';
-      }
-
-      if (args.progressPct >= 100 && !error) {
-        emit('submitted');
-      }
-    });
+    trackTxInfo(info);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Transaction failed. Please try again.';
     isSubmitting.value = false;
@@ -193,6 +227,23 @@ Vue.onMounted(async () => {
   unsubVault = await vaults.subscribeToVault(props.vaultId, updatedVault => {
     vault.value = updatedVault;
   });
+
+  await transactionTracker.load();
+  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<{
+    vaultId?: number;
+    bondPurchaseMicrogons?: bigint;
+  }>(candidate => {
+    if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryBuyBonds) return false;
+    if (candidate.tx.accountAddress !== walletKeys.treasuryAddress) return false;
+    if (candidate.tx.metadataJson?.vaultId !== props.vaultId) return false;
+    if ((candidate.tx.metadataJson?.bondPurchaseMicrogons ?? 0n) <= 0n) return false;
+    if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
+    return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
+  });
+  if (pendingBuyTxInfo) {
+    trackTxInfo(pendingBuyTxInfo);
+  }
+
   purchaseAmount.value = maxPurchaseAmount.value;
 });
 

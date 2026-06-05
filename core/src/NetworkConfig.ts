@@ -135,12 +135,14 @@ export interface INetworkConfig {
 }
 
 export interface IEthereumNetworkConfig {
+  beaconApiUrl: string;
   executionRpcUrl: string;
   finalityBlocks: number;
-  argonTokenAddress: string;
   usdcTokenAddress: string;
 }
 
 export interface IBaseNetworkConfig {
+  chainId: number;
   rpcUrl: string;
+  usdcTokenAddress: string;
 }

@@ -17,10 +17,15 @@ export type IBalanceChange = {
 };
 
 export const existentialDepositMicrogons = 10_000n;
+export const existentialDepositMicronots = 10_000n;
 export const miningHoldOperationalReserveMicrogons = 250_000n;
 
+export function getSpendableMicrogons(availableMicrogons: bigint, reserveMicrogons = 0n): bigint {
+  return bigIntMax(availableMicrogons - reserveMicrogons, 0n);
+}
+
 export function getSpendableMiningHoldMicrogons(availableMicrogons: bigint): bigint {
-  return bigIntMax(availableMicrogons - miningHoldOperationalReserveMicrogons, 0n);
+  return getSpendableMicrogons(availableMicrogons, miningHoldOperationalReserveMicrogons);
 }
 
 export type IWalletType = keyof typeof WalletType;

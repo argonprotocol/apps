@@ -634,6 +634,47 @@ export class TransactionTracker {
       });
     }
 
+    if ((status.isInBlock || status.isFinalized) && blockNumber != null) {
+      const findTransactionResult = await TransactionEvents.findByExtrinsicHash({
+        blockWatch: this.blockWatch,
+        extrinsicHash: record.extrinsicHash,
+        searchStartBlockHeight: blockNumber,
+        bestBlockHeight: blockNumber,
+        maxBlocksToCheck: 0,
+        blockCache: this.#blockCache,
+        ignoreHeaderErrors: true,
+      });
+
+      if (findTransactionResult) {
+        const table = await this.getTable();
+        const { blockHash, blockTime, fee, tip, error, extrinsicEvents, extrinsicIndex } = findTransactionResult;
+
+        await table.recordInBlock(record, {
+          blockNumber,
+          blockHash,
+          blockTime: new Date(blockTime),
+          feePlusTip: fee + tip,
+          tip,
+          extrinsicError: error,
+          transactionEvents: extrinsicEvents,
+          extrinsicIndex,
+        });
+
+        if (status.isFinalized) {
+          const finalizedBlockNumber = Math.max(this.blockWatch.finalizedBlockHeader.blockNumber, blockNumber);
+          const finalizedBlockTime =
+            finalizedBlockNumber === blockNumber
+              ? new Date(blockTime)
+              : new Date(this.blockWatch.finalizedBlockHeader.blockTime);
+
+          await table.markFinalized(record, {
+            blockNumber: finalizedBlockNumber,
+            blockTime: finalizedBlockTime,
+          });
+        }
+      }
+    }
+
     if (status.isRetracted) {
       await this.recordHistoryStatus({
         transactionId: record.id,

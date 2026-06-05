@@ -1,5 +1,6 @@
 import { bigIntMin, type ArgonQueryClient, type MoveTo } from '@argonprotocol/apps-core';
 import { type ArgonClient, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
 import { TxAttemptState } from './TransactionTracker.ts';
 
@@ -31,14 +32,17 @@ export type IVaultCollectNotice = {
   isProcessing: boolean;
   collectRevenue: bigint;
   expiringCollectAmount: bigint;
+  nextCollectDueDate: number;
   signatureCount: number;
+  nextCosignDueDate: number;
   councilApprovalCount: number;
-  collateralizedTransferCount: number;
-  collateralizedTransferRewardAmount: bigint;
+  authorizedTransferCount: number;
+  authorizedTransferRewardAmount: bigint;
+  pendingAuthorizedTransferCount: number;
+  pendingAuthorizedTransferRewardAmount: bigint;
   signaturePenalty: bigint;
   earningsAmountMicrogons: bigint;
   amountAtRiskMicrogons: bigint;
-  nextDueDate: number;
   transactionCount: number;
 };
 
@@ -63,20 +67,38 @@ export class VaultCollectBuilder {
     const collectRevenue = myVault.data.pendingCollectRevenue;
     const signatureCount = manualPendingCosignEntries.length;
     const councilApprovalCount = myVault.globalCouncil.data.pendingApprovals.length;
-    const pendingCollateralizations = myVault.mintingAuthorities.data.pendingCollateralizations;
-    const collateralizedTransferCount = pendingCollateralizations.length;
-    const collateralizedTransferRewardAmount = pendingCollateralizations.reduce(
+    const pendingMintingAuthorizations = myVault.mintingAuthorities.data.pendingMintingAuthorizations;
+    const authorizedTransferCount = pendingMintingAuthorizations.length;
+    const authorizedTransferRewardAmount = pendingMintingAuthorizations.reduce(
       (sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip,
       0n,
     );
-    const earningsAmountMicrogons = collectRevenue + collateralizedTransferRewardAmount;
+    const pendingAuthorizeTxInfos = new Map<number, { metadataJson: IMintingAuthorityAuthorizeMetadata }>();
+    for (const txInfo of myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.values()) {
+      if (txInfo.isPostProcessed) continue;
+      pendingAuthorizeTxInfos.set(txInfo.tx.id, txInfo.tx);
+    }
+
+    let pendingAuthorizedTransferCount = 0;
+    let pendingAuthorizedTransferRewardAmount = 0n;
+    for (const { metadataJson } of pendingAuthorizeTxInfos.values()) {
+      pendingAuthorizedTransferCount += metadataJson.authorizations.length;
+      pendingAuthorizedTransferRewardAmount += metadataJson.authorizations.reduce(
+        (sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip,
+        0n,
+      );
+    }
+
+    const earningsAmountMicrogons = collectRevenue;
     const amountAtRiskMicrogons = myVault.data.expiringCollectAmount + signaturePenalty;
+    const isProcessing = Boolean(myVault.data.pendingCollectTxInfo || pendingAuthorizedTransferCount > 0);
 
     if (
       collectRevenue <= 0n &&
       signatureCount === 0 &&
       councilApprovalCount === 0 &&
-      collateralizedTransferCount === 0
+      authorizedTransferCount === 0 &&
+      !isProcessing
     ) {
       return null;
     }
@@ -84,21 +106,21 @@ export class VaultCollectBuilder {
     const hasCollectWork = collectRevenue > 0n || signatureCount > 0;
 
     return {
-      isProcessing: Boolean(
-        myVault.data.pendingCollectTxInfo ||
-          myVault.mintingAuthorities.data.pendingCollateralizeTxInfosByTransferId.size,
-      ),
+      isProcessing,
       collectRevenue,
       expiringCollectAmount: myVault.data.expiringCollectAmount,
+      nextCollectDueDate: myVault.data.nextCollectDueDate,
       signatureCount,
+      nextCosignDueDate: myVault.data.nextCosignDueDate,
       councilApprovalCount,
-      collateralizedTransferCount,
-      collateralizedTransferRewardAmount,
+      authorizedTransferCount,
+      authorizedTransferRewardAmount,
+      pendingAuthorizedTransferCount,
+      pendingAuthorizedTransferRewardAmount,
       signaturePenalty,
       earningsAmountMicrogons,
       amountAtRiskMicrogons,
-      nextDueDate: myVault.data.nextCollectDueDate,
-      transactionCount: Number(hasCollectWork || councilApprovalCount > 0) + collateralizedTransferCount,
+      transactionCount: Number(hasCollectWork || councilApprovalCount > 0 || isProcessing) + authorizedTransferCount,
     };
   }
 
