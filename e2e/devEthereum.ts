@@ -50,6 +50,8 @@ const MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET: Record<DevEthereumBeaconPreset
   minimal: 64n,
   mainnet: 8192n,
 };
+const DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS = 3;
+const DEV_ETHEREUM_LAUNCH_RETRY_DELAY_MS = 1_000;
 
 export type DevEthereumBeaconPreset = 'mainnet' | 'minimal';
 
@@ -117,37 +119,57 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
     );
   }
 
-  const ethereum = new TestEthereum();
-  const endpoints = await ethereum.launch({
-    consensusClient: 'lighthouse',
-    preset: config.beaconPreset,
-    secondsPerSlot: config.secondsPerSlot,
-    waitForFinalization: false,
-    prefundedAccounts: {
-      [DEV_ETHEREUM_ADMIN_ACCOUNT.address]: {
-        balance: DEV_ETHEREUM_ADMIN_ACCOUNT.balance,
-      },
-    },
-  });
-  await waitForStableExecutionRpc(endpoints.executionRpcUrl, endpoints.chainId);
-  const usdcTokenAddress = await deployDevEthereumUsdc({
-    executionRpcUrl: endpoints.executionRpcUrl,
-    chainId: endpoints.chainId,
-  });
+  for (let attempt = 1; attempt <= DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS; attempt += 1) {
+    const ethereum = new TestEthereum();
 
-  const result = {
-    beaconPreset: config.beaconPreset,
-    enclaveName: ethereum.enclaveName,
-    ...endpoints,
-    serverExecutionRpcUrl: rewriteLocalUrlHost(endpoints.executionRpcUrl, 'host.docker.internal'),
-    serverBeaconApiUrl: rewriteLocalUrlHost(endpoints.beaconApiUrl, 'host.docker.internal'),
-    usdcTokenAddress,
-  };
-  await writeDevEthereumRuntimeState({
-    ...result,
-    setupStatus: 'starting',
-  });
-  return result;
+    try {
+      const endpoints = await ethereum.launch({
+        consensusClient: 'lighthouse',
+        preset: config.beaconPreset,
+        secondsPerSlot: config.secondsPerSlot,
+        waitForFinalization: false,
+        prefundedAccounts: {
+          [DEV_ETHEREUM_ADMIN_ACCOUNT.address]: {
+            balance: DEV_ETHEREUM_ADMIN_ACCOUNT.balance,
+          },
+        },
+      });
+      await waitForStableExecutionRpc(endpoints.executionRpcUrl, endpoints.chainId);
+      const usdcTokenAddress = await deployDevEthereumUsdc({
+        executionRpcUrl: endpoints.executionRpcUrl,
+        chainId: endpoints.chainId,
+      });
+
+      const result = {
+        beaconPreset: config.beaconPreset,
+        enclaveName: ethereum.enclaveName,
+        ...endpoints,
+        serverExecutionRpcUrl: rewriteLocalUrlHost(endpoints.executionRpcUrl, 'host.docker.internal'),
+        serverBeaconApiUrl: rewriteLocalUrlHost(endpoints.beaconApiUrl, 'host.docker.internal'),
+        usdcTokenAddress,
+      };
+      await writeDevEthereumRuntimeState({
+        ...result,
+        setupStatus: 'starting',
+      });
+      return result;
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+
+      await ethereum.teardown().catch(() => undefined);
+
+      if (attempt === DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS || !errorText.includes('port is already allocated')) {
+        throw error;
+      }
+
+      console.warn(
+        `[tauri-dev] Local dev Ethereum launch hit a transient port collision on attempt ${attempt}/${DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS}; retrying`,
+      );
+      await delay(DEV_ETHEREUM_LAUNCH_RETRY_DELAY_MS);
+    }
+  }
+
+  throw new Error('Local dev Ethereum failed to launch after exhausting retries');
 }
 
 export function createDevEthereumSetup(

@@ -177,7 +177,6 @@ impl Security {
         }
         log::info!("Migrating plaintext mnemonic to encrypted wallet.json");
         Self::write_wallet_file(app, mnemonic)?;
-        let _ = fs::remove_file(&legacy_path);
         Ok(())
     }
 
@@ -420,12 +419,6 @@ impl Security {
     }
 
     pub fn save_with_mnemonic(app: &AppHandle, mnemonic: &str) -> Result<Self> {
-        // Remove legacy file if it exists
-        let legacy_path = Utils::get_absolute_config_instance_dir(app).join("mnemonic");
-        if legacy_path.exists() {
-            let _ = fs::remove_file(&legacy_path);
-        }
-
         Self::write_wallet_file(app, mnemonic)
     }
 
