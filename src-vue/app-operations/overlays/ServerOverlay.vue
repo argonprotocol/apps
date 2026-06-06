@@ -151,14 +151,26 @@
             <div v-if="ethereumSyncState?.lastSubmittedTxHash" class="pt-1 text-xs font-light text-slate-500 break-all">
               Last tx: {{ ethereumSyncState.lastSubmittedTxHash }}
             </div>
-            <div v-if="ethereumSyncState?.latestFinalizedSlot !== undefined" class="pt-1 text-xs font-light text-slate-500">
-              Finalized slot: {{ ethereumSyncState.latestFinalizedSlot.toString() }}
+            <div
+              v-if="ethereumSyncState?.latestExecutionAnchorBlockNumber !== undefined"
+              class="pt-1 text-xs font-light text-slate-500"
+            >
+              Anchor block: {{ ethereumSyncState.latestExecutionAnchorBlockNumber.toString() }}
+            </div>
+            <div v-if="ethereumSyncState?.latestEthereumBlockNumber !== undefined" class="pt-1 text-xs font-light text-slate-500">
+              Ethereum block: {{ ethereumSyncState.latestEthereumBlockNumber.toString() }}
+            </div>
+            <div v-if="ethereumExecutionBlockLag !== undefined" class="pt-1 text-xs font-light text-slate-500">
+              Blocks behind: {{ ethereumExecutionBlockLag.toString() }}
             </div>
             <div
               v-if="ethereumSyncState?.latestSyncCommitteeUpdatePeriod !== undefined"
               class="pt-1 text-xs font-light text-slate-500"
             >
               Sync period: {{ ethereumSyncState.latestSyncCommitteeUpdatePeriod.toString() }}
+            </div>
+            <div v-if="ethereumSyncState?.gatewayActivityNonceGap !== undefined" class="pt-1 text-xs font-light text-slate-500">
+              Gateway nonce gap: {{ ethereumSyncState.gatewayActivityNonceGap.toString() }}
             </div>
             <div v-if="beaconSyncActionError" class="pt-2 text-sm font-medium text-red-600">
               {{ beaconSyncActionError }}
@@ -248,6 +260,18 @@ const effectiveBeaconApiUrl = Vue.computed(() => {
 
 const ethereumSyncState = Vue.computed(() => {
   return bot.state?.ethereumSync;
+});
+
+const ethereumExecutionBlockLag = Vue.computed(() => {
+  const latestExecutionAnchorBlockNumber = ethereumSyncState.value?.latestExecutionAnchorBlockNumber;
+  const latestEthereumBlockNumber = ethereumSyncState.value?.latestEthereumBlockNumber;
+  if (latestExecutionAnchorBlockNumber === undefined || latestEthereumBlockNumber === undefined) {
+    return;
+  }
+
+  return latestEthereumBlockNumber > latestExecutionAnchorBlockNumber
+    ? latestEthereumBlockNumber - latestExecutionAnchorBlockNumber
+    : 0n;
 });
 
 const beaconSyncStatusLabel = Vue.computed(() => {

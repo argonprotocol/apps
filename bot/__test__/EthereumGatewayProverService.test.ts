@@ -401,6 +401,54 @@ describe('EthereumGatewayProverService', () => {
 
     await service.shutdown();
   });
+
+  it('waits for one header-rotation window before running a staggered background fallback sweep', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      backgroundSweepMs: 1_000,
+    });
+    const runBackgroundSweep = (
+      service as unknown as {
+        runBackgroundSweep: (args?: { force?: boolean }) => Promise<void>;
+      }
+    ).runBackgroundSweep.bind(service);
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    });
+    mainchainMock.sign.mockResolvedValue(signedTx);
+    mainchainMock.submitSigned.mockResolvedValue({
+      extrinsic: {
+        signedHash: '0xrelaytx',
+        submittedAtBlockNumber: 321,
+        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+      },
+      blockNumber: 321,
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+    });
+
+    await runBackgroundSweep({ force: true });
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-05-13T16:00:23.000Z'));
+    await runBackgroundSweep({ force: false });
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-05-13T16:01:11.000Z'));
+    await runBackgroundSweep({ force: false });
+    expect(gatewayProofMock.buildGatewayActivityProofPayload.mock.calls.length).toBeGreaterThan(1);
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createSubmitLane(client: ReturnType<typeof createClient>) {
@@ -423,6 +471,7 @@ function createClient(
     };
     hasLatestExecutionHeaderAnchor?: boolean;
     runtimeGatewayActivityNonce?: bigint;
+    freeHeadersInterval?: bigint;
   } = {},
 ) {
   const tx =
@@ -496,6 +545,11 @@ function createClient(
       balances: {
         existentialDeposit: {
           toBigInt: () => args.existentialDeposit ?? 10_000n,
+        },
+      },
+      ethereumVerifier: {
+        freeHeadersInterval: {
+          toBigInt: () => args.freeHeadersInterval ?? 32n,
         },
       },
     },
