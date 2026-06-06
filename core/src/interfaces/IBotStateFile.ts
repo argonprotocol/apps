@@ -7,8 +7,11 @@ export interface IEthereumSyncStatus {
   mode: IEthereumSyncMode;
   syncAccountAddress: string;
   latestFinalizedSlot?: bigint;
+  latestExecutionAnchorBlockNumber?: bigint;
+  latestEthereumBlockNumber?: bigint;
   latestSyncCommitteeUpdatePeriod?: bigint;
   lastSubmittedTxHash?: string;
+  gatewayActivityNonceGap?: bigint;
   lastError?: string;
 }
 

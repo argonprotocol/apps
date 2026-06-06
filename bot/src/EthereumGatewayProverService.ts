@@ -1,16 +1,19 @@
-import { minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  minimumVaultDelegateBalance,
+  NetworkConfig,
+  type IEthereumGatewayCatchUpRequest,
+  type IEthereumGatewayCatchUpResponse,
+  type IEthereumGatewayRelayStatus,
+  type IEthereumSyncStatus,
+} from '@argonprotocol/apps-core';
 import {
   buildGatewayActivityProofPayload,
   getLatestArgonFinalizedExecutionHeader,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
-import type {
-  IEthereumGatewayCatchUpRequest,
-  IEthereumGatewayCatchUpResponse,
-  IEthereumGatewayRelayStatus,
-} from '@argonprotocol/apps-core';
 import process from 'node:process';
-import type { Hex } from 'viem';
+import { createHash } from 'node:crypto';
+import { type Hex } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { HttpError } from './HttpError.ts';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -25,6 +28,9 @@ export class EthereumGatewayProverService {
   private gatewayAddress?: Hex;
   private gatewayAddressPromise?: Promise<Hex>;
   private lastObservedRuntimeGatewayActivityNonce?: bigint;
+  private lastObservedRuntimeGatewayActivityAt?: number;
+  private lastStallSweepWindowIndex?: number;
+  private readonly stateData: Pick<IEthereumSyncStatus, 'gatewayActivityNonceGap'> = {};
 
   constructor(
     private readonly submitLane: DelegateSubmitLane,
@@ -42,7 +48,7 @@ export class EthereumGatewayProverService {
     this.loopPromise = this.loop();
 
     try {
-      await this.runBackgroundSweep();
+      await this.runBackgroundSweep({ force: true });
     } catch (error) {
       console.error('[EthereumGatewayProverService] Initial catch-up failed', error);
     }
@@ -110,6 +116,10 @@ export class EthereumGatewayProverService {
     return await this.queueCheckpoint(request.throughGatewayActivityNonce);
   }
 
+  public state(): Pick<IEthereumSyncStatus, 'gatewayActivityNonceGap'> {
+    return { ...this.stateData };
+  }
+
   private async loop(): Promise<void> {
     try {
       while (!this.shouldStop) {
@@ -130,7 +140,7 @@ export class EthereumGatewayProverService {
     }
   }
 
-  private async runBackgroundSweep(): Promise<void> {
+  private async runBackgroundSweep(args: { force?: boolean } = {}): Promise<void> {
     if (this.inspectionPromise || this.activeCatchUpPromise) {
       return;
     }
@@ -143,10 +153,29 @@ export class EthereumGatewayProverService {
 
       const client = this.requireClient();
       const currentRuntimeGatewayActivityNonce = await this.loadCurrentRuntimeGatewayActivityNonce(client);
+      const now = Date.now();
       const runtimeNonceMovedForward =
         this.lastObservedRuntimeGatewayActivityNonce === undefined ||
         currentRuntimeGatewayActivityNonce > this.lastObservedRuntimeGatewayActivityNonce;
       this.lastObservedRuntimeGatewayActivityNonce = currentRuntimeGatewayActivityNonce;
+      if (runtimeNonceMovedForward) {
+        this.lastObservedRuntimeGatewayActivityAt = now;
+        this.lastStallSweepWindowIndex = undefined;
+      }
+
+      if (!args.force && !runtimeNonceMovedForward) {
+        const stalledSince = this.lastObservedRuntimeGatewayActivityAt ?? now;
+        const stallSweepWindow = getStallSweepWindow(client, this.submitLane.address, stalledSince, now);
+        if (!stallSweepWindow || stallSweepWindow.windowIndex === this.lastStallSweepWindowIndex) {
+          return;
+        }
+
+        this.lastStallSweepWindowIndex = stallSweepWindow.windowIndex;
+        console.log(
+          `[EthereumGatewayProverService] Runtime gateway nonce stalled at ${currentRuntimeGatewayActivityNonce}; ` +
+            `running staggered catch-up sweep after ${stallSweepWindow.stalledMs}ms (window ${stallSweepWindow.windowIndex})`,
+        );
+      }
 
       const executionRpcUrl = this.requireExecutionRpcUrl();
       const gatewayAddress = await this.loadGatewayAddress();
@@ -157,8 +186,12 @@ export class EthereumGatewayProverService {
         throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
       });
       if (!proofPayload) {
+        this.stateData.gatewayActivityNonceGap = 0n;
         return;
       }
+
+      this.stateData.gatewayActivityNonceGap =
+        proofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
 
       if (runtimeNonceMovedForward) {
         console.log(
@@ -252,6 +285,7 @@ export class EthereumGatewayProverService {
 
       const currentRuntimeGatewayActivityNonce = await this.loadCurrentRuntimeGatewayActivityNonce(client);
       if (currentRuntimeGatewayActivityNonce >= throughGatewayActivityNonce) {
+        this.stateData.gatewayActivityNonceGap = 0n;
         return {
           outcome: 'Noop',
           throughGatewayActivityNonce: currentRuntimeGatewayActivityNonce,
@@ -265,6 +299,7 @@ export class EthereumGatewayProverService {
         throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
       });
       if (!proofPayload) {
+        this.stateData.gatewayActivityNonceGap = 0n;
         return (
           latestResponse ?? {
             outcome: 'Noop',
@@ -272,6 +307,9 @@ export class EthereumGatewayProverService {
           }
         );
       }
+
+      this.stateData.gatewayActivityNonceGap =
+        proofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
 
       const tx = client.tx.crosschainTransfer.proveGatewayActivity(
         'Ethereum',
@@ -471,4 +509,37 @@ function getEthereumFinalityMillisFromEnv(): number | undefined {
   }
 
   return value;
+}
+
+function getStallSweepWindow(
+  client: { consts: { ethereumVerifier: { freeHeadersInterval: { toBigInt(): bigint } } } },
+  operatorAddress: string,
+  stalledSince: number,
+  now: number,
+): { windowIndex: number; stalledMs: number } | undefined {
+  const rotationSlots = client.consts.ethereumVerifier.freeHeadersInterval.toBigInt();
+  if (rotationSlots <= 0n) {
+    throw new Error('Ethereum verifier free header interval must be positive.');
+  }
+
+  const rotationMs = Number(rotationSlots * 12_000n);
+  if (!Number.isFinite(rotationMs) || rotationMs <= 0) {
+    return;
+  }
+
+  const stalledMs = Math.max(0, now - stalledSince);
+  const windowIndex = Math.floor(stalledMs / rotationMs);
+  if (windowIndex < 1) {
+    return;
+  }
+
+  const windowStart = stalledSince + windowIndex * rotationMs;
+  const hash = createHash('sha256').update(`${operatorAddress}:${windowIndex}`).digest();
+  const normalized = hash.readBigUInt64BE(0);
+  const offsetMs = Number((normalized * BigInt(rotationMs)) / (1n << 64n));
+  if (now < windowStart + offsetMs) {
+    return;
+  }
+
+  return { windowIndex, stalledMs };
 }

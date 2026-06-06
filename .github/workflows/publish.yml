@@ -30,14 +30,11 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target universal-apple-darwin -vv'
-            tauriScript: './scripts/tauriBuildWithNotary.sh'
+            args: '--target universal-apple-darwin'
           - platform: 'windows-latest'
             args: ''
-            tauriScript: 'yarn tauri'
           - platform: 'ubuntu-22.04'
             args: ''
-            tauriScript: 'yarn tauri'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -126,15 +123,6 @@ jobs:
           printf '%s' "$APPLE_API_KEY_PRIVATE" > "$APPLE_API_KEY_PATH"
           chmod 600 "$APPLE_API_KEY_PATH"
 
-      - name: Log macOS signing context
-        if: matrix.platform == 'macos-latest'
-        run: |
-          set -euxo pipefail
-          sw_vers
-          xcrun notarytool --version
-          xcrun --find codesign
-          yarn tauri --version
-
       - name: Build and Publish Operations Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@v0.6
@@ -156,7 +144,6 @@ jobs:
           includeDebug: false
           includeRelease: true
           includeUpdaterJson: false
-          tauriScript: ${{ matrix.tauriScript }}
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}
@@ -185,7 +172,6 @@ jobs:
           includeDebug: false
           includeRelease: true
           includeUpdaterJson: false
-          tauriScript: ${{ matrix.tauriScript }}
           tagName: ${{ env.VERSION }}
           releaseName: ${{ env.VERSION }}
           releaseBody: ${{ env.RELEASE_NOTES }}

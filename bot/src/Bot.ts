@@ -428,6 +428,16 @@ export default class Bot {
   }
 
   private getEthereumSyncState(): IEthereumSyncStatus | undefined {
-    return this.ethereumBeaconSyncService?.state();
+    const beaconSyncState = this.ethereumBeaconSyncService?.state();
+    const relayState = this.ethereumGatewayProverService.state();
+
+    if (!beaconSyncState) {
+      return undefined;
+    }
+
+    return {
+      ...beaconSyncState,
+      ...relayState,
+    };
   }
 }

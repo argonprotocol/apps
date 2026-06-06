@@ -201,6 +201,7 @@ async function activateDevEthereumMintingAuthority(args: {
 
   console.info(`[${logPrefix}] ensuring vault readiness`);
   await actor.ensureVaultReady();
+  await actor.myVault.subscribe();
 
   console.info(`[${logPrefix}] ensuring council signer registration`);
   await actor.ensureCouncilSignerRegistered({ client });
