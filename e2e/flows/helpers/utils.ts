@@ -221,6 +221,8 @@ export async function dismissOpenLockingOverlay(
 function isTransientClickFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
+    isRetryableAppConnectionError(error) ||
+    message.includes('[driver_command_timeout]') ||
     message.includes('Timed out waiting for clickable') ||
     message.includes('not_found') ||
     (message.includes('Target') && message.includes('not found'))

@@ -1,4 +1,4 @@
-import { pollEvery } from '../helpers/utils.ts';
+import { clickIfVisible, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -120,7 +120,6 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
       if (!state.chainState.canStartVault) {
         return;
       }
-      await flow.click('SetupChecklist.startCreateVault()', { timeoutMs: 30_000 });
       await waitForVaultCreateTransition(flow, flowName);
     }
 
@@ -178,7 +177,7 @@ async function waitForVaultCreateTransition(flow: IVaultingFlowContext['flow'], 
         return true;
       }
 
-      await flow.click('SetupChecklist.startCreateVault()', { timeoutMs: 10_000 }).catch(() => undefined);
+      await clickIfVisible(flow, 'SetupChecklist.startCreateVault()', { timeoutMs: 1_500 });
       return false;
     },
     {

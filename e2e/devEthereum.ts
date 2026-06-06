@@ -83,6 +83,7 @@ export interface IDevEthereumRuntimeState {
   serverExecutionRpcUrl: string;
   serverBeaconApiUrl: string;
   usdcTokenAddress: Address;
+  mintingAuthorityStatus?: 'starting' | 'ready';
   setupStatus: 'starting' | 'ready';
   updatedAt: string;
 }
@@ -542,7 +543,7 @@ function createDevEthereumChain(chainId: number, rpcUrl: string) {
   });
 }
 
-async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
+export async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
   const runtimeState = {
     ...state,
     updatedAt: new Date().toISOString(),

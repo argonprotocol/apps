@@ -5,19 +5,20 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 describe.skipIf(skipE2E).sequential('Ethereum transfer-out flow', () => {
   it(
-    'preseeds a same-user authority and transfers ARGN to Ethereum',
+    'waits for the backend authority and transfers ARGN to Ethereum',
     async () => {
       const session = await createFlowSession({
         useTestNetwork: true,
         sessionName: 'ethereum-transfer-out-spec',
         appEnv: {
           ARGON_DEV_ETHEREUM: '1',
+          ARGON_DEV_ETHEREUM_MINTING_AUTHORITY: '1',
           ARGON_DEV_ETHEREUM_PRESET: 'minimal',
         },
       });
 
       try {
-        await session.run('Vaulting.flow.transferOutThroughEthereum');
+        await session.run('Vaulting.flow.transferOutToEthereum');
       } finally {
         await session.close();
       }
