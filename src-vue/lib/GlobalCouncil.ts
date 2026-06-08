@@ -177,7 +177,7 @@ export class GlobalCouncil {
     return txs;
   }
 
-  public async relayApprovedGatewayUpdates() {
+  public async relayApprovedGatewayUpdates(options: { allowUncompensatedRelay?: boolean } = {}) {
     const finalizedClient = await getFinalizedClient();
 
     const executionRpcUrl = getEthereumExecutionRpcUrl();
@@ -193,6 +193,7 @@ export class GlobalCouncil {
         address: this.walletKeys.ethereumAddress,
         hdPath: this.walletKeys.ethereumHdPath,
       },
+      options,
     );
   }
 
@@ -240,9 +241,17 @@ export class GlobalCouncil {
 
     const relayPromise = (async () => {
       if (hasSignedApprovalsAwaitingRelay) {
+        const receipt = await this.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
+        if (receipt) {
+          this.#lastSharedRelayQueueKey = undefined;
+          this.#lastSharedRelayQueueSeenAt = 0;
+          return;
+        }
+      }
+
+      if (!sharedRelayQueueKey) {
         this.#lastSharedRelayQueueKey = undefined;
         this.#lastSharedRelayQueueSeenAt = 0;
-        await this.relayApprovedGatewayUpdates();
         return;
       }
 
@@ -332,14 +341,10 @@ async function getPendingCouncilApprovals(
       }
 
       const entry = entryOption.unwrap();
-      if (entry.target.isMintingAuthorityDeactivation) {
-        continue;
-      }
-
       pendingApprovals.push({ approvalHash: entry.approvalHash.toHex() });
     }
 
-    if (!hasSignedApprovalsAwaitingRelay && pendingApprovals.length === 0 && nextPendingQueueNonce > lastSyncedNonce) {
+    if (pendingApprovals.length === 0 && nextPendingQueueNonce > lastSyncedNonce) {
       sharedRelayQueueKey = `${lastSyncedNonce}:${nextPendingQueueNonce}`;
     }
   }
