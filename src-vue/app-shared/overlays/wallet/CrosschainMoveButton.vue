@@ -46,7 +46,7 @@
 
           <p v-else-if="inboundTransfer" class="font-light text-slate-700">
             Moving
-            <strong>{{ props.moveToken }}</strong>
+            <strong>{{ formatTokenAmount(inboundTransfer.transferState.amount) }} {{ props.moveToken }}</strong>
             from your
             <strong>{{ props.networkName }}</strong>
             wallet into your

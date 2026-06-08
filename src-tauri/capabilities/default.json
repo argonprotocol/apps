@@ -36,10 +36,7 @@
       "identifier": "http:default",
       "allow": [
         {
-          "url": "https://indexer.testnet.argonprotocol.org/*"
-        },
-        {
-          "url": "https://indexer.testnet.argon.network/*"
+          "url": "https://*"
         }
       ],
       "deny": []

@@ -27,6 +27,12 @@ import {
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 
 export type ServerGatewayDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gatewayPort' | 'type'>;
+export type IEthereumGatewayRelaySource = 'localServer' | 'upstreamOperator';
+export type IEthereumGatewayCatchUpDispatchResult = {
+  relayError?: string;
+  relaySource?: IEthereumGatewayRelaySource;
+  localRelayError?: string;
+};
 
 export interface IBitcoinBlockChainInfo {
   chain: string;
@@ -368,6 +374,15 @@ export async function requestEthereumGatewayCatchUpThroughOperator(args: {
   serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
   upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
 }): Promise<string | undefined> {
+  const result = await requestEthereumGatewayCatchUpDispatch(args);
+  return result.relayError;
+}
+
+export async function requestEthereumGatewayCatchUpDispatch(args: {
+  throughGatewayActivityNonce: bigint;
+  serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
+  upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
+}): Promise<IEthereumGatewayCatchUpDispatchResult> {
   const { throughGatewayActivityNonce, serverApiClient, upstreamOperatorClient } = args;
   let localRelayError = '';
 
@@ -380,7 +395,9 @@ export async function requestEthereumGatewayCatchUpThroughOperator(args: {
           throughGatewayActivityNonce,
         });
         if (response.outcome !== 'Rejected') {
-          return;
+          return {
+            relaySource: 'localServer',
+          };
         }
 
         localRelayError = response.reason;
@@ -392,12 +409,15 @@ export async function requestEthereumGatewayCatchUpThroughOperator(args: {
     }
 
     if (!upstreamOperatorClient?.operatorHost) {
-      return localRelayError;
+      return {
+        relayError: localRelayError,
+        localRelayError,
+      };
     }
   }
 
   if (!upstreamOperatorClient?.operatorHost) {
-    return;
+    return {};
   }
 
   try {
@@ -405,8 +425,21 @@ export async function requestEthereumGatewayCatchUpThroughOperator(args: {
       sourceChain: 'Ethereum',
       throughGatewayActivityNonce,
     });
-    return response.outcome === 'Rejected' ? response.reason : undefined;
+    if (response.outcome === 'Rejected') {
+      return {
+        relayError: response.reason,
+        localRelayError: localRelayError || undefined,
+      };
+    }
+
+    return {
+      relaySource: 'upstreamOperator',
+      localRelayError: localRelayError || undefined,
+    };
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return {
+      relayError: error instanceof Error ? error.message : String(error),
+      localRelayError: localRelayError || undefined,
+    };
   }
 }

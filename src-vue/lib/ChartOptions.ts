@@ -39,7 +39,7 @@ export function createChartOptions(
           pointHoverRadius: 0,
           pointHoverBackgroundColor: '#F8E7FB',
           pointRadius: 0,
-          lineTension: 1,
+          lineTension: 0.2,
         },
         {
           data: chartPoints,
@@ -51,7 +51,7 @@ export function createChartOptions(
           pointHoverRadius: 0,
           pointHoverBackgroundColor: '#A600D4',
           pointRadius: pointRadius,
-          lineTension: 1,
+          lineTension: 0.2,
         },
       ],
     },

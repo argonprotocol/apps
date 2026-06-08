@@ -32,6 +32,7 @@ import {
   type TransactionSerializableEIP1559,
   toHex,
 } from 'viem';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { sleep } from './Utils.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -93,7 +94,6 @@ type IEthereumGatewayUpdate = {
   payload: Hex;
   signatures: Hex[];
 };
-const ETHEREUM_PUBLIC_CLIENT_OPTIONS = { retryCount: 1, timeout: 15_000 } as const;
 const ethereumChainConfigPromises = new Map<string, Promise<IEthereumChainConfig | undefined>>();
 type EthereumExecutionReceipt = Awaited<ReturnType<PublicClient['getTransactionReceipt']>>;
 type MintingGatewayTransferOutOfArgonAuthorization = {
@@ -794,7 +794,11 @@ function createEthereumPublicClientForRpc(
 ): PublicClient {
   return createPublicClient({
     ...(chain ? { chain } : {}),
-    transport: http(executionRpcUrl, ETHEREUM_PUBLIC_CLIENT_OPTIONS),
+    transport: http(executionRpcUrl, {
+      retryCount: 1,
+      timeout: 15_000,
+      fetchFn: tauriFetch,
+    }),
   });
 }
 
