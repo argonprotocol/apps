@@ -177,7 +177,7 @@ export class GlobalCouncil {
     return txs;
   }
 
-  public async relayApprovedGatewayUpdates() {
+  public async relayApprovedGatewayUpdates(options: { allowUncompensatedRelay?: boolean } = {}) {
     const finalizedClient = await getFinalizedClient();
 
     const executionRpcUrl = getEthereumExecutionRpcUrl();
@@ -193,6 +193,7 @@ export class GlobalCouncil {
         address: this.walletKeys.ethereumAddress,
         hdPath: this.walletKeys.ethereumHdPath,
       },
+      options,
     );
   }
 
@@ -242,7 +243,7 @@ export class GlobalCouncil {
       if (hasSignedApprovalsAwaitingRelay) {
         this.#lastSharedRelayQueueKey = undefined;
         this.#lastSharedRelayQueueSeenAt = 0;
-        await this.relayApprovedGatewayUpdates();
+        await this.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
         return;
       }
 
@@ -332,10 +333,6 @@ async function getPendingCouncilApprovals(
       }
 
       const entry = entryOption.unwrap();
-      if (entry.target.isMintingAuthorityDeactivation) {
-        continue;
-      }
-
       pendingApprovals.push({ approvalHash: entry.approvalHash.toHex() });
     }
 

@@ -29,6 +29,7 @@ describe('GlobalCouncil', () => {
 
     expect(getReadyGatewayRelayPreview).not.toHaveBeenCalled();
     expect(relayApprovedGatewayUpdates).toHaveBeenCalledTimes(1);
+    expect(relayApprovedGatewayUpdates).toHaveBeenCalledWith({ allowUncompensatedRelay: true });
   });
 
   it('waits before relaying a shared ready batch that is not ours', async () => {
@@ -74,4 +75,104 @@ describe('GlobalCouncil', () => {
       vi.useRealTimers();
     }
   });
+
+  it('includes deactivation approvals in the pending queue', async () => {
+    const globalCouncil = new GlobalCouncil(
+      Promise.resolve({
+        walletHdKeysTable: {
+          upsert: vi.fn(async () => undefined),
+        },
+      } as any),
+      {
+        councilSignerEthereumHdPath: `m/44'/60'/1'/0'`,
+        vaultingAddress: '5vault',
+        getEthereumAddresses: vi.fn(async () => ['0xabc']),
+      } as any,
+      {} as any,
+    );
+    const syncApprovedGatewayRelay = vi
+      .spyOn(
+        globalCouncil as unknown as {
+          syncApprovedGatewayRelay: (args: {
+            councilSigner?: string;
+            hasSignedApprovalsAwaitingRelay: boolean;
+            sharedRelayQueueKey?: string;
+          }) => Promise<void>;
+        },
+        'syncApprovedGatewayRelay',
+      )
+      .mockResolvedValue(undefined);
+
+    const approvalHashOne = { toHex: () => '0x11' };
+    const approvalHashTwo = { toHex: () => '0x22' };
+    const finalizedClient = {
+      query: {
+        crosschainTransfer: {
+          councilSignerByDestinationChainAndAccountId: vi.fn(async () => some(hexValue('0xabc'))),
+          councilApprovalCursorByDestinationChainAndAccountId: vi.fn(async () => some(bigintValue(0n))),
+          gatewayStateBySourceChain: vi.fn(async () => some({ argonApprovalsNonce: bigintValue(0n) })),
+          nextCouncilApprovalQueueNonceByDestinationChain: vi.fn(async () => bigintValue(2n)),
+          councilApprovalQueueByDestinationChainAndNonce: vi.fn(async (_chain: string, nonce: bigint) => {
+            if (nonce === 1n) {
+              return some({
+                target: {
+                  isMintingAuthorityActivation: true,
+                  isMintingAuthorityDeactivation: false,
+                },
+                approvalHash: approvalHashOne,
+              });
+            }
+            if (nonce === 2n) {
+              return some({
+                target: {
+                  isMintingAuthorityActivation: false,
+                  isMintingAuthorityDeactivation: true,
+                },
+                approvalHash: approvalHashTwo,
+              });
+            }
+            return none();
+          }),
+        },
+      },
+    };
+
+    await expect(globalCouncil.refresh(finalizedClient as any)).resolves.toEqual([
+      { approvalHash: '0x11' },
+      { approvalHash: '0x22' },
+    ]);
+    expect(syncApprovedGatewayRelay).toHaveBeenCalledWith({
+      councilSigner: '0xabc',
+      hasSignedApprovalsAwaitingRelay: false,
+      sharedRelayQueueKey: undefined,
+    });
+  });
 });
+
+function bigintValue(value: bigint) {
+  return {
+    toBigInt: () => value,
+  };
+}
+
+function hexValue(value: string) {
+  return {
+    toHex: () => value,
+    toLowerCase: () => value.toLowerCase(),
+  };
+}
+
+function some<T>(value: T) {
+  return {
+    isSome: true,
+    isNone: false,
+    unwrap: () => value,
+  };
+}
+
+function none() {
+  return {
+    isSome: false,
+    isNone: true,
+  };
+}

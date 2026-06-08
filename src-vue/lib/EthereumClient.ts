@@ -93,19 +93,6 @@ type IEthereumGatewayUpdate = {
   payload: Hex;
   signatures: Hex[];
 };
-type IEthereumGatewayHashContext = {
-  chainId: bigint;
-  gatewayAddress: Address;
-};
-type IMintingAuthorityDeactivationTarget = {
-  signingKey: Address;
-};
-type IMintingAuthorityActivationTarget = {
-  microgonCollateral: bigint;
-  micronotCollateral: bigint;
-  signingKey: Address;
-};
-
 const ETHEREUM_PUBLIC_CLIENT_OPTIONS = { retryCount: 1, timeout: 15_000 } as const;
 const ethereumChainConfigPromises = new Map<string, Promise<IEthereumChainConfig | undefined>>();
 type EthereumExecutionReceipt = Awaited<ReturnType<PublicClient['getTransactionReceipt']>>;
@@ -129,8 +116,11 @@ type LoadedCouncil = {
   }[];
 };
 type RelayableGatewayUpdate = {
-  expectedRepaymentMicrogons: bigint;
-  isActivation: boolean;
+  ownerArgonAccountId?: Hex;
+  activationSettlement?: {
+    heldRepaymentMicrogons: bigint;
+    baseRepaymentQuoteMicrogons: bigint;
+  };
   update: IEthereumGatewayUpdate;
 };
 export type IEthereumGatewayRelayPreview = {
@@ -146,7 +136,7 @@ export type IEthereumGatewayRelayPreview = {
   lastQueueNonce?: bigint;
   isPaused: boolean;
   canRelay: boolean;
-  reason?: 'paused' | 'noActivations' | 'insufficientBalance' | 'repaymentTooLow';
+  reason?: 'paused' | 'noReadyUpdates' | 'uncompensatedSharedBatch' | 'insufficientBalance' | 'repaymentTooLow';
 };
 type IPreparedGatewayRelay = IEthereumGatewayRelayPreview & {
   publicClient: PublicClient;
@@ -158,7 +148,11 @@ export class EthereumClient {
   constructor(
     private readonly walletKeys: Pick<
       WalletKeys,
-      'configureEthereumSignerPolicy' | 'ethereumAddress' | 'signEthereumPermit' | 'signEthereumTransaction'
+      | 'configureEthereumSignerPolicy'
+      | 'ethereumAddress'
+      | 'signEthereumPermit'
+      | 'signEthereumTransaction'
+      | 'vaultingAddress'
     >,
     public readonly executionRpcUrl: string,
   ) {}
@@ -489,8 +483,9 @@ export class EthereumClient {
     finalizedClient: IArgonQueryable,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
+    options: { allowUncompensatedRelay?: boolean } = {},
   ): Promise<EthereumExecutionReceipt | undefined> {
-    const prepared = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer);
+    const prepared = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer, options);
     if (!prepared.canRelay || !prepared.transaction || !prepared.unsignedTransaction) {
       return;
     }
@@ -509,11 +504,23 @@ export class EthereumClient {
     finalizedClient: IArgonQueryable,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
+    options: { allowUncompensatedRelay?: boolean } = {},
   ): Promise<IPreparedGatewayRelay> {
     const relayerArgonAccountId = toArgonAccountIdHex(relayerArgonAddress);
+    const throughOwnerArgonAccountId = options.allowUncompensatedRelay
+      ? toArgonAccountIdHex(this.walletKeys.vaultingAddress)
+      : undefined;
     const chainConfig = await this.loadChainConfig();
     const { chain, publicClient } = await this.createExecutionClient();
-    const batch = await getReadyEthereumGatewayUpdates(finalizedClient, publicClient, chainConfig);
+    const batch = await getReadyEthereumGatewayUpdates(
+      finalizedClient,
+      publicClient,
+      chainConfig,
+      relayerArgonAccountId,
+      {
+        throughOwnerArgonAccountId,
+      },
+    );
     const signerAddress = getAddress(signer.address);
     const ethereumBalanceWei = await publicClient.getBalance({ address: signerAddress });
     const activationCount = batch.updates.filter(
@@ -543,7 +550,7 @@ export class EthereumClient {
       };
     }
 
-    if (!activationCount || !batch.updates.length || batch.expectedRepaymentMicrogons <= 0n) {
+    if (!batch.updates.length) {
       return {
         publicClient,
         signerAddress,
@@ -557,7 +564,7 @@ export class EthereumClient {
         lastQueueNonce,
         isPaused: false,
         canRelay: false,
-        reason: 'noActivations',
+        reason: 'noReadyUpdates',
       };
     }
     const { transaction, unsignedTransaction, feeEstimateWei } = await buildEthereumUnsignedTransaction({
@@ -576,13 +583,20 @@ export class EthereumClient {
       }),
     });
 
-    const reason =
-      ethereumBalanceWei < feeEstimateWei
-        ? 'insufficientBalance'
-        : batch.estimatedMicrogonsPerEth > 0n &&
-            convertWeiToMicrogons(feeEstimateWei, batch.estimatedMicrogonsPerEth) > batch.expectedRepaymentMicrogons
-          ? 'repaymentTooLow'
-          : undefined;
+    const shouldRequireCompensation = !options.allowUncompensatedRelay;
+    let reason: IEthereumGatewayRelayPreview['reason'];
+
+    if (shouldRequireCompensation && batch.expectedRepaymentMicrogons <= 0n) {
+      reason = 'uncompensatedSharedBatch';
+    } else if (
+      shouldRequireCompensation &&
+      batch.estimatedMicrogonsPerEth > 0n &&
+      convertWeiToMicrogons(feeEstimateWei, batch.estimatedMicrogonsPerEth) > batch.expectedRepaymentMicrogons
+    ) {
+      reason = 'repaymentTooLow';
+    } else if (ethereumBalanceWei < feeEstimateWei) {
+      reason = 'insufficientBalance';
+    }
 
     return {
       publicClient,
@@ -814,13 +828,15 @@ async function getReadyEthereumGatewayUpdates(
   finalizedClient: IArgonQueryable,
   gatewayClient: Pick<PublicClient, 'readContract'>,
   chainConfig: IEthereumChainConfig,
+  relayerArgonAccountId: Hex,
+  options: { throughOwnerArgonAccountId?: Hex } = {},
   maxQueueEntries = 100,
 ): Promise<{
   currentCouncil: IEthereumGatewayCouncilSnapshot;
   estimatedMicrogonsPerEth: bigint;
-  expectedRepaymentMicrogons: bigint;
   paused: boolean;
   updates: IEthereumGatewayUpdate[];
+  expectedRepaymentMicrogons: bigint;
 }> {
   const currentCouncilHashOption =
     await finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum');
@@ -831,7 +847,7 @@ async function getReadyEthereumGatewayUpdates(
   const currentCouncilHash = toHexValue(currentCouncilHashOption.unwrap());
   const councilCache = new Map<Hex, LoadedCouncil>();
   const currentCouncil = councilToSnapshot(await loadCouncilByHash(finalizedClient, currentCouncilHash, councilCache));
-  const hashContext: IEthereumGatewayHashContext = {
+  const hashContext = {
     chainId: BigInt(chainConfig.chainId),
     gatewayAddress: chainConfig.gatewayAddress,
   };
@@ -839,8 +855,13 @@ async function getReadyEthereumGatewayUpdates(
     await finalizedClient.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain(
       'Ethereum',
     );
-  const estimatedMicrogonsPerEth = repaymentPricingOption.isSome
-    ? repaymentPricingOption.unwrap().estimatedMicrogonsPerEth.toBigInt()
+  const repaymentPricing = repaymentPricingOption.isSome ? repaymentPricingOption.unwrap() : undefined;
+  const estimatedMicrogonsPerEth = repaymentPricing?.estimatedMicrogonsPerEth.toBigInt() ?? 0n;
+  const singleSignatureRepaymentQuoteMicrogons = repaymentPricing
+    ? convertWeiToMicrogons(
+        repaymentPricing.signatureGasCost.toBigInt() * repaymentPricing.estimatedWeiPerGas.toBigInt(),
+        estimatedMicrogonsPerEth,
+      )
     : 0n;
 
   const [rawArgonApprovalsNonce, rawArgonApprovalsHash, rawPaused] = await Promise.all([
@@ -864,7 +885,6 @@ async function getReadyEthereumGatewayUpdates(
   const argonApprovalsHash = rawArgonApprovalsHash as Hex;
   const paused = rawPaused as boolean;
   const relayableUpdates: RelayableGatewayUpdate[] = [];
-  let lastActivationIndex = -1;
   let expectedPreviousApprovalHash = argonApprovalsHash;
 
   if (!paused) {
@@ -879,10 +899,8 @@ async function getReadyEthereumGatewayUpdates(
 
       const entry = entryOption.unwrap();
       const approvingCouncilHash = toHexValue(entry.approvingCouncilHash);
-
-      if (
-        !(await queueEntryIsReady(finalizedClient, entry, approvingCouncilHash, councilCache, hashContext, queueNonce))
-      ) {
+      const approvingCouncil = await loadCouncilByHash(finalizedClient, approvingCouncilHash, councilCache);
+      if (!queueEntryHasQuorum(entry, approvingCouncil)) {
         break;
       }
 
@@ -900,51 +918,103 @@ async function getReadyEthereumGatewayUpdates(
         approvingCouncilHash,
       );
       relayableUpdates.push(relayableUpdate);
-      if (relayableUpdate.isActivation) {
-        lastActivationIndex = relayableUpdates.length - 1;
-      }
       expectedPreviousApprovalHash = toHexValue(entry.approvalHash);
     }
   }
 
-  const updates: IEthereumGatewayUpdate[] =
-    lastActivationIndex >= 0 ? relayableUpdates.slice(0, lastActivationIndex + 1).map(({ update }) => update) : [];
-  const expectedRepaymentMicrogons =
-    lastActivationIndex >= 0
-      ? relayableUpdates
-          .slice(0, lastActivationIndex + 1)
-          .reduce((sum, { expectedRepaymentMicrogons }) => sum + expectedRepaymentMicrogons, 0n)
-      : 0n;
+  let readyRelayableUpdates = relayableUpdates;
+  if (options.throughOwnerArgonAccountId) {
+    const ownerArgonAccountIdLower = options.throughOwnerArgonAccountId.toLowerCase();
+    let lastOwnedUpdateIndex = -1;
+
+    for (let index = relayableUpdates.length - 1; index >= 0; index -= 1) {
+      if (relayableUpdates[index].ownerArgonAccountId?.toLowerCase() === ownerArgonAccountIdLower) {
+        lastOwnedUpdateIndex = index;
+        break;
+      }
+    }
+
+    readyRelayableUpdates = lastOwnedUpdateIndex >= 0 ? relayableUpdates.slice(0, lastOwnedUpdateIndex + 1) : [];
+  }
+
+  const updates = readyRelayableUpdates.map(({ update }) => update);
+  for (let index = 0; index < updates.length; index += 1) {
+    const isBorder =
+      updates[index].kind === EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.globalIssuanceCouncilRotate ||
+      index === updates.length - 1;
+    if (isBorder || updates[index].signatures.length === 0) continue;
+    updates[index] = {
+      ...updates[index],
+      signatures: [],
+    };
+  }
+
+  const expectedRepaymentMicrogons = calculateExpectedGatewayRelayRepaymentMicrogons({
+    relayableUpdates: readyRelayableUpdates,
+    relayerArgonAccountId,
+    singleSignatureRepaymentQuoteMicrogons,
+  });
 
   return {
     currentCouncil,
     estimatedMicrogonsPerEth,
-    expectedRepaymentMicrogons,
     paused,
     updates,
+    expectedRepaymentMicrogons,
   };
 }
 
+// Eslint loses the helper call types through the EvmContracts namespace here.
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
 async function buildGatewayUpdate(
   finalizedClient: IArgonQueryable,
-  hashContext: IEthereumGatewayHashContext,
+  hashContext: { chainId: bigint; gatewayAddress: Address },
   queueNonce: bigint,
   entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
   approvingCouncilHash: Hex,
 ): Promise<RelayableGatewayUpdate> {
-  const signatures = getSortedSignatures(entry.signatures);
-
   if (entry.target.isMintingAuthorityDeactivation) {
-    const { payload } = validateDeactivationEntry(hashContext, queueNonce, entry, approvingCouncilHash);
+    const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityDeactivation));
+    const authorityOption = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
+    if (authorityOption.isNone) {
+      throw new Error(`Minting authority deactivation ${signingKey} not found for queue nonce ${queueNonce}`);
+    }
+
+    const authority = authorityOption.unwrap();
+    if (authority.destinationChain.type !== 'Ethereum') {
+      throw new Error(
+        `Minting authority ${signingKey} belongs to ${String(authority.destinationChain.type)}, expected Ethereum`,
+      );
+    }
+
+    const target = { signingKey };
+    const payload = EvmContracts.encodeMintingGatewayMintingAuthorityDeactivateTarget(target);
+    const targetPayloadHash = keccak256(payload);
+    const approvalHash = EvmContracts.hashMintingGatewayGatewayUpdateApproval(hashContext, {
+      queueNonce,
+      approvingCouncilHash,
+      kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityDeactivate,
+      targetId: signingKeyTargetId(signingKey),
+      targetPayloadHash,
+      previousUpdateHash: toHexValue(entry.previousApprovalHash),
+    });
+
+    if (toHexValue(entry.targetPayloadHash) !== targetPayloadHash) {
+      throw new Error(`Queue nonce ${queueNonce} target payload hash does not match deactivation`);
+    }
+    if (toHexValue(entry.approvalHash) !== approvalHash) {
+      throw new Error(
+        `Queue nonce ${queueNonce} approval hash does not match deactivation: actual=${toHexValue(entry.approvalHash)} expected=${approvalHash} previous=${toHexValue(entry.previousApprovalHash)} council=${approvingCouncilHash}`,
+      );
+    }
 
     return {
-      expectedRepaymentMicrogons: 0n,
-      isActivation: false,
+      ownerArgonAccountId: toHexValue(authority.accountId),
       update: {
         queueNonce,
         kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityDeactivate,
         payload,
-        signatures,
+        signatures: getSortedSignatures(entry.signatures),
       },
     };
   }
@@ -966,34 +1036,18 @@ async function buildGatewayUpdate(
     );
   }
 
-  const target: IMintingAuthorityActivationTarget = {
+  const target = {
     microgonCollateral: authority.gatewayRemainingMicrogonCollateral.toBigInt(),
     micronotCollateral: authority.gatewayRemainingMicronotCollateral.toBigInt(),
     signingKey,
   };
-  const payload = (
-    EvmContracts.encodeMintingGatewayMintingAuthorityActivationTarget as (
-      target: IMintingAuthorityActivationTarget,
-    ) => Hex
-  )(target);
+  const payload = EvmContracts.encodeMintingGatewayMintingAuthorityActivationTarget(target);
   const targetPayloadHash = payloadHashFromActivationPayload(hashContext, target);
-  const approvalHash = (
-    EvmContracts.hashMintingGatewayGatewayUpdateApproval as (
-      hashContext: IEthereumGatewayHashContext,
-      args: {
-        queueNonce: bigint;
-        approvingCouncilHash: Hex;
-        kind: bigint;
-        targetId: Hex;
-        targetPayloadHash: Hex;
-        previousUpdateHash: Hex;
-      },
-    ) => Hex
-  )(hashContext, {
+  const approvalHash = EvmContracts.hashMintingGatewayGatewayUpdateApproval(hashContext, {
     queueNonce,
     approvingCouncilHash,
     kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityActivate,
-    targetId: `0x${signingKey.slice(2).padStart(64, '0').toLowerCase()}`,
+    targetId: signingKeyTargetId(signingKey),
     targetPayloadHash,
     previousUpdateHash: toHexValue(entry.previousApprovalHash),
   });
@@ -1007,15 +1061,20 @@ async function buildGatewayUpdate(
     );
   }
 
+  const baseRepaymentQuoteMicrogons = authority.activationBaseRepaymentQuote.toBigInt();
+  const heldRepaymentMicrogons = baseRepaymentQuoteMicrogons + authority.activationSignatureRepaymentQuote.toBigInt();
+
   return {
-    expectedRepaymentMicrogons:
-      authority.activationBaseRepaymentQuote.toBigInt() + authority.activationSignatureRepaymentQuote.toBigInt(),
-    isActivation: true,
+    ownerArgonAccountId: toHexValue(authority.accountId),
+    activationSettlement: {
+      heldRepaymentMicrogons,
+      baseRepaymentQuoteMicrogons,
+    },
     update: {
       queueNonce,
       kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityActivate,
       payload,
-      signatures,
+      signatures: getSortedSignatures(entry.signatures),
     },
   };
 }
@@ -1050,38 +1109,28 @@ async function loadCouncilByHash(
   return loaded;
 }
 
-async function queueEntryIsReady(
-  finalizedClient: IArgonQueryable,
-  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
-  approvingCouncilHash: Hex,
-  councilCache: Map<Hex, LoadedCouncil>,
-  hashContext: IEthereumGatewayHashContext,
-  queueNonce: bigint,
-) {
-  if (entry.target.isMintingAuthorityDeactivation) {
-    validateDeactivationEntry(hashContext, queueNonce, entry, approvingCouncilHash);
-    return true;
-  }
-
-  const approvingCouncil = await loadCouncilByHash(finalizedClient, approvingCouncilHash, councilCache);
-  return queueEntryHasQuorum(entry, approvingCouncil);
-}
-
 function queueEntryHasQuorum(
   entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
   council: LoadedCouncil,
 ): boolean {
-  const signedWeight = [...entry.signatures.entries()].reduce((total, [signer]) => {
+  let signedWeight = 0n;
+
+  for (const [signer] of entry.signatures.entries()) {
     const signerAddress = getAddress(toHexValue(signer));
     const member = council.members.find(x => x.signer === signerAddress);
     if (!member) {
       throw new Error(`Signature submitted by ${signerAddress}, which is not in the council`);
     }
 
-    return total + member.weight;
-  }, 0n);
+    signedWeight += member.weight;
+  }
 
-  return signedWeight * 2n > council.totalWeight;
+  if (signedWeight * 100n >= council.totalWeight * 90n) {
+    return true;
+  }
+
+  const unsignedMemberCount = council.members.length - entry.signatures.size;
+  return unsignedMemberCount <= 2 && signedWeight * 100n >= council.totalWeight * 80n;
 }
 
 function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnapshot {
@@ -1092,70 +1141,103 @@ function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnaps
 }
 
 function payloadHashFromActivationPayload(
-  hashContext: IEthereumGatewayHashContext,
-  target: IMintingAuthorityActivationTarget,
+  hashContext: { chainId: bigint; gatewayAddress: Address },
+  target: { microgonCollateral: bigint; micronotCollateral: bigint; signingKey: Address },
 ): Hex {
-  return (
-    EvmContracts.hashMintingGatewayActivateMintingAuthority as (
-      hashContext: IEthereumGatewayHashContext,
-      target: IMintingAuthorityActivationTarget,
-    ) => Hex
-  )(hashContext, target);
+  return EvmContracts.hashMintingGatewayActivateMintingAuthority(hashContext, target);
+}
+/* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
+
+function calculateExpectedGatewayRelayRepaymentMicrogons(args: {
+  relayableUpdates: RelayableGatewayUpdate[];
+  relayerArgonAccountId: Hex;
+  singleSignatureRepaymentQuoteMicrogons: bigint;
+}) {
+  const { relayableUpdates, relayerArgonAccountId, singleSignatureRepaymentQuoteMicrogons } = args;
+  let totalRepaymentMicrogons = 0n;
+  const pendingActivations: RelayableGatewayUpdate[] = [];
+  let carriedSignatureCount = 0;
+  const lastUpdateIndex = relayableUpdates.length - 1;
+
+  for (let index = 0; index < relayableUpdates.length; index += 1) {
+    const relayableUpdate = relayableUpdates[index];
+    const { activationSettlement, update } = relayableUpdate;
+    if (activationSettlement) {
+      pendingActivations.push(relayableUpdate);
+    }
+
+    const isBorder =
+      update.kind === EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.globalIssuanceCouncilRotate ||
+      index === lastUpdateIndex;
+    if (!isBorder) {
+      continue;
+    }
+
+    carriedSignatureCount += update.signatures.length;
+    if (!pendingActivations.length) {
+      continue;
+    }
+
+    for (const pendingActivation of pendingActivations) {
+      totalRepaymentMicrogons += calculateExpectedActivationRelayRepaymentMicrogons({
+        relayableUpdate: pendingActivation,
+        relayerArgonAccountId,
+        coactivationCount: pendingActivations.length,
+        sharedSignatureCount: carriedSignatureCount,
+        singleSignatureRepaymentQuoteMicrogons,
+      });
+    }
+
+    pendingActivations.length = 0;
+    carriedSignatureCount = 0;
+  }
+
+  return totalRepaymentMicrogons;
 }
 
-function validateDeactivationEntry(
-  hashContext: IEthereumGatewayHashContext,
-  queueNonce: bigint,
-  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
-  approvingCouncilHash: Hex,
-) {
-  const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityDeactivation));
-  const target: IMintingAuthorityDeactivationTarget = { signingKey };
-  const payload = (
-    EvmContracts.encodeMintingGatewayMintingAuthorityDeactivateTarget as (
-      target: IMintingAuthorityDeactivationTarget,
-    ) => Hex
-  )(target);
-  const targetPayloadHash = keccak256(payload);
-  const approvalHash = (
-    EvmContracts.hashMintingGatewayMintingAuthorityDeactivation as (
-      hashContext: IEthereumGatewayHashContext,
-      args: {
-        queueNonce: bigint;
-        previousUpdateHash: Hex;
-        target: IMintingAuthorityDeactivationTarget;
-      },
-    ) => Hex
-  )(hashContext, {
-    queueNonce,
-    previousUpdateHash: toHexValue(entry.previousApprovalHash),
-    target,
-  });
+function calculateExpectedActivationRelayRepaymentMicrogons(args: {
+  relayableUpdate: RelayableGatewayUpdate;
+  relayerArgonAccountId: Hex;
+  coactivationCount: number;
+  sharedSignatureCount: number;
+  singleSignatureRepaymentQuoteMicrogons: bigint;
+}) {
+  const {
+    relayableUpdate,
+    relayerArgonAccountId,
+    coactivationCount,
+    sharedSignatureCount,
+    singleSignatureRepaymentQuoteMicrogons,
+  } = args;
+  const { ownerArgonAccountId, activationSettlement } = relayableUpdate;
 
-  if (toHexValue(entry.targetPayloadHash) !== targetPayloadHash) {
-    throw new Error(`Queue nonce ${queueNonce} target payload hash does not match deactivation`);
-  }
-  if (toHexValue(entry.approvalHash) !== approvalHash) {
-    throw new Error(
-      `Queue nonce ${queueNonce} approval hash does not match deactivation: actual=${toHexValue(entry.approvalHash)} expected=${approvalHash} previous=${toHexValue(entry.previousApprovalHash)} council=${approvingCouncilHash}`,
-    );
+  if (!activationSettlement) {
+    return 0n;
   }
 
-  const deactivationSignatures = [...entry.signatures.entries()];
-  if (deactivationSignatures.length !== 1) {
-    throw new Error(
-      `Queue nonce ${queueNonce} expected exactly one deactivation signature, received ${deactivationSignatures.length}`,
-    );
+  if (ownerArgonAccountId?.toLowerCase() === relayerArgonAccountId.toLowerCase()) {
+    return activationSettlement.heldRepaymentMicrogons;
+  }
+  if (coactivationCount < 1 || sharedSignatureCount < 1 || singleSignatureRepaymentQuoteMicrogons <= 0n) {
+    return 0n;
   }
 
-  const [signer] = deactivationSignatures[0];
-  if (getAddress(toHexValue(signer)) !== signingKey) {
-    throw new Error(
-      `Queue nonce ${queueNonce} deactivation signature was submitted by ${getAddress(toHexValue(signer))}, expected ${signingKey}`,
-    );
+  const requestedSharedSignatureRepaymentMicrogons = divideCeil(
+    singleSignatureRepaymentQuoteMicrogons * BigInt(sharedSignatureCount),
+    BigInt(coactivationCount),
+  );
+  const requestedRepaymentMicrogons =
+    activationSettlement.baseRepaymentQuoteMicrogons + requestedSharedSignatureRepaymentMicrogons;
+
+  if (requestedRepaymentMicrogons > activationSettlement.heldRepaymentMicrogons) {
+    return activationSettlement.heldRepaymentMicrogons;
   }
 
-  return { payload };
+  return requestedRepaymentMicrogons;
+}
+
+function signingKeyTargetId(signingKey: Address): Hex {
+  return `0x${signingKey.slice(2).padStart(64, '0').toLowerCase()}`;
 }
 
 function getSortedSignatures(signatures: PalletCrosschainTransferCouncilApprovalQueueEntry['signatures']): Hex[] {
@@ -1185,6 +1267,10 @@ export function toEvmRecoverableSignature(signature: Hex): Hex {
 
 function convertWeiToMicrogons(wei: bigint, estimatedMicrogonsPerEth: bigint) {
   return (wei * estimatedMicrogonsPerEth) / 10n ** 18n;
+}
+
+function divideCeil(dividend: bigint, divisor: bigint) {
+  return (dividend + divisor - 1n) / divisor;
 }
 
 async function buildEthereumUnsignedTransaction(args: {
