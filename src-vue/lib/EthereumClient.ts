@@ -964,7 +964,7 @@ async function getReadyEthereumGatewayUpdates(
   };
 }
 
-// Eslint loses the helper call types through the EvmContracts namespace here.
+// ESLint loses the helper call types through the EvmContracts namespace here.
 /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
 async function buildGatewayUpdate(
   finalizedClient: IArgonQueryable,
