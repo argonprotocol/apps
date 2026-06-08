@@ -74,6 +74,99 @@
           Argonots you have explicitly committed for minting-authority work.
         </p>
 
+        <div
+          v-if="relayDelegateNeedsSetup"
+          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+          <div class="flex items-start justify-between gap-4">
+            <div class="grow">
+              <div class="text-sm font-semibold text-amber-900">Relay Delegate Needs Setup</div>
+              <div class="mt-1 text-sm leading-6 text-amber-800">
+                Your server can't send Ethereum relays for this vault yet because the relay delegate isn't set up.
+              </div>
+
+              <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
+                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Current Balance</div>
+                  <div class="mt-1 font-semibold text-amber-950">
+                    {{ microgonToArgonNm(relayDelegateBalance).format('0,0.[000000]') }} ARGN
+                  </div>
+                </div>
+
+                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Minimum Balance</div>
+                  <div class="mt-1 font-semibold text-amber-950">
+                    {{ microgonToArgonNm(minimumVaultDelegateBalance).format('0,0.[000000]') }} ARGN
+                  </div>
+                </div>
+
+                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Setup Funding</div>
+                  <div class="mt-1 font-semibold text-amber-950">
+                    {{ microgonToArgonNm(targetVaultDelegateBalance).format('0,0.[000000]') }} ARGN
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              :disabled="isSubmitting || isUpdatingRelayDelegate"
+              data-testid="MintingAuthorityRequestOverlay.updateRelayDelegate()"
+              class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-4 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
+              @click="updateRelayDelegate">
+              <template v-if="isUpdatingRelayDelegate">Setting Up...</template>
+              <template v-else>Set Up Relay Delegate</template>
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-else-if="relayDelegateTopUpAmount > 0n"
+          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+          <div class="flex items-start justify-between gap-4">
+            <div class="grow">
+              <div class="text-sm font-semibold text-amber-900">Relay Delegate Needs Funds</div>
+              <div class="mt-1 text-sm leading-6 text-amber-800">
+                Your server's relay delegate is low on funds. Top it up here so your server can keep sending Ethereum
+                relays for this vault.
+              </div>
+
+              <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
+                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Current Balance</div>
+                  <div class="mt-1 font-semibold text-amber-950">
+                    {{ microgonToArgonNm(relayDelegateBalance).format('0,0.[000000]') }} ARGN
+                  </div>
+                </div>
+
+                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Minimum Balance</div>
+                  <div class="mt-1 font-semibold text-amber-950">
+                    {{ microgonToArgonNm(minimumVaultDelegateBalance).format('0,0.[000000]') }} ARGN
+                  </div>
+                </div>
+
+                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Top-Up Needed</div>
+                  <div class="mt-1 font-semibold text-amber-950">
+                    {{ microgonToArgonNm(relayDelegateTopUpAmount).format('0,0.[000000]') }} ARGN
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              :disabled="isSubmitting || isUpdatingRelayDelegate"
+              data-testid="MintingAuthorityRequestOverlay.updateRelayDelegate()"
+              class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-4 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
+              @click="updateRelayDelegate">
+              <template v-if="isUpdatingRelayDelegate">Topping Up...</template>
+              <template v-else>Top Up Relay Delegate</template>
+            </button>
+          </div>
+        </div>
+
         <div class="grid grid-cols-2 gap-3">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Council signing key</div>
@@ -152,7 +245,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Council value</div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Epoch Argonot Conversion</div>
             <div class="mt-1 text-lg font-semibold text-slate-800">
               {{ microgonToArgonNm(epochMicrogonsPerArgonot).format('0,0.[000000]') }} ARGN / ARGNOT
             </div>
@@ -252,7 +345,7 @@
           </button>
           <button
             type="button"
-            :disabled="isSubmitting || !!validationMessage"
+            :disabled="isSubmitting || isUpdatingRelayDelegate || !!validationMessage"
             data-testid="MintingAuthorityRequestOverlay.submit()"
             class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
             @click="submit">
@@ -266,7 +359,12 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
+import {
+  BondLot,
+  minimumVaultDelegateBalance,
+  targetVaultDelegateBalance,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import InputToken from '../../components/InputToken.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
@@ -293,6 +391,7 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
 const isSubmitting = Vue.ref(false);
+const isUpdatingRelayDelegate = Vue.ref(false);
 const loadError = Vue.ref('');
 const submitError = Vue.ref('');
 const vaultId = Vue.ref<number>();
@@ -301,6 +400,9 @@ const remainingBondMicrogons = Vue.ref(0n);
 const remainingCommittedMicronots = Vue.ref(0n);
 const minimumRequiredMicrogons = Vue.ref(MINIMUM_REQUEST_VALUE_MICROGONS);
 const epochMicrogonsPerArgonot = Vue.ref(0n);
+const relayDelegateAddress = Vue.ref('');
+const relayDelegateBalance = Vue.ref(0n);
+const relayDelegateTopUpAmount = Vue.ref(0n);
 
 const microgonCollateral = Vue.ref(0n);
 const micronotCollateral = Vue.ref(0n);
@@ -336,6 +438,12 @@ const maximumRequestValueMicrogons = Vue.computed(() => {
 
 const requestValueMicrogons = Vue.computed(() => {
   return microgonCollateral.value + (micronotCollateral.value * epochMicrogonsPerArgonot.value) / ONE_TOKEN;
+});
+
+const relayDelegateNeedsSetup = Vue.computed(() => {
+  if (!relayDelegateAddress.value) return false;
+
+  return myVault.createdVault?.bitcoinLockDelegateAccount !== relayDelegateAddress.value;
 });
 
 const validationMessage = Vue.computed(() => {
@@ -392,6 +500,9 @@ async function loadState() {
   remainingCommittedMicronots.value = 0n;
   minimumRequiredMicrogons.value = MINIMUM_REQUEST_VALUE_MICROGONS;
   epochMicrogonsPerArgonot.value = 0n;
+  relayDelegateAddress.value = '';
+  relayDelegateBalance.value = 0n;
+  relayDelegateTopUpAmount.value = 0n;
   microgonCollateral.value = 0n;
   micronotCollateral.value = 0n;
 
@@ -404,22 +515,31 @@ async function loadState() {
 
     vaultId.value = myVault.vaultId;
 
-    const [[localCouncilSigner], finalizedClient] = await Promise.all([
+    const [[localCouncilSigner], delegateKeypair, finalizedClient] = await Promise.all([
       walletKeys.getEthereumAddresses([walletKeys.councilSignerEthereumHdPath]),
+      walletKeys.getVaultDelegateKeypair(),
       getFinalizedClient(),
     ]);
+    relayDelegateAddress.value = delegateKeypair.address;
     await Promise.all([
       myVault.mintingAuthorities.refresh(finalizedClient),
       myVault.globalCouncil.refresh(finalizedClient),
     ]);
-    const [commitmentOption, bondLots, encumberedBondMicrogons, activeCouncilHashOption, minimumMintingAuthorityValue] =
-      await Promise.all([
-        finalizedClient.query.vaults.argonotCommitmentByVaultId(vaultId.value),
-        TreasuryBonds.getBondLots(finalizedClient, vaultId.value, walletKeys.vaultingAddress),
-        finalizedClient.query.treasury.encumberedBondMicrogonsByAccount(walletKeys.vaultingAddress),
-        finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum'),
-        finalizedClient.query.crosschainTransfer.minimumMintingAuthorityValueByDestinationChain('Ethereum'),
-      ]);
+    const [
+      commitmentOption,
+      bondLots,
+      encumberedBondMicrogons,
+      activeCouncilHashOption,
+      minimumMintingAuthorityValue,
+      relayDelegateAccount,
+    ] = await Promise.all([
+      finalizedClient.query.vaults.argonotCommitmentByVaultId(vaultId.value),
+      TreasuryBonds.getBondLots(finalizedClient, vaultId.value, walletKeys.vaultingAddress),
+      finalizedClient.query.treasury.encumberedBondMicrogonsByAccount(walletKeys.vaultingAddress),
+      finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum'),
+      finalizedClient.query.crosschainTransfer.minimumMintingAuthorityValueByDestinationChain('Ethereum'),
+      finalizedClient.query.system.account(delegateKeypair.address),
+    ]);
 
     if (commitmentOption.isSome) {
       const commitment = commitmentOption.unwrap();
@@ -432,6 +552,11 @@ async function loadState() {
     remainingBondMicrogons.value = bigintMax(bondTotals.activeBondMicrogons - encumberedBondMicrogons.toBigInt(), 0n);
 
     minimumRequiredMicrogons.value = minimumMintingAuthorityValue.toBigInt();
+    relayDelegateBalance.value = relayDelegateAccount.data.free.toBigInt();
+    relayDelegateTopUpAmount.value =
+      relayDelegateBalance.value >= minimumVaultDelegateBalance
+        ? 0n
+        : targetVaultDelegateBalance - relayDelegateBalance.value;
 
     councilSigner.value = myVault.globalCouncil.data.councilSigner ?? localCouncilSigner;
 
@@ -513,6 +638,25 @@ async function submit() {
   } catch (error) {
     submitError.value = error instanceof Error ? error.message : 'Unable to create a minting authority request.';
     isSubmitting.value = false;
+  }
+}
+
+async function updateRelayDelegate() {
+  if (isUpdatingRelayDelegate.value || isSubmitting.value || !vaultId.value) {
+    return;
+  }
+
+  submitError.value = '';
+  isUpdatingRelayDelegate.value = true;
+
+  try {
+    const relaySetupTx = await myVault.ensureDelegatedBitcoinSigner();
+    await relaySetupTx?.waitForPostProcessing;
+    await loadState();
+  } catch (error) {
+    submitError.value = error instanceof Error ? error.message : 'Unable to update the relay delegate.';
+  } finally {
+    isUpdatingRelayDelegate.value = false;
   }
 }
 

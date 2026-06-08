@@ -800,32 +800,26 @@ export class EthereumOutboundTransferTracker {
       blockNumber: activeRecord.targetBlockNumber,
       blockHash: activeRecord.targetBlockHash,
       onProgress: txProgress => {
-        const visibleConfirmationGoal = 4;
-        const visibleConfirmationCount =
-          txProgress.confirmations < 0 ? 0 : Math.min(visibleConfirmationGoal, txProgress.confirmations + 1);
-
         let progressPct = 1;
         let detail = 'Submitted to Ethereum. Waiting for confirmation...';
         let hint: string | undefined;
 
-        if (visibleConfirmationCount > 0) {
-          progressPct = Math.round((visibleConfirmationCount / visibleConfirmationGoal) * 100);
-          detail =
-            visibleConfirmationCount === visibleConfirmationGoal
-              ? 'Submitted to Ethereum.'
-              : `Ethereum confirmation ${visibleConfirmationCount} of ${visibleConfirmationGoal}`;
-          hint =
-            visibleConfirmationCount === visibleConfirmationGoal
-              ? 'You can close this and check back later.'
-              : undefined;
+        if (txProgress.confirmations >= 0) {
+          progressPct = Math.max(1, txProgress.progressPct);
+          detail = formatCrosschainBlockStepDetail({
+            blockType: 'Ethereum',
+            confirmations: txProgress.confirmations,
+            expectedConfirmations: txProgress.expectedConfirmations,
+          });
+          hint = 'You can close this and check back later.';
         }
 
         transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
           progressPct,
           detail,
           hint,
-          confirmations: visibleConfirmationCount,
-          expectedConfirmations: visibleConfirmationGoal,
+          confirmations: txProgress.confirmations,
+          expectedConfirmations: txProgress.expectedConfirmations,
         });
       },
       onRpcDelay: txProgress => {
@@ -836,8 +830,10 @@ export class EthereumOutboundTransferTracker {
             txProgress?.progressPct ?? transfer.transferState.progress.steps[2]?.progressPct ?? 0,
             1,
           ),
-          detail: 'Submitted to Ethereum. Waiting for the RPC to confirm the transfer...',
+          detail: 'Submitted to Ethereum. Waiting for confirmation...',
           hint: 'You can close this and check back later.',
+          confirmations: txProgress?.confirmations,
+          expectedConfirmations: txProgress?.expectedConfirmations,
         });
       },
     });

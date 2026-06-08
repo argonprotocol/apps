@@ -26,7 +26,7 @@
 
       <p v-else-if="transferToArgon" class="font-light text-slate-700">
         Moving
-        <strong>{{ props.request?.moveToken }}</strong>
+        <strong>{{ formatTokenAmount(transferToArgon.transferState.amount) }} {{ props.request?.moveToken }}</strong>
         from your
         <strong>{{ props.request?.networkName }}</strong>
         wallet into your

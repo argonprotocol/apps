@@ -10,6 +10,7 @@ export interface IEthereumInboundTransferState {
   isSubmitting: boolean;
   hasPersistedTransfer: boolean;
   needsAcknowledgement: boolean;
+  amount: bigint;
   targetWalletType?: IArgonWalletType;
   progress: ICrosschainTransferProgress;
   error: string;
