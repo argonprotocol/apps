@@ -19,12 +19,18 @@ import {
   type ICrosschainInboundTransferRecord,
 } from './db/CrosschainInboundTransfersTable.ts';
 import type { Db } from './Db.ts';
-import { requestEthereumGatewayCatchUpThroughOperator, type ServerApiClient } from './ServerApiClient.ts';
+import {
+  requestEthereumGatewayCatchUpDispatch,
+  type IEthereumGatewayRelaySource,
+  type ServerApiClient,
+} from './ServerApiClient.ts';
 import { getEthereumGatewayPauseReason, getMainchainClient } from '../stores/mainchain.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import { WalletType } from './Wallet.ts';
+import { convertEthereumTokenBaseUnitsToRuntimeAmount } from './WalletForEthereum.ts';
 import type { WalletKeys } from './WalletKeys.ts';
+import type { MyVault } from './MyVault.ts';
 
 export type {
   IArgonWalletType,
@@ -81,6 +87,7 @@ export class EthereumInboundTransferTracker {
       UpstreamOperatorClient,
       'operatorHost' | 'requestEthereumGatewayCatchUp'
     >,
+    private readonly myVault?: Pick<MyVault, 'createdVault'>,
   ) {}
 
   public async load(): Promise<void> {
@@ -157,6 +164,7 @@ export class EthereumInboundTransferTracker {
     this.data.latestTransferIdByToken[moveToken] = id;
     transfer.transferState = {
       ...createEmptyTransferState(),
+      amount: convertEthereumTokenBaseUnitsToRuntimeAmount(amountBaseUnits),
       isSubmitting: true,
       needsAcknowledgement: false,
       targetWalletType,
@@ -283,6 +291,7 @@ export class EthereumInboundTransferTracker {
     this.data.latestTransferIdByToken[moveToken] ??= record.id;
     transfer.transferState = {
       ...createEmptyTransferState(),
+      amount: convertEthereumTokenBaseUnitsToRuntimeAmount(record.amountBaseUnits),
       isSubmitting: !hasUnacknowledgedFailure(record),
       hasPersistedTransfer: true,
       needsAcknowledgement: hasUnacknowledgedFailure(record),
@@ -415,7 +424,7 @@ export class EthereumInboundTransferTracker {
         transferState.error = '';
         transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
           progressPct: Math.max(txProgress?.progressPct ?? transferState.progress.steps[0]?.progressPct ?? 0, 1),
-          detail: 'Submitted to Ethereum. Waiting for the RPC to confirm the transfer...',
+          detail: 'Submitted to Ethereum. Waiting for confirmation...',
         });
       },
     });
@@ -516,7 +525,7 @@ export class EthereumInboundTransferTracker {
         const relayedBlocks = Math.max(0, latestRetainedBlockNumber - relayStartBlockNumber);
         transferState.progress = setInboundRelayStepProgress(transferState.progress, {
           progressPct: Math.min(99, Math.round((Math.min(relayedBlocks, totalRelayBlocks) / totalRelayBlocks) * 100)),
-          detail: `Waiting for ${remainingRelayBlocks.toLocaleString()} Ethereum blocks to sync`,
+          detail: `Waiting for Argon proof of ${remainingRelayBlocks.toLocaleString()} Ethereum blocks`,
         });
       } else {
         const argonStartHeight =
@@ -530,7 +539,7 @@ export class EthereumInboundTransferTracker {
             Math.round((Math.min(finalizedArgonBlocks, expectedArgonBlocks) / expectedArgonBlocks) * 100),
           ),
           detail: `Argon block ${Math.min(expectedArgonBlocks, finalizedArgonBlocks) + 1} of ${expectedArgonBlocks}`,
-          hint: 'Waiting for the relay to finalize on Argon.',
+          hint: 'Argon is finalizing this transfer now.',
         });
       }
 
@@ -603,13 +612,46 @@ export class EthereumInboundTransferTracker {
     const upstreamOperatorHost = this.upstreamOperatorClient.operatorHost;
     if (this.serverApiClient || upstreamOperatorHost) {
       this.#lastCatchUpRequestAt.set(record.id, now);
-      const relayError = await requestEthereumGatewayCatchUpThroughOperator({
+      const relayDispatch = await requestEthereumGatewayCatchUpDispatch({
         throughGatewayActivityNonce,
         serverApiClient: this.serverApiClient,
         upstreamOperatorClient: upstreamOperatorHost ? this.upstreamOperatorClient : undefined,
       });
-      transfer.transferState.error = shouldSurfaceRelayError(relayError ?? '', hasExceededWaitEstimate)
-        ? (relayError ?? '')
+      let isLocalRelaySetupComplete: boolean | undefined;
+      if (isRelayFundingError(relayDispatch.localRelayError ?? '')) {
+        const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+        if (this.myVault?.createdVault) {
+          isLocalRelaySetupComplete = this.myVault.createdVault.bitcoinLockDelegateAccount === delegateAddress;
+        }
+      }
+      const relayHint = getRelayProgressHint({
+        relaySource: relayDispatch.relaySource,
+        localRelayError: relayDispatch.localRelayError,
+        isLocalRelaySetupComplete,
+        isFinalizingOnArgon: transfer.transferState.progress.currentStep >= 3,
+      });
+      if (relayHint) {
+        const activeStepIndex = Math.max(0, transfer.transferState.progress.currentStep - 1);
+        const nextSteps = transfer.transferState.progress.steps.map((step, index) => {
+          if (index !== activeStepIndex) {
+            return { ...step };
+          }
+
+          return {
+            ...step,
+            hint: relayHint,
+          };
+        });
+        transfer.transferState.progress = hydrateCrosschainTransferProgress(nextSteps);
+      }
+
+      transfer.transferState.error = shouldSurfaceRelayError(relayDispatch.relayError ?? '', hasExceededWaitEstimate)
+        ? getRelayErrorMessage({
+            relayError: relayDispatch.relayError ?? '',
+            relaySource: relayDispatch.relaySource,
+            localRelayError: relayDispatch.localRelayError,
+            isLocalRelaySetupComplete,
+          })
         : '';
     }
   }
@@ -658,6 +700,7 @@ function createEmptyTransferState(): IEthereumInboundTransferState {
     isSubmitting: false,
     hasPersistedTransfer: false,
     needsAcknowledgement: false,
+    amount: 0n,
     progress: createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES),
     error: '',
   };
@@ -695,14 +738,81 @@ function getMoveToken(record: ICrosschainInboundTransferRecord): IEthereumMoveTo
 }
 
 function shouldSurfaceRelayError(reason: string, hasExceededWaitEstimate: boolean): boolean {
-  return hasExceededWaitEstimate && !shouldWaitForRelay(reason);
+  if (!reason) {
+    return false;
+  }
+
+  if (isRelayFundingError(reason)) {
+    return true;
+  }
+
+  return hasExceededWaitEstimate;
 }
 
-function shouldWaitForRelay(reason: string): boolean {
+function isRelayFundingError(reason: string): boolean {
   return (
     reason.includes('Vault delegate needs more funds before Ethereum relays can run.') ||
     reason.includes('Vault delegate cannot afford Ethereum gateway relay.')
   );
+}
+
+function getRelayErrorMessage(args: {
+  relayError: string;
+  relaySource?: IEthereumGatewayRelaySource;
+  localRelayError?: string;
+  isLocalRelaySetupComplete?: boolean;
+}): string {
+  const { relayError, relaySource, localRelayError, isLocalRelaySetupComplete } = args;
+  const serverOutOfRelayFunds = isRelayFundingError(localRelayError ?? '');
+  const relayRejectedForFunding = isRelayFundingError(relayError);
+
+  if (!serverOutOfRelayFunds && !relayRejectedForFunding) {
+    return relayError;
+  }
+
+  if (serverOutOfRelayFunds) {
+    return getLocalRelayFundingMessage(isLocalRelaySetupComplete);
+  }
+
+  if (relaySource === 'upstreamOperator') {
+    return 'This transfer has not been picked up on Argon yet.';
+  }
+
+  return relayError;
+}
+
+function getRelayProgressHint(args: {
+  relaySource?: IEthereumGatewayRelaySource;
+  localRelayError?: string;
+  isLocalRelaySetupComplete?: boolean;
+  isFinalizingOnArgon: boolean;
+}): string | undefined {
+  const { relaySource, localRelayError, isLocalRelaySetupComplete, isFinalizingOnArgon } = args;
+  if (relaySource === 'localServer') {
+    return isFinalizingOnArgon
+      ? 'Argon is finalizing this transfer now.'
+      : 'Your server is sending this transfer to Argon.';
+  }
+
+  if (relaySource === 'upstreamOperator') {
+    if (isFinalizingOnArgon) {
+      return 'Argon is finalizing this transfer now.';
+    }
+
+    if (isRelayFundingError(localRelayError ?? '')) {
+      return getLocalRelayFundingMessage(isLocalRelaySetupComplete);
+    }
+
+    return 'The Argon network is sending this transfer now.';
+  }
+}
+
+function getLocalRelayFundingMessage(isLocalRelaySetupComplete?: boolean): string {
+  if (isLocalRelaySetupComplete === false) {
+    return "Your server isn't set up to send this transfer yet, so this transfer is waiting for the Argon network to pick it up.";
+  }
+
+  return "Your server doesn't have enough relay funds, so this transfer is waiting for the Argon network to pick it up.";
 }
 
 function hasUnacknowledgedFailure(record: ICrosschainInboundTransferRecord | undefined): boolean {

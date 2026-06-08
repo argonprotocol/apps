@@ -8,6 +8,7 @@ import { getTransactionTracker } from './transactions.ts';
 import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 import { getWalletKeys } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
+import { getMyVault } from './vaults.ts';
 
 let ethereumMoveTracker: EthereumInboundTransferTracker;
 
@@ -23,6 +24,7 @@ export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
     const ethereumClient = new EthereumClient(walletKeys, executionRpcUrl);
     const serverApiClient = getConfig().serverDetails.ipAddress ? getServerApiClient() : undefined;
     const upstreamOperatorClient = getUpstreamOperatorClient();
+    const myVault = getMyVault();
 
     ethereumMoveTracker = new EthereumInboundTransferTracker(
       dbPromise,
@@ -31,6 +33,7 @@ export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
       ethereumClient,
       serverApiClient,
       upstreamOperatorClient,
+      myVault,
     );
     ethereumMoveTracker.data = reactive(ethereumMoveTracker.data) as any;
     ethereumMoveTracker.load().catch(handleFatalError.bind(ethereumMoveTracker));
