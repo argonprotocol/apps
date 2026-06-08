@@ -84,10 +84,25 @@ jobs:
           sudo apt update
           sudo apt install -y kurtosis-cli
           kurtosis version
+          kurtosis analytics disable || true
 
       - name: Start Kurtosis engine
         if: matrix.platform == 'ubuntu-latest'
-        run: kurtosis engine start
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if kurtosis engine start; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Kurtosis engine start failed after ${attempt} attempts"
+              exit 1
+            fi
+
+            echo "Kurtosis engine start failed on attempt ${attempt}/3; retrying in 15 seconds"
+            sleep 15
+          done
 
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
       # dbus-run-session provides a D-Bus session bus that WebKit/GTK requires.

@@ -241,9 +241,17 @@ export class GlobalCouncil {
 
     const relayPromise = (async () => {
       if (hasSignedApprovalsAwaitingRelay) {
+        const receipt = await this.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
+        if (receipt) {
+          this.#lastSharedRelayQueueKey = undefined;
+          this.#lastSharedRelayQueueSeenAt = 0;
+          return;
+        }
+      }
+
+      if (!sharedRelayQueueKey) {
         this.#lastSharedRelayQueueKey = undefined;
         this.#lastSharedRelayQueueSeenAt = 0;
-        await this.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
         return;
       }
 
@@ -336,7 +344,7 @@ async function getPendingCouncilApprovals(
       pendingApprovals.push({ approvalHash: entry.approvalHash.toHex() });
     }
 
-    if (!hasSignedApprovalsAwaitingRelay && pendingApprovals.length === 0 && nextPendingQueueNonce > lastSyncedNonce) {
+    if (pendingApprovals.length === 0 && nextPendingQueueNonce > lastSyncedNonce) {
       sharedRelayQueueKey = `${lastSyncedNonce}:${nextPendingQueueNonce}`;
     }
   }
