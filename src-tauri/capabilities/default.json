@@ -2,9 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -35,6 +33,9 @@
       "allow": [
         {
           "url": "http://*:3261/*"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/*"
         },
         {
           "url": "https://*.argonprotocol.org/*"

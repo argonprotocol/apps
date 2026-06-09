@@ -2,8 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';
 import './lib/LogForwarding.ts';
-import CapitalApp from './CapitalApp.vue';
-import OperationsApp from './OperationsApp.vue';
+import AppRoot from './AppRoot.vue';
 import './main.css';
 import { IS_CAPITAL_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
@@ -36,8 +35,7 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 
-const App = IS_CAPITAL_APP ? CapitalApp : OperationsApp;
-const app = createApp(App);
+const app = createApp(AppRoot);
 app.use(createPinia());
 app.mount('#app');
 void getVersion().then(version => {
