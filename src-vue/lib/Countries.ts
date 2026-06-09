@@ -1,3 +1,4 @@
+import { fetch } from '@argonprotocol/apps-core';
 import { IConfig } from '../interfaces/IConfig.ts';
 
 export interface ICountry {

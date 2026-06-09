@@ -1,11 +1,12 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type OutputOptions, type Plugin } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
 import svgLoader from 'vite-svg-loader';
 import wasm from 'vite-plugin-wasm';
 import vitePluginTopLevelAwait from 'vite-plugin-top-level-await';
 import { createServer } from 'node:net';
-import { resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import { createDataTestIdNodeTransform } from './e2e/scripts/testIdNaming.mjs';
 
 import { createRequire } from 'node:module';
@@ -139,6 +140,7 @@ export default defineConfig(async ({ mode }) => {
           ],
         },
       }),
+      ensureSourceMapComments(),
     ],
     build: {
       rollupOptions: {
@@ -180,3 +182,43 @@ export default defineConfig(async ({ mode }) => {
     },
   };
 });
+
+function ensureSourceMapComments(): Plugin {
+  return {
+    name: 'ensure-source-map-comments',
+    apply: 'build',
+    async writeBundle(outputOptions, bundle) {
+      const outputDir = getOutputDir(outputOptions);
+      if (!outputDir) return;
+
+      for (const output of Object.values(bundle)) {
+        if (output.type !== 'chunk' || !output.fileName.endsWith('.js')) continue;
+
+        const filePath = resolve(outputDir, output.fileName);
+        const sourceMapPath = `${filePath}.map`;
+        const sourceMapComment = `//# sourceMappingURL=${basename(output.fileName)}.map`;
+
+        let code: string;
+        try {
+          code = await readFile(filePath, 'utf8');
+          await readFile(sourceMapPath, 'utf8');
+        } catch {
+          continue;
+        }
+
+        if (code.includes('sourceMappingURL=')) continue;
+
+        await writeFile(filePath, `${code}\n${sourceMapComment}\n`);
+      }
+    },
+  };
+}
+
+function getOutputDir(outputOptions: OutputOptions): string | undefined {
+  if (outputOptions.dir) return outputOptions.dir;
+
+  const outputFile = outputOptions.file;
+  if (!outputFile) return undefined;
+
+  return dirname(outputFile);
+}

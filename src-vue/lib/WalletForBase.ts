@@ -1,7 +1,7 @@
 import { createPublicClient, getAddress, http } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
+import { fetch, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { defaultWalletData, IOtherTokenDefinition, type IWallet } from './Wallet.ts';
-import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { loadTokens } from './WalletForEthereum.ts';
 
 export class WalletForBase {
@@ -30,6 +30,7 @@ export class WalletForBase {
       const basePublicClient = createPublicClient({
         chain,
         transport: http(rpcUrl, {
+          fetchFn: fetch,
           retryCount: 1,
           timeout: 15_000,
         }),

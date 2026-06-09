@@ -1,4 +1,4 @@
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { NetworkConfig, setFetchImplementation, type FetchImplementation } from '@argonprotocol/apps-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { keccak256, TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
 import {
@@ -7,21 +7,12 @@ import {
   submitEthereumTransaction,
 } from '../lib/EthereumClient.ts';
 
-const { tauriFetchMock } = vi.hoisted(() => {
-  return {
-    tauriFetchMock: vi.fn(),
-  };
-});
-
-vi.mock('@tauri-apps/plugin-http', () => {
-  return {
-    fetch: tauriFetchMock,
-  };
-});
+const runtimeFetchMock = vi.fn();
 
 describe('EthereumClient', () => {
   beforeEach(() => {
-    tauriFetchMock.mockReset();
+    runtimeFetchMock.mockReset();
+    setFetchImplementation();
     NetworkConfig.setRuntimeOverride('dev-docker', {
       ethereumNetwork: {
         executionRpcUrl: 'https://ethereum.test',
@@ -30,6 +21,7 @@ describe('EthereumClient', () => {
   });
 
   afterEach(() => {
+    setFetchImplementation();
     NetworkConfig.clearRuntimeOverride('dev-docker');
   });
 
@@ -112,7 +104,7 @@ describe('EthereumClient', () => {
   });
 
   it('routes Ethereum balance requests through plugin-http', async () => {
-    tauriFetchMock.mockResolvedValue(
+    runtimeFetchMock.mockResolvedValue(
       new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x2a' }), {
         status: 200,
         headers: {
@@ -120,12 +112,13 @@ describe('EthereumClient', () => {
         },
       }),
     );
+    setFetchImplementation(runtimeFetchMock as unknown as FetchImplementation);
 
     const publicClient = createEthereumPublicClient();
 
     await expect(publicClient.getBalance({ address: '0x0000000000000000000000000000000000000001' })).resolves.toBe(42n);
-    expect(String(tauriFetchMock.mock.calls[0][0])).toBe('https://ethereum.test/');
-    const requestBody = JSON.parse(String(tauriFetchMock.mock.calls[0][1]?.body));
+    expect(String(runtimeFetchMock.mock.calls[0][0])).toBe('https://ethereum.test/');
+    const requestBody = JSON.parse(String(runtimeFetchMock.mock.calls[0][1]?.body));
     expect(requestBody.method).toBe('eth_getBalance');
     expect(requestBody.params).toEqual(['0x0000000000000000000000000000000000000001', 'latest']);
   });

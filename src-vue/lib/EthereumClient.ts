@@ -1,4 +1,4 @@
-import { getObjectStringProperty, MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
+import { fetch, getObjectStringProperty, MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import {
   decodeAddress,
   decodeEthereumGatewayActivityLog,
@@ -32,7 +32,6 @@ import {
   type TransactionSerializableEIP1559,
   toHex,
 } from 'viem';
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { sleep } from './Utils.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -797,7 +796,7 @@ function createEthereumPublicClientForRpc(
     transport: http(executionRpcUrl, {
       retryCount: 1,
       timeout: 15_000,
-      fetchFn: tauriFetch,
+      fetchFn: fetch,
     }),
   });
 }

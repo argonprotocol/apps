@@ -1,5 +1,6 @@
 import type { AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/addresses';
 import type { TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
+import { fetch } from '@argonprotocol/apps-core';
 
 export interface IMempoolTxStatus {
   isConfirmed: boolean;
