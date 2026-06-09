@@ -1,4 +1,5 @@
 import { enable as enableAutostart } from '@tauri-apps/plugin-autostart';
+import { fetch } from '@argonprotocol/apps-core';
 import { IConfigServerAddCustomServer, IConfigServerDetails, ServerType } from '../interfaces/IConfig';
 import { Config } from './Config';
 import { LocalMachine } from './LocalMachine';
