@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated to the new Bond Lots structure (over bonds as individual microgon units)
 - Converted vault dashboard to a treemap layout to better visualize mix of bitcoin security vs bonds
 
+## [1.3.4] - 2026-06-09
+- Added a network compatibility gate that informs the user when this version of the app is incompatible with the Argon network and provides access to an update.
+
 ## [1.3.3] - 2026-03-20
 - Improved mining server reliability with live websocket updates, a more stable mining dashboard, and better bidding state handling.
 - Added support for reviewing Bitcoin funding mismatches so mismatched deposits can be accepted or returned, and added validation for Bitcoin unlock destination addresses.
