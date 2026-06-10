@@ -4561,5 +4561,14 @@
     "firstBlockSpecVersion": 153,
     "frameStartTick": 29683428,
     "dateStart": "2026-06-09T11:48:00.000Z"
+  },
+  {
+    "frameId": 495,
+    "firstBlockNumber": 820452,
+    "firstBlockHash": "0x74851982426925438a5e5e90f7030323bbf307e2b7e328f02e23e21b2572ead5",
+    "firstBlockTick": 29684868,
+    "firstBlockSpecVersion": 153,
+    "frameStartTick": 29684868,
+    "dateStart": "2026-06-10T11:48:00.000Z"
   }
 ]

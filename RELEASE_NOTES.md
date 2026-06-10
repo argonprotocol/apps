@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-06-10
+- Fix a broken build for 1.3.4
+
 ## [1.3.4] - 2026-06-09
 - Added a network compatibility gate that informs the user when this version of the app is incompatible with the Argon network and provides access to an update.
 
