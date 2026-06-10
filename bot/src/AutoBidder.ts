@@ -29,12 +29,13 @@ export class AutoBidder {
   }
   private cohortBiddersByActivationFrameId = new Map<number, CohortBidder>();
   private nextCohortActivationFrameId: number | null = null;
-  private isStopped: boolean = false;
+  private isStopped = false;
   private unsubscribe?: () => void;
   private biddingCalculator?: BiddingCalculator;
   private onUpdatedFn?: () => void;
   private localRpcUrl?: string;
   private hasRegisteredKeys = false;
+  private lifecycleQueue = Promise.resolve();
 
   constructor(
     private readonly accountset: Accountset,
@@ -66,8 +67,9 @@ export class AutoBidder {
       this.unsubscribe();
     }
     const { unsubscribe } = await this.mining.onCohortChange({
-      onBiddingStart: this.onBiddingStart.bind(this),
-      onBiddingEnd: this.onBiddingEnd.bind(this),
+      onBiddingStart: cohortActivationFrameId =>
+        this.queueLifecycle(() => this.onBiddingStart(cohortActivationFrameId)),
+      onBiddingEnd: cohortActivationFrameId => this.queueLifecycle(() => this.onBiddingEnd(cohortActivationFrameId)),
     });
     this.unsubscribe = unsubscribe;
 
@@ -89,9 +91,8 @@ export class AutoBidder {
     console.log('AUTOBIDDER STOPPING');
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
-      await this.onBiddingEnd(cohortActivationFrameId, false);
-    }
+    await this.lifecycleQueue;
+    await this.stopActiveBidders(false);
     this.biddingCalculator?.unload();
     this.onUpdatedFn = undefined;
     this.cohortBiddersByActivationFrameId.clear();
@@ -104,9 +105,7 @@ export class AutoBidder {
     if (!this.biddingRules) {
       this.biddingCalculator?.unload();
       this.biddingCalculator = undefined;
-      for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
-        await this.onBiddingEnd(cohortActivationFrameId, false);
-      }
+      await this.stopActiveBidders(false);
       return;
     }
 
@@ -175,11 +174,15 @@ export class AutoBidder {
 
     try {
       const params = await this.createBidderParams(cohortActivationFrameId);
+      if (this.isStopped) return;
+
       console.log('Bidder params', params);
       if (params.maxSeats === 0) return;
 
       const cohortBiddingFrameId = cohortActivationFrameId - 1;
       const bidsFileData = await this.storage.bidsFile(cohortBiddingFrameId, cohortActivationFrameId).get();
+      if (this.isStopped) return;
+
       console.log(`Bidding for frame ${cohortActivationFrameId} started`, {
         hasStartingStats: !!bidsFileData,
         seatGoal: params.maxSeats,
@@ -204,6 +207,7 @@ export class AutoBidder {
         const added = await this.accountset.getAvailableMinerAccounts(neededSeats);
         subaccounts.push(...added);
       }
+      if (this.isStopped) return;
 
       const cohortBidder = new CohortBidder(
         this.accountset,
@@ -286,13 +290,23 @@ export class AutoBidder {
     }
   }
 
+  private queueLifecycle(task: () => Promise<void>): Promise<void> {
+    const queuedTask = this.lifecycleQueue.then(task, task);
+    this.lifecycleQueue = queuedTask.catch(() => undefined);
+    return queuedTask;
+  }
+
+  private async stopActiveBidders(waitForFinalBids: boolean): Promise<void> {
+    for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
+      await this.onBiddingEnd(cohortActivationFrameId, waitForFinalBids);
+    }
+  }
+
   private async reloadActiveCohort(): Promise<void> {
     const client = await this.mainchainClients.prunedClientOrArchivePromise;
     const isBiddingOpen = await client.query.miningSlot.isNextSlotBiddingOpen();
     if (isBiddingOpen.isFalse) {
-      for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
-        await this.onBiddingEnd(cohortActivationFrameId, false);
-      }
+      await this.stopActiveBidders(false);
       return;
     }
 
