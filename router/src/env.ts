@@ -12,7 +12,6 @@ export const ARGON_CHAIN = process.env.ARGON_CHAIN;
 export const BITCOIN_CHAIN = process.env.BITCOIN_CHAIN;
 export const BITCOIN_RPC_URL = process.env.BITCOIN_RPC_URL;
 export const BITCOIN_CONFIG = process.env.BITCOIN_CONFIG;
-export const SERVER_ROOT = process.env.SERVER_ROOT;
 export const LOGS_DIR = process.env.LOGS_DIR;
 export const DATADIR = process.env.DATADIR || '/data';
 

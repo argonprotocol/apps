@@ -8,7 +8,8 @@ ENV VERSION=$VERSION
 RUN <<END
     set -ex
     apt-get update
-    apt-get install -y wget curl jq gnupg
+    apt-get install -y --no-install-recommends wget curl jq gnupg
+    rm -rf /var/lib/apt/lists/*
     # Dynamically fetch and import all builder keys from Bitcoin Core guix.sigs
     mkdir -p /tmp/builder-keys
     cd /tmp/builder-keys
