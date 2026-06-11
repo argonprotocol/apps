@@ -42,10 +42,10 @@ export function getMainchainClient(needsHistoricalAccess: boolean): Promise<Argo
   return getMainchainClients().get(needsHistoricalAccess);
 }
 
-export async function getFinalizedClient(): Promise<ApiDecoration<'promise'>> {
-  const watch = getBlockWatch();
-  await watch.start();
-  return watch.getApi(watch.finalizedBlockHeader);
+export async function getFinalizedClient(client?: ArgonClient): Promise<ApiDecoration<'promise'>> {
+  client ??= await getMainchainClient(false);
+  const finalized = await client.rpc.chain.getFinalizedHead();
+  return client.at(finalized);
 }
 
 export async function getEthereumGatewayPauseReason(
@@ -193,6 +193,7 @@ export function getVaultCalculator(): VaultCalculator {
 }
 
 async function connectPrunedClientToConfiguredServer(): Promise<void> {
+  const connectStartedAt = Date.now();
   const config = getConfig();
   if (!config.isLoaded) {
     await config.isLoadedPromise;
@@ -208,6 +209,7 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
   const serverApiClient = getServerApiClient();
   if (config.isServerInstalled && config.serverDetails.ipAddress) {
     if (!(await serverApiClient.isGatewayReady())) {
+      console.warn('[Mainchain] Configured server gateway is not ready for pruned RPC');
       mainchainClients.clearPrunedClient();
       return;
     }
@@ -216,6 +218,10 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
       const sessionId = await serverApiClient.getAdminOperatorSessionId({ forceVerify: true });
       await mainchainClients.setPrunedClient(serverApiClient.getGatewayWebsocketUrl('/substrate', sessionId));
     } catch (error) {
+      console.warn(
+        `[Mainchain] Failed to connect configured pruned client after ${Date.now() - connectStartedAt}ms`,
+        error,
+      );
       mainchainClients.clearPrunedClient();
       throw error;
     }

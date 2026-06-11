@@ -30,6 +30,7 @@ export type IVaultCollectSubmission = {
 
 export type IVaultCollectNotice = {
   isProcessing: boolean;
+  isCollectProcessing: boolean;
   collectRevenue: bigint;
   expiringCollectAmount: bigint;
   nextCollectDueDate: number;
@@ -91,6 +92,7 @@ export class VaultCollectBuilder {
 
     const earningsAmountMicrogons = collectRevenue;
     const amountAtRiskMicrogons = myVault.data.expiringCollectAmount + signaturePenalty;
+    const isCollectProcessing = myVault.data.pendingCollectTxInfo?.tx.metadataJson.actionType === 'collectRevenue';
     const isProcessing = Boolean(myVault.data.pendingCollectTxInfo || pendingAuthorizedTransferCount > 0);
 
     if (
@@ -107,6 +109,7 @@ export class VaultCollectBuilder {
 
     return {
       isProcessing,
+      isCollectProcessing,
       collectRevenue,
       expiringCollectAmount: myVault.data.expiringCollectAmount,
       nextCollectDueDate: myVault.data.nextCollectDueDate,

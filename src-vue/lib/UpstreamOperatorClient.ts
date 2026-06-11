@@ -1,6 +1,7 @@
 import {
   getObjectStringProperty,
   InviteCodes,
+  fetch,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   JsonExt,

@@ -1,6 +1,7 @@
 import {
   getObjectStringProperty,
   JsonExt,
+  fetch,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayReasonCode,

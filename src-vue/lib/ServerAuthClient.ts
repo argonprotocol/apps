@@ -1,8 +1,9 @@
 import {
+  fetch,
+  type IRouterAuthChallenge as IServerAuthChallenge,
   JsonExt,
   type RouterAuthRole as ServerAuthRole,
   signRouterAuthChallenge as signServerAuthChallenge,
-  type IRouterAuthChallenge as IServerAuthChallenge,
   UserRole,
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';

@@ -92,7 +92,9 @@ export class BotSyncer {
     }
 
     await this.config.isLoadedPromise;
-    if (!(await this.serverApiClient.isGatewayReady())) {
+    const connectStartedAt = Date.now();
+    const isGatewayReady = await this.serverApiClient.isGatewayReady();
+    if (!isGatewayReady) {
       await this.installer.refreshLocalGatewayPort();
     }
 
@@ -114,6 +116,7 @@ export class BotSyncer {
       })
       .catch(error => {
         this.nextBotWsClientAttemptAt = Date.now() + 10_000;
+        console.warn(`[BotSyncer] Server gateway connect failed after ${Date.now() - connectStartedAt}ms`, error);
         throw error;
       })
       .finally(() => {

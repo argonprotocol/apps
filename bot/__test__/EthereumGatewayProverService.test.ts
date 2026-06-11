@@ -515,6 +515,44 @@ describe('EthereumGatewayProverService', () => {
     await service.shutdown();
   });
 
+  it('rechecks shared relay work inside the stagger window after startup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    });
+    mainchainMock.sign.mockResolvedValue(signedTx);
+    mainchainMock.submitSigned.mockResolvedValue({
+      extrinsic: {
+        signedHash: '0xrelaytx',
+        submittedAtBlockNumber: 321,
+        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+      },
+      blockNumber: 321,
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+    });
+
+    await service.start();
+    expect(mainchainMock.sign).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(72_000);
+
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+
+    await service.shutdown();
+  });
+
   it('waits for a stagger window before submitting shared relay work', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));

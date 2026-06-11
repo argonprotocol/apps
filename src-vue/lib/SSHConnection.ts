@@ -31,6 +31,7 @@ export class SSHConnection {
     }
 
     this.isConnected = false;
+    const connectStartedAt = Date.now();
     this.isConnectedPromise = new Promise(async (resolve, reject) => {
       const sshConfig = {
         address: this.address,
@@ -56,11 +57,18 @@ export class SSHConnection {
             errorString.includes('host unreachable') ||
             errorString.includes('timed out'));
         if (shouldRetry) {
-          console.log('SSH connect failed... retrying', errorString);
+          console.warn(
+            `[SSHConnection] Connect failed for ${this.address} after ${Date.now() - connectStartedAt}ms; ` +
+              `retrying with ${retries} retries remaining (${errorString})`,
+          );
           await new Promise(r => setTimeout(r, 1000));
           await this.close().catch(() => undefined);
           return this.connect(retries - 1).then(resolve, reject);
         }
+        console.error(
+          `[SSHConnection] Connect failed for ${this.address} after ${Date.now() - connectStartedAt}ms`,
+          error,
+        );
         reject(error);
       }
     });

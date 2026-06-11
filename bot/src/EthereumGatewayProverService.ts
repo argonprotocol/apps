@@ -22,10 +22,12 @@ import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { HttpError } from './HttpError.ts';
 
 export class EthereumGatewayProverService {
+  private startPromise?: Promise<void>;
   private loopPromise?: Promise<void>;
   private inspectionPromise?: Promise<void>;
   private activeCatchUpPromise?: Promise<IEthereumGatewayCatchUpResponse>;
   private pendingCatchUpNonce?: bigint;
+  private nextBackgroundSweepDelayMs?: number;
   private shouldStop = false;
   private sleepAbortController?: AbortController;
   private gatewayAddress?: Hex;
@@ -47,24 +49,37 @@ export class EthereumGatewayProverService {
   ) {}
 
   public async start(): Promise<void> {
+    if (this.startPromise) {
+      return await this.startPromise;
+    }
     if (this.loopPromise) {
       return;
     }
 
     this.shouldStop = false;
-    this.loopPromise = this.loop();
+    this.startPromise = (async () => {
+      try {
+        await this.runBackgroundSweep();
+      } catch (error) {
+        console.error('[EthereumGatewayProverService] Initial catch-up failed', error);
+      }
+
+      if (!this.shouldStop && !this.loopPromise) {
+        this.loopPromise = this.loop();
+      }
+    })();
 
     try {
-      await this.runBackgroundSweep();
-    } catch (error) {
-      console.error('[EthereumGatewayProverService] Initial catch-up failed', error);
+      await this.startPromise;
+    } finally {
+      this.startPromise = undefined;
     }
   }
 
   public async shutdown(): Promise<void> {
     this.shouldStop = true;
     this.sleepAbortController?.abort();
-    const pending = [this.inspectionPromise, this.activeCatchUpPromise, this.loopPromise];
+    const pending = [this.startPromise, this.inspectionPromise, this.activeCatchUpPromise, this.loopPromise];
     for (const promise of pending) {
       await promise?.catch(() => undefined);
     }
@@ -133,7 +148,9 @@ export class EthereumGatewayProverService {
   private async loop(): Promise<void> {
     try {
       while (!this.shouldStop) {
-        await this.wait(this.getRelaySweepMs());
+        const nextSweepDelayMs = this.nextBackgroundSweepDelayMs ?? this.getRelaySweepMs();
+        this.nextBackgroundSweepDelayMs = undefined;
+        await this.wait(nextSweepDelayMs);
         if (this.shouldStop) {
           break;
         }
@@ -243,6 +260,7 @@ export class EthereumGatewayProverService {
       const stalledSince = this.lastObservedRuntimeGatewayActivityAt ?? now;
       const stallSweepWindow = getStallSweepWindow(client, this.submitLane.address, stalledSince, now);
       if (!stallSweepWindow) {
+        this.scheduleSharedSweepFollowUp(getNextStallSweepDelayMs(client, this.submitLane.address, stalledSince, now));
         console.log(
           `[EthereumGatewayProverService] Deferring shared gateway relay through activity ` +
             `${proofPayload.gatewayActivityNonceRange.end} until the stagger window opens`,
@@ -251,6 +269,9 @@ export class EthereumGatewayProverService {
       }
 
       if (stallSweepWindow.windowIndex === this.lastStallSweepWindowIndex) {
+        this.scheduleSharedSweepFollowUp(
+          getNextStallSweepDelayMs(client, this.submitLane.address, stalledSince, now, this.lastStallSweepWindowIndex),
+        );
         return;
       }
 
@@ -631,6 +652,18 @@ export class EthereumGatewayProverService {
     return finalityBlocks * 12_000;
   }
 
+  private scheduleSharedSweepFollowUp(delayMs: number | undefined) {
+    if (delayMs == null || !Number.isFinite(delayMs) || delayMs <= 0) {
+      return;
+    }
+
+    const boundedDelayMs = Math.max(1_000, delayMs);
+    this.nextBackgroundSweepDelayMs =
+      this.nextBackgroundSweepDelayMs == null
+        ? boundedDelayMs
+        : Math.min(this.nextBackgroundSweepDelayMs, boundedDelayMs);
+  }
+
   private async wait(ms: number): Promise<void> {
     if (!ms || this.shouldStop) {
       return;
@@ -715,12 +748,52 @@ function getStallSweepWindow(
   }
 
   const windowStart = stalledSince + windowIndex * rotationMs;
-  const hash = createHash('sha256').update(`${operatorAddress}:${windowIndex}`).digest();
-  const normalized = hash.readBigUInt64BE(0);
-  const offsetMs = Number((normalized * BigInt(rotationMs)) / (1n << 64n));
+  const offsetMs = getStallSweepOffsetMs(operatorAddress, windowIndex, rotationMs);
   if (now < windowStart + offsetMs) {
     return;
   }
 
   return { windowIndex, stalledMs };
+}
+
+function getNextStallSweepDelayMs(
+  client: { consts: { ethereumVerifier: { freeHeadersInterval: { toBigInt(): bigint } } } },
+  operatorAddress: string,
+  stalledSince: number,
+  now: number,
+  lastAttemptedWindowIndex?: number,
+): number | undefined {
+  const rotationSlots = client.consts.ethereumVerifier.freeHeadersInterval.toBigInt();
+  if (rotationSlots <= 0n) {
+    throw new Error('Ethereum verifier free header interval must be positive.');
+  }
+
+  const rotationMs = Number(rotationSlots * 12_000n);
+  if (!Number.isFinite(rotationMs) || rotationMs <= 0) {
+    return;
+  }
+
+  const stalledMs = Math.max(0, now - stalledSince);
+  let windowIndex = Math.max(1, Math.floor(stalledMs / rotationMs));
+
+  while (true) {
+    if (windowIndex === lastAttemptedWindowIndex) {
+      windowIndex += 1;
+      continue;
+    }
+
+    const windowStart = stalledSince + windowIndex * rotationMs;
+    const scheduledAt = windowStart + getStallSweepOffsetMs(operatorAddress, windowIndex, rotationMs);
+    if (scheduledAt > now) {
+      return scheduledAt - now;
+    }
+
+    windowIndex += 1;
+  }
+}
+
+function getStallSweepOffsetMs(operatorAddress: string, windowIndex: number, rotationMs: number): number {
+  const hash = createHash('sha256').update(`${operatorAddress}:${windowIndex}`).digest();
+  const normalized = hash.readBigUInt64BE(0);
+  return Number((normalized * BigInt(rotationMs)) / (1n << 64n));
 }

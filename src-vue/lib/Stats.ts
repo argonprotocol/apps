@@ -166,63 +166,80 @@ export class Stats {
   public async load() {
     if (this.isLoading || this.isLoaded) return;
     this.isLoading = true;
+    const loadStartedAt = Date.now();
+    let stage = 'start';
 
-    await this.config.isLoadedPromise;
-    this.db = await this.dbPromise;
-    await this.currency.load();
-    const initialFrameId = this.latestFrameId;
-    await this.miningFrames.load();
-    this.latestFrameId = this.miningFrames.currentFrameId;
-    if (this.selectedFrameId === initialFrameId) {
-      this.selectedFrameId = this.latestFrameId;
-    }
+    try {
+      stage = 'config.isLoadedPromise';
+      await this.config.isLoadedPromise;
 
-    await this.updateDashboard();
+      stage = 'dbPromise';
+      this.db = await this.dbPromise;
 
-    botEmitter.on('updated-cohort-data', async frameId => {
+      stage = 'currency.load';
+      await this.currency.load();
+
+      const initialFrameId = this.latestFrameId;
+      stage = 'miningFrames.load';
+      await this.miningFrames.load();
+      this.latestFrameId = this.miningFrames.currentFrameId;
+      if (this.selectedFrameId === initialFrameId) {
+        this.selectedFrameId = this.latestFrameId;
+      }
+
+      stage = 'updateDashboard';
+      await this.updateDashboard();
+
+      botEmitter.on('updated-cohort-data', async frameId => {
+        await this.updateMiningSeats();
+
+        const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
+        this.latestFrameId = frameId;
+        if (isOnLatestFrame) this.selectFrameId(frameId, true);
+        await this.updateMiningBids();
+        await this.updateAccruedProfits();
+
+        if (this.isSubscribedToDashboard) {
+          await this.updateDashboard();
+          this.dashboardHasUpdates = false;
+        } else {
+          this.dashboardHasUpdates = true;
+        }
+
+        // if (this.isSubscribedToActivity) {
+        await this.updateServerState();
+        this.activityHasUpdates = false;
+        // } else {
+        //   this.activityHasUpdates = true;
+        // }
+      });
+
+      botEmitter.on('updated-bids-data', async () => {
+        void this.updateMiningBids();
+      });
+
+      botEmitter.on('updated-server-state', async () => {
+        // if (this.isSubscribedToActivity) {
+        await this.updateServerState();
+        this.activityHasUpdates = false;
+        // } else {
+        //   this.activityHasUpdates = true;
+        // }
+      });
+
+      stage = 'post-load-updates';
       await this.updateMiningSeats();
-
-      const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
-      this.latestFrameId = frameId;
-      if (isOnLatestFrame) this.selectFrameId(frameId, true);
       await this.updateMiningBids();
       await this.updateAccruedProfits();
 
-      if (this.isSubscribedToDashboard) {
-        await this.updateDashboard();
-        this.dashboardHasUpdates = false;
-      } else {
-        this.dashboardHasUpdates = true;
-      }
-
-      // if (this.isSubscribedToActivity) {
-      await this.updateServerState();
-      this.activityHasUpdates = false;
-      // } else {
-      //   this.activityHasUpdates = true;
-      // }
-    });
-
-    botEmitter.on('updated-bids-data', async () => {
-      void this.updateMiningBids();
-    });
-
-    botEmitter.on('updated-server-state', async () => {
-      // if (this.isSubscribedToActivity) {
-      await this.updateServerState();
-      this.activityHasUpdates = false;
-      // } else {
-      //   this.activityHasUpdates = true;
-      // }
-    });
-
-    await this.updateMiningSeats();
-    await this.updateMiningBids();
-    await this.updateAccruedProfits();
-
-    this.isLoaded = true;
-    this.isLoading = false;
-    this.isLoadedDeferred.resolve();
+      this.isLoaded = true;
+      this.isLoading = false;
+      this.isLoadedDeferred.resolve();
+    } catch (error) {
+      this.isLoading = false;
+      console.error(`[Stats] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
+      throw error;
+    }
   }
 
   public async subscribeToDashboard(): Promise<void> {

@@ -110,7 +110,6 @@ export class BlockWatch {
       this.processingQueue.clear();
       this.latestHeaders.length = 1;
       this.finalizedAheadRecoveryFailures = 0;
-      console.time('[BlockWatch] start');
       const generation = ++this.subscriptionGeneration;
       try {
         await this.startSubscription(source, generation);
@@ -125,12 +124,10 @@ export class BlockWatch {
         this.finalizedAheadRecoveryFailures = 0;
         await this.startSubscription('archive', ++this.subscriptionGeneration);
       }
+      this.isLoaded.resolve();
     } catch (err) {
       this.isLoaded.reject(err);
-      throw err;
     }
-    console.timeEnd('[BlockWatch] start');
-    this.isLoaded.resolve();
     return this.isLoaded.promise;
   }
 

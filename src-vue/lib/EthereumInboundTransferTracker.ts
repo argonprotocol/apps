@@ -561,6 +561,7 @@ export class EthereumInboundTransferTracker {
       }
 
       transferState.progress = completeInboundTransferProgress(transferState.progress, 'Confirmed on Argon.');
+      transferState.error = '';
       transferState.isSubmitting = false;
       transferState.hasPersistedTransfer = false;
       transferState.isComplete = true;
@@ -650,7 +651,7 @@ export class EthereumInboundTransferTracker {
     const throughGatewayActivityNonce = record.gatewayActivityNonce;
     const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
     const argonGatewayActivityNonce = gatewayState.isSome ? gatewayState.unwrap().gatewayActivityNonce.toBigInt() : 0n;
-    const relayProgressKey = `${latestRetainedAnchor.unwrap().blockNumber.toBigInt()}:${argonGatewayActivityNonce}:${throughGatewayActivityNonce}`;
+    const relayProgressKey = `${argonGatewayActivityNonce}:${throughGatewayActivityNonce}`;
     const now = Date.now();
     if (this.#lastCatchUpProgressKey.get(record.id) !== relayProgressKey) {
       this.#lastCatchUpProgressKey.set(record.id, relayProgressKey);
@@ -818,7 +819,7 @@ function shouldSurfaceRelayError(args: {
   }
 
   if (isRelayFundingReason(relayReasonCode)) {
-    return true;
+    return false;
   }
 
   return hasExceededWaitEstimate;
@@ -880,6 +881,10 @@ function getRelayProgressHint(args: {
     }
 
     return 'The Argon network is sending this transfer now.';
+  }
+
+  if (isRelayFundingReason(localRelayReasonCode)) {
+    return getLocalRelayFundingMessage(isLocalRelaySetupComplete);
   }
 }
 
