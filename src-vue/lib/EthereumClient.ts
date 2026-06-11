@@ -747,9 +747,21 @@ async function loadEthereumChainConfigForRpc(executionRpcUrl: string): Promise<I
   let configPromise = ethereumChainConfigPromises.get(resolvedExecutionRpcUrl);
 
   configPromise ??= (async () => {
-    const client = await getMainchainClient(false);
     const ethereumClient = createEthereumPublicClientForRpc(resolvedExecutionRpcUrl);
-    const config = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    const client = await getMainchainClient(false);
+    let config;
+
+    try {
+      config = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    } catch (error) {
+      const clientType = (client as { clientType?: string }).clientType;
+      const isDisconnectedRead = client.isConnected === false || String(error).includes('WebSocket is not connected');
+      if (clientType !== 'pruned' || !isDisconnectedRead) {
+        throw error;
+      }
+
+      config = await (await getMainchainClient(true)).query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    }
 
     if (config.isNone || !config.unwrap().isEvm) {
       return undefined;

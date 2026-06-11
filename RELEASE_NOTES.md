@@ -3,7 +3,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - 2026-04-15
+## [1.4.0] - 2026-06-11
 - Improved the Argon Treasury app, allowing users to bond, lock bitcoin and generally connect to an Operator's vault.
 - Added Operations app support for inviting Treasury users to their vault
 - Added Crosschain Transfers integration for moving Argons and Argonots between Ethereum and Argon
@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated to the new Bond Lots structure (over bonds as individual microgon units)
 - Converted vault dashboard to a treemap layout to better visualize mix of bitcoin security vs bonds
 
-## [1.3.4] - 2026-06-09
+## [1.3.5] - 2026-06-10
+- Fix a broken build for 1.3.4
+
+## [1.3.4] - 2026-06-09 (backport release)
 - Added a network compatibility gate that informs the user when this version of the app is incompatible with the Argon network and provides access to an update.
 
 ## [1.3.3] - 2026-03-20

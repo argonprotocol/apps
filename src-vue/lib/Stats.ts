@@ -167,7 +167,7 @@ export class Stats {
     if (this.isLoading || this.isLoaded) return;
     this.isLoading = true;
     const loadStartedAt = Date.now();
-    let stage = 'start';
+    let stage: string | undefined;
 
     try {
       stage = 'config.isLoadedPromise';
@@ -237,7 +237,7 @@ export class Stats {
       this.isLoadedDeferred.resolve();
     } catch (error) {
       this.isLoading = false;
-      console.error(`[Stats] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
+      console.error(`[Stats] Load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`, error);
       throw error;
     }
   }

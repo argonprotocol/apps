@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { parseEnv } from 'node:util';
-import Semver from 'semver';
+import * as Semver from 'semver';
 
 const RUNTIME_PACKAGES = ['@argonprotocol/mainchain', '@argonprotocol/testing', '@argonprotocol/bitcoin'] as const;
 const AUTHORITATIVE_RUNTIME_PACKAGE = '@argonprotocol/mainchain' as const;
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
     shell: true,
     stdio: 'inherit',
   });
-  console.info('Building serer');
+  console.info('Building server');
   execFileSync('yarn', ['build:server'], {
     cwd: REPO_ROOT,
     env: process.env,

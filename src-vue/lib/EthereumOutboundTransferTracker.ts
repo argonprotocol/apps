@@ -818,9 +818,6 @@ export class EthereumOutboundTransferTracker {
       );
       return;
     }
-    if (!readyTransfer) {
-      return;
-    }
 
     this.clearPendingArgonProgress(record.transferId);
     transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {

@@ -112,7 +112,7 @@ export class WalletsForArgon {
     }
     this.deferredLoading.setIsRunning(true);
     const loadStartedAt = Date.now();
-    let stage = 'start';
+    let stage: string | undefined;
     try {
       stage = 'blockWatch.start';
       await this.blockWatch.start();
@@ -133,7 +133,10 @@ export class WalletsForArgon {
       });
       this.deferredLoading.resolve();
     } catch (err) {
-      console.error(`[WalletsForArgon] Initial load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, err);
+      console.error(
+        `[WalletsForArgon] Initial load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`,
+        err,
+      );
       this.deferredLoading.reject(err);
     }
     return this.deferredLoading.promise;

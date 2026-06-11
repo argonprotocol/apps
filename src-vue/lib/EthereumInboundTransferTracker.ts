@@ -837,8 +837,7 @@ function getRelayErrorMessage(args: {
   localRelayReasonCode?: IEthereumGatewayRelayReasonCode;
   isLocalRelaySetupComplete?: boolean;
 }): string {
-  const { relayError, relayReasonCode, relaySource, localRelayError, localRelayReasonCode, isLocalRelaySetupComplete } =
-    args;
+  const { relayError, relayReasonCode, relaySource, localRelayReasonCode, isLocalRelaySetupComplete } = args;
   const serverOutOfRelayFunds = isRelayFundingReason(localRelayReasonCode);
   const relayRejectedForFunding = isRelayFundingReason(relayReasonCode);
 

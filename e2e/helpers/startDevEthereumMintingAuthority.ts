@@ -1,7 +1,7 @@
 import { MainchainClients, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import type { ArgonClient } from '@argonprotocol/mainchain';
-import { getClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
 import type { IEthereumMintingAuthorityStatus, VaultActor } from '../actors/VaultActor.ts';
