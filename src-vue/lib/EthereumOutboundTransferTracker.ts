@@ -574,8 +574,6 @@ export class EthereumOutboundTransferTracker {
 
     try {
       await txInfo.txResult.waitForFinalizedBlock;
-      const minimumReadyBlockNumber = txInfo.tx.blockHeight ?? txInfo.tx.finalizedHeadHeight;
-
       await this.transactionTracker.ensureStoredEvents(txInfo);
       const transferId = await extractTransferId(txInfo);
       const argonFinalizedProgress = setOutboundMintingAuthorizationStepProgress(
@@ -601,12 +599,7 @@ export class EthereumOutboundTransferTracker {
       transfer.persistedRecord = argonFinalizedRecord;
       transfer.transferState.progress = argonFinalizedProgress;
       transfer.transferState.hasPersistedTransfer = true;
-      await this.reconcileRequestFinalizedTransfer(
-        transfer,
-        argonFinalizedRecord,
-        this.blockWatch.finalizedBlockHeader,
-        minimumReadyBlockNumber,
-      );
+      await this.resumeTrackedTransfer(argonFinalizedRecord);
     } finally {
       unsubscribeProgress();
     }
@@ -614,17 +607,20 @@ export class EthereumOutboundTransferTracker {
 
   private async resumeTrackedTransfer(record: ICrosschainOutboundTransferRecord) {
     const existingResumePromise = this.#resumePromises.get(record.id);
-    if (existingResumePromise) {
-      return existingResumePromise;
-    }
-
-    const resumePromise = this.runResumeTrackedTransfer(record);
+    const resumePromise = Promise.resolve(existingResumePromise)
+      .catch(() => undefined)
+      .then(async () => {
+        const latestRecord = this.data.transfersById[record.id]?.persistedRecord ?? record;
+        await this.runResumeTrackedTransfer(latestRecord);
+      });
     this.#resumePromises.set(record.id, resumePromise);
 
     try {
       await resumePromise;
     } finally {
-      this.#resumePromises.delete(record.id);
+      if (this.#resumePromises.get(record.id) === resumePromise) {
+        this.#resumePromises.delete(record.id);
+      }
     }
   }
 
@@ -705,16 +701,24 @@ export class EthereumOutboundTransferTracker {
     transfer: IEthereumOutboundActiveTransfer,
     record: ICrosschainOutboundTransferRecord,
     finalizedHeader: BlockWatch['finalizedBlockHeader'],
-    minimumReadyBlockNumber?: number,
   ) {
     transfer.transferState.error = '';
     if (!record.transferId) {
       throw new OutboundTransferChainError(`Transfer ${record.id} is missing its Argon transfer id.`);
     }
 
+    const pendingTxInfo = this.transactionTracker.findLatestTxInfo<ICrosschainTransferOutMetadata>(
+      candidate => candidate.tx.id === record.argonRequestTransactionId,
+    );
+    if (!pendingTxInfo) {
+      throw new OutboundTransferChainError(`Transfer ${record.id} is missing its Argon request transaction.`);
+    }
+
+    const minimumReadyBlockNumber = pendingTxInfo.tx.blockHeight ?? pendingTxInfo.tx.finalizedHeadHeight;
     if (minimumReadyBlockNumber != null && finalizedHeader.blockNumber < minimumReadyBlockNumber) {
       return;
     }
+
     if (transfer.transferState.progress.currentStep < 2) {
       transfer.transferState.progress = setOutboundMintingAuthorizationStepProgress(transfer.transferState.progress, {
         progressPct: 0,
@@ -1327,7 +1331,7 @@ export class EthereumOutboundTransferTracker {
       }
 
       try {
-        await this.reconcilePersistedTransfer(transfer, record, this.blockWatch.finalizedBlockHeader);
+        await this.resumeTrackedTransfer(record);
       } catch (error) {
         await this.failTransfer(error, record.id, 'Unable to refresh the Ethereum transfer state.');
       }

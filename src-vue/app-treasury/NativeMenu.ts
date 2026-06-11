@@ -94,14 +94,7 @@ export async function createMenu() {
         text: 'Reload UI',
         accelerator: 'CmdOrCtrl+R',
         action: () => {
-          config
-            .save()
-            .then(() => {
-              window.location.reload();
-            })
-            .catch(e => {
-              console.log('Failed to save config before reload', e);
-            });
+          window.location.reload();
         },
       },
     ],
