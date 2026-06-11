@@ -56,7 +56,7 @@
 
           <h1 class="text-argon-text-primary mb-4 text-4xl leading-tight font-semibold">
             <template v-if="phase === 'paused'">
-              This version of {{ APP_NAME }} is incompatible with the current Argon network.
+              The Argon Network has been upgraded and needs a new version of {{ APP_NAME }} to work properly.
             </template>
             <template v-else>A new {{ APP_NAME }} version is required before you can continue.</template>
           </h1>

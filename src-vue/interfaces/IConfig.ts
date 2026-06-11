@@ -102,6 +102,7 @@ export const ConfigCertificationDetailsSchema = z.object({
   hasSavedMnemonic: z.boolean(),
   showBonusTooltip: z.boolean().optional(),
   showRewardsCelebration: z.boolean().optional(),
+  dismissedCompletionNoticeStepIds: z.array(z.string()).optional(),
 });
 
 export const ConfigInstallerStep = z.object({

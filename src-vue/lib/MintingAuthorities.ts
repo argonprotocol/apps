@@ -413,7 +413,7 @@ export class MintingAuthorities {
 
     try {
       const client = await getMainchainClient(false);
-      await this.refresh(await client.at(await client.rpc.chain.getFinalizedHead()));
+      await this.refresh(await this.miningFrames.blockWatch.getFinalizedApi());
       await txInfo.txResult.waitForFinalizedBlock;
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
       await this.refresh(await client.at(blockHash));
@@ -423,7 +423,7 @@ export class MintingAuthorities {
       throw error;
     } finally {
       for (const { transferId } of authorizations) {
-        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId) === txInfo) {
+        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId)?.tx.id === txInfo.tx.id) {
           this.data.pendingMintingAuthorizeTxInfosByTransferId.delete(transferId);
         }
       }

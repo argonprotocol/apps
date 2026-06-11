@@ -53,11 +53,16 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return pctBn.multipliedBy(100).toNumber();
   });
 
-  const securityMicronots = Vue.computed(() => wallets.vaultingWallet.availableMicronots);
+  const securityMicronots = Vue.computed(() => wallets.vaultingWallet.totalMicronots);
   const securityMicronotsUnused = Vue.computed(() => wallets.vaultingWallet.availableMicronots);
   const securityMicronotsPending = Vue.computed(() => 0n);
-  const securityMicronotsActivated = Vue.computed(() => 0n);
-  const securityMicronotsActivatedPct = Vue.computed(() => 100);
+  const securityMicronotsActivated = Vue.computed(() => wallets.vaultingWallet.reservedMicronots);
+  const securityMicronotsActivatedPct = Vue.computed<number>(() => {
+    if (securityMicronots.value <= 0n) return 0;
+
+    const pctBn = BigNumber(securityMicronotsActivated.value).div(securityMicronots.value);
+    return pctBn.multipliedBy(100).toNumber();
+  });
 
   const securityTotalValue = Vue.computed(() => {
     return securityMicrogons.value + currency.convertMicronotTo(securityMicronots.value, UnitOfMeasurement.Microgon);

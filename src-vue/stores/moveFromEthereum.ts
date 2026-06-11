@@ -4,6 +4,7 @@ import { EthereumClient, getEthereumExecutionRpcUrl } from '../lib/EthereumClien
 import { getConfig } from './config.ts';
 import handleFatalError from './helpers/handleFatalError.ts';
 import { getServerApiClient } from './server.ts';
+import { getBlockWatch } from './mainchain.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 import { getWalletKeys } from './wallets.ts';
@@ -29,6 +30,7 @@ export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
     ethereumMoveTracker = new EthereumInboundTransferTracker(
       dbPromise,
       transactionTracker,
+      getBlockWatch(),
       walletKeys,
       ethereumClient,
       serverApiClient,
