@@ -43,9 +43,9 @@ export function getMainchainClient(needsHistoricalAccess: boolean): Promise<Argo
 }
 
 export async function getFinalizedClient(): Promise<ApiDecoration<'promise'>> {
-  const client = await getMainchainClient(false);
-  const finalized = await client.rpc.chain.getFinalizedHead();
-  return client.at(finalized);
+  const watch = getBlockWatch();
+  await watch.start();
+  return watch.getApi(watch.finalizedBlockHeader);
 }
 
 export async function getEthereumGatewayPauseReason(

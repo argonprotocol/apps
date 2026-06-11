@@ -3,6 +3,7 @@ import {
   JsonExt,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
+  type IEthereumGatewayRelayReasonCode,
   type IEthereumGatewayRelayStatus,
 } from '@argonprotocol/apps-core';
 import type {
@@ -30,8 +31,10 @@ export type ServerGatewayDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gat
 export type IEthereumGatewayRelaySource = 'localServer' | 'upstreamOperator';
 export type IEthereumGatewayCatchUpDispatchResult = {
   relayError?: string;
+  relayReasonCode?: IEthereumGatewayRelayReasonCode;
   relaySource?: IEthereumGatewayRelaySource;
   localRelayError?: string;
+  localRelayReasonCode?: IEthereumGatewayRelayReasonCode;
 };
 
 export interface IBitcoinBlockChainInfo {
@@ -385,6 +388,7 @@ export async function requestEthereumGatewayCatchUpDispatch(args: {
 }): Promise<IEthereumGatewayCatchUpDispatchResult> {
   const { throughGatewayActivityNonce, serverApiClient, upstreamOperatorClient } = args;
   let localRelayError = '';
+  let localRelayReasonCode: IEthereumGatewayRelayReasonCode | undefined;
 
   if (serverApiClient) {
     try {
@@ -401,8 +405,10 @@ export async function requestEthereumGatewayCatchUpDispatch(args: {
         }
 
         localRelayError = response.reason;
+        localRelayReasonCode = response.reasonCode;
       } else {
         localRelayError = relayStatus.reason ?? '';
+        localRelayReasonCode = relayStatus.reasonCode;
       }
     } catch (error) {
       localRelayError = error instanceof Error ? error.message : String(error);
@@ -411,7 +417,9 @@ export async function requestEthereumGatewayCatchUpDispatch(args: {
     if (!upstreamOperatorClient?.operatorHost) {
       return {
         relayError: localRelayError,
+        relayReasonCode: localRelayReasonCode,
         localRelayError,
+        localRelayReasonCode,
       };
     }
   }
@@ -428,18 +436,22 @@ export async function requestEthereumGatewayCatchUpDispatch(args: {
     if (response.outcome === 'Rejected') {
       return {
         relayError: response.reason,
+        relayReasonCode: response.reasonCode,
         localRelayError: localRelayError || undefined,
+        localRelayReasonCode,
       };
     }
 
     return {
       relaySource: 'upstreamOperator',
       localRelayError: localRelayError || undefined,
+      localRelayReasonCode,
     };
   } catch (error) {
     return {
       relayError: error instanceof Error ? error.message : String(error),
       localRelayError: localRelayError || undefined,
+      localRelayReasonCode,
     };
   }
 }

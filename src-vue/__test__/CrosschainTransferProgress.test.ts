@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createCrosschainTransferProgress,
+  formatCrosschainBlockStepDetail,
   hydrateCrosschainTransferProgress,
   setOutboundMintingAuthorizationStepProgress,
 } from '../lib/CrosschainTransferProgress.ts';
@@ -53,5 +54,15 @@ describe('CrosschainTransferProgress', () => {
     );
 
     expect(displayProgress.overallProgressPct).toBeCloseTo(50, 1);
+  });
+
+  it('clamps block confirmation detail at the final count', () => {
+    expect(
+      formatCrosschainBlockStepDetail({
+        blockType: 'Argon',
+        confirmations: 4,
+        expectedConfirmations: 4,
+      }),
+    ).toBe('Argon confirmation 4 of 4');
   });
 });

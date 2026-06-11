@@ -23,7 +23,7 @@
             v-slot="{ hours, minutes, seconds, isNull }"
             :time="lastUpdatedAt"
             as="span"
-            class="relative -top-px"
+            class="relative -top-px whitespace-nowrap"
             style="word-spacing: -5px"
           >
             <template v-if="hours">{{ hours }}h, </template>

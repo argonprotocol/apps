@@ -3,9 +3,12 @@ export interface IEthereumGatewayCatchUpRequest {
   throughGatewayActivityNonce: bigint;
 }
 
+export type IEthereumGatewayRelayReasonCode = 'gatewayPaused' | 'missingExecutionAnchor' | 'delegateInsufficientFunds';
+
 export interface IEthereumGatewayRelayStatus {
   isReady: boolean;
   reason?: string;
+  reasonCode?: IEthereumGatewayRelayReasonCode;
 }
 
 export type IEthereumGatewayCatchUpResponse =
@@ -16,6 +19,7 @@ export type IEthereumGatewayCatchUpResponse =
   | {
       outcome: 'Rejected';
       reason: string;
+      reasonCode?: IEthereumGatewayRelayReasonCode;
       estimatedFee?: bigint;
       throughGatewayActivityNonce?: bigint;
     }

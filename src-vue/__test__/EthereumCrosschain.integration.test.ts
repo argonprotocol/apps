@@ -263,6 +263,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     tracker = new EthereumInboundTransferTracker(
       Promise.resolve(db),
       transactionTracker,
+      miningFrames.blockWatch,
       walletKeys,
       ethereumClient,
       {

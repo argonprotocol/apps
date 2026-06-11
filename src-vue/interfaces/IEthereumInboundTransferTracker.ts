@@ -9,7 +9,8 @@ export type IEthereumMoveToken = MoveToken.ARGN | MoveToken.ARGNOT;
 export interface IEthereumInboundTransferState {
   isSubmitting: boolean;
   hasPersistedTransfer: boolean;
-  needsAcknowledgement: boolean;
+  needsAttention: boolean;
+  isComplete: boolean;
   amount: bigint;
   targetWalletType?: IArgonWalletType;
   progress: ICrosschainTransferProgress;

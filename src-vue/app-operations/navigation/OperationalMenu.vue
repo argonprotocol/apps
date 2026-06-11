@@ -3,11 +3,13 @@
   <div ref="rootRef">
     <div AlertMenu v-if="isShowingCompletionTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
       <Arrow
-        class="absolute top-0 right-6 h-3.5 w-6"
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
         fill="white"
       />
       <Arrow
-        class="absolute top-0 right-6 h-3.5 w-6"
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
         fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
       />
       <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
@@ -32,11 +34,13 @@
 
     <div AlertMenu v-else-if="isShowingBonusTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
       <Arrow
-        class="absolute top-0 right-6 w-6 h-3.5"
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
         fill="white"
       />
       <Arrow
-        class="absolute top-0 right-6 w-6 h-3.5"
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
         fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
       />
       <div class="bg-white border border-argon-400/50 rounded shadow-xl pt-0.5 pl-0.5">
@@ -249,6 +253,7 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
 const alertMenuStyle = Vue.ref<Record<string, string>>({});
+const alertArrowStyle = Vue.ref<Record<string, string>>({});
 const completionNoticeStepId = Vue.computed(() => controller.pendingCompletionNoticeStepId);
 const completionNoticeStepTitle = Vue.computed(() => {
   return completionNoticeStepId.value ? operationalSteps[completionNoticeStepId.value].title : '';
@@ -321,10 +326,16 @@ function updateAlertMenuPosition() {
   const rect = rootRef.value?.getBoundingClientRect();
   if (!rect) return;
 
+  const arrowWidth = 24;
+  const rightOffset = Math.max(8, Math.round(rect.width / 2 - arrowWidth / 2));
+
   alertMenuStyle.value = {
     top: `${Math.round(rect.bottom + 6)}px`,
     left: `${Math.round(rect.right)}px`,
     transform: 'translateX(-100%)',
+  };
+  alertArrowStyle.value = {
+    right: `${rightOffset}px`,
   };
 }
 

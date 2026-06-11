@@ -248,6 +248,12 @@ export const useOperationsController = defineStore('operationsController', () =>
       unactivatedReferrals: activeOperationalInviteCount.value,
     };
   });
+  const dismissedCompletionNoticeStepIds = Vue.computed(() => {
+    const stepIds = config.certificationDetails?.dismissedCompletionNoticeStepIds ?? [];
+    return new Set(
+      stepIds.filter(stepId => operationalStepIds.includes(stepId as OperationalStepId)) as OperationalStepId[],
+    );
+  });
   const pendingRewardsAmount = Vue.computed(() => {
     const pending = inviteSlotProgress.value.rewardsEarnedAmount - inviteSlotProgress.value.rewardsCollectedAmount;
     return pending > 0n ? pending : 0n;
@@ -373,6 +379,7 @@ export const useOperationsController = defineStore('operationsController', () =>
         if (!newlyCompletedStepIds.length) return;
 
         for (const stepId of newlyCompletedStepIds) {
+          if (dismissedCompletionNoticeStepIds.value.has(stepId)) continue;
           if (activeGuideId.value === stepId) {
             activeGuideId.value = null;
           }
@@ -543,11 +550,27 @@ export const useOperationsController = defineStore('operationsController', () =>
     return status?.label !== 'Became operational' && status?.label !== 'Expired';
   }
 
+  function acknowledgeCompletionNoticeSteps(stepIds: OperationalStepId[]) {
+    if (!stepIds.length) return;
+
+    const savedStepIds = config.certificationDetails?.dismissedCompletionNoticeStepIds ?? [];
+    const nextStepIds = [...new Set([...savedStepIds, ...stepIds])];
+    if (nextStepIds.length === savedStepIds.length) return;
+
+    config.setCertificationDetails({ dismissedCompletionNoticeStepIds: nextStepIds });
+    void config.save();
+  }
+
   function dismissCompletionNotice() {
+    const [stepId] = completionNoticeQueue.value;
+    if (stepId) {
+      acknowledgeCompletionNoticeSteps([stepId]);
+    }
     completionNoticeQueue.value = completionNoticeQueue.value.slice(1);
   }
 
   function clearCompletionNotices() {
+    acknowledgeCompletionNoticeSteps(completionNoticeQueue.value);
     completionNoticeQueue.value = [];
   }
 

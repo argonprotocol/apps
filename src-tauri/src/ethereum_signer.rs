@@ -231,14 +231,6 @@ pub fn set_policy(
         allowed_destinations,
     };
 
-    if let Some(existing_policy) = current_policy {
-        ensure!(
-            existing_policy == &next_policy,
-            "Ethereum signer policy is already configured and cannot be overwritten"
-        );
-        return Ok(());
-    }
-
     *current_policy = Some(next_policy);
     Ok(())
 }
@@ -525,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn set_policy_rejects_changed_policy() {
+    fn set_policy_overwrites_changed_policy() {
         let mut current_policy = None;
         let request = EthereumSignerPolicyRequest {
             chain_id: 1,
@@ -534,11 +526,11 @@ mod tests {
         };
 
         set_policy(&mut current_policy, &request, vec![[1u8; 32]]).unwrap();
+        set_policy(&mut current_policy, &request, vec![[9u8; 32]]).unwrap();
 
-        let err = set_policy(&mut current_policy, &request, vec![[9u8; 32]]).unwrap_err();
         assert_eq!(
-            err.to_string(),
-            "Ethereum signer policy is already configured and cannot be overwritten"
+            current_policy.unwrap().allowed_destinations,
+            vec![[9u8; 32]]
         );
     }
 

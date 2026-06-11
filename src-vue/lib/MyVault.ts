@@ -848,7 +848,7 @@ export class MyVault {
       postProcessor.reject(error as Error);
       throw error;
     } finally {
-      if (this.data.myPendingBitcoinCosignTxInfosByUtxoId.get(utxoId) === txInfo) {
+      if (this.data.myPendingBitcoinCosignTxInfosByUtxoId.get(utxoId)?.tx.id === txInfo.tx.id) {
         this.data.myPendingBitcoinCosignTxInfosByUtxoId.delete(utxoId);
       }
     }
@@ -1211,7 +1211,7 @@ export class MyVault {
       postProcessor.reject(error as Error);
       throw error;
     } finally {
-      if (this.data.pendingCollectTxInfo === txInfo) {
+      if (this.data.pendingCollectTxInfo?.tx.id === txInfo.tx.id) {
         this.data.pendingCollectTxInfo = null;
       }
     }
