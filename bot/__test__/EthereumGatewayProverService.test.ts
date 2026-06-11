@@ -8,6 +8,13 @@ const gatewayProofMock = vi.hoisted(() => {
   };
 });
 
+const viemMock = vi.hoisted(() => {
+  return {
+    createPublicClient: vi.fn(),
+    readContract: vi.fn(),
+  };
+});
+
 const mainchainMock = vi.hoisted(() => {
   const sign = vi.fn();
   const submitSigned = vi.fn();
@@ -29,6 +36,14 @@ const mainchainMock = vi.hoisted(() => {
   };
 });
 
+vi.mock('viem', async () => {
+  const actual = await vi.importActual<typeof import('viem')>('viem');
+  return {
+    ...actual,
+    createPublicClient: viemMock.createPublicClient,
+  };
+});
+
 vi.mock('@argonprotocol/mainchain', async () => {
   const actual = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
   return {
@@ -43,6 +58,12 @@ import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../src/EthereumGatewayProverService.ts';
 
 const relayKeypair = { address: '5RelayDelegate' } as any;
+let currentClientArgs:
+  | {
+      latestLocatorIndex?: bigint;
+      latestLocatorEndGatewayActivityNonce?: bigint;
+    }
+  | undefined;
 
 describe('EthereumGatewayProverService', () => {
   afterEach(() => {
@@ -51,6 +72,9 @@ describe('EthereumGatewayProverService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    viemMock.createPublicClient.mockReturnValue({
+      readContract: viemMock.readContract,
+    });
     NetworkConfig.setNetwork('dev-docker');
     NetworkConfig.setRuntimeOverride('dev-docker', {
       ethereumNetwork: {
@@ -79,6 +103,27 @@ describe('EthereumGatewayProverService', () => {
       gatewayAddress: '0xgateway',
       throughExecutionBlockNumber: 160n,
     });
+  });
+
+  it('skips heavy gateway proof discovery when the runtime already covers the latest locator nonce', async () => {
+    const client = createClient({
+      runtimeGatewayActivityNonce: 7n,
+      latestLocatorIndex: 3n,
+      latestLocatorEndGatewayActivityNonce: 7n,
+    });
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      backgroundSweepMs: 1_000,
+    });
+    const runBackgroundSweep = (
+      service as unknown as {
+        runBackgroundSweep: () => Promise<void>;
+      }
+    ).runBackgroundSweep.bind(service);
+
+    await runBackgroundSweep();
+
+    expect(gatewayProofMock.getLatestArgonFinalizedExecutionHeader).not.toHaveBeenCalled();
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).not.toHaveBeenCalled();
   });
 
   it('submits proveGatewayActivity through the delegate lane until a checkpoint is fully caught up', async () => {
@@ -196,6 +241,74 @@ describe('EthereumGatewayProverService', () => {
     expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
   });
 
+  it('releases a timed-out first-block wait so a later catch-up can run', async () => {
+    vi.useFakeTimers();
+
+    const client = createClient();
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    mainchainMock.sign.mockImplementation(async (options?: { nonce?: number }) => ({
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => options?.nonce ?? 0 },
+    }));
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    });
+    mainchainMock.submitSigned
+      .mockResolvedValueOnce({
+        extrinsic: {
+          signedHash: '0xtimeout',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: new Promise(() => undefined),
+      })
+      .mockResolvedValueOnce({
+        extrinsic: {
+          signedHash: '0xretry',
+          submittedAtBlockNumber: 322,
+          submittedTime: new Date('2026-05-13T16:01:00.000Z'),
+        },
+        blockNumber: 322,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+      });
+
+    const firstCatchUp = service.runToCheckpoint({
+      sourceChain: 'Ethereum',
+      throughGatewayActivityNonce: 7n,
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await expect(firstCatchUp).resolves.toEqual({
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xtimeout',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
+      txNonce: 4,
+      txSubmittedAtBlockHeight: 321,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 7n,
+      throughGatewayActivityNonce: 7n,
+    });
+    await expect(
+      service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n }),
+    ).resolves.toEqual({
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xretry',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
+      txNonce: 5,
+      txSubmittedAtBlockHeight: 322,
+      txSubmittedAtTime: new Date('2026-05-13T16:01:00.000Z'),
+      estimatedFee: 7n,
+      throughGatewayActivityNonce: 7n,
+    });
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects when the delegate cannot afford the relay reserve', async () => {
     const client = createClient({
       balance: 12n,
@@ -222,6 +335,7 @@ describe('EthereumGatewayProverService', () => {
     ).resolves.toEqual({
       outcome: 'Rejected',
       reason: 'Vault delegate cannot afford Ethereum gateway relay. Balance=12 required=15.',
+      reasonCode: 'delegateInsufficientFunds',
       estimatedFee: 5n,
       throughGatewayActivityNonce: 7n,
     });
@@ -244,6 +358,7 @@ describe('EthereumGatewayProverService', () => {
     await expect(service.getRelayStatus()).resolves.toEqual({
       isReady: false,
       reason: 'Ethereum verifier has not retained a finalized execution header yet.',
+      reasonCode: 'missingExecutionAnchor',
     });
   });
 
@@ -277,12 +392,14 @@ describe('EthereumGatewayProverService', () => {
     await expect(service.getRelayStatus()).resolves.toEqual({
       isReady: false,
       reason: 'Ethereum gateway sync is paused at activity 5 (MintingAuthorityNotFound).',
+      reasonCode: 'gatewayPaused',
     });
     await expect(
       service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 5n }),
     ).resolves.toEqual({
       outcome: 'Rejected',
       reason: 'Ethereum gateway sync is paused at activity 5 (MintingAuthorityNotFound).',
+      reasonCode: 'gatewayPaused',
       throughGatewayActivityNonce: 4n,
     });
   });
@@ -363,27 +480,23 @@ describe('EthereumGatewayProverService', () => {
     expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
   });
 
-  it('sweeps relay backlog immediately on start before settling into the background loop', async () => {
+  it('does not bypass staggered relay scheduling on startup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
     const signedTx = {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5 });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    gatewayProofMock.buildGatewayActivityProofPayload
-      .mockResolvedValueOnce({
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof' },
-        gatewayActivityNonceRange: { start: 7n, end: 7n },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-      })
-      .mockResolvedValueOnce({
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof' },
-        gatewayActivityNonceRange: { start: 7n, end: 7n },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-      });
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    });
     mainchainMock.sign.mockResolvedValue(signedTx);
     mainchainMock.submitSigned.mockResolvedValue({
       extrinsic: {
@@ -397,9 +510,154 @@ describe('EthereumGatewayProverService', () => {
 
     await service.start();
 
+    expect(mainchainMock.sign).not.toHaveBeenCalled();
+
+    await service.shutdown();
+  });
+
+  it('rechecks shared relay work inside the stagger window after startup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    });
+    mainchainMock.sign.mockResolvedValue(signedTx);
+    mainchainMock.submitSigned.mockResolvedValue({
+      extrinsic: {
+        signedHash: '0xrelaytx',
+        submittedAtBlockNumber: 321,
+        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+      },
+      blockNumber: 321,
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+    });
+
+    await service.start();
+    expect(mainchainMock.sign).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(72_000);
+
     expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
 
     await service.shutdown();
+  });
+
+  it('waits for a stagger window before submitting shared relay work', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      backgroundSweepMs: 1_000,
+    });
+    const runBackgroundSweep = (
+      service as unknown as {
+        runBackgroundSweep: () => Promise<void>;
+      }
+    ).runBackgroundSweep.bind(service);
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [
+        {
+          kind: 'TransferOutOfArgonFinalized',
+          gatewayState: { gatewayActivityNonce: 7n },
+        },
+      ],
+    });
+    mainchainMock.sign.mockResolvedValue(signedTx);
+    mainchainMock.submitSigned.mockResolvedValue({
+      extrinsic: {
+        signedHash: '0xrelaytx',
+        submittedAtBlockNumber: 321,
+        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+      },
+      blockNumber: 321,
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+    });
+
+    await runBackgroundSweep();
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(mainchainMock.sign).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date('2026-05-13T16:00:23.000Z'));
+    await runBackgroundSweep();
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(2);
+    expect(mainchainMock.sign).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date('2026-05-13T16:01:11.000Z'));
+    await runBackgroundSweep();
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(4);
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+  });
+
+  it('prioritizes owned outbound relay work without waiting for a stagger window', async () => {
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({
+      runtimeGatewayActivityNonce: 6n,
+      accountNextNonce: 5,
+      freeHeadersInterval: 2n,
+      mintingAuthorityOwnersBySigner: {
+        '0x00000000000000000000000000000000000000aa': '5VaultOperator',
+      },
+    });
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      backgroundSweepMs: 1_000,
+      vaultOperatorAddress: '5VaultOperator',
+    });
+    const runBackgroundSweep = (
+      service as unknown as {
+        runBackgroundSweep: () => Promise<void>;
+      }
+    ).runBackgroundSweep.bind(service);
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      activities: [
+        {
+          kind: 'TransferOutOfArgonFinalized',
+          mintingCollateral: [{ signingKey: '0x00000000000000000000000000000000000000aa' }],
+          gatewayState: { gatewayActivityNonce: 7n },
+        },
+      ],
+    });
+    mainchainMock.sign.mockResolvedValue(signedTx);
+    mainchainMock.submitSigned.mockResolvedValue({
+      extrinsic: {
+        signedHash: '0xrelaytx',
+        submittedAtBlockNumber: 321,
+        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+      },
+      blockNumber: 321,
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+    });
+
+    await runBackgroundSweep();
+
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -423,8 +681,17 @@ function createClient(
     };
     hasLatestExecutionHeaderAnchor?: boolean;
     runtimeGatewayActivityNonce?: bigint;
+    freeHeadersInterval?: bigint;
+    mintingAuthorityOwnersBySigner?: Record<string, string>;
+    latestLocatorIndex?: bigint;
+    latestLocatorEndGatewayActivityNonce?: bigint;
   } = {},
 ) {
+  currentClientArgs = {
+    latestLocatorIndex: args.latestLocatorIndex ?? 1n,
+    latestLocatorEndGatewayActivityNonce:
+      args.latestLocatorEndGatewayActivityNonce ?? (args.runtimeGatewayActivityNonce ?? 0n) + 1n,
+  };
   const tx =
     args.tx ??
     ({
@@ -462,6 +729,21 @@ function createClient(
             },
           }),
         })),
+        mintingAuthoritiesBySigner: vi.fn(async (signingKey: string) => {
+          const owner = args.mintingAuthorityOwnersBySigner?.[signingKey.toLowerCase()];
+          return {
+            isNone: owner == null,
+            isSome: owner != null,
+            unwrap: () => ({
+              destinationChain: {
+                isEthereum: true,
+              },
+              accountId: {
+                toString: () => owner,
+              },
+            }),
+          };
+        }),
         gatewaySyncPauseBySourceChain: vi.fn(async () => ({
           isNone: args.gatewaySyncPause == null,
           unwrap: () => ({
@@ -498,6 +780,11 @@ function createClient(
           toBigInt: () => args.existentialDeposit ?? 10_000n,
         },
       },
+      ethereumVerifier: {
+        freeHeadersInterval: {
+          toBigInt: () => args.freeHeadersInterval ?? 32n,
+        },
+      },
     },
     rpc: {
       system: {
@@ -508,3 +795,14 @@ function createClient(
     },
   };
 }
+
+viemMock.readContract.mockImplementation(async args => {
+  const parameters = args as { functionName: string; args?: bigint[] };
+  if (parameters.functionName === 'latestActivityBlockLocatorIndex') {
+    return currentClientArgs?.latestLocatorIndex ?? 1n;
+  }
+  if (parameters.functionName === 'activityBlockLocators') {
+    return [0n, 0n, currentClientArgs?.latestLocatorEndGatewayActivityNonce ?? 1n, `0x${'00'.repeat(32)}`] as const;
+  }
+  throw new Error(`Unexpected readContract(${parameters.functionName})`);
+});

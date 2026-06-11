@@ -229,7 +229,9 @@ export async function ensureOperatorAccountRegistered(args: {
 }
 
 export async function getOperationalRewardConfig(client?: ArgonClient): Promise<IOperationalRewardConfig> {
-  client ??= await getMainchainClient(false);
+  // Reward constants are chain-wide and do not require the instance-local pruned client.
+  // Using the archive client avoids startup hangs when a server-backed pruned client is stale.
+  client ??= await getMainchainClient(true);
   const consts = client.consts.operationalAccounts as typeof client.consts.operationalAccounts &
     V146OperationalAccountConsts;
 

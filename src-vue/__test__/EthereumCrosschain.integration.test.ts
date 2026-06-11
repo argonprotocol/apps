@@ -216,16 +216,16 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     client = await mainchainClients.get(false);
 
     await sudoFundWallet({
+      client,
       address: walletKeys.vaultingAddress,
       microgons: 100_000_000n,
       micronots: 10_000_000n,
-      archiveUrl: network.archiveUrl,
     });
     await sudoFundWallet({
+      client,
       address: walletKeys.investmentAddress,
       microgons: client.consts.balances.existentialDeposit.toBigInt(),
       micronots: 0n,
-      archiveUrl: network.archiveUrl,
     });
 
     const currentTick = await client.query.ticks.currentTick();
@@ -263,6 +263,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     tracker = new EthereumInboundTransferTracker(
       Promise.resolve(db),
       transactionTracker,
+      miningFrames.blockWatch,
       walletKeys,
       ethereumClient,
       {

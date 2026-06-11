@@ -1,14 +1,16 @@
 import { setTimeout } from 'node:timers/promises';
-import { SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
+import { NetworkConfig, SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
 import {
   dispatchErrorToString,
   type ArgonClient,
   getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState,
+  getLatestArgonFinalizedExecutionHeader,
   getNextEthereumBeaconSyncTxs,
   type KeyringPair,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
+import { createPublicClient, http } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 
 type IEthereumBeaconSyncServiceOptions = {
@@ -176,6 +178,8 @@ export class EthereumBeaconSyncService {
   private async runOnceInner(): Promise<void> {
     const beaconApiUrl = this.options.beaconApiUrl!;
     const submitLane = this.options.submitLane;
+    delete this.stateData.latestExecutionAnchorBlockNumber;
+    delete this.stateData.latestEthereumBlockNumber;
 
     if (!this.client.isConnected) {
       this.stateData.mode = 'idle';
@@ -202,6 +206,7 @@ export class EthereumBeaconSyncService {
     }
 
     this.stateData.latestFinalizedSlot = syncState.latestFinalizedSlot;
+    await this.updateExecutionLag();
 
     let txs;
     try {
@@ -249,6 +254,12 @@ export class EthereumBeaconSyncService {
     this.stateData.latestSyncCommitteeUpdatePeriod = refreshedState.latestSyncCommitteeUpdatePeriod;
     this.stateData.latestFinalizedSlot = refreshedState.isBootstrapped ? refreshedState.latestFinalizedSlot : undefined;
     this.stateData.mode = refreshedState.isBootstrapped ? 'idle' : 'needsBootstrap';
+    if (refreshedState.isBootstrapped) {
+      await this.updateExecutionLag();
+    } else {
+      delete this.stateData.latestExecutionAnchorBlockNumber;
+      delete this.stateData.latestEthereumBlockNumber;
+    }
   }
 
   private async loadHasEthereumTransferGatewayConfig(): Promise<boolean> {
@@ -266,6 +277,30 @@ export class EthereumBeaconSyncService {
     this.stateData.mode = 'error';
     this.stateData.lastError = message;
     console.error('[EthereumBeaconSyncService] Error syncing beacon headers', error);
+  }
+
+  private async updateExecutionLag(): Promise<void> {
+    try {
+      const latestExecutionAnchor = await getLatestArgonFinalizedExecutionHeader(this.client);
+      this.stateData.latestExecutionAnchorBlockNumber = latestExecutionAnchor.blockNumber;
+
+      const executionRpcUrl = NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim();
+      if (!executionRpcUrl) {
+        return;
+      }
+
+      try {
+        const latestEthereumBlockNumber = await createPublicClient({
+          transport: http(executionRpcUrl),
+        }).getBlockNumber();
+        this.stateData.latestEthereumBlockNumber = latestEthereumBlockNumber;
+      } catch {
+        delete this.stateData.latestEthereumBlockNumber;
+      }
+    } catch {
+      delete this.stateData.latestExecutionAnchorBlockNumber;
+      delete this.stateData.latestEthereumBlockNumber;
+    }
   }
 }
 

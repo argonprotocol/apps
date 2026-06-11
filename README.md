@@ -66,30 +66,9 @@ Now you'll want to run Argonot Operator with the environment variable `ARGON_NET
 
 This project has an automated action to build from the source of the project for each release. The action is triggered
 by a push to a `version` branch. These releases are guaranteed to match a git hash, so you can see what you're
-installing. However, they are unsigned, so will require steps to open on Mac/Windows.
+installing. NOTE: Windows is unsigned, so will require steps to open.
 
 Downloads are available for each "release" on the [releases page](./releases/latest).
-
-### Mac
-
-1. Download the latest "dmg" installer from the [releases page](./releases/latest).
-2. Click to run the installer once downloaded
-    - Drag the app file to your Applications folder
-      <img src="docs/images/mac-install.png" alt="Installer" width="100%"/>
-3. Try to open the app once (it will be blocked and prompt you to move it to the trash)
-    - Click `Done`
-      <br/>
-      <img src="docs/images/mac-malware.png" alt="Malware" width="30%"/>
-4. Open the "System Settings" app
-5. Click `Security & Privacy`
-6. Navigate down to `Security`
-7. Click "Open Anyway" next to the message about the Argonot Operator (or Argon Investor Wallet, depending on which app you're installing)
-   <br/>
-   <img src="docs/images/mac-openanyway.png" alt="Open anyway" width="80%"/>
-8. Click "Open Anyway" on the pop-up
-   <br/>
-   <img src="docs/images/mac-open.png" alt="Open" width="30%"/>
-9. You can now open the app from the Applications folder (or a link on your Dock).
 
 ### Windows
 

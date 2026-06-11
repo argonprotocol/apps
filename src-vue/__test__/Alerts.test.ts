@@ -35,6 +35,7 @@ describe('VaultCollectBuilder.getNotice', () => {
 
     expect(notice).toEqual({
       isProcessing: true,
+      isCollectProcessing: false,
       collectRevenue: 42n,
       expiringCollectAmount: 7n,
       nextCollectDueDate: 1234,
@@ -62,6 +63,7 @@ describe('VaultCollectBuilder.getNotice', () => {
 
     expect(notice).toEqual({
       isProcessing: false,
+      isCollectProcessing: false,
       collectRevenue: 0n,
       expiringCollectAmount: 0n,
       nextCollectDueDate: 0,
@@ -81,6 +83,20 @@ describe('VaultCollectBuilder.getNotice', () => {
 
   it('returns null when there is nothing to collect or sign', () => {
     expect(createCollectBuilder(vaultSource()).getNotice()).toBeNull();
+  });
+
+  it('marks revenue collection as processing only when the active submission is collecting revenue', () => {
+    const notice = createCollectBuilder(
+      vaultSource({
+        pendingCollectRevenue: 42n,
+        pendingCollectTxInfo: {
+          tx: { metadataJson: { actionType: 'collectRevenue', expectedCollectRevenue: 42n, cosignedUtxoIds: [] } },
+        },
+      }),
+    ).getNotice();
+
+    expect(notice?.isProcessing).toBe(true);
+    expect(notice?.isCollectProcessing).toBe(true);
   });
 });
 

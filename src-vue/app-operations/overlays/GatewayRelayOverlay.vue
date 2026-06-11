@@ -194,6 +194,14 @@ const previewMessage = Vue.computed(() => {
     return 'The Ethereum gateway is currently paused, so pending activities cannot be relayed right now.';
   }
 
+  if (preview.value.reason === 'noReadyUpdates') {
+    return 'No pending gateway activities are ready to relay right now.';
+  }
+
+  if (preview.value.reason === 'uncompensatedSharedBatch') {
+    return 'These pending gateway activities are not our own reimbursed relay work, so this app will not spend ETH relaying them automatically.';
+  }
+
   if (preview.value.reason === 'insufficientBalance') {
     const missingWei = (preview.value.feeEstimateWei ?? 0n) - preview.value.ethereumBalanceWei;
     return `This wallet needs about ${formatEth(missingWei)} more ETH to cover this relay.`;
@@ -203,7 +211,7 @@ const previewMessage = Vue.computed(() => {
     return 'At current repayment pricing, this relay would cost more in Ethereum fees than the expected Argon repayment.';
   }
 
-  return 'No minting-authority activations are ready to relay right now.';
+  return 'No pending gateway activities are ready to relay right now.';
 });
 
 async function loadPreview() {

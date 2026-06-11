@@ -1,10 +1,10 @@
 import './polyfills.ts';
+import './configureFetch.ts';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';
 import './lib/LogForwarding.ts';
-import AppTreasury from './app-treasury/App.vue';
-import AppOperations from './app-operations/App.vue';
+import AppRoot from './AppRoot.vue';
 import './main.css';
 import { IS_TREASURY_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
@@ -37,8 +37,7 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 
-const App = IS_TREASURY_APP ? AppTreasury : AppOperations;
-const app = createApp(App);
+const app = createApp(AppRoot);
 app.use(createPinia());
 app.mount('#app');
 void getVersion().then(version => {

@@ -75,7 +75,7 @@
           v-if="councilApprovalCount"
           class="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <p>
-            <template v-if="collectRevenue || manualPendingCosignCount">This submit will also record</template>
+            <template v-if="collectRevenue || manualPendingCosignCount">This transaction will also record </template>
             <template v-else>The next transaction will record </template>
             <strong>
               {{ councilApprovalCount }} council approval{{ councilApprovalCount === 1 ? '' : 's' }}

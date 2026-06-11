@@ -34,7 +34,7 @@ export interface ICrosschainTransferProgress {
 
 export const INBOUND_TRANSFER_STEP_TITLES = [
   'Finalizing on Ethereum',
-  'Relaying to Argon',
+  'Proving to Argon',
   'Finalizing on Argon',
 ] as const;
 export const OUTBOUND_TRANSFER_STEP_TITLES = [
@@ -42,6 +42,9 @@ export const OUTBOUND_TRANSFER_STEP_TITLES = [
   'Waiting for Minting Authorization',
   'Sending to Ethereum',
 ] as const;
+
+export const OUTBOUND_MINTING_AUTHORIZATION_SUBMITTING_DETAIL = 'Submitting Minting Authorization to Argon...';
+export const OUTBOUND_MINTING_AUTHORIZATION_COMPLETE_DETAIL = 'Minting Authorization complete.';
 
 export function createCrosschainTransferProgress(titles: readonly string[]): ICrosschainTransferProgress {
   return hydrateCrosschainTransferProgress(
@@ -257,6 +260,14 @@ export function setOutboundMintingAuthorizationStepProgress(
     };
     steps[2] = pendingStep(steps[2]);
   });
+}
+
+export function getOutboundMintingAuthorizationWaitingDetail(args: {
+  approvalPercent: number;
+  isWaitingForRemainingAuthorizations?: boolean;
+}) {
+  const prefix = args.isWaitingForRemainingAuthorizations ? 'Waiting for the remaining' : 'Waiting for';
+  return `${prefix} Minting Authorization (${Math.round(args.approvalPercent)}% authorized)`;
 }
 
 export function setOutboundEthereumStepProgress(

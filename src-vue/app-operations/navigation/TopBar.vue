@@ -23,7 +23,6 @@
     <NavigationMenuRoot
       v-if="controller.isLoaded && !controller.isImporting"
       class="relative z-[2501] mr-3 flex w-1/3 grow flex-row items-center justify-end pointer-events-none"
-      :class="[wallets.isLoaded ? '' : 'opacity-20']"
       :model-value="navigationMenuValue"
       :delay-duration="0"
       :skip-delay-duration="0"
@@ -36,7 +35,7 @@
         <div class="pointer-events-auto">
           <OperationalMenu ref="operationalMenuRef" />
         </div>
-        <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto', wallets.isLoaded ? '' : 'opacity-20']">
           <PortfolioMenu ref="currencyMenuRef" />
         </div>
         <div :class="[controller.selectedTab === OperationsTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
@@ -61,18 +60,17 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController, OperationsTab } from '../stores/controller.ts';
+import { OperationsTab, useOperationsController } from '../stores/controller.ts';
 import WindowControls from '../../tauri-controls/WindowControls.vue';
 import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';
-import InstanceMenu from '../../app-shared/navigation/InstanceMenu.vue';
+import InstanceMenu, { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
 import { useWallets } from '../../stores/wallets.ts';
 import { getBot } from '../../stores/bot.ts';
 import { useTour } from '../../stores/tour.ts';
 import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
 import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../../lib/Env.ts';
-import { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
 import TabSwitcher from './TabSwitcher.vue';
 import ServerMenu from './ServerMenu.vue';
 import OperationalMenu from './OperationalMenu.vue';

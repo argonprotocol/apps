@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MiningFrames } from '@argonprotocol/apps-core';
+import { reactive } from 'vue';
 import { MyVault } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
@@ -528,6 +529,52 @@ describe('MyVault cosign recovery', () => {
     expect(submitAndWatch).not.toHaveBeenCalled();
     expect(mintingAuthorities.refresh).not.toHaveBeenCalled();
     expect(mintingAuthorities.authorize).not.toHaveBeenCalled();
+  });
+
+  it('clears a reactive pending collect tx after post-processing finishes', async () => {
+    const txInfo = {
+      tx: {
+        id: 91,
+        metadataJson: {
+          vaultId: 7,
+          moveTo: 'VaultingHold',
+        },
+      },
+      txResult: {
+        waitForFinalizedBlock: Promise.resolve(new Uint8Array([1, 2, 3])),
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1, 2, 3])),
+        events: [],
+      },
+      createPostProcessor: vi.fn(() => ({
+        resolve: vi.fn(),
+        reject: vi.fn(),
+        isSettled: false,
+      })),
+    } as unknown as TransactionInfo<any>;
+    const { myVault, globalCouncil, mintingAuthorities } = createVault();
+    myVault.data = reactive(myVault.data) as any;
+    myVault.data.pendingCollectTxInfo = txInfo;
+
+    vi.spyOn(myVault, 'getCollectedAmount').mockResolvedValue(undefined);
+    vi.spyOn(myVault as any, 'updateRevenueStats').mockResolvedValue(undefined);
+    vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'trackTxResultFee').mockResolvedValue(undefined);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
+    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({
+      query: {
+        vaults: {
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([]),
+        },
+      },
+    } as any);
+
+    await myVault.onVaultCollect(txInfo);
+
+    expect(globalCouncil.refresh).toHaveBeenCalledTimes(1);
+    expect(mintingAuthorities.refresh).toHaveBeenCalledTimes(1);
+    expect(myVault.data.pendingCollectTxInfo).toBeNull();
+
+    getMainchainClient.mockRestore();
+    getFinalizedClient.mockRestore();
   });
 
   it('submits collect work without starting collateralization work inline', async () => {

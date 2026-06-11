@@ -94,60 +94,76 @@ export default class Installer {
   }
 
   public async load(): Promise<void> {
-    await this.config.isLoadedPromise;
+    const loadStartedAt = Date.now();
+    let stage = 'config.isLoadedPromise';
 
-    if (this.config.isServerAdded && !this.isRunning) {
-      const hasServerDetails = !!this.config.serverDetails.ipAddress;
-      if (hasServerDetails) {
-        const server = await this.getServer();
-        const accountAddressOnServer = await server.downloadAccountAddress();
-        if (accountAddressOnServer && accountAddressOnServer !== this.walletKeys.miningBotAddress) {
-          await tauriMessage(
-            'The wallet address on the server does not match the wallet address in the local database. This app will shutdown.',
-            {
-              title: 'Wallet Address Mismatch',
-              kind: 'error',
-            },
-          );
-          await tauriExit(0);
-        }
+    try {
+      await this.config.isLoadedPromise;
 
-        const isReadyToRun = await this.calculateIsReadyToRun(false);
-        let isRunning = await this.calculateIsRunning();
-        if (isRunning && this.remoteFilesNeedUpdating) {
-          console.log('Need to kill existing installer process');
-          await server.killInstallerScript();
-          await this.clearStepFiles(['all']);
-          isRunning = false;
-          this.isRunning = false;
-          this.isRunningInBackground = false;
-        }
-        if (isReadyToRun && !isRunning) {
-          let isAllowedToRun = true;
-          if (IS_LOCAL_BUILD && ['testnet', 'mainnet'].includes(NETWORK_NAME)) {
-            isAllowedToRun = await tauriAsk(
-              'Argon is about to push a software upgrade to your mining server. Would you like us to continue?',
+      if (this.config.isServerAdded && !this.isRunning) {
+        const hasServerDetails = !!this.config.serverDetails.ipAddress;
+        if (hasServerDetails) {
+          stage = 'downloadAccountAddress';
+          const server = await this.getServer();
+          const accountAddressOnServer = await server.downloadAccountAddress();
+          if (accountAddressOnServer && accountAddressOnServer !== this.walletKeys.miningBotAddress) {
+            await tauriMessage(
+              'The wallet address on the server does not match the wallet address in the local database. This app will shutdown.',
               {
-                title: 'Preparing to Upgrade Server',
-                kind: 'warning',
+                title: 'Wallet Address Mismatch',
+                kind: 'error',
               },
             );
+            await tauriExit(0);
           }
-          if (isAllowedToRun) {
-            await this.run(false);
+
+          stage = 'calculateIsReadyToRun';
+          const isReadyToRun = await this.calculateIsReadyToRun(false, accountAddressOnServer);
+
+          stage = 'calculateIsRunning';
+          let isRunning = await this.calculateIsRunning();
+          if (isRunning && this.remoteFilesNeedUpdating) {
+            console.log('Need to kill existing installer process');
+            await server.killInstallerScript();
+            await this.clearStepFiles(['all']);
+            isRunning = false;
+            this.isRunning = false;
+            this.isRunningInBackground = false;
+          }
+          if (isReadyToRun && !isRunning) {
+            let isAllowedToRun = true;
+            if (IS_LOCAL_BUILD && ['testnet', 'mainnet'].includes(NETWORK_NAME)) {
+              stage = 'upgradeApprovalPrompt';
+              isAllowedToRun = await tauriAsk(
+                'Argon is about to push a software upgrade to your mining server. Would you like us to continue?',
+                {
+                  title: 'Preparing to Upgrade Server',
+                  kind: 'warning',
+                },
+              );
+            }
+            if (isAllowedToRun) {
+              stage = 'run';
+              await this.run(false);
+            } else {
+              this.config.isServerInstalling = false;
+            }
           } else {
-            this.config.isServerInstalling = false;
+            stage = 'activateInstallerCheck';
+            await this.activateInstallerCheck(false);
           }
         } else {
-          await this.activateInstallerCheck(false);
+          stage = 'runWithoutServerDetails';
+          await this.run(false);
         }
-      } else {
-        await this.run(false);
       }
-    }
 
-    this.isLoaded = true;
-    this.isLoadedDeferred.resolve();
+      this.isLoaded = true;
+      this.isLoadedDeferred.resolve();
+    } catch (error) {
+      console.error(`[Installer] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
+      throw error;
+    }
   }
 
   public stop(disableWrites = true) {
@@ -360,7 +376,10 @@ export default class Installer {
     }
   }
 
-  private async calculateIsReadyToRun(waitForLoaded: boolean = true): Promise<boolean> {
+  private async calculateIsReadyToRun(
+    waitForLoaded: boolean = true,
+    existingAccountAddress?: string,
+  ): Promise<boolean> {
     if (waitForLoaded) {
       await this.isLoadedPromise;
     }
@@ -376,7 +395,7 @@ export default class Installer {
       return false;
     }
 
-    const tmpInstallChecks = await this.extractTmpInstallChecks();
+    const tmpInstallChecks = await this.extractTmpInstallChecks(existingAccountAddress);
     const isFreshInstall = tmpInstallChecks.isFreshInstall;
     const isServerInstallComplete = tmpInstallChecks.isServerInstallComplete;
     const remoteFilesNeedUpdating = tmpInstallChecks.remoteFilesNeedUpdating;
@@ -495,9 +514,9 @@ export default class Installer {
     this.reasonToSkipInstallData = {};
   }
 
-  private async extractTmpInstallChecks(): Promise<TmpInstallChecks> {
+  private async extractTmpInstallChecks(existingAccountAddress?: string): Promise<TmpInstallChecks> {
     const server = await this.getServer();
-    const existingAddress = await server.downloadAccountAddress();
+    const existingAddress = existingAccountAddress ?? (await server.downloadAccountAddress());
     const isFreshInstall = !existingAddress;
     console.log('IS FRESH INSTALL', isFreshInstall, { existingAddress });
 

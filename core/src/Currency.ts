@@ -13,6 +13,7 @@ import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MainchainClients } from './MainchainClients.ts';
+import { fetch } from './fetch.js';
 
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
 
@@ -132,6 +133,8 @@ export class Currency {
   }
 
   public async load(skipCache = false): Promise<void> {
+    const loadStartedAt = Date.now();
+    let stage = 'fetchMainchainRates';
     try {
       await this.fetchMainchainRates(undefined, skipCache);
 
@@ -139,7 +142,11 @@ export class Currency {
         this.isLoaded = true;
         this.isLoadedDeferred.resolve();
       }
+      stage = 'subscribeToPriceIndex';
       await this.subscribeToPriceIndex();
+    } catch (error) {
+      console.error(`[Currency] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
+      throw error;
     } finally {
       this.scheduleOffchainRatesRefresh();
     }

@@ -95,7 +95,9 @@ export default class Bot {
       this.options.vaultOperatorAddress,
       this.delegateSubmitLane,
     );
-    this.ethereumGatewayProverService = new EthereumGatewayProverService(this.delegateSubmitLane);
+    this.ethereumGatewayProverService = new EthereumGatewayProverService(this.delegateSubmitLane, {
+      vaultOperatorAddress: this.options.vaultOperatorAddress,
+    });
   }
 
   public async state(startupError: string | null = null): Promise<IBotState> {
@@ -428,6 +430,16 @@ export default class Bot {
   }
 
   private getEthereumSyncState(): IEthereumSyncStatus | undefined {
-    return this.ethereumBeaconSyncService?.state();
+    const beaconSyncState = this.ethereumBeaconSyncService?.state();
+    const relayState = this.ethereumGatewayProverService.state();
+
+    if (!beaconSyncState) {
+      return undefined;
+    }
+
+    return {
+      ...beaconSyncState,
+      ...relayState,
+    };
   }
 }

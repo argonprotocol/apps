@@ -1,8 +1,10 @@
 import { Currency, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
-import { MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
+import { Keyring, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
 import type { ApiDecoration, ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { bip39 } from '@argonprotocol/bitcoin';
 import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
+import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
+import { EthereumGatewayProverService } from '../../bot/src/EthereumGatewayProverService.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
 import { Config } from '../../src-vue/lib/Config.ts';
 import { loadEthereumChainConfig } from '../../src-vue/lib/EthereumClient.ts';
@@ -82,7 +84,26 @@ export class VaultActor {
     const transactionTracker = new TransactionTracker(dbPromise, miningFrames.blockWatch);
     const bitcoinLocks = new BitcoinLocks(dbPromise, walletKeys, miningFrames.blockWatch, currency, transactionTracker);
     const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames);
-    const mintingAuthorities = new MintingAuthorities(dbPromise, walletKeys, miningFrames, transactionTracker);
+    const relaySubmitLane = new DelegateSubmitLane(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie'));
+    const ethereumGatewayProverService = new EthereumGatewayProverService(relaySubmitLane);
+    const mintingAuthorities = new MintingAuthorities(
+      dbPromise,
+      walletKeys,
+      miningFrames,
+      transactionTracker,
+      async () => ({
+        serverApiClient: {
+          getEthereumRelayStatus: async () => {
+            relaySubmitLane.client = await args.clients.get(false);
+            return await ethereumGatewayProverService.getRelayStatus();
+          },
+          requestEthereumGatewayCatchUp: async request => {
+            relaySubmitLane.client = await args.clients.get(false);
+            return await ethereumGatewayProverService.runToCheckpoint(request);
+          },
+        },
+      }),
+    );
     const vaults = new Vaults('dev-docker', currency, miningFrames);
     const myVault = new MyVault(
       dbPromise,

@@ -1,11 +1,11 @@
 import { MainchainClients, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import type { ArgonClient } from '@argonprotocol/mainchain';
-import { EvmContracts, getClient, getEthereumBeaconSyncState, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
 import type { IEthereumMintingAuthorityStatus, VaultActor } from '../actors/VaultActor.ts';
-import { readDevEthereumRuntimeState, resolveDevEthereumRpcUrl } from '../devEthereum.ts';
+import { readDevEthereumRuntimeState, resolveDevEthereumRpcUrl, writeDevEthereumRuntimeState } from '../devEthereum.ts';
 import {
   collectVaultOperatorsByEffectiveCouncilSigner,
   forceUpdateGlobalIssuanceCouncil,
@@ -13,7 +13,8 @@ import {
 import { fundArgonAccount } from '../scripts/fundArgonAccount.ts';
 import { fundDevEthereumAccount } from '../scripts/fundDevEthereumAccount.ts';
 
-const DEV_ETHEREUM_MINTING_AUTHORITY_MNEMONIC = 'test test test test test test test test test test test junk';
+const DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC =
+  'legal winner thank year wave sausage worth useful legal winner thank yellow';
 
 export type IDevEthereumMintingAuthorityRuntime = {
   actor: VaultActor;
@@ -35,6 +36,7 @@ export async function startDevEthereumMintingAuthority(args: {
     rpcUrl: args.executionRpcUrl,
     logPrefix: args.logPrefix,
   });
+  const logPrefix = args.logPrefix ?? 'dev-ethereum-minting-authority';
   NetworkConfig.setNetwork('dev-docker');
   NetworkConfig.setRuntimeOverride('dev-docker', {
     ethereumNetwork: {
@@ -46,22 +48,19 @@ export async function startDevEthereumMintingAuthority(args: {
     ...args.virtualEnv,
     network: args.virtualEnv?.network ?? 'dev-docker',
   });
-  await waitForDevEthereumGatewayReady({
-    archiveUrl: args.archiveUrl,
-    executionRpcUrl,
-    logPrefix: args.logPrefix ?? 'dev-ethereum-minting-authority',
-  });
+  await updateMintingAuthorityRuntimeState(executionRpcUrl, 'starting');
   const { VaultActor } = await import('../actors/VaultActor.ts');
   const clients = new MainchainClients(args.archiveUrl, () => false);
   const actor = await VaultActor.load({
     clients,
-    mnemonic: DEV_ETHEREUM_MINTING_AUTHORITY_MNEMONIC,
+    mnemonic: DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC,
   });
   const getClient = async () => await clients.get(false);
 
   let isShutdown = false;
   let shouldStopAuthorizing = false;
   let authorizeTransfersPromise: Promise<void> | undefined;
+  let lastActivationProgressLogAt = 0;
   const shutdown = async () => {
     if (isShutdown) {
       return;
@@ -74,27 +73,43 @@ export async function startDevEthereumMintingAuthority(args: {
   };
 
   try {
-    await activateDevEthereumMintingAuthority({
+    let activationStatus = await activateDevEthereumMintingAuthority({
       actor,
       archiveUrl: args.archiveUrl,
       client: await getClient(),
       executionRpcUrl,
-      logPrefix: args.logPrefix ?? 'dev-ethereum-minting-authority',
+      logPrefix,
     });
+    await updateMintingAuthorityRuntimeState(executionRpcUrl, 'ready');
 
     authorizeTransfersPromise = (async () => {
       while (!shouldStopAuthorizing) {
         try {
           const client = await getClient();
+          if (!activationStatus.authorityActive) {
+            activationStatus = await refreshMintingAuthorityActivation({
+              actor,
+              client,
+              logPrefix,
+            });
+            if (activationStatus.authorityActive) {
+              console.info(`[${logPrefix}] minting authority activation is finalized`);
+            } else if (Date.now() - lastActivationProgressLogAt >= 10_000) {
+              lastActivationProgressLogAt = Date.now();
+              console.info(
+                `[${logPrefix}] minting authority still waiting active=${String(activationStatus.authorityActive)} pending=${String(activationStatus.authorityPendingActivation)} approvals=${activationStatus.pendingApprovals}`,
+              );
+            }
+            await new Promise(resolve => setTimeout(resolve, 1_000));
+            continue;
+          }
+
           const didAuthorize = await actor.authorizeNextPendingTransfer(client);
           if (!didAuthorize) {
             await new Promise(resolve => setTimeout(resolve, 1_000));
           }
         } catch (error) {
-          console.warn(
-            `[${args.logPrefix ?? 'dev-ethereum-minting-authority'}] Unable to authorize pending Ethereum transfer`,
-            error,
-          );
+          console.warn(`[${logPrefix}] Unable to progress Ethereum minting authority`, error);
           await new Promise(resolve => setTimeout(resolve, 1_000));
         }
       }
@@ -116,11 +131,8 @@ async function activateDevEthereumMintingAuthority(args: {
   client: ArgonClient;
   executionRpcUrl: string;
   logPrefix: string;
-}) {
+}): Promise<IEthereumMintingAuthorityStatus> {
   const { actor, archiveUrl, client, executionRpcUrl, logPrefix } = args;
-  const ethereumClient = createPublicClient({
-    transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
-  });
   const initialCommittedMicronots = 1n * BigInt(MICROGONS_PER_ARGON);
   const mintingAuthorityRegistrationMicrogonCollateral = 2000n * BigInt(MICROGONS_PER_ARGON);
   const requiredVaultingBalance = actor.config.vaultingRules.baseMicrogonCommitment + 2n * BigInt(MICROGONS_PER_ARGON);
@@ -136,7 +148,7 @@ async function activateDevEthereumMintingAuthority(args: {
     client,
   });
   if (status.authorityActive) {
-    return;
+    return status;
   }
 
   const getFinalizedClient = async () => await client.at(await client.rpc.chain.getFinalizedHead());
@@ -201,6 +213,7 @@ async function activateDevEthereumMintingAuthority(args: {
 
   console.info(`[${logPrefix}] ensuring vault readiness`);
   await actor.ensureVaultReady();
+  await actor.myVault.subscribe();
 
   console.info(`[${logPrefix}] ensuring council signer registration`);
   await actor.ensureCouncilSignerRegistered({ client });
@@ -295,11 +308,12 @@ async function activateDevEthereumMintingAuthority(args: {
   }
 
   const relaySignerAddress = getAddress(actor.walletKeys.ethereumAddress);
-  const relaySignerBalance = await ethereumClient.getBalance({
+  const relaySignerBalance = await createPublicClient({
+    transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+  }).getBalance({
     address: relaySignerAddress,
   });
   const minimumRelayBalanceWei = 10n ** 17n;
-
   if (relaySignerBalance < minimumRelayBalanceWei) {
     console.info(`[${logPrefix}] funding gateway relay signer ETH`);
     await fundDevEthereumAccount({
@@ -309,83 +323,74 @@ async function activateDevEthereumMintingAuthority(args: {
     });
   }
 
-  console.info(`[${logPrefix}] relaying approved gateway updates`);
-  const relayPreview = await actor.globalCouncil.getReadyGatewayRelayPreview();
-  if (!relayPreview.canRelay) {
-    throw new Error(`${logPrefix}: Ethereum gateway relay is not ready (${relayPreview.reason ?? 'unknown'})`);
-  }
-  const relayApprovalsReceipt = await actor.relayApprovedGatewayUpdates();
-  if (!relayApprovalsReceipt) {
-    throw new Error(`${logPrefix}: no approved Ethereum gateway updates were available to relay.`);
-  }
-
-  console.info(`[${logPrefix}] waiting for minting authority activation`);
-  let lastActivationProgressLogAt = 0;
-  try {
-    await waitFor(
-      60_000,
-      `${logPrefix}: minting authority activation`,
-      async () => {
-        const nextStatus = await refreshStatus();
-        if (nextStatus.gatewayPauseReason) {
-          throw new Error(nextStatus.gatewayPauseReason);
-        }
-        if (nextStatus.authorityActive) {
-          return nextStatus;
-        }
-        if (Date.now() - lastActivationProgressLogAt >= 10_000) {
-          lastActivationProgressLogAt = Date.now();
-          console.info(
-            `[${logPrefix}] minting authority still waiting active=${String(nextStatus.authorityActive)} pending=${String(nextStatus.authorityPendingActivation)} approvals=${nextStatus.pendingApprovals}`,
-          );
-        }
-      },
-      {
-        pollMs: 1_000,
-        timeoutMessage: `${logPrefix}: minting authority did not become active on Argon in time.`,
-      },
-    );
+  status = await refreshMintingAuthorityActivation({
+    actor,
+    client,
+    logPrefix,
+  });
+  if (status.authorityActive) {
     console.info(`[${logPrefix}] minting authority activation is finalized`);
-  } catch (error) {
-    const finalizedClient = await getFinalizedClient();
-    const [authorityOption, gatewayStateOption, beaconSyncState] = await Promise.all([
-      finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(status.mintingAuthoritySigner),
-      finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum'),
-      getEthereumBeaconSyncState(client),
-    ]);
-
-    const authority = authorityOption.isSome ? authorityOption.unwrap() : undefined;
-    const gatewayState = gatewayStateOption.isSome ? gatewayStateOption.unwrap() : undefined;
-
-    console.error(`[${logPrefix}] activation timeout diagnostics`, {
-      status: {
-        active: status.authorityActive,
-        pending: status.authorityPendingActivation,
-        approvals: status.pendingApprovals,
-        pause: status.gatewayPauseReason || 'none',
-      },
-      authority: authority
-        ? {
-            active: authority.state.isActive,
-            pending: authority.state.isPendingActivation,
-            activationQueueNonce: authority.activationApprovalQueueNonce.toBigInt().toString(),
-            remainingMicrogons: authority.gatewayRemainingMicrogonCollateral.toBigInt().toString(),
-            remainingMicronots: authority.gatewayRemainingMicronotCollateral.toBigInt().toString(),
-          }
-        : 'missing',
-      gatewayState: gatewayState
-        ? {
-            argonApprovalsNonce: gatewayState.argonApprovalsNonce.toBigInt().toString(),
-            gatewayActivityNonce: gatewayState.gatewayActivityNonce.toBigInt().toString(),
-          }
-        : 'missing',
-      beacon: {
-        isBootstrapped: beaconSyncState.isBootstrapped,
-        slot: beaconSyncState.isBootstrapped ? beaconSyncState.latestFinalizedSlot.toString() : 'none',
-      },
-    });
-    throw error;
+  } else {
+    console.info(`[${logPrefix}] minting authority activation is continuing in the background`);
   }
+  return status;
+}
+
+async function updateMintingAuthorityRuntimeState(
+  executionRpcUrl: string,
+  mintingAuthorityStatus: 'starting' | 'ready',
+): Promise<void> {
+  const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
+  if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
+    return;
+  }
+
+  await writeDevEthereumRuntimeState({
+    ...runtimeState,
+    mintingAuthorityStatus,
+  });
+}
+
+async function refreshMintingAuthorityActivation(args: {
+  actor: VaultActor;
+  client: ArgonClient;
+  logPrefix: string;
+}): Promise<IEthereumMintingAuthorityStatus> {
+  let status = await args.actor.getEthereumMintingAuthorityStatus({
+    client: args.client,
+  });
+  if (status.gatewayPauseReason) {
+    throw new Error(status.gatewayPauseReason);
+  }
+  if (status.authorityActive) {
+    return status;
+  }
+
+  if (status.pendingApprovals > 0) {
+    console.info(`[${args.logPrefix}] approving pending council updates`);
+    await args.actor.approvePendingGatewayUpdates({
+      client: args.client,
+    });
+    status = await args.actor.getEthereumMintingAuthorityStatus({
+      client: args.client,
+      priorStatus: status,
+    });
+  }
+
+  const finalizedClient = await args.client.at(await args.client.rpc.chain.getFinalizedHead());
+  await args.actor.globalCouncil.refresh(finalizedClient);
+  if (status.authorityPendingActivation && status.pendingApprovals === 0) {
+    const preview = await args.actor.globalCouncil.getReadyGatewayRelayPreview();
+    if (preview.canRelay && preview.activationCount > 0) {
+      console.info(`[${args.logPrefix}] relaying approved gateway updates`);
+      await args.actor.relayApprovedGatewayUpdates();
+    }
+  }
+
+  return await args.actor.getEthereumMintingAuthorityStatus({
+    client: args.client,
+    priorStatus: status,
+  });
 }
 
 async function ensureArgonBalance(args: {
@@ -452,60 +457,4 @@ function seedVirtualFrontendGlobals(args?: {
 
   Object.assign(virtualWindow, globals);
   Object.assign(globalThis as Record<string, unknown>, globals);
-}
-
-async function waitForDevEthereumGatewayReady(args: {
-  archiveUrl: string;
-  executionRpcUrl: string;
-  logPrefix: string;
-}) {
-  const publicClient = createPublicClient({
-    transport: http(args.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
-  });
-  const client = await getClient(args.archiveUrl);
-
-  try {
-    await waitFor(
-      2 * 60_000,
-      `${args.logPrefix}: dev Ethereum gateway readiness`,
-      async () => {
-        const runtimeState = await readDevEthereumRuntimeState(args.executionRpcUrl);
-        if (runtimeState?.setupStatus !== 'ready' || runtimeState.executionRpcUrl !== args.executionRpcUrl) {
-          return;
-        }
-
-        const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
-        const [beaconSyncState, chainConfig] = await Promise.all([
-          getEthereumBeaconSyncState(client),
-          finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum'),
-        ]);
-        if (!beaconSyncState.isBootstrapped || chainConfig.isNone || !chainConfig.unwrap().isEvm) {
-          return;
-        }
-
-        const ethereumConfig = chainConfig.unwrap().asEvm;
-        const gatewayAddress = getAddress(ethereumConfig.gateway.toHex());
-        if ((await publicClient.getChainId()) !== Number(ethereumConfig.chainId.toString())) {
-          return;
-        }
-
-        try {
-          await publicClient.readContract({
-            address: gatewayAddress,
-            abi: EvmContracts.mintingGatewayAbi,
-            functionName: 'argonApprovalsNonce',
-          });
-          return gatewayAddress;
-        } catch {
-          return;
-        }
-      },
-      {
-        pollMs: 1_000,
-        timeoutMessage: `${args.logPrefix}: local Ethereum gateway never became readable on ${args.executionRpcUrl}.`,
-      },
-    );
-  } finally {
-    await client.disconnect().catch(() => undefined);
-  }
 }

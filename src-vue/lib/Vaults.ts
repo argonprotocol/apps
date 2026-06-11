@@ -23,6 +23,8 @@ export class Vaults extends VaultsBase {
   }
 
   protected async saveStats(): Promise<void> {
+    // Vitest integration runs in Node, so keep vault stats in memory instead of calling Tauri fs.
+    if (typeof window === 'undefined') return;
     if (!this.stats) return;
     if (this.isSavingStats) return;
     this.isSavingStats = true;
@@ -46,6 +48,7 @@ export class Vaults extends VaultsBase {
   }
 
   protected async loadStatsFromFile(): Promise<IAllVaultStats | void> {
+    if (typeof window === 'undefined') return;
     console.log('load stats from file', this.statsFile());
     const state = await readTextFile(this.statsFile(), {
       baseDir: BaseDirectory.AppConfig,

@@ -20,7 +20,7 @@
     </template>
 
     <div class="min-w-0 leading-tight text-white">
-      <template v-if="notice.isProcessing && notice.collectRevenue">
+      <template v-if="notice.isCollectProcessing && notice.collectRevenue">
         <strong>{{ formatMoney(notice.collectRevenue) }} is being collected</strong>
       </template>
 
@@ -307,7 +307,7 @@ function getButtonLabel(notice: IVaultCollectNotice): string {
 }
 
 function getCardTitle(notice: IVaultCollectNotice): string {
-  if (notice.isProcessing && notice.collectRevenue > 0n) {
+  if (notice.isCollectProcessing && notice.collectRevenue > 0n) {
     return `${formatMoney(notice.collectRevenue)} is being collected`;
   }
 

@@ -248,6 +248,12 @@ export const useOperationsController = defineStore('operationsController', () =>
       unactivatedReferrals: activeOperationalInviteCount.value,
     };
   });
+  const dismissedCompletionNoticeStepIds = Vue.computed(() => {
+    const stepIds = config.certificationDetails?.dismissedCompletionNoticeStepIds ?? [];
+    return new Set(
+      stepIds.filter(stepId => operationalStepIds.includes(stepId as OperationalStepId)) as OperationalStepId[],
+    );
+  });
   const pendingRewardsAmount = Vue.computed(() => {
     const pending = inviteSlotProgress.value.rewardsEarnedAmount - inviteSlotProgress.value.rewardsCollectedAmount;
     return pending > 0n ? pending : 0n;
@@ -337,20 +343,20 @@ export const useOperationsController = defineStore('operationsController', () =>
     if (operationalAccountUnsubscribe) return;
     rewardConfig.value = await getOperationalRewardConfig();
 
-    await Promise.all([
-      subscribeOperationalAccount(walletKeys, x => {
-        chainProgress.value = x;
+    void subscribeOperationalAccount(walletKeys, x => {
+      chainProgress.value = x;
+    })
+      .then(unsub => {
+        operationalAccountUnsubscribe = unsub;
       })
-        .then(unsub => {
-          operationalAccountUnsubscribe = unsub;
-        })
-        .catch(error => {
-          console.error('[Operations Controller] Unable to subscribe to operational progress.', error);
-        }),
-      bitcoinLocks.load().catch(error => {
-        console.error('[Operations Controller] Unable to load bitcoin lock progress.', error);
-      }),
-    ]);
+      .catch(error => {
+        console.error('[Operations Controller] Unable to subscribe to operational progress.', error);
+      });
+
+    void bitcoinLocks.load().catch(error => {
+      console.error('[Operations Controller] Unable to load bitcoin lock progress.', error);
+    });
+
     void registerExistingOperationalAccountIfNeeded();
 
     // detect newly completed steps and queue completion notices
@@ -373,6 +379,7 @@ export const useOperationsController = defineStore('operationsController', () =>
         if (!newlyCompletedStepIds.length) return;
 
         for (const stepId of newlyCompletedStepIds) {
+          if (dismissedCompletionNoticeStepIds.value.has(stepId)) continue;
           if (activeGuideId.value === stepId) {
             activeGuideId.value = null;
           }
@@ -543,11 +550,27 @@ export const useOperationsController = defineStore('operationsController', () =>
     return status?.label !== 'Became operational' && status?.label !== 'Expired';
   }
 
+  function acknowledgeCompletionNoticeSteps(stepIds: OperationalStepId[]) {
+    if (!stepIds.length) return;
+
+    const savedStepIds = config.certificationDetails?.dismissedCompletionNoticeStepIds ?? [];
+    const nextStepIds = [...new Set([...savedStepIds, ...stepIds])];
+    if (nextStepIds.length === savedStepIds.length) return;
+
+    config.setCertificationDetails({ dismissedCompletionNoticeStepIds: nextStepIds });
+    void config.save();
+  }
+
   function dismissCompletionNotice() {
+    const [stepId] = completionNoticeQueue.value;
+    if (stepId) {
+      acknowledgeCompletionNoticeSteps([stepId]);
+    }
     completionNoticeQueue.value = completionNoticeQueue.value.slice(1);
   }
 
   function clearCompletionNotices() {
+    acknowledgeCompletionNoticeSteps(completionNoticeQueue.value);
     completionNoticeQueue.value = [];
   }
 

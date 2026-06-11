@@ -1,8 +1,30 @@
-import { describe, expect, it } from 'vitest';
-import { getEthereumUserErrorMessage, submitEthereumTransaction } from '../lib/EthereumClient.ts';
+import { NetworkConfig, setFetchImplementation, type FetchImplementation } from '@argonprotocol/apps-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { keccak256, TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
+import {
+  createEthereumPublicClient,
+  getEthereumUserErrorMessage,
+  submitEthereumTransaction,
+} from '../lib/EthereumClient.ts';
+
+const runtimeFetchMock = vi.fn();
 
 describe('EthereumClient', () => {
+  beforeEach(() => {
+    runtimeFetchMock.mockReset();
+    setFetchImplementation();
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: {
+        executionRpcUrl: 'https://ethereum.test',
+      },
+    });
+  });
+
+  afterEach(() => {
+    setFetchImplementation();
+    NetworkConfig.clearRuntimeOverride('dev-docker');
+  });
+
   it('prefers the short viem error message over raw RPC request details', () => {
     const error = Object.assign(
       new Error(
@@ -79,5 +101,25 @@ describe('EthereumClient', () => {
         fallbackErrorMessage: 'fallback',
       }),
     ).rejects.toThrow('Missing or invalid parameters. Double check you have provided the correct parameters.');
+  });
+
+  it('routes Ethereum balance requests through plugin-http', async () => {
+    runtimeFetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x2a' }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    setFetchImplementation(runtimeFetchMock as unknown as FetchImplementation);
+
+    const publicClient = createEthereumPublicClient();
+
+    await expect(publicClient.getBalance({ address: '0x0000000000000000000000000000000000000001' })).resolves.toBe(42n);
+    expect(String(runtimeFetchMock.mock.calls[0][0])).toBe('https://ethereum.test/');
+    const requestBody = JSON.parse(String(runtimeFetchMock.mock.calls[0][1]?.body));
+    expect(requestBody.method).toBe('eth_getBalance');
+    expect(requestBody.params).toEqual(['0x0000000000000000000000000000000000000001', 'latest']);
   });
 });

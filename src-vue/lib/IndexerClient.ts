@@ -1,5 +1,4 @@
-import { IIndexerSpec, NetworkConfig } from '@argonprotocol/apps-core';
-import { fetch } from '@tauri-apps/plugin-http';
+import { fetch, IIndexerSpec, NetworkConfig } from '@argonprotocol/apps-core';
 import { LOG_DEBUG } from './Env.ts';
 
 export async function findAddressTransferBlocks(

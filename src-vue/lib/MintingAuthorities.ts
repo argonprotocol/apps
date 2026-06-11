@@ -10,7 +10,7 @@ import type { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
-import { getMainchainClient } from '../stores/mainchain.ts';
+import { getFinalizedClient, getMainchainClient } from '../stores/mainchain.ts';
 
 const MINTING_AUTHORITY_SIGNER_SCAN_BATCH_SIZE = 16;
 const MINTING_AUTHORITY_SIGNER_SCAN_LIMIT = 128;
@@ -413,7 +413,7 @@ export class MintingAuthorities {
 
     try {
       const client = await getMainchainClient(false);
-      await this.refresh(await client.at(await client.rpc.chain.getFinalizedHead()));
+      await this.refresh(await getFinalizedClient(client));
       await txInfo.txResult.waitForFinalizedBlock;
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
       await this.refresh(await client.at(blockHash));
@@ -423,7 +423,7 @@ export class MintingAuthorities {
       throw error;
     } finally {
       for (const { transferId } of authorizations) {
-        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId) === txInfo) {
+        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId)?.tx.id === txInfo.tx.id) {
           this.data.pendingMintingAuthorizeTxInfosByTransferId.delete(transferId);
         }
       }

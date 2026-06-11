@@ -258,6 +258,8 @@ export const useWallets = defineStore('wallets', () => {
 
   async function load() {
     for (let i = 0; i < 2; i++) {
+      const attempt = i + 1;
+      const attemptStartedAt = Date.now();
       try {
         await config.isLoadedPromise;
         await Promise.all([walletsForArgon.load(), walletForEthereum.load(), walletForBase.load()]);
@@ -276,7 +278,7 @@ export const useWallets = defineStore('wallets', () => {
         isLoaded.value = true;
         return;
       } catch (error) {
-        console.error(`Error loading wallets`, error);
+        console.error(`[useWallets] Load attempt ${attempt} failed after ${Date.now() - attemptStartedAt}ms`, error);
         // TODO: this is a bit of a hack to make sure we don't get stuck in a loop. We should replace this with setting
         //  fetchErrorMsg on each wallet.
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {

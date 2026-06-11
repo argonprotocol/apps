@@ -111,17 +111,17 @@ export class WalletsForArgon {
       return this.deferredLoading.promise;
     }
     this.deferredLoading.setIsRunning(true);
-    console.time('[WalletsForArgon] Load and sync wallets');
+    const loadStartedAt = Date.now();
+    let stage: string | undefined;
     try {
+      stage = 'blockWatch.start';
       await this.blockWatch.start();
+
+      stage = 'resumeWalletSync';
       await this.resumeWalletSync();
-      console.timeLog('[WalletsForArgon] Load and sync wallets', 'Synced within range of indexer');
+
+      stage = 'loadBalancesAt';
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
-      console.log('[WalletsForArgon] Loaded and synced wallets', {
-        mining: this.miningHoldWallet.totalMicronots,
-        miningBot: this.miningBotWallet.totalMicronots,
-        vaulting: this.vaultingWallet.totalMicronots,
-      });
       this.unsubscribe = this.blockWatch.events.on('best-blocks', (blocks: IBlockHeaderInfo[]) => {
         const latestBlock = blocks[blocks.length - 1];
         void this.loadBalancesAt(latestBlock).catch(error => {
@@ -133,9 +133,12 @@ export class WalletsForArgon {
       });
       this.deferredLoading.resolve();
     } catch (err) {
+      console.error(
+        `[WalletsForArgon] Initial load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`,
+        err,
+      );
       this.deferredLoading.reject(err);
     }
-    console.timeEnd('[WalletsForArgon] Load and sync wallets');
     return this.deferredLoading.promise;
   }
 
@@ -370,7 +373,6 @@ export class WalletsForArgon {
     }
 
     const syncStartBlock = Math.min(latestFinalizedNumber, latestBlockNumberSynced);
-    console.info(`[WalletsForArgon] Resumed wallet sync to block ${syncStartBlock}. Latest is ${bestBlockNumber}.`);
     const syncedToBlock = await this.blockWatch.getHeader(syncStartBlock);
     const addresses = this.addresses;
     const { balances } = await this.readBalances(addresses, syncedToBlock);

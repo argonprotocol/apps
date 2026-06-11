@@ -52,7 +52,13 @@ export function getConfig(): Vue.Reactive<Config> {
         // Ensure any unsaved changes are saved when the window is closed
         console.info('Config loaded');
         void getCurrentWindow().onCloseRequested(async () => {
-          await config?.save();
+          if (!config?.isLoaded) {
+            return;
+          }
+
+          await config.save().catch(error => {
+            console.warn('Failed to save config on close', error);
+          });
         });
       })
       .catch(handleFatalError.bind('useConfig'));

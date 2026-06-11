@@ -29,6 +29,7 @@ export * from './InviteCodes.js';
 export * from './RouterAuth.js';
 export * from './SqliteMigrations.js';
 export * from './SqliteUtils.js';
+export * from './fetch.js';
 export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
 export * from './BondLot.js';

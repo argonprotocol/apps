@@ -1,4 +1,4 @@
-import { getClient } from '@argonprotocol/mainchain';
+import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
 import { sudo } from '@argonprotocol/testing';
 import { NetworkConfigSettings } from '../../src/NetworkConfig.ts';
 import { submitAndFinalize } from './mainchain.ts';
@@ -8,6 +8,7 @@ export interface ISudoFundWalletInput {
   microgons: bigint;
   micronots: bigint;
   archiveUrl?: string;
+  client?: ArgonClient;
 }
 
 export interface ISudoFundWalletResult {
@@ -19,7 +20,8 @@ export interface ISudoFundWalletResult {
 }
 
 export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudoFundWalletResult> {
-  const client = await getClient(resolveArchiveUrl(input.archiveUrl));
+  const client = input.client ?? (await getClient(resolveArchiveUrl(input.archiveUrl)));
+  const ownsClient = !input.client;
   try {
     const tx = client.tx.sudo.sudo(
       client.tx.utility.batch([
@@ -69,7 +71,9 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
       fundedMicronots,
     };
   } finally {
-    await client.disconnect();
+    if (ownsClient) {
+      await client.disconnect();
+    }
   }
 }
 

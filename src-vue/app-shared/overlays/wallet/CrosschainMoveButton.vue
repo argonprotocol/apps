@@ -1,5 +1,5 @@
 <template>
-  <HoverCardRoot :open="isHovered && !!pendingTransfer" :openDelay="0">
+  <HoverCardRoot :open="isHovered && !!activeTransfer" :openDelay="0">
     <HoverCardTrigger :asChild="true">
       <button
         :data-testid="getMoveButtonTestId()"
@@ -11,7 +11,7 @@
         @click="openTransferOverlay"
       >
         <div class="absolute top-0 left-0 h-full w-9/12 bg-gradient-to-r from-white to-transparent" />
-        <div v-if="isTransferSubmitting" spinner class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 border-3" />
+        <div v-if="hasPendingTransfer" spinner class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 border-3" />
         <div v-else class="text-argon-600 absolute top-1/2 right-4 -translate-y-1/2 text-sm font-bold">MOVE</div>
         <MoveArrow class="pointer-events-none h-full" />
       </button>
@@ -19,7 +19,7 @@
 
     <HoverCardPortal>
       <HoverCardContent
-        v-if="pendingTransfer"
+        v-if="activeTransfer"
         side="top"
         align="end"
         :sideOffset="12"
@@ -46,7 +46,7 @@
 
           <p v-else-if="inboundTransfer" class="font-light text-slate-700">
             Moving
-            <strong>{{ props.moveToken }}</strong>
+            <strong>{{ formatTokenAmount(inboundTransfer.transferState.amount) }} {{ props.moveToken }}</strong>
             from your
             <strong>{{ props.networkName }}</strong>
             wallet into your
@@ -118,13 +118,7 @@ import * as Vue from 'vue';
 import { MoveToken } from '@argonprotocol/apps-core';
 import { HoverCardArrow, HoverCardContent, HoverCardPortal, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
 import ProgressBar from '../../../components/ProgressBar.vue';
-import type {
-  IArgonWalletType,
-  IEthereumInboundTransferState,
-  IEthereumMoveToken,
-} from '../../../interfaces/IEthereumInboundTransferTracker.ts';
-import { hydrateCrosschainTransferProgress } from '../../../lib/CrosschainTransferProgress.ts';
-import type { IEthereumOutboundTransferState } from '../../../lib/EthereumOutboundTransferTracker.ts';
+import type { IArgonWalletType, IEthereumMoveToken } from '../../../interfaces/IEthereumInboundTransferTracker.ts';
 import type { IEthereumInboundActiveTransfer } from '../../../lib/EthereumInboundTransferTracker.ts';
 import MoveArrow from '../../../assets/move-arrow.svg';
 import { formatEvmNativeFeeWei } from '../../../lib/Utils.ts';
@@ -134,6 +128,12 @@ import { getCurrency } from '../../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../../stores/moveToEthereum.ts';
 import { loadEthereumChainConfig } from '../../../lib/EthereumClient.ts';
+import {
+  getCrosschainTransferProgressView,
+  isCrosschainTransferVisible,
+  isCrosschainTransferPending,
+  type ITransferProgressView,
+} from './crosschainTransferView.ts';
 
 const props = defineProps<{
   moveToken: IEthereumMoveToken;
@@ -150,15 +150,6 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
-type ITransferProgressView = {
-  progressPct: number;
-  stepLabel: string;
-  detail: string;
-  hint?: string;
-  error: string;
-  remainingMintingAuthorizationMicrogons?: bigint;
-};
-
 const isHovered = Vue.ref(false);
 const hasActiveEthereumTransferConfig = Vue.ref(false);
 const progressNow = Vue.ref(Date.now());
@@ -166,7 +157,7 @@ const progressNow = Vue.ref(Date.now());
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 const inboundTransfer = Vue.computed(() => {
-  if (props.direction !== 'transferToArgon' || !hasActiveEthereumTransferConfig.value) {
+  if (props.direction !== 'transferToArgon') {
     return;
   }
 
@@ -177,7 +168,7 @@ const inboundTransfer = Vue.computed(() => {
   }
 
   const transfer = ethereumMoveTracker.getTransfer(transferId);
-  if (!transfer || !isTransferPending(transfer.transferState)) {
+  if (!transfer || !isCrosschainTransferVisible(transfer.transferState)) {
     return;
   }
 
@@ -185,54 +176,50 @@ const inboundTransfer = Vue.computed(() => {
 });
 
 const outboundTransfer = Vue.computed(() => {
-  if (props.direction !== 'transferOutOfArgon' || !hasActiveEthereumTransferConfig.value) {
+  if (props.direction !== 'transferOutOfArgon') {
     return;
   }
 
   const ethereumOutboundTransferTracker = getEthereumOutboundTransferTracker();
   const transfer = ethereumOutboundTransferTracker.getLatestTransfer(props.moveToken);
-  if (!transfer || !isTransferPending(transfer.transferState)) {
+  if (!transfer || !isCrosschainTransferVisible(transfer.transferState)) {
     return;
   }
 
   return transfer;
 });
 
-const pendingTransfer = Vue.computed(() => outboundTransfer.value ?? inboundTransfer.value);
-const isTransferSubmitting = Vue.computed(() => {
-  if (!hasActiveEthereumTransferConfig.value) {
-    return false;
-  }
-
-  if (props.direction === 'transferOutOfArgon') {
-    const ethereumOutboundTransferTracker = getEthereumOutboundTransferTracker();
-    return ethereumOutboundTransferTracker.getTransferStateForToken(props.moveToken).isSubmitting;
-  }
-
-  const ethereumMoveTracker = getEthereumMoveTracker();
-  return ethereumMoveTracker.getTransferStateForToken(props.moveToken).isSubmitting;
-});
+const activeTransfer = Vue.computed(() => outboundTransfer.value ?? inboundTransfer.value);
+const hasVisibleTransfer = Vue.computed(() => !!activeTransfer.value);
+const hasPendingTransfer = Vue.computed(() => isCrosschainTransferPending(activeTransfer.value?.transferState));
 const isMoveDisabled = Vue.computed(() => {
-  if (!hasActiveEthereumTransferConfig.value) {
+  if (!hasActiveEthereumTransferConfig.value && !hasVisibleTransfer.value) {
     return true;
   }
 
   if (props.direction === 'transferOutOfArgon') {
     const ethereumOutboundTransferTracker = getEthereumOutboundTransferTracker();
     const transferState = ethereumOutboundTransferTracker.getTransferStateForToken(props.moveToken);
-    return !transferState.hasPersistedTransfer && !transferState.isSubmitting && props.availableAmount <= 0n;
+    return (
+      !hasVisibleTransfer.value &&
+      !transferState.hasPersistedTransfer &&
+      !transferState.isSubmitting &&
+      props.availableAmount <= 0n
+    );
   }
 
   const ethereumMoveTracker = getEthereumMoveTracker();
   const transferState = ethereumMoveTracker.getTransferStateForToken(props.moveToken);
-  return !transferState.hasPersistedTransfer && props.availableAmount <= 0n;
+  return (
+    !hasVisibleTransfer.value &&
+    !transferState.hasPersistedTransfer &&
+    !transferState.isSubmitting &&
+    props.availableAmount <= 0n
+  );
 });
 const progressView = Vue.computed(() => {
-  if (outboundTransfer.value) {
-    return getTransferProgressView(outboundTransfer.value.transferState, progressNow.value);
-  }
-  if (inboundTransfer.value) {
-    return getTransferProgressView(inboundTransfer.value.transferState, progressNow.value);
+  if (activeTransfer.value) {
+    return getCrosschainTransferProgressView(activeTransfer.value.transferState, progressNow.value);
   }
 
   return { progressPct: 0, stepLabel: '', detail: '', error: '' } satisfies ITransferProgressView;
@@ -293,29 +280,6 @@ function getArgonWalletLabel(walletType?: IArgonWalletType) {
     default:
       return 'selected wallet';
   }
-}
-
-function isTransferPending(transferState: {
-  isSubmitting: boolean;
-  hasPersistedTransfer: boolean;
-  needsAcknowledgement: boolean;
-}) {
-  return transferState.isSubmitting || transferState.hasPersistedTransfer || transferState.needsAcknowledgement;
-}
-
-function getTransferProgressView(
-  transferState: IEthereumOutboundTransferState | IEthereumInboundTransferState,
-  nowMs: number,
-): ITransferProgressView {
-  const displayProgress = hydrateCrosschainTransferProgress(transferState.progress.steps, nowMs);
-  return {
-    progressPct: displayProgress.overallProgressPct,
-    stepLabel: displayProgress.currentStepLabel,
-    detail: displayProgress.currentStepDetail ?? '',
-    hint: displayProgress.currentStepHint,
-    remainingMintingAuthorizationMicrogons: displayProgress.currentStepRemainingMintingAuthorizationMicrogons,
-    error: transferState.error,
-  };
 }
 </script>
 
