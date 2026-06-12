@@ -46,6 +46,10 @@
     "darwin-x86_64-app": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
       "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+    },
+    "darwin-aarch64-debug": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
     }
   }
 }
