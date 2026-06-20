@@ -1,9 +1,6 @@
 import dayjs, { Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { IBitcoinPriceRecord } from '../interfaces/IBitcoinPriceRecord';
-import BitcoinFees from './BitcoinFees';
-import BitcoinPrices from './BitcoinPrices';
-import { GlobalVaultingStats } from '@argonprotocol/apps-core';
+import { GlobalVaultingStats, BitcoinFees, BitcoinPrices, type IBitcoinPriceRecord } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 

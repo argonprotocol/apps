@@ -1,8 +1,8 @@
 import dayjs, { type Dayjs } from 'dayjs';
-import { type IBitcoinPriceRecord } from '../interfaces/IBitcoinPriceRecord.ts';
-import { bitcoinPrices } from '@argonprotocol/apps-core';
+import { type IBitcoinPriceRecord } from './interfaces/index.js';
+import { bitcoinPrices } from './index.js';
 
-export default class BitcoinPrices {
+export class BitcoinPrices {
   public prices: IBitcoinPriceRecord[] = [];
   public indexByDate: { [date: string]: number } = {};
 

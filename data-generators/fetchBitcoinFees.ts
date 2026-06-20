@@ -9,7 +9,7 @@ dayjs.extend(utc);
 const START_DATE = '2025-01-01';
 const TODAY = dayjs.utc().format('YYYY-MM-DD');
 
-export default async function fetchBitcoinFeeData() {
+export async function fetchBitcoinFees() {
   const data = await BitcoinDataFetcher.fetchFees(START_DATE, TODAY);
   const filePath = path.join(process.cwd(), 'core', 'src', 'data', 'bitcoinFees.json');
   const fileDir = path.dirname(filePath);

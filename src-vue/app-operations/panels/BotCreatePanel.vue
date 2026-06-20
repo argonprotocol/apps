@@ -17,7 +17,7 @@
             // transform: 'translate(-50%, -50%)',
             // cursor: draggable.isDragging ? 'grabbing' : 'default',
           }"
-          class="BotCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-50 transition-all focus:outline-none"
+          class="BotCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-200 transition-all focus:outline-none"
           style="box-shadow: 0px -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)"
         >
           <BgOverlay v-if="hasEditBoxOverlay" @close="cancelEditOverlay" :showWindowControls="false" rounded="md" class="z-100" />

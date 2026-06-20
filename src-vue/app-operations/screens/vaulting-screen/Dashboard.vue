@@ -133,9 +133,9 @@
                   <button @click="openVaultMembersOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
                     Manage Members
                   </button>
-                  <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
-                    Optimize Revenue
-                  </button>
+<!--                  <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">-->
+<!--                    Optimize Revenue-->
+<!--                  </button>-->
                 </div>
               </div>
               <div class="flex min-h-0 w-full grow flex-row items-stretch gap-x-2 px-2">

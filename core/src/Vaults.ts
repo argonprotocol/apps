@@ -238,7 +238,7 @@ export class Vaults {
     return vault.activatedSecuritization();
   }
 
-  public contributedTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
+  public contributedTotalTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
     if (!this.stats) return 0n;
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
@@ -250,7 +250,19 @@ export class Vaults {
       .reduce((total, change) => total + change.treasuryPool.externalCapital + change.treasuryPool.vaultCapital, 0n);
   }
 
-  public treasuryPoolEarnings(vaultId: number, maxFrames = 10): bigint {
+  public contributedInternalTreasuryCapital(vaultId: number, maxFrames = 10): bigint {
+    if (!this.stats) return 0n;
+    const vaultRevenue = this.stats?.vaultsById[vaultId];
+    if (!vaultRevenue) return 0n;
+
+    const oldestFrameId = this.syncedToFrame - maxFrames + 1;
+    return vaultRevenue.changesByFrame
+      .slice(0, maxFrames)
+      .filter(x => x.frameId >= oldestFrameId)
+      .reduce((total, change) => total + change.treasuryPool.vaultCapital, 0n);
+  }
+
+  public treasuryPoolTotalEarnings(vaultId: number, maxFrames = 10): bigint {
     const vaultRevenue = this.stats?.vaultsById[vaultId];
     if (!vaultRevenue) return 0n;
 
@@ -259,6 +271,17 @@ export class Vaults {
       .slice(0, maxFrames)
       .filter(x => x.frameId >= oldestFrameId)
       .reduce((total, change) => total + change.treasuryPool.totalEarnings, 0n);
+  }
+
+  public treasuryPoolInternalEarnings(vaultId: number, maxFrames = 10): bigint {
+    const vaultRevenue = this.stats?.vaultsById[vaultId];
+    if (!vaultRevenue) return 0n;
+
+    const oldestFrameId = this.syncedToFrame - maxFrames + 1;
+    return vaultRevenue.changesByFrame
+      .slice(0, maxFrames)
+      .filter(x => x.frameId >= oldestFrameId)
+      .reduce((total, change) => total + change.treasuryPool.vaultEarnings, 0n);
   }
 
   public getTrailingYearFeeRevenue(vaultId: number): bigint {
@@ -298,11 +321,7 @@ export class Vaults {
   }
 
   public getTotalSatoshisLocked(): bigint {
-    if (!this.stats) return 0n;
-    return Object.values(this.stats.vaultsById).reduce((total, vault) => {
-      const changesByFrame = vault.changesByFrame.reduce((sum, change) => sum + change.satoshisAdded, 0n);
-      return total + vault.baseline.satoshis + changesByFrame;
-    }, 0n);
+    return Object.values(this.vaultSatoshisById).reduce((total, vault) => total + vault.lockedSatoshis, 0n);
   }
 
   public async fetchAndCalculateRedemptionAmount(lock: {
@@ -326,7 +345,7 @@ export class Vaults {
     const vault = this.vaultsById[vaultId];
     if (!vault) return 0;
 
-    const epochPoolCapital = Number(this.contributedTreasuryCapital(vaultId, 10));
+    const epochPoolCapital = Number(this.contributedTotalTreasuryCapital(vaultId, 10));
     const activatedSecuritization = Number(
       this.stats?.vaultsById[vaultId]?.changesByFrame[0]?.securitizationActivated ?? 0n,
     );
@@ -336,20 +355,102 @@ export class Vaults {
     return Math.round((epochPoolCapital / activatedSecuritization) * 100);
   }
 
-  public calculateVaultApy(vaultId: number): number {
+  public calculateBondsApr(): number {
+    let epochExternalPoolCapital = 0n;
+    let epochExternalPoolEarnings = 0;
+
+    // TODO: We might want to update this once we have enough active Treasury app users
+    for (const vaultIdRaw of Object.keys(this.vaultsById)) {
+      const vaultId = Number(vaultIdRaw);
+      const vault = this.vaultsById[vaultId];
+      const totalPoolEarnings = this.treasuryPoolTotalEarnings(vaultId, 10);
+      const totalPoolCapital = this.contributedTotalTreasuryCapital(vaultId, 10);
+      if (!vault.terms.treasuryProfitSharing) continue;
+      if (!totalPoolEarnings) continue;
+      if (!totalPoolCapital) continue;
+
+      epochExternalPoolCapital += totalPoolCapital;
+      epochExternalPoolEarnings += BigNumber(totalPoolEarnings)
+        .multipliedBy(vault.terms.treasuryProfitSharing)
+        .toNumber();
+    }
+
+    let epochPoolEarningsRatio = 0;
+    if (epochExternalPoolCapital) {
+      epochPoolEarningsRatio = BigNumber(epochExternalPoolEarnings).div(epochExternalPoolCapital).toNumber();
+    }
+
+    const poolApr = epochPoolEarningsRatio * 36.5;
+
+    return poolApr * 100;
+  }
+
+  private calculateEpochReturns(): [number, number] {
+    let yearFeeRevenue = 0n;
+    let securitization = 0n;
+    let epochPoolCapital = 0n;
+    let epochPoolEarnings = 0n;
+
+    for (const vaultIdRaw of Object.keys(this.vaultsById)) {
+      const vaultId = Number(vaultIdRaw);
+      yearFeeRevenue += this.getTrailingYearFeeRevenue(vaultId);
+      securitization += this.vaultsById[vaultId].securitization;
+      epochPoolCapital += this.contributedInternalTreasuryCapital(vaultId, 10);
+      epochPoolEarnings += this.treasuryPoolInternalEarnings(vaultId, 10);
+    }
+
+    let epochPoolEarningsRatio = 0;
+    if (epochPoolCapital) {
+      epochPoolEarningsRatio = BigNumber(epochPoolEarnings).div(epochPoolCapital).toNumber();
+    }
+
+    let feeApr = 0;
+    if (securitization > 0n) {
+      feeApr = BigNumber(yearFeeRevenue).div(securitization).toNumber();
+    }
+
+    return [epochPoolEarningsRatio, feeApr];
+  }
+
+  public calculateApr(): number {
+    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturns();
+    const poolApr = epochPoolEarningsRatio * 36.5;
+
+    return (poolApr + feeApr) * 100;
+  }
+
+  public calculateApy(): number {
+    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturns();
+    const poolApy = (1 + epochPoolEarningsRatio) ** 36.5 - 1;
+
+    return (poolApy + feeApr) * 100;
+  }
+
+  private calculateEpochReturnsForVault(vaultId: number): [number, number] {
     const vault = this.vaultsById[vaultId];
 
     const yearFeeRevenue = Number(this.getTrailingYearFeeRevenue(vaultId));
-
-    const epochPoolCapital = Number(this.contributedTreasuryCapital(vaultId, 10));
-
-    const epochPoolEarnings = Number(this.treasuryPoolEarnings(vaultId, 10));
+    const epochPoolCapital = Number(this.contributedInternalTreasuryCapital(vaultId, 10));
+    const epochPoolEarnings = Number(this.treasuryPoolInternalEarnings(vaultId, 10));
     const epochPoolEarningsRatio = epochPoolCapital ? epochPoolEarnings / epochPoolCapital : 0;
 
-    const poolApy = (1 + epochPoolEarningsRatio) ** 36.5 - 1;
     const feeApr = vault.securitization > 0n ? yearFeeRevenue / Number(vault.securitization) : 0;
 
-    return poolApy + feeApr;
+    return [epochPoolEarningsRatio, feeApr];
+  }
+
+  public calculateVaultApr(vaultId: number): number {
+    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturnsForVault(vaultId);
+    const poolApr = epochPoolEarningsRatio * 36.5;
+
+    return (poolApr + feeApr) * 100;
+  }
+
+  public calculateVaultApy(vaultId: number): number {
+    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturnsForVault(vaultId);
+    const poolApy = (1 + epochPoolEarningsRatio) ** 36.5 - 1;
+
+    return (poolApy + feeApr) * 100;
   }
 
   private async loadStats(): Promise<IAllVaultStats> {

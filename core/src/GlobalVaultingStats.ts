@@ -8,9 +8,12 @@ export class GlobalVaultingStats {
   public microgonValueOfVaultedBitcoins: bigint = 0n;
   public epochEarnings: bigint = 0n;
   public vaultCount: number = 0;
+  public activeAPR: number = 0;
   public activeAPY: number = 0;
-  public bitcoinLocked: number = 0;
 
+  public bondsAPR: number = 0;
+
+  public bitcoinLocked: number = 0;
   public argonBurnCapacity: number = 0;
 
   public finalPriceAfterTerraCollapse = 1_000n;
@@ -27,13 +30,10 @@ export class GlobalVaultingStats {
   }
 
   public async update() {
-    const vaultApys: number[] = [];
     const list = Object.values(this.vaults.vaultsById);
     for (const vault of list) {
-      const earnings = this.vaults.treasuryPoolEarnings(vault.vaultId, 10);
+      const earnings = this.vaults.treasuryPoolTotalEarnings(vault.vaultId, 10);
       this.epochEarnings += earnings;
-      const apy = this.vaults.calculateVaultApy(vault.vaultId);
-      vaultApys.push(apy);
     }
 
     const satsLocked = this.vaults.getTotalSatoshisLocked();
@@ -45,11 +45,10 @@ export class GlobalVaultingStats {
     }
     this.vaultCount = list.length;
 
-    if (vaultApys.length > 0) {
-      this.activeAPY = vaultApys.reduce((a, b) => a + b, 0) / vaultApys.length;
-    } else {
-      this.activeAPY = 0;
-    }
+    this.activeAPR = this.vaults.calculateApr();
+    this.activeAPY = this.vaults.calculateApy();
+
+    this.bondsAPR = this.vaults.calculateBondsApr();
 
     const dollarValueOfVaultedBitcoin = this.currency.convertMicrogonTo(
       this.microgonValueOfVaultedBitcoins,

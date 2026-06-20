@@ -15,7 +15,7 @@ import type {
   JsonRpcResponse,
 } from '@argonprotocol/apps-core';
 import { JsonExt } from '@argonprotocol/apps-core';
-import { type WebSocket, WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import type { Server } from 'node:http';
 import { requireBody, safeJsonRoute, sendJson } from './apiUtils.ts';
 

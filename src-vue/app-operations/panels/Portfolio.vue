@@ -8,7 +8,7 @@
 
       <DialogContent @escapeKeyDown="closePanel" :aria-describedby="undefined">
         <div
-          class="Portfolio Panel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-50 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none overflow-x-scroll"
+          class="Portfolio Panel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-200 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none overflow-x-scroll"
           style="
             box-shadow:
               0 -1px 2px 0 rgba(0, 0, 0, 0.1),

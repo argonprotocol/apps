@@ -1,5 +1,4 @@
-import BitcoinPrices from '../lib/BitcoinPrices';
-import BitcoinFees from '../lib/BitcoinFees';
+import { BitcoinPrices, BitcoinFees } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { reactive } from 'vue';
