@@ -31,10 +31,11 @@ export class GlobalVaultingStats {
 
   public async update() {
     const list = Object.values(this.vaults.vaultsById);
-    for (const vault of list) {
+
+    this.epochEarnings = list.reduce((total, vault) => {
       const earnings = this.vaults.treasuryPoolTotalEarnings(vault.vaultId, 10);
-      this.epochEarnings += earnings;
-    }
+      return total + earnings;
+    }, 0n);
 
     const satsLocked = this.vaults.getTotalSatoshisLocked();
     this.bitcoinLocked = Number(satsLocked) / Number(SATOSHIS_PER_BITCOIN);
