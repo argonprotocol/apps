@@ -37,11 +37,29 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 
+const appName = IS_TREASURY_APP ? 'Treasury' : 'Operations';
+
+console.log(`[Bootstrap] Creating Argon ${appName} Vue app`);
 const app = createApp(AppRoot);
+app.config.errorHandler = (error, instance, info) => {
+  console.error(`[Vue] ${info}`, {
+    component: instance?.$options.name ?? '<anonymous>',
+    error,
+  });
+};
 app.use(createPinia());
-app.mount('#app');
+
+console.log('[Bootstrap] Mounting Vue app to #app');
+try {
+  app.mount('#app');
+  console.log('[Bootstrap] Vue app mounted to #app');
+} catch (error) {
+  console.error('[Bootstrap] Vue app mount failed', error);
+  throw error;
+}
+
 void getVersion().then(version => {
-  console.log(`Starting Argon ${IS_TREASURY_APP ? 'Treasury' : 'Operations'} App v${version}`);
+  console.log(`Starting Argon ${appName} App v${version}`);
 });
 
 if (isE2E) {

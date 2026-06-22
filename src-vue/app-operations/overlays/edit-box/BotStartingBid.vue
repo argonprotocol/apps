@@ -119,8 +119,8 @@ const isAbsoluteType = Vue.computed(
 
 Vue.watch(config.biddingRules, () => calculateOverrideAlert(), { deep: true, immediate: true });
 
-Vue.onBeforeMount(async () => {
-  await calculator.load();
+Vue.onBeforeMount(() => {
+  // Parent overlays wait for calculator.load() before this editor is reachable.
   calculator.setPivotPoint('StartingBid');
   console.log({
     growth: startingBidAmountFromExpectedGrowth,
