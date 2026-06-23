@@ -13,7 +13,11 @@ use sp_core::crypto::AddressUri;
 use sp_core::crypto::Ss58Codec;
 use sp_core::{DeriveJunction, Pair, ed25519, sr25519};
 use std::fs;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::{ErrorKind, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 #[cfg(all(target_os = "macos", not(argon_signed_build)))]
 use std::process::Command;
 use std::str::FromStr;
@@ -74,6 +78,10 @@ impl Security {
 
     fn wallet_path(app: &AppHandle) -> PathBuf {
         Utils::get_absolute_config_instance_dir(app).join("wallet.json")
+    }
+
+    fn legacy_mnemonic_path(app: &AppHandle) -> PathBuf {
+        Utils::get_absolute_config_instance_dir(app).join("mnemonic")
     }
 
     pub fn derive_bitcoin_extended_key(
@@ -165,7 +173,7 @@ impl Security {
 
     /// Migrate legacy plaintext mnemonic file to the new wallet.json format.
     fn migrate_legacy_mnemonic(app: &AppHandle) -> Result<()> {
-        let legacy_path = Utils::get_absolute_config_instance_dir(app).join("mnemonic");
+        let legacy_path = Self::legacy_mnemonic_path(app);
         if !legacy_path.exists() || Self::wallet_path(app).exists() {
             return Ok(());
         }
@@ -196,11 +204,12 @@ impl Security {
         let tmp_path = wallet_path.with_extension("json.tmp");
         fs::write(&tmp_path, serde_json::to_string_pretty(&wallet)?)?;
         fs::rename(&tmp_path, &wallet_path)?;
+        write_mnemonic_file_if_missing(&Self::legacy_mnemonic_path(app), mnemonic)?;
 
         Ok(security)
     }
 
-    fn migrate_wallet_file(app: &AppHandle) -> Result<Option<Security>> {
+    fn load_or_migrate_wallet_file(app: &AppHandle) -> Result<Option<Security>> {
         let wallet_path = Self::wallet_path(app);
         if !wallet_path.exists() {
             return Ok(None);
@@ -411,11 +420,18 @@ impl Security {
         }
 
         Self::migrate_legacy_mnemonic(app)?;
-        if let Some(security) = Self::migrate_wallet_file(app)? {
-            Ok(security)
-        } else {
-            Security::create(app)
+        if let Some(security) = Self::load_or_migrate_wallet_file(app)? {
+            // Older installs may already have wallet.json but still be missing the bridge file
+            // needed for the next app-id migration.
+            let legacy_path = Self::legacy_mnemonic_path(app);
+            if !legacy_path.exists() {
+                let mnemonic = Self::expose_mnemonic(app)?;
+                write_mnemonic_file_if_missing(&legacy_path, &mnemonic)?;
+            }
+            return Ok(security);
         }
+
+        Security::create(app)
     }
 
     pub fn save_with_mnemonic(app: &AppHandle, mnemonic: &str) -> Result<Self> {
@@ -521,11 +537,33 @@ fn generate_wallet_key_hex() -> String {
     hex::encode(key)
 }
 
+fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+
+    #[cfg(unix)]
+    options.mode(0o600);
+
+    match options.open(path) {
+        Ok(mut file) => {
+            file.write_all(mnemonic.as_bytes())?;
+            Ok(())
+        }
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Security, default_ethereum_hd_prefixes, get_ethereum_hd_path};
+    use super::{
+        Security, default_ethereum_hd_prefixes, get_ethereum_hd_path,
+        write_mnemonic_file_if_missing,
+    };
     use crate::ethereum_signer;
     use sp_core::Pair;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn x25519_conversion_encrypts_between_derived_ed25519_keys() {
@@ -701,5 +739,59 @@ mod tests {
             signature,
             "0x4126b820e15feace303bcd40ad56978240bf43cd435f9af2d2ee69e9797053866d4e836424774c690dfe24b59d3b07b7a2c01fb4ac5079c7eb495f0d832862031b"
         );
+    }
+
+    #[test]
+    fn writes_plaintext_mnemonic_when_missing() {
+        let test_dir = unique_test_dir("writes-plaintext-mnemonic-when-missing");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let mnemonic_path = test_dir.join("mnemonic");
+        let mnemonic = "test test test test test test test test test test test junk";
+
+        write_mnemonic_file_if_missing(&mnemonic_path, mnemonic)
+            .expect("mnemonic should be written");
+
+        assert_eq!(
+            fs::read_to_string(&mnemonic_path).expect("mnemonic file should exist"),
+            mnemonic
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn does_not_overwrite_existing_plaintext_mnemonic() {
+        let test_dir = unique_test_dir("does-not-overwrite-existing-plaintext-mnemonic");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let mnemonic_path = test_dir.join("mnemonic");
+        fs::write(&mnemonic_path, "existing mnemonic")
+            .expect("existing mnemonic should be written");
+
+        write_mnemonic_file_if_missing(
+            &mnemonic_path,
+            "test test test test test test test test test test test junk",
+        )
+        .expect("existing mnemonic should be preserved");
+
+        assert_eq!(
+            fs::read_to_string(&mnemonic_path).expect("mnemonic file should exist"),
+            "existing mnemonic"
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    fn unique_test_dir(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+
+        std::env::temp_dir().join(format!(
+            "argon-security-{name}-{}-{nanos}",
+            std::process::id()
+        ))
     }
 }
