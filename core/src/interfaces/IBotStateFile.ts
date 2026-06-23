@@ -6,6 +6,7 @@ export type IEthereumSyncMode = 'disabled' | 'needsBootstrap' | 'idle' | 'submit
 export interface IEthereumSyncStatus {
   mode: IEthereumSyncMode;
   syncAccountAddress: string;
+  lastUpdatedAt?: Date;
   latestFinalizedSlot?: bigint;
   latestExecutionAnchorBlockNumber?: bigint;
   latestEthereumBlockNumber?: bigint;

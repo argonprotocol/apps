@@ -1,6 +1,7 @@
 import {
   minimumVaultDelegateBalance,
   NetworkConfig,
+  raceWithTimeout,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
@@ -464,16 +465,11 @@ export class EthereumGatewayProverService {
 
             const txSubmittedAtBlockHeight = submitted.blockNumber ?? submitted.extrinsic.submittedAtBlockNumber;
             const inclusionTimeoutMs = Math.max(NetworkConfig.tickMillis * 2, 60_000);
-            let timeoutId: ReturnType<typeof setTimeout> | undefined;
-            const observedInFirstBlock = await Promise.race([
+            const observedInFirstBlock = await raceWithTimeout(
               submitted.waitForInFirstBlock.then(() => true),
-              new Promise<false>(resolve => {
-                timeoutId = setTimeout(() => resolve(false), inclusionTimeoutMs);
-              }),
-            ]);
-            if (timeoutId) {
-              clearTimeout(timeoutId);
-            }
+              inclusionTimeoutMs,
+              () => false,
+            );
             const resolvedThroughGatewayActivityNonce =
               proofPayload.activities.at(-1)?.gatewayState.gatewayActivityNonce ?? throughGatewayActivityNonce;
 

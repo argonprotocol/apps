@@ -85,6 +85,9 @@ describe('EthereumBeaconSyncService', () => {
         },
       },
       rpc: {
+        author: {
+          pendingExtrinsics: vi.fn(async () => []),
+        },
         system: {
           accountNextIndex: vi.fn(async () => ({
             toNumber: () => startingNonce,
@@ -98,6 +101,7 @@ describe('EthereumBeaconSyncService', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -135,6 +139,7 @@ describe('EthereumBeaconSyncService', () => {
       latestSyncCommitteeUpdatePeriod: 11n,
       mode: 'needsBootstrap',
     });
+    expect(service.state().lastUpdatedAt).toBeInstanceOf(Date);
   });
 
   it('stays idle until the Ethereum transfer gateway is configured on-chain', async () => {
@@ -218,6 +223,116 @@ describe('EthereumBeaconSyncService', () => {
       lastSubmittedTxHash: 'tx-2-hash',
       mode: 'idle',
     });
+    expect(service.state().lastUpdatedAt).toBeInstanceOf(Date);
+  });
+
+  it('rechecks timed-out submitted beacon sync txs before retrying them', async () => {
+    vi.useFakeTimers();
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const txs: IMockTx[] = [{ id: 'tx-1' }];
+    const client = createClient(12);
+
+    (client.rpc.author.pendingExtrinsics as any) = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          hash: {
+            toHex: () => 'tx-1-hash',
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    mainchainMock.getEthereumBeaconSyncState
+      .mockResolvedValueOnce({
+        isBootstrapped: true,
+        hasNextSyncCommittee: true,
+        latestFinalizedBlockRoot: '0xabc',
+        latestFinalizedSlot: 800n,
+        nextRecommendedFinalizedSlot: 832n,
+        latestSyncCommitteeUpdatePeriod: 12n,
+        headerInterval: 32n,
+      })
+      .mockResolvedValueOnce({
+        isBootstrapped: true,
+        hasNextSyncCommittee: true,
+        latestFinalizedBlockRoot: '0xabc',
+        latestFinalizedSlot: 800n,
+        nextRecommendedFinalizedSlot: 832n,
+        latestSyncCommitteeUpdatePeriod: 12n,
+        headerInterval: 32n,
+      })
+      .mockResolvedValueOnce({
+        isBootstrapped: true,
+        hasNextSyncCommittee: true,
+        latestFinalizedBlockRoot: '0xabc',
+        latestFinalizedSlot: 800n,
+        nextRecommendedFinalizedSlot: 832n,
+        latestSyncCommitteeUpdatePeriod: 12n,
+        headerInterval: 32n,
+      })
+      .mockResolvedValueOnce({
+        isBootstrapped: true,
+        hasNextSyncCommittee: true,
+        latestFinalizedBlockRoot: '0xdef',
+        latestFinalizedSlot: 832n,
+        nextRecommendedFinalizedSlot: 864n,
+        latestSyncCommitteeUpdatePeriod: 13n,
+        headerInterval: 32n,
+      });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
+    mainchainMock.submitTx
+      .mockResolvedValueOnce({
+        extrinsic: { signedHash: 'tx-1-hash' },
+        waitForInFirstBlock: new Promise<void>(() => undefined),
+      })
+      .mockResolvedValueOnce({
+        extrinsic: { signedHash: 'tx-1-retry-hash' },
+        waitForInFirstBlock: Promise.resolve(),
+      });
+
+    const service = new EthereumBeaconSyncService(client, {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(client),
+    });
+
+    const firstRunPromise = service.runOnce();
+    await vi.waitFor(() => {
+      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await firstRunPromise;
+
+    expect(service.state()).toMatchObject({
+      lastSubmittedTxHash: 'tx-1-hash',
+      latestFinalizedSlot: 800n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      mode: 'submitting',
+    });
+
+    await service.runOnce();
+
+    expect(mainchainMock.getNextEthereumBeaconSyncTxs).toHaveBeenCalledTimes(1);
+    expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+    expect(service.state()).toMatchObject({
+      lastSubmittedTxHash: 'tx-1-hash',
+      latestFinalizedSlot: 800n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      mode: 'submitting',
+    });
+
+    await service.runOnce();
+
+    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[0], syncKeypair, {
+      nonce: 12,
+    });
+    expect(service.state()).toMatchObject({
+      latestFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 13n,
+      lastSubmittedTxHash: 'tx-1-retry-hash',
+      mode: 'idle',
+    });
+    expect(consoleWarnSpy).toHaveBeenCalled();
   });
 
   it('records errors and recovers on the next pass', async () => {

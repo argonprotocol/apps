@@ -92,6 +92,40 @@ export async function waitAtLeast<T>(timeoutMs: number, promise: Promise<T>): Pr
   return result;
 }
 
+export function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => T | Promise<T>,
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+
+  return new Promise((resolve, reject) => {
+    let isSettled = false;
+    const settle = (fn: () => void) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timer);
+      fn();
+    };
+
+    const timer = setTimeout(() => {
+      void Promise.resolve()
+        .then(onTimeout)
+        .then(
+          value => settle(() => resolve(value)),
+          error => settle(() => reject(error)),
+        );
+    }, timeoutMs);
+
+    promise.then(
+      value => settle(() => resolve(value)),
+      error => settle(() => reject(error)),
+    );
+  });
+}
+
 export function convertBigIntStringToNumber(bigIntStr: string | undefined): bigint | undefined {
   if (bigIntStr === undefined) return undefined;
   if (!bigIntStr) return 0n;
