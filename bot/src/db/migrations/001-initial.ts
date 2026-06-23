@@ -8,8 +8,6 @@ export const InitialMigration: ISqliteMigration = db => {
       offerCode TEXT NOT NULL UNIQUE,
       vaultId INTEGER NOT NULL,
       maxSatoshis TEXT NOT NULL,
-      estimatedGiftUsd REAL NOT NULL,
-      btcPctFee REAL NOT NULL DEFAULT 0,
       expiresAfterTicks INTEGER NOT NULL,
       expirationTick INTEGER,
       accountId TEXT,

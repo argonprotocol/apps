@@ -73,7 +73,7 @@
           <div class="mt-4">
             <label class="text-sm font-medium text-slate-700">Max Satoshis Allowed For Free Lock</label>
             <div class="mt-2">
-              <InputNumber v-model="maxSatoshisNumber" :min="1" :max="maxLockableSatoshisNumber" suffix=" sats" />
+              <InputNumber v-model="maxSatoshisNumber" :min="1" :max="maxSatoshisInputMax" suffix=" sats" />
             </div>
           </div>
 
@@ -194,6 +194,10 @@ const maxLockableSatoshisNumber = Vue.computed(() => {
   return Number(maxLockableSatoshis.value);
 });
 
+const maxSatoshisInputMax = Vue.computed(() => {
+  return Math.max(1, maxLockableSatoshisNumber.value);
+});
+
 const currentVaultName = Vue.computed(() => {
   return myVault.createdVault?.name ?? '';
 });
@@ -299,12 +303,15 @@ async function updateMaxLockableSatoshis() {
   const vault = myVault.createdVault;
   if (!vault) {
     maxLockableSatoshis.value = 0n;
+    inviteCreationBlockedReason.value = 'Member invites require a vault with available Bitcoin lock capacity.';
     return;
   }
 
   const { availableSatoshis } = await bitcoinLocks.getLockableBitcoinCapacity({ vault });
   maxLockableSatoshis.value = availableSatoshis;
-  maxSatoshisNumber.value = Math.min(maxSatoshisNumber.value, maxLockableSatoshisNumber.value);
+  maxSatoshisNumber.value = Math.min(maxSatoshisNumber.value, maxSatoshisInputMax.value);
+  inviteCreationBlockedReason.value =
+    availableSatoshis > 0n ? null : 'Member invites are unavailable because this vault has no Bitcoin lock capacity.';
 }
 
 async function createInvite() {

@@ -14,7 +14,6 @@ export const InitialMigration: ISqliteMigration = db => {
     CREATE TABLE UserInvites (
       userId INTEGER PRIMARY KEY,
       inviteCode TEXT NOT NULL UNIQUE,
-      inviteEnvelope TEXT NOT NULL DEFAULT '',
       fromName TEXT NOT NULL,
       firstClickedAt TEXT,
       lastClickedAt TEXT,
