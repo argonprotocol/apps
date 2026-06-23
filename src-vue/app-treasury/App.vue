@@ -26,9 +26,9 @@
       <WalletOverlay />
       <JurisdictionOverlay />
       <TransactionsOverlay />
+      <TroubleshootingOverlay />
       <WelcomeOverlay v-if="config.showWelcomeOverlay" />
     </template>
-    <TroubleshootingOverlay />
     <AppUpdatesOverlay />
   </div>
 </template>
