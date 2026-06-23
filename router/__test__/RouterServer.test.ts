@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   InviteCodes,
   JsonExt,
+  NetworkConfig,
   type RouterAuthRole,
   signRouterAuthAccountBinding,
   signRouterAuthChallenge,
@@ -15,8 +16,14 @@ import {
 import { Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
-import type { IRouterAuthSessionResponse } from '../src/interfaces/index.ts';
+import type {
+  IPreviewOperationalInviteResponse,
+  IPreviewTreasuryInviteResponse,
+  IRouterAuthSessionResponse,
+} from '../src/interfaces/index.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
+
+NetworkConfig.setNetwork('dev-docker');
 
 type IRouterAddress = {
   host: string;
@@ -51,8 +58,11 @@ describe('RouterServer', () => {
       name: 'Casey',
       fromName: 'OperatorOne',
       inviteCode,
+      inviteEnvelope: 'treasury-envelope',
       vaultId: 12,
       maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
       expiresAfterTicks: 60,
     });
 
@@ -79,8 +89,10 @@ describe('RouterServer', () => {
       name: 'Casey',
       fromName: 'OperatorOne',
       inviteCode,
+      inviteEnvelope: 'treasury-envelope',
       vaultId: 0,
       maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
       expiresAfterTicks: 60,
     });
     expect(invalidVaultResponse.status).toBe(400);
@@ -90,13 +102,189 @@ describe('RouterServer', () => {
       name: 'Casey',
       fromName: 'OperatorOne',
       inviteCode,
+      inviteEnvelope: 'treasury-envelope',
       vaultId: 12,
       maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
       expiresAfterTicks: 0,
     });
     expect(invalidExpiryResponse.status).toBe(400);
     expect(await invalidExpiryResponse.text()).toContain('Invite expiry must be greater than zero.');
+
+    const invalidEstimatedGiftUsdResponse = await requestJson(routerAddress, '/treasury-users/create', {
+      name: 'Casey',
+      fromName: 'OperatorOne',
+      inviteCode,
+      inviteEnvelope: 'treasury-envelope',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: -1,
+      expiresAfterTicks: 60,
+    });
+    expect(invalidEstimatedGiftUsdResponse.status).toBe(400);
+    expect(await invalidEstimatedGiftUsdResponse.text()).toContain(
+      'Estimated gift USD must be a valid non-negative number.',
+    );
+
+    const invalidBtcPctFeeResponse = await requestJson(routerAddress, '/treasury-users/create', {
+      name: 'Casey',
+      fromName: 'OperatorOne',
+      inviteCode,
+      inviteEnvelope: 'treasury-envelope',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: -1,
+      expiresAfterTicks: 60,
+    });
+    expect(invalidBtcPctFeeResponse.status).toBe(400);
+    expect(await invalidBtcPctFeeResponse.text()).toContain('BTC percent fee must be a valid non-negative number.');
     expect(routerDb.usersTable.fetchByRole(UserRole.TreasuryUser)).toEqual([]);
+  });
+
+  it('previews treasury invite coupon details', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-preview-test-'));
+    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+
+    const { inviteCode } = InviteCodes.create();
+    const user = routerDb.usersTable.insertUser({
+      role: UserRole.TreasuryUser,
+      name: 'Casey',
+    });
+    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
+    const createdAt = new Date('2026-06-20T12:00:00.000Z');
+    const expiresAfterTicks = 60;
+
+    const started = await startRouterServer(routerDb, {
+      status: 200,
+      body: [
+        {
+          coupon: {
+            id: 1,
+            userId: invite.id,
+            offerCode: 'offer-code',
+            vaultId: 12,
+            maxSatoshis: 25_000n,
+            estimatedGiftUsd: 16.25,
+            btcPctFee: 2.5,
+            expiresAfterTicks,
+            createdAt,
+            updatedAt: createdAt,
+          },
+          status: 'Open',
+        },
+      ],
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/treasury-users/${encodeURIComponent(inviteCode)}/preview`,
+    );
+    expect(response.status).toBe(200);
+
+    const body = JsonExt.parse<IPreviewTreasuryInviteResponse>(await response.text());
+    expect(body).toEqual({
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      expiresAt: new Date(createdAt.getTime() + 24 * 60 * 60 * 1000),
+      fromName: 'OperatorOne',
+    });
+  });
+
+  it('reports when a treasury invite preview has already been used', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-used-preview-test-'));
+    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+
+    const { inviteCode } = InviteCodes.create();
+    const user = routerDb.usersTable.insertUser({
+      role: UserRole.TreasuryUser,
+      name: 'Casey',
+    });
+    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
+    routerDb.userInvitesTable.claimInvite(invite.id, 'treasury-account', 'treasury-auth-account');
+
+    const started = await startRouterServer(routerDb, {
+      status: 200,
+      body: [],
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/treasury-users/${encodeURIComponent(inviteCode)}/preview`,
+    );
+    expect(response.status).toBe(409);
+
+    expect(JsonExt.parse(await response.text())).toEqual({
+      error: 'This invite has already been used.',
+      code: 'ALREADY_USED',
+    });
+  });
+
+  it('previews operational invite details', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-preview-test-'));
+    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+
+    const { inviteCode } = InviteCodes.create();
+    const user = routerDb.usersTable.insertUser({
+      role: UserRole.OperationalPartner,
+      name: 'Casey',
+    });
+    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
+
+    const started = await startRouterServer(routerDb, {
+      status: 200,
+      body: { status: 'ok' },
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/operational-users/${encodeURIComponent(inviteCode)}/preview`,
+    );
+    expect(response.status).toBe(200);
+
+    const body = JsonExt.parse<IPreviewOperationalInviteResponse>(await response.text());
+    expect(body).toEqual({
+      fromName: 'OperatorOne',
+      expiresAt: new Date(invite.createdAt.getTime() + 24 * 60 * 60 * 1000),
+    });
+  });
+
+  it('reports when an operational invite preview has already been used', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-used-preview-test-'));
+    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+
+    const { inviteCode } = InviteCodes.create();
+    const user = routerDb.usersTable.insertUser({
+      role: UserRole.OperationalPartner,
+      name: 'Casey',
+    });
+    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
+    routerDb.userInvitesTable.claimInvite(invite.id, 'operational-account', 'operational-auth-account');
+
+    const started = await startRouterServer(routerDb, {
+      status: 200,
+      body: { status: 'ok' },
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/operational-users/${encodeURIComponent(inviteCode)}/preview`,
+    );
+    expect(response.status).toBe(409);
+
+    expect(JsonExt.parse(await response.text())).toEqual({
+      error: 'This invite has already been used.',
+      code: 'ALREADY_USED',
+    });
   });
 
   it('tracks operational invite open state', async () => {
@@ -119,6 +307,7 @@ describe('RouterServer', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode,
+      inviteEnvelope: 'operational-envelope',
     });
 
     expect(createResponse.status).toBe(200);
@@ -173,6 +362,7 @@ describe('RouterServer', () => {
         name: 'Casey',
         fromName: 'Operator One',
         inviteCode,
+        inviteEnvelope: 'operational-envelope',
       },
     );
     expect(authenticatedResponse.status).toBe(200);

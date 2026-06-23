@@ -10,6 +10,7 @@ export interface IUserInviteRecord {
   name: string;
   fromName: string;
   inviteCode: string;
+  inviteEnvelope: string;
   firstClickedAt?: Date | null;
   lastClickedAt?: Date | null;
   accountId?: string | null;
@@ -30,6 +31,7 @@ const selectInviteRecord = `
     Users.name AS name,
     UserInvites.fromName AS fromName,
     UserInvites.inviteCode AS inviteCode,
+    UserInvites.inviteEnvelope AS inviteEnvelope,
     UserInvites.firstClickedAt AS firstClickedAt,
     UserInvites.lastClickedAt AS lastClickedAt,
     Users.accountId AS accountId,
@@ -44,17 +46,19 @@ export class UserInvitesTable extends BaseTable {
     super(db);
   }
 
-  public insertInvite(userId: number, inviteCode: string, fromName: string): IUserInviteRecord {
+  public insertInvite(userId: number, inviteCode: string, fromName: string, inviteEnvelope = ''): IUserInviteRecord {
     this.db.sql
       .prepare(
         `
         INSERT INTO UserInvites (
           userId,
           inviteCode,
+          inviteEnvelope,
           fromName
         ) VALUES (
           $userId,
           $inviteCode,
+          $inviteEnvelope,
           $fromName
         )
       `,
@@ -63,6 +67,7 @@ export class UserInvitesTable extends BaseTable {
         toSqliteParams({
           userId,
           inviteCode,
+          inviteEnvelope,
           fromName,
         }),
       );
@@ -170,18 +175,21 @@ export class UserInvitesTable extends BaseTable {
     return this.fetchById(id);
   }
 
-  public updateInviteCode(userId: number, inviteCode: string): IUserInviteRecord | null {
+  public updateInviteCode(userId: number, inviteCode: string, inviteEnvelope = ''): IUserInviteRecord | null {
     this.db.sql
       .prepare(
         `
         UPDATE UserInvites
-        SET inviteCode = $inviteCode
+        SET
+          inviteCode = $inviteCode,
+          inviteEnvelope = $inviteEnvelope
         WHERE userId = $userId
       `,
       )
       .run({
         $userId: userId,
         $inviteCode: inviteCode,
+        $inviteEnvelope: inviteEnvelope,
       });
 
     return this.fetchById(userId);

@@ -37,6 +37,31 @@ afterEach(() => {
 });
 
 describe.sequential('BitcoinLockRelayService integration', () => {
+  it('stores the btc percent fee on created coupons', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      vi.spyOn(service, 'startInternal').mockImplementation(async () => {
+        service.vaultId = 1;
+      });
+
+      const coupon = await harness.service.createCoupon({
+        userId: 1,
+        vaultId: 1,
+        maxSatoshis: 50_000n,
+        estimatedGiftUsd: 30,
+        btcPctFee: 2.5,
+        expiresAfterTicks: 60,
+      });
+
+      expect(coupon.coupon.btcPctFee).toBe(2.5);
+      expect(harness.db.bitcoinLockCouponsTable.fetchById(coupon.coupon.id)?.btcPctFee).toBe(2.5);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it('returns the same active relay when the same invite is submitted twice', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService;
@@ -498,6 +523,7 @@ function insertCoupon(db: Db, offerCode = 'offer-code') {
     offerCode,
     vaultId: 1,
     maxSatoshis: 50_000n,
+    estimatedGiftUsd: 30,
     expiresAfterTicks: 60,
   });
 

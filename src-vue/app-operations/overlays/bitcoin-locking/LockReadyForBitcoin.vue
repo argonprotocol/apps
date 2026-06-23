@@ -23,7 +23,7 @@
           {{ scriptPaytoAddress }}
           <CopyIcon class="absolute top-1/2 right-0 h-4 w-4 -translate-y-1/2" />
         </span>
-        <template #copied>
+        <template #copying>
           <div class="pointer-events-none absolute top-0 left-0 h-full w-full">
             {{ scriptPaytoAddress }}
             <CopyIcon class="absolute top-1/2 right-0 h-4 w-4 -translate-y-1/2" />
@@ -45,7 +45,7 @@
             {{ abbreviateAddress(fundingBip21, 10) }}
             <CopyIcon class="ml-1 inline-block h-4 w-4" />
           </span>
-          <template #copied>
+          <template #copying>
             <div class="pointer-events-none absolute top-0 left-0 h-full w-full">
               {{ abbreviateAddress(fundingBip21, 10) }}
               <CopyIcon class="ml-1 inline-block h-4 w-4" />

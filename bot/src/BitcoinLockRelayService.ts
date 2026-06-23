@@ -143,8 +143,17 @@ export class BitcoinLockRelayService {
   public async createCoupon(request: ICreateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
     await this.start();
 
+    if (!Number.isFinite(request.estimatedGiftUsd) || request.estimatedGiftUsd < 0) {
+      throw new HttpError('Estimated gift USD must be a valid non-negative number.', 400);
+    }
+    const btcPctFee = request.btcPctFee ?? 0;
+    if (!Number.isFinite(btcPctFee) || btcPctFee < 0) {
+      throw new HttpError('BTC percent fee must be a valid non-negative number.', 400);
+    }
+
     const coupon = this.db.bitcoinLockCouponsTable.insertCoupon({
       ...request,
+      btcPctFee,
       offerCode: nanoid(10),
     });
 

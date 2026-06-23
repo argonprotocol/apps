@@ -142,7 +142,7 @@
               @click.stop
             >
               <button type="button" class="text-argon-700 text-sm font-semibold">Copy link</button>
-              <template #copied>
+              <template #copying>
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copied</button>
               </template>
             </CopyToClipboard>

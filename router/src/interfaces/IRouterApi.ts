@@ -9,8 +9,11 @@ export interface ITreasuryUserInviteCreateRequest {
   name: string;
   fromName: string;
   inviteCode: string;
+  inviteEnvelope: string;
   vaultId: number;
   maxSatoshis: bigint;
+  estimatedGiftUsd: number;
+  btcPctFee?: number;
   expiresAfterTicks: number;
 }
 
@@ -18,6 +21,7 @@ export interface IOperationalUserInviteCreateRequest {
   name: string;
   fromName: string;
   inviteCode: string;
+  inviteEnvelope: string;
   sponsor: string;
   expiresAtFrame: number;
   sponsorSignature: string;
@@ -25,6 +29,7 @@ export interface IOperationalUserInviteCreateRequest {
 
 export interface IOperationalUserInviteRegenerateRequest {
   inviteCode: string;
+  inviteEnvelope: string;
 }
 
 export interface IUserInviteOpenRequest {
@@ -60,6 +65,7 @@ export interface IOpenOperationalInviteRequest extends IUserInviteOpenRequest {
 
 export interface IRouterErrorResponse {
   error: string;
+  code?: string;
 }
 
 export interface ICreateTreasuryInviteResponse {
@@ -68,6 +74,19 @@ export interface ICreateTreasuryInviteResponse {
 
 export interface IListTreasuryInvitesResponse {
   invites: ITreasuryUserInvite[];
+}
+
+export interface IPreviewTreasuryInviteResponse {
+  maxSatoshis: bigint;
+  estimatedGiftUsd: number;
+  btcPctFee: number;
+  expiresAt: Date;
+  fromName: string;
+}
+
+export interface IPreviewOperationalInviteResponse {
+  fromName: string;
+  expiresAt: Date;
 }
 
 export interface ICreateOperationalInviteResponse {

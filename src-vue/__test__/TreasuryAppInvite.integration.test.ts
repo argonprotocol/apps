@@ -215,8 +215,11 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         name: 'Casey',
         fromName: expectedFromName,
         inviteCode,
+        inviteEnvelope: 'treasury-envelope',
         vaultId: operatorVault.vaultId,
         maxSatoshis: requestedSatoshis + 5_000n,
+        estimatedGiftUsd: 125,
+        btcPctFee: 2.5,
         expiresAfterTicks: 240,
       });
       expect(createdInvite.bitcoinLockCoupon?.coupon.offerCode).toBeTruthy();

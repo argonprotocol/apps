@@ -7,7 +7,7 @@
       class="absolute top-0 left-0 w-full h-full transition-all duration-1000"
       :class="[isFading ? 'opacity-0 -translate-y-20' : 'opacity-100', hasNotCopied ? 'invisible' : 'visible']"
     >
-      <slot name="copied"></slot>
+      <slot name="copying"></slot>
     </div>
   </div>
 </template>

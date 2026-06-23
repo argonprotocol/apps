@@ -75,7 +75,7 @@
       <div class="absolute top-1/2 right-4 -translate-y-1/2 cursor-pointer">
         <CopyIcon class="h-4 w-4 opacity-80" />
       </div>
-      <template #copied>
+      <template #copying>
         <div class="pointer-events-none h-full w-full rounded-md border border-slate-300 bg-white py-4 pr-8 pl-4">
           <span class="inline-block h-full w-full bg-blue-200" style="word-break: break-word">
             {{ addSshPublicKey }}
