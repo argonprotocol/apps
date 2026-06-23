@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkConfig } from '@argonprotocol/apps-core';
+import { SubmissionStatusError, SubmissionStatusErrorCode } from '../src/submitWithTerminalStatusWatch.ts';
 
 const gatewayProofMock = vi.hoisted(() => {
   return {
@@ -16,23 +17,17 @@ const viemMock = vi.hoisted(() => {
 });
 
 const mainchainMock = vi.hoisted(() => {
-  const sign = vi.fn();
-  const submitSigned = vi.fn();
+  return {
+    buildGatewayActivityProofPayload: gatewayProofMock.buildGatewayActivityProofPayload,
+    getLatestArgonFinalizedExecutionHeader: gatewayProofMock.getLatestArgonFinalizedExecutionHeader,
+  };
+});
 
-  class TxSubmitter {
-    public async sign(options?: { nonce?: number }): Promise<unknown> {
-      return (await sign(options)) as unknown;
-    }
-
-    public async submitSigned(signedTx: unknown): Promise<unknown> {
-      return (await submitSigned(signedTx)) as unknown;
-    }
-  }
+const submissionMock = vi.hoisted(() => {
+  const submitWithTerminalStatusWatch = vi.fn();
 
   return {
-    sign,
-    submitSigned,
-    TxSubmitter,
+    submitWithTerminalStatusWatch,
   };
 });
 
@@ -48,9 +43,19 @@ vi.mock('@argonprotocol/mainchain', async () => {
   const actual = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
   return {
     ...actual,
-    TxSubmitter: mainchainMock.TxSubmitter,
-    buildGatewayActivityProofPayload: gatewayProofMock.buildGatewayActivityProofPayload,
-    getLatestArgonFinalizedExecutionHeader: gatewayProofMock.getLatestArgonFinalizedExecutionHeader,
+    buildGatewayActivityProofPayload: mainchainMock.buildGatewayActivityProofPayload,
+    getLatestArgonFinalizedExecutionHeader: mainchainMock.getLatestArgonFinalizedExecutionHeader,
+  };
+});
+
+vi.mock('../src/submitWithTerminalStatusWatch.ts', async () => {
+  const actual = await vi.importActual<typeof import('../src/submitWithTerminalStatusWatch.ts')>(
+    '../src/submitWithTerminalStatusWatch.ts',
+  );
+
+  return {
+    ...actual,
+    submitWithTerminalStatusWatch: submissionMock.submitWithTerminalStatusWatch,
   };
 });
 
@@ -154,15 +159,17 @@ describe('EthereumGatewayProverService', () => {
         gatewayActivityNonceRange: { start: 8n, end: 9n },
         activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
       });
-    mainchainMock.sign.mockResolvedValue(signedTx);
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
       },
-      blockNumber: 321,
-      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
     });
 
     await expect(
@@ -178,10 +185,10 @@ describe('EthereumGatewayProverService', () => {
       estimatedFee: 11n,
       throughGatewayActivityNonce: 9n,
     });
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
   });
 
-  it('retries with a refreshed nonce when the delegate submit comes back stale', async () => {
+  it('retries with a refreshed nonce when the node drops the delegate submission', async () => {
     const client = createClient();
     const service = new EthereumGatewayProverService(createSubmitLane(client));
     const accountNextIndex = client.rpc.system.accountNextIndex as ReturnType<typeof vi.fn>;
@@ -200,30 +207,49 @@ describe('EthereumGatewayProverService', () => {
         gatewayActivityNonceRange: { start: 7n, end: 7n },
         activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       });
-    mainchainMock.sign.mockImplementation(async (options?: { nonce?: number }) => ({
-      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
-      nonce: { toNumber: () => options?.nonce ?? 0 },
-    }));
-    const staleSubmission = Promise.reject(new Error('Invalid Transaction: Stale'));
-    staleSubmission.catch(() => undefined);
-    mainchainMock.submitSigned
-      .mockResolvedValueOnce({
-        extrinsic: {
-          signedHash: '0xstale',
-          submittedAtBlockNumber: 321,
-          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
+      async (_submitter, options?: { nonce?: number }) => {
+        const droppedSubmission = Promise.reject(
+          new SubmissionStatusError(
+            SubmissionStatusErrorCode.Dropped,
+            'Transaction was dropped before it was included in a block.',
+          ),
+        );
+        droppedSubmission.catch(() => undefined);
+
+        return {
+          signedTx: {
+            method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+            nonce: { toNumber: () => options?.nonce ?? 0 },
+          },
+          result: {
+            extrinsic: {
+              signedHash: '0xstale',
+              submittedAtBlockNumber: 321,
+              submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+            },
+            waitForInFirstBlock: droppedSubmission,
+          },
+        };
+      },
+    );
+    submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
+      async (_submitter, options?: { nonce?: number }) => ({
+        signedTx: {
+          method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+          nonce: { toNumber: () => options?.nonce ?? 0 },
         },
-        waitForInFirstBlock: staleSubmission,
-      })
-      .mockResolvedValueOnce({
-        extrinsic: {
-          signedHash: '0xrelaytx',
-          submittedAtBlockNumber: 322,
-          submittedTime: new Date('2026-05-13T16:00:01.000Z'),
+        result: {
+          extrinsic: {
+            signedHash: '0xrelaytx',
+            submittedAtBlockNumber: 322,
+            submittedTime: new Date('2026-05-13T16:00:01.000Z'),
+          },
+          blockNumber: 322,
+          waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
         },
-        blockNumber: 322,
-        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
-      });
+      }),
+    );
 
     await expect(
       service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n }),
@@ -238,7 +264,7 @@ describe('EthereumGatewayProverService', () => {
       estimatedFee: 7n,
       throughGatewayActivityNonce: 7n,
     });
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
   });
 
   it('releases a timed-out first-block wait so a later catch-up can run', async () => {
@@ -246,35 +272,43 @@ describe('EthereumGatewayProverService', () => {
 
     const client = createClient();
     const service = new EthereumGatewayProverService(createSubmitLane(client));
-    mainchainMock.sign.mockImplementation(async (options?: { nonce?: number }) => ({
-      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
-      nonce: { toNumber: () => options?.nonce ?? 0 },
-    }));
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
-    mainchainMock.submitSigned
-      .mockResolvedValueOnce({
-        extrinsic: {
-          signedHash: '0xtimeout',
-          submittedAtBlockNumber: 321,
-          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch
+      .mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => ({
+        signedTx: {
+          method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+          nonce: { toNumber: () => options?.nonce ?? 0 },
         },
-        blockNumber: 321,
-        waitForInFirstBlock: new Promise(() => undefined),
-      })
-      .mockResolvedValueOnce({
-        extrinsic: {
-          signedHash: '0xretry',
-          submittedAtBlockNumber: 322,
-          submittedTime: new Date('2026-05-13T16:01:00.000Z'),
+        result: {
+          extrinsic: {
+            signedHash: '0xtimeout',
+            submittedAtBlockNumber: 321,
+            submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+          },
+          blockNumber: 321,
+          waitForInFirstBlock: new Promise(() => undefined),
         },
-        blockNumber: 322,
-        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
-      });
+      }))
+      .mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => ({
+        signedTx: {
+          method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+          nonce: { toNumber: () => options?.nonce ?? 0 },
+        },
+        result: {
+          extrinsic: {
+            signedHash: '0xretry',
+            submittedAtBlockNumber: 322,
+            submittedTime: new Date('2026-05-13T16:01:00.000Z'),
+          },
+          blockNumber: 322,
+          waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+        },
+      }));
 
     const firstCatchUp = service.runToCheckpoint({
       sourceChain: 'Ethereum',
@@ -306,7 +340,7 @@ describe('EthereumGatewayProverService', () => {
       estimatedFee: 7n,
       throughGatewayActivityNonce: 7n,
     });
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(2);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
   });
 
   it('rejects when the delegate cannot afford the relay reserve', async () => {
@@ -339,7 +373,7 @@ describe('EthereumGatewayProverService', () => {
       estimatedFee: 5n,
       throughGatewayActivityNonce: 7n,
     });
-    expect(mainchainMock.sign).not.toHaveBeenCalled();
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
   });
 
   it('reports relay readiness without submitting work', async () => {
@@ -371,7 +405,7 @@ describe('EthereumGatewayProverService', () => {
     });
 
     await service.start();
-    expect(mainchainMock.sign).not.toHaveBeenCalled();
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     await service.shutdown();
   });
@@ -431,15 +465,17 @@ describe('EthereumGatewayProverService', () => {
     });
 
     gatewayProofMock.buildGatewayActivityProofPayload.mockReturnValueOnce(buildProofPlan);
-    mainchainMock.sign.mockResolvedValue(signedTx);
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
       },
-      blockNumber: 321,
-      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
     });
 
     const first = service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n });
@@ -477,7 +513,7 @@ describe('EthereumGatewayProverService', () => {
       },
     ]);
     expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 
   it('does not bypass staggered relay scheduling on startup', async () => {
@@ -497,20 +533,22 @@ describe('EthereumGatewayProverService', () => {
       gatewayActivityNonceRange: { start: 7n, end: 7n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
-    mainchainMock.sign.mockResolvedValue(signedTx);
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
       },
-      blockNumber: 321,
-      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
     });
 
     await service.start();
 
-    expect(mainchainMock.sign).not.toHaveBeenCalled();
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     await service.shutdown();
   });
@@ -532,23 +570,25 @@ describe('EthereumGatewayProverService', () => {
       gatewayActivityNonceRange: { start: 7n, end: 7n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
-    mainchainMock.sign.mockResolvedValue(signedTx);
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
       },
-      blockNumber: 321,
-      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
     });
 
     await service.start();
-    expect(mainchainMock.sign).not.toHaveBeenCalled();
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(72_000);
 
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
 
     await service.shutdown();
   });
@@ -582,30 +622,32 @@ describe('EthereumGatewayProverService', () => {
         },
       ],
     });
-    mainchainMock.sign.mockResolvedValue(signedTx);
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
       },
-      blockNumber: 321,
-      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
     });
 
     await runBackgroundSweep();
     expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
-    expect(mainchainMock.sign).not.toHaveBeenCalled();
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     vi.setSystemTime(new Date('2026-05-13T16:00:23.000Z'));
     await runBackgroundSweep();
     expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(2);
-    expect(mainchainMock.sign).not.toHaveBeenCalled();
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     vi.setSystemTime(new Date('2026-05-13T16:01:11.000Z'));
     await runBackgroundSweep();
     expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(4);
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 
   it('prioritizes owned outbound relay work without waiting for a stagger window', async () => {
@@ -643,21 +685,23 @@ describe('EthereumGatewayProverService', () => {
         },
       ],
     });
-    mainchainMock.sign.mockResolvedValue(signedTx);
-    mainchainMock.submitSigned.mockResolvedValue({
-      extrinsic: {
-        signedHash: '0xrelaytx',
-        submittedAtBlockNumber: 321,
-        submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
       },
-      blockNumber: 321,
-      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
     });
 
     await runBackgroundSweep();
 
     expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
-    expect(mainchainMock.sign).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 });
 

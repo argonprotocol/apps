@@ -24,6 +24,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { getConfig } from '../../../stores/config.ts';
 import { stepLabels, type IStepLabel } from '../../../lib/InstallerStep.ts';
 import { InstallStepStatus, MiningSetupStatus } from '../../../interfaces/IConfig.ts';
@@ -31,12 +32,12 @@ import ProgressBar from '../../../components/ProgressBar.vue';
 import MiningIcon from '../../../assets/mining.svg?component';
 import { useWallets, getWalletKeys } from '../../../stores/wallets.ts';
 import { getTransactionTracker } from '../../../stores/transactions.ts';
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { MoveCapital, type ITransactionMoveMetadata } from '../../../lib/MoveCapital.ts';
 import { ExtrinsicType } from '../../../lib/db/TransactionsTable.ts';
 import type { TransactionInfo } from '../../../lib/TransactionInfo.ts';
 import { getMyVault } from '../../../stores/vaults.ts';
 import type { Config } from '../../../lib/Config.ts';
+import { getMiningFundingState } from './miningFunding.ts';
 
 const config = getConfig();
 const wallets = useWallets();
@@ -76,6 +77,24 @@ const transactionProgressScaled = Vue.computed(() => 80 + txProgressPct.value * 
 const targetProgressPct = Vue.computed(() =>
   hasEnteredTransactionPhase.value ? transactionProgressScaled.value : installerProgressScaled.value,
 );
+const miningMicronotsOnHand = Vue.computed(() => {
+  return (
+    wallets.miningHoldWallet.availableMicronots +
+    wallets.miningHoldWallet.reservedMicronots +
+    wallets.miningBotWallet.availableMicronots +
+    wallets.miningBotWallet.reservedMicronots
+  );
+});
+const fundingState = Vue.computed(() => {
+  return getMiningFundingState({
+    hasSavedBiddingRules: config.hasSavedBiddingRules,
+    miningSetupStatus: config.miningSetupStatus,
+    miningMicrogonsOnHand: wallets.totalMiningMicrogons,
+    miningMicronotsOnHand: miningMicronotsOnHand.value,
+    initialMicrogonRequirement: config.biddingRules.initialMicrogonRequirement,
+    initialMicronotRequirement: config.biddingRules.initialMicronotRequirement,
+  });
+});
 
 const progressLabel = Vue.computed(() => {
   if (hasEnteredTransactionPhase.value) {
@@ -186,14 +205,32 @@ async function ensureTrackedSetupTransfer(force = false) {
   lastEnsureSetupTransferAt = now;
 
   try {
-    const ensuredTxInfo = await moveCapital.moveAvailableMiningHoldToBot(
+    const sweepResult = await moveCapital.moveAvailableMiningHoldToBot(
       wallets.miningHoldWallet,
       walletKeys,
       config as Config,
     );
-    if (ensuredTxInfo) {
-      trackTxInfo(ensuredTxInfo);
+    if (sweepResult.kind === 'submitted' || sweepResult.kind === 'trackingExisting') {
+      trackTxInfo(sweepResult.txInfo);
+      return;
     }
+    if (sweepResult.kind === 'noSpendableFundsToSweep') {
+      if (fundingState.value.isFullyFunded) {
+        transactionErrorMessage.value = '';
+        txProgressLabel.value = 'Mining capital is ready.';
+        txProgressPct.value = 100;
+        return;
+      }
+
+      txProgressPct.value = 0;
+      txProgressLabel.value = 'Mining capital needs attention.';
+      transactionErrorMessage.value = 'This miner is not fully funded yet.';
+      return;
+    }
+
+    txProgressPct.value = 0;
+    txProgressLabel.value = 'Mining capital needs attention.';
+    transactionErrorMessage.value = sweepResult.error;
   } finally {
     isEnsuringSetupTransfer.value = false;
   }

@@ -1,17 +1,20 @@
-import { setTimeout } from 'node:timers/promises';
-import { NetworkConfig, SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { NetworkConfig, raceWithTimeout, SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
 import {
   dispatchErrorToString,
   type ArgonClient,
+  ExtrinsicError,
   getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState,
   getLatestArgonFinalizedExecutionHeader,
   getNextEthereumBeaconSyncTxs,
+  isOutdatedTransactionError,
   type KeyringPair,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { createPublicClient, http } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
+import { isSubmissionStatusError, submitWithTerminalStatusWatch } from './submitWithTerminalStatusWatch.ts';
 
 type IEthereumBeaconSyncServiceOptions = {
   beaconApiUrl?: string;
@@ -29,6 +32,7 @@ type IEthereumBeaconBootstrapOptions = {
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_BOOTSTRAP_POLL_MS = 1_000;
 const DEFAULT_BEACON_REQUEST_TIMEOUT_MS = 10_000;
+const SUBMISSION_INCLUSION_BLOCKS = 10;
 
 export class EthereumBeaconSyncService {
   private loopPromise?: Promise<void>;
@@ -80,6 +84,8 @@ export class EthereumBeaconSyncService {
         await this.runOnceInner();
       } catch (error) {
         this.recordError(error);
+      } finally {
+        this.stateData.lastUpdatedAt = new Date();
       }
     }).promise;
   }
@@ -133,7 +139,7 @@ export class EthereumBeaconSyncService {
         if (!isBootstrapEndpointNotReady(error.message)) {
           throw error;
         }
-        await setTimeout(pollMs);
+        await sleep(pollMs);
       }
     }
 
@@ -169,7 +175,7 @@ export class EthereumBeaconSyncService {
 
   private async loop(): Promise<void> {
     while (!this.shouldStop) {
-      await setTimeout(this.pollMs);
+      await sleep(this.pollMs);
       if (this.shouldStop) break;
       await this.runOnce();
     }
@@ -208,6 +214,25 @@ export class EthereumBeaconSyncService {
     this.stateData.latestFinalizedSlot = syncState.latestFinalizedSlot;
     await this.updateExecutionLag();
 
+    if (this.stateData.mode === 'submitting' && this.stateData.lastSubmittedTxHash) {
+      const pendingExtrinsics = await this.client.rpc.author.pendingExtrinsics();
+      const isSubmittedTxStillPending = pendingExtrinsics.some(
+        pendingExtrinsic => pendingExtrinsic.hash.toHex() === this.stateData.lastSubmittedTxHash,
+      );
+
+      if (isSubmittedTxStillPending) {
+        return;
+      }
+
+      console.warn(
+        `[EthereumBeaconSyncService] Submitted beacon sync tx ${this.stateData.lastSubmittedTxHash} ` +
+          'is no longer pending before inclusion was observed; retrying',
+      );
+      submitLane.invalidateNonce();
+      this.stateData.mode = 'idle';
+      delete this.stateData.lastSubmittedTxHash;
+    }
+
     let txs;
     try {
       txs = await getNextEthereumBeaconSyncTxs(this.client, beaconApiUrl);
@@ -230,19 +255,36 @@ export class EthereumBeaconSyncService {
 
       try {
         const result = await submitLane.runExclusive(async (client, getNonce) => {
-          return await new TxSubmitter(client, tx, submitLane.keypair).submit({
-            nonce: await getNonce(),
-          });
+          return (
+            await submitWithTerminalStatusWatch(new TxSubmitter(client, tx, submitLane.keypair), {
+              nonce: await getNonce(),
+            })
+          ).result;
         });
         this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
-        await result.waitForInFirstBlock;
+        const inclusionTimeoutMs = NetworkConfig.tickMillis * SUBMISSION_INCLUSION_BLOCKS;
+        const observedInFirstBlock = await raceWithTimeout(
+          result.waitForInFirstBlock.then(() => true),
+          inclusionTimeoutMs,
+          () => false,
+        );
+
+        if (!observedInFirstBlock) {
+          console.warn(
+            `[EthereumBeaconSyncService] Submitted beacon sync tx ${result.extrinsic.signedHash} ` +
+              `but did not observe its first block within ${inclusionTimeoutMs}ms; will re-check next sweep`,
+          );
+          return;
+        }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (isOutdatedBeaconSyncSubmitError(error) || message.includes('Priority is too low')) {
+        if (isRetryableBeaconSyncSubmitError(error)) {
           submitLane.invalidateNonce();
           continue;
         }
-        if (message.includes('ethereumVerifier.ExpectedFinalizedHeaderNotStored')) {
+        if (
+          error instanceof ExtrinsicError &&
+          error.errorCode === 'ethereumVerifier.ExpectedFinalizedHeaderNotStored'
+        ) {
           this.stateData.mode = 'idle';
           return;
         }
@@ -379,7 +421,7 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
       }
     }
 
-    await setTimeout(pollMs);
+    await sleep(pollMs);
   }
 
   const lastErrorSuffix = lastError ? ` (${lastError.message})` : '';
@@ -401,11 +443,8 @@ function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
   );
 }
 
-function isOutdatedBeaconSyncSubmitError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes('Invalid Transaction: Transaction is outdated') || message.includes('InvalidTransaction::Stale')
-  );
+function isRetryableBeaconSyncSubmitError(error: unknown): boolean {
+  return isOutdatedTransactionError(error) || isSubmissionStatusError(error);
 }
 
 async function getBeaconJson<T>(
