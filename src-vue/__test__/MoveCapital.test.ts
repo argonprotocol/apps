@@ -172,7 +172,7 @@ describe('MoveCapital', () => {
       },
     });
     expect(buildOperatorAccountRegistrationTx).toHaveBeenCalledOnce();
-    expect(result).toBe(txInfo);
+    expect(result).toEqual({ kind: 'submitted', txInfo });
   });
 
   it('retries the fee calculation without argons when only argonots should move', async () => {
@@ -288,7 +288,33 @@ describe('MoveCapital', () => {
 
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
-    expect(result).toBeUndefined();
+    expect(result).toEqual({
+      kind: 'blocked',
+      error: 'Your wallet has insufficient funds for this transaction.',
+    });
+  });
+
+  it('reports a transaction error when the sweep fee exceeds the mining hold balance', async () => {
+    const { moveCapital } = createMoveCapital();
+    vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
+      tx: createMockFeeTx(12n) as any,
+      metadata: {
+        moveFrom: MoveFrom.MiningHold,
+        moveTo: MoveTo.MiningBot,
+        assetsToMove: { ARGNOT: 4n },
+      },
+    });
+
+    const fee = await moveCapital.calculateFee(
+      MoveFrom.MiningHold,
+      MoveTo.MiningBot,
+      { ARGNOT: 4n },
+      createWallet({ availableMicrogons: 10n, availableMicronots: 4n }),
+      'mining-bot-address',
+    );
+
+    expect(fee).toBe(0n);
+    expect(moveCapital.transactionError).toBe('Your wallet has insufficient funds for this transaction.');
   });
 
   it('skips the sweep when fee calculation fails', async () => {
@@ -307,7 +333,10 @@ describe('MoveCapital', () => {
 
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
-    expect(result).toBeUndefined();
+    expect(result).toEqual({
+      kind: 'blocked',
+      error: 'Unable to calculate transaction fee.',
+    });
   });
 
   it('skips the sweep when there is nothing available to move', async () => {
@@ -324,7 +353,8 @@ describe('MoveCapital', () => {
     expect(feeSpy).not.toHaveBeenCalled();
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
-    expect(result).toBeUndefined();
+    expect(result).toEqual({ kind: 'noSpendableFundsToSweep' });
+    expect(moveCapital.transactionError).toBe('');
   });
 
   it('reuses an in-flight mining hold sweep instead of submitting a duplicate move', async () => {
@@ -367,8 +397,8 @@ describe('MoveCapital', () => {
 
     resolveSubmit?.(txInfo);
 
-    await expect(firstSweep).resolves.toBe(txInfo);
-    await expect(secondSweep).resolves.toBe(txInfo);
+    await expect(firstSweep).resolves.toEqual({ kind: 'submitted', txInfo });
+    await expect(secondSweep).resolves.toEqual({ kind: 'submitted', txInfo });
   });
 
   it('follows an existing tracked mining hold sweep after reload', async () => {
@@ -395,7 +425,10 @@ describe('MoveCapital', () => {
     );
 
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
-    expect(result).toBe(existingTxInfo);
+    expect(result).toEqual({
+      kind: 'trackingExisting',
+      txInfo: existingTxInfo,
+    });
   });
 
   it('submits a new sweep after a prior mining hold sweep finalized', async () => {
@@ -434,7 +467,7 @@ describe('MoveCapital', () => {
     );
 
     expect(transactionTracker.submitAndWatch).toHaveBeenCalledOnce();
-    expect(result).toBe(newTxInfo);
+    expect(result).toEqual({ kind: 'submitted', txInfo: newTxInfo });
   });
 });
 

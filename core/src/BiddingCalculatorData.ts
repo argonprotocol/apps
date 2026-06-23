@@ -74,17 +74,21 @@ export default class BiddingCalculatorData {
       this.loadedFrameIdPromise = new Promise<number>(async (resolve, reject) => {
         const mining = this.mining;
         await this.miningFrames.waitForFrameId(biddingFrameId);
-        const client = await mining.clients.prunedClientOrArchivePromise;
-        const currentBlockHash = await client.rpc.chain.getBlockHash();
-        let api = await client.at(currentBlockHash);
+        const latestHeader = this.miningFrames.blockWatch.bestBlockHeader;
+        let api = await this.miningFrames.clientAt(latestHeader);
         const nextFrameId = await this.mining.fetchNextFrameId(api);
         if (biddingFrameId !== nextFrameId - 1) {
           // need to go back to the start of the bidding frame
-          const frameStartBlockHash = this.miningFrames.framesById[biddingFrameId].firstBlockHash;
-          if (!frameStartBlockHash) {
+          const frame = this.miningFrames.framesById[biddingFrameId];
+          const frameStartBlockHash = frame.firstBlockHash;
+          const frameStartBlockNumber = frame.firstBlockNumber;
+          if (!frameStartBlockHash || frameStartBlockNumber == null) {
             return reject(new Error(`No starting block for frame ${biddingFrameId}`));
           }
-          api = await client.at(frameStartBlockHash);
+          api = await this.miningFrames.clientAt({
+            blockHash: frameStartBlockHash,
+            blockNumber: frameStartBlockNumber,
+          });
         }
 
         const currency = new Currency(mining.clients);
@@ -119,7 +123,7 @@ export default class BiddingCalculatorData {
 
           this.microgonExchangeRateTo = await currency.fetchMainchainRates(api);
           this.maxPossibleMiningSeatCount = maxPossibleMinersInNextEpoch;
-          this.allowedBidIncrementMicrogons = client.consts.miningSlot.bidIncrements.toBigInt();
+          this.allowedBidIncrementMicrogons = api.consts.miningSlot.bidIncrements.toBigInt();
           resolve(biddingFrameId);
         } catch (error) {
           console.error('Error initializing BiddingCalculatorData', error);

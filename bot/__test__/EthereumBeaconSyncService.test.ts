@@ -1,42 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-type IMockSubmitResult = {
-  extrinsic: { signedHash: string };
-  waitForInFirstBlock: Promise<void>;
-};
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 type IMockTx = { id: string };
-type IMockSubmitOptions = { nonce?: number };
 
 const mainchainMock = vi.hoisted(() => {
   const dispatchErrorToString = vi.fn();
   const getEthereumBeaconSyncBootstrapTx = vi.fn();
   const getEthereumBeaconSyncState = vi.fn();
   const getNextEthereumBeaconSyncTxs = vi.fn();
-  const submitTx =
-    vi.fn<(tx: IMockTx, syncKeypair: unknown, options?: IMockSubmitOptions) => Promise<IMockSubmitResult>>();
-
-  class TxSubmitter {
-    private readonly tx: unknown;
-    private readonly syncKeypair: unknown;
-
-    constructor(_client: unknown, tx: unknown, syncKeypair: unknown) {
-      this.tx = tx;
-      this.syncKeypair = syncKeypair;
-    }
-
-    public submit(options?: IMockSubmitOptions): Promise<IMockSubmitResult> {
-      return submitTx(this.tx as IMockTx, this.syncKeypair, options);
-    }
-  }
 
   return {
     dispatchErrorToString,
     getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs,
-    submitTx,
-    TxSubmitter,
+  };
+});
+
+const submissionMock = vi.hoisted(() => {
+  const submitWithTerminalStatusWatch = vi.fn();
+
+  return {
+    submitWithTerminalStatusWatch,
   };
 });
 
@@ -49,16 +34,30 @@ vi.mock('@argonprotocol/mainchain', async () => {
     getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
-    TxSubmitter: mainchainMock.TxSubmitter,
   };
 });
 
-import type { ArgonClient } from '@argonprotocol/mainchain';
+vi.mock('../src/submitWithTerminalStatusWatch.ts', async () => {
+  const actual = await vi.importActual<typeof import('../src/submitWithTerminalStatusWatch.ts')>(
+    '../src/submitWithTerminalStatusWatch.ts',
+  );
+
+  return {
+    ...actual,
+    submitWithTerminalStatusWatch: submissionMock.submitWithTerminalStatusWatch,
+  };
+});
+
+import { ExtrinsicError, type ArgonClient } from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import {
   EthereumBeaconSyncService,
   waitForFinalizedBeaconExecutionAtOrAbove,
 } from '../src/EthereumBeaconSyncService.ts';
+import {
+  SubmissionStatusError,
+  SubmissionStatusErrorCode,
+} from '../src/submitWithTerminalStatusWatch.ts';
 
 const syncKeypair = { address: 'sync-account' } as any;
 
@@ -98,6 +97,7 @@ describe('EthereumBeaconSyncService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    NetworkConfig.setNetwork('mainnet');
   });
 
   afterEach(() => {
@@ -186,10 +186,12 @@ describe('EthereumBeaconSyncService', () => {
         headerInterval: 32n,
       });
     mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
-    mainchainMock.submitTx.mockImplementation(async (tx: IMockTx) => {
+    submissionMock.submitWithTerminalStatusWatch.mockImplementation(async (submitter: { tx: IMockTx }) => {
       return {
-        extrinsic: { signedHash: `${tx.id}-hash` },
-        waitForInFirstBlock: tx.id === 'tx-1' ? firstInBlock : Promise.resolve(),
+        result: {
+          extrinsic: { signedHash: `${submitter.tx.id}-hash` },
+          waitForInFirstBlock: submitter.tx.id === 'tx-1' ? firstInBlock : Promise.resolve(),
+        },
       };
     });
 
@@ -200,21 +202,35 @@ describe('EthereumBeaconSyncService', () => {
 
     const runOncePromise = service.runOnce();
     await vi.waitFor(() => {
-      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+      expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
     });
 
-    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(1, txs[0], syncKeypair, {
-      nonce: 12,
-    });
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        account: syncKeypair,
+        address: syncKeypair.address,
+        client,
+        tx: txs[0],
+      }),
+      { nonce: 12 },
+    );
 
     resolveFirstInBlock();
     await vi.waitFor(() => {
-      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(2);
+      expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
     });
 
-    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[1], syncKeypair, {
-      nonce: 13,
-    });
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        account: syncKeypair,
+        address: syncKeypair.address,
+        client,
+        tx: txs[1],
+      }),
+      { nonce: 13 },
+    );
     await runOncePromise;
 
     expect(service.state()).toMatchObject({
@@ -281,14 +297,18 @@ describe('EthereumBeaconSyncService', () => {
         headerInterval: 32n,
       });
     mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
-    mainchainMock.submitTx
+    submissionMock.submitWithTerminalStatusWatch
       .mockResolvedValueOnce({
-        extrinsic: { signedHash: 'tx-1-hash' },
-        waitForInFirstBlock: new Promise<void>(() => undefined),
+        result: {
+          extrinsic: { signedHash: 'tx-1-hash' },
+          waitForInFirstBlock: new Promise<void>(() => undefined),
+        },
       })
       .mockResolvedValueOnce({
-        extrinsic: { signedHash: 'tx-1-retry-hash' },
-        waitForInFirstBlock: Promise.resolve(),
+        result: {
+          extrinsic: { signedHash: 'tx-1-retry-hash' },
+          waitForInFirstBlock: Promise.resolve(),
+        },
       });
 
     const service = new EthereumBeaconSyncService(client, {
@@ -298,9 +318,9 @@ describe('EthereumBeaconSyncService', () => {
 
     const firstRunPromise = service.runOnce();
     await vi.waitFor(() => {
-      expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+      expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
     });
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(600_000);
     await firstRunPromise;
 
     expect(service.state()).toMatchObject({
@@ -313,7 +333,7 @@ describe('EthereumBeaconSyncService', () => {
     await service.runOnce();
 
     expect(mainchainMock.getNextEthereumBeaconSyncTxs).toHaveBeenCalledTimes(1);
-    expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
     expect(service.state()).toMatchObject({
       lastSubmittedTxHash: 'tx-1-hash',
       latestFinalizedSlot: 800n,
@@ -323,9 +343,16 @@ describe('EthereumBeaconSyncService', () => {
 
     await service.runOnce();
 
-    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[0], syncKeypair, {
-      nonce: 12,
-    });
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        account: syncKeypair,
+        address: syncKeypair.address,
+        client,
+        tx: txs[0],
+      }),
+      { nonce: 12 },
+    );
     expect(service.state()).toMatchObject({
       latestFinalizedSlot: 832n,
       latestSyncCommitteeUpdatePeriod: 13n,
@@ -448,9 +475,12 @@ describe('EthereumBeaconSyncService', () => {
     expect(service.state().lastError).toBeUndefined();
   });
 
-  it('continues when the submit error is classified as outdated', async () => {
+  it('continues when the submit error is retryable after the node drops it', async () => {
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
-    const outdatedError = new Error('Invalid Transaction: Transaction is outdated');
+    const droppedError = new SubmissionStatusError(
+      SubmissionStatusErrorCode.Dropped,
+      'Transaction was dropped before it was included in a block.',
+    );
     const client = createClient(12);
 
     mainchainMock.getEthereumBeaconSyncState
@@ -473,10 +503,14 @@ describe('EthereumBeaconSyncService', () => {
         headerInterval: 32n,
       });
     mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
-    mainchainMock.submitTx.mockRejectedValueOnce(outdatedError).mockResolvedValueOnce({
-      extrinsic: { signedHash: 'tx-2-hash' },
-      waitForInFirstBlock: Promise.resolve(),
-    });
+    submissionMock.submitWithTerminalStatusWatch
+      .mockRejectedValueOnce(droppedError)
+      .mockResolvedValueOnce({
+        result: {
+          extrinsic: { signedHash: 'tx-2-hash' },
+          waitForInFirstBlock: Promise.resolve(),
+        },
+      });
 
     const service = new EthereumBeaconSyncService(client, {
       beaconApiUrl: 'https://beacon.example',
@@ -485,12 +519,26 @@ describe('EthereumBeaconSyncService', () => {
 
     await service.runOnce();
 
-    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(1, txs[0], syncKeypair, {
-      nonce: 12,
-    });
-    expect(mainchainMock.submitTx).toHaveBeenNthCalledWith(2, txs[1], syncKeypair, {
-      nonce: 12,
-    });
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        account: syncKeypair,
+        address: syncKeypair.address,
+        client,
+        tx: txs[0],
+      }),
+      { nonce: 12 },
+    );
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        account: syncKeypair,
+        address: syncKeypair.address,
+        client,
+        tx: txs[1],
+      }),
+      { nonce: 12 },
+    );
     expect(service.state()).toMatchObject({
       latestFinalizedSlot: 832n,
       latestSyncCommitteeUpdatePeriod: 13n,
@@ -512,8 +560,8 @@ describe('EthereumBeaconSyncService', () => {
       headerInterval: 32n,
     });
     mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue([{ id: 'tx-1' }]);
-    mainchainMock.submitTx.mockRejectedValue(
-      new Error('ExtrinsicError: ethereumVerifier.ExpectedFinalizedHeaderNotStored'),
+    submissionMock.submitWithTerminalStatusWatch.mockRejectedValue(
+      new ExtrinsicError('ethereumVerifier.ExpectedFinalizedHeaderNotStored'),
     );
 
     const service = new EthereumBeaconSyncService(client, {
@@ -523,7 +571,7 @@ describe('EthereumBeaconSyncService', () => {
 
     await service.runOnce();
 
-    expect(mainchainMock.submitTx).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
     expect(service.state()).toMatchObject({
       latestFinalizedSlot: 800n,
       latestSyncCommitteeUpdatePeriod: 12n,

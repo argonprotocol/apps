@@ -409,57 +409,66 @@ export class MiningFrames {
       return;
     }
 
-    const localOrArchive = await this.clients.prunedClientOrArchivePromise;
-    const rawFrameStartBlocks = await localOrArchive.query.miningSlot.frameStartBlockNumbers();
-
-    const queue = rawFrameStartBlocks.map(x => x.toNumber());
-    if (!queue.length) {
-      console.warn('[Mining Frames] No frame start block numbers found');
+    const latestHeader = headers.at(-1);
+    if (!latestHeader) {
       return;
     }
-    let hasChanges = false;
-    do {
-      const blockNumber = queue.shift()!;
-      const blockClient = await this.blockWatch.getRpcClient(blockNumber);
-      const header = await this.blockWatch.getHeader(blockNumber);
-      const blockHash = header.blockHash;
-      const api = await blockClient.at(header.blockHash);
-      const frameId: number = header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
 
-      const existing = this.framesById[frameId];
-      if (existing && existing.firstBlockHash === blockHash) {
-        break;
+    try {
+      const latestApi = await this.clientAt(latestHeader);
+      const rawFrameStartBlocks = await latestApi.query.miningSlot.frameStartBlockNumbers();
+
+      const queue = rawFrameStartBlocks.map(x => x.toNumber());
+      if (!queue.length) {
+        console.warn('[Mining Frames] No frame start block numbers found');
+        return;
       }
+      let hasChanges = false;
+      do {
+        const blockNumber = queue.shift()!;
+        const header = await this.blockWatch.getHeader(blockNumber);
+        const blockHash = header.blockHash;
+        const api = await this.clientAt(header);
+        const frameId: number = header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
 
-      const startingTick = header.tick;
-      const isChanged = this.setFrameHistory({
-        frameId,
-        frameStartTick: startingTick,
-        dateStart: MiningFrames.getTickDate(startingTick),
-        firstBlockNumber: blockNumber,
-        firstBlockHash: blockHash,
-        firstBlockTick: startingTick,
-        firstBlockSpecVersion: api.runtimeVersion.specVersion.toNumber(),
-      });
-      if (isChanged) {
-        this.events.emit('on-frame', { frameId, blockNumber, blockHash });
-        this.events.emit('on-tick', startingTick);
-        hasChanges = true;
-      }
+        const existing = this.framesById[frameId];
+        if (existing && existing.firstBlockHash === blockHash) {
+          break;
+        }
 
-      if (queue.length === 0) {
-        const frameStartBlockNumbers = await api.query.miningSlot.frameStartBlockNumbers();
-        for (const bn of frameStartBlockNumbers) {
-          const bnNumber = bn.toNumber();
-          if (bnNumber < blockNumber) {
-            queue.push(bnNumber);
+        const startingTick = header.tick;
+        const isChanged = this.setFrameHistory({
+          frameId,
+          frameStartTick: startingTick,
+          dateStart: MiningFrames.getTickDate(startingTick),
+          firstBlockNumber: blockNumber,
+          firstBlockHash: blockHash,
+          firstBlockTick: startingTick,
+          firstBlockSpecVersion: api.runtimeVersion.specVersion.toNumber(),
+        });
+        if (isChanged) {
+          this.events.emit('on-frame', { frameId, blockNumber, blockHash });
+          this.events.emit('on-tick', startingTick);
+          hasChanges = true;
+        }
+
+        if (queue.length === 0) {
+          const frameStartBlockNumbers = await api.query.miningSlot.frameStartBlockNumbers();
+          for (const bn of frameStartBlockNumbers) {
+            const bnNumber = bn.toNumber();
+            if (bnNumber < blockNumber) {
+              queue.push(bnNumber);
+            }
           }
         }
-      }
-    } while (queue.length > 0);
 
-    if (hasChanges) {
-      await this.safeSaveUpdates();
+      } while (queue.length > 0);
+
+      if (hasChanges) {
+        await this.safeSaveUpdates();
+      }
+    } catch (error) {
+      console.warn('[Mining Frames] Failed to refresh frame history, will retry on the next block', error);
     }
   }
 

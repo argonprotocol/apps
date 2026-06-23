@@ -16,7 +16,7 @@ export interface IAssetsToMove {
   [MoveToken.ARGNOT]?: bigint;
 }
 
-let pendingMiningHoldSweepPromise: Promise<TransactionInfo | undefined> | undefined;
+let pendingMiningHoldSweepPromise: Promise<MiningHoldSweepResult> | undefined;
 const MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
 export class MoveCapital {
@@ -98,7 +98,7 @@ export class MoveCapital {
     wallet: IWallet,
     walletKeys: WalletKeys,
     config: Config,
-  ): Promise<TransactionInfo | undefined> {
+  ): Promise<MiningHoldSweepResult> {
     if (pendingMiningHoldSweepPromise) {
       return await pendingMiningHoldSweepPromise;
     }
@@ -119,8 +119,9 @@ export class MoveCapital {
     wallet: IWallet,
     walletKeys: WalletKeys,
     config: Config,
-  ): Promise<TransactionInfo | undefined> {
+  ): Promise<MiningHoldSweepResult> {
     await this.transactionTracker.load();
+    this.transactionError = '';
 
     const latestMiningHoldSweepTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(txInfo => {
       const metadata = txInfo.tx.metadataJson;
@@ -142,7 +143,10 @@ export class MoveCapital {
       : undefined;
 
     if (latestMiningHoldSweepAttempt?.txAttemptState === TxAttemptState.Follow) {
-      return latestMiningHoldSweepAttempt.txInfo;
+      return {
+        kind: 'trackingExisting',
+        txInfo: latestMiningHoldSweepAttempt.txInfo,
+      };
     }
 
     const assetsToMove: IAssetsToMove = {};
@@ -154,7 +158,9 @@ export class MoveCapital {
     if (wallet.availableMicronots > 0n) {
       assetsToMove[MoveToken.ARGNOT] = wallet.availableMicronots;
     }
-    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) return;
+    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) {
+      return { kind: 'noSpendableFundsToSweep' };
+    }
 
     const client = await getMainchainClient(false);
     const prependedTxs: SubmittableExtrinsic[] = [];
@@ -182,14 +188,10 @@ export class MoveCapital {
         availableMicrogons: wallet.availableMicrogons,
         assetsToMove,
       });
-      return;
-    }
-    if (fee > wallet.availableMicrogons) {
-      console.info('[MoveCapital] Skipping mining hold auto-transfer, not enough argons to cover fee', {
-        availableMicrogons: wallet.availableMicrogons,
-        fee,
-      });
-      return;
+      return {
+        kind: 'blocked',
+        error: this.transactionError,
+      };
     }
 
     let finalAssetsToMove: IAssetsToMove = {};
@@ -217,21 +219,19 @@ export class MoveCapital {
             availableMicrogons: wallet.availableMicrogons,
             assetsToMove: finalAssetsToMove,
           });
-          return;
-        }
-        if (fee > wallet.availableMicrogons) {
-          console.info('[MoveCapital] Skipping mining hold auto-transfer, not enough argons to cover fee', {
-            availableMicrogons: wallet.availableMicrogons,
-            fee,
-          });
-          return;
+          return {
+            kind: 'blocked',
+            error: this.transactionError,
+          };
         }
       } else {
         finalAssetsToMove[MoveToken.ARGNOT] = assetsToMove[MoveToken.ARGNOT];
       }
     }
 
-    if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) return;
+    if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) {
+      return { kind: 'noSpendableFundsToSweep' };
+    }
 
     const { tx, metadata } = await this.buildTransaction(
       MoveFrom.MiningHold,
@@ -258,7 +258,10 @@ export class MoveCapital {
         metadata,
       });
       followOnTx?.resolve(txInfo);
-      return txInfo;
+      return {
+        kind: 'submitted',
+        txInfo,
+      };
     } catch (error) {
       followOnTx?.reject(error);
       throw error;
@@ -417,3 +420,20 @@ export interface ITransactionMoveMetadata {
   externalAddress?: string;
   assetsToMove: IAssetsToMove;
 }
+
+export type MiningHoldSweepResult =
+  | {
+      kind: 'submitted';
+      txInfo: TransactionInfo;
+    }
+  | {
+      kind: 'trackingExisting';
+      txInfo: TransactionInfo;
+    }
+  | {
+      kind: 'noSpendableFundsToSweep';
+    }
+  | {
+      kind: 'blocked';
+      error: string;
+    };

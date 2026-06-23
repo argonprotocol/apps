@@ -124,11 +124,13 @@ async function queueMiningHoldAutoTransfer(wallet: IWallet) {
     // after the in-flight transfer settles instead of submitting a second transfer in parallel.
     do {
       shouldRetryAutoTransfer = false;
-      const sweepTxInfo = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config as Config);
-      if (sweepTxInfo) {
-        await sweepTxInfo.waitForPostProcessing.catch(error => {
+      const sweepResult = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config as Config);
+      if (sweepResult.kind === 'submitted' || sweepResult.kind === 'trackingExisting') {
+        await sweepResult.txInfo.waitForPostProcessing.catch(error => {
           console.error('[WalletFundingReceivedOverlay] Mining hold sweep failed while waiting to retry', error);
         });
+      } else if (sweepResult.kind === 'blocked') {
+        console.error('[WalletFundingReceivedOverlay] Mining hold auto-transfer was blocked', sweepResult.error);
       }
     } while (shouldRetryAutoTransfer);
   } finally {
