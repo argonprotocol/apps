@@ -10,7 +10,7 @@ dayjs.extend(utc);
 const START_DATE = '2025-01-01'; // First known price date
 const TODAY = dayjs.utc().format('YYYY-MM-DD'); // Current date in YYYY-MM-DD format
 
-export default async function fetchBitcoinPrices() {
+export async function fetchBitcoinPrices() {
   const data = await BitcoinDataFetcher.fetchPrices(START_DATE, TODAY);
 
   // Write data to JSON file

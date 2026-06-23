@@ -19,7 +19,7 @@ export const useMiningStats = defineStore('miningStats', () => {
 
   const activeBidCosts = Vue.ref(0n);
   const activeBlockRewards = Vue.ref(0n);
-  const activeAPY = Vue.ref(0);
+  const averageAPY = Vue.ref(0);
 
   async function update() {
     if (!isLoading && !isLoadedPromise) await stats.load();
@@ -32,7 +32,7 @@ export const useMiningStats = defineStore('miningStats', () => {
 
     activeBidCosts.value = stats.activeBidCosts;
     activeBlockRewards.value = stats.activeBlockRewards;
-    activeAPY.value = calculateAPY(stats.activeBidCosts, stats.activeBlockRewards);
+    averageAPY.value = calculateAPY(stats.activeBidCosts, stats.activeBlockRewards);
     isLoading = false;
   }
 
@@ -45,7 +45,7 @@ export const useMiningStats = defineStore('miningStats', () => {
     aggregatedBlockRewards,
     activeBidCosts,
     activeBlockRewards,
-    activeAPY,
+    averageAPY,
     update,
   };
 });

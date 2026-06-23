@@ -1,4 +1,4 @@
-import { calculateAPY } from './utils.js';
+import { calculateAPR, calculateAPY } from './utils.js';
 import { Currency, UnitOfMeasurement } from './Currency.js';
 import type { Mining } from './Mining.js';
 
@@ -9,10 +9,12 @@ export class GlobalMiningStats {
   public activeSeatCount = 0;
   public aggregatedBidCosts = 0n;
   public aggregatedBlockRewards = 0n;
+  public averageAPR: number = 0;
   public averageAPY: number = 0;
 
   public activeBidCosts = 0n;
   public activeBlockRewards = 0n;
+  public activeAPR: number = 0;
   public activeAPY: number = 0;
 
   constructor(mining: Mining, currency: Currency) {
@@ -31,11 +33,13 @@ export class GlobalMiningStats {
     const aggregateBlockRewards = await this.mining.fetchAggregateBlockRewards();
     this.aggregatedBidCosts = await this.mining.fetchAggregateBidCosts();
     this.aggregatedBlockRewards = this.calculateBlockRewards(aggregateBlockRewards);
+    this.averageAPR = calculateAPR(this.aggregatedBidCosts, this.aggregatedBlockRewards);
     this.averageAPY = calculateAPY(this.aggregatedBidCosts, this.aggregatedBlockRewards);
 
     const lastFrameBlockRewards = await this.mining.fetchLastFrameBlockRewards();
     this.activeBidCosts = (await this.mining.fetchLastFramesBidCosts()) * 10n;
     this.activeBlockRewards = this.calculateBlockRewards(lastFrameBlockRewards) * 10n;
+    this.activeAPR = calculateAPR(this.activeBidCosts, this.activeBlockRewards);
     this.activeAPY = calculateAPY(this.activeBidCosts, this.activeBlockRewards);
   }
 

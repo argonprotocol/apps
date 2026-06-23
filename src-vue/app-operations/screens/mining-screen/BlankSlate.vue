@@ -83,10 +83,10 @@
           <li style="width: 1px" class="bg-slate-300"></li>
           <li class="w-1/4">
             <div class="text-4xl font-bold">
-              <template v-if="isLoaded">{{ numeral(miningStats.activeAPY).formatCapped('0,0', 9_999) }}%</template>
+              <template v-if="isLoaded">{{ numeral(miningStats.averageAPY).formatCapped('0,0', 9_999) }}%</template>
               <template v-else>---</template>
             </div>
-            <div>Annual Percentage Yield</div>
+            <div>Average Mining APY</div>
           </li>
         </ul>
         <BlankSlateBlocks />

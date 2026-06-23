@@ -2066,5 +2066,61 @@
   {
     "date": "2026-06-04",
     "feeInBitcoins": 0.00000708
+  },
+  {
+    "date": "2026-06-05",
+    "feeInBitcoins": 0.0000069
+  },
+  {
+    "date": "2026-06-06",
+    "feeInBitcoins": 0.0000055
+  },
+  {
+    "date": "2026-06-07",
+    "feeInBitcoins": 0.00000429
+  },
+  {
+    "date": "2026-06-08",
+    "feeInBitcoins": 0.00000504
+  },
+  {
+    "date": "2026-06-09",
+    "feeInBitcoins": 0.00000542
+  },
+  {
+    "date": "2026-06-10",
+    "feeInBitcoins": 0.00000531
+  },
+  {
+    "date": "2026-06-11",
+    "feeInBitcoins": 0.00000557
+  },
+  {
+    "date": "2026-06-12",
+    "feeInBitcoins": 0.00000584
+  },
+  {
+    "date": "2026-06-13",
+    "feeInBitcoins": 0.0000062
+  },
+  {
+    "date": "2026-06-14",
+    "feeInBitcoins": 0.00000366
+  },
+  {
+    "date": "2026-06-15",
+    "feeInBitcoins": 0.00000523
+  },
+  {
+    "date": "2026-06-16",
+    "feeInBitcoins": 0.00000422
+  },
+  {
+    "date": "2026-06-17",
+    "feeInBitcoins": 0.00000555
+  },
+  {
+    "date": "2026-06-18",
+    "feeInBitcoins": 0.00000424
   }
 ]

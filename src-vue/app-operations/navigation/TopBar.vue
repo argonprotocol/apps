@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div
-    class="bg-white/95 relative z-[2500] flex min-h-14 w-full flex-row items-center select-none"
+    class="bg-white/95 relative z-100 flex min-h-14 w-full flex-row items-center select-none"
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >

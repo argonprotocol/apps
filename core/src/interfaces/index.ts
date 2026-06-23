@@ -17,3 +17,5 @@ export * from './ITransferSources.js';
 export * from './IIndexerSpec.js';
 export * from './IVaultStats.js';
 export * from './IBotApiSpec.js';
+export * from './IBitcoinFeeRecord.js';
+export * from './IBitcoinPriceRecord.js';

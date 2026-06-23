@@ -1,4 +1,4 @@
-import { IBitcoinPriceRecord } from '../interfaces/IBitcoinPriceRecord';
+import { type IBitcoinPriceRecord } from '@argonprotocol/apps-core';
 import LlbVault, { IAction } from './LlbVault';
 
 export default class LlbVaultSnapshot {

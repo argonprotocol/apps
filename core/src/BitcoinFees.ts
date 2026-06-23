@@ -1,12 +1,11 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { type IBitcoinFeeRecord } from '../interfaces/IBitcoinFeeRecord.ts';
-import BitcoinPrices from './BitcoinPrices.ts';
-import { bitcoinFees } from '@argonprotocol/apps-core';
+import { BitcoinPrices } from './BitcoinPrices.js';
+import { bitcoinFees } from './index.js';
 
 dayjs.extend(utc);
 
-export default class BitcoinFees {
+export class BitcoinFees {
   public feeByDate: Record<string, number> = {};
   public bitcoinPrices: BitcoinPrices = new BitcoinPrices();
 

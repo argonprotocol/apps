@@ -112,6 +112,11 @@
                 </div>
                 We are trying to connect to your cloud machine.
               </div>
+              <div class="border-t border-dashed border-slate-300 py-2 mt-2 mx-2">
+                <button @click="openServerOverlay" class="mt-2 text-base py-1.5 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
+                  Open Server Overlay
+                </button>
+              </div>
             </div>
           </div>
         </NavigationMenuContent>
@@ -136,9 +141,6 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { IS_OPERATIONS_APP } from '../../lib/Env.ts';
 import { getConfig } from '../../stores/config.ts';
 import InstallProgress from '../../components/InstallProgress.vue';
-import { InstallStepStatus } from '../../interfaces/IConfig.ts';
-import { stepLabels } from '../../lib/InstallerStep.ts';
-import numeral from '../../lib/numeral.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -167,24 +169,6 @@ const lastUpdatedAt = Vue.computed(() => {
   const times = [lastBitcoinActivityAt.value, lastArgonActivityAt.value].filter(Boolean);
   if (times.length === 0) return null;
   return times.reduce((latest, current) => (current && current.isAfter(latest) ? current : latest));
-});
-
-const installerProgress = Vue.computed(() => {
-  let totalProgress = 0;
-  for (const [index, stepLabel] of stepLabels.entries()) {
-    let stepStatus = config.serverInstaller[stepLabel.key].status;
-    if (stepStatus === InstallStepStatus.Pending && index === 0) {
-      stepStatus = InstallStepStatus.Working;
-    }
-    if (stepStatus === InstallStepStatus.Completed) {
-      totalProgress += 100;
-    } else if (stepStatus === InstallStepStatus.Pending) {
-      totalProgress += 0;
-    } else {
-      totalProgress += config.serverInstaller[stepLabel.key].progress;
-    }
-  }
-  return totalProgress / stepLabels.length;
 });
 
 function openServerOverlay() {

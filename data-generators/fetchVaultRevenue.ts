@@ -18,7 +18,7 @@ dayjs.extend(utc);
 
 const rebuildBaseline = Boolean(JSON.parse(process.env.REBUILD_BASELINE ?? '0'));
 
-export default async function fetchVaultRevenue() {
+export async function fetchVaultRevenue() {
   for (const chain of ['testnet', 'mainnet'] as const) {
     NetworkConfig.networkName = chain;
     const mainchain = new MainchainClients(NetworkConfigSettings[chain].archiveUrl);
@@ -45,6 +45,13 @@ export default async function fetchVaultRevenue() {
     }
 
     if (rebuildBaseline) {
+      for (const vaultStats of Object.values(data.vaultsById)) {
+        vaultStats.baseline.bitcoinLocks = 0;
+        vaultStats.baseline.satoshis = 0n;
+        vaultStats.baseline.microgonLiquidityRealized = 0n;
+        vaultStats.baseline.feeRevenue = 0n;
+      }
+
       const client = await mainchain.prunedClientOrArchivePromise;
       const utxos = await client.query.bitcoinLocks.locksByUtxoId.entries();
       for (const [_utxoId, utxo] of utxos) {

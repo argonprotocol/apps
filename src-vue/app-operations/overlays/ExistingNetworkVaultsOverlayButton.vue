@@ -108,7 +108,7 @@ Vue.onMounted(async () => {
       bitcoinAnnualPercentRate: terms.bitcoinAnnualPercentRate.toNumber(),
       activatedSecuritization: vault.activatedSecuritization(),
       bitcoinBaseFee: terms.bitcoinBaseFee,
-      poolEarnings: vaultStore.treasuryPoolEarnings(vault.vaultId),
+      poolEarnings: vaultStore.treasuryPoolTotalEarnings(vault.vaultId),
       feeRevenue: vaultStore.getTotalFeeRevenue(vault.vaultId),
       apy,
     });
