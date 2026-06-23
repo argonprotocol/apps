@@ -7,7 +7,7 @@
       >{{ content }}</textarea
     >
     <div class="pointer-events-none absolute top-3 right-3 text-xs text-slate-500">Click to copy</div>
-    <template #copied>
+    <template #copying>
       <div class="text-argon-700 absolute top-3 right-3 text-xs font-semibold">Copied</div>
     </template>
   </CopyToClipboard>

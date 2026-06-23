@@ -190,10 +190,6 @@
   </div>
 </template>
 
-<script lang="ts">
-const createdInviteEnvelopesByCode: Record<string, string> = {};
-</script>
-
 <script setup lang="ts">
 import * as Vue from 'vue';
 import type { IOperationalUserInvite } from '@argonprotocol/apps-router';
@@ -250,7 +246,6 @@ const errorMessage = Vue.ref<string | null>(null);
 const infoMessage = Vue.ref<string | null>(null);
 
 const inviteNamesBySlot = Vue.ref<Record<number, string>>({});
-const inviteLinksRevision = Vue.ref(0);
 
 let scrollAnimationFrame: number | undefined;
 
@@ -324,12 +319,10 @@ const progressCards = Vue.computed(() => {
 });
 
 const inviteLinksByCode = Vue.computed(() => {
-  inviteLinksRevision.value;
   return Object.fromEntries(
-    Object.entries(createdInviteEnvelopesByCode).map(([inviteCode, inviteEnvelope]) => [
-      inviteCode,
-      getOperationalInviteUrl(inviteEnvelope),
-    ]),
+    controller.operationalInvites
+      .filter(invite => invite.inviteEnvelope)
+      .map(invite => [invite.inviteCode, getOperationsInviteUrl(invite.inviteEnvelope)]),
   );
 });
 
@@ -431,16 +424,14 @@ async function createInvite({ slotNumber, name }: { slotNumber: number; name: st
       name,
       fromName,
       inviteCode,
+      inviteEnvelope,
       ...operationalReferral,
     });
 
     const nextInvites = [invite, ...controller.operationalInvites.filter(x => x.id !== invite.id)];
     controller.setOperationalInvites(nextInvites);
 
-    createdInviteEnvelopesByCode[invite.inviteCode] = inviteEnvelope;
-    inviteLinksRevision.value += 1;
-
-    await navigator.clipboard.writeText(getOperationalInviteUrl(inviteEnvelope)).catch(() => undefined);
+    await navigator.clipboard.writeText(getOperationsInviteUrl(inviteEnvelope)).catch(() => undefined);
 
     infoMessage.value = 'Invite link copied.';
     inviteNamesBySlot.value[slotNumber] = '';
@@ -476,16 +467,13 @@ async function regenerateInviteLink({ inviteCode }: { inviteCode: string }) {
     const { inviteCode: newInviteCode, inviteEnvelope } = await buildOperationalInviteLink();
     const invite = await serverApiClient.regenerateOperationalInvite(inviteCode, {
       inviteCode: newInviteCode,
+      inviteEnvelope,
     });
 
     const nextInvites = [invite, ...controller.operationalInvites.filter(x => x.id !== invite.id)];
     controller.setOperationalInvites(nextInvites);
 
-    delete createdInviteEnvelopesByCode[inviteCode];
-    createdInviteEnvelopesByCode[invite.inviteCode] = inviteEnvelope;
-    inviteLinksRevision.value += 1;
-
-    await navigator.clipboard.writeText(getOperationalInviteUrl(inviteEnvelope)).catch(() => undefined);
+    await navigator.clipboard.writeText(getOperationsInviteUrl(inviteEnvelope)).catch(() => undefined);
 
     infoMessage.value = 'Invite link regenerated and copied.';
 
@@ -522,6 +510,7 @@ async function buildOperationalInviteLink() {
     ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
     role: UserRole.OperationalPartner,
     secret: inviteSecret,
+    inviteCode,
     operationalReferral,
   });
 
@@ -532,8 +521,8 @@ async function buildOperationalInviteLink() {
   };
 }
 
-function getOperationalInviteUrl(inviteEnvelope: string) {
-  return `${NetworkConfig.get().websiteHost}/operational-invite/${inviteEnvelope}`;
+function getOperationsInviteUrl(inviteEnvelope: string) {
+  return `${NetworkConfig.get().websiteHost}/operations-invite/${inviteEnvelope}`;
 }
 
 Vue.watch(

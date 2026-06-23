@@ -7,10 +7,14 @@ import type { Role } from './db/UsersTable.ts';
 export class UserInviteService {
   constructor(private readonly db: Db) {}
 
-  public createInvite(role: Role, args: { name: string; fromName: string; inviteCode: string }): IUserInviteRecord {
+  public createInvite(
+    role: Role,
+    args: { name: string; fromName: string; inviteCode: string; inviteEnvelope: string },
+  ): IUserInviteRecord {
     const name = args.name.trim();
     const fromName = args.fromName.trim();
     const inviteCode = args.inviteCode.trim();
+    const inviteEnvelope = args.inviteEnvelope.trim();
 
     if (!name) {
       throw new RouterError('A name is required to create an invite.');
@@ -20,6 +24,9 @@ export class UserInviteService {
     }
     if (!inviteCode) {
       throw new RouterError('An invite code is required.');
+    }
+    if (!inviteEnvelope) {
+      throw new RouterError('An invite envelope is required.');
     }
 
     return this.db.transaction(() => {
@@ -32,19 +39,26 @@ export class UserInviteService {
         name,
       });
 
-      return this.db.userInvitesTable.insertInvite(user.id, inviteCode, fromName);
+      return this.db.userInvitesTable.insertInvite(user.id, inviteCode, fromName, inviteEnvelope);
     });
   }
 
-  public regenerateInvite(role: Role, args: { inviteCode: string; newInviteCode: string }): IUserInviteRecord {
+  public regenerateInvite(
+    role: Role,
+    args: { inviteCode: string; newInviteCode: string; newInviteEnvelope: string },
+  ): IUserInviteRecord {
     const inviteCode = args.inviteCode.trim();
     const newInviteCode = args.newInviteCode.trim();
+    const newInviteEnvelope = args.newInviteEnvelope.trim();
 
     if (!inviteCode) {
       throw new RouterError('An invite code is required.');
     }
     if (!newInviteCode) {
       throw new RouterError('A new invite code is required.');
+    }
+    if (!newInviteEnvelope) {
+      throw new RouterError('A new invite envelope is required.');
     }
 
     return this.db.transaction(() => {
@@ -59,7 +73,7 @@ export class UserInviteService {
         throw new RouterError('This invite code is already in use.', 409);
       }
 
-      const updatedInvite = this.db.userInvitesTable.updateInviteCode(invite.id, newInviteCode);
+      const updatedInvite = this.db.userInvitesTable.updateInviteCode(invite.id, newInviteCode, newInviteEnvelope);
       if (!updatedInvite) {
         throw new RouterError('Invite not found', 404);
       }

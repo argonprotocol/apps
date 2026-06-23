@@ -775,7 +775,7 @@ const defaults: IConfigDefaults = {
       securitizationRatio: 1,
       profitSharingPct: 10,
       btcFlatFee: 2n * BigInt(MICROGONS_PER_ARGON),
-      btcPctFee: 5,
+      btcPctFee: 3.4,
 
       btcUtilizationPctMin: 50,
       btcUtilizationPctMax: 100,

@@ -9,6 +9,7 @@ type IInviteEnvelopePayload = {
   host: string;
   port: string;
   secret: string;
+  inviteCode: string;
   operationalReferral?: IOperationalReferral;
 };
 
@@ -18,6 +19,7 @@ type IDecodedInviteEnvelope = {
   ipAddress?: string;
   port?: string;
   secret?: string;
+  inviteCode?: string;
   operationalReferral?: IOperationalReferral;
   hasError?: boolean;
   isEmpty?: boolean;
@@ -31,6 +33,7 @@ export class InviteEnvelope {
     port: string;
     role: InviteRole;
     secret: string;
+    inviteCode: string;
     operationalReferral?: IOperationalReferral;
   }): string {
     const payload: IInviteEnvelopePayload = {
@@ -39,6 +42,7 @@ export class InviteEnvelope {
       host: args.host,
       port: args.port,
       secret: args.secret,
+      inviteCode: args.inviteCode,
     };
     if (args.operationalReferral) payload.operationalReferral = args.operationalReferral;
 
@@ -63,6 +67,7 @@ export class InviteEnvelope {
         !payload.host ||
         !payload.port ||
         !payload.secret ||
+        !payload.inviteCode ||
         !payload.role ||
         !inviteRoles.has(payload.role)
       ) {
@@ -75,6 +80,7 @@ export class InviteEnvelope {
         ipAddress: payload.host,
         port: payload.port,
         secret: payload.secret,
+        inviteCode: payload.inviteCode,
       };
       if (isOperationalReferral(payload.operationalReferral)) {
         result.operationalReferral = payload.operationalReferral;

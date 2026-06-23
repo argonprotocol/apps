@@ -11,9 +11,11 @@
         {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalValue).format('0,0.00') }}
       </div>
       <div ArrowWrapper>
-        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
-        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <ArrowRightBg ArrowRightBg />
+        <div ArrowSquare>
+          <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+          <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        </div>
       </div>
     </section>
 
@@ -29,9 +31,11 @@
         }}
       </div>
       <div ArrowWrapper>
-        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
-        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <div ArrowSquare>
+          <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+          <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        </div>
+        <ArrowRightBg ArrowRightBg />
       </div>
     </section>
 
@@ -52,9 +56,11 @@
         </template>
       </div>
       <div ArrowWrapper>
-        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
-        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <div ArrowSquare>
+          <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+          <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        </div>
+        <ArrowRightBg ArrowRightBg />
       </div>
     </section>
 
@@ -69,9 +75,11 @@
         <FormattedMoney :isLoaded="myBonds.isLoaded" :value="bondsTotalValue" />
       </div>
       <div ArrowWrapper>
-        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
-        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <div ArrowSquare>
+          <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+          <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        </div>
+        <ArrowRightBg ArrowRightBg />
       </div>
     </section>
 
@@ -86,9 +94,11 @@
       <span Badge v-if="config.hasActivatedStableSwaps && stableSwaps.swaps.length">{{ stableSwaps.swaps.length }}</span>
       <div Text v-else>{{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}</div>
       <div ArrowWrapper>
-        <ArrowRightBg ArrowRightBg class="h-6/12 absolute left-[10px] top-1/2 -translate-y-1/2" />
-        <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-        <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        <div ArrowSquare>
+          <Arrow InactiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+          <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
+        </div>
+        <ArrowRightBg ArrowRightBg />
       </div>
     </section>
 
@@ -223,7 +233,7 @@ Vue.watch([() => config.upstreamOperator?.vaultId, () => config.bootstrapDetails
       [Badge] {
         @apply opacity-100;
       }
-      [ArrowWrapper] {
+      [ArrowSquare] {
         .Component.Arrow[InactiveArrow] path {
           fill: var(--color-argon-20) !important;
         }
@@ -239,20 +249,22 @@ Vue.watch([() => config.upstreamOperator?.vaultId, () => config.bootstrapDetails
         @apply opacity-100;
       }
       [ArrowWrapper] {
-        @apply top-[-4px] left-[calc(100%-2px)] z-2 aspect-square h-[calc(100%+8px)] w-auto translate-y-0 pr-[6px] pb-[8px];
+        [ArrowRightBg] {
+          @apply absolute top-0 left-[0px] h-[calc(100%)] translate-y-0;
+        }
+      }
+      [ArrowSquare] {
+        @apply top-[-4px] left-0 aspect-square h-[calc(100%+3px)] w-auto translate-y-0 pr-[6px] pb-[8px];
         &::before {
           @apply block;
         }
         .Component.Arrow[InactiveArrow] {
-          @apply block;
+          @apply left-[8px] block;
           path {
             fill: var(--color-argon-20) !important;
           }
         }
         .Component.Arrow[ActiveArrow] {
-          @apply hidden;
-        }
-        [ArrowRightBg] {
           @apply hidden;
         }
       }
@@ -265,13 +277,19 @@ Vue.watch([() => config.upstreamOperator?.vaultId, () => config.bootstrapDetails
   }
 
   [ArrowWrapper] {
-    @apply absolute top-[-4px] left-[calc(100%-2px)] block aspect-square h-[calc(100%+8px)] overflow-hidden;
+    @apply absolute top-[-4px] left-[calc(100%-0px)] aspect-square h-[calc(100%+8px)];
+    [ArrowRightBg] {
+      @apply absolute top-1/2 left-[10px] z-0 h-6/12 -translate-y-1/2;
+    }
+  }
+  [ArrowSquare] {
+    @apply absolute z-10 block aspect-square h-full overflow-hidden;
     &::before {
       content: '';
       @apply absolute top-[3px] left-0 hidden h-[calc(100%+2px)] w-1 bg-[var(--bg-color)];
     }
     svg[InactiveArrow] {
-      @apply absolute top-[2px] left-[calc(25%-8px)] h-4.5 w-[calc(100%-4px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[1px_1px_1px_rgb(0_0_0/0.16)];
+      @apply absolute top-[2px] left-[calc(25%-9px)] h-4.5 w-[calc(100%-4px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[1px_1px_1px_rgb(0_0_0/0.16)];
     }
     svg[ActiveArrow] {
       @apply absolute top-[2px] left-[calc(25%-9px)] hidden h-5.5 w-[calc(100%-10px)] origin-left -translate-y-1/2 rotate-90 drop-shadow-[2px_2px_2px_rgb(0_0_0/0.3)];

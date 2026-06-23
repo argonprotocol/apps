@@ -12,7 +12,7 @@
         class="flex flex-row items-center justify-center relative cursor-pointer w-[32px] h-[32px]"
       >
         <CopyIcon class="h-4 w-4 text-slate-800/50 pointer-events-none" />
-        <template #copied>
+        <template #copying>
           <CopyIcon class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-4 text-slate-800 pointer-events-none" />
         </template>
       </CopyToClipboard>
@@ -57,7 +57,7 @@
                     <div class="h-px w-full bg-slate-400/30 my-2" />
                     <img :src="qrCode" class="w-40 max-w-full mt-4 mx-auto" :alt="`QR Code Wallet Address`" />
                   </template>
-                  <template #copied>
+                  <template #copying>
                     <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
                       <div>
                         {{ walletType === WalletType.ethereum ? 'Ethereum' : 'Argon' }} Wallet Address
@@ -87,7 +87,7 @@
                       {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
                     </div>
                   </div>
-                  <template #copied>
+                  <template #copying>
                     <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
                       <div>
                         Ethereum Wallet Address

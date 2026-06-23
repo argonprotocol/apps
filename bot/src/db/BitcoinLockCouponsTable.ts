@@ -16,6 +16,8 @@ export class BitcoinLockCouponsTable extends BaseTable {
     offerCode: string;
     vaultId: number;
     maxSatoshis: bigint;
+    estimatedGiftUsd: number;
+    btcPctFee?: number;
     expiresAfterTicks: number;
   }): IBitcoinLockCouponRecord {
     const record = this.db.sql
@@ -26,18 +28,22 @@ export class BitcoinLockCouponsTable extends BaseTable {
           offerCode,
           vaultId,
           maxSatoshis,
+          estimatedGiftUsd,
+          btcPctFee,
           expiresAfterTicks
         ) VALUES (
           $userId,
           $offerCode,
           $vaultId,
           $maxSatoshis,
+          $estimatedGiftUsd,
+          $btcPctFee,
           $expiresAfterTicks
         )
         RETURNING *
       `,
       )
-      .get(toSqliteParams(coupon)) as SqlCouponRow;
+      .get(toSqliteParams({ ...coupon, btcPctFee: coupon.btcPctFee ?? 0 })) as SqlCouponRow;
 
     return this.mapCoupon(record);
   }

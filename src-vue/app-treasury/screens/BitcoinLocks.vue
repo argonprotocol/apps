@@ -48,8 +48,10 @@
             </div>
 
             <div v-if="currentCoupon" class="text-argon-600 relative text-xl leading-8 font-bold">
-              {{ couponProviderLabel }} has offered your first liquid lock up to {{ currency.symbol
-              }}{{ couponOfferValueLabel }} for free!
+              {{ couponProviderLabel }} is gifting your first liquid lock
+              <br />
+              for free, up to {{ currency.symbol
+              }}{{ microgonToMoneyNm(couponOfferLiquidityMicrogons || 0n).format('0,0') }}!
             </div>
             <div
               v-else-if="financials.savingsTotalReadyToUse"
@@ -244,11 +246,6 @@ const currentCoupon = Vue.computed(() => {
 
 const couponProviderLabel = Vue.computed(() => {
   return config.upstreamOperator?.name || 'The vault operator';
-});
-
-const couponOfferValueLabel = Vue.computed(() => {
-  if (!currentCoupon.value) return '0.00';
-  return microgonToMoneyNm(couponOfferLiquidityMicrogons.value ?? 0n).format('0,0.00');
 });
 
 const canStartLocking = Vue.computed(() => {

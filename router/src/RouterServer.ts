@@ -29,6 +29,8 @@ import type {
   IOpenTreasuryInviteResponse,
   IOperationalUserInviteCreateRequest,
   IOperationalUserInviteRegenerateRequest,
+  IPreviewOperationalInviteResponse,
+  IPreviewTreasuryInviteResponse,
   IRouterAuthChallengeRequest,
   IRouterAuthSessionRequest,
   IRouterAuthSessionResponse,
@@ -186,11 +188,19 @@ export class RouterServer {
         if (body.vaultId <= 0) {
           throw new RouterError('A vault is required to create an invite.');
         }
+        if (!Number.isFinite(body.estimatedGiftUsd) || body.estimatedGiftUsd < 0) {
+          throw new RouterError('Estimated gift USD must be a valid non-negative number.');
+        }
+        const btcPctFee = body.btcPctFee ?? 0;
+        if (!Number.isFinite(btcPctFee) || btcPctFee < 0) {
+          throw new RouterError('BTC percent fee must be a valid non-negative number.');
+        }
 
         const userInvite = inviteService.createInvite(UserRole.TreasuryUser, {
           name: body.name,
           fromName: body.fromName,
           inviteCode: body.inviteCode,
+          inviteEnvelope: body.inviteEnvelope,
         });
 
         let bitcoinLockCoupon;
@@ -199,6 +209,8 @@ export class RouterServer {
             userId: userInvite.id,
             vaultId: body.vaultId,
             maxSatoshis: body.maxSatoshis,
+            estimatedGiftUsd: body.estimatedGiftUsd,
+            btcPctFee,
             expiresAfterTicks: body.expiresAfterTicks,
           });
         } catch (error) {
@@ -217,6 +229,33 @@ export class RouterServer {
             vaultId: body.vaultId,
             bitcoinLockCoupon,
           },
+        };
+      }),
+    );
+
+    app.get(
+      '/treasury-users/:inviteCode/preview',
+      safeJsonRoute<IPreviewTreasuryInviteResponse>(async req => {
+        const invite = db.userInvitesTable.fetchByCode(req.params.inviteCode, UserRole.TreasuryUser);
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
+        if (invite.accountId) {
+          throw new RouterError('This invite has already been used.', 409, 'ALREADY_USED');
+        }
+
+        const [bitcoinLockCoupon] = await botClient.listCouponsByUserId(invite.id);
+        if (!bitcoinLockCoupon) {
+          throw new RouterError('Bitcoin lock coupon not found.', 404);
+        }
+
+        const { coupon } = bitcoinLockCoupon;
+        return {
+          maxSatoshis: coupon.maxSatoshis,
+          estimatedGiftUsd: coupon.estimatedGiftUsd,
+          btcPctFee: coupon.btcPctFee,
+          expiresAt: new Date(new Date(coupon.createdAt).getTime() + 24 * 60 * 60 * 1000),
+          fromName: invite.fromName,
         };
       }),
     );
@@ -290,8 +329,27 @@ export class RouterServer {
           name: body.name,
           fromName: body.fromName,
           inviteCode: body.inviteCode,
+          inviteEnvelope: body.inviteEnvelope,
         });
         return { invite };
+      }),
+    );
+
+    app.get(
+      '/operational-users/:inviteCode/preview',
+      safeJsonRoute<IPreviewOperationalInviteResponse>(async req => {
+        const invite = db.userInvitesTable.fetchByCode(req.params.inviteCode, UserRole.OperationalPartner);
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
+        if (invite.accountId) {
+          throw new RouterError('This invite has already been used.', 409, 'ALREADY_USED');
+        }
+
+        return {
+          fromName: invite.fromName,
+          expiresAt: new Date(invite.createdAt.getTime() + 24 * 60 * 60 * 1000),
+        };
       }),
     );
 
@@ -304,6 +362,7 @@ export class RouterServer {
         const invite = inviteService.regenerateInvite(UserRole.OperationalPartner, {
           inviteCode: req.params.inviteCode,
           newInviteCode: body.inviteCode,
+          newInviteEnvelope: body.inviteEnvelope,
         });
         return { invite };
       }),
@@ -535,9 +594,10 @@ function safeJsonRoute<T>(
 
       const status = error instanceof RouterError ? error.status : 500;
       const message = error instanceof Error ? error.message : String(error);
+      const code = error instanceof RouterError ? error.code : undefined;
 
       if (!res.headersSent) {
-        sendJson(res, { error: message }, status);
+        sendJson(res, code ? { error: message, code } : { error: message }, status);
       }
     }
   };

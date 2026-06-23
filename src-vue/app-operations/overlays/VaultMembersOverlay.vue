@@ -73,7 +73,7 @@
           <div class="mt-4">
             <label class="text-sm font-medium text-slate-700">Max Satoshis Allowed For Free Lock</label>
             <div class="mt-2">
-              <InputNumber v-model="maxSatoshisNumber" :min="1" :max="2100000000000000" suffix=" sats" />
+              <InputNumber v-model="maxSatoshisNumber" :min="1" :max="maxLockableSatoshisNumber" suffix=" sats" />
             </div>
           </div>
 
@@ -127,12 +127,12 @@
               <div :class="statusClass(invite)" class="text-sm font-medium">{{ extractStatus(invite) }}</div>
 
               <CopyToClipboard
-                v-if="inviteEnvelopesByInviteCode[invite.inviteCode]"
-                :content="`${NetworkConfig.get().websiteHost}/treasury-invite/${inviteEnvelopesByInviteCode[invite.inviteCode]}`"
+                v-if="invite.inviteEnvelope"
+                :content="getTreasuryInviteUrl(invite)"
                 class="cursor-pointer"
               >
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
-                <template #copied>
+                <template #copying>
                   <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
                 </template>
               </CopyToClipboard>
@@ -159,14 +159,23 @@ import { getConfig } from '../../stores/config.ts';
 import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { InviteCodes, NetworkConfig, supportsBitcoinLockDelegateSetup, UserRole } from '@argonprotocol/apps-core';
+import {
+  InviteCodes,
+  NetworkConfig,
+  supportsBitcoinLockDelegateSetup,
+  UnitOfMeasurement,
+  UserRole,
+} from '@argonprotocol/apps-core';
+import { BitcoinLock } from '@argonprotocol/mainchain';
 import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import { getServerApiClient } from '../../stores/server.ts';
+import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 
 const config = getConfig();
 const myVault = getMyVault();
 const currency = getCurrency();
 const serverApiClient = getServerApiClient();
+const bitcoinLocks = getBitcoinLocks();
 
 const { satToMoneyNm } = createNumeralHelpers(currency);
 
@@ -178,8 +187,12 @@ const inviteCreationBlockedReason = Vue.ref<string | null>(null);
 const errorMessage = Vue.ref<string | null>(null);
 const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
+const maxLockableSatoshis = Vue.ref(100_000_000n);
 const invites = Vue.ref<ITreasuryUserInvite[]>([]);
-const inviteEnvelopesByInviteCode = Vue.ref<Record<string, string>>({});
+
+const maxLockableSatoshisNumber = Vue.computed(() => {
+  return Number(maxLockableSatoshis.value);
+});
 
 const currentVaultName = Vue.computed(() => {
   return myVault.createdVault?.name ?? '';
@@ -201,7 +214,7 @@ function toggleAddInvite() {
 
   if (!isAddingInvite.value) {
     inviteName.value = '';
-    maxSatoshisNumber.value = 100_000_000;
+    maxSatoshisNumber.value = Math.min(100_000_000, maxLockableSatoshisNumber.value);
   }
 }
 
@@ -255,6 +268,10 @@ async function loadInvites() {
   }
 }
 
+function getTreasuryInviteUrl(invite: ITreasuryUserInvite): string {
+  return `${NetworkConfig.get().websiteHost}/treasury-invite/${invite.inviteEnvelope}`;
+}
+
 async function loadDelegateSetupState() {
   hasLoadedVaultState.value = false;
   inviteCreationBlockedReason.value = null;
@@ -269,11 +286,25 @@ async function loadDelegateSetupState() {
         'Member invites will unlock after the Argon network upgrade reaches your node.';
       return;
     }
+
+    await updateMaxLockableSatoshis();
   } catch (error: any) {
     errorMessage.value = error?.message ?? 'Unable to verify your Bitcoin lock delegate setup.';
   } finally {
     hasLoadedVaultState.value = true;
   }
+}
+
+async function updateMaxLockableSatoshis() {
+  const vault = myVault.createdVault;
+  if (!vault) {
+    maxLockableSatoshis.value = 0n;
+    return;
+  }
+
+  const { availableSatoshis } = await bitcoinLocks.getLockableBitcoinCapacity({ vault });
+  maxLockableSatoshis.value = availableSatoshis;
+  maxSatoshisNumber.value = Math.min(maxSatoshisNumber.value, maxLockableSatoshisNumber.value);
 }
 
 async function createInvite() {
@@ -293,17 +324,23 @@ async function createInvite() {
     return;
   }
 
-  const maxSatoshis = BigInt(Math.floor(maxSatoshisNumber.value));
-  if (maxSatoshis <= 0n) {
-    errorMessage.value = 'Max satoshis must be greater than zero.';
-    return;
-  }
-
   try {
     errorMessage.value = null;
     isCreatingInvite.value = true;
 
     await myVault.load();
+    await updateMaxLockableSatoshis();
+
+    const maxSatoshis = BigInt(Math.floor(maxSatoshisNumber.value));
+    if (maxSatoshis <= 0n) {
+      errorMessage.value = 'Max satoshis must be greater than zero.';
+      return;
+    }
+    if (maxSatoshis > maxLockableSatoshis.value) {
+      errorMessage.value = "Max satoshis can't exceed the vault's available Bitcoin space.";
+      return;
+    }
+
     const vaultId = myVault.createdVault?.vaultId;
     if (!vaultId) {
       throw new Error('No vault is available to create an invite.');
@@ -317,25 +354,33 @@ async function createInvite() {
 
     const expiresAfterTicks = 10 * NetworkConfig.rewardTicksPerFrame;
     const { inviteSecret, inviteCode } = InviteCodes.create();
+    const vault = myVault.createdVault;
+    if (!vault) {
+      throw new Error('No vault is available to create an invite.');
+    }
+    const fullLockAmount = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, maxSatoshis);
+    const estimatedGiftUsd = Number(
+      currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
+    );
+    const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
     const inviteEnvelope = InviteEnvelope.encode({
       ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
       role: UserRole.TreasuryUser,
       secret: inviteSecret,
+      inviteCode,
     });
 
     const invite = await serverApiClient.createTreasuryAppInvite({
       name,
       fromName: currentVaultName.value,
       inviteCode,
+      inviteEnvelope,
       vaultId,
       maxSatoshis,
+      estimatedGiftUsd,
+      btcPctFee,
       expiresAfterTicks,
     });
-
-    inviteEnvelopesByInviteCode.value = {
-      ...inviteEnvelopesByInviteCode.value,
-      [invite.inviteCode]: inviteEnvelope,
-    };
 
     await loadInvites();
     toggleAddInvite();

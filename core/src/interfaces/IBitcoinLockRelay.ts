@@ -7,6 +7,8 @@ export interface IBitcoinLockCouponRecord {
   offerCode: string;
   vaultId: number;
   maxSatoshis: bigint;
+  estimatedGiftUsd: number;
+  btcPctFee: number;
   expiresAfterTicks: number;
   expirationTick?: number;
   accountId?: string;
@@ -45,6 +47,8 @@ export interface ICreateBitcoinLockCouponRequest {
   userId: number;
   vaultId: number;
   maxSatoshis: bigint;
+  estimatedGiftUsd: number;
+  btcPctFee?: number;
   expiresAfterTicks: number;
 }
 

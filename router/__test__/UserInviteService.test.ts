@@ -25,6 +25,7 @@ describe('UserInviteService operational invite behavior', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode,
+      inviteEnvelope: 'envelope-1',
     });
 
     expect(() =>
@@ -32,6 +33,7 @@ describe('UserInviteService operational invite behavior', () => {
         name: 'Jordan',
         fromName: 'Operator One',
         inviteCode,
+        inviteEnvelope: 'envelope-2',
       }),
     ).toThrowError('This invite code is already in use.');
 
@@ -50,15 +52,18 @@ describe('UserInviteService operational invite behavior', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode: original.inviteCode,
+      inviteEnvelope: 'original-envelope',
     });
 
     const regenerated = service.regenerateInvite(UserRole.OperationalPartner, {
       inviteCode: original.inviteCode,
       newInviteCode: replacement.inviteCode,
+      newInviteEnvelope: 'replacement-envelope',
     });
 
     expect(regenerated.id).toBe(invite.id);
     expect(regenerated.inviteCode).toBe(replacement.inviteCode);
+    expect(regenerated.inviteEnvelope).toBe('replacement-envelope');
     expect(db.userInvitesTable.fetchByCode(original.inviteCode)).toBeNull();
     expect(db.usersTable.fetchByRole(UserRole.OperationalPartner)).toHaveLength(1);
   });
@@ -77,6 +82,7 @@ describe('UserInviteService operational invite behavior', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode,
+      inviteEnvelope: 'envelope',
     });
     service.claimInvite(
       createClaimInviteArgs(
@@ -92,6 +98,7 @@ describe('UserInviteService operational invite behavior', () => {
       service.regenerateInvite(UserRole.OperationalPartner, {
         inviteCode,
         newInviteCode: replacement.inviteCode,
+        newInviteEnvelope: 'replacement-envelope',
       }),
     ).toThrowError('This invite link has already been opened.');
   });
@@ -108,6 +115,7 @@ describe('UserInviteService operational invite behavior', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode,
+      inviteEnvelope: 'envelope',
     });
 
     const claimed = service.claimInvite(
@@ -151,6 +159,7 @@ describe('UserInviteService operational invite behavior', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode,
+      inviteEnvelope: 'envelope',
     });
 
     expect(() =>
@@ -179,6 +188,7 @@ describe('UserInviteService operational invite behavior', () => {
       name: 'Casey',
       fromName: 'Operator One',
       inviteCode,
+      inviteEnvelope: 'envelope',
     });
 
     const claimArgs = createClaimInviteArgs(
