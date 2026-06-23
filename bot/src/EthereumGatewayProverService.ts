@@ -21,10 +21,7 @@ import { createHash } from 'node:crypto';
 import { createPublicClient, http, type Hex } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { HttpError } from './HttpError.ts';
-import {
-  isSubmissionStatusError,
-  submitWithTerminalStatusWatch,
-} from './submitWithTerminalStatusWatch.ts';
+import { isSubmissionStatusError, submitWithTerminalStatusWatch } from './submitWithTerminalStatusWatch.ts';
 
 export class EthereumGatewayProverService {
   private startPromise?: Promise<void>;

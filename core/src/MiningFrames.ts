@@ -429,7 +429,8 @@ export class MiningFrames {
         const header = await this.blockWatch.getHeader(blockNumber);
         const blockHash = header.blockHash;
         const api = await this.clientAt(header);
-        const frameId: number = header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
+        const frameId: number =
+          header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
 
         const existing = this.framesById[frameId];
         if (existing && existing.firstBlockHash === blockHash) {
@@ -461,7 +462,6 @@ export class MiningFrames {
             }
           }
         }
-
       } while (queue.length > 0);
 
       if (hasChanges) {

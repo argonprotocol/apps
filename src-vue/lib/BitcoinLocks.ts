@@ -2655,7 +2655,10 @@ export default class BitcoinLocks {
             }
             if (shouldTrackFundingSignals && hasNewOracleBitcoinBlockHeight) {
               await this.utxoTracking.updateFundingLastConfirmationCheck(lockRecord).catch(err => {
-                console.warn(`[BitcoinLocks] Error updating funding confirmation check for utxo ${lockRecord.uuid}`, err);
+                console.warn(
+                  `[BitcoinLocks] Error updating funding confirmation check for utxo ${lockRecord.uuid}`,
+                  err,
+                );
               });
             }
             if (shouldTrackFundingSignals) {
@@ -2687,7 +2690,9 @@ export default class BitcoinLocks {
         })
         .filter(x => x !== undefined);
       if (hasNewOracleBitcoinBlockHeight) {
-        await this.syncOrphanReturnBitcoinProcessing(this.data.oracleBitcoinBlockHeight);
+        await this.syncOrphanReturnBitcoinProcessing(this.data.oracleBitcoinBlockHeight).catch(err => {
+          console.warn('[BitcoinLocks] Error syncing orphan return processing', err);
+        });
       }
       await Promise.allSettled(promises);
     } catch (error) {

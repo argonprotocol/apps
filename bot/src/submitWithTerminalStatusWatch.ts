@@ -50,7 +50,20 @@ export async function submitWithTerminalStatusWatch(
     nonce: signedTx.nonce.toNumber(),
   });
 
-  await signedTx.send(subscriptionResult => {
+  let unsubscribe: (() => void) | undefined;
+  let shouldUnsubscribe = false;
+
+  const stopWatching = () => {
+    if (!unsubscribe) {
+      shouldUnsubscribe = true;
+      return;
+    }
+
+    unsubscribe();
+    unsubscribe = undefined;
+  };
+
+  unsubscribe = await signedTx.send(subscriptionResult => {
     result.onSubscriptionResult(subscriptionResult);
     const status = subscriptionResult.status;
     if (status.isUsurped) {
@@ -58,6 +71,7 @@ export async function submitWithTerminalStatusWatch(
         SubmissionStatusErrorCode.Usurped,
         `Transaction was usurped by ${status.asUsurped.toHex()}.`,
       );
+      stopWatching();
       return;
     }
     if (status.isDropped) {
@@ -65,6 +79,7 @@ export async function submitWithTerminalStatusWatch(
         SubmissionStatusErrorCode.Dropped,
         'Transaction was dropped before it was included in a block.',
       );
+      stopWatching();
       return;
     }
     if (status.isInvalid) {
@@ -72,8 +87,18 @@ export async function submitWithTerminalStatusWatch(
         SubmissionStatusErrorCode.Invalid,
         'Transaction was rejected as invalid by the node.',
       );
+      stopWatching();
+      return;
+    }
+    if (subscriptionResult.isFinalized) {
+      stopWatching();
     }
   });
+
+  if (shouldUnsubscribe) {
+    unsubscribe();
+    unsubscribe = undefined;
+  }
 
   return { signedTx, result };
 }

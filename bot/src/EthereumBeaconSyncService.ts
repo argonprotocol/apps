@@ -14,10 +14,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { createPublicClient, http } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
-import {
-  isSubmissionStatusError,
-  submitWithTerminalStatusWatch,
-} from './submitWithTerminalStatusWatch.ts';
+import { isSubmissionStatusError, submitWithTerminalStatusWatch } from './submitWithTerminalStatusWatch.ts';
 
 type IEthereumBeaconSyncServiceOptions = {
   beaconApiUrl?: string;
@@ -284,7 +281,10 @@ export class EthereumBeaconSyncService {
           submitLane.invalidateNonce();
           continue;
         }
-        if (error instanceof ExtrinsicError && error.errorCode === 'ethereumVerifier.ExpectedFinalizedHeaderNotStored') {
+        if (
+          error instanceof ExtrinsicError &&
+          error.errorCode === 'ethereumVerifier.ExpectedFinalizedHeaderNotStored'
+        ) {
           this.stateData.mode = 'idle';
           return;
         }

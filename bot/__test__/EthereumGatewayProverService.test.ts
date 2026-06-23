@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import {
-  SubmissionStatusError,
-  SubmissionStatusErrorCode,
-} from '../src/submitWithTerminalStatusWatch.ts';
+import { SubmissionStatusError, SubmissionStatusErrorCode } from '../src/submitWithTerminalStatusWatch.ts';
 
 const gatewayProofMock = vi.hoisted(() => {
   return {
@@ -210,45 +207,49 @@ describe('EthereumGatewayProverService', () => {
         gatewayActivityNonceRange: { start: 7n, end: 7n },
         activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       });
-    submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => {
-      const droppedSubmission = Promise.reject(
-        new SubmissionStatusError(
-          SubmissionStatusErrorCode.Dropped,
-          'Transaction was dropped before it was included in a block.',
-        ),
-      );
-      droppedSubmission.catch(() => undefined);
+    submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
+      async (_submitter, options?: { nonce?: number }) => {
+        const droppedSubmission = Promise.reject(
+          new SubmissionStatusError(
+            SubmissionStatusErrorCode.Dropped,
+            'Transaction was dropped before it was included in a block.',
+          ),
+        );
+        droppedSubmission.catch(() => undefined);
 
-      return {
+        return {
+          signedTx: {
+            method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+            nonce: { toNumber: () => options?.nonce ?? 0 },
+          },
+          result: {
+            extrinsic: {
+              signedHash: '0xstale',
+              submittedAtBlockNumber: 321,
+              submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+            },
+            waitForInFirstBlock: droppedSubmission,
+          },
+        };
+      },
+    );
+    submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
+      async (_submitter, options?: { nonce?: number }) => ({
         signedTx: {
           method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
           nonce: { toNumber: () => options?.nonce ?? 0 },
         },
         result: {
           extrinsic: {
-            signedHash: '0xstale',
-            submittedAtBlockNumber: 321,
-            submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+            signedHash: '0xrelaytx',
+            submittedAtBlockNumber: 322,
+            submittedTime: new Date('2026-05-13T16:00:01.000Z'),
           },
-          waitForInFirstBlock: droppedSubmission,
+          blockNumber: 322,
+          waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
         },
-      };
-    });
-    submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => ({
-      signedTx: {
-        method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
-        nonce: { toNumber: () => options?.nonce ?? 0 },
-      },
-      result: {
-        extrinsic: {
-          signedHash: '0xrelaytx',
-          submittedAtBlockNumber: 322,
-          submittedTime: new Date('2026-05-13T16:00:01.000Z'),
-        },
-        blockNumber: 322,
-        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
-      },
-    }));
+      }),
+    );
 
     await expect(
       service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n }),

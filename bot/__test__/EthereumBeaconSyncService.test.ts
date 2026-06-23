@@ -54,10 +54,7 @@ import {
   EthereumBeaconSyncService,
   waitForFinalizedBeaconExecutionAtOrAbove,
 } from '../src/EthereumBeaconSyncService.ts';
-import {
-  SubmissionStatusError,
-  SubmissionStatusErrorCode,
-} from '../src/submitWithTerminalStatusWatch.ts';
+import { SubmissionStatusError, SubmissionStatusErrorCode } from '../src/submitWithTerminalStatusWatch.ts';
 
 const syncKeypair = { address: 'sync-account' } as any;
 
@@ -503,14 +500,12 @@ describe('EthereumBeaconSyncService', () => {
         headerInterval: 32n,
       });
     mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
-    submissionMock.submitWithTerminalStatusWatch
-      .mockRejectedValueOnce(droppedError)
-      .mockResolvedValueOnce({
-        result: {
-          extrinsic: { signedHash: 'tx-2-hash' },
-          waitForInFirstBlock: Promise.resolve(),
-        },
-      });
+    submissionMock.submitWithTerminalStatusWatch.mockRejectedValueOnce(droppedError).mockResolvedValueOnce({
+      result: {
+        extrinsic: { signedHash: 'tx-2-hash' },
+        waitForInFirstBlock: Promise.resolve(),
+      },
+    });
 
     const service = new EthereumBeaconSyncService(client, {
       beaconApiUrl: 'https://beacon.example',
