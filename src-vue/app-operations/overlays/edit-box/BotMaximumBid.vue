@@ -128,8 +128,8 @@ Vue.watch(
   { deep: true, immediate: true },
 );
 
-Vue.onBeforeMount(async () => {
-  await calculator.load();
+Vue.onBeforeMount(() => {
+  // Parent overlays wait for calculator.load() before this editor is reachable.
   bidAmount.value = calculator.data.previousDayLowBid;
   options.value = [
     {

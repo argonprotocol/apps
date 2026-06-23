@@ -45,35 +45,43 @@ export const useBlockchainStore = defineStore('blockchain', () => {
     cachedBlockLoading,
   ]);
 
-  async function fetchBlock(header: IBlockHeaderInfo) {
+  async function fetchBlock(header: IBlockHeaderInfo): Promise<IBlock | undefined> {
     await blockWatch.start();
     const { author, blockNumber, blockHash, blockTime } = header;
-    const client = await blockWatch.getRpcClient(header.blockNumber);
-    const clientAt = await client.at(blockHash);
-    const events = await clientAt.query.system.events();
-    let microgons = 0n;
-    let micronots = 0n;
-    events.find(({ event }: { event: any }) => {
-      if (client.events.blockRewards.RewardCreated.is(event)) {
-        for (const x of event.data.rewards) {
-          if (x.rewardType.isMiner) {
-            microgons += x.argons.toBigInt();
-            micronots += x.ownership.toBigInt();
-          }
-        }
-        return true;
-      }
-    });
-    const newBlock: IBlock = {
-      number: blockNumber,
-      hash: blockHash,
-      author: author ?? '',
-      microgons,
-      micronots,
-      timestamp: dayjs.utc(blockTime),
-    };
 
-    return newBlock;
+    try {
+      const clientAt = await blockWatch.getApi(header);
+      const events = await clientAt.query.system.events();
+      let microgons = 0n;
+      let micronots = 0n;
+      events.find(({ event }: { event: any }) => {
+        if (clientAt.events.blockRewards.RewardCreated.is(event)) {
+          for (const x of event.data.rewards) {
+            if (x.rewardType.isMiner) {
+              microgons += x.argons.toBigInt();
+              micronots += x.ownership.toBigInt();
+            }
+          }
+          return true;
+        }
+      });
+
+      return {
+        number: blockNumber,
+        hash: blockHash,
+        author: author ?? '',
+        microgons,
+        micronots,
+        timestamp: dayjs.utc(blockTime),
+      };
+    } catch (error) {
+      console.warn('[BlockchainStore] Failed to fetch block details, skipping block update', {
+        blockNumber,
+        blockHash,
+        error,
+      });
+      return;
+    }
   }
 
   async function fetchBlocks(lastBlockNumber: number | null, maxBlockCount: number) {
@@ -84,7 +92,9 @@ export const useBlockchainStore = defineStore('blockchain', () => {
     while (blocks.length < maxBlockCount && blockNumber >= 0) {
       const headerInfo = await blockWatch.getHeader(blockNumber);
       const block = await fetchBlock(headerInfo);
-      blocks.push(block);
+      if (block) {
+        blocks.push(block);
+      }
       blockNumber--;
     }
 
@@ -97,13 +107,22 @@ export const useBlockchainStore = defineStore('blockchain', () => {
     // Subscribe to new blocks
     for (const header of blockWatch.latestHeaders) {
       const block = await fetchBlock(header);
-      onBlock(block);
-    }
-    return blockWatch.events.on('best-blocks', async headers => {
-      for (const header of headers) {
-        const block = await fetchBlock(header);
+      if (block) {
         onBlock(block);
       }
+    }
+
+    return blockWatch.events.on('best-blocks', headers => {
+      void (async () => {
+        for (const header of headers) {
+          const block = await fetchBlock(header);
+          if (block) {
+            onBlock(block);
+          }
+        }
+      })().catch(error => {
+        console.warn('[BlockchainStore] Failed to process best block update', error);
+      });
     });
   }
 

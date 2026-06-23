@@ -41,11 +41,11 @@
       <ProfileOverlay />
       <JurisdictionOverlay />
       <VaultMembersOverlay />
+      <ServerOverlay />
+      <TroubleshootingOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
     </template>
-    <ServerOverlay />
-    <TroubleshootingOverlay />
     <AppUpdatesOverlay />
   </div>
 </template>

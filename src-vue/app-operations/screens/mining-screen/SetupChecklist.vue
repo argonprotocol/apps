@@ -203,14 +203,12 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import basicEmitter from '../../../emitters/basicEmitter.ts';
-import { Config, getConfig } from '../../../stores/config.ts';
-import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
+import { getConfig } from '../../../stores/config.ts';
+import { useWallets } from '../../../stores/wallets.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import Checkbox from '../../../components/Checkbox.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
-import { bigIntMax } from '@argonprotocol/apps-core/src/utils.ts';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import { getBiddingCalculator } from '../../../stores/mainchain.ts';
 import BotReturns from '../../overlays/bot/BotReturns.vue';
@@ -220,12 +218,10 @@ import { OperationalStepId, OperationsTab, useOperationsController } from '../..
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../../lib/Currency.ts';
 import { WalletType } from '../../../lib/Wallet.ts';
-import { MoveCapital } from '../../../lib/MoveCapital.ts';
-import { getMyVault } from '../../../stores/vaults.ts';
-import { getTransactionTracker } from '../../../stores/transactions.ts';
 import { MiningSetupStatus } from '../../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../../stores/basics.ts';
+import { getMiningFundingState } from './miningFunding.ts';
 
 dayjs.extend(utc);
 
@@ -235,8 +231,6 @@ const wallets = useWallets();
 const currency = getCurrency();
 const controller = useOperationsController();
 const calculator = getBiddingCalculator();
-const walletKeys = getWalletKeys();
-const transactionTracker = getTransactionTracker();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -246,8 +240,6 @@ const alignOffsetForBotReturns = Vue.ref(0);
 const alignOffsetForBotCapital = Vue.ref(0);
 
 const capitalCommitment = Vue.ref(0n);
-const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
-
 const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
 
@@ -281,50 +273,42 @@ const availableMicronots = Vue.computed(() => {
   return wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
 });
 
+const miningMicronotsOnHand = Vue.computed(() => {
+  return availableMicronots.value + reservedMicronots.value;
+});
+
+const fundingState = Vue.computed(() => {
+  return getMiningFundingState({
+    hasSavedBiddingRules: config.hasSavedBiddingRules,
+    miningSetupStatus: config.miningSetupStatus,
+    miningMicrogonsOnHand: wallets.totalMiningMicrogons,
+    miningMicronotsOnHand: miningMicronotsOnHand.value,
+    initialMicrogonRequirement: config.biddingRules.initialMicrogonRequirement,
+    initialMicronotRequirement: config.biddingRules.initialMicronotRequirement,
+  });
+});
+
 const walletIsPartiallyFunded = Vue.computed(() => {
   if (!config.hasSavedBiddingRules) {
     return false;
   }
-  return (wallets.totalMiningMicrogons || availableMicronots.value) > 0n;
-});
-
-const onboardingAdditionalMicrogons = Vue.computed(() => {
-  if (config.miningSetupStatus === MiningSetupStatus.Finished) {
-    return 0n;
-  }
-
-  return futureTransactionFeeBudgetMicrogons;
+  return wallets.totalMiningMicrogons > 0n || availableMicronots.value > 0n;
 });
 
 const minimumMicrogonsNeeded = Vue.computed(() => {
-  return (config.biddingRules.initialMicrogonRequirement ?? 0n) + onboardingAdditionalMicrogons.value;
+  return fundingState.value.requiredMicrogons;
 });
 
 const additionalMicrogonsNeeded = Vue.computed(() => {
-  return bigIntMax(minimumMicrogonsNeeded.value - wallets.totalMiningMicrogons, 0n);
+  return fundingState.value.additionalMicrogonsNeeded;
 });
 
 const additionalMicronotsNeeded = Vue.computed(() => {
-  return bigIntMax(
-    config.biddingRules.initialMicronotRequirement - (availableMicronots.value + reservedMicronots.value),
-    0n,
-  );
+  return fundingState.value.additionalMicronotsNeeded;
 });
 
 const walletIsFullyFunded = Vue.computed(() => {
-  if (!config.hasSavedBiddingRules) {
-    return false;
-  }
-
-  if (additionalMicrogonsNeeded.value > 0n) {
-    return false;
-  }
-
-  if (additionalMicronotsNeeded.value > 0n) {
-    return false;
-  }
-
-  return true;
+  return fundingState.value.isFullyFunded;
 });
 
 const hasMiningMachine = Vue.computed(() => {
@@ -389,24 +373,9 @@ async function launchMiningBot() {
 
   biddingRules.initialCapitalCommitment = availableMicrogons.value + micronotsAsMicrogons;
 
-  const myVault = getMyVault();
-  const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
-
   try {
     config.biddingRules = biddingRules;
     config.miningSetupStatus = MiningSetupStatus.Installing;
-    await config.save();
-
-    const miningHoldWallet = wallets.miningHoldWallet;
-    const miningHoldSweepTxInfo = await moveCapital.moveAvailableMiningHoldToBot(
-      miningHoldWallet,
-      walletKeys,
-      config as Config,
-    );
-    if (miningHoldSweepTxInfo) return;
-
-    // If no sweep tx was queued, the bot still cannot move forward with setup.
-    config.miningSetupStatus = MiningSetupStatus.Checklist;
     await config.save();
   } catch (error) {
     if (config.miningSetupStatus === MiningSetupStatus.Installing) {

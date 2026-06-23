@@ -148,6 +148,15 @@
             <div class="font-semibold font-mono">
               {{ beaconSyncStatusLabel }}
             </div>
+            <div v-if="ethereumSyncLastUpdatedAt" class="pt-1 text-xs font-light text-slate-500">
+              Status updated
+              <CountupClock as="span" :time="ethereumSyncLastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }">
+                <template v-if="hours">{{ hours }}h, </template>
+                <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
+                <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
+                <template v-else-if="isNull">-- ----</template>
+              </CountupClock>
+            </div>
             <div v-if="ethereumSyncState?.lastSubmittedTxHash" class="pt-1 text-xs font-light text-slate-500 break-all">
               Last tx: {{ ethereumSyncState.lastSubmittedTxHash }}
             </div>
@@ -161,7 +170,7 @@
               Ethereum block: {{ ethereumSyncState.latestEthereumBlockNumber.toString() }}
             </div>
             <div v-if="ethereumExecutionBlockLag !== undefined" class="pt-1 text-xs font-light text-slate-500">
-              Blocks behind: {{ ethereumExecutionBlockLag.toString() }}
+              Execution anchor gap: {{ ethereumExecutionBlockLag.toString() }}
             </div>
             <div
               v-if="ethereumSyncState?.latestSyncCommitteeUpdatePeriod !== undefined"
@@ -171,6 +180,9 @@
             </div>
             <div v-if="ethereumSyncState?.gatewayActivityNonceGap !== undefined" class="pt-1 text-xs font-light text-slate-500">
               Gateway nonce gap: {{ ethereumSyncState.gatewayActivityNonceGap.toString() }}
+            </div>
+            <div v-if="beaconSyncStatusHint" class="pt-2 text-xs font-medium text-amber-700">
+              {{ beaconSyncStatusHint }}
             </div>
             <div v-if="beaconSyncActionError" class="pt-2 text-sm font-medium text-red-600">
               {{ beaconSyncActionError }}
@@ -262,6 +274,11 @@ const ethereumSyncState = Vue.computed(() => {
   return bot.state?.ethereumSync;
 });
 
+const ethereumSyncLastUpdatedAt = Vue.computed(() => {
+  const lastUpdatedAt = ethereumSyncState.value?.lastUpdatedAt;
+  return lastUpdatedAt ? dayjs(lastUpdatedAt) : null;
+});
+
 const ethereumExecutionBlockLag = Vue.computed(() => {
   const latestExecutionAnchorBlockNumber = ethereumSyncState.value?.latestExecutionAnchorBlockNumber;
   const latestEthereumBlockNumber = ethereumSyncState.value?.latestEthereumBlockNumber;
@@ -276,6 +293,14 @@ const ethereumExecutionBlockLag = Vue.computed(() => {
 
 const beaconSyncStatusLabel = Vue.computed(() => {
   return formatBeaconSyncStatus(ethereumSyncState.value?.mode, ethereumSyncState.value?.lastError);
+});
+
+const beaconSyncStatusHint = Vue.computed(() => {
+  if (ethereumSyncState.value?.mode !== 'submitting') {
+    return '';
+  }
+
+  return 'Execution anchor and sync period values are the latest observed snapshot while the verifier tx is still being checked.';
 });
 
 const isBeaconSyncSaveDisabled = Vue.computed(() => {
