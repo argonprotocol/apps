@@ -70,6 +70,12 @@ async function applyCustomBid(
 ): Promise<void> {
   await flow.click(`BotSettings.openEditBoxOverlay('${bidType}')`);
   const formulaTestId = bidType === 'startingBid' ? 'startingBidFormulaType' : 'maximumBidFormulaType';
+  const formulaState = await flow.isVisible(formulaTestId);
+  if (!formulaState.clickable) {
+    throw new Error(
+      `${bidType} formula type is not clickable (visible=${formulaState.visible}, enabled=${formulaState.enabled}, clickable=${formulaState.clickable}, pointerReason=${formulaState.pointerReason ?? 'none'}, pointerBlocker=${formulaState.pointerBlocker ?? 'none'}).`,
+    );
+  }
   await flow.click(formulaTestId);
   await flow.click('Custom Amount');
 
