@@ -38,7 +38,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
-tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+tauri-plugin-http = { version = "2", features = ["unsafe-headers", "rustls-tls-native-roots"] }
 tauri-plugin-clipboard-manager = "2.3.0"
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
