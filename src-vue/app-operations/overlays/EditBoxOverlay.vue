@@ -2,7 +2,7 @@
 <template>
   <div
     ref="modalElem"
-    class="absolute bg-white border border-slate-500/60 rounded-md shadow-lg z-100 text-base"
+    class="absolute bg-white border border-slate-500/60 rounded-md shadow-lg z-200 text-base"
     :style="[positionStyle, { cursor: isDragging ? 'grabbing' : 'default' }]"
   >
     <div class="flex flex-col">

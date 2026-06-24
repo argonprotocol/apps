@@ -70,6 +70,13 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
+      - name: Trust local gateway CA for Linux e2e
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          yarn dev:gateway-certs
+          sudo cp "$HOME/.argon/dev-gateway-ca/rootCA.pem" /usr/local/share/ca-certificates/argon-dev-gateway-ca.crt
+          sudo update-ca-certificates
+
       - name: Build
         run: yarn build:indexer
 

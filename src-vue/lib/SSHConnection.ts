@@ -82,11 +82,16 @@ export class SSHConnection {
     try {
       return await invokeWithTimeout('ssh_run_command', payload, timeout);
     } catch (error) {
-      const canRetry =
-        retries > 0 &&
-        !this.isDestroyed &&
-        (error instanceof InvokeTimeout || String(error) === 'SSHCommandMissingExitStatus');
-      if (!canRetry) {
+      if (retries <= 0 || this.isDestroyed) {
+        throw error;
+      }
+
+      const errorMessage = String(error);
+      const isReconnectableError =
+        error instanceof InvokeTimeout ||
+        errorMessage === 'SSHCommandMissingExitStatus' ||
+        errorMessage === 'No SSH connection';
+      if (!isReconnectableError) {
         throw error;
       }
 
@@ -147,11 +152,14 @@ export class SSHConnection {
 
   public async close(destroy = false): Promise<void> {
     const payload = { address: this.address };
-    await invokeWithTimeout('close_ssh_connection', payload, 5_000);
-    this.isConnectedPromise = undefined;
-    this.isConnected = false;
-    if (destroy) {
-      this.isDestroyed = true;
+    try {
+      await invokeWithTimeout('close_ssh_connection', payload, 5_000);
+    } finally {
+      this.isConnectedPromise = undefined;
+      this.isConnected = false;
+      if (destroy) {
+        this.isDestroyed = true;
+      }
     }
   }
 }

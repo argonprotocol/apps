@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { Mining } from './Mining.js';
 import { Currency } from './Currency.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
-import { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { type ApiDecoration, type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MiningFrames } from './MiningFrames.ts';
@@ -72,27 +72,44 @@ export default class BiddingCalculatorData {
       // wait for any previous load to finish
       void (await this.loadedFrameIdPromise);
       this.loadedFrameIdPromise = new Promise<number>(async (resolve, reject) => {
-        const mining = this.mining;
-        await this.miningFrames.waitForFrameId(biddingFrameId);
-        const latestHeader = this.miningFrames.blockWatch.bestBlockHeader;
-        let api = await this.miningFrames.clientAt(latestHeader);
-        const nextFrameId = await this.mining.fetchNextFrameId(api);
-        if (biddingFrameId !== nextFrameId - 1) {
-          // need to go back to the start of the bidding frame
-          const frame = this.miningFrames.framesById[biddingFrameId];
-          const frameStartBlockHash = frame.firstBlockHash;
-          const frameStartBlockNumber = frame.firstBlockNumber;
-          if (!frameStartBlockHash || frameStartBlockNumber == null) {
-            return reject(new Error(`No starting block for frame ${biddingFrameId}`));
-          }
-          api = await this.miningFrames.clientAt({
-            blockHash: frameStartBlockHash,
-            blockNumber: frameStartBlockNumber,
-          });
-        }
-
-        const currency = new Currency(mining.clients);
         try {
+          const mining = this.mining;
+          await this.miningFrames.waitForFrameId(biddingFrameId);
+
+          const latestHeader = this.miningFrames.blockWatch.bestBlockHeader;
+          let api: ApiDecoration<'promise'>;
+          try {
+            api = await this.miningFrames.clientAt(latestHeader);
+          } catch (error) {
+            if (latestHeader.isFinalized) {
+              throw error;
+            }
+
+            const finalizedHeader = this.miningFrames.blockWatch.finalizedBlockHeader;
+            console.warn('[BiddingCalculatorData] Failed to decorate best block, retrying with finalized block', {
+              bestBlockNumber: latestHeader.blockNumber,
+              finalizedBlockNumber: finalizedHeader.blockNumber,
+              error: String(error),
+            });
+            api = await this.miningFrames.clientAt(finalizedHeader);
+          }
+
+          const nextFrameId = await this.mining.fetchNextFrameId(api);
+          if (biddingFrameId !== nextFrameId - 1) {
+            // need to go back to the start of the bidding frame
+            const frame = this.miningFrames.framesById[biddingFrameId];
+            const frameStartBlockHash = frame.firstBlockHash;
+            const frameStartBlockNumber = frame.firstBlockNumber;
+            if (!frameStartBlockHash || frameStartBlockNumber == null) {
+              throw new Error(`No starting block for frame ${biddingFrameId}`);
+            }
+            api = await this.miningFrames.clientAt({
+              blockHash: frameStartBlockHash,
+              blockNumber: frameStartBlockNumber,
+            });
+          }
+
+          const currency = new Currency(mining.clients);
           const tickAtStartOfNextCohort = await mining.fetchTickAtStartOfNextCohort(api);
           const tickAtEndOfNextCohort = tickAtStartOfNextCohort + NetworkConfig.ticksPerCohort;
 
