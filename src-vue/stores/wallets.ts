@@ -64,7 +64,7 @@ export const useWallets = defineStore('wallets', () => {
     }
 
     ethereumSignerPolicyPromise = (async () => {
-      const chainConfig = await loadEthereumChainConfig().catch(error => {
+      const chainConfig = await loadEthereumChainConfig(config.ethereumExecutionRpcUrl).catch(error => {
         console.warn('Ethereum wallet chain-config load failed', error);
         return undefined;
       });

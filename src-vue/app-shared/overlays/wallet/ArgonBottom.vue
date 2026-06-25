@@ -35,7 +35,10 @@
       class="text-argon-700/80 mt-5 rounded-md border border-[#CFA3EC] bg-[#FEF2FF] px-1 text-center"
     >
       <div class="border-argon-600/20 border-b py-5 text-lg font-bold">
-        <div v-if="guidanceIsFullyFunded" class="flex flex-row items-center justify-center">
+        <div v-if="props.walletType === WalletType.miningHold && !isCalculatorReady" class="py-2 font-light">
+          Calculating current mining funding requirements...
+        </div>
+        <div v-else-if="guidanceIsFullyFunded" class="flex flex-row items-center justify-center">
           <CheckBadgeIcon class="mr-1 inline-block w-8" />
           Your {{ walletType === WalletType.vaulting ? 'Vaulting' : 'Mining' }} Operations Are Fully Funded
         </div>
@@ -199,6 +202,7 @@ const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(MICROGONS_PER_ARG
 const includeVaultTreasuryBondSuggestion = Vue.ref(true);
 const requiredMicrogonsForGoal = Vue.ref(0n);
 const requiredMicronotsForGoal = Vue.ref(0n);
+const isCalculatorReady = Vue.ref(props.walletType !== WalletType.miningHold);
 
 const guidanceIsFullyFunded = Vue.computed<boolean>(() => {
   if (wallet.value.availableMicrogons < minimumMicrogonsNeeded.value) {
@@ -326,6 +330,7 @@ async function load() {
       const projections = calculator.runProjections(config.biddingRules, 'maximum');
       requiredMicrogonsForGoal.value = projections.microgonRequirement;
       requiredMicronotsForGoal.value = projections.micronotRequirement;
+      isCalculatorReady.value = true;
     });
 
     await calculator.load();

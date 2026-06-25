@@ -647,8 +647,9 @@ export default class Installer {
   ): Promise<void> {
     const server = await this.getServer();
     const delegateKeypair = await this.walletKeys.getVaultDelegateKeypair();
-    const ethereumBeaconApiUrl = getEthereumBeaconApiUrl(this.config.ethereumBeaconApiUrl);
-    const ethereumExecutionRpcUrl = getEthereumExecutionRpcUrl();
+    const ethereumBeaconApiUrl =
+      this.config.ethereumBeaconApiUrl === '' ? '' : getEthereumBeaconApiUrl(this.config.ethereumBeaconApiUrl);
+    const ethereumExecutionRpcUrl = getEthereumExecutionRpcUrl(this.config.ethereumExecutionRpcUrl);
 
     await server.createConfigDir();
 

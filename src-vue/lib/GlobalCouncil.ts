@@ -39,6 +39,7 @@ export class GlobalCouncil {
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
     private readonly miningFrames: MiningFrames,
+    private readonly getConfiguredExecutionRpcUrl?: () => string | undefined,
   ) {
     this.data = {
       isReady: false,
@@ -180,7 +181,7 @@ export class GlobalCouncil {
   public async relayApprovedGatewayUpdates(options: { allowUncompensatedRelay?: boolean } = {}) {
     const finalizedClient = await getFinalizedClient();
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl();
+    const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
@@ -201,7 +202,7 @@ export class GlobalCouncil {
     const finalizedClient = await getFinalizedClient();
     await this.refresh(finalizedClient, ++this.#updateSeq);
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl();
+    const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }

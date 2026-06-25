@@ -175,6 +175,7 @@ export const ConfigSchema = z.object({
   version: z.string(),
   requiresPassword: z.boolean(),
   ethereumBeaconApiUrl: z.string().optional(),
+  ethereumExecutionRpcUrl: z.string().optional(),
 
   bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
   upstreamOperator: UpstreamOperatorSchema.optional(),
@@ -244,6 +245,7 @@ export type IConnectedVault = z.infer<typeof UpstreamOperatorSchema>;
 export interface IConfigDefaults {
   requiresPassword: () => IConfig['requiresPassword'];
   ethereumBeaconApiUrl: () => IConfig['ethereumBeaconApiUrl'];
+  ethereumExecutionRpcUrl: () => IConfig['ethereumExecutionRpcUrl'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
   upstreamOperator: () => IConfig['upstreamOperator'];
 

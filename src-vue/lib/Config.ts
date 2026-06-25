@@ -79,6 +79,9 @@ export class Config implements IConfig {
       version: packageJson.version,
       requiresPassword: false,
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
+      ethereumExecutionRpcUrl: Config.getDefault(
+        dbFields.ethereumExecutionRpcUrl,
+      ) as IConfig['ethereumExecutionRpcUrl'],
       upstreamOperator: Config.getDefault(dbFields.upstreamOperator) as IConfig['upstreamOperator'],
       serverDetails: {
         ipAddress: '',
@@ -334,6 +337,13 @@ export class Config implements IConfig {
     this.setField('ethereumBeaconApiUrl', value);
   }
 
+  public get ethereumExecutionRpcUrl(): IConfig['ethereumExecutionRpcUrl'] {
+    return this.getField('ethereumExecutionRpcUrl');
+  }
+  public set ethereumExecutionRpcUrl(value: IConfig['ethereumExecutionRpcUrl']) {
+    this.setField('ethereumExecutionRpcUrl', value);
+  }
+
   public get showWelcomeOverlay(): boolean {
     const bootstrapDetails = this.getField('bootstrapDetails');
     return !bootstrapDetails && !this.isRestarting;
@@ -417,7 +427,6 @@ export class Config implements IConfig {
     this.certificationDetails = {
       hasSavedMnemonic: false,
       showBonusTooltip: true,
-      showRewardsCelebration: true,
       dismissedCompletionNoticeStepIds: [],
       ...(this.certificationDetails || {}),
       ...certificationDetails,
@@ -657,6 +666,7 @@ const dbFields = {
 
   requiresPassword: 'requiresPassword',
   ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
+  ethereumExecutionRpcUrl: 'ethereumExecutionRpcUrl',
   bootstrapDetails: 'bootstrapDetails',
   upstreamOperator: 'upstreamOperator',
 
@@ -689,6 +699,7 @@ const defaults: IConfigDefaults = {
 
   requiresPassword: () => false,
   ethereumBeaconApiUrl: () => undefined,
+  ethereumExecutionRpcUrl: () => undefined,
   bootstrapDetails: () => undefined,
   upstreamOperator: () => undefined,
 

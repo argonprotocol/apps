@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
 import { EthereumClient, getEthereumExecutionRpcUrl } from '../lib/EthereumClient.ts';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
+import { getConfig } from './config.ts';
 import handleFatalError from './helpers/handleFatalError.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
@@ -13,7 +14,7 @@ let ethereumOutboundTransferTracker: EthereumOutboundTransferTracker;
 export function getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker {
   if (!ethereumOutboundTransferTracker) {
     const walletKeys = getWalletKeys();
-    const executionRpcUrl = getEthereumExecutionRpcUrl();
+    const executionRpcUrl = getEthereumExecutionRpcUrl(getConfig().ethereumExecutionRpcUrl);
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
@@ -25,6 +26,7 @@ export function getEthereumOutboundTransferTracker(): EthereumOutboundTransferTr
       walletKeys,
       new EthereumClient(walletKeys, executionRpcUrl),
       getMyVault().mintingAuthorities,
+      executionRpcUrl,
     );
     ethereumOutboundTransferTracker.data = reactive(ethereumOutboundTransferTracker.data) as any;
     ethereumOutboundTransferTracker.load().catch(handleFatalError.bind(ethereumOutboundTransferTracker));

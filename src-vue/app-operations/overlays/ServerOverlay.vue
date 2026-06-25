@@ -48,10 +48,16 @@
           <div class="h-px col-span-full bg-slate-400/30 my-2" />
 
           <div class="text-gray-500">IP Address</div>
-          <div class="font-semibold font-mono">{{ serverDetails.ipAddress || '--' }}</div>
+          <div class="font-semibold font-mono">
+            <template v-if="serverDetails.ipAddress">{{ serverDetails.ipAddress }}</template>
+            <template v-else>--</template>
+          </div>
 
           <div class="text-gray-500">SSH Username</div>
-          <div class="font-semibold font-mono">{{ serverDetails.sshUser || '--' }}</div>
+          <div class="font-semibold font-mono">
+            <template v-if="serverDetails.sshUser">{{ serverDetails.sshUser }}</template>
+            <template v-else>--</template>
+          </div>
 
           <div class="h-px col-span-full bg-slate-400/30 my-2" />
 
@@ -66,7 +72,7 @@
                 <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
                 <template v-else-if="isNull">-- ----</template>
               </CountupClock>
-              (<BitcoinBlocksOverlay>
+              (<BitcoinBlocksOverlay position="left">
                 <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">view blocks</span>
               </BitcoinBlocksOverlay>)
             </span>
@@ -83,7 +89,7 @@
                 <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
                 <template v-else-if="isNull">-- ----</template>
               </CountupClock>
-              (<ArgonBlocksOverlay>
+              (<ArgonBlocksOverlay position="left">
                 <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">view blocks</span>
               </ArgonBlocksOverlay>)
             </span>
@@ -126,91 +132,31 @@
 
           <div class="h-px col-span-full bg-slate-400/30 my-2" />
 
-          <div class="col-span-full pt-1 text-sm font-semibold uppercase tracking-wide text-gray-600">
-            Ethereum Beacon Sync
-          </div>
-
-          <div class="text-gray-500">Beacon API URL</div>
-          <div>
-            <input
-              v-model="beaconApiUrlInput"
-              type="text"
-              :placeholder="defaultBeaconApiUrl || 'https://beacon.example'"
-              class="w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 focus:border-argon-500 focus:outline-none"
-            />
-            <div class="pt-1 text-xs font-light text-slate-500">
-              Uses the network default unless you override or disable it here.
-            </div>
-          </div>
-
-          <div class="text-gray-500">Sync Status</div>
-          <div>
-            <div class="font-semibold font-mono">
-              {{ beaconSyncStatusLabel }}
-            </div>
-            <div v-if="ethereumSyncLastUpdatedAt" class="pt-1 text-xs font-light text-slate-500">
-              Status updated
+          <div class="text-gray-500">Ethereum Sync</div>
+          <div class="font-semibold font-mono">
+            {{ formatEthereumSyncStatus(ethereumSyncState?.mode, ethereumSyncState?.lastError) }}
+            <span class="font-light">
+              updated
               <CountupClock as="span" :time="ethereumSyncLastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }">
                 <template v-if="hours">{{ hours }}h, </template>
                 <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
                 <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
                 <template v-else-if="isNull">-- ----</template>
               </CountupClock>
+              (<EthereumSyncPopover position="left">
+                <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">view details</span>
+              </EthereumSyncPopover>)
+            </span>
+            <div v-if="ethereumSyncState?.mode === 'submitting'" class="pt-1 text-xs font-medium text-amber-700">
+              Execution anchor and sync period values are the latest observed snapshot while the verifier transaction is still being checked.
             </div>
-            <div v-if="ethereumSyncState?.lastSubmittedTxHash" class="pt-1 text-xs font-light text-slate-500 break-all">
-              Last tx: {{ ethereumSyncState.lastSubmittedTxHash }}
-            </div>
-            <div
-              v-if="ethereumSyncState?.latestExecutionAnchorBlockNumber !== undefined"
-              class="pt-1 text-xs font-light text-slate-500"
-            >
-              Anchor block: {{ ethereumSyncState.latestExecutionAnchorBlockNumber.toString() }}
-            </div>
-            <div v-if="ethereumSyncState?.latestEthereumBlockNumber !== undefined" class="pt-1 text-xs font-light text-slate-500">
-              Ethereum block: {{ ethereumSyncState.latestEthereumBlockNumber.toString() }}
-            </div>
-            <div v-if="ethereumExecutionBlockLag !== undefined" class="pt-1 text-xs font-light text-slate-500">
-              Execution anchor gap: {{ ethereumExecutionBlockLag.toString() }}
-            </div>
-            <div
-              v-if="ethereumSyncState?.latestSyncCommitteeUpdatePeriod !== undefined"
-              class="pt-1 text-xs font-light text-slate-500"
-            >
-              Sync period: {{ ethereumSyncState.latestSyncCommitteeUpdatePeriod.toString() }}
-            </div>
-            <div v-if="ethereumSyncState?.gatewayActivityNonceGap !== undefined" class="pt-1 text-xs font-light text-slate-500">
-              Gateway nonce gap: {{ ethereumSyncState.gatewayActivityNonceGap.toString() }}
-            </div>
-            <div v-if="beaconSyncStatusHint" class="pt-2 text-xs font-medium text-amber-700">
-              {{ beaconSyncStatusHint }}
-            </div>
-            <div v-if="beaconSyncActionError" class="pt-2 text-sm font-medium text-red-600">
-              {{ beaconSyncActionError }}
-            </div>
-            <div v-else-if="beaconSyncActionMessage" class="pt-2 text-sm font-medium text-emerald-700">
-              {{ beaconSyncActionMessage }}
-            </div>
-          </div>
-
-          <div class="col-span-full flex flex-wrap gap-2 pt-1">
-            <button
-              @click="setBeaconSync({ nextBeaconApiUrl: beaconApiUrlInput })"
-              :disabled="isBeaconSyncSaveDisabled"
-              class="rounded border border-argon-600/50 px-3 py-1 text-center text-argon-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {{ beaconSyncSaveLabel }}
-            </button>
-            <button
-              @click="setBeaconSync({ disable: true })"
-              :disabled="isBeaconSyncSaving || !effectiveBeaconApiUrl"
-              class="rounded border border-slate-300 px-3 py-1 text-center text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Disable Sync
-            </button>
           </div>
         </div>
 
         <div class="border-t border-dashed border-slate-300 pt-4 mt-4 flex items-center gap-2">
+          <button @click="openServerSettingsOverlay" class="text-argon-700 border rounded px-3 py-1 text-center cursor-pointer">
+            Server Settings
+          </button>
           <button @click="openTroubleshooting" class="text-argon-700 border rounded px-3 py-1 text-center cursor-pointer">
             Troubleshooting
           </button>
@@ -241,6 +187,7 @@ import BitcoinBlocksOverlay from './BitcoinBlocksOverlay.vue';
 import CountupClock from '../../components/CountupClock.vue';
 import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from './BotHistoryOverlayButton.vue';
+import EthereumSyncPopover from './EthereumSyncPopover.vue';
 
 dayjs.extend(utc);
 
@@ -253,22 +200,6 @@ const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 
 const showInstallComplete = Vue.ref(false);
-const beaconApiUrlInput = Vue.ref('');
-const isBeaconSyncSaving = Vue.ref(false);
-const beaconSyncActionError = Vue.ref('');
-const beaconSyncActionMessage = Vue.ref('');
-
-const defaultBeaconApiUrl = Vue.computed(() => {
-  return getEthereumBeaconApiUrl() ?? '';
-});
-
-const effectiveBeaconApiUrl = Vue.computed(() => {
-  if (config.ethereumBeaconApiUrl === '') {
-    return '';
-  }
-
-  return getEthereumBeaconApiUrl(config.ethereumBeaconApiUrl) ?? '';
-});
 
 const ethereumSyncState = Vue.computed(() => {
   return bot.state?.ethereumSync;
@@ -277,47 +208,6 @@ const ethereumSyncState = Vue.computed(() => {
 const ethereumSyncLastUpdatedAt = Vue.computed(() => {
   const lastUpdatedAt = ethereumSyncState.value?.lastUpdatedAt;
   return lastUpdatedAt ? dayjs(lastUpdatedAt) : null;
-});
-
-const ethereumExecutionBlockLag = Vue.computed(() => {
-  const latestExecutionAnchorBlockNumber = ethereumSyncState.value?.latestExecutionAnchorBlockNumber;
-  const latestEthereumBlockNumber = ethereumSyncState.value?.latestEthereumBlockNumber;
-  if (latestExecutionAnchorBlockNumber === undefined || latestEthereumBlockNumber === undefined) {
-    return;
-  }
-
-  return latestEthereumBlockNumber > latestExecutionAnchorBlockNumber
-    ? latestEthereumBlockNumber - latestExecutionAnchorBlockNumber
-    : 0n;
-});
-
-const beaconSyncStatusLabel = Vue.computed(() => {
-  return formatBeaconSyncStatus(ethereumSyncState.value?.mode, ethereumSyncState.value?.lastError);
-});
-
-const beaconSyncStatusHint = Vue.computed(() => {
-  if (ethereumSyncState.value?.mode !== 'submitting') {
-    return '';
-  }
-
-  return 'Execution anchor and sync period values are the latest observed snapshot while the verifier tx is still being checked.';
-});
-
-const isBeaconSyncSaveDisabled = Vue.computed(() => {
-  return isBeaconSyncSaving.value || (!beaconApiUrlInput.value.trim() && !defaultBeaconApiUrl.value);
-});
-
-const beaconSyncSaveLabel = Vue.computed(() => {
-  if (isBeaconSyncSaving.value) {
-    return 'Saving…';
-  }
-  if (effectiveBeaconApiUrl.value) {
-    return 'Apply Sync Settings';
-  }
-  if (defaultBeaconApiUrl.value) {
-    return 'Use Network Default';
-  }
-  return 'Activate Sync';
 });
 
 const serverDetails = Vue.computed(() => {
@@ -401,10 +291,13 @@ function openTroubleshooting() {
   basicEmitter.emit('openTroubleshootingOverlay', { screen: 'overview' });
 }
 
+function openServerSettingsOverlay() {
+  basicEmitter.emit('openServerSettingsOverlay');
+}
+
 basicEmitter.on('openServerOverlay', async () => {
   showInstallComplete.value = false;
   isOpen.value = true;
-  await refreshBeaconSyncSettings();
   await bot.refreshState().catch(() => undefined);
 });
 
@@ -427,71 +320,9 @@ Vue.watch(hasError, hasInstallerError => {
 Vue.onMounted(async () => {
   await config.load();
   isLoaded.value = true;
-  await refreshBeaconSyncSettings();
 });
 
-async function setBeaconSync(args: { disable?: boolean; nextBeaconApiUrl?: string } = {}) {
-  const { disable, nextBeaconApiUrl } = args;
-  beaconSyncActionError.value = '';
-  beaconSyncActionMessage.value = '';
-  isBeaconSyncSaving.value = true;
-
-  let beaconApiUrl = '';
-  if (!disable) {
-    beaconApiUrl = nextBeaconApiUrl?.trim() ?? '';
-    if (!beaconApiUrl && !defaultBeaconApiUrl.value) {
-      beaconSyncActionError.value = 'A beacon API URL is required to activate syncing.';
-      isBeaconSyncSaving.value = false;
-      return;
-    }
-  }
-
-  const savedBeaconApiUrl = disable ? '' : beaconApiUrl || undefined;
-  const shouldBeEnabled = !disable && !!getEthereumBeaconApiUrl(savedBeaconApiUrl);
-  const previousBeaconApiUrl = config.ethereumBeaconApiUrl;
-
-  try {
-    config.ethereumBeaconApiUrl = savedBeaconApiUrl;
-    await config.save();
-    await installer.updateServerConfig();
-    await refreshBeaconSyncSettings();
-    await waitForBeaconSyncState(shouldBeEnabled);
-    beaconSyncActionMessage.value = disable ? 'Beacon sync disabled.' : 'Beacon sync settings applied.';
-  } catch (error) {
-    config.ethereumBeaconApiUrl = previousBeaconApiUrl;
-    await config.save().catch(() => undefined);
-    beaconSyncActionError.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    isBeaconSyncSaving.value = false;
-  }
-}
-
-async function refreshBeaconSyncSettings() {
-  beaconSyncActionError.value = '';
-  beaconApiUrlInput.value = config.ethereumBeaconApiUrl === '' ? '' : effectiveBeaconApiUrl.value;
-}
-
-async function waitForBeaconSyncState(shouldBeEnabled: boolean) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < 30_000) {
-    await bot.refreshState().catch(() => undefined);
-    const mode = bot.state?.ethereumSync?.mode;
-
-    if (shouldBeEnabled) {
-      if (mode && mode !== 'disabled') return;
-    } else if (!mode || mode === 'disabled') {
-      return;
-    }
-
-    await new Promise(resolve => window.setTimeout(resolve, 1_000));
-  }
-}
-
-function formatBeaconSyncStatus(
-  mode?: typeof ethereumSyncState.value extends { mode: infer T } ? T : string,
-  lastError?: string,
-) {
+function formatEthereumSyncStatus(mode?: string, lastError?: string) {
   switch (mode) {
     case 'needsBootstrap':
       return 'Waiting for one-time sudo bootstrap';
@@ -504,7 +335,7 @@ function formatBeaconSyncStatus(
     case 'disabled':
       return 'Disabled';
     default:
-      return effectiveBeaconApiUrl.value ? 'Configured' : 'Disabled';
+      return getEthereumBeaconApiUrl(config.ethereumBeaconApiUrl) ? 'Configured' : 'Disabled';
   }
 }
 </script>

@@ -114,6 +114,7 @@ export class EthereumOutboundTransferTracker {
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: IEthereumOutboundTransferClient,
     private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'authorize'>,
+    private readonly executionRpcUrl?: string,
   ) {}
 
   public async load(): Promise<void> {
@@ -197,7 +198,7 @@ export class EthereumOutboundTransferTracker {
       return;
     }
 
-    const chainConfig = await loadEthereumChainConfig();
+    const chainConfig = await loadEthereumChainConfig(this.executionRpcUrl);
     if (!chainConfig) {
       throw new Error('Ethereum gateway chain config is not available on this Argon network.');
     }

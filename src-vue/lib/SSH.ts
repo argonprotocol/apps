@@ -10,6 +10,7 @@ export interface ITryServerData {
   biddingRules: IBiddingRules | undefined;
   oldestFrameIdToSync: number | undefined;
   ethereumBeaconApiUrl: string | undefined;
+  ethereumExecutionRpcUrl: string | undefined;
 }
 
 export class SSH {
@@ -60,16 +61,18 @@ export class SSH {
         biddingRules: undefined,
         oldestFrameIdToSync: undefined,
         ethereumBeaconApiUrl: undefined,
+        ethereumExecutionRpcUrl: undefined,
       };
 
     const biddingRules = await server.downloadBiddingRules();
-    const { oldestFrameIdToSync, ethereumBeaconApiUrl } = await server.downloadEnvState();
+    const { oldestFrameIdToSync, ethereumBeaconApiUrl, ethereumExecutionRpcUrl } = await server.downloadEnvState();
 
     return {
       walletAddress,
       biddingRules,
       oldestFrameIdToSync,
       ethereumBeaconApiUrl,
+      ethereumExecutionRpcUrl,
     };
   }
 
