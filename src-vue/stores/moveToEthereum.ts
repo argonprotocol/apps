@@ -25,8 +25,8 @@ export function getEthereumOutboundTransferTracker(): EthereumOutboundTransferTr
       getBlockWatch(),
       walletKeys,
       new EthereumClient(walletKeys, executionRpcUrl),
-      executionRpcUrl,
       getMyVault().mintingAuthorities,
+      executionRpcUrl,
     );
     ethereumOutboundTransferTracker.data = reactive(ethereumOutboundTransferTracker.data) as any;
     ethereumOutboundTransferTracker.load().catch(handleFatalError.bind(ethereumOutboundTransferTracker));

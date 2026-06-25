@@ -1,6 +1,6 @@
 <template>
   <PopoverRoot as="div" @update:open="onOpen">
-    <PopoverTrigger :asChild="true">
+    <PopoverTrigger type="button" class="inline-flex appearance-none bg-transparent p-0 text-left focus:outline-none">
       <slot>
         <span
           class="border-argon-300 text-argon-600 hover:bg-argon-50/40 hover:border-argon-600 mt-10 cursor-pointer rounded border px-7 py-2 text-center text-lg font-bold whitespace-nowrap transition-all duration-300"

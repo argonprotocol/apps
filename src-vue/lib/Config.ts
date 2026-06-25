@@ -79,7 +79,9 @@ export class Config implements IConfig {
       version: packageJson.version,
       requiresPassword: false,
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
-      ethereumExecutionRpcUrl: Config.getDefault(dbFields.ethereumExecutionRpcUrl) as IConfig['ethereumExecutionRpcUrl'],
+      ethereumExecutionRpcUrl: Config.getDefault(
+        dbFields.ethereumExecutionRpcUrl,
+      ) as IConfig['ethereumExecutionRpcUrl'],
       upstreamOperator: Config.getDefault(dbFields.upstreamOperator) as IConfig['upstreamOperator'],
       serverDetails: {
         ipAddress: '',

@@ -1,8 +1,8 @@
 <template>
   <PopoverRoot as="div" @update:open="onOpen">
-    <PopoverTrigger :asChild="true">
+    <PopoverTrigger type="button" class="inline-flex appearance-none bg-transparent p-0 text-left focus:outline-none">
       <slot>
-        <span class="cursor-pointer text-argon-600/50 hover:text-argon-600">view sync details</span>
+        <span class="text-argon-600/50 hover:text-argon-600 cursor-pointer">view sync details</span>
       </slot>
     </PopoverTrigger>
     <PopoverPortal>
@@ -22,18 +22,19 @@
           <div class="grid grid-cols-[170px_1fr] gap-x-6 gap-y-3">
             <div class="text-gray-500">Mode</div>
             <div>
-              <div class="font-semibold font-mono">
+              <div class="font-mono font-semibold">
                 {{ formatEthereumSyncStatus(ethereumSyncState?.mode, ethereumSyncState?.lastError) }}
               </div>
               <div v-if="ethereumSyncState?.mode === 'submitting'" class="pt-1 text-xs font-medium text-amber-700">
-                Execution anchor and sync period values are the latest observed snapshot while the verifier transaction is still being checked.
+                Execution anchor and sync period values are the latest observed snapshot while the verifier transaction
+                is still being checked.
               </div>
             </div>
 
             <div class="text-gray-500">Status Updated</div>
-            <div class="font-light font-mono">
+            <div class="font-mono font-light">
               <CountupClock as="span" :time="lastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }">
-                <template v-if="hours">{{ hours }}h, </template>
+                <template v-if="hours">{{ hours }}h,</template>
                 <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
                 <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
                 <template v-else-if="isNull">-- ----</template>
@@ -41,31 +42,37 @@
             </div>
 
             <div class="text-gray-500">Last Submitted Tx</div>
-            <div class="font-light font-mono break-all">
-              <template v-if="ethereumSyncState?.lastSubmittedTxHash">{{ ethereumSyncState.lastSubmittedTxHash }}</template>
+            <div class="font-mono font-light break-all">
+              <template v-if="ethereumSyncState?.lastSubmittedTxHash">
+                {{ ethereumSyncState.lastSubmittedTxHash }}
+              </template>
               <template v-else>--</template>
             </div>
 
             <div class="text-gray-500">Finalized Slot</div>
-            <div class="font-light font-mono">{{ formatBigInt(ethereumSyncState?.latestFinalizedSlot) }}</div>
+            <div class="font-mono font-light">{{ formatBigInt(ethereumSyncState?.latestFinalizedSlot) }}</div>
 
             <div class="text-gray-500">Sync Period</div>
-            <div class="font-light font-mono">{{ formatBigInt(ethereumSyncState?.latestSyncCommitteeUpdatePeriod) }}</div>
+            <div class="font-mono font-light">
+              {{ formatBigInt(ethereumSyncState?.latestSyncCommitteeUpdatePeriod) }}
+            </div>
 
             <div class="text-gray-500">Anchor Block</div>
-            <div class="font-light font-mono">{{ formatBigInt(ethereumSyncState?.latestExecutionAnchorBlockNumber) }}</div>
+            <div class="font-mono font-light">
+              {{ formatBigInt(ethereumSyncState?.latestExecutionAnchorBlockNumber) }}
+            </div>
 
             <div class="text-gray-500">Ethereum Block</div>
-            <div class="font-light font-mono">{{ formatBigInt(ethereumSyncState?.latestEthereumBlockNumber) }}</div>
+            <div class="font-mono font-light">{{ formatBigInt(ethereumSyncState?.latestEthereumBlockNumber) }}</div>
 
             <div class="text-gray-500">Execution Anchor Gap</div>
-            <div class="font-light font-mono">{{ formatBigInt(executionBlockLag) }}</div>
+            <div class="font-mono font-light">{{ formatBigInt(executionBlockLag) }}</div>
 
             <div class="text-gray-500">Gateway Nonce Gap</div>
-            <div class="font-light font-mono">{{ formatBigInt(ethereumSyncState?.gatewayActivityNonceGap) }}</div>
+            <div class="font-mono font-light">{{ formatBigInt(ethereumSyncState?.gatewayActivityNonceGap) }}</div>
 
             <div class="text-gray-500">Last Error</div>
-            <div class="font-light font-mono break-words">
+            <div class="font-mono font-light break-words">
               <template v-if="ethereumSyncState?.lastError">{{ ethereumSyncState.lastError }}</template>
               <template v-else>--</template>
             </div>
@@ -75,7 +82,7 @@
             <button
               @click="refreshState"
               :disabled="isRefreshing"
-              class="rounded border border-argon-600/50 px-3 py-1 text-center text-argon-700 disabled:cursor-not-allowed disabled:opacity-50"
+              class="border-argon-600/50 text-argon-700 rounded border px-3 py-1 text-center disabled:cursor-not-allowed disabled:opacity-50"
             >
               <template v-if="isRefreshing">Refreshing…</template>
               <template v-else>Refresh</template>

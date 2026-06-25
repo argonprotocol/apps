@@ -16,7 +16,7 @@
             v-model="executionRpcUrlInput"
             type="text"
             :placeholder="getDefaultEthereumExecutionRpcUrl() || 'https://rpc.example'"
-            class="w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:border-argon-500 focus:outline-none"
+            class="focus:border-argon-500 w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none"
           />
           <div class="pt-1 text-xs font-light text-slate-500">
             Leave blank to use the network default shown in the placeholder for this machine.
@@ -29,36 +29,32 @@
             v-model="beaconApiUrlInput"
             type="text"
             :placeholder="getDefaultEthereumBeaconApiUrl() || 'https://beacon.example'"
-            class="w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:border-argon-500 focus:outline-none"
+            class="focus:border-argon-500 w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none"
           />
           <div class="pt-1 text-xs font-light text-slate-500">
-            Leave blank to use the network default shown in the placeholder. Use Disable Sync if you want this machine to stop beacon syncing.
+            Leave blank to use the network default shown in the placeholder. Use Disable Sync if you want this machine
+            to stop beacon syncing.
           </div>
         </div>
 
         <div class="text-gray-500">Beacon Sync Mode</div>
         <div>
-          <div class="font-semibold font-mono">
-            <template v-if="config.ethereumBeaconApiUrl === ''">
-              Disabled on this machine
-            </template>
-            <template v-else-if="config.ethereumBeaconApiUrl?.trim()">
-              Using custom beacon API
-            </template>
-            <template v-else>
-              Using network default beacon API
-            </template>
+          <div class="font-mono font-semibold">
+            <template v-if="config.ethereumBeaconApiUrl === ''">Disabled on this machine</template>
+            <template v-else-if="config.ethereumBeaconApiUrl?.trim()">Using custom beacon API</template>
+            <template v-else>Using network default beacon API</template>
           </div>
           <div class="pt-1 text-xs font-light text-slate-500">
             {{ formatEthereumSyncStatus(ethereumSyncState?.mode, ethereumSyncState?.lastError) }}
           </div>
           <div v-if="ethereumSyncState?.mode === 'submitting'" class="pt-1 text-xs font-medium text-amber-700">
-            Execution anchor and sync period values are the latest observed snapshot while the verifier transaction is still being checked.
+            Execution anchor and sync period values are the latest observed snapshot while the verifier transaction is
+            still being checked.
           </div>
           <div v-if="ethereumSyncLastUpdatedAt" class="pt-1 text-xs font-light text-slate-500">
             Status updated
             <CountupClock as="span" :time="ethereumSyncLastUpdatedAt" v-slot="{ hours, minutes, seconds, isNull }">
-              <template v-if="hours">{{ hours }}h, </template>
+              <template v-if="hours">{{ hours }}h,</template>
               <template v-if="minutes || hours">{{ minutes }}m{{ !isNull && !hours ? ', ' : '' }}</template>
               <template v-if="!isNull && !hours">{{ seconds }}s ago</template>
               <template v-else-if="isNull">-- ----</template>
@@ -77,7 +73,7 @@
         <button
           @click="saveServerSettings()"
           :disabled="isSavingSettings"
-          class="rounded border border-argon-600/50 px-3 py-1 text-center text-argon-700 disabled:cursor-not-allowed disabled:opacity-50"
+          class="border-argon-600/50 text-argon-700 rounded border px-3 py-1 text-center disabled:cursor-not-allowed disabled:opacity-50"
         >
           <template v-if="isSavingSettings">Saving…</template>
           <template v-else>Apply Server Settings</template>
@@ -200,9 +196,8 @@ async function refreshServerSettings() {
   settingsActionError.value = '';
   settingsActionMessage.value = '';
   executionRpcUrlInput.value = config.ethereumExecutionRpcUrl?.trim() ?? '';
-  beaconApiUrlInput.value = config.ethereumBeaconApiUrl && config.ethereumBeaconApiUrl !== ''
-    ? config.ethereumBeaconApiUrl
-    : '';
+  beaconApiUrlInput.value =
+    config.ethereumBeaconApiUrl && config.ethereumBeaconApiUrl !== '' ? config.ethereumBeaconApiUrl : '';
 }
 
 async function waitForBeaconSyncState(shouldBeEnabled: boolean) {
@@ -229,10 +224,15 @@ function validateOptionalUrl(label: string, value?: string) {
     return;
   }
 
+  let url: URL;
   try {
-    new URL(value);
+    url = new URL(value);
   } catch {
-    throw new Error(`${label} must be a valid URL.`);
+    throw new Error(`${label} must be a valid HTTP or HTTPS URL.`);
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${label} must be a valid HTTP or HTTPS URL.`);
   }
 }
 

@@ -145,7 +145,9 @@ export class ServerAdmin {
     const ethereumBeaconApiUrl = envState.ethereumBeaconApiUrl?.trim();
     const ethereumExecutionRpcUrl = envState.ethereumExecutionRpcUrl?.trim();
 
-    if (ethereumBeaconApiUrl) {
+    if (envState.ethereumBeaconApiUrl === '') {
+      lines.push('ETHEREUM_BEACON_API_URL=');
+    } else if (ethereumBeaconApiUrl) {
       lines.push(`ETHEREUM_BEACON_API_URL=${ethereumBeaconApiUrl}`);
     }
     if (ethereumExecutionRpcUrl) {
@@ -166,9 +168,10 @@ export class ServerAdmin {
       10e3,
     );
     const envState = envStateRaw ? parseEnv(envStateRaw) : {};
+    const hasBeaconApiUrl = 'ETHEREUM_BEACON_API_URL' in envState;
     return {
       oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0'),
-      ethereumBeaconApiUrl: envState.ETHEREUM_BEACON_API_URL?.trim() || undefined,
+      ethereumBeaconApiUrl: hasBeaconApiUrl ? (envState.ETHEREUM_BEACON_API_URL?.trim() ?? '') : undefined,
       ethereumExecutionRpcUrl: envState.ETHEREUM_EXECUTION_RPC_URL?.trim() || undefined,
     };
   }

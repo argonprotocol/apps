@@ -113,8 +113,8 @@ export class EthereumOutboundTransferTracker {
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: IEthereumOutboundTransferClient,
-    private readonly executionRpcUrl?: string,
     private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'authorize'>,
+    private readonly executionRpcUrl?: string,
   ) {}
 
   public async load(): Promise<void> {
