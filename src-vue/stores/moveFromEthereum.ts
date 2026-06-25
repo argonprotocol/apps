@@ -15,15 +15,16 @@ let ethereumMoveTracker: EthereumInboundTransferTracker;
 
 export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
   if (!ethereumMoveTracker) {
+    const config = getConfig();
     const walletKeys = getWalletKeys();
     const transactionTracker = getTransactionTracker();
     const dbPromise = getDbPromise();
-    const executionRpcUrl = getEthereumExecutionRpcUrl();
+    const executionRpcUrl = getEthereumExecutionRpcUrl(config.ethereumExecutionRpcUrl);
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
     const ethereumClient = new EthereumClient(walletKeys, executionRpcUrl);
-    const serverApiClient = getConfig().serverDetails.ipAddress ? getServerApiClient() : undefined;
+    const serverApiClient = config.serverDetails.ipAddress ? getServerApiClient() : undefined;
     const upstreamOperatorClient = getUpstreamOperatorClient();
     const myVault = getMyVault();
 

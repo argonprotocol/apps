@@ -49,6 +49,7 @@ type IBasicEmitter = {
   resumeBitcoinFunding: IBitcoinLockRecord;
 
   openServerOverlay: void;
+  openServerSettingsOverlay: void;
   openOperationalOverlay: OperationalStepId;
   openOperationalRewardsOverlay:
     | { screen?: 'activate' | 'congratulations' | 'overview' | 'claim'; section?: 'create' | 'unlock' | 'outbound' }

@@ -130,9 +130,9 @@
               <div class="flex flex-row items-center w-full gap-x-3 text-base my-4 px-2.5">
                 <div class="text-slate-700/80">Grow revenue by expanding your network</div>
                 <div class="grow flex flex-row gap-x-3 text-argon-600">
-                  <button @click="openVaultMembersOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">
-                    Manage Members
-                  </button>
+<!--                  <button @click="openVaultMembersOverlay" class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">-->
+<!--                    Manage Members-->
+<!--                  </button>-->
 <!--                  <button class="grow border border-slate-600/50 rounded-lg py-0.5 cursor-pointer hover:bg-argon-100/20">-->
 <!--                    Optimize Revenue-->
 <!--                  </button>-->

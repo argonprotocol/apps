@@ -729,8 +729,8 @@ export class EthereumClient {
   }
 }
 
-export async function loadEthereumChainConfig(): Promise<IEthereumChainConfig | undefined> {
-  const resolvedExecutionRpcUrl = getEthereumExecutionRpcUrl();
+export async function loadEthereumChainConfig(executionRpcUrl?: string): Promise<IEthereumChainConfig | undefined> {
+  const resolvedExecutionRpcUrl = getEthereumExecutionRpcUrl(executionRpcUrl);
   if (!resolvedExecutionRpcUrl) {
     return undefined;
   }
@@ -790,8 +790,11 @@ async function loadEthereumChainConfigForRpc(executionRpcUrl: string): Promise<I
   }
 }
 
-export function createEthereumPublicClient(chain?: Parameters<typeof createPublicClient>[0]['chain']): PublicClient {
-  const resolvedExecutionRpcUrl = getEthereumExecutionRpcUrl();
+export function createEthereumPublicClient(
+  chain?: Parameters<typeof createPublicClient>[0]['chain'],
+  executionRpcUrl?: string,
+): PublicClient {
+  const resolvedExecutionRpcUrl = getEthereumExecutionRpcUrl(executionRpcUrl);
   if (!resolvedExecutionRpcUrl) {
     throw new Error('Ethereum execution RPC is not configured for this app instance.');
   }
@@ -821,21 +824,34 @@ function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigin
   return amountBaseUnits / EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
 }
 
-export function getEthereumExecutionRpcUrl(): string | undefined {
+export function getDefaultEthereumExecutionRpcUrl(): string | undefined {
   return NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim() || undefined;
 }
 
+export function getEthereumExecutionRpcUrl(configuredExecutionRpcUrl?: string): string | undefined {
+  const resolvedConfiguredExecutionRpcUrl = configuredExecutionRpcUrl?.trim();
+  if (resolvedConfiguredExecutionRpcUrl) {
+    return resolvedConfiguredExecutionRpcUrl;
+  }
+
+  return getDefaultEthereumExecutionRpcUrl();
+}
+
+export function getDefaultEthereumBeaconApiUrl(): string | undefined {
+  return NetworkConfig.get().ethereumNetwork.beaconApiUrl.trim() || undefined;
+}
+
 export function getEthereumBeaconApiUrl(configuredBeaconApiUrl?: string): string | undefined {
-  if (!configuredBeaconApiUrl) {
+  if (configuredBeaconApiUrl === '') {
     return undefined;
   }
 
-  const resolvedConfiguredBeaconApiUrl = configuredBeaconApiUrl.trim();
+  const resolvedConfiguredBeaconApiUrl = configuredBeaconApiUrl?.trim();
   if (resolvedConfiguredBeaconApiUrl) {
     return resolvedConfiguredBeaconApiUrl;
   }
 
-  return NetworkConfig.get().ethereumNetwork.beaconApiUrl.trim() || undefined;
+  return getDefaultEthereumBeaconApiUrl();
 }
 
 // Keep runtime batching aligned with the integration harness so approval relays hit Ethereum exactly once.

@@ -6,6 +6,7 @@ import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
+import { getConfig } from '../stores/config.ts';
 import { getFinalizedClient } from '../stores/mainchain.ts';
 import {
   EthereumClient,
@@ -180,7 +181,7 @@ export class GlobalCouncil {
   public async relayApprovedGatewayUpdates(options: { allowUncompensatedRelay?: boolean } = {}) {
     const finalizedClient = await getFinalizedClient();
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl();
+    const executionRpcUrl = getEthereumExecutionRpcUrl(getConfig().ethereumExecutionRpcUrl);
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
@@ -201,7 +202,7 @@ export class GlobalCouncil {
     const finalizedClient = await getFinalizedClient();
     await this.refresh(finalizedClient, ++this.#updateSeq);
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl();
+    const executionRpcUrl = getEthereumExecutionRpcUrl(getConfig().ethereumExecutionRpcUrl);
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }

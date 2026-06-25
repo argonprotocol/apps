@@ -71,6 +71,7 @@ export default class Importer {
     this.config.biddingRules = serverData.biddingRules!;
     this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync!;
     this.config.ethereumBeaconApiUrl = serverData.ethereumBeaconApiUrl;
+    this.config.ethereumExecutionRpcUrl = serverData.ethereumExecutionRpcUrl;
     this.config.serverDetails = { ...this.config.serverDetails, ipAddress: ipAddress };
     await this.config.save();
   }

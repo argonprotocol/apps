@@ -124,6 +124,7 @@ import MoveArrow from '../../../assets/move-arrow.svg';
 import { formatEvmNativeFeeWei } from '../../../lib/Utils.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import numeral from '../../../lib/numeral.ts';
+import { getConfig } from '../../../stores/config.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../../stores/moveToEthereum.ts';
@@ -142,6 +143,7 @@ const props = defineProps<{
   networkName: string;
   feeTokenSymbol: string;
 }>();
+const config = getConfig();
 
 const emit = defineEmits<{
   (e: 'openTransferOverlay'): void;
@@ -250,7 +252,7 @@ function openTransferOverlay() {
 
 async function refreshEthereumTransferConfig() {
   try {
-    hasActiveEthereumTransferConfig.value = Boolean(await loadEthereumChainConfig());
+    hasActiveEthereumTransferConfig.value = Boolean(await loadEthereumChainConfig(config.ethereumExecutionRpcUrl));
   } catch (error) {
     console.warn('[CrosschainMoveButton] Unable to load Ethereum chain config', error);
     hasActiveEthereumTransferConfig.value = false;

@@ -1,67 +1,74 @@
 <!-- prettier-ignore -->
 <template>
-  <PopoverRoot as="div" class="relative" @update:open="onOpen">
-    <PopoverTrigger class="focus:outline-none">
+  <PopoverRoot as="div" @update:open="onOpen">
+    <PopoverTrigger :asChild="true">
       <slot>
         <span class="border border-argon-300 text-center text-lg font-bold mt-10 whitespace-nowrap text-argon-600 px-7 py-2 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           View Bidding Activity
         </span>
       </slot>
     </PopoverTrigger>
-    <PopoverContent as="div" :class="panelPositioningClasses"
-      class="absolute w-220 text-center text-lg font-bold mt-3 mr-4 bg-white rounded-lg shadow-lg border border-gray-300 z-50">
-      <div :class="arrowPositioningClasses" class="absolute h-[15px] w-[30px] overflow-hidden">
-        <div class="relative top-[5px] left-[5px] h-[20px] w-[20px] rotate-45 bg-white ring-1 ring-gray-900/20"></div>
-      </div>
-      <div class="flex flex-col text-base px-6 pt-4 pb-2 h-full max-w-full">
-        <h2 class="text-left text-2xl font-bold mb-2">Recent Bidding Activity</h2>
-        <table class="w-full max-w-full grow font-mono text-md">
-          <tbody class="font-light text-left">
-            <tr v-for="activity of activities" :key="activity.id" class="whitespace-nowrap">
-              <td class="text-left w-[5%]">
-                <ActivityArrowIcon v-if="activity.type === 'bidUp'" class="w-5 h-5 text-green-500" />
-                <ActivityArrowIcon v-if="activity.type === 'bidDown' && activity.isMine" class="w-5 h-5 rotate-180 text-red-500" />
-                <ActivityArrowIcon v-if="activity.type === 'bidDown' && !activity.isMine" class="w-5 h-5 rotate-180 text-gray-200" />
-                <ActivityArrowIcon v-if="activity.type === 'bidInc'" class="w-5 h-5 rotate-90 text-green-500" />
-                <ActivityFailureIcon v-if="activity.type === 'failure'" class="w-5 h-5 text-red-500" />
-                <ActivitySuccessIcon v-if="activity.type === 'success'" class="w-5 h-5 text-green-500" />
-              </td>
-              <td class="text-left opacity-50 pl-[30px] w-[10%]">
-                {{ activity.timestamp.local().fromNow() }}
-              </td>
-              <template v-if="['bidUp', 'bidDown'].includes(activity.type)">
-                <td class="pl-[30px] w-[30%] text-left">{{ activity.message }}</td>
-                <td class="text-left relative pl-[30px] opacity-80 w-[55%]">
-                  <div v-if="activity.bidderAddress">
-                    <span class="opacity-60">{{ activity.bidderAddress.slice(0, 10) }}&nbsp;</span>
-                    <span v-if="activity.isMine" class="absolute right-0 top-1/2 -translate-y-1/2 bg-argon-600 text-white px-1.5 pb-0.25 rounded text-sm">
-                      YOU
-                      <span class="absolute top-0 -left-3 inline-block h-full bg-gradient-to-r from-transparent to-white w-3"></span>
-                    </span>
-                  </div>
+    <PopoverPortal>
+      <PopoverContent
+        as="div"
+        :side="popoverSide"
+        align="center"
+        :sideOffset="10"
+        :collisionPadding="24"
+        :avoidCollisions="true"
+        class="group relative z-[2002] w-220 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+      >
+        <PopoverPanelArrow />
+        <div class="flex h-full max-w-full flex-col px-6 pt-4 pb-2 text-base">
+          <h2 class="mb-2 text-left text-2xl font-bold">Recent Bidding Activity</h2>
+          <table class="text-md w-full max-w-full grow font-mono">
+            <tbody class="text-left font-light">
+              <tr v-for="activity of activities" :key="activity.id" class="whitespace-nowrap">
+                <td class="w-[5%] text-left">
+                  <ActivityArrowIcon v-if="activity.type === 'bidUp'" class="h-5 w-5 text-green-500" />
+                  <ActivityArrowIcon v-if="activity.type === 'bidDown' && activity.isMine" class="h-5 w-5 rotate-180 text-red-500" />
+                  <ActivityArrowIcon v-if="activity.type === 'bidDown' && !activity.isMine" class="h-5 w-5 rotate-180 text-gray-200" />
+                  <ActivityArrowIcon v-if="activity.type === 'bidInc'" class="h-5 w-5 rotate-90 text-green-500" />
+                  <ActivityFailureIcon v-if="activity.type === 'failure'" class="h-5 w-5 text-red-500" />
+                  <ActivitySuccessIcon v-if="activity.type === 'success'" class="h-5 w-5 text-green-500" />
                 </td>
-              </template>
-              <td v-else colspan="2" class="pl-[30px]">
-                {{ activity.message }}
-              </td>
-            </tr>
-            <tr v-for="i in 15 - activities.length" :key="i">
-              <td class="text-left text-gray-300"><div class="w-full h-5 bg-gray-100" /></td>
-              <td class="text-left text-gray-300 pr-2"><div class="w-full h-5 bg-gray-100" /></td>
-              <td class="text-left text-gray-300 pr-2"><div class="w-full h-5 bg-gray-100" /></td>
-              <td class="text-right text-gray-300"><div class="w-full h-5 bg-gray-100" /></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </PopoverContent>
+                <td class="w-[10%] pl-[30px] text-left opacity-50">
+                  {{ activity.timestamp.local().fromNow() }}
+                </td>
+                <template v-if="['bidUp', 'bidDown'].includes(activity.type)">
+                  <td class="w-[30%] pl-[30px] text-left">{{ activity.message }}</td>
+                  <td class="relative w-[55%] pl-[30px] text-left opacity-80">
+                    <div v-if="activity.bidderAddress">
+                      <span class="opacity-60">{{ activity.bidderAddress.slice(0, 10) }}&nbsp;</span>
+                      <span v-if="activity.isMine" class="absolute top-1/2 right-0 -translate-y-1/2 rounded bg-argon-600 px-1.5 pb-0.25 text-sm text-white">
+                        YOU
+                        <span class="absolute top-0 -left-3 inline-block h-full w-3 bg-gradient-to-r from-transparent to-white"></span>
+                      </span>
+                    </div>
+                  </td>
+                </template>
+                <td v-else colspan="2" class="pl-[30px]">
+                  {{ activity.message }}
+                </td>
+              </tr>
+              <tr v-for="i in 15 - activities.length" :key="i">
+                <td class="text-left text-gray-300"><div class="h-5 w-full bg-gray-100" /></td>
+                <td class="pr-2 text-left text-gray-300"><div class="h-5 w-full bg-gray-100" /></td>
+                <td class="pr-2 text-left text-gray-300"><div class="h-5 w-full bg-gray-100" /></td>
+                <td class="text-right text-gray-300"><div class="h-5 w-full bg-gray-100" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </PopoverContent>
+    </PopoverPortal>
   </PopoverRoot>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getCurrency } from '../../stores/currency.ts';
-import { PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
+import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import {
   BotActivityType,
@@ -82,13 +89,14 @@ import { getWalletKeys } from '../../stores/wallets.ts';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
 import { getConfig } from '../../stores/config.ts';
+import PopoverPanelArrow from '../../components/PopoverPanelArrow.vue';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
 
 const props = withDefaults(
   defineProps<{
-    position?: 'left' | 'top';
+    position?: 'left' | 'right' | 'top';
   }>(),
   {
     position: 'top',
@@ -98,6 +106,14 @@ const props = withDefaults(
 const bot = getBot();
 const config = getConfig();
 const isOpen = Vue.ref(false);
+
+const popoverSide = Vue.computed(() => {
+  if (props.position === 'left') {
+    return 'left';
+  }
+
+  return props.position === 'right' ? 'right' : 'top';
+});
 
 function onOpen(open: boolean) {
   isOpen.value = open;
@@ -158,24 +174,6 @@ const walletKeys = getWalletKeys();
 const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
-
-const panelPositioningClasses = Vue.computed(() => {
-  if (props.position === 'left') {
-    return 'top-[-140px] right-[calc(100%+10px)] h-160 ';
-  } else {
-    // props.position === 'top'
-    return 'top-[-55px] left-1/2 -translate-x-1/2 -translate-y-full h-140';
-  }
-});
-
-const arrowPositioningClasses = Vue.computed(() => {
-  if (props.position === 'left') {
-    return 'top-[122px] right-0 translate-x-[22.5px] -translate-y-full rotate-90';
-  } else {
-    // props.position === 'top'
-    return 'top-full left-1/2 -translate-x-1/2 rotate-180';
-  }
-});
 
 const subaccounts = Vue.ref(new Set<string>());
 Vue.onMounted(() => {

@@ -95,10 +95,15 @@ export class MainchainClients {
     const previousClientPromise = this.prunedClientPromise;
     if (!previousClientPromise) return;
 
+    const shouldNotifyDegraded =
+      this.connectionStateByClient.pruned === 'connected' && !!this.currentClientByType.pruned;
     this.prunedClientPromise = undefined;
     this.prunedUrl = undefined;
     this.currentClientByType.pruned = undefined;
     this.setConnectionState('pruned', 'disconnected');
+    if (shouldNotifyDegraded) {
+      this.events.emit('degraded', undefined, 'pruned');
+    }
     void previousClientPromise.then(previousClient => previousClient.disconnect()).catch(() => undefined);
   }
 

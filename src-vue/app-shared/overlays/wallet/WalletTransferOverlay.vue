@@ -237,6 +237,7 @@ import type { IEthereumOutboundActiveTransfer } from '../../../lib/EthereumOutbo
 import { formatEvmNativeFeeWei } from '../../../lib/Utils.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import numeral from '../../../lib/numeral.ts';
+import { getConfig } from '../../../stores/config.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../../stores/moveToEthereum.ts';
@@ -251,6 +252,7 @@ import {
   type ITransferProgressView,
   type IWalletCrosschainTransferState,
 } from './crosschainTransferView.ts';
+const config = getConfig();
 
 const props = defineProps<{
   request?: {
@@ -616,7 +618,7 @@ async function closeOverlay() {
 
 async function refreshEthereumTransferConfig() {
   try {
-    hasActiveEthereumTransferConfig.value = Boolean(await loadEthereumChainConfig());
+    hasActiveEthereumTransferConfig.value = Boolean(await loadEthereumChainConfig(config.ethereumExecutionRpcUrl));
   } catch (error) {
     console.warn('[WalletTransferOverlay] Unable to load Ethereum chain config', error);
     hasActiveEthereumTransferConfig.value = false;
