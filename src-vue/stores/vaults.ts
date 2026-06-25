@@ -28,17 +28,17 @@ export function getVaults(): Vaults {
 
 export function getMyVault(): MyVault {
   if (!myVault) {
+    const config = getConfig();
     const dbPromise = getDbPromise();
     const vaults = getVaults();
     const transactionTracker = getTransactionTracker();
     const bitcoinLocks = getBitcoinLocks();
     const keys = getWalletKeys();
     const miningFrames = getMiningFrames();
-    const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames);
+    const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames, () => config.ethereumExecutionRpcUrl);
     globalCouncil.data = reactive(globalCouncil.data) as any;
 
     const mintingAuthorities = new MintingAuthorities(dbPromise, keys, miningFrames, transactionTracker, async () => {
-      const config = getConfig();
       await config.isLoadedPromise;
       return {
         serverApiClient: config.serverDetails.ipAddress ? getServerApiClient() : undefined,

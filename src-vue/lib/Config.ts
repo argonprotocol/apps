@@ -427,7 +427,6 @@ export class Config implements IConfig {
     this.certificationDetails = {
       hasSavedMnemonic: false,
       showBonusTooltip: true,
-      showRewardsCelebration: true,
       dismissedCompletionNoticeStepIds: [],
       ...(this.certificationDetails || {}),
       ...certificationDetails,
