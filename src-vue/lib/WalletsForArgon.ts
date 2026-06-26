@@ -65,6 +65,7 @@ export class WalletsForArgon {
   private blockQueue = new SingleFileQueue();
   private blockWatch: BlockWatch;
   private myVault?: MyVault;
+  private shouldSuppressLoadBalanceEvents = false;
   private unsubscribe?: () => void;
 
   public get wallets(): WalletForArgon[] {
@@ -114,6 +115,7 @@ export class WalletsForArgon {
     const loadStartedAt = Date.now();
     let stage: string | undefined;
     try {
+      this.shouldSuppressLoadBalanceEvents = false;
       stage = 'blockWatch.start';
       await this.blockWatch.start();
 
@@ -122,6 +124,7 @@ export class WalletsForArgon {
 
       stage = 'loadBalancesAt';
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
+      this.shouldSuppressLoadBalanceEvents = false;
       this.unsubscribe = this.blockWatch.events.on('best-blocks', (blocks: IBlockHeaderInfo[]) => {
         const latestBlock = blocks[blocks.length - 1];
         void this.loadBalancesAt(latestBlock).catch(error => {
@@ -133,6 +136,7 @@ export class WalletsForArgon {
       });
       this.deferredLoading.resolve();
     } catch (err) {
+      this.shouldSuppressLoadBalanceEvents = false;
       console.error(
         `[WalletsForArgon] Initial load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`,
         err,
@@ -320,8 +324,11 @@ export class WalletsForArgon {
 
     let latestBlockNumberSynced = lastSyncedBlockNumber;
     const latestFinalizedNumber = this.blockWatch.finalizedBlockHeader.blockNumber;
+    let shouldShowCurrentBalancesWhileLoading = false;
     // if we're far behind, recover history from indexer instead of going block-by-block
     if (bestBlockNumber - lastSyncedBlockNumber > this.blockBacklogBeforeUsingIndexer) {
+      shouldShowCurrentBalancesWhileLoading = true;
+      this.shouldSuppressLoadBalanceEvents = true;
       const addresses = this.addresses;
       const { balances } = await this.readBalances(addresses, this.blockWatch.finalizedBlockHeader);
       const neededBlockNumbers = new Set<number>();
@@ -392,6 +399,18 @@ export class WalletsForArgon {
         isProcessed: true,
       },
     ];
+
+    if (!shouldShowCurrentBalancesWhileLoading) {
+      return;
+    }
+
+    const currentBlock = this.blockWatch.bestBlockHeader;
+    const { balances: currentBalances } = await this.readBalances(this.addresses, currentBlock);
+    for (let i = 0; i < currentBalances.length; i++) {
+      const wallet = this.wallets[i];
+      if (!wallet) continue;
+      this.events.emit('balance-change', currentBalances[i], wallet.type);
+    }
   }
 
   private async rollbackBlock(block: IBlockToProcess) {
@@ -470,7 +489,9 @@ export class WalletsForArgon {
         prices ??= await new CurrencyBase(this.blockWatch.clients).fetchMainchainRates(api);
         const changed = await wallet.onBalanceChange(entry, prices);
         if (changed) {
-          this.events.emit('balance-change', entry, wallet.type);
+          if (!this.shouldSuppressLoadBalanceEvents || this.deferredLoading.isSettled) {
+            this.events.emit('balance-change', entry, wallet.type);
+          }
           if (!this.deferredLoading.isSettled) {
             this.loadEvents['balance-change'].push([entry, wallet.type]);
           }

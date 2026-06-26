@@ -130,6 +130,19 @@ export class ServerAdmin {
     return biddingRulesRaw ? JsonExt.parse(biddingRulesRaw) : undefined;
   }
 
+  public async downloadConfigState(): Promise<{
+    biddingRules: IBiddingRules | undefined;
+    oldestFrameIdToSync?: number;
+    ethereumBeaconApiUrl?: string;
+    ethereumExecutionRpcUrl?: string;
+  }> {
+    const [biddingRules, envState] = await Promise.all([this.downloadBiddingRules(), this.downloadEnvState()]);
+    return {
+      biddingRules,
+      ...envState,
+    };
+  }
+
   public async uploadEnvState(envState: {
     oldestFrameIdToSync: number;
     vaultOperatorAddress: string;
@@ -159,7 +172,7 @@ export class ServerAdmin {
   }
 
   public async downloadEnvState(): Promise<{
-    oldestFrameIdToSync: number;
+    oldestFrameIdToSync?: number;
     ethereumBeaconApiUrl?: string;
     ethereumExecutionRpcUrl?: string;
   }> {
@@ -169,8 +182,9 @@ export class ServerAdmin {
     );
     const envState = envStateRaw ? parseEnv(envStateRaw) : {};
     const hasBeaconApiUrl = 'ETHEREUM_BEACON_API_URL' in envState;
+    const hasOldestFrameIdToSync = 'OLDEST_FRAME_ID_TO_SYNC' in envState;
     return {
-      oldestFrameIdToSync: Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0'),
+      oldestFrameIdToSync: hasOldestFrameIdToSync ? Number(envState.OLDEST_FRAME_ID_TO_SYNC || '0') : undefined,
       ethereumBeaconApiUrl: hasBeaconApiUrl ? (envState.ETHEREUM_BEACON_API_URL?.trim() ?? '') : undefined,
       ethereumExecutionRpcUrl: envState.ETHEREUM_EXECUTION_RPC_URL?.trim() || undefined,
     };

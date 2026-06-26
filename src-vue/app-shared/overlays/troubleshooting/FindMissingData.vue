@@ -36,6 +36,20 @@
       </success>
       <failure>No bitcoins were found.</failure>
     </DiagnosticStep>
+
+    <DiagnosticStep ref="step4" :run="() => checkMintingAuthorities()">
+      <heading>Searching for Missing Minting Authorities</heading>
+      <success v-slot="{ data }">
+        <template v-if="data.isNotFound">No Ethereum minting authorities were found for this vault operator.</template>
+        <template v-else-if="data.isUnchanged">Your minting authorities are already up to date.</template>
+        <template v-else>
+          We were able to recover {{ data.recoveredAuthorities }} missing minting authorit{{
+            data.recoveredAuthorities === 1 ? 'y' : 'ies'
+          }}.
+        </template>
+      </success>
+      <failure>Unable to recover minting authorities.</failure>
+    </DiagnosticStep>
   </div>
 </template>
 
@@ -50,7 +64,7 @@ import { getMyVault } from '../../../stores/vaults.ts';
 import { getDbPromise } from '../../../stores/helpers/dbPromise.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { MyVaultRecovery } from '../../../lib/MyVaultRecovery.ts';
-import { getMainchainClients } from '../../../stores/mainchain.ts';
+import { getFinalizedClient, getMainchainClients } from '../../../stores/mainchain.ts';
 
 const walletsForArgon = getWalletsForArgon();
 const walletKeys = getWalletKeys();
@@ -63,6 +77,7 @@ const containerRef = Vue.ref<HTMLElement>();
 const step1 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step2 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step3 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
+const step4 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 
 function scrollToBottom() {
   if (containerRef.value) {
@@ -144,11 +159,43 @@ async function checkBitcoins() {
   };
 }
 
+async function checkMintingAuthorities() {
+  await myVault.load();
+  const recoveredAuthorityCountOnLoad = myVault.mintingAuthorities.recoveredAuthorityCountOnLoad;
+  if (recoveredAuthorityCountOnLoad > 0) {
+    return {
+      isUnchanged: false,
+      isNotFound: false,
+      recoveredAuthorities: recoveredAuthorityCountOnLoad,
+    };
+  }
+
+  const previousAuthorityKeys = new Set(
+    myVault.mintingAuthorities.data.authorities.map(authority => {
+      return `${authority.authorityIndex ?? 'missing'}:${authority.signer.toLowerCase()}`;
+    }),
+  );
+  const finalizedClient = await getFinalizedClient();
+  const restoredAuthorities = await myVault.mintingAuthorities.restoreSignerIndexes(finalizedClient);
+
+  await myVault.mintingAuthorities.refresh(finalizedClient);
+
+  const recoveredAuthorities = restoredAuthorities.filter(authority => {
+    return !previousAuthorityKeys.has(`${authority.authorityIndex ?? 'missing'}:${authority.signer.toLowerCase()}`);
+  }).length;
+
+  return {
+    isUnchanged: recoveredAuthorities === 0,
+    isNotFound: restoredAuthorities.length === 0,
+    recoveredAuthorities,
+  };
+}
+
 async function findMissingData() {
   await myVault.load();
   await Vue.nextTick();
 
-  const steps = [step1.value, step2.value, step3.value].filter(Boolean);
+  const steps = [step1.value, step2.value, step3.value, step4.value].filter(Boolean);
   for (const step of steps) {
     if (step && typeof step.run === 'function') {
       await step.run();

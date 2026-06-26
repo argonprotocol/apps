@@ -256,6 +256,50 @@ describe
       }
     });
 
+    it.sequential('should keep the current wallet balance visible while catching up history', async () => {
+      const db = await createTestDb();
+      const blockWatch = new BlockWatch(clients);
+      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      try {
+        const spy = vi
+          .spyOn(walletsForArgon, 'lookupTransferOrClaimBlocks')
+          .mockImplementation(async (address, blocks) => {
+            const mostRecentBlock = Math.max(...transferBlocks);
+            for (const block of transferBlocks) {
+              if (address === walletKeys.miningBotAddress) {
+                blocks.add(block);
+              }
+            }
+            return { asOfBlock: mostRecentBlock };
+          });
+        const visibleMiningBotBalances: bigint[] = [];
+        walletsForArgon.events.on('balance-change', (balanceChange, type) => {
+          if (type === 'miningBot') {
+            visibleMiningBotBalances.push(balanceChange.availableMicrogons);
+          }
+        });
+
+        // @ts-expect-error set a small backlog to force using indexer
+        walletsForArgon.blockBacklogBeforeUsingIndexer = 10;
+        await walletsForArgon.load();
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(visibleMiningBotBalances).toEqual([15_000_000n]);
+
+        const replayedMiningBotBalances = walletsForArgon
+          .getLoadEvents('balance-change')
+          .filter(([, type]) => type === 'miningBot')
+          .map(([balanceChange]) => balanceChange.availableMicrogons);
+        expect(replayedMiningBotBalances.length).toBeGreaterThan(1);
+        expect(replayedMiningBotBalances).toContain(5_000_000n);
+        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(15_000_000n);
+      } finally {
+        await walletsForArgon.close();
+        blockWatch.stop();
+        await db.close();
+      }
+    });
+
     it.sequential('should recover wallet balances on restart without indexer', async () => {
       // 1. Test that it will fill gap from last synced to latest block
       const db = await createTestDb();

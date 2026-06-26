@@ -146,7 +146,7 @@ basicEmitter.on('openBotEditOverlay', async () => {
   if (isOpen.value) return;
   isLoaded.value = false;
 
-  await bot.loadServerBiddingRules();
+  await bot.loadServerConfig();
   await calculator.load(rules.value);
   previousVaultingRules = JsonExt.stringify(config.vaultingRules);
 
