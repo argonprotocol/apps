@@ -8,7 +8,7 @@ import {
   type SpRuntimeDispatchError,
   u8aToHex,
 } from '@argonprotocol/mainchain';
-import type { BlockWatch } from './BlockWatch.js';
+import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
 
 type IsMatchingEventFn = (
   event: GenericEvent,
@@ -154,32 +154,66 @@ export class TransactionEvents {
       });
       if (!header) continue;
 
-      const client = await blockWatch.getRpcClient(blockHeight);
-
-      const block = blockCache?.get(header.blockHash) ?? (await blockWatch.getBlock(header));
-      blockCache?.set(header.blockHash, block);
-
-      for (const [index, extrinsic] of block.block.extrinsics.entries()) {
-        if (u8aToHex(extrinsic.hash) !== extrinsicHash) continue;
-
-        const events = await blockWatch.getEvents(header);
-        const txEvents = await this.getErrorAndFeeForTransaction({
-          client,
-          extrinsicIndex: index,
-          events,
-        });
-
-        return {
-          blockNumber: blockHeight,
-          blockHash: header.blockHash,
-          blockTime: header.blockTime,
-          extrinsicIndex: index,
-          fee: txEvents.fee,
-          tip: txEvents.tip,
-          error: txEvents.error,
-          extrinsicEvents: txEvents.extrinsicEvents,
-        };
+      const found = await this.findByExtrinsicHashInBlock({
+        blockWatch,
+        extrinsicHash,
+        block: header,
+        blockCache,
+      });
+      if (found) {
+        return found;
       }
+    }
+
+    return undefined;
+  }
+
+  public static async findByExtrinsicHashInBlock(args: {
+    blockWatch: BlockWatch;
+    extrinsicHash: string;
+    block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>;
+    blockCache?: IBlockCache;
+  }): Promise<
+    | {
+        blockNumber: number;
+        blockHash: string;
+        blockTime: number;
+        extrinsicIndex: number;
+        fee: bigint;
+        tip: bigint;
+        error?: ExtrinsicError;
+        extrinsicEvents: GenericEvent[];
+      }
+    | undefined
+  > {
+    const { blockWatch, extrinsicHash, block, blockCache } = args;
+    const client = await blockWatch.getRpcClient(block.blockNumber);
+    const rawHeader = await client.rpc.chain.getHeader(block.blockHash);
+    const header = BlockWatch.readHeader(rawHeader, block.blockNumber <= blockWatch.finalizedBlockHeader.blockNumber);
+
+    const signedBlock = blockCache?.get(block.blockHash) ?? (await blockWatch.getBlock(header));
+    blockCache?.set(block.blockHash, signedBlock);
+
+    for (const [index, extrinsic] of signedBlock.block.extrinsics.entries()) {
+      if (u8aToHex(extrinsic.hash) !== extrinsicHash) continue;
+
+      const events = await blockWatch.getEvents(header);
+      const txEvents = await this.getErrorAndFeeForTransaction({
+        client,
+        extrinsicIndex: index,
+        events,
+      });
+
+      return {
+        blockNumber: header.blockNumber,
+        blockHash: header.blockHash,
+        blockTime: header.blockTime,
+        extrinsicIndex: index,
+        fee: txEvents.fee,
+        tip: txEvents.tip,
+        error: txEvents.error,
+        extrinsicEvents: txEvents.extrinsicEvents,
+      };
     }
 
     return undefined;

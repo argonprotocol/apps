@@ -64,6 +64,7 @@ export class Bot {
     }
     this.loadDeferred.setIsRunning(true);
     try {
+      await this.config.isLoadedPromise;
       const db = await this.dbPromise;
       this.botSyncer = new BotSyncer(this.config, db, installer, this.serverApiClient, mining, miningFrames, {
         onEvent: (type, payload) => botEmitter.emit(type, payload),
@@ -77,10 +78,10 @@ export class Bot {
         setDbSyncProgress: x => (this.syncProgress = 90 + x * 0.1),
       });
 
-      await this.botSyncer.load();
-      await this.loadServerBiddingRules().catch(err => {
-        console.error('Error loading server bidding rules:', err);
+      await this.loadServerConfig().catch(err => {
+        console.error('Error loading server config:', err);
       });
+      await this.botSyncer.load();
       this.loadDeferred.resolve();
     } catch (err) {
       this.loadDeferred.reject(err);
@@ -101,13 +102,31 @@ export class Bot {
     this.botSyncer.isPaused = false;
   }
 
-  public async loadServerBiddingRules(): Promise<void> {
+  public async loadServerConfig(): Promise<void> {
     if (this.config.miningSetupStatus !== MiningSetupStatus.Finished) return;
     const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
-    const remoteRules = await server.downloadBiddingRules();
-    if (!remoteRules) return;
-    this.config.biddingRules = remoteRules;
-    await this.config.saveBiddingRules();
+    const { biddingRules, oldestFrameIdToSync, ethereumBeaconApiUrl, ethereumExecutionRpcUrl } =
+      await server.downloadConfigState();
+
+    if (biddingRules) {
+      this.config.biddingRules = biddingRules;
+    }
+
+    if (oldestFrameIdToSync !== undefined) {
+      this.config.oldestFrameIdToSync = oldestFrameIdToSync;
+    }
+    if (ethereumBeaconApiUrl !== undefined) {
+      this.config.ethereumBeaconApiUrl = ethereumBeaconApiUrl;
+    }
+    if (ethereumExecutionRpcUrl !== undefined) {
+      this.config.ethereumExecutionRpcUrl = ethereumExecutionRpcUrl;
+    }
+
+    if (biddingRules) {
+      await this.config.saveBiddingRules();
+      return;
+    }
+    await this.config.save();
   }
 
   public async resyncBiddingRules(): Promise<void> {

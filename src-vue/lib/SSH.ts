@@ -64,8 +64,8 @@ export class SSH {
         ethereumExecutionRpcUrl: undefined,
       };
 
-    const biddingRules = await server.downloadBiddingRules();
-    const { oldestFrameIdToSync, ethereumBeaconApiUrl, ethereumExecutionRpcUrl } = await server.downloadEnvState();
+    const { biddingRules, oldestFrameIdToSync, ethereumBeaconApiUrl, ethereumExecutionRpcUrl } =
+      await server.downloadConfigState();
 
     return {
       walletAddress,

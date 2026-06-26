@@ -605,6 +605,7 @@ export class TransactionTracker {
 
   private async recordWatchStatus(record: ITransactionRecord, result: IWatchedTxResult) {
     const { blockNumber, status } = result;
+    const watchBlockHash = status.isInBlock ? status.asInBlock?.toHex() : status.asFinalized?.toHex();
 
     if (status.isBroadcast) {
       await this.recordHistoryStatus({
@@ -634,15 +635,15 @@ export class TransactionTracker {
       });
     }
 
-    if ((status.isInBlock || status.isFinalized) && blockNumber != null) {
-      const findTransactionResult = await TransactionEvents.findByExtrinsicHash({
+    if ((status.isInBlock || status.isFinalized) && blockNumber != null && watchBlockHash) {
+      const findTransactionResult = await TransactionEvents.findByExtrinsicHashInBlock({
         blockWatch: this.blockWatch,
         extrinsicHash: record.extrinsicHash,
-        searchStartBlockHeight: blockNumber,
-        bestBlockHeight: blockNumber,
-        maxBlocksToCheck: 0,
+        block: {
+          blockNumber,
+          blockHash: watchBlockHash,
+        },
         blockCache: this.#blockCache,
-        ignoreHeaderErrors: true,
       });
 
       if (findTransactionResult) {
