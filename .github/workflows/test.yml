@@ -22,10 +22,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: '24'
           cache: 'yarn'
@@ -52,11 +52,13 @@ jobs:
 
       # install latest stable Rust release
       - name: Setup rust-toolchain stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
 
       # setup caching for the Rust target folder
       - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: src-tauri
 
@@ -130,7 +132,7 @@ jobs:
 
       - name: Upload test artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
           path: |
@@ -140,7 +142,7 @@ jobs:
 
       - name: Upload e2e screenshots
         if: always() && matrix.platform == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: e2e-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
           path: ${{ env.E2E_SCREENSHOT_DIR }}
