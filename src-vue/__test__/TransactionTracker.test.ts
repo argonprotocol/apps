@@ -288,6 +288,66 @@ describe('TransactionTracker', () => {
     expect(tx.finalizedHeadHeight).toBe(101);
   });
 
+  it('records finalized watch updates using the watched block hash', async () => {
+    const tx = createTransaction({
+      id: 10,
+      blockHeight: 130,
+      blockHash: '0xold-block',
+      finalizedHeadHeight: 129,
+    });
+    const { tracker, table } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 130,
+    });
+    const recordWatchStatus = (
+      tracker as unknown as {
+        recordWatchStatus: (tx: ITransactionRecord, result: any) => Promise<void>;
+      }
+    ).recordWatchStatus.bind(tracker) as (tx: ITransactionRecord, result: any) => Promise<void>;
+    const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHashInBlock').mockResolvedValueOnce({
+      blockNumber: 130,
+      blockHash: '0xwatched-block',
+      blockTime: new Date('2026-03-20T20:10:00Z').getTime(),
+      extrinsicIndex: 2,
+      fee: 1n,
+      tip: 0n,
+      extrinsicEvents: [],
+    });
+
+    await recordWatchStatus(tx, {
+      blockNumber: 130,
+      status: {
+        isBroadcast: false,
+        isInBlock: false,
+        isFinalized: true,
+        isRetracted: false,
+        isUsurped: false,
+        isDropped: false,
+        isInvalid: false,
+        asFinalized: { toHex: () => '0xwatched-block' },
+      },
+    });
+
+    expect(findSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicHash: tx.extrinsicHash,
+        block: {
+          blockNumber: 130,
+          blockHash: '0xwatched-block',
+        },
+      }),
+    );
+    expect(table.recordInBlock).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        blockNumber: 130,
+        blockHash: '0xwatched-block',
+        extrinsicIndex: 2,
+      }),
+    );
+    expect(table.markFinalized).toHaveBeenCalledWith(tx, expect.objectContaining({ blockNumber: 130 }));
+  });
+
   it('reserves local nonces above restored pending submissions for concurrent same-account work', async () => {
     vi.mocked(getMainchainClient).mockResolvedValue({
       rpc: {
@@ -404,6 +464,14 @@ async function createTracker(args: {
       },
     ),
   };
+  const historyTable = {
+    fetchLatestByTransactionIds: vi.fn().mockResolvedValue(args.latestHistoryByTxId ?? new Map()),
+    record: vi.fn(async (entry: Record<string, unknown>) => ({
+      id: 1,
+      createdAt: new Date('2026-03-20T20:05:00Z'),
+      ...entry,
+    })),
+  };
   const blockWatch = {
     start: vi.fn().mockResolvedValue(undefined),
     bestBlockHeader: { blockNumber: args.finalizedHeight },
@@ -424,9 +492,7 @@ async function createTracker(args: {
   const tracker = new TransactionTracker(
     Promise.resolve({
       transactionsTable: table,
-      transactionStatusHistoryTable: {
-        fetchLatestByTransactionIds: vi.fn().mockResolvedValue(args.latestHistoryByTxId ?? new Map()),
-      },
+      transactionStatusHistoryTable: historyTable,
     } as any),
     blockWatch as any,
   );

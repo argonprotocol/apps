@@ -247,13 +247,17 @@ export const useWallets = defineStore('wallets', () => {
 
   //////////////////////////////////////////////////////////////////////////////
   walletsForArgon.events.on('balance-change', (entry, type) => {
-    totalWalletMicrogons.value = walletsForArgon.totalWalletMicrogons;
-    totalWalletMicronots.value = walletsForArgon.totalWalletMicronots;
     const wallet = walletMapping[type];
     Object.assign(wallet, entry);
-    const walletEntry = walletsForArgon[`${type}Wallet`];
-    wallet.totalMicrogons = walletEntry.totalMicrogons;
-    wallet.totalMicronots = walletEntry.totalMicronots;
+    wallet.totalMicrogons = wallet.availableMicrogons + wallet.reservedMicrogons;
+    wallet.totalMicronots = wallet.availableMicronots + wallet.reservedMicronots;
+
+    totalWalletMicrogons.value = 0n;
+    totalWalletMicronots.value = 0n;
+    for (const currentWallet of Object.values(walletMapping)) {
+      totalWalletMicrogons.value += currentWallet.totalMicrogons;
+      totalWalletMicronots.value += currentWallet.totalMicronots;
+    }
   });
 
   async function load() {

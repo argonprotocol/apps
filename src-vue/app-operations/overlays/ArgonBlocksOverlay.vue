@@ -17,7 +17,7 @@
         :sideOffset="10"
         :collisionPadding="24"
         :avoidCollisions="true"
-        class="group relative z-[2002] h-140 w-190 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+        class="group relative z-[2002] h-140 w-150 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
       >
         <PopoverPanelArrow />
         <div class="flex h-full max-w-full flex-col px-6 pt-4 pb-2 text-base">

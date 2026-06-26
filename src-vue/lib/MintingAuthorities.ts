@@ -70,6 +70,7 @@ export class MintingAuthorities {
     pendingMintingAuthorizations: IMintingAuthorityAuthorization[];
     pendingMintingAuthorizeTxInfosByTransferId: Map<string, TransactionInfo<IMintingAuthorityAuthorizeMetadata>>;
   };
+  public recoveredAuthorityCountOnLoad = 0;
 
   #subscriptions: VoidFunction[] = [];
   #isSubscribing = false;
@@ -102,8 +103,17 @@ export class MintingAuthorities {
 
     this.#waitForLoad = createDeferred();
     try {
+      this.recoveredAuthorityCountOnLoad = 0;
       await this.miningFrames.blockWatch.start();
-      await this.refresh(await this.miningFrames.blockWatch.getFinalizedApi());
+      const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
+      await this.refresh(finalizedClient);
+      if (!this.data.authorities.length) {
+        const restoredAuthorities = await this.restoreSignerIndexes(finalizedClient);
+        this.recoveredAuthorityCountOnLoad = restoredAuthorities.length;
+        if (restoredAuthorities.length) {
+          await this.refresh(finalizedClient);
+        }
+      }
       for (const txInfo of this.transactionTracker.pendingBlockTxInfosAtLoad) {
         if (txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferAuthorize) {
           void this.onAuthorize(txInfo as TransactionInfo<IMintingAuthorityAuthorizeMetadata>);

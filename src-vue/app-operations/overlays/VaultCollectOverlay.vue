@@ -202,6 +202,7 @@ import InputMenu from '../../components/InputMenu.vue';
 import { MoveTo } from '@argonprotocol/apps-core';
 import { TransactionInfo } from '../../lib/TransactionInfo.ts';
 import type { IMintingAuthorityAuthorizeMetadata } from '../../lib/MintingAuthorities.ts';
+import type { IVaultCollectMetadata } from '../../lib/VaultCollectBuilder.ts';
 
 dayjs.extend(utc);
 
@@ -266,6 +267,18 @@ const activeMintingAuthorizeTxInfos = Vue.computed(() => {
   ]) as TransactionInfo<IMintingAuthorityAuthorizeMetadata>[];
 });
 
+const activeCollectActionType = Vue.computed<IVaultCollectMetadata['actionType'] | undefined>(() => {
+  const pendingCollectTxInfo = myVault.data.pendingCollectTxInfo;
+  if (pendingCollectTxInfo && !pendingCollectTxInfo.isPostProcessed) {
+    return pendingCollectTxInfo.tx.metadataJson.actionType;
+  }
+
+  const pendingBitcoinCosignTxInfo = latestMyPendingBitcoinCosignTxInfo.value;
+  if (pendingBitcoinCosignTxInfo && !pendingBitcoinCosignTxInfo.isPostProcessed) {
+    return 'cosignBitcoin';
+  }
+});
+
 const hasCollectWork = Vue.computed(() => {
   return collectRevenue.value > 0n || manualPendingCosignCount.value > 0 || councilApprovalCount.value > 0;
 });
@@ -309,6 +322,9 @@ const mintingAuthorizeRewardAmount = Vue.computed(() => {
 });
 
 const overlayTitle = Vue.computed(() => {
+  if (isCollectBusy.value) {
+    return getCollectActionTitle(activeCollectActionType.value);
+  }
   if (collectRevenue.value > 0n && manualPendingCosignCount.value > 0) {
     return 'Collect Revenue and Cosign';
   }
@@ -320,7 +336,7 @@ const overlayTitle = Vue.computed(() => {
 
 const collectButtonLabel = Vue.computed(() => {
   if (isCollectBusy.value) {
-    return 'Submitting...';
+    return getCollectBusyLabel(activeCollectActionType.value);
   }
   if (collectRevenue.value > 0n && manualPendingCosignCount.value === 0 && councilApprovalCount.value === 0) {
     return 'Collect Revenue';
@@ -562,6 +578,29 @@ function getUniqueTransactionInfos(txInfos: TransactionInfo[]) {
   }
 
   return [...uniqueTxInfos.values()].sort((left, right) => left.tx.createdAt.getTime() - right.tx.createdAt.getTime());
+}
+
+function getCollectActionTitle(actionType?: IVaultCollectMetadata['actionType']) {
+  if (actionType === 'collectRevenue') {
+    return 'Collect Revenue';
+  }
+  if (actionType === 'cosignBitcoin') {
+    return 'Sign Bitcoin Transactions';
+  }
+  return 'Vault Approvals';
+}
+
+function getCollectBusyLabel(actionType?: IVaultCollectMetadata['actionType']) {
+  if (actionType === 'collectRevenue') {
+    return 'Collecting Revenue...';
+  }
+  if (actionType === 'cosignBitcoin') {
+    return 'Signing Bitcoin Transactions...';
+  }
+  if (actionType === 'approveCouncil') {
+    return 'Approving Council Updates...';
+  }
+  return 'Submitting...';
 }
 
 function getMintingAuthorizeCompletionMessage(txInfos: TransactionInfo[]) {
