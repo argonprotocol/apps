@@ -135,7 +135,7 @@ async function saveProfile() {
       return;
     }
 
-    const txInfo = createdVault.bitcoinLockDelegateAccount
+    const txInfo = createdVault.delegateAccountId
       ? await myVault.setVaultName(nextVaultName)
       : await myVault.setupVaultInviteProfile(nextVaultName);
     await waitForSetupTransaction(txInfo);

@@ -80,11 +80,13 @@ export function bigNumberToInteger(bn: BigNumber): number {
   return bn.integerValue(BigNumber.ROUND_DOWN).toNumber();
 }
 
-export function bigNumberToBigInt(bn: BigNumber): bigint {
+export function bigNumberToBigInt(bn: BigNumber, roundUp = false): bigint {
   if (!bn || !bn.isFinite()) {
     return 0n;
   }
-  return BigInt(bn.integerValue(BigNumber.ROUND_DOWN).toString());
+
+  const roundingMode = roundUp ? BigNumber.ROUND_CEIL : BigNumber.ROUND_DOWN;
+  return BigInt(bn.integerValue(roundingMode).toString());
 }
 
 export async function waitAtLeast<T>(timeoutMs: number, promise: Promise<T>): Promise<T> {
@@ -138,8 +140,8 @@ export function getPercent(value: bigint | number, total: bigint | number): numb
   return BigNumber(value).dividedBy(total).multipliedBy(100).toNumber();
 }
 
-export function percentOf(value: bigint | number, percentOf100: number | bigint): bigint {
-  return bigNumberToBigInt(BigNumber(value).multipliedBy(percentOf100).dividedBy(100));
+export function percentOf(value: bigint | number, percentOf100: number | bigint, roundUp = false): bigint {
+  return bigNumberToBigInt(BigNumber(value).multipliedBy(percentOf100).dividedBy(100), roundUp);
 }
 
 export function calculateProfitPct(costs: bigint, rewards: bigint): number {

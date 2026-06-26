@@ -153,19 +153,12 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import InputNumber from '../../components/InputNumber.vue';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
-import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getConfig } from '../../stores/config.ts';
 import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import {
-  InviteCodes,
-  NetworkConfig,
-  supportsBitcoinLockDelegateSetup,
-  UnitOfMeasurement,
-  UserRole,
-} from '@argonprotocol/apps-core';
+import { InviteCodes, NetworkConfig, UnitOfMeasurement, UserRole } from '@argonprotocol/apps-core';
 import { BitcoinLock } from '@argonprotocol/mainchain';
 import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import { getServerApiClient } from '../../stores/server.ts';
@@ -281,15 +274,7 @@ async function loadDelegateSetupState() {
   inviteCreationBlockedReason.value = null;
 
   try {
-    const client = await getMainchainClient(false);
     await myVault.load();
-
-    if (!supportsBitcoinLockDelegateSetup(client)) {
-      isAddingInvite.value = false;
-      inviteCreationBlockedReason.value =
-        'Member invites will unlock after the Argon network upgrade reaches your node.';
-      return;
-    }
 
     await updateMaxLockableSatoshis();
   } catch (error: any) {

@@ -443,7 +443,7 @@ const requestValueMicrogons = Vue.computed(() => {
 const relayDelegateNeedsSetup = Vue.computed(() => {
   if (!relayDelegateAddress.value) return false;
 
-  return myVault.createdVault?.bitcoinLockDelegateAccount !== relayDelegateAddress.value;
+  return myVault.createdVault?.delegateAccountId !== relayDelegateAddress.value;
 });
 
 const validationMessage = Vue.computed(() => {

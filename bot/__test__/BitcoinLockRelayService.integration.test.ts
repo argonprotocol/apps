@@ -157,7 +157,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       service.vaultId = 1;
       service.latestVault = {
         vaultId: 1,
-        bitcoinLockDelegateAccount: sudo().address,
+        delegateAccountId: sudo().address,
         availableSecuritization: () => 1_020_000n,
         securitizationRatioBN: () => new BigNumber(1),
       };

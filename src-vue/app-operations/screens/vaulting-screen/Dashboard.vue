@@ -347,7 +347,6 @@ const currentTreasuryBondFrame = Vue.computed(() => ({
   distributableBidPool: bondMarket.data.distributableBidPool,
   globalBonds: bondMarket.data.totalActiveBonds,
   vaultBonds: vaultBondState.value?.currentFrame.vaultBonds ?? 0,
-  sharingPct: vaultBondState.value?.currentFrame.sharingPct ?? 0,
   bondLots: vaultBondState.value?.currentFrame.bondLots ?? [],
 }));
 
@@ -578,9 +577,7 @@ const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
 
   return activeBondLots.map(bondLot => {
     // Preserve frame-specific earnings metadata when the selected frame includes this lot.
-    const frameBondLot =
-      frameBondLots.find(frameBondLot => frameBondLot.details?.id === bondLot.id) ??
-      frameBondLots.find(frameBondLot => frameBondLot.accountId === bondLot.accountId && frameBondLot.details == null);
+    const frameBondLot = frameBondLots.find(frameBondLot => frameBondLot.details.id === bondLot.id);
 
     if (frameBondLot) {
       return {
@@ -632,7 +629,7 @@ const bondMapItems = Vue.computed((): MapItem[] => {
   const items: MapItem[] = [];
 
   for (const bondLot of currentBondMapLots.value) {
-    const bondMicrogons = bondLot.details?.activeBondMicrogons ?? BondLot.bondsToMicrogons(bondLot.bonds);
+    const bondMicrogons = bondLot.details.activeBondMicrogons;
     items.push({
       id: bondLot.id,
       label: formatMoney(bondMicrogons),

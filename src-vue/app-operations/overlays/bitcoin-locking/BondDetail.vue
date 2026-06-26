@@ -16,7 +16,7 @@
         Bond lot for mining auction from {{ summary.frameStartDate }} to {{ summary.frameEndDate }}
       </div>
 
-      <div v-if="bondLotDetails" class="mt-4 grid grid-cols-3 gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
+      <div class="mt-4 grid grid-cols-3 gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
         <div>
           <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Created</div>
           <div class="mt-1 text-slate-700">Frame {{ bondLotDetails.createdFrame }}</div>

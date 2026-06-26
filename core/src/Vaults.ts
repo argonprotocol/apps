@@ -1,10 +1,4 @@
-import {
-  type ArgonClient,
-  BitcoinLock,
-  type PalletVaultsVaultFrameRevenue,
-  u128,
-  Vault,
-} from '@argonprotocol/mainchain';
+import { BitcoinLock, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
 import {
   bigNumberToBigInt,
   convertBigIntStringToNumber,
@@ -549,8 +543,4 @@ export class Vaults {
       participatingVaults,
     };
   }
-}
-
-export function supportsBitcoinLockDelegateSetup(client: ArgonClient): boolean {
-  return typeof client.tx.vaults.setBitcoinLockDelegate === 'function';
 }

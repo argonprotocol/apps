@@ -154,8 +154,8 @@ Vue.onMounted(() => {
       wallet.type === WalletType.miningHold &&
       config.isServerInstalled &&
       !config.hasMiningSeats &&
-      (balanceChange.microgonsAdded > 0n || balanceChange.micronotsAdded > 0n) &&
-      balanceChange.transfers.some(x => x.isInbound && !x.isInternal)
+      config.miningSetupStatus === MiningSetupStatus.Finished &&
+      (balanceChange.microgonsAdded > 0n || balanceChange.micronotsAdded > 0n)
     ) {
       void queueMiningHoldAutoTransfer(wallet).catch(error => {
         console.error('[WalletFundingReceivedOverlay] Failed to auto-transfer mining hold funds', error);

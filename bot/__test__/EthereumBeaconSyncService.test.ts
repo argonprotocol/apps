@@ -2,6 +2,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 
 type IMockTx = { id: string };
+type IMockSignedTx = {
+  method: { toHuman(): unknown };
+  nonce: { toNumber(): number };
+};
+type IMockTxResult = {
+  extrinsic: {
+    signedHash?: string;
+    submittedAtBlockNumber?: number;
+    submittedTime?: Date;
+    method?: unknown;
+    nonce?: number;
+  };
+  waitForInFirstBlock?: Promise<unknown>;
+  blockNumber?: number;
+};
+type IMockWatchedSubmission = {
+  result: IMockTxResult;
+  signedTx?: IMockSignedTx;
+};
+type IMockSubmission = IMockTxResult | IMockWatchedSubmission | null | undefined;
+
+const submissionMock = vi.hoisted(() => {
+  const submitWithTerminalStatusWatch =
+    vi.fn<(submitter: { tx: IMockTx }, options?: { nonce?: number }) => Promise<IMockSubmission>>();
+
+  return {
+    submitWithTerminalStatusWatch,
+  };
+});
 
 const mainchainMock = vi.hoisted(() => {
   const dispatchErrorToString = vi.fn();
@@ -9,19 +38,39 @@ const mainchainMock = vi.hoisted(() => {
   const getEthereumBeaconSyncState = vi.fn();
   const getNextEthereumBeaconSyncTxs = vi.fn();
 
+  class TxSubmitter {
+    public readonly address: string;
+
+    constructor(
+      public readonly client: unknown,
+      public readonly tx: IMockTx,
+      public readonly account: { address: string },
+    ) {
+      this.address = account.address;
+    }
+
+    public async submit(options?: { nonce?: number }) {
+      const submission = await submissionMock.submitWithTerminalStatusWatch(this, options);
+      if (!submission || !('result' in submission)) {
+        return submission;
+      }
+
+      const { result, signedTx } = submission;
+      if (signedTx) {
+        result.extrinsic.method ??= signedTx.method.toHuman();
+        result.extrinsic.nonce ??= signedTx.nonce.toNumber();
+      }
+
+      return result;
+    }
+  }
+
   return {
     dispatchErrorToString,
     getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs,
-  };
-});
-
-const submissionMock = vi.hoisted(() => {
-  const submitWithTerminalStatusWatch = vi.fn();
-
-  return {
-    submitWithTerminalStatusWatch,
+    TxSubmitter,
   };
 });
 
@@ -34,27 +83,16 @@ vi.mock('@argonprotocol/mainchain', async () => {
     getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
+    TxSubmitter: mainchainMock.TxSubmitter,
   };
 });
 
-vi.mock('../src/submitWithTerminalStatusWatch.ts', async () => {
-  const actual = await vi.importActual<typeof import('../src/submitWithTerminalStatusWatch.ts')>(
-    '../src/submitWithTerminalStatusWatch.ts',
-  );
-
-  return {
-    ...actual,
-    submitWithTerminalStatusWatch: submissionMock.submitWithTerminalStatusWatch,
-  };
-});
-
-import { ExtrinsicError, type ArgonClient } from '@argonprotocol/mainchain';
+import { ExtrinsicError, TxSubmissionError, TxSubmissionErrorCode, type ArgonClient } from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import {
   EthereumBeaconSyncService,
   waitForFinalizedBeaconExecutionAtOrAbove,
 } from '../src/EthereumBeaconSyncService.ts';
-import { SubmissionStatusError, SubmissionStatusErrorCode } from '../src/submitWithTerminalStatusWatch.ts';
 
 const syncKeypair = { address: 'sync-account' } as any;
 
@@ -474,8 +512,8 @@ describe('EthereumBeaconSyncService', () => {
 
   it('continues when the submit error is retryable after the node drops it', async () => {
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
-    const droppedError = new SubmissionStatusError(
-      SubmissionStatusErrorCode.Dropped,
+    const droppedError = new TxSubmissionError(
+      TxSubmissionErrorCode.Dropped,
       'Transaction was dropped before it was included in a block.',
     );
     const client = createClient(12);

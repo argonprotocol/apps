@@ -13,6 +13,7 @@ import {
   type EthereumGatewayActivityProofPayload,
   getLatestArgonFinalizedExecutionHeader,
   isOutdatedTransactionError,
+  isTxSubmissionError,
   type EthereumGatewayActivity,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
@@ -21,7 +22,6 @@ import { createHash } from 'node:crypto';
 import { createPublicClient, http, type Hex } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { HttpError } from './HttpError.ts';
-import { isSubmissionStatusError, submitWithTerminalStatusWatch } from './submitWithTerminalStatusWatch.ts';
 
 export class EthereumGatewayProverService {
   private startPromise?: Promise<void>;
@@ -460,8 +460,7 @@ export class EthereumGatewayProverService {
               `[EthereumGatewayProverService] Submitting gateway relay through activity ${throughGatewayActivityNonce}; ` +
                 `estimated fee ${estimatedFee}`,
             );
-            const submitter = new TxSubmitter(lockedClient, tx, this.submitLane.keypair);
-            const { signedTx, result: submitted } = await submitWithTerminalStatusWatch(submitter, {
+            const submitted = await new TxSubmitter(lockedClient, tx, this.submitLane.keypair).submit({
               nonce: await getNonce(),
             });
 
@@ -492,8 +491,8 @@ export class EthereumGatewayProverService {
               outcome: 'Submitted',
               delegateAddress: this.submitLane.address,
               argonTxHash: submitted.extrinsic.signedHash,
-              extrinsicMethodJson: signedTx.method.toHuman(),
-              txNonce: signedTx.nonce.toNumber(),
+              extrinsicMethodJson: submitted.extrinsic.method,
+              txNonce: submitted.extrinsic.nonce,
               txSubmittedAtBlockHeight,
               txSubmittedAtTime: submitted.extrinsic.submittedTime,
               estimatedFee,
@@ -698,7 +697,7 @@ function isRedundantCatchUpError(reason: string): boolean {
 }
 
 function isNonceRefreshableCatchUpError(error: unknown): boolean {
-  return isOutdatedTransactionError(error) || isSubmissionStatusError(error);
+  return isOutdatedTransactionError(error) || isTxSubmissionError(error);
 }
 
 function isCheckpointSatisfied(

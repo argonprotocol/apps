@@ -363,7 +363,7 @@ export class BitcoinLockRelayService {
       };
     }
 
-    if (latestVault.bitcoinLockDelegateAccount !== this.delegateAddress) {
+    if (latestVault.delegateAccountId !== this.delegateAddress) {
       return {
         canSubmit: false,
         reason: 'The configured vault delegate is not registered on this vault.',

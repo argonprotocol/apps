@@ -145,7 +145,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         const client = await operatorHarness.clients.get(false);
         const vault = await Vault.get(client, operatorVault.vaultId);
         if (!vault) return;
-        if (vault.bitcoinLockDelegateAccount !== delegateKeypair.address) return;
+        if (vault.delegateAccountId !== delegateKeypair.address) return;
 
         const delegateBalance = await client.query.system
           .account(delegateKeypair.address)

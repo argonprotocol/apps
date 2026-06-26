@@ -9,12 +9,12 @@ import {
   getLatestArgonFinalizedExecutionHeader,
   getNextEthereumBeaconSyncTxs,
   isOutdatedTransactionError,
+  isTxSubmissionError,
   type KeyringPair,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { createPublicClient, http } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
-import { isSubmissionStatusError, submitWithTerminalStatusWatch } from './submitWithTerminalStatusWatch.ts';
 
 type IEthereumBeaconSyncServiceOptions = {
   beaconApiUrl?: string;
@@ -255,11 +255,9 @@ export class EthereumBeaconSyncService {
 
       try {
         const result = await submitLane.runExclusive(async (client, getNonce) => {
-          return (
-            await submitWithTerminalStatusWatch(new TxSubmitter(client, tx, submitLane.keypair), {
-              nonce: await getNonce(),
-            })
-          ).result;
+          return await new TxSubmitter(client, tx, submitLane.keypair).submit({
+            nonce: await getNonce(),
+          });
         });
         this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
         const inclusionTimeoutMs = NetworkConfig.tickMillis * SUBMISSION_INCLUSION_BLOCKS;
@@ -444,7 +442,7 @@ function isLightClientFinalityUpdateNotReady(error: unknown): boolean {
 }
 
 function isRetryableBeaconSyncSubmitError(error: unknown): boolean {
-  return isOutdatedTransactionError(error) || isSubmissionStatusError(error);
+  return isOutdatedTransactionError(error) || isTxSubmissionError(error);
 }
 
 async function getBeaconJson<T>(

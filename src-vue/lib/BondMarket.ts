@@ -14,7 +14,6 @@ export interface IVaultBondState {
   currentFrame: {
     frameId: number;
     vaultBonds: number;
-    sharingPct: number;
     bondLots: IFrameBondLot[];
   };
   isLoaded: boolean;
@@ -37,7 +36,6 @@ export class BondMarket {
   public data = {
     currentFrameId: 0,
     distributableBidPool: 0n,
-    bondFullCapacityPerFrame: TreasuryBonds.bondFullCapacityPerFrame,
     totalActiveBonds: 0,
     vaultsById: {} as Record<number, IVaultBondState>,
   };
@@ -57,11 +55,9 @@ export class BondMarket {
       this.data.currentFrameId = this.blockWatch.bestBlockHeader.frameId;
     }
 
-    this.refreshRuntimeSupport(client);
     await this.refreshBidPool(client);
 
     const blockSubscription = this.blockWatch.events.on('best-blocks', blocks => {
-      this.refreshRuntimeSupport(this.blockWatch.subscriptionClient);
       void this.onNewBestBlocks(blocks);
     });
 
@@ -88,15 +84,14 @@ export class BondMarket {
       TreasuryBonds.getActiveBonds(client, args.vaultId),
       TreasuryBonds.getBondLots(client, args.vaultId, args.accountId ?? args.operatorAddress),
       frameId > 0
-        ? TreasuryBonds.getCurrentFrameBondLots(client, args.vaultId, args.operatorAddress, frameId)
-        : Promise.resolve({ bondLots: [], vaultSharingPct: 0 }),
+        ? TreasuryBonds.getCurrentFrameBondLots(client, args.vaultId, args.operatorAddress)
+        : Promise.resolve({ bondLots: [] }),
     ]);
 
     this.data.totalActiveBonds = activeBonds.totalActiveBonds;
     vault.bondLots = bondLots;
     vault.currentFrame.frameId = frameId;
     vault.currentFrame.vaultBonds = activeBonds.vaultActiveBonds;
-    vault.currentFrame.sharingPct = frameBonds.vaultSharingPct;
     vault.currentFrame.bondLots = frameBonds.bondLots;
     vault.isLoaded = true;
   }
@@ -120,7 +115,6 @@ export class BondMarket {
       currentFrame: {
         frameId: 0,
         vaultBonds: 0,
-        sharingPct: 0,
         bondLots: [],
       },
       isLoaded: false,
@@ -192,12 +186,6 @@ export class BondMarket {
         return this.refreshVault(nextArgs, client);
       }),
     );
-  }
-
-  private refreshRuntimeSupport(client: ArgonQueryClient): void {
-    const bondFullCapacityPerFrame = TreasuryBonds.hasFullCapacityPerFrame(client);
-    TreasuryBonds.bondFullCapacityPerFrame = bondFullCapacityPerFrame;
-    this.data.bondFullCapacityPerFrame = bondFullCapacityPerFrame;
   }
 }
 

@@ -1,5 +1,4 @@
 import {
-  type AccountId32,
   type ArgonClient,
   FIXED_U128_DECIMALS,
   fromFixedNumber,
@@ -7,14 +6,11 @@ import {
   type PalletTreasuryVaultCapital,
   PERMILL_DECIMALS,
   type SubmittableExtrinsic,
-  toFixedNumber,
-  type u128,
-  type u32,
 } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
 import BigNumber from 'bignumber.js';
-import { BondLot, type IBondLotSource, type V146TreasuryFunderState } from './BondLot.js';
+import { BondLot, type IBondLotSource } from './BondLot.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
 
 export interface IFrameBondLot {
@@ -23,7 +19,7 @@ export interface IFrameBondLot {
   bonds: number;
   prorata: bigint;
   isOperator: boolean;
-  details?: BondLot;
+  details: BondLot;
 }
 
 export interface IFrameBondSummary {
@@ -43,12 +39,6 @@ export interface INextFrameBondAvailability {
 }
 
 export class TreasuryBonds {
-  public static bondFullCapacityPerFrame = false;
-
-  public static hasFullCapacityPerFrame(client: ArgonQueryClient): boolean {
-    return typeof client.query.treasury.pendingBondReleasesByFrame === 'function';
-  }
-
   public static async getActiveBonds(
     client: ArgonQueryClient,
     vaultId: number,
@@ -56,30 +46,6 @@ export class TreasuryBonds {
     totalActiveBonds: number;
     vaultActiveBonds: number;
   }> {
-    if (typeof client.query.treasury.currentFrameVaultCapital !== 'function') {
-      let totalActiveBonds = 0;
-      let vaultActiveBonds = 0;
-      const capitalActive = await (
-        client.query.treasury as unknown as {
-          capitalActive: () => Promise<Iterable<V146CapitalActive>>;
-        }
-      ).capitalActive();
-
-      for (const entrant of capitalActive) {
-        const activeBonds = BondLot.microgonsToWholeBonds(entrant.activatedCapital.toBigInt());
-        totalActiveBonds += activeBonds;
-
-        if (entrant.vaultId.toNumber() === vaultId) {
-          vaultActiveBonds += activeBonds;
-        }
-      }
-
-      return {
-        totalActiveBonds,
-        vaultActiveBonds,
-      };
-    }
-
     const frameCapital = await client.query.treasury.currentFrameVaultCapital();
     if (frameCapital.isNone) {
       return {
@@ -129,15 +95,9 @@ export class TreasuryBonds {
     return client.registry.createType('AccountId32', raw).toU8a();
   }
 
-  public static getBondPurchaseCapacity(
-    totalBondCapacityMicrogons: bigint,
-    bondFullCapacity = TreasuryBonds.bondFullCapacityPerFrame,
-  ): number {
+  public static getBondPurchaseCapacity(totalBondCapacityMicrogons: bigint): number {
     if (totalBondCapacityMicrogons <= 0n) return 0;
-
-    const availableMicrogons = bondFullCapacity ? totalBondCapacityMicrogons : totalBondCapacityMicrogons / 10n;
-
-    return BondLot.microgonsToWholeBonds(availableMicrogons);
+    return BondLot.microgonsToWholeBonds(totalBondCapacityMicrogons);
   }
 
   public static potentialDailyRevenue(args: {
@@ -171,30 +131,6 @@ export class TreasuryBonds {
   }
 
   public static async getBondLots(client: ArgonQueryClient, vaultId: number, ownAddress?: string): Promise<BondLot[]> {
-    if (typeof client.query.treasury.bondLotsByVault !== 'function') {
-      const entries = await (
-        client.query.treasury as unknown as {
-          funderStateByVaultAndAccount: V146FunderStateByVaultAndAccount;
-        }
-      ).funderStateByVaultAndAccount.entries(vaultId);
-
-      const lots: BondLot[] = [];
-      for (const [key, stateOption] of entries) {
-        if (stateOption.isNone) continue;
-
-        lots.push(
-          ...BondLot.fromV146FunderState({
-            accountId: key.args[1].toString(),
-            vaultId,
-            state: stateOption.unwrap(),
-            ownAddress,
-          }),
-        );
-      }
-
-      return lots;
-    }
-
     const vaultSummaries = await client.query.treasury.bondLotsByVault(vaultId);
     const idsBySourceOrder = vaultSummaries.map(summary => summary.bondLotId.toNumber());
 
@@ -213,10 +149,6 @@ export class TreasuryBonds {
   }
 
   public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {
-    if (typeof client.query.treasury.bondLotsByVault !== 'function') {
-      return [];
-    }
-
     const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
     const ids = [...new Set(accountKeys.map(key => key.args[1].toNumber()))];
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
@@ -227,79 +159,12 @@ export class TreasuryBonds {
     });
   }
 
-  public static async getCurrentFrameBondLots(
-    client: ArgonQueryClient,
-    vaultId: number,
-    operatorAddress: string,
-    frameId?: number,
-  ) {
-    if (typeof client.query.treasury.currentFrameVaultCapital !== 'function') {
-      if (frameId === undefined) {
-        return {
-          bondLots: [],
-          vaultSharingPct: 0,
-          totalActiveBonds: 0,
-          distributedEarnings: 0n,
-        };
-      }
-
-      const poolMap = await (
-        client.query.treasury as unknown as {
-          vaultPoolsByFrame: (frameId: number) => Promise<V146VaultPoolsByFrame>;
-        }
-      ).vaultPoolsByFrame(frameId);
-
-      for (const [vaultIdCodec, pool] of poolMap.entries()) {
-        if (vaultIdCodec.toNumber() !== vaultId) continue;
-
-        const holderBonds: Array<{ accountId: string; bonds: number }> = [];
-
-        for (const [accountIdCodec, amount] of pool.bondHolders.entries()) {
-          const accountId = accountIdCodec.toString();
-          const bonds = BondLot.microgonsToWholeBonds(amount.toBigInt());
-          holderBonds.push({ accountId, bonds });
-        }
-
-        const bondLots: IFrameBondLot[] = [];
-        const totalActiveBonds = holderBonds.reduce((sum, holder) => sum + holder.bonds, 0);
-
-        for (const { accountId, bonds } of holderBonds) {
-          bondLots.push({
-            id: `account:${accountId}`,
-            accountId,
-            bonds,
-            prorata: TreasuryBonds.getProrataFromBonds(bonds, totalActiveBonds),
-            isOperator: accountId === operatorAddress,
-          });
-        }
-
-        const vaultSharingPct = fromFixedNumber(pool.vaultSharingPercent.toBigInt(), PERMILL_DECIMALS)
-          .times(100)
-          .toNumber();
-        const distributedEarnings = pool.distributedEarnings.isSome ? pool.distributedEarnings.unwrap().toBigInt() : 0n;
-
-        return {
-          bondLots,
-          vaultSharingPct,
-          totalActiveBonds,
-          distributedEarnings,
-        };
-      }
-
-      return {
-        bondLots: [],
-        vaultSharingPct: 0,
-        totalActiveBonds: 0,
-        distributedEarnings: 0n,
-      };
-    }
-
+  public static async getCurrentFrameBondLots(client: ArgonQueryClient, vaultId: number, operatorAddress: string) {
     const bondLots: IFrameBondLot[] = [];
     const frameCapital = await client.query.treasury.currentFrameVaultCapital();
     if (frameCapital.isNone) {
       return {
         bondLots,
-        vaultSharingPct: 0,
         totalActiveBonds: 0,
         distributedEarnings: 0n,
       };
@@ -309,7 +174,6 @@ export class TreasuryBonds {
     if (!vaultCapital) {
       return {
         bondLots,
-        vaultSharingPct: 0,
         totalActiveBonds: 0,
         distributedEarnings: 0n,
       };
@@ -318,6 +182,14 @@ export class TreasuryBonds {
     const totalActiveBonds = vaultCapital.eligibleBonds.toNumber();
     const bondLotIds = vaultCapital.bondLotAllocations.map(allocation => allocation.bondLotId.toNumber());
     const bondLotsById = await TreasuryBonds.getBondLotsById(client, bondLotIds);
+    const vaultCapitalWithSharingPercent = vaultCapital as PalletTreasuryVaultCapital & {
+      vaultSharingPercent?: { toBigInt(): bigint };
+    };
+    const sharingPercent = vaultCapitalWithSharingPercent.vaultSharingPercent
+      ? fromFixedNumber(vaultCapitalWithSharingPercent.vaultSharingPercent.toBigInt(), PERMILL_DECIMALS)
+          .times(100)
+          .toNumber()
+      : undefined;
 
     for (const allocation of vaultCapital.bondLotAllocations) {
       const bondLotId = allocation.bondLotId.toNumber();
@@ -327,23 +199,20 @@ export class TreasuryBonds {
 
       const accountId = lot.owner.toString();
       const bonds = TreasuryBonds.getProrataBonds(totalActiveBonds, prorata);
-      bondLots.push({
+      const entry = {
         id: `lot:${bondLotId}`,
         accountId,
         bonds,
         prorata,
         isOperator: accountId === operatorAddress,
         details: BondLot.fromRuntime(bondLotId, lot, operatorAddress),
-      });
+      };
+      entry.details.sharingPercent ??= sharingPercent;
+      bondLots.push(entry);
     }
-
-    const vaultSharingPct = fromFixedNumber(vaultCapital.vaultSharingPercent.toBigInt(), PERMILL_DECIMALS)
-      .times(100)
-      .toNumber();
 
     return {
       bondLots,
-      vaultSharingPct,
       totalActiveBonds,
       distributedEarnings: 0n,
     };
@@ -377,10 +246,6 @@ export class TreasuryBonds {
     vaultId: number,
     accountId: string,
   ): Promise<Array<{ frameId: number; bonds: number; earnings: bigint }>> {
-    if (typeof client.query.treasury.bondLotsByVault !== 'function') {
-      return [];
-    }
-
     const result: Array<{ frameId: number; bonds: number; earnings: bigint }> = [];
 
     for (const { lot } of await TreasuryBonds.getBondLotsForVault(client, vaultId)) {
@@ -399,49 +264,22 @@ export class TreasuryBonds {
   public static async buildBuyBondTx(args: {
     client: ArgonClient;
     vaultId: number;
-    accountId: string;
     bondPurchaseMicrogons: bigint;
   }): Promise<SubmittableExtrinsic> {
-    if (typeof args.client.tx.treasury.buyBonds !== 'function') {
-      const currentActiveBondMicrogons = await TreasuryBonds.getV146ActiveBondMicrogons(
-        args.client,
-        args.vaultId,
-        args.accountId,
-      );
-
-      return (
-        args.client.tx.treasury as unknown as {
-          setAllocation: (vaultId: number, amount: bigint) => SubmittableExtrinsic;
-        }
-      ).setAllocation(args.vaultId, currentActiveBondMicrogons + args.bondPurchaseMicrogons);
+    const { client, vaultId } = args;
+    const bonds = BondLot.microgonsToBonds(args.bondPurchaseMicrogons);
+    if (client.runtimeVersion.specVersion.toNumber() <= 153) {
+      // @ts-expect-error - backward compat
+      return client.tx.treasury.buyBonds(vaultId, bonds);
     }
-
-    return args.client.tx.treasury.buyBonds(args.vaultId, BondLot.microgonsToBonds(args.bondPurchaseMicrogons));
+    return client.tx.treasury.buyBonds(vaultId, bonds, null);
   }
 
   public static async buildReleaseBondLotTx(args: {
     client: ArgonClient;
-    bondLot: Pick<BondLot, 'id' | 'vaultId' | 'accountId' | 'activeBondMicrogons'>;
+    bondLotId: number;
   }): Promise<SubmittableExtrinsic> {
-    if (typeof args.client.tx.treasury.liquidateBondLot !== 'function') {
-      const currentActiveBondMicrogons = await TreasuryBonds.getV146ActiveBondMicrogons(
-        args.client,
-        args.bondLot.vaultId,
-        args.bondLot.accountId,
-      );
-      const nextActiveBondMicrogons =
-        currentActiveBondMicrogons > args.bondLot.activeBondMicrogons
-          ? currentActiveBondMicrogons - args.bondLot.activeBondMicrogons
-          : 0n;
-
-      return (
-        args.client.tx.treasury as unknown as {
-          setAllocation: (vaultId: number, amount: bigint) => SubmittableExtrinsic;
-        }
-      ).setAllocation(args.bondLot.vaultId, nextActiveBondMicrogons);
-    }
-
-    return args.client.tx.treasury.liquidateBondLot(args.bondLot.id);
+    return args.client.tx.treasury.liquidateBondLot(args.bondLotId);
   }
 
   public static async subscribeBondLots(
@@ -450,25 +288,6 @@ export class TreasuryBonds {
     accountId: string,
     onUpdate: (lots: BondLot[]) => void,
   ): Promise<() => void> {
-    if (typeof client.query.treasury.bondLotsByVault !== 'function') {
-      return await (
-        client.query.treasury as unknown as {
-          funderStateByVaultAndAccount: V146FunderStateByVaultAndAccount;
-        }
-      ).funderStateByVaultAndAccount(vaultId, accountId, stateOption => {
-        onUpdate(
-          stateOption.isSome
-            ? BondLot.fromV146FunderState({
-                accountId,
-                vaultId,
-                state: stateOption.unwrap(),
-                ownAddress: accountId,
-              })
-            : [],
-        );
-      });
-    }
-
     return await client.query.treasury.bondLotsByVault(vaultId, () => {
       void TreasuryBonds.getBondLots(client, vaultId, accountId).then(lots => {
         onUpdate(lots.filter(lot => lot.accountId === accountId));
@@ -517,71 +336,8 @@ export class TreasuryBonds {
     }
   }
 
-  private static async getV146ActiveBondMicrogons(
-    client: ArgonClient,
-    vaultId: number,
-    accountId: string,
-  ): Promise<bigint> {
-    const stateOption = await (
-      client.query.treasury as unknown as {
-        funderStateByVaultAndAccount: V146FunderStateByVaultAndAccount;
-      }
-    ).funderStateByVaultAndAccount(vaultId, accountId);
-    if (stateOption.isNone) return 0n;
-
-    const state = stateOption.unwrap();
-    const heldPrincipal = state.heldPrincipal.toBigInt();
-    const pendingReturn = state.pendingUnlockAmount.toBigInt();
-    return heldPrincipal > pendingReturn ? heldPrincipal - pendingReturn : 0n;
-  }
-
   private static getProrataBonds(totalBonds: number, prorata: bigint): number {
     const share = fromFixedNumber(prorata, FIXED_U128_DECIMALS);
     return Number(bigNumberToBigInt(BigNumber(totalBonds).times(share)));
   }
-
-  private static getProrataFromBonds(bonds: number, totalBonds: number): bigint {
-    if (bonds <= 0 || totalBonds <= 0) return 0n;
-    return toFixedNumber(BigNumber(bonds).dividedBy(totalBonds), FIXED_U128_DECIMALS);
-  }
-}
-
-interface V146CapitalActive {
-  readonly activatedCapital: u128;
-  readonly vaultId: u32;
-}
-
-interface V146FunderStateByVaultAndAccount {
-  (vaultId: number, accountId: string): Promise<V146Option<V146TreasuryFunderState>>;
-  (
-    vaultId: number,
-    accountId: string,
-    callback: (stateOption: V146Option<V146TreasuryFunderState>) => void,
-  ): Promise<() => void>;
-  entries(vaultId: number): Promise<Array<[V146StorageKey<[u32, AccountId32]>, V146Option<V146TreasuryFunderState>]>>;
-}
-
-interface V146Option<T> {
-  readonly isNone: boolean;
-  readonly isSome: boolean;
-  unwrap(): T;
-}
-
-interface V146StorageKey<T> {
-  readonly args: T;
-}
-
-interface V146VaultPoolsByFrame {
-  entries(): Iterable<[u32, V146VaultPool]>;
-}
-
-interface V146VaultPool {
-  readonly bondHolders: {
-    entries(): Iterable<[AccountId32, u128]>;
-  };
-  readonly vaultSharingPercent: u128;
-  readonly distributedEarnings: {
-    isSome: boolean;
-    unwrap(): u128;
-  };
 }

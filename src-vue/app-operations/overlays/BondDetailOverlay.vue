@@ -113,7 +113,7 @@ Vue.watch(
 );
 
 const summary = Vue.computed<IFrameBondSummary>(() => {
-  const keepPct = bondLotAtOpen.isOperator ? 100 : 100 - bondFrameAtOpen.sharingPct;
+  const keepPct = bondLotAtOpen.isOperator ? 100 : 100 - (bondLotAtOpen.details.sharingPercent ?? 0);
   const poolSharePct = TreasuryBonds.prorataToPercent(bondLotAtOpen.prorata);
 
   const baseArgs = {
@@ -157,7 +157,7 @@ const bondLotDetails = Vue.computed(() => bondLotAtOpen.details);
 
 async function liquidateBondLot() {
   const details = bondLotDetails.value;
-  if (!details?.isOwn || !details.canRelease || details.isReleasing || isLiquidating.value) return;
+  if (!details.isOwn || !details.canRelease || details.isReleasing || isLiquidating.value) return;
 
   liquidationError.value = '';
   liquidationProgressPct.value = 0;
@@ -167,7 +167,7 @@ async function liquidateBondLot() {
   try {
     const client = await getMainchainClient(false);
     const signer = await walletKeys.getVaultingKeypair();
-    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLot: details });
+    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: details.id });
     const info = await transactionTracker.submitAndWatch({
       tx,
       txSigner: signer,
