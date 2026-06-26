@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-06-26
+- Compatability with 1.4.8 of mainchain
+- Fix beacon sync stall issue
+
 ## [1.4.0] - 2026-06-11
 - Improved the Argon Treasury app, allowing users to bond, lock bitcoin and generally connect to an Operator's vault.
 - Added Operations app support for inviting Treasury users to their vault
