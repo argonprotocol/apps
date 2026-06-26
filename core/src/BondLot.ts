@@ -1,10 +1,9 @@
 import BigNumber from 'bignumber.js';
 import {
+  fromFixedNumber,
   MICROGONS_PER_ARGON,
-  type Option,
   type PalletTreasuryBondLot,
-  type u64,
-  type u128,
+  PERMILL_DECIMALS,
 } from '@argonprotocol/mainchain';
 
 import { compoundXTimes } from './utils.js';
@@ -12,15 +11,6 @@ import { compoundXTimes } from './utils.js';
 export interface IBondLotSource {
   id: number;
   lot: PalletTreasuryBondLot;
-}
-
-export interface V146TreasuryFunderState {
-  readonly heldPrincipal: u128;
-  readonly pendingUnlockAmount: u128;
-  readonly pendingUnlockAtFrame: Option<u64>;
-  readonly lifetimeCompoundedEarnings: u128;
-  readonly lifetimePrincipalDeployed: u128;
-  readonly lifetimePrincipalLastBasisFrame: u64;
 }
 
 export type IBondLotTotals = {
@@ -45,6 +35,8 @@ type IBondLotModel = {
   lastEarnings: bigint;
   lifetimeEarnings: bigint;
   lifetimeBondedFrameMicrogons: bigint;
+  sharingPercent?: number;
+  bonusPercent: number;
   releaseFrame: number | null;
   isReleasing: boolean;
   isOwn: boolean;
@@ -62,6 +54,8 @@ export class BondLot {
   public readonly lastEarnings: bigint;
   public readonly lifetimeEarnings: bigint;
   public readonly lifetimeBondedFrameMicrogons: bigint;
+  public sharingPercent?: number;
+  public readonly bonusPercent: number;
   public readonly releaseFrame: number | null;
   public readonly isReleasing: boolean;
   public readonly isOwn: boolean;
@@ -78,6 +72,8 @@ export class BondLot {
     this.lastEarnings = model.lastEarnings;
     this.lifetimeEarnings = model.lifetimeEarnings;
     this.lifetimeBondedFrameMicrogons = model.lifetimeBondedFrameMicrogons;
+    this.sharingPercent = model.sharingPercent;
+    this.bonusPercent = model.bonusPercent;
     this.releaseFrame = model.releaseFrame;
     this.isReleasing = model.isReleasing;
     this.isOwn = model.isOwn;
@@ -100,70 +96,17 @@ export class BondLot {
       lastEarnings: lot.lastFrameEarnings.isSome ? lot.lastFrameEarnings.unwrap().toBigInt() : 0n,
       lifetimeEarnings: lot.cumulativeEarnings.toBigInt(),
       lifetimeBondedFrameMicrogons: BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames),
+      sharingPercent: lot.sharingPercent
+        ? fromFixedNumber(lot.sharingPercent.toBigInt(), PERMILL_DECIMALS).times(100).toNumber()
+        : undefined,
+      bonusPercent: lot.bonusPercent
+        ? fromFixedNumber(lot.bonusPercent.toBigInt(), PERMILL_DECIMALS).times(100).toNumber()
+        : 0,
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       isReleasing: lot.releaseReason.isSome,
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
     });
-  }
-
-  public static fromV146FunderState(args: {
-    accountId: string;
-    vaultId: number;
-    state: V146TreasuryFunderState;
-    ownAddress?: string;
-  }): BondLot[] {
-    const { accountId, vaultId, state, ownAddress } = args;
-    const heldPrincipal = state.heldPrincipal.toBigInt();
-    const pendingReturn = state.pendingUnlockAmount.toBigInt();
-    const activePrincipal = heldPrincipal > pendingReturn ? heldPrincipal - pendingReturn : 0n;
-    const releaseFrame = state.pendingUnlockAtFrame.isSome ? state.pendingUnlockAtFrame.unwrap().toNumber() : null;
-    const isOwn = accountId === ownAddress;
-    const lots: BondLot[] = [];
-
-    if (activePrincipal > 0n) {
-      lots.push(
-        new BondLot({
-          id: 0,
-          accountId,
-          vaultId,
-          bonds: BondLot.microgonsToWholeBonds(activePrincipal),
-          createdFrame: 0,
-          participatedFrames: 0,
-          lastEarningsFrame: state.lifetimePrincipalLastBasisFrame.toNumber(),
-          lastEarnings: 0n,
-          lifetimeEarnings: state.lifetimeCompoundedEarnings.toBigInt(),
-          lifetimeBondedFrameMicrogons: state.lifetimePrincipalDeployed.toBigInt(),
-          releaseFrame: null,
-          isReleasing: false,
-          isOwn,
-          canRelease: isOwn,
-        }),
-      );
-    }
-
-    if (pendingReturn > 0n) {
-      lots.push(
-        new BondLot({
-          id: 1,
-          accountId,
-          vaultId,
-          bonds: BondLot.microgonsToWholeBonds(pendingReturn),
-          createdFrame: 0,
-          participatedFrames: 0,
-          lastEarningsFrame: null,
-          lastEarnings: 0n,
-          lifetimeEarnings: 0n,
-          lifetimeBondedFrameMicrogons: 0n,
-          releaseFrame,
-          isReleasing: true,
-          isOwn,
-          canRelease: false,
-        }),
-      );
-    }
-
-    return lots;
   }
 
   public get activeBonds(): number {

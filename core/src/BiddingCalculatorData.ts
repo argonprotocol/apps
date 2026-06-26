@@ -1,11 +1,13 @@
 import BigNumber from 'bignumber.js';
 import { Mining } from './Mining.js';
 import { Currency } from './Currency.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, percentOf } from './utils.js';
 import { type ApiDecoration, type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MiningFrames } from './MiningFrames.ts';
+
+const MINING_BID_COLLATERAL_MULTIPLE_SPEC_VERSION = 154;
 
 export default class BiddingCalculatorData {
   public microgonsToMineThisSeat: bigint = 0n;
@@ -128,8 +130,15 @@ export default class BiddingCalculatorData {
             (microgonsMinedPerBlock * BigInt(NetworkConfig.ticksPerCohort)) / BigInt(maxPossibleMinersInNextEpoch);
           this.microgonsInCirculation = await currency.fetchMicrogonsInCirculation(api);
 
+          const biddingFrameSpecVersion =
+            this.miningFrames.framesById[biddingFrameId]?.firstBlockSpecVersion ??
+            api.runtimeVersion.specVersion.toNumber();
           this.currentMicronotsForBid = await mining.fetchCurrentMicronotsForBid(api);
-          this.maximumMicronotsForBid = await mining.fetchMaximumMicronotsForEndOfEpochBid(api);
+          if (biddingFrameSpecVersion >= MINING_BID_COLLATERAL_MULTIPLE_SPEC_VERSION) {
+            this.maximumMicronotsForBid = percentOf(this.currentMicronotsForBid, 120, true);
+          } else {
+            this.maximumMicronotsForBid = await mining.fetchMaximumMicronotsForEndOfEpochBid(api);
+          }
 
           const micronotsMinedDuringNextCohort = await mining.minimumMicronotsMinedDuringTickRange(
             tickAtStartOfNextCohort,

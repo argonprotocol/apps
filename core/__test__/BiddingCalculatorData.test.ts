@@ -34,6 +34,11 @@ describe('BiddingCalculatorData best-block recovery', () => {
           },
         },
       },
+      runtimeVersion: {
+        specVersion: {
+          toNumber: () => 154,
+        },
+      },
     };
     const clientAt = vi
       .fn()
@@ -68,6 +73,7 @@ describe('BiddingCalculatorData best-block recovery', () => {
 
     expect(clientAt.mock.calls).toEqual([[latestHeader], [finalizedHeader]]);
     expect(calculatorData.microgonsInCirculation).toBe(1_000n);
+    expect(calculatorData.maximumMicronotsForBid).toBe(36n);
     expect(calculatorData.allowedBidIncrementMicrogons).toBe(10_000n);
   });
 });

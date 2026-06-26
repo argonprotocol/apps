@@ -112,20 +112,13 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryBondPurchaseCapacityBonds = Vue.computed(() => {
-    return TreasuryBonds.getBondPurchaseCapacity(
-      treasuryBondCapacityMicrogons.value,
-      bondMarket.data.bondFullCapacityPerFrame,
-    );
+    return TreasuryBonds.getBondPurchaseCapacity(treasuryBondCapacityMicrogons.value);
   });
 
   // The remaining next-frame room for buying new bonds.
   const treasuryBondMicrogonsAvailable = Vue.computed(() => {
     return (
-      myVault.createdVault?.availableBondSpace(
-        currency.priceIndex,
-        vaultBondState.value?.bondLots ?? [],
-        bondMarket.data.bondFullCapacityPerFrame,
-      ) ?? 0n
+      myVault.createdVault?.availableBondSpace(currency.priceIndex, vaultBondState.value?.bondLots ?? [], true) ?? 0n
     );
   });
 

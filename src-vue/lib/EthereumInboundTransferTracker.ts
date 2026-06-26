@@ -683,7 +683,7 @@ export class EthereumInboundTransferTracker {
       if (isRelayFundingReason(relayDispatch.localRelayReasonCode)) {
         const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
         if (this.myVault?.createdVault) {
-          isLocalRelaySetupComplete = this.myVault.createdVault.bitcoinLockDelegateAccount === delegateAddress;
+          isLocalRelaySetupComplete = this.myVault.createdVault.delegateAccountId === delegateAddress;
         }
       }
       const relayHint = getRelayProgressHint({

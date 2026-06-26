@@ -540,7 +540,7 @@ export class MyVault {
         return await existing;
       }
 
-      if (this.createdVault?.bitcoinLockDelegateAccount) {
+      if (this.createdVault?.delegateAccountId) {
         throw new Error('Vault invite setup is already configured for this vault.');
       }
 
@@ -1330,7 +1330,7 @@ export class MyVault {
     txs: SubmittableExtrinsic[];
   }> {
     const txs: SubmittableExtrinsic[] = [];
-    const needsDelegateSetup = !this.createdVault?.bitcoinLockDelegateAccount;
+    const needsDelegateSetup = !this.createdVault?.delegateAccountId;
 
     if (needsDelegateSetup) {
       const vaultBalance = await args.client.query.system
@@ -1345,7 +1345,15 @@ export class MyVault {
       }
 
       txs.push(args.client.tx.balances.transferKeepAlive(args.delegateAddress, targetVaultDelegateBalance));
-      txs.push(args.client.tx.vaults.setBitcoinLockDelegate(args.delegateAddress));
+      if (
+        'setBitcoinLockDelegate' in args.client.tx.vaults &&
+        typeof args.client.tx.vaults.setBitcoinLockDelegate === 'function'
+      ) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        txs.push(args.client.tx.vaults.setBitcoinLockDelegate(args.delegateAddress));
+      } else {
+        txs.push(args.client.tx.vaults.setDelegateAccount(args.delegateAddress));
+      }
     } else {
       const amountToFund = await MyVault.getVaultDelegateTopUpAmount(args.client, args.delegateAddress);
       if (amountToFund) {
@@ -1619,7 +1627,6 @@ export class MyVault {
     return TreasuryBonds.buildBuyBondTx({
       client,
       vaultId,
-      accountId: this.walletKeys.vaultingAddress,
       bondPurchaseMicrogons,
     });
   }

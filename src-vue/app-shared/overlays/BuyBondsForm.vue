@@ -122,13 +122,7 @@ let unsubProgress: (() => void) | undefined;
 const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[props.vaultId]);
 
 const vaultAvailableCapacity = Vue.computed(() => {
-  return (
-    vault.value?.availableBondSpace(
-      currency.priceIndex,
-      vaultBondState.value?.bondLots ?? [],
-      bondMarket.data.bondFullCapacityPerFrame,
-    ) ?? 0n
-  );
+  return vault.value?.availableBondSpace(currency.priceIndex, vaultBondState.value?.bondLots ?? [], true) ?? 0n;
 });
 
 const spendableWalletBalance = Vue.computed(() => {
@@ -199,7 +193,6 @@ async function submit() {
     const tx = await TreasuryBonds.buildBuyBondTx({
       client,
       vaultId: props.vaultId,
-      accountId: walletKeys.treasuryAddress,
       bondPurchaseMicrogons: purchaseAmount.value,
     });
 

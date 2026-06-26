@@ -1,6 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import { SubmissionStatusError, SubmissionStatusErrorCode } from '../src/submitWithTerminalStatusWatch.ts';
+
+type IMockSignedTx = {
+  method: { toHuman(): unknown };
+  nonce: { toNumber(): number };
+};
+type IMockTxResult = {
+  extrinsic: {
+    signedHash?: string;
+    submittedAtBlockNumber?: number;
+    submittedTime?: Date;
+    method?: unknown;
+    nonce?: number;
+  };
+  waitForInFirstBlock?: Promise<unknown>;
+  blockNumber?: number;
+};
+type IMockWatchedSubmission = {
+  result: IMockTxResult;
+  signedTx?: IMockSignedTx;
+};
+type IMockSubmission = IMockTxResult | IMockWatchedSubmission | null | undefined;
+
+const submissionMock = vi.hoisted(() => {
+  const submitWithTerminalStatusWatch =
+    vi.fn<(submitter: { tx: unknown }, options?: { nonce?: number }) => Promise<IMockSubmission>>();
+
+  return {
+    submitWithTerminalStatusWatch,
+  };
+});
 
 const gatewayProofMock = vi.hoisted(() => {
   return {
@@ -17,17 +46,37 @@ const viemMock = vi.hoisted(() => {
 });
 
 const mainchainMock = vi.hoisted(() => {
+  class TxSubmitter {
+    public readonly address: string;
+
+    constructor(
+      public readonly client: unknown,
+      public readonly tx: unknown,
+      public readonly account: { address: string },
+    ) {
+      this.address = account.address;
+    }
+
+    public async submit(options?: { nonce?: number }) {
+      const submission = await submissionMock.submitWithTerminalStatusWatch(this, options);
+      if (!submission || !('result' in submission)) {
+        return submission;
+      }
+
+      const { result, signedTx } = submission;
+      if (signedTx) {
+        result.extrinsic.method ??= signedTx.method.toHuman();
+        result.extrinsic.nonce ??= signedTx.nonce.toNumber();
+      }
+
+      return result;
+    }
+  }
+
   return {
     buildGatewayActivityProofPayload: gatewayProofMock.buildGatewayActivityProofPayload,
     getLatestArgonFinalizedExecutionHeader: gatewayProofMock.getLatestArgonFinalizedExecutionHeader,
-  };
-});
-
-const submissionMock = vi.hoisted(() => {
-  const submitWithTerminalStatusWatch = vi.fn();
-
-  return {
-    submitWithTerminalStatusWatch,
+    TxSubmitter,
   };
 });
 
@@ -45,20 +94,11 @@ vi.mock('@argonprotocol/mainchain', async () => {
     ...actual,
     buildGatewayActivityProofPayload: mainchainMock.buildGatewayActivityProofPayload,
     getLatestArgonFinalizedExecutionHeader: mainchainMock.getLatestArgonFinalizedExecutionHeader,
+    TxSubmitter: mainchainMock.TxSubmitter,
   };
 });
 
-vi.mock('../src/submitWithTerminalStatusWatch.ts', async () => {
-  const actual = await vi.importActual<typeof import('../src/submitWithTerminalStatusWatch.ts')>(
-    '../src/submitWithTerminalStatusWatch.ts',
-  );
-
-  return {
-    ...actual,
-    submitWithTerminalStatusWatch: submissionMock.submitWithTerminalStatusWatch,
-  };
-});
-
+import { TxSubmissionError, TxSubmissionErrorCode } from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../src/EthereumGatewayProverService.ts';
 
@@ -210,8 +250,8 @@ describe('EthereumGatewayProverService', () => {
     submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
       async (_submitter, options?: { nonce?: number }) => {
         const droppedSubmission = Promise.reject(
-          new SubmissionStatusError(
-            SubmissionStatusErrorCode.Dropped,
+          new TxSubmissionError(
+            TxSubmissionErrorCode.Dropped,
             'Transaction was dropped before it was included in a block.',
           ),
         );

@@ -254,7 +254,7 @@ async function liquidateBondLot(lot: BondLot) {
   try {
     const client = await getMainchainClient(false);
     const signer = await walletKeys.getVaultingKeypair();
-    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLot: lot });
+    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: lot.id });
     const info = await transactionTracker.submitAndWatch({
       tx,
       txSigner: signer,

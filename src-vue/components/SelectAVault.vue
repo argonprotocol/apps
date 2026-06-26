@@ -99,11 +99,7 @@ const vaultBondSubscriptions: VoidFunction[] = [];
 
 function availableBondSpace(vault: Vault): bigint {
   const bondState = bondMarket.data.vaultsById[vault.vaultId];
-  return vault.availableBondSpace(
-    currency.priceIndex,
-    bondState?.bondLots ?? [],
-    bondMarket.data.bondFullCapacityPerFrame,
-  );
+  return vault.availableBondSpace(currency.priceIndex, bondState?.bondLots ?? [], true);
 }
 
 function bitcoinAnnualPercentRate(vault: Vault) {

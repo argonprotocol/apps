@@ -202,7 +202,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       },
       {
         createdVault: {
-          bitcoinLockDelegateAccount: delegateAddress,
+          delegateAccountId: delegateAddress,
         } as any,
       },
     );
@@ -264,7 +264,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       },
       {
         createdVault: {
-          bitcoinLockDelegateAccount: undefined,
+          delegateAccountId: undefined,
         } as any,
       },
     );
@@ -319,7 +319,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       },
       {
         createdVault: {
-          bitcoinLockDelegateAccount: delegateAddress,
+          delegateAccountId: delegateAddress,
         } as any,
       },
     );
