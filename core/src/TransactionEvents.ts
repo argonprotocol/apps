@@ -188,11 +188,12 @@ export class TransactionEvents {
   > {
     const { blockWatch, extrinsicHash, block, blockCache } = args;
     const client = await blockWatch.getRpcClient(block.blockNumber);
-    const rawHeader = await client.rpc.chain.getHeader(block.blockHash);
-    const header = BlockWatch.readHeader(rawHeader, block.blockNumber <= blockWatch.finalizedBlockHeader.blockNumber);
-
-    const signedBlock = blockCache?.get(block.blockHash) ?? (await blockWatch.getBlock(header));
+    const signedBlock = blockCache?.get(block.blockHash) ?? (await blockWatch.getBlock(block));
     blockCache?.set(block.blockHash, signedBlock);
+    const header = BlockWatch.readHeader(
+      signedBlock.block.header,
+      block.blockNumber <= blockWatch.finalizedBlockHeader.blockNumber,
+    );
 
     for (const [index, extrinsic] of signedBlock.block.extrinsics.entries()) {
       if (u8aToHex(extrinsic.hash) !== extrinsicHash) continue;

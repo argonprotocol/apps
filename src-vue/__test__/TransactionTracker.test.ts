@@ -303,10 +303,7 @@ describe('TransactionTracker', () => {
       tracker as unknown as {
         recordWatchStatus: (tx: ITransactionRecord, result: any) => Promise<void>;
       }
-    ).recordWatchStatus.bind(tracker) as (
-      tx: ITransactionRecord,
-      result: any,
-    ) => Promise<void>;
+    ).recordWatchStatus.bind(tracker) as (tx: ITransactionRecord, result: any) => Promise<void>;
     const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHashInBlock').mockResolvedValueOnce({
       blockNumber: 130,
       blockHash: '0xwatched-block',
