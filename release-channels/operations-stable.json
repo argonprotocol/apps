@@ -1,55 +1,51 @@
 {
-  "version": "1.4.0",
-  "notes": "- Improved the Argon Treasury app, allowing users to bond, lock bitcoin and generally connect to an Operator's vault.\n- Added Operations app support for inviting Treasury users to their vault\n- Added Crosschain Transfers integration for moving Argons and Argonots between Ethereum and Argon\n- Added an Operational Certification checklist with treasury rewards as well as referral rewards\n- Secured access to the provisioned server with ability to share access to invited treasury and operational users\n- Migrated to the new Bond Lots structure (over bonds as individual microgon units)\n- Converted vault dashboard to a treemap layout to better visualize mix of bitcoin security vs bonds",
-  "pub_date": "2026-06-11T20:44:21.941Z",
+  "version": "1.4.1",
+  "notes": "- Compatability with 1.4.8 of mainchain\n- Fix beacon sync stall issue",
+  "pub_date": "2026-06-26T20:49:02.414Z",
   "platforms": {
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM091MWhWOEt5ZGljaUlGTUFBWXhQc0FxWkM1aTJ0YlY5MWpBNkxPSFFZTnlxcTJUL0tvd0lyeVdoQm1KNVcvd0VCa2lCbWluOHd2R0RvbEhwdVoyQ2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMjA0CWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMF9hbWQ2NC5BcHBJbWFnZQpJazNxMGpoUDY4c1M0Q0RrNlhGaFlHc1FDdHMrczE5a0hLUHo0ZWNiaVRBWmVMYkorVThTL21VV1ZVS21nMG5zQmVxN21veGVHcDlSMzVaSXFJd0ZBUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_1.4.0_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0R3RkxFaTBGRVkrSjEyWHpycTk3cVduWGN2SDlwTHZYWVNEMDBTWlNOeFR2TzRCbENrakVxeWg0MG1kNUNMVUdiU0htQklJbElCWUdObzJzeHpndlE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDQwCWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMV9hbWQ2NC5BcHBJbWFnZQpnVlFNSGJocm5zN01EY3NBMEwzU1dQNVdLOG5WRE5DR3RkUmMyRS9rV3FQczNjenRxMUYyeEZoQlVmRFlDSnpHNm4wZ2ltY0VVNi9KaFJKbS9MZGJEQT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_1.4.1_amd64.AppImage"
     },
     "linux-x86_64-appimage": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM091MWhWOEt5ZGljaUlGTUFBWXhQc0FxWkM1aTJ0YlY5MWpBNkxPSFFZTnlxcTJUL0tvd0lyeVdoQm1KNVcvd0VCa2lCbWluOHd2R0RvbEhwdVoyQ2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMjA0CWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMF9hbWQ2NC5BcHBJbWFnZQpJazNxMGpoUDY4c1M0Q0RrNlhGaFlHc1FDdHMrczE5a0hLUHo0ZWNiaVRBWmVMYkorVThTL21VV1ZVS21nMG5zQmVxN21veGVHcDlSMzVaSXFJd0ZBUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_1.4.0_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0R3RkxFaTBGRVkrSjEyWHpycTk3cVduWGN2SDlwTHZYWVNEMDBTWlNOeFR2TzRCbENrakVxeWg0MG1kNUNMVUdiU0htQklJbElCWUdObzJzeHpndlE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDQwCWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMV9hbWQ2NC5BcHBJbWFnZQpnVlFNSGJocm5zN01EY3NBMEwzU1dQNVdLOG5WRE5DR3RkUmMyRS9rV3FQczNjenRxMUYyeEZoQlVmRFlDSnpHNm4wZ2ltY0VVNi9KaFJKbS9MZGJEQT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_1.4.1_amd64.AppImage"
     },
     "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM014LzJNcGNxdFF4YkUvVXZ6UlpYby9GT3FQYlZBSngzcDZSMFlrOWIzVGd5aHlmWVhFZGFMaVRTSGk4UVdNakdMeVUyd2xmNXhHRnpsSDZ1cUVVM1FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMjA0CWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMF9hbWQ2NC5kZWIKVmF0VU1iVjlxM1VSNklRWEg0LytTemRtNzAyVDZIc1BlOUNMRDA4UXIxclZCaXpQVTBTeHhIZVRoaTB0ckYxdTM5NHhPeStHbGdVN2FwUzN0akc5Qnc9PQo=",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_1.4.0_amd64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM016L3U5QTZsT1IxVVNUc1YyWHUvRTFrazdqeG9nREZmUzE3MlBKUEhPSjNxM3p5Tm1HRnozc1ZEREc1YkZJc3ZEYTBVU25xRDErcksxZG1MVHB6YXd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDQwCWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMV9hbWQ2NC5kZWIKR09KZWJlb1RQVlNGcElZUFRUZG9NRUFxZ2pHMDY3dDNFUk5uT2lPMVJVN3Flc09oYnZ0bUVrSjRnT0QrdXEvWlQ0eXBHdEFMaDE5NE1MUXZzTXBoREE9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_1.4.1_amd64.deb"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZkRmZIV0lYSi9LVHRXbVJQZnBGNkFkM3pYcGx3UDVuZzMyd1pHMGhPYjJxcnQ0NjVpMFpBNVMyOGhVNDlGQWlLMnFaZWFXMVd4U29yRXlJQWdDNndjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMjk0CWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMF94NjQtc2V0dXAuZXhlClRKT1hhQm53RC9iT0VrbFRGZFd1VlppNVVZMUQ5SW5EZWk5bWhOUHJXSUFhNnFHVERBNlE0clhjSkxaUTEyZ2NLV05GZVdoeFgvTmZSaHBOV1d5akR3PT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_1.4.0_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0x3M0FOanIvQTZtTkkvRFhPblMwZ0QvNGozYkYzRXlmVXZrT3ArREh3elpKamNJeU53MndoZjFlNlFzejZVdXNvbDJhZ2EvNnVlMk5IcWxWaFo0VGd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkzCWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMV94NjQtc2V0dXAuZXhlCjNXQzlTUGN6VGJFNkxYN2poWVRCQkhqeC81bk0ySUZRRUdBc3J3TG9NLzNkaHpQY0h1K1VidUhqTGdxRUxMQVl3TnZneVFrOEFuUFN6cTlxQ3k3MkF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_1.4.1_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZkRmZIV0lYSi9LVHRXbVJQZnBGNkFkM3pYcGx3UDVuZzMyd1pHMGhPYjJxcnQ0NjVpMFpBNVMyOGhVNDlGQWlLMnFaZWFXMVd4U29yRXlJQWdDNndjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMjk0CWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMF94NjQtc2V0dXAuZXhlClRKT1hhQm53RC9iT0VrbFRGZFd1VlppNVVZMUQ5SW5EZWk5bWhOUHJXSUFhNnFHVERBNlE0clhjSkxaUTEyZ2NLV05GZVdoeFgvTmZSaHBOV1d5akR3PT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_1.4.0_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0x3M0FOanIvQTZtTkkvRFhPblMwZ0QvNGozYkYzRXlmVXZrT3ArREh3elpKamNJeU53MndoZjFlNlFzejZVdXNvbDJhZ2EvNnVlMk5IcWxWaFo0VGd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkzCWZpbGU6QXJnb24gT3BlcmF0aW9uc18xLjQuMV94NjQtc2V0dXAuZXhlCjNXQzlTUGN6VGJFNkxYN2poWVRCQkhqeC81bk0ySUZRRUdBc3J3TG9NLzNkaHpQY0h1K1VidUhqTGdxRUxMQVl3TnZneVFrOEFuUFN6cTlxQ3k3MkF3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_1.4.1_x64-setup.exe"
     },
     "darwin-universal": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xBT3RGNEdZWWxLZUV2cWVZZ2xVYmJWR1dPcVNFMDIrZDZyMXhRR1BGTmJRY2FkUklEN25yRkRVcENUaU10TUJodFgzOFJhNUxtWXV6UkRzamxWaWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkwCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6ClJtRFBRZk5SQTJ3T0xoOEU5QzY0VTFFM0pPSG9Nb0twbzdGQXFEWk5WZDN0V2pBY1F5bWhtcnZYODVUUEY0bUc0QVcrVDROQVI4Wnc2OHZsNnduS0RRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_universal.app.tar.gz"
     },
     "darwin-universal-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xBT3RGNEdZWWxLZUV2cWVZZ2xVYmJWR1dPcVNFMDIrZDZyMXhRR1BGTmJRY2FkUklEN25yRkRVcENUaU10TUJodFgzOFJhNUxtWXV6UkRzamxWaWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkwCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6ClJtRFBRZk5SQTJ3T0xoOEU5QzY0VTFFM0pPSG9Nb0twbzdGQXFEWk5WZDN0V2pBY1F5bWhtcnZYODVUUEY0bUc0QVcrVDROQVI4Wnc2OHZsNnduS0RRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_universal.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xBT3RGNEdZWWxLZUV2cWVZZ2xVYmJWR1dPcVNFMDIrZDZyMXhRR1BGTmJRY2FkUklEN25yRkRVcENUaU10TUJodFgzOFJhNUxtWXV6UkRzamxWaWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkwCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6ClJtRFBRZk5SQTJ3T0xoOEU5QzY0VTFFM0pPSG9Nb0twbzdGQXFEWk5WZDN0V2pBY1F5bWhtcnZYODVUUEY0bUc0QVcrVDROQVI4Wnc2OHZsNnduS0RRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_universal.app.tar.gz"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xBT3RGNEdZWWxLZUV2cWVZZ2xVYmJWR1dPcVNFMDIrZDZyMXhRR1BGTmJRY2FkUklEN25yRkRVcENUaU10TUJodFgzOFJhNUxtWXV6UkRzamxWaWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkwCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6ClJtRFBRZk5SQTJ3T0xoOEU5QzY0VTFFM0pPSG9Nb0twbzdGQXFEWk5WZDN0V2pBY1F5bWhtcnZYODVUUEY0bUc0QVcrVDROQVI4Wnc2OHZsNnduS0RRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_universal.app.tar.gz"
     },
     "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xBT3RGNEdZWWxLZUV2cWVZZ2xVYmJWR1dPcVNFMDIrZDZyMXhRR1BGTmJRY2FkUklEN25yRkRVcENUaU10TUJodFgzOFJhNUxtWXV6UkRzamxWaWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkwCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6ClJtRFBRZk5SQTJ3T0xoOEU5QzY0VTFFM0pPSG9Nb0twbzdGQXFEWk5WZDN0V2pBY1F5bWhtcnZYODVUUEY0bUc0QVcrVDROQVI4Wnc2OHZsNnduS0RRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_universal.app.tar.gz"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
-    },
-    "darwin-aarch64-debug": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0tDWGpjOGI1U2dmVHFkdnBPc2FpU3ZjNjQ2RW1IV1B3N3Z4T2RhdEVyR3BIWFdUTGFNNjhKcWk1ZlhSL0ppSlF2VjViY0lqdDhoY1h0OEZsT0pFaFFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMjEwMzIzCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6CllVSTMvcmZsay9sWjNGZUJBNm1idHlIWGJuSjNhMjRaMWxtVzFyVXRNOVdmMlU3TmxGc1RLb2lGcTJjRDZNTjNkajVwOGc1MW15NVMwUlExUmNXZ0FBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.0/Argon.Operations_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0xBT3RGNEdZWWxLZUV2cWVZZ2xVYmJWR1dPcVNFMDIrZDZyMXhRR1BGTmJRY2FkUklEN25yRkRVcENUaU10TUJodFgzOFJhNUxtWXV6UkRzamxWaWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NDkwCWZpbGU6QXJnb24gT3BlcmF0aW9ucy5hcHAudGFyLmd6ClJtRFBRZk5SQTJ3T0xoOEU5QzY0VTFFM0pPSG9Nb0twbzdGQXFEWk5WZDN0V2pBY1F5bWhtcnZYODVUUEY0bUc0QVcrVDROQVI4Wnc2OHZsNnduS0RRPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Operations_universal.app.tar.gz"
     }
   }
 }
