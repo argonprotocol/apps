@@ -35,7 +35,6 @@ describe('VaultCollectBuilder.getNotice', () => {
 
     expect(notice).toEqual({
       isProcessing: true,
-      isCollectProcessing: false,
       collectRevenue: 42n,
       expiringCollectAmount: 7n,
       nextCollectDueDate: 1234,
@@ -50,6 +49,12 @@ describe('VaultCollectBuilder.getNotice', () => {
       earningsAmountMicrogons: 42n,
       amountAtRiskMicrogons: 57n,
       transactionCount: 4,
+      processing: {
+        actionType: 'approveCouncil',
+        collectRevenue: 0n,
+        signatureCount: 0,
+        councilApprovalCount: 0,
+      },
     });
   });
 
@@ -63,7 +68,6 @@ describe('VaultCollectBuilder.getNotice', () => {
 
     expect(notice).toEqual({
       isProcessing: false,
-      isCollectProcessing: false,
       collectRevenue: 0n,
       expiringCollectAmount: 0n,
       nextCollectDueDate: 0,
@@ -78,6 +82,7 @@ describe('VaultCollectBuilder.getNotice', () => {
       earningsAmountMicrogons: 0n,
       amountAtRiskMicrogons: 0n,
       transactionCount: 2,
+      processing: undefined,
     });
   });
 
@@ -96,7 +101,12 @@ describe('VaultCollectBuilder.getNotice', () => {
     ).getNotice();
 
     expect(notice?.isProcessing).toBe(true);
-    expect(notice?.isCollectProcessing).toBe(true);
+    expect(notice?.processing).toEqual({
+      actionType: 'collectRevenue',
+      collectRevenue: 42n,
+      signatureCount: 0,
+      councilApprovalCount: 0,
+    });
   });
 });
 
