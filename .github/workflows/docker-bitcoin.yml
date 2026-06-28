@@ -51,7 +51,7 @@ jobs:
             type=pep440,pattern={{version}},value=${{ github.event.inputs.version }}
 
       - name: Build and push image to container registry
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
         id: push
         with:
           platforms: linux/amd64,linux/arm64
