@@ -7,21 +7,17 @@
     <template #icon>
       <div class="flex items-center gap-x-1.5 text-argon-700/70">
         <MoneyIcon
-          v-if="
-            notice.collectRevenue > 0n ||
-            notice.authorizedTransferRewardAmount > 0n ||
-            notice.pendingAuthorizedTransferRewardAmount > 0n
-          "
+          v-if="showMoneyIcon(notice)"
           class="relative h-6 w-6 top-0.5 text-white/85" />
         <SigningIcon
-          v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
+          v-if="showSigningIcon(notice)"
           class="h-5 w-5 text-white/85" />
       </div>
     </template>
 
     <div class="min-w-0 leading-tight text-white">
-      <template v-if="notice.isCollectProcessing && notice.collectRevenue">
-        <strong>{{ formatMoney(notice.collectRevenue) }} is being collected</strong>
+      <template v-if="isProcessingCollect(notice)">
+        <strong>{{ formatMoney(notice.processing?.collectRevenue ?? 0n) }} is being collected</strong>
       </template>
 
       <template v-else-if="notice.isProcessing">
@@ -34,13 +30,17 @@
             is processing
           </strong>
         </template>
-        <template v-else-if="hasVaultSecurityWork(notice)">
+        <template v-else-if="isProcessingApprovals(notice)">
           <strong>
             Vault approvals are processing
           </strong>
         </template>
-        <template v-else>
-          <strong>{{ notice.signatureCount }} co-signature{{ notice.signatureCount === 1 ? ' is' : 's are' }} processing.</strong>
+        <template v-else-if="notice.processing">
+          <strong>
+            {{ notice.processing.signatureCount }} co-signature{{
+              notice.processing.signatureCount === 1 ? ' is' : 's are'
+            }} processing.
+          </strong>
         </template>
       </template>
 
@@ -124,12 +124,7 @@
 
     <template #action>
       <button @click="$emit('open')">
-        <template v-if="notice.isProcessing">View Progress</template>
-        <template v-else-if="hasVaultSecurityWork(notice) || (notice.collectRevenue > 0n && notice.signatureCount > 0)">
-          Open Details
-        </template>
-        <template v-else-if="notice.collectRevenue > 0n">Collect Revenue</template>
-        <template v-else>Sign Bitcoin Transactions</template>
+        {{ getButtonLabel(notice) }}
       </button>
     </template>
   </AlertBarRow>
@@ -146,20 +141,16 @@
     <template #icon>
       <div class="flex items-center gap-x-1.5">
         <MoneyIcon
-          v-if="
-            notice.collectRevenue > 0n ||
-            notice.authorizedTransferRewardAmount > 0n ||
-            notice.pendingAuthorizedTransferRewardAmount > 0n
-          "
+          v-if="showMoneyIcon(notice)"
           class="relative top-0.5 h-9 w-9 text-argon-700/70" />
         <SigningIcon
-          v-if="notice.signatureCount > 0 || hasVaultSecurityWork(notice)"
+          v-if="showSigningIcon(notice)"
           class="h-8 w-8 text-argon-700/70" />
       </div>
     </template>
 
     <template #subline>
-      <template v-if="notice.isProcessing && notice.collectRevenue">
+      <template v-if="isProcessingCollect(notice)">
         Waiting for collect to finalize.
       </template>
 
@@ -167,7 +158,7 @@
         <template v-if="notice.pendingAuthorizedTransferCount > 0">
           Waiting for crosschain authorization to finalize.
         </template>
-        <template v-else-if="hasVaultSecurityWork(notice)">
+        <template v-else-if="isProcessingApprovals(notice)">
           Waiting for vault approvals to finalize.
         </template>
         <template v-else>Waiting for signatures to finalize.</template>
@@ -290,6 +281,32 @@ function hasAvailableAuthorizationWork(notice: IVaultCollectNotice): boolean {
   return notice.authorizedTransferCount > 0;
 }
 
+function showMoneyIcon(notice: IVaultCollectNotice): boolean {
+  return (
+    notice.collectRevenue > 0n ||
+    (notice.processing?.collectRevenue ?? 0n) > 0n ||
+    notice.authorizedTransferRewardAmount > 0n ||
+    notice.pendingAuthorizedTransferRewardAmount > 0n
+  );
+}
+
+function showSigningIcon(notice: IVaultCollectNotice): boolean {
+  return (
+    notice.signatureCount > 0 ||
+    hasVaultSecurityWork(notice) ||
+    (notice.processing?.signatureCount ?? 0) > 0 ||
+    (notice.processing?.councilApprovalCount ?? 0) > 0
+  );
+}
+
+function isProcessingCollect(notice: IVaultCollectNotice): boolean {
+  return notice.processing?.actionType === 'collectRevenue';
+}
+
+function isProcessingApprovals(notice: IVaultCollectNotice): boolean {
+  return notice.processing?.actionType === 'approveCouncil';
+}
+
 function getButtonLabel(notice: IVaultCollectNotice): string {
   if (notice.isProcessing) {
     return 'View Progress';
@@ -307,8 +324,8 @@ function getButtonLabel(notice: IVaultCollectNotice): string {
 }
 
 function getCardTitle(notice: IVaultCollectNotice): string {
-  if (notice.isCollectProcessing && notice.collectRevenue > 0n) {
-    return `${formatMoney(notice.collectRevenue)} is being collected`;
+  if (isProcessingCollect(notice)) {
+    return `${formatMoney(notice.processing?.collectRevenue ?? 0n)} is being collected`;
   }
 
   if (notice.isProcessing) {
@@ -318,11 +335,12 @@ function getCardTitle(notice: IVaultCollectNotice): string {
         : 'Crosschain transfer authorization is processing';
     }
 
-    if (hasVaultSecurityWork(notice)) {
+    if (isProcessingApprovals(notice)) {
       return 'Vault approvals are processing';
     }
 
-    return `${notice.signatureCount} co-signature${notice.signatureCount === 1 ? ' is' : 's are'} processing`;
+    const processingSignatureCount = notice.processing?.signatureCount ?? 0;
+    return `${processingSignatureCount} co-signature${processingSignatureCount === 1 ? ' is' : 's are'} processing`;
   }
 
   if (hasVaultSecurityWork(notice)) {
@@ -353,7 +371,7 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
     return 'Crosschain transfer authorization is pending.';
   }
 
-  if (hasVaultSecurityWork(notice) && notice.isProcessing) {
+  if (isProcessingApprovals(notice)) {
     return 'Vault approvals are pending.';
   }
 
@@ -369,7 +387,7 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
     return 'Review pending vault actions.';
   }
 
-  if (notice.isProcessing && notice.collectRevenue > 0n) {
+  if (isProcessingCollect(notice)) {
     return 'Revenue collection is pending.';
   }
 

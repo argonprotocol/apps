@@ -30,7 +30,6 @@ export type IVaultCollectSubmission = {
 
 export type IVaultCollectNotice = {
   isProcessing: boolean;
-  isCollectProcessing: boolean;
   collectRevenue: bigint;
   expiringCollectAmount: bigint;
   nextCollectDueDate: number;
@@ -45,6 +44,14 @@ export type IVaultCollectNotice = {
   earningsAmountMicrogons: bigint;
   amountAtRiskMicrogons: bigint;
   transactionCount: number;
+  processing:
+    | {
+        actionType: IVaultCollectMetadata['actionType'];
+        collectRevenue: bigint;
+        signatureCount: number;
+        councilApprovalCount: number;
+      }
+    | undefined;
 };
 
 export class VaultCollectBuilder {
@@ -59,6 +66,8 @@ export class VaultCollectBuilder {
     }
 
     const manualPendingCosignEntries = getManualPendingCosignEntries(myVault, ownPendingLockUtxoIds);
+    const pendingCollectMetadata = myVault.data.pendingCollectTxInfo?.tx.metadataJson;
+    const processing = getPendingCollectProcessing(pendingCollectMetadata);
 
     const signaturePenalty = bigIntMin(
       manualPendingCosignEntries.reduce((sum, [, entry]) => sum + entry.targetValue, 0n),
@@ -68,6 +77,7 @@ export class VaultCollectBuilder {
     const collectRevenue = myVault.data.pendingCollectRevenue;
     const signatureCount = manualPendingCosignEntries.length;
     const councilApprovalCount = myVault.globalCouncil.data.pendingApprovals.length;
+
     const pendingMintingAuthorizations = myVault.mintingAuthorities.data.pendingMintingAuthorizations;
     const authorizedTransferCount = pendingMintingAuthorizations.length;
     const authorizedTransferRewardAmount = pendingMintingAuthorizations.reduce(
@@ -92,8 +102,7 @@ export class VaultCollectBuilder {
 
     const earningsAmountMicrogons = collectRevenue;
     const amountAtRiskMicrogons = myVault.data.expiringCollectAmount + signaturePenalty;
-    const isCollectProcessing = myVault.data.pendingCollectTxInfo?.tx.metadataJson.actionType === 'collectRevenue';
-    const isProcessing = Boolean(myVault.data.pendingCollectTxInfo || pendingAuthorizedTransferCount > 0);
+    const isProcessing = Boolean(processing || pendingAuthorizedTransferCount > 0);
 
     if (
       collectRevenue <= 0n &&
@@ -109,7 +118,6 @@ export class VaultCollectBuilder {
 
     return {
       isProcessing,
-      isCollectProcessing,
       collectRevenue,
       expiringCollectAmount: myVault.data.expiringCollectAmount,
       nextCollectDueDate: myVault.data.nextCollectDueDate,
@@ -124,6 +132,7 @@ export class VaultCollectBuilder {
       earningsAmountMicrogons,
       amountAtRiskMicrogons,
       transactionCount: Number(hasCollectWork || councilApprovalCount > 0 || isProcessing) + authorizedTransferCount,
+      processing,
     };
   }
 
@@ -203,6 +212,25 @@ function getManualPendingCosignEntries(myVault: MyVault, ownPendingLockUtxoIds: 
     if (ownPendingLockUtxoIds.has(utxoId)) return false;
     return !myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.has(utxoId);
   });
+}
+
+function getPendingCollectProcessing(metadata?: IVaultCollectMetadata | null) {
+  if (!metadata) {
+    return;
+  }
+
+  return {
+    actionType: metadata.actionType,
+    collectRevenue: metadata.actionType === 'collectRevenue' ? metadata.expectedCollectRevenue : 0n,
+    signatureCount: metadata.actionType === 'approveCouncil' ? 0 : getStoredCosignCount(metadata),
+    councilApprovalCount: metadata.councilApprovalCount ?? 0,
+  };
+}
+
+function getStoredCosignCount(
+  metadata?: Pick<IVaultCollectMetadata, 'cosignedUtxoIds' | 'cosignedOrphanUtxos'> | null,
+): number {
+  return (metadata?.cosignedUtxoIds?.length ?? 0) + (metadata?.cosignedOrphanUtxos?.length ?? 0);
 }
 
 async function buildCollectBitcoinTxs(args: {
