@@ -143,13 +143,18 @@ async function importAccount() {
   }
 
   isImporting.value = true;
-
-  await controller.importFromMnemonic(mnemonic.value.join(' '));
-
-  isImporting.value = false;
-  mnemonic.value.fill('');
-  emit('close');
-  return true;
+  try {
+    await controller.importFromMnemonic(mnemonic.value.join(' '));
+    mnemonic.value.fill('');
+    emit('close');
+    return true;
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error && error.message ? error.message : 'Unable to import that account right now.';
+    return false;
+  } finally {
+    isImporting.value = false;
+  }
 }
 
 Vue.onUnmounted(() => {
