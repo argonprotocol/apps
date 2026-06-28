@@ -243,6 +243,14 @@ export class EthereumGatewayProverService {
 
       const gatewayActivityNonceGap = proofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
       this.stateData.gatewayActivityNonceGap = gatewayActivityNonceGap;
+      const freeHeaderInterval = client.consts.ethereumVerifier.freeHeadersInterval.toBigInt();
+      const sharedRelayExecutionBlockLag =
+        latestExecutionHeader.blockNumber > proofPayload.executionBlockNumberRange.end
+          ? latestExecutionHeader.blockNumber - proofPayload.executionBlockNumberRange.end
+          : 0n;
+      // FreeHeadersInterval is slot-based in the verifier; execution-block lag is a conservative
+      // lower bound because Ethereum can skip slots but cannot produce multiple execution blocks per slot.
+      const sharedRelayIsPastFreeHeaderInterval = sharedRelayExecutionBlockLag >= freeHeaderInterval;
 
       console.log(
         `[EthereumGatewayProverService] Found relay work at anchor block ${latestExecutionHeader.blockNumber}; ` +
@@ -256,6 +264,19 @@ export class EthereumGatewayProverService {
             `${proofPayload.gatewayActivityNonceRange.end}`,
         );
         await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
+        return;
+      }
+
+      if (sharedRelayIsPastFreeHeaderInterval) {
+        console.log(
+          `[EthereumGatewayProverService] Shared gateway relay through activity ` +
+            `${proofPayload.gatewayActivityNonceRange.end} is ${sharedRelayExecutionBlockLag} blocks behind the latest ` +
+            'anchor; bypassing the stagger window',
+        );
+        const response = await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
+        if (response.outcome !== 'Rejected') {
+          this.scheduleSharedSweepFollowUp(NetworkConfig.tickMillis);
+        }
         return;
       }
 
@@ -283,7 +304,7 @@ export class EthereumGatewayProverService {
           `running staggered catch-up sweep after ${stallSweepWindow.stalledMs}ms (window ${stallSweepWindow.windowIndex})`,
       );
 
-      await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end);
+      await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
     })();
 
     try {
