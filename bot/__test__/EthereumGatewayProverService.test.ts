@@ -191,12 +191,14 @@ describe('EthereumGatewayProverService', () => {
         previousGatewayActivityNonce: 6n,
         proof: { batch: 'proof-1' },
         gatewayActivityNonceRange: { start: 7n, end: 7n },
+        executionBlockNumberRange: { start: 160n, end: 160n },
         activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       })
       .mockResolvedValueOnce({
         previousGatewayActivityNonce: 7n,
         proof: { batch: 'proof-2' },
         gatewayActivityNonceRange: { start: 8n, end: 9n },
+        executionBlockNumberRange: { start: 160n, end: 160n },
         activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
       });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
@@ -239,12 +241,14 @@ describe('EthereumGatewayProverService', () => {
         previousGatewayActivityNonce: 6n,
         proof: { batch: 'proof' },
         gatewayActivityNonceRange: { start: 7n, end: 7n },
+        executionBlockNumberRange: { start: 160n, end: 160n },
         activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       })
       .mockResolvedValueOnce({
         previousGatewayActivityNonce: 6n,
         proof: { batch: 'proof' },
         gatewayActivityNonceRange: { start: 7n, end: 7n },
+        executionBlockNumberRange: { start: 160n, end: 160n },
         activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
       });
     submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
@@ -316,6 +320,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
     submissionMock.submitWithTerminalStatusWatch
@@ -401,6 +406,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
 
@@ -525,6 +531,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
 
@@ -571,6 +578,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
@@ -608,6 +616,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
@@ -655,6 +664,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [
         {
           kind: 'TransferOutOfArgonFinalized',
@@ -686,8 +696,169 @@ describe('EthereumGatewayProverService', () => {
 
     vi.setSystemTime(new Date('2026-05-13T16:01:11.000Z'));
     await runBackgroundSweep();
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(4);
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(3);
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits older shared relay backlog without waiting for a stagger window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      backgroundSweepMs: 1_000,
+    });
+    const runBackgroundSweep = (
+      service as unknown as {
+        runBackgroundSweep: () => Promise<void>;
+      }
+    ).runBackgroundSweep.bind(service);
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 150n, end: 150n },
+      activities: [
+        {
+          kind: 'TransferOutOfArgonFinalized',
+          gatewayState: { gatewayActivityNonce: 7n },
+        },
+      ],
+    });
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+      },
+    });
+
+    await runBackgroundSweep();
+
+    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks older shared relay backlog on the next Argon tick after submitting', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+    NetworkConfig.setNetwork('mainnet');
+    NetworkConfig.setRuntimeOverride('mainnet', {
+      ethereumNetwork: {
+        executionRpcUrl: 'http://ethereum.test',
+      },
+    });
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 150n, end: 150n },
+      activities: [
+        {
+          kind: 'TransferOutOfArgonFinalized',
+          gatewayState: { gatewayActivityNonce: 7n },
+        },
+      ],
+    });
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+      },
+    });
+
+    await service.start();
+
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
+
+    await service.shutdown();
+  });
+
+  it('rechecks older shared relay backlog on the next Argon tick after a noop relay result', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+    NetworkConfig.setNetwork('mainnet');
+    NetworkConfig.setRuntimeOverride('mainnet', {
+      ethereumNetwork: {
+        executionRpcUrl: 'http://ethereum.test',
+      },
+    });
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 150n, end: 150n },
+      activities: [
+        {
+          kind: 'TransferOutOfArgonFinalized',
+          gatewayState: { gatewayActivityNonce: 7n },
+        },
+      ],
+    });
+    submissionMock.submitWithTerminalStatusWatch
+      .mockRejectedValueOnce(new Error('Already imported'))
+      .mockResolvedValueOnce({
+        signedTx,
+        result: {
+          extrinsic: {
+            signedHash: '0xrelaytx',
+            submittedAtBlockNumber: 321,
+            submittedTime: new Date('2026-05-13T16:01:00.000Z'),
+          },
+          blockNumber: 321,
+          waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+        },
+      });
+
+    await service.start();
+
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
+
+    await service.shutdown();
   });
 
   it('prioritizes owned outbound relay work without waiting for a stagger window', async () => {
@@ -717,6 +888,7 @@ describe('EthereumGatewayProverService', () => {
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
       gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
       activities: [
         {
           kind: 'TransferOutOfArgonFinalized',
