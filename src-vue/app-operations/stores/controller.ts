@@ -416,8 +416,11 @@ export const useOperationsController = defineStore('operationsController', () =>
   async function importFromMnemonic(mnemonic: string) {
     isImporting.value = true;
     const importer = new Importer(config as Config, walletKeys, dbPromise);
-    await importer.importFromMnemonic(mnemonic);
-    isImporting.value = false;
+    try {
+      await importer.importFromMnemonic(mnemonic);
+    } finally {
+      isImporting.value = false;
+    }
   }
 
   async function loadOperationalInvites() {

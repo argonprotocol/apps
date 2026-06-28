@@ -31,6 +31,19 @@ export function getSpendableMiningHoldMicrogons(availableMicrogons: bigint): big
 export type IWalletType = keyof typeof WalletType;
 export type IArgonWalletType = Exclude<IWalletType, 'ethereum'>;
 
+export function hasArgonWalletValue(balance: {
+  availableMicrogons: bigint;
+  availableMicronots: bigint;
+  reservedMicrogons: bigint;
+  reservedMicronots: bigint;
+}): boolean {
+  if (balance.availableMicrogons > 0n) return true;
+  if (balance.availableMicronots > 0n) return true;
+  if (balance.reservedMicronots > 0n) return true;
+  if (balance.reservedMicrogons > 0n) return true;
+  return false;
+}
+
 export class WalletForArgon implements IWallet {
   public balanceHistory: IBalanceChange[];
   public fetchErrorMsg = '';
@@ -77,11 +90,7 @@ export class WalletForArgon implements IWallet {
   }
 
   public hasValue(): boolean {
-    if (this.availableMicrogons > 0n) return true;
-    if (this.availableMicronots > 0n) return true;
-    if (this.reservedMicronots > 0n) return true;
-    if (this.reservedMicrogons > 0n) return true;
-    return false;
+    return hasArgonWalletValue(this);
   }
 
   public trimToFinalizedBlock(finalizedBlock: { blockNumber: number; blockHash: string }) {

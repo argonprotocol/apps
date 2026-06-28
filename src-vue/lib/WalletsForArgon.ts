@@ -36,6 +36,23 @@ export interface IWalletEvents {
 type IWalletEventKeys = keyof IWalletEvents;
 type IWalletFlatList<T extends IWalletEventKeys = IWalletEventKeys> = Parameters<IWalletEvents[T]>;
 
+export async function readArgonWalletBalanceValues(
+  api: ApiDecoration<'promise'>,
+  addresses: string[],
+): Promise<
+  Pick<IBalanceChange, 'availableMicrogons' | 'reservedMicrogons' | 'availableMicronots' | 'reservedMicronots'>[]
+> {
+  const microgons = await api.query.system.account.multi(addresses).then(x => x.map(acc => acc.data));
+  const micronots = await api.query.ownership.account.multi(addresses);
+
+  return addresses.map((_, i) => ({
+    availableMicrogons: microgons[i]?.free.toBigInt() ?? 0n,
+    reservedMicrogons: microgons[i]?.reserved.toBigInt() ?? 0n,
+    availableMicronots: micronots[i]?.free.toBigInt() ?? 0n,
+    reservedMicronots: micronots[i]?.reserved.toBigInt() ?? 0n,
+  }));
+}
+
 export class WalletsForArgon {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
@@ -444,15 +461,11 @@ export class WalletsForArgon {
   }> {
     const client = await this.blockWatch.getRpcClient(block.blockNumber);
     const api = await this.blockWatch.getApi(block);
-    const microgons = await api.query.system.account.multi(addresses).then(x => x.map(acc => acc.data));
-    const micronots = await api.query.ownership.account.multi(addresses);
+    const balanceValues = await readArgonWalletBalanceValues(api, addresses);
 
-    const balances = addresses.map((_, i) => ({
+    const balances = balanceValues.map(balance => ({
       block: { ...block },
-      availableMicrogons: microgons[i]?.free.toBigInt() ?? 0n,
-      reservedMicrogons: microgons[i]?.reserved.toBigInt() ?? 0n,
-      availableMicronots: micronots[i]?.free.toBigInt() ?? 0n,
-      reservedMicronots: micronots[i]?.reserved.toBigInt() ?? 0n,
+      ...balance,
       microgonsAdded: 0n,
       micronotsAdded: 0n,
       vaultRevenueEvents: [],
