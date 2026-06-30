@@ -135,7 +135,7 @@
           <p v-else-if="mintingAuthorizeOpportunityCount > 0" class="mt-2 text-sm text-slate-600">
             You have
             <strong>
-              {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? 'y' : 'ies' }}
+              {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? '' : 's' }}
             </strong>
             ready on Argon
             <template v-if="mintingAuthorizeRewardAmount > 0n">

@@ -41,7 +41,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
       baseFee: 500_000n,
       bitcoinXpub: vaultMasterXpub,
       treasuryProfitSharing: 0.5,
-      bonusSharingPercent: 0.5,
+      treasuryBonusProfitSharing: 0.5,
     });
     const vault = await vaultResult.getVault();
     const txResult = vaultResult.txResult;
