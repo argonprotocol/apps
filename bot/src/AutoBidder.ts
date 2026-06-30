@@ -36,6 +36,7 @@ export class AutoBidder {
   private localRpcUrl?: string;
   private hasRegisteredKeys = false;
   private lifecycleQueue = Promise.resolve();
+  private pendingProxyRetry?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly accountset: Accountset,
@@ -91,6 +92,10 @@ export class AutoBidder {
     console.log('AUTOBIDDER STOPPING');
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    if (this.pendingProxyRetry) {
+      clearTimeout(this.pendingProxyRetry);
+      this.pendingProxyRetry = undefined;
+    }
     await this.lifecycleQueue;
     await this.stopActiveBidders(false);
     this.biddingCalculator?.unload();
@@ -173,6 +178,21 @@ export class AutoBidder {
     if (this.isStopped || !this.biddingRules || !this.biddingCalculator) return;
 
     try {
+      const proxySetup = await this.accountset.planMiningBidProxySetup();
+      if (proxySetup.kind !== 'ready') {
+        console.log('Holding off bidding until mining bid proxy is ready', {
+          cohortActivationFrameId,
+          proxySetup: proxySetup.kind,
+        });
+        if (!this.pendingProxyRetry) {
+          this.pendingProxyRetry = setTimeout(() => {
+            this.pendingProxyRetry = undefined;
+            void this.queueLifecycle(() => this.reloadActiveCohort());
+          }, 1_000);
+        }
+        return;
+      }
+
       const params = await this.createBidderParams(cohortActivationFrameId);
       if (this.isStopped) return;
 

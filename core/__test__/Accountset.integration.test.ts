@@ -99,4 +99,60 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     const seats = await accountset.miningSeatsAndBids(api);
     expect(seats.filter(x => !!x.seat || x.hasWinningBid)).toHaveLength(5);
   });
+
+  it('can submit bids through a real-pays proxy', async () => {
+    const fundingAccount = sudo();
+    const proxyAccount = createKeyringPair({});
+    const fundingSetup = new TxSubmitter(
+      client,
+      client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(fundingAccount.address, 500_000)),
+      fundingAccount,
+    );
+    const setupResult = await fundingSetup.submit();
+    await setupResult.waitForInFirstBlock;
+
+    const accountset = new Accountset({
+      client,
+      fundingAccountId: fundingAccount.address,
+      isProxy: true,
+      txSubmitter: proxyAccount,
+      subaccountRange: getRange(0, 49),
+      sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
+    });
+    const proxySetupPlan = await accountset.planMiningBidProxySetup();
+
+    expect(proxySetupPlan.kind).toBe('tx');
+    if (proxySetupPlan.kind !== 'tx') {
+      throw new Error(`Expected proxy setup transaction, got ${proxySetupPlan.kind}`);
+    }
+    expect(proxySetupPlan.metadata).toEqual({
+      fundingAccountId: fundingAccount.address,
+      proxyAccountId: proxyAccount.address,
+    });
+
+    const proxySetup = await new TxSubmitter(client, proxySetupPlan.tx, fundingAccount).submit();
+    await proxySetup.waitForInFirstBlock;
+
+    const readyPlan = await accountset.planMiningBidProxySetup();
+    expect(readyPlan).toEqual({ kind: 'ready' });
+
+    const nextSeats = await accountset.getAvailableMinerAccounts(5);
+    expect(nextSeats).toHaveLength(5);
+
+    const submitter = await accountset.createMiningBidTx({
+      bidAmount: 10_000n,
+      subaccounts: nextSeats,
+    });
+    const result = await submitter.submit({
+      useLatestNonce: true,
+    });
+    const blockHash = await result.waitForInFirstBlock;
+
+    expect(result).toBeTruthy();
+    expect(result.extrinsicError).toBeFalsy();
+
+    const api = await client.at(blockHash);
+    const seats = await accountset.miningSeatsAndBids(api);
+    expect(seats.filter(x => !!x.seat || x.hasWinningBid).length).toBeGreaterThanOrEqual(5);
+  });
 });

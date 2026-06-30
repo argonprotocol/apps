@@ -50,7 +50,7 @@ export class MiningFrameHistory {
 
     const [rawWinningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
       Mining.fetchWinningBids(api),
-      Mining.fetchMiningSeats(this.accountset.seedAddress, api),
+      Mining.fetchMiningSeats(this.accountset.fundingAccountId, api),
       api.query.miningSlot.historicalBidsPerSlot().then(h => h[0]?.bidsCount.toNumber() ?? 0),
       mining.fetchTickAtStartOfAuctionClosing(api),
     ]);
@@ -111,7 +111,7 @@ export class MiningFrameHistory {
         return {
           address,
           subAccountIndex:
-            managedBy === this.accountset.seedAddress
+            managedBy === this.accountset.fundingAccountId
               ? this.accountset.subAccountsByAddress[address]?.index
               : undefined,
           bidPosition: i,
@@ -146,7 +146,7 @@ export class MiningFrameHistory {
           blockHash: frame.firstBlockHash,
           blockNumber: frame.firstBlockNumber,
         });
-        slots = await Mining.fetchMiningSeats(this.accountset.seedAddress, frameApi);
+        slots = await Mining.fetchMiningSeats(this.accountset.fundingAccountId, frameApi);
       }
     }
 

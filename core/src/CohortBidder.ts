@@ -265,7 +265,7 @@ export class CohortBidder {
           .filter(
             x =>
               x.externalFundingAccount.isSome &&
-              this.accountset.seedAddress === x.externalFundingAccount.value.toHuman(),
+              this.accountset.fundingAccountId === x.externalFundingAccount.value.toHuman(),
           )
           .map(x => {
             return {

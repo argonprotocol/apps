@@ -1,5 +1,10 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
+import {
+  ArgonClient,
+  FIXED_U128_DECIMALS,
+  SubmittableExtrinsic,
+  toFixedNumber,
+} from '@argonprotocol/mainchain';
 import { bigIntMax, isValidArgonAccountAddress, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons } from './WalletForArgon.ts';
@@ -9,6 +14,7 @@ import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
+import { ensureMiningBidProxySetup } from './MiningAccount.ts';
 import { Config } from './Config.ts';
 
 export interface IAssetsToMove {
@@ -258,6 +264,9 @@ export class MoveCapital {
         metadata,
       });
       followOnTx?.resolve(txInfo);
+      void this.postProcessMiningBidProxySetup(txInfo).catch(error => {
+        console.error('[MoveCapital] Failed to post-process mining bid proxy setup', error);
+      });
       return {
         kind: 'submitted',
         txInfo,
@@ -270,6 +279,36 @@ export class MoveCapital {
 
   private async getSigner(moveFrom: MoveFrom) {
     return await this.walletKeys.getWalletKeypair(this.getWalletTypeFromMove(moveFrom));
+  }
+
+  private async postProcessMiningBidProxySetup(txInfo: TransactionInfo): Promise<void> {
+    const postProcessor = txInfo.createPostProcessor();
+
+    try {
+      await txInfo.txResult.waitForFinalizedBlock;
+
+      const proxySetup = await ensureMiningBidProxySetup({
+        transactionTracker: this.transactionTracker,
+        walletKeys: this.walletKeys,
+        followWindowFinalizedBlocks: MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+      });
+      if (proxySetup.kind === 'trackingExisting' || proxySetup.kind === 'submitted') {
+        await proxySetup.txInfo.waitForPostProcessing;
+      }
+      if (proxySetup.kind === 'insufficientFunds') {
+        txInfo.txResult.extrinsicError = new Error(proxySetup.error);
+      }
+
+      if (proxySetup.kind === 'insufficientFunds') {
+        postProcessor.reject(txInfo.txResult.extrinsicError);
+        return;
+      }
+
+      postProcessor.resolve();
+    } catch (error) {
+      txInfo.txResult.extrinsicError = error as Error;
+      postProcessor.reject(error as Error);
+    }
   }
 
   public checkAddressType(address: string): {

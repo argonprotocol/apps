@@ -146,18 +146,21 @@ function getStepLabel(stepLabel: IStepLabel, stepStatus: InstallStepStatus): str
   return stepLabel.options[optionIndexByStatus[stepStatus]];
 }
 
-function isMiningSetupTransfer(txInfo: TransactionInfo): boolean {
+function isMiningSetupTx(txInfo: TransactionInfo): boolean {
+  if (txInfo.tx.extrinsicType === ExtrinsicType.MiningBidProxySetup) {
+    return true;
+  }
   if (txInfo.tx.extrinsicType !== ExtrinsicType.Transfer) return false;
 
   const metadata = txInfo.tx.metadataJson as Partial<ITransactionMoveMetadata> | undefined;
   return metadata?.moveFrom === MoveFrom.MiningHold && metadata?.moveTo === MoveTo.MiningBot;
 }
 
-function findLatestSetupTransferTxInfo(): TransactionInfo | null {
+function findLatestSetupTxInfo(): TransactionInfo | null {
   let latestTxInfo: TransactionInfo | null = null;
 
   for (const txInfo of transactionTracker.data.txInfos) {
-    if (!isMiningSetupTransfer(txInfo)) continue;
+    if (!isMiningSetupTx(txInfo)) continue;
     if (!latestTxInfo || txInfo.tx.id > latestTxInfo.tx.id) {
       latestTxInfo = txInfo;
     }
@@ -191,7 +194,7 @@ function trackTxInfo(txInfo: TransactionInfo) {
 }
 
 async function ensureTrackedSetupTransfer(force = false) {
-  const txInfo = findLatestSetupTransferTxInfo();
+  const txInfo = findLatestSetupTxInfo();
   if (txInfo) {
     trackTxInfo(txInfo);
   }

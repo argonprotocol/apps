@@ -33,7 +33,8 @@ import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 interface IBotOptions {
   datadir: string;
   db: Db;
-  bidderKeypair: KeyringPair;
+  fundingAccountId: string;
+  proxyKeypair: KeyringPair;
   vaultOperatorAddress: string;
   localRpcUrl: string;
   archiveRpcUrl: string;
@@ -250,9 +251,11 @@ export default class Bot {
       this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;
       this.accountset = new Accountset({
         client: this.localClient,
-        seedAccount: this.options.bidderKeypair,
+        fundingAccountId: this.options.fundingAccountId,
+        isProxy: true,
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
         subaccountRange: getRange(0, 144),
+        txSubmitter: this.options.proxyKeypair,
       });
       const miningFramesPath = this.storage.getPath('miningFrames.json');
       this.miningFrames = new MiningFrames(this.mainchainClients, this.blockWatch, {

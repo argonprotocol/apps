@@ -1,8 +1,6 @@
-import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
+import { MINING_BID_PROXY_FEE_FLOAT } from '@argonprotocol/apps-core';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils.ts';
 import { MiningSetupStatus } from '../../../interfaces/IConfig.ts';
-
-const FUTURE_TRANSACTION_FEE_BUDGET_MICROGONS = 2n * BigInt(MICROGONS_PER_ARGON);
 
 export interface IMiningFundingState {
   isFullyFunded: boolean;
@@ -32,7 +30,7 @@ export function getMiningFundingState(args: {
 
   const requiredMicrogons =
     (args.initialMicrogonRequirement ?? 0n) +
-    (args.miningSetupStatus === MiningSetupStatus.Finished ? 0n : FUTURE_TRANSACTION_FEE_BUDGET_MICROGONS);
+    (args.miningSetupStatus === MiningSetupStatus.Finished ? 0n : MINING_BID_PROXY_FEE_FLOAT);
   const requiredMicronots = args.initialMicronotRequirement ?? 0n;
   const additionalMicrogonsNeeded = bigIntMax(requiredMicrogons - args.miningMicrogonsOnHand, 0n);
   const additionalMicronotsNeeded = bigIntMax(requiredMicronots - args.miningMicronotsOnHand, 0n);

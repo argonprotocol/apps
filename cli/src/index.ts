@@ -119,7 +119,7 @@ export async function accountsetFromCli(program: Command, proxyForAddress?: stri
     return new Accountset({
       client,
       isProxy: true,
-      seedAddress: proxyForAddress,
+      fundingAccountId: proxyForAddress,
       txSubmitter: keypair,
       sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
       subaccountRange: opts.subaccounts,

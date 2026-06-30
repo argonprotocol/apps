@@ -12,6 +12,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { ensureOnlyOneInstance, resetOnlyOneInstance } from './Utils';
 import { createDeferred, type IDeferred } from '@argonprotocol/apps-core';
+import { TxSubmitter } from '@argonprotocol/mainchain';
 import { ask as tauriAsk, message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { ServerAdmin } from './ServerAdmin';
@@ -20,10 +21,10 @@ import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
 import * as semver from 'semver';
-import { TxSubmitter } from '@argonprotocol/mainchain';
-import { getMainchainClient } from '../stores/mainchain.ts';
 import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumClient.ts';
 import { MyVault } from './MyVault.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
+import { planMiningBidProxySetup } from './MiningAccount.ts';
 
 dayjs.extend(utc);
 
@@ -258,6 +259,29 @@ export default class Installer {
         await this.uploadCoreFiles((totalCount, uploadedCount) => {
           this.fileUploadProgress = 2 + (uploadedCount / totalCount) * 88;
         });
+      }
+
+      if (!this.isFreshInstall) {
+        const client = await getMainchainClient(false);
+        const { fundingAccount, proxySetup } = await planMiningBidProxySetup({
+          walletKeys: this.walletKeys,
+          client,
+        });
+
+        if (proxySetup.kind === 'insufficientFunds') {
+          throw new Error(proxySetup.error);
+        }
+
+        if (proxySetup.kind === 'tx') {
+          const proxySetupResult = await new TxSubmitter(client, proxySetup.tx, fundingAccount).submit({
+            useLatestNonce: true,
+          });
+          await proxySetupResult.waitForInFirstBlock;
+          const proxySetupError = proxySetupResult.submissionError ?? proxySetupResult.extrinsicError;
+          if (proxySetupError) {
+            throw proxySetupError;
+          }
+        }
       }
 
       console.info('Uploading bot config files');
@@ -655,8 +679,8 @@ export default class Installer {
 
     const totalCount = 5;
 
-    const miningBotAccount = await this.walletKeys.exportMiningBotAccountJson('');
-    await server.uploadMiningBotWallet(miningBotAccount);
+    const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
+    await server.uploadMiningBotWallet(miningBidProxyAccount);
     progressFn?.(totalCount, 1);
 
     await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));
@@ -667,6 +691,7 @@ export default class Installer {
 
     await server.uploadEnvState({
       oldestFrameIdToSync: this.config.oldestFrameIdToSync,
+      miningFundingAccountId: this.walletKeys.miningBotAddress,
       vaultOperatorAddress: this.walletKeys.vaultingAddress,
       operatorAccountId: this.walletKeys.operationalAddress,
       ethereumBeaconApiUrl,

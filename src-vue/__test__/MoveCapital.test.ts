@@ -4,6 +4,7 @@ import { MoveCapital } from '../lib/MoveCapital.ts';
 import { existentialDepositMicrogons, miningHoldOperationalReserveMicrogons } from '../lib/WalletForArgon.ts';
 import { type IWallet } from '../lib/Wallet.ts';
 import { buildOperatorAccountRegistrationTx } from '../lib/OperationalAccount.ts';
+import * as MiningAccount from '../lib/MiningAccount.ts';
 import { Config } from '../lib/Config.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestDb } from './helpers/db.ts';
@@ -31,9 +32,10 @@ type MockTxInfo = {
   };
 };
 
+let config: Config;
+let walletKeys: WalletKeys;
+
 describe('MoveCapital', () => {
-  let config: Config;
-  let walletKeys: WalletKeys;
   beforeAll(async () => {
     const db = await createTestDb();
     setDbPromise(Promise.resolve(db));
@@ -134,8 +136,31 @@ describe('MoveCapital', () => {
       },
     });
     vi.spyOn(moveCapital as any, 'getSigner').mockResolvedValue('signer');
-    const txInfo = { tx: { id: 1 } } as any;
+    let resolveProxySetup: () => void = () => undefined;
+    const proxySetupWait = new Promise<void>(resolve => {
+      resolveProxySetup = resolve;
+    });
+    const postProcessor = {
+      resolve: vi.fn(),
+      reject: vi.fn(),
+    };
+    const txInfo = {
+      tx: { id: 1 },
+      txResult: {
+        waitForFinalizedBlock: Promise.resolve(undefined),
+      },
+      createPostProcessor: vi.fn().mockReturnValue(postProcessor),
+    } as any;
     transactionTracker.submitAndWatch.mockResolvedValue(txInfo);
+    vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup').mockResolvedValue({
+      kind: 'submitted',
+      txInfo: {
+        waitForPostProcessing: proxySetupWait,
+      },
+    } as any);
+    (moveCapital as any).postProcessMiningBidProxySetup.mockImplementation((submittedTxInfo: any) => {
+      return (MoveCapital.prototype as any).postProcessMiningBidProxySetup.call(moveCapital, submittedTxInfo);
+    });
     const wallet = createWallet({
       availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
       availableMicronots: 7n,
@@ -173,6 +198,14 @@ describe('MoveCapital', () => {
     });
     expect(buildOperatorAccountRegistrationTx).toHaveBeenCalledOnce();
     expect(result).toEqual({ kind: 'submitted', txInfo });
+
+    await vi.waitFor(() => expect(MiningAccount.ensureMiningBidProxySetup).toHaveBeenCalledOnce());
+    expect(postProcessor.resolve).not.toHaveBeenCalled();
+
+    resolveProxySetup();
+
+    await vi.waitFor(() => expect(postProcessor.resolve).toHaveBeenCalledOnce());
+    expect(postProcessor.reject).not.toHaveBeenCalled();
   });
 
   it('retries the fee calculation without argons when only argonots should move', async () => {
@@ -353,6 +386,7 @@ describe('MoveCapital', () => {
     expect(feeSpy).not.toHaveBeenCalled();
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
+    expect((moveCapital as any).postProcessMiningBidProxySetup).not.toHaveBeenCalled();
     expect(result).toEqual({ kind: 'noSpendableFundsToSweep' });
     expect(moveCapital.transactionError).toBe('');
   });
@@ -487,13 +521,19 @@ function createMoveCapital(existingTxInfo?: MockTxInfo) {
     increaseVaultAllocations: vi.fn(),
     buildIncreaseVaultAllocationsTx: vi.fn(),
   };
+  const moveCapitalWalletKeys = {
+    miningBotAddress: 'mining-bot-address',
+    getMiningBotKeypair: walletKeys.getMiningBotKeypair.bind(walletKeys),
+    getMiningBidProxyKeypair: walletKeys.getMiningBidProxyKeypair.bind(walletKeys),
+    getWalletKeypair: walletKeys.getWalletKeypair.bind(walletKeys),
+  } as WalletKeys;
+  const moveCapital = new MoveCapital(moveCapitalWalletKeys, transactionTracker as any, myVault as any);
+
+  vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup').mockResolvedValue({ kind: 'ready' });
+  vi.spyOn(moveCapital as any, 'postProcessMiningBidProxySetup').mockResolvedValue(undefined);
 
   return {
-    moveCapital: new MoveCapital(
-      { miningBotAddress: 'mining-bot-address' } as any,
-      transactionTracker as any,
-      myVault as any,
-    ),
+    moveCapital,
     transactionTracker,
     myVault,
   };
