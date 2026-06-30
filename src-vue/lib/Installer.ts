@@ -11,7 +11,7 @@ import { InstallerCheck } from './InstallerCheck';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { ensureOnlyOneInstance, resetOnlyOneInstance } from './Utils';
-import { createDeferred, type IDeferred } from '@argonprotocol/apps-core';
+import { createDeferred, getErrorDiagnostics, getRuntimeDiagnostics, type IDeferred } from '@argonprotocol/apps-core';
 import { ask as tauriAsk, message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { ServerAdmin } from './ServerAdmin';
@@ -289,7 +289,14 @@ export default class Installer {
       this.remoteFilesNeedUpdating = false;
       console.info('Installer finished');
     } catch (e: any) {
-      console.error(`Installation failed: `, e);
+      console.error('Installation failed', {
+        installPhase,
+        serverType: this.config.serverDetails.type,
+        hasServerIpAddress: Boolean(this.config.serverDetails.ipAddress),
+        remoteFilesNeedUpdating: this.remoteFilesNeedUpdating,
+        runtime: getRuntimeDiagnostics(),
+        error: getErrorDiagnostics(e),
+      });
       this.config.serverInstaller.errorType = installPhase ?? InstallStepErrorType.Unknown;
       this.config.serverInstaller.errorMessage = e.message ?? `Installation failed - ${String(e)}`;
       this.config.serverInstaller = this.config.serverInstaller;

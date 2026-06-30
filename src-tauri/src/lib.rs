@@ -27,6 +27,7 @@ mod security;
 mod ssh;
 mod ssh_access;
 mod ssh_pool;
+mod troubleshooting;
 mod utils;
 mod vm;
 
@@ -380,54 +381,95 @@ async fn toggle_nosleep(
 
 #[tauri::command]
 async fn create_zip(
+    app: AppHandle,
     paths_with_prefixes: Vec<(PathBuf, PathBuf)>,
     zip_name: PathBuf,
+    event_progress_key: Option<String>,
 ) -> Result<PathBuf, String> {
-    let file = fs::File::create(&zip_name).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipWriter::new(file);
-    let opts = zip::write::SimpleFileOptions::default();
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = fs::File::create(&zip_name).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
 
-    for (prefix, p) in paths_with_prefixes {
-        // Walk children and prefix entries with the root directory name
-        for entry in walkdir::WalkDir::new(&p).into_iter().flatten() {
-            if entry.file_type().is_dir() {
-                continue;
-            }
-            let path = entry.path();
-            let rel = if p.is_file() {
-                // If the path is a file, we need to strip the parent directory
-                path.strip_prefix(p.parent().unwrap_or(&PathBuf::from("")))
-            } else {
-                path.strip_prefix(&p)
-            }
-            .unwrap_or(path);
+        let total_bytes = paths_with_prefixes
+            .iter()
+            .flat_map(|(_, path)| walkdir::WalkDir::new(path).into_iter().flatten())
+            .filter(|entry| entry.file_type().is_file())
+            .map(|entry| entry.metadata().map(|metadata| metadata.len()).unwrap_or(0))
+            .sum::<u64>();
 
-            println!(
-                "Processing entry: {} {}",
-                rel.display(),
-                path.to_string_lossy()
-            );
+        let mut copied_bytes = 0u64;
+        let mut last_percent = u8::MAX;
 
-            // Skip the directory itself; it"s already added
-            if rel.as_os_str().is_empty() {
-                continue;
-            }
+        for (prefix, path_root) in paths_with_prefixes {
+            for entry in walkdir::WalkDir::new(&path_root).into_iter().flatten() {
+                if entry.file_type().is_dir() {
+                    continue;
+                }
+                let path = entry.path();
+                let rel = if path_root.is_file() {
+                    path.strip_prefix(path_root.parent().unwrap_or(&PathBuf::from("")))
+                } else {
+                    path.strip_prefix(&path_root)
+                }
+                .unwrap_or(path);
 
-            let name = prefix.join(rel).to_string_lossy().replace("\\", "/");
-            let mut file_opts = opts;
-            if let Ok(mtime) = entry.metadata().map_err(|e| e.to_string())?.modified() {
-                if let Ok(zdt) = DateTime::try_from(OffsetDateTime::from(mtime)) {
-                    file_opts = file_opts.last_modified_time(zdt);
+                if rel.as_os_str().is_empty() {
+                    continue;
+                }
+
+                let name = prefix.join(rel).to_string_lossy().replace("\\", "/");
+                let mut file_opts = opts;
+                if let Ok(mtime) = entry.metadata().map_err(|e| e.to_string())?.modified() {
+                    if let Ok(zdt) = DateTime::try_from(OffsetDateTime::from(mtime)) {
+                        file_opts = file_opts.last_modified_time(zdt);
+                    }
+                }
+                zip.start_file(name, file_opts).map_err(|e| e.to_string())?;
+
+                let mut source = fs::File::open(path).map_err(|e| e.to_string())?;
+                let mut buffer = [0u8; 64 * 1024];
+
+                loop {
+                    let read =
+                        std::io::Read::read(&mut source, &mut buffer).map_err(|e| e.to_string())?;
+                    if read == 0 {
+                        break;
+                    }
+
+                    std::io::Write::write_all(&mut zip, &buffer[..read])
+                        .map_err(|e| e.to_string())?;
+                    copied_bytes += read as u64;
+
+                    if total_bytes > 0 {
+                        let percent =
+                            ((copied_bytes.saturating_mul(100)) / total_bytes).min(100) as u8;
+                        if percent != last_percent {
+                            last_percent = percent;
+                            if let Some(event_key) = &event_progress_key {
+                                app.emit(event_key, percent).map_err(|e| e.to_string())?;
+                            }
+                        }
+                    }
                 }
             }
-            zip.start_file(name, file_opts).map_err(|e| e.to_string())?;
-            let mut f = fs::File::open(path).map_err(|e| e.to_string())?;
-            std::io::copy(&mut f, &mut zip).map_err(|e| e.to_string())?;
         }
-    }
 
-    zip.finish().map_err(|e| e.to_string())?;
-    Ok(zip_name)
+        zip.finish().map_err(|e| e.to_string())?;
+
+        if let Some(event_key) = &event_progress_key {
+            app.emit(event_key, 100u8).map_err(|e| e.to_string())?;
+        }
+
+        Ok(zip_name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn collect_troubleshooting_os_profile(app: AppHandle) -> Result<String, String> {
+    troubleshooting::collect_os_profile(&app)
 }
 
 #[tauri::command]
@@ -797,6 +839,7 @@ pub fn run() {
             read_embedded_file,
             run_db_migrations,
             create_zip,
+            collect_troubleshooting_os_profile,
             ssh_access::ssh_access_status,
             ssh_access::ssh_access_activate,
             ssh_access::ssh_access_deactivate,

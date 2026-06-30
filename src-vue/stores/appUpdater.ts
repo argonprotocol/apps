@@ -4,6 +4,7 @@ import { toRaw } from 'vue';
 import { app } from '@tauri-apps/api';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check } from '@tauri-apps/plugin-updater';
+import { getErrorDiagnostics, getRuntimeDiagnostics } from '@argonprotocol/apps-core';
 import { ENABLE_AUTO_UPDATE } from '../lib/Env.ts';
 
 type AppUpdate = Awaited<ReturnType<typeof check>>;
@@ -50,7 +51,10 @@ export const useAppUpdater = defineStore('appUpdater', () => {
         return version;
       })
       .catch(error => {
-        console.error('Error loading app version', error);
+        console.error('Error loading app version', {
+          runtime: getRuntimeDiagnostics(),
+          error: getErrorDiagnostics(error),
+        });
         installedVersion.value = 'unknown';
         return installedVersion.value;
       });
@@ -82,7 +86,11 @@ export const useAppUpdater = defineStore('appUpdater', () => {
 
         return nextUpdate;
       } catch (error) {
-        console.error('Error checking for updates', error);
+        console.error('Error checking for updates', {
+          installedVersion: installedVersion.value,
+          runtime: getRuntimeDiagnostics(),
+          error: getErrorDiagnostics(error),
+        });
         errorMessage.value = 'Error checking for updates. Please try again later.';
         return update.value as AppUpdate;
       } finally {
@@ -127,7 +135,12 @@ export const useAppUpdater = defineStore('appUpdater', () => {
 
       isReadyToInstall.value = true;
     } catch (error) {
-      console.error('Error during download', error);
+      console.error('Error during download', {
+        installedVersion: installedVersion.value,
+        updateVersion: update.value?.version,
+        runtime: getRuntimeDiagnostics(),
+        error: getErrorDiagnostics(error),
+      });
       errorMessage.value = 'Error downloading update. Please try again later.';
     } finally {
       isDownloading.value = false;
@@ -140,7 +153,11 @@ export const useAppUpdater = defineStore('appUpdater', () => {
       isDownloading.value = false;
       await relaunch();
     } catch (error) {
-      console.error('Error during relaunch', error);
+      console.error('Error during relaunch', {
+        updateVersion: update.value?.version,
+        runtime: getRuntimeDiagnostics(),
+        error: getErrorDiagnostics(error),
+      });
     }
   }
 

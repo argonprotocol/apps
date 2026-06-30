@@ -1,11 +1,10 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
+import { fetch, SingleFileQueue } from '@argonprotocol/apps-core';
 import type { ArgonClient } from '@argonprotocol/mainchain';
-import { fetch } from '@tauri-apps/plugin-http';
 import { ENABLE_AUTO_UPDATE, IS_EXPERIMENTAL_BUILD, IS_TREASURY_APP } from '../lib/Env.ts';
 import { getMainchainClients } from './mainchain.ts';
 import { useAppUpdater } from './appUpdater.ts';
-import { SingleFileQueue } from '@argonprotocol/apps-core';
 
 export type RuntimeCompatibilityPhase = 'disabled' | 'loading' | 'compatible' | 'paused' | 'upgrade-required';
 
