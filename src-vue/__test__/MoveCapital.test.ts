@@ -46,7 +46,7 @@ describe('MoveCapital', () => {
   it('submits vault security moves through the vault allocation path', async () => {
     const { moveCapital, myVault } = createMoveCapital();
     const txInfo = { tx: { id: 11 } } as any;
-    myVault.increaseVaultAllocations.mockResolvedValue(txInfo);
+    myVault.increaseVaultSecuritization.mockResolvedValue(txInfo);
     const wallet = createWallet({ address: 'vaulting-address', availableMicrogons: 250n });
 
     const result = await moveCapital.move(
@@ -57,9 +57,8 @@ describe('MoveCapital', () => {
       'vaulting-address',
     );
 
-    expect(myVault.increaseVaultAllocations).toHaveBeenCalledWith({
+    expect(myVault.increaseVaultSecuritization).toHaveBeenCalledWith({
       addedSecuritizationMicrogons: 100n,
-      addedTreasuryMicrogons: 0n,
       metadata: {
         moveFrom: MoveFrom.VaultingHold,
         moveTo: MoveTo.VaultingSecurity,
@@ -73,7 +72,7 @@ describe('MoveCapital', () => {
   it('calculates vault security move fees from the actual allocation transaction', async () => {
     const { moveCapital, myVault } = createMoveCapital();
     const allocationTx = createMockFeeTx(7n);
-    myVault.buildIncreaseVaultAllocationsTx.mockResolvedValue(allocationTx);
+    myVault.buildIncreaseBitcoinSecurityTx.mockResolvedValue(allocationTx);
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction');
     const wallet = createWallet({ address: 'vaulting-address', availableMicrogons: 250n });
     const client = { id: 'client' } as any;
@@ -88,12 +87,7 @@ describe('MoveCapital', () => {
       client,
     );
 
-    expect(myVault.buildIncreaseVaultAllocationsTx).toHaveBeenCalledWith(
-      {
-        addedSecuritizationMicrogons: 100n,
-      },
-      client,
-    );
+    expect(myVault.buildIncreaseBitcoinSecurityTx).toHaveBeenCalledWith(100n, client);
     expect(allocationTx.paymentInfo).toHaveBeenCalledWith('vaulting-address');
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(fee).toBe(7n);
@@ -112,7 +106,7 @@ describe('MoveCapital', () => {
         'vaulting-address',
       ),
     ).rejects.toThrow('Only ARGN can be moved into vault allocations.');
-    expect(myVault.increaseVaultAllocations).not.toHaveBeenCalled();
+    expect(myVault.increaseVaultSecuritization).not.toHaveBeenCalled();
   });
 
   it('does not treat Ethereum addresses as valid external move destinations', () => {
@@ -125,7 +119,8 @@ describe('MoveCapital', () => {
   });
 
   it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
-    const { moveCapital, transactionTracker } = createMoveCapital();
+    const { moveCapital, transactionTracker, postProcessMiningBidProxySetupSpy } = createMoveCapital();
+    postProcessMiningBidProxySetupSpy.mockRestore();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: 'transfer-tx' as any,
@@ -158,9 +153,6 @@ describe('MoveCapital', () => {
         waitForPostProcessing: proxySetupWait,
       },
     } as any);
-    (moveCapital as any).postProcessMiningBidProxySetup.mockImplementation((submittedTxInfo: any) => {
-      return (MoveCapital.prototype as any).postProcessMiningBidProxySetup.call(moveCapital, submittedTxInfo);
-    });
     const wallet = createWallet({
       availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
       availableMicronots: 7n,
@@ -386,7 +378,6 @@ describe('MoveCapital', () => {
     expect(feeSpy).not.toHaveBeenCalled();
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
-    expect((moveCapital as any).postProcessMiningBidProxySetup).not.toHaveBeenCalled();
     expect(result).toEqual({ kind: 'noSpendableFundsToSweep' });
     expect(moveCapital.transactionError).toBe('');
   });
@@ -518,8 +509,8 @@ function createMoveCapital(existingTxInfo?: MockTxInfo) {
     submitAndWatch: vi.fn(),
   };
   const myVault = {
-    increaseVaultAllocations: vi.fn(),
-    buildIncreaseVaultAllocationsTx: vi.fn(),
+    increaseVaultSecuritization: vi.fn(),
+    buildIncreaseBitcoinSecurityTx: vi.fn(),
   };
   const moveCapitalWalletKeys = {
     miningBotAddress: 'mining-bot-address',
@@ -530,12 +521,15 @@ function createMoveCapital(existingTxInfo?: MockTxInfo) {
   const moveCapital = new MoveCapital(moveCapitalWalletKeys, transactionTracker as any, myVault as any);
 
   vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup').mockResolvedValue({ kind: 'ready' });
-  vi.spyOn(moveCapital as any, 'postProcessMiningBidProxySetup').mockResolvedValue(undefined);
+  const postProcessMiningBidProxySetupSpy = vi
+    .spyOn(moveCapital as any, 'postProcessMiningBidProxySetup')
+    .mockResolvedValue(undefined);
 
   return {
     moveCapital,
     transactionTracker,
     myVault,
+    postProcessMiningBidProxySetupSpy,
   };
 }
 

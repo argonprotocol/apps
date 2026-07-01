@@ -67,7 +67,7 @@
       <div class="flex flex-row justify-center items-center space-x-6 mt-10">
         <ActiveBidsOverlayButton />
         <BotHistoryOverlayButton />
-        <button @click="openBotConfig" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+        <button @click="openBotConfig" class="border border-argon-300 text-center text-lg font-bold mt-10 whitespace-nowrap text-argon-600 px-7 py-2 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           Open Bot Config
         </button>
       </div>

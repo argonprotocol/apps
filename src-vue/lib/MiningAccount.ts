@@ -1,8 +1,4 @@
-import {
-  Accountset,
-  type MiningBidProxySetupMetadata,
-  type MiningBidProxySetupPlan,
-} from '@argonprotocol/apps-core';
+import { Accountset, type MiningBidProxySetupMetadata, type MiningBidProxySetupPlan } from '@argonprotocol/apps-core';
 import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
@@ -38,7 +34,7 @@ export async function planMiningBidProxySetup(args: {
 
 export async function findTrackedMiningBidProxySetup(args: {
   transactionTracker: TransactionTracker;
-  followWindowFinalizedBlocks: number;
+  followWindowFinalizedBlocks?: number;
 }): Promise<TransactionInfo<MiningBidProxySetupMetadata> | undefined> {
   const latestMiningBidProxySetupTxInfo = args.transactionTracker.findLatestTxInfo<MiningBidProxySetupMetadata>(
     txInfo => txInfo.tx.extrinsicType === ExtrinsicType.MiningBidProxySetup,
@@ -49,7 +45,7 @@ export async function findTrackedMiningBidProxySetup(args: {
 
   const txAttemptState = await args.transactionTracker.getTxAttemptState(
     latestMiningBidProxySetupTxInfo,
-    args.followWindowFinalizedBlocks,
+    args.followWindowFinalizedBlocks ?? 2,
   );
   if (txAttemptState === TxAttemptState.Follow) {
     return latestMiningBidProxySetupTxInfo;
@@ -59,7 +55,7 @@ export async function findTrackedMiningBidProxySetup(args: {
 export async function ensureMiningBidProxySetup(args: {
   transactionTracker: TransactionTracker;
   walletKeys: WalletKeys;
-  followWindowFinalizedBlocks: number;
+  followWindowFinalizedBlocks?: number;
   client?: ArgonClient;
 }): Promise<MiningBidProxySetupResult> {
   const trackedTxInfo = await findTrackedMiningBidProxySetup(args);

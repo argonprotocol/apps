@@ -31,7 +31,7 @@ const bot = new Bot({
   ethereumBeaconApiUrl,
   ...requireAll({
     datadir,
-    fundingAccountId: process.env.MINING_FUNDING_ACCOUNT_ID,
+    fundingAccountId: requireEnv('MINING_FUNDING_ACCOUNT_ID'),
     proxyKeypair,
     archiveRpcUrl,
     localRpcUrl: process.env.LOCAL_RPC_URL,

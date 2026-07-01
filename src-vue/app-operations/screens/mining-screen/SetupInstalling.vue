@@ -72,7 +72,9 @@ const installerProgressPct = Vue.computed(() => {
 });
 
 const installerProgressScaled = Vue.computed(() => installerProgressPct.value * 0.8);
-const hasEnteredTransactionPhase = Vue.computed(() => installerProgressPct.value >= 100);
+const hasEnteredTransactionPhase = Vue.computed(() => {
+  return installerProgressPct.value >= 100 || (config.isServerInstalled && !config.isServerInstalling);
+});
 const transactionProgressScaled = Vue.computed(() => 80 + txProgressPct.value * 0.2);
 const targetProgressPct = Vue.computed(() =>
   hasEnteredTransactionPhase.value ? transactionProgressScaled.value : installerProgressScaled.value,
@@ -191,6 +193,32 @@ function trackTxInfo(txInfo: TransactionInfo) {
 
     void ensureTrackedSetupTransfer();
   });
+
+  void txInfo.waitForPostProcessing
+    .then(async () => {
+      txProgressLabel.value = 'Mining capital is ready.';
+      txProgressPct.value = 100;
+      await finalizeMiningSetup();
+    })
+    .catch(error => {
+      transactionErrorMessage.value =
+        error instanceof Error ? error.message : 'Unknown error occurred while preparing mining capital.';
+    });
+}
+
+async function finalizeMiningSetup() {
+  if (errorMessage.value || isFinalizingSetup.value) return;
+  if (config.miningSetupStatus === MiningSetupStatus.Finished) return;
+
+  isFinalizingSetup.value = true;
+  progressPct.value = 100;
+
+  try {
+    config.miningSetupStatus = MiningSetupStatus.Finished;
+    await config.save();
+  } finally {
+    isFinalizingSetup.value = false;
+  }
 }
 
 async function ensureTrackedSetupTransfer(force = false) {
@@ -222,6 +250,7 @@ async function ensureTrackedSetupTransfer(force = false) {
         transactionErrorMessage.value = '';
         txProgressLabel.value = 'Mining capital is ready.';
         txProgressPct.value = 100;
+        await finalizeMiningSetup();
         return;
       }
 
@@ -246,19 +275,6 @@ Vue.watch(
   },
   { immediate: true },
 );
-
-Vue.watch(progressPct, async value => {
-  if (value < 100 || errorMessage.value || isFinalizingSetup.value) return;
-  if (config.miningSetupStatus === MiningSetupStatus.Finished) return;
-
-  isFinalizingSetup.value = true;
-  try {
-    config.miningSetupStatus = MiningSetupStatus.Finished;
-    await config.save();
-  } finally {
-    isFinalizingSetup.value = false;
-  }
-});
 
 Vue.watch(
   () => transactionTracker.data.txInfos.length,

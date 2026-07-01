@@ -1,10 +1,5 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
-import {
-  ArgonClient,
-  FIXED_U128_DECIMALS,
-  SubmittableExtrinsic,
-  toFixedNumber,
-} from '@argonprotocol/mainchain';
+import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import { bigIntMax, isValidArgonAccountAddress, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons } from './WalletForArgon.ts';
@@ -76,15 +71,8 @@ export class MoveCapital {
       };
     }
     if ([MoveTo.VaultingSecurity].includes(moveTo)) {
-      const allocations = {
-        addedSecuritizationMicrogons: 0n,
-        addedTreasuryMicrogons: 0n,
-      };
-      if (moveTo === MoveTo.VaultingSecurity) {
-        allocations.addedSecuritizationMicrogons = assetsToMove.ARGN ?? 0n;
-      }
-      return await this.myVault.increaseVaultAllocations({
-        ...allocations,
+      return await this.myVault.increaseVaultSecuritization({
+        addedSecuritizationMicrogons: moveTo === MoveTo.VaultingSecurity ? (assetsToMove.ARGN ?? 0n) : 0n,
         metadata: this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress),
       });
     } else {
@@ -418,11 +406,8 @@ export class MoveCapital {
       let tx: SubmittableExtrinsic;
       if ([MoveTo.VaultingSecurity].includes(moveTo)) {
         this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
-        tx = await this.myVault.buildIncreaseVaultAllocationsTx(
-          {
-            addedSecuritizationMicrogons:
-              moveTo === MoveTo.VaultingSecurity ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
-          },
+        tx = await this.myVault.buildIncreaseBitcoinSecurityTx(
+          moveTo === MoveTo.VaultingSecurity ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
           client,
         );
       } else {
