@@ -3,6 +3,7 @@ declare global {
     interface ProcessEnv {
       PORT: string;
       BIDDER_KEYPAIR_PATH: string;
+      MINING_FUNDING_ACCOUNT_ID: string;
       KEYPAIR_PASSPHRASE?: string;
       LOCAL_RPC_URL: string;
       ARCHIVE_NODE_URL: string;

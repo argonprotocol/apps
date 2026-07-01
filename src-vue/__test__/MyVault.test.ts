@@ -420,7 +420,6 @@ describe('MyVault cosign recovery', () => {
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadataJson: {
         addedSecuritizationMicrogons: 100n,
-        addedTreasuryMicrogons: 0n,
         vaultId: 7,
       },
     });
@@ -430,10 +429,10 @@ describe('MyVault cosign recovery', () => {
       securitizationRatio: 1,
     } as any;
     vi.spyOn(
-      myVault as unknown as { buildIncreaseVaultAllocationsTx: MyVault['buildIncreaseVaultAllocationsTx'] },
-      'buildIncreaseVaultAllocationsTx',
+      myVault as unknown as { buildIncreaseBitcoinSecurityTx: MyVault['buildIncreaseBitcoinSecurityTx'] },
+      'buildIncreaseBitcoinSecurityTx',
     ).mockResolvedValue(tx as any);
-    vi.spyOn(myVault as any, 'onIncreaseVaultAllocations').mockResolvedValue(undefined);
+    vi.spyOn(myVault as any, 'onIncreaseVaultSecuritization').mockResolvedValue(undefined);
     trackTxResult.mockResolvedValue(txResultInfo);
     const client = {
       genesisHash: { toHex: () => '0xgenesis' },
@@ -454,9 +453,8 @@ describe('MyVault cosign recovery', () => {
     };
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
 
-    const result = await myVault.increaseVaultAllocations({
+    const result = await myVault.increaseVaultSecuritization({
       addedSecuritizationMicrogons: 100n,
-      addedTreasuryMicrogons: 0n,
       metadata: { moveFrom: 'VaultingHold', moveTo: 'VaultingSecurity' },
     });
 
@@ -475,7 +473,6 @@ describe('MyVault cosign recovery', () => {
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadata: {
         addedSecuritizationMicrogons: 100n,
-        addedTreasuryMicrogons: 0n,
         vaultId: 7,
         moveFrom: 'VaultingHold',
         moveTo: 'VaultingSecurity',

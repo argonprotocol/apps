@@ -301,9 +301,9 @@ describe('TransactionTracker', () => {
     });
     const recordWatchStatus = (
       tracker as unknown as {
-        recordWatchStatus: (tx: ITransactionRecord, result: any) => Promise<void>;
+        recordWatchStatus: (tx: ITransactionRecord, watchUpdate: any) => Promise<void>;
       }
-    ).recordWatchStatus.bind(tracker) as (tx: ITransactionRecord, result: any) => Promise<void>;
+    ).recordWatchStatus.bind(tracker) as (tx: ITransactionRecord, watchUpdate: any) => Promise<void>;
     const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHashInBlock').mockResolvedValueOnce({
       blockNumber: 130,
       blockHash: '0xwatched-block',
@@ -315,17 +315,15 @@ describe('TransactionTracker', () => {
     });
 
     await recordWatchStatus(tx, {
+      isBroadcast: false,
+      isInBlock: false,
+      isFinalized: true,
+      isRetracted: false,
+      isUsurped: false,
+      isDropped: false,
+      isInvalid: false,
       blockNumber: 130,
-      status: {
-        isBroadcast: false,
-        isInBlock: false,
-        isFinalized: true,
-        isRetracted: false,
-        isUsurped: false,
-        isDropped: false,
-        isInvalid: false,
-        asFinalized: { toHex: () => '0xwatched-block' },
-      },
+      blockHash: '0xwatched-block',
     });
 
     expect(findSpy).toHaveBeenCalledWith(
@@ -346,6 +344,45 @@ describe('TransactionTracker', () => {
       }),
     );
     expect(table.markFinalized).toHaveBeenCalledWith(tx, expect.objectContaining({ blockNumber: 130 }));
+  });
+
+  it('ignores non-block watch updates without touching finalized accessors', async () => {
+    const tx = createTransaction({
+      id: 11,
+      status: TransactionStatus.Submitted,
+      blockHeight: undefined,
+      blockHash: undefined,
+    });
+    const { tracker } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 130,
+    });
+    const handleWatchedResult = (
+      tracker as unknown as {
+        handleWatchedResult: (tx: ITransactionRecord, txResult: any, result: any) => Promise<void>;
+      }
+    ).handleWatchedResult.bind(tracker) as (tx: ITransactionRecord, txResult: any, result: any) => Promise<void>;
+
+    await expect(
+      handleWatchedResult(
+        tx,
+        { isFinalized: true },
+        {
+          status: {
+            isBroadcast: true,
+            isInBlock: false,
+            isFinalized: false,
+            isRetracted: false,
+            isUsurped: false,
+            isDropped: false,
+            isInvalid: false,
+            get asFinalized() {
+              throw new Error('should not touch asFinalized');
+            },
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it('reserves local nonces above restored pending submissions for concurrent same-account work', async () => {

@@ -187,7 +187,9 @@ export class TransactionInfo<MetadataType = unknown> {
   }
 
   public getStatus() {
-    this.blockProgress.setIsFinalized(this.tx.isFinalized);
+    const isFinalized = this.tx.isFinalized || this.txResult.isFinalized;
+
+    this.blockProgress.setIsFinalized(isFinalized);
     this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
     const progressPct = this.blockProgress.getProgress();
     const confirmations = this.blockProgress.getConfirmations();
@@ -200,7 +202,7 @@ export class TransactionInfo<MetadataType = unknown> {
       confirmations,
       expectedConfirmations,
       error,
-      isFinalized: this.tx.isFinalized,
+      isFinalized,
       isMaxed: this.blockProgress.isMaxed,
     };
   }

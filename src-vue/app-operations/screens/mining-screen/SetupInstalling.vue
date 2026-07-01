@@ -72,7 +72,9 @@ const installerProgressPct = Vue.computed(() => {
 });
 
 const installerProgressScaled = Vue.computed(() => installerProgressPct.value * 0.8);
-const hasEnteredTransactionPhase = Vue.computed(() => installerProgressPct.value >= 100);
+const hasEnteredTransactionPhase = Vue.computed(() => {
+  return installerProgressPct.value >= 100 || (config.isServerInstalled && !config.isServerInstalling);
+});
 const transactionProgressScaled = Vue.computed(() => 80 + txProgressPct.value * 0.2);
 const targetProgressPct = Vue.computed(() =>
   hasEnteredTransactionPhase.value ? transactionProgressScaled.value : installerProgressScaled.value,
@@ -146,18 +148,21 @@ function getStepLabel(stepLabel: IStepLabel, stepStatus: InstallStepStatus): str
   return stepLabel.options[optionIndexByStatus[stepStatus]];
 }
 
-function isMiningSetupTransfer(txInfo: TransactionInfo): boolean {
+function isMiningSetupTx(txInfo: TransactionInfo): boolean {
+  if (txInfo.tx.extrinsicType === ExtrinsicType.MiningBidProxySetup) {
+    return true;
+  }
   if (txInfo.tx.extrinsicType !== ExtrinsicType.Transfer) return false;
 
   const metadata = txInfo.tx.metadataJson as Partial<ITransactionMoveMetadata> | undefined;
   return metadata?.moveFrom === MoveFrom.MiningHold && metadata?.moveTo === MoveTo.MiningBot;
 }
 
-function findLatestSetupTransferTxInfo(): TransactionInfo | null {
+function findLatestSetupTxInfo(): TransactionInfo | null {
   let latestTxInfo: TransactionInfo | null = null;
 
   for (const txInfo of transactionTracker.data.txInfos) {
-    if (!isMiningSetupTransfer(txInfo)) continue;
+    if (!isMiningSetupTx(txInfo)) continue;
     if (!latestTxInfo || txInfo.tx.id > latestTxInfo.tx.id) {
       latestTxInfo = txInfo;
     }
@@ -188,10 +193,36 @@ function trackTxInfo(txInfo: TransactionInfo) {
 
     void ensureTrackedSetupTransfer();
   });
+
+  void txInfo.waitForPostProcessing
+    .then(async () => {
+      txProgressLabel.value = 'Mining capital is ready.';
+      txProgressPct.value = 100;
+      await finalizeMiningSetup();
+    })
+    .catch(error => {
+      transactionErrorMessage.value =
+        error instanceof Error ? error.message : 'Unknown error occurred while preparing mining capital.';
+    });
+}
+
+async function finalizeMiningSetup() {
+  if (errorMessage.value || isFinalizingSetup.value) return;
+  if (config.miningSetupStatus === MiningSetupStatus.Finished) return;
+
+  isFinalizingSetup.value = true;
+  progressPct.value = 100;
+
+  try {
+    config.miningSetupStatus = MiningSetupStatus.Finished;
+    await config.save();
+  } finally {
+    isFinalizingSetup.value = false;
+  }
 }
 
 async function ensureTrackedSetupTransfer(force = false) {
-  const txInfo = findLatestSetupTransferTxInfo();
+  const txInfo = findLatestSetupTxInfo();
   if (txInfo) {
     trackTxInfo(txInfo);
   }
@@ -219,6 +250,7 @@ async function ensureTrackedSetupTransfer(force = false) {
         transactionErrorMessage.value = '';
         txProgressLabel.value = 'Mining capital is ready.';
         txProgressPct.value = 100;
+        await finalizeMiningSetup();
         return;
       }
 
@@ -243,19 +275,6 @@ Vue.watch(
   },
   { immediate: true },
 );
-
-Vue.watch(progressPct, async value => {
-  if (value < 100 || errorMessage.value || isFinalizingSetup.value) return;
-  if (config.miningSetupStatus === MiningSetupStatus.Finished) return;
-
-  isFinalizingSetup.value = true;
-  try {
-    config.miningSetupStatus = MiningSetupStatus.Finished;
-    await config.save();
-  } finally {
-    isFinalizingSetup.value = false;
-  }
-});
 
 Vue.watch(
   () => transactionTracker.data.txInfos.length,

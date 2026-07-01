@@ -9,6 +9,7 @@ import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
   type IBiddingRules,
+  MINING_BID_PROXY_FEE_FLOAT,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
@@ -112,10 +113,24 @@ it.skipIf(skipE2E)(
 
     const db = new Db(botDataDir);
     db.migrate();
+    const fundingAccount = sudo();
+    const proxyKeypair = new Keyring({ type: 'sr25519' }).addFromUri('//Ferdie//mining-proxy');
+    const proxySetup = await new TxSubmitter(
+      client,
+      client.tx.utility.batchAll([
+        client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(fundingAccount.address, 500_000)),
+        client.tx.proxy.addProxy(proxyKeypair.address, 'MiningBidRealPaysFee', 0),
+        client.tx.balances.transferAllowDeath(proxyKeypair.address, MINING_BID_PROXY_FEE_FLOAT),
+      ]),
+      fundingAccount,
+    ).submit();
+    await proxySetup.waitForInFirstBlock;
+
     const bot = new Bot({
       db,
       bitcoinInitializerDelegateKeypair: sudo(),
-      bidderKeypair: sudo(),
+      fundingAccountId: fundingAccount.address,
+      proxyKeypair,
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
       biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),
@@ -244,7 +259,8 @@ it.skipIf(skipE2E)(
     const botRestart = new Bot({
       db: restartDb,
       bitcoinInitializerDelegateKeypair: sudo(),
-      bidderKeypair: sudo(),
+      fundingAccountId: fundingAccount.address,
+      proxyKeypair,
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
       biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),

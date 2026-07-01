@@ -23,7 +23,18 @@ import {
   type TransactionStatusHistoryTable,
 } from './db/TransactionStatusHistoryTable.ts';
 
-type IWatchedTxResult = ISubmittableResult & { blockNumber?: number };
+type IWatchedTxStatus = {
+  isBroadcast: boolean;
+  isInBlock: boolean;
+  isFinalized: boolean;
+  isRetracted: boolean;
+  isUsurped: boolean;
+  isDropped: boolean;
+  isInvalid: boolean;
+  blockHash?: string;
+  blockNumber?: number;
+  replacementTxHash?: string;
+};
 
 export enum TxAttemptState {
   Follow = 'Follow',
@@ -592,22 +603,55 @@ export class TransactionTracker {
     return nextNonce;
   }
 
-  private async handleWatchedResult(record: ITransactionRecord, txResult: TxResult, result: IWatchedTxResult) {
+  private async handleWatchedResult(record: ITransactionRecord, txResult: TxResult, result: ISubmittableResult) {
     try {
-      await this.recordWatchStatus(record, result);
-      if (txResult.submissionError) {
-        await this.recordSubmissionError(record, txResult.submissionError);
+      const { status } = result;
+      const isInBlock = status.isInBlock;
+      const isFinalized = status.isFinalized || txResult.isFinalized;
+      let blockHash: string | undefined;
+      if (isInBlock) {
+        blockHash = status.asInBlock.toHex();
+      } else if (status.isFinalized) {
+        blockHash = status.asFinalized.toHex();
+      }
+      const submissionError = txResult.submissionError;
+
+      await this.recordWatchStatus(record, {
+        isBroadcast: status.isBroadcast,
+        isInBlock,
+        isFinalized,
+        isRetracted: status.isRetracted,
+        isUsurped: status.isUsurped,
+        isDropped: status.isDropped,
+        isInvalid: status.isInvalid,
+        blockHash,
+        blockNumber: txResult.blockNumber,
+        replacementTxHash: status.isUsurped ? status.asUsurped.toHex() : undefined,
+      });
+      if (submissionError) {
+        await this.recordSubmissionError(record, submissionError);
       }
     } catch (error) {
       console.error(`[TransactionTracker] Error handling watched tx #${record.id} update`, error);
     }
   }
 
-  private async recordWatchStatus(record: ITransactionRecord, result: IWatchedTxResult) {
-    const { blockNumber, status } = result;
-    const watchBlockHash = status.isInBlock ? status.asInBlock?.toHex() : status.asFinalized?.toHex();
-
-    if (status.isBroadcast) {
+  private async recordWatchStatus(
+    record: ITransactionRecord,
+    {
+      isBroadcast,
+      isInBlock,
+      isFinalized,
+      isRetracted,
+      isUsurped,
+      isDropped,
+      isInvalid,
+      blockHash,
+      blockNumber,
+      replacementTxHash,
+    }: IWatchedTxStatus,
+  ) {
+    if (isBroadcast) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.Broadcast,
@@ -615,33 +659,33 @@ export class TransactionTracker {
       });
     }
 
-    if (status.isInBlock) {
+    if (isInBlock) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.InBlock,
         source: TransactionHistorySource.Watch,
         blockHeight: blockNumber,
-        blockHash: status.asInBlock?.toHex(),
+        blockHash,
       });
     }
 
-    if (status.isFinalized) {
+    if (isFinalized) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.Finalized,
         source: TransactionHistorySource.Watch,
         blockHeight: blockNumber,
-        blockHash: status.asFinalized?.toHex(),
+        blockHash,
       });
     }
 
-    if ((status.isInBlock || status.isFinalized) && blockNumber != null && watchBlockHash) {
+    if ((isInBlock || isFinalized) && blockNumber != null && blockHash) {
       const findTransactionResult = await TransactionEvents.findByExtrinsicHashInBlock({
         blockWatch: this.blockWatch,
         extrinsicHash: record.extrinsicHash,
         block: {
           blockNumber,
-          blockHash: watchBlockHash,
+          blockHash,
         },
         blockCache: this.#blockCache,
       });
@@ -661,7 +705,7 @@ export class TransactionTracker {
           extrinsicIndex,
         });
 
-        if (status.isFinalized) {
+        if (isFinalized) {
           const finalizedBlockNumber = Math.max(this.blockWatch.finalizedBlockHeader.blockNumber, blockNumber);
           const finalizedBlockTime =
             finalizedBlockNumber === blockNumber
@@ -676,7 +720,7 @@ export class TransactionTracker {
       }
     }
 
-    if (status.isRetracted) {
+    if (isRetracted) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.Retracted,
@@ -684,16 +728,16 @@ export class TransactionTracker {
       });
     }
 
-    if (status.isUsurped) {
+    if (isUsurped && replacementTxHash) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.Usurped,
         source: TransactionHistorySource.Watch,
-        replacementTxHash: status.asUsurped.toHex(),
+        replacementTxHash,
       });
     }
 
-    if (status.isDropped) {
+    if (isDropped) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.Dropped,
@@ -701,7 +745,7 @@ export class TransactionTracker {
       });
     }
 
-    if (status.isInvalid) {
+    if (isInvalid) {
       await this.recordHistoryStatus({
         transactionId: record.id,
         status: TransactionHistoryStatus.Invalid,

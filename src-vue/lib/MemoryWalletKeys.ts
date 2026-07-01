@@ -18,6 +18,7 @@ export class MemoryWalletKeys extends WalletKeys {
   private readonly masterMnemonic: string;
   private readonly miningHoldAccount: KeyringPair;
   private readonly miningBotAccount: KeyringPair;
+  private readonly miningBidProxyAccount: KeyringPair;
   private readonly vaultingAccount: KeyringPair;
   private readonly investmentAccount: KeyringPair;
   private readonly operationalAccount: KeyringPair;
@@ -41,6 +42,7 @@ export class MemoryWalletKeys extends WalletKeys {
     const rootAccount = new Keyring({ type: 'sr25519' }).addFromUri(args.substrateSuri);
     const miningHoldAccount = rootAccount.derive('//holding');
     const miningBotAccount = rootAccount.derive('//mining');
+    const miningBidProxyAccount = miningBotAccount.derive('//proxy');
     const vaultingAccount = rootAccount.derive('//vaulting');
     const investmentAccount = rootAccount.derive('//investment');
     const operationalAccount = rootAccount.derive('//operational');
@@ -67,6 +69,7 @@ export class MemoryWalletKeys extends WalletKeys {
     this.masterMnemonic = args.masterMnemonic;
     this.miningHoldAccount = miningHoldAccount;
     this.miningBotAccount = miningBotAccount;
+    this.miningBidProxyAccount = miningBidProxyAccount;
     this.vaultingAccount = vaultingAccount;
     this.investmentAccount = investmentAccount;
     this.operationalAccount = operationalAccount;
@@ -86,8 +89,8 @@ export class MemoryWalletKeys extends WalletKeys {
     return bytesToHex(privateKey);
   }
 
-  public async exportMiningBotAccountJson(passphrase: string): Promise<KeyringPair$Json> {
-    return this.miningBotAccount.toJson(passphrase);
+  public async exportMiningBidProxyAccountJson(passphrase: string): Promise<KeyringPair$Json> {
+    return this.miningBidProxyAccount.toJson(passphrase);
   }
 
   public async getMiningSessionMiniSecret(): Promise<string> {
@@ -124,6 +127,10 @@ export class MemoryWalletKeys extends WalletKeys {
 
   public async getMiningBotKeypair(): Promise<KeyringPair> {
     return this.miningBotAccount;
+  }
+
+  public async getMiningBidProxyKeypair(): Promise<KeyringPair> {
+    return this.miningBidProxyAccount;
   }
 
   public async signEthereumPersonalMessage(

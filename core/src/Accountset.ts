@@ -5,6 +5,8 @@ import {
   getOfflineRegistry,
   Keyring,
   type KeyringPair,
+  MICROGONS_PER_ARGON,
+  type SubmittableExtrinsic,
   TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
@@ -29,10 +31,26 @@ export interface IMiningIndex {
   bidAmount: bigint;
 }
 
+export const MINING_BID_PROXY_FEE_FLOAT = 1n * BigInt(MICROGONS_PER_ARGON);
+
+export type MiningBidProxySetupMetadata = {
+  fundingAccountId: string;
+  proxyAccountId: string;
+};
+
+export type MiningBidProxySetupPlan =
+  | { kind: 'ready' }
+  | { kind: 'insufficientFunds'; error: string }
+  | {
+      kind: 'tx';
+      tx: SubmittableExtrinsic;
+      metadata: MiningBidProxySetupMetadata;
+    };
+
 export class Accountset {
   public txSubmitterPair: KeyringPair;
   public isProxy = false;
-  public seedAddress: string;
+  public fundingAccountId: string;
   public subAccountsByAddress: {
     [address: string]: { index: number };
   } = {};
@@ -49,7 +67,7 @@ export class Accountset {
     } & (
       | { seedAccount: KeyringPair }
       | {
-          seedAddress: string;
+          fundingAccountId: string;
           isProxy: true;
           txSubmitter: KeyringPair;
         }
@@ -57,18 +75,18 @@ export class Accountset {
   ) {
     if ('seedAccount' in options) {
       this.txSubmitterPair = options.seedAccount;
-      this.seedAddress = options.seedAccount.address;
+      this.fundingAccountId = options.seedAccount.address;
       this.isProxy = false;
     } else {
       this.isProxy = options.isProxy;
       this.txSubmitterPair = options.txSubmitter;
-      this.seedAddress = options.seedAddress;
+      this.fundingAccountId = options.fundingAccountId;
     }
     this.sessionMiniSecretOrMnemonic = options.sessionMiniSecretOrMnemonic;
     this.client = options.client;
     const defaultRange = options.subaccountRange ?? getRange();
     for (const i of defaultRange) {
-      const hashedAccount = Accountset.createMiningSubaccount(this.seedAddress, i);
+      const hashedAccount = Accountset.createMiningSubaccount(this.fundingAccountId, i);
       this.subAccountsByAddress[hashedAccount] = { index: i };
     }
   }
@@ -84,7 +102,7 @@ export class Accountset {
   public async submitterBalance(blockHash?: Uint8Array): Promise<bigint> {
     const client = this.client;
     const api = blockHash ? await client.at(blockHash) : client;
-    const accountData = await api.query.system.account(this.txSubmitterPair.address);
+    const accountData = await api.query.system.account(this.fundingAccountId);
 
     return accountData.data.free.toBigInt();
   }
@@ -92,7 +110,7 @@ export class Accountset {
   public async accountMicronots(blockHash?: Uint8Array): Promise<bigint> {
     const client = this.client;
     const api = blockHash ? await client.at(blockHash) : client;
-    const accountData = await api.query.ownership.account(this.seedAddress);
+    const accountData = await api.query.ownership.account(this.fundingAccountId);
 
     return accountData.free.toBigInt();
   }
@@ -100,7 +118,7 @@ export class Accountset {
   public async balance(blockHash?: Uint8Array): Promise<bigint> {
     const client = this.client;
     const api = blockHash ? await client.at(blockHash) : client;
-    const accountData = await api.query.system.account(this.seedAddress);
+    const accountData = await api.query.system.account(this.fundingAccountId);
 
     return accountData.data.free.toBigInt();
   }
@@ -129,7 +147,7 @@ export class Accountset {
   }
 
   public async loadRegisteredMiners(api: ApiDecoration<'promise'>): Promise<ISubaccountMiner[]> {
-    const addressToMiningIndex = await Mining.fetchMiningSeatsForAccount(this.seedAddress, api);
+    const addressToMiningIndex = await Mining.fetchMiningSeatsForAccount(this.fundingAccountId, api);
 
     return Object.entries(this.subAccountsByAddress).map(([address, { index }]) => {
       return {
@@ -155,7 +173,7 @@ export class Accountset {
 
     const nextCohort = await Mining.fetchWinningBids(api);
     for (const bid of nextCohort) {
-      if (bid.managedByAddress === this.seedAddress) {
+      if (bid.managedByAddress === this.fundingAccountId) {
         const address = bid.address;
         const existing = miners.find(x => x.address === address);
         const details = {
@@ -250,9 +268,48 @@ export class Accountset {
 
     let tx = batch;
     if (this.isProxy) {
-      tx = client.tx.proxy.proxy(this.seedAddress, 'MiningBid', batch);
+      tx = client.tx.proxy.proxy(this.fundingAccountId, 'MiningBidRealPaysFee', batch);
     }
     return new TxSubmitter(client, tx, this.txSubmitterPair);
+  }
+
+  public async planMiningBidProxySetup(): Promise<MiningBidProxySetupPlan> {
+    if (!this.isProxy) {
+      throw new Error('Mining bid proxy setup requires a proxy submitter.');
+    }
+
+    const client = this.client;
+    const proxyAccountId = this.txSubmitterPair.address;
+    const [proxyDefinitions, fundingAccountBalance] = await Promise.all([
+      client.query.proxy.proxies(this.fundingAccountId).then(([definitions]) => definitions),
+      this.balance(),
+    ]);
+
+    const isProxyRegistered = proxyDefinitions.some(def => {
+      return def.delegate.toString() === proxyAccountId && def.proxyType.isMiningBidRealPaysFee;
+    });
+    if (isProxyRegistered) {
+      return { kind: 'ready' };
+    }
+
+    if (fundingAccountBalance < MINING_BID_PROXY_FEE_FLOAT) {
+      return {
+        kind: 'insufficientFunds',
+        error: 'Mining bid account needs 1 ARGN to seed its bid proxy.',
+      };
+    }
+
+    return {
+      kind: 'tx',
+      tx: client.tx.utility.batchAll([
+        client.tx.proxy.addProxy(proxyAccountId, 'MiningBidRealPaysFee', 0),
+        client.tx.balances.transferAllowDeath(proxyAccountId, MINING_BID_PROXY_FEE_FLOAT),
+      ]),
+      metadata: {
+        fundingAccountId: this.fundingAccountId,
+        proxyAccountId,
+      },
+    };
   }
 
   public getAccountsInRange(range?: SubaccountRange): IAccountAndIndex[] {
