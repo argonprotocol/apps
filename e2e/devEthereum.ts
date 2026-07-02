@@ -52,7 +52,6 @@ const MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET: Record<DevEthereumBeaconPreset
 };
 const DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS = 3;
 const DEV_ETHEREUM_LAUNCH_RETRY_DELAY_MS = 1_000;
-
 export type DevEthereumBeaconPreset = 'mainnet' | 'minimal';
 
 export interface IDevEthereumConfig {
@@ -156,10 +155,11 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
       return result;
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
+      const hitPortCollision = errorText.includes('port is already allocated');
 
       await ethereum.teardown().catch(() => undefined);
 
-      if (attempt === DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS || !errorText.includes('port is already allocated')) {
+      if (attempt === DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS || !hitPortCollision) {
         throw error;
       }
 

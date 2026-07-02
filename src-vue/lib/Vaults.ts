@@ -15,11 +15,15 @@ export class Vaults extends VaultsBase {
     super(network, currency, miningFrames, clients);
   }
 
-  private statsFile() {
+  private statsDirectory() {
     if (this.network === 'dev-docker') {
-      return `${this.network}/${INSTANCE_NAME}/vaultStats.json`;
+      return `${this.network}/${INSTANCE_NAME}`;
     }
-    return `${this.network}/vaultStats.json`;
+    return this.network;
+  }
+
+  private statsFile() {
+    return `${this.statsDirectory()}/vaultStats.json`;
   }
 
   protected async saveStats(): Promise<void> {
@@ -30,7 +34,7 @@ export class Vaults extends VaultsBase {
     this.isSavingStats = true;
     try {
       const statsJson = JsonExt.stringify(this.stats, 2);
-      await mkdir(`${this.network}`, { baseDir: BaseDirectory.AppConfig, recursive: true }).catch(() => null);
+      await mkdir(this.statsDirectory(), { baseDir: BaseDirectory.AppConfig, recursive: true }).catch(() => null);
       await writeTextFile(this.statsFile() + '.tmp', statsJson, {
         baseDir: BaseDirectory.AppConfig,
       }).catch(error => {

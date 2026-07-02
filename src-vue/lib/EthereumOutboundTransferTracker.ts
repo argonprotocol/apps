@@ -494,7 +494,7 @@ export class EthereumOutboundTransferTracker {
         destinationChain: NETWORK,
         token: moveToken,
         amount,
-        argonSourceAddress: getSourceWalletAddress(this.walletKeys, sourceWalletType),
+        argonSourceAddress: this.walletKeys.getWalletAddress(sourceWalletType),
         destinationAddress: this.walletKeys.ethereumAddress,
         argonRequestTransactionId: txInfo.tx.id,
         progressJson: transfer.transferState.progress,
@@ -1399,17 +1399,6 @@ async function extractTransferId(txInfo: TransactionInfo<ICrosschainTransferOutM
   }
 
   throw new Error('TransferOutStarted event not found in transaction events.');
-}
-
-function getSourceWalletAddress(walletKeys: WalletKeys, sourceWalletType: IArgonWalletType) {
-  switch (sourceWalletType) {
-    case WalletType.investment:
-      return walletKeys.investmentAddress;
-    case WalletType.miningHold:
-      return walletKeys.miningHoldAddress;
-    case WalletType.vaulting:
-      return walletKeys.vaultingAddress;
-  }
 }
 
 async function getSourceWalletKeypair(walletKeys: WalletKeys, sourceWalletType: IArgonWalletType) {
