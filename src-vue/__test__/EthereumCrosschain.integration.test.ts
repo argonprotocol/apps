@@ -258,6 +258,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     });
     gatewayProverService = new EthereumGatewayProverService(submitLane, {
       backgroundSweepMs: 1_000,
+      shouldApplySharedRelayStagger: false,
     });
     ethereumClient = new EthereumClient(walletKeys, ethereum.executionRpcUrl!);
     tracker = new EthereumInboundTransferTracker(

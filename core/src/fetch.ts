@@ -155,7 +155,9 @@ function summarizeUrl(url: string): string {
 }
 
 function sanitizeDiagnosticText(text: string): string {
-  return text.replace(/https?:\/\/[^\s)]+/g, url => summarizeUrl(url));
+  return text
+    .replace(/0x[a-fA-F0-9]{32,}/g, value => `${value.slice(0, 10)}...${value.slice(-8)}`)
+    .replace(/https?:\/\/[^\s)]+/g, url => summarizeUrl(url));
 }
 
 function hasQueryString(url?: string): boolean {

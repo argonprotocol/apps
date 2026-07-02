@@ -82,6 +82,10 @@ export default new OperationalFlow<IVaultingFlowContext, IFundingState>(import.m
         },
       },
       appFundWalletFromEthereum,
+      {
+        timeoutMs: 180_000,
+        timeoutMessage: `${flowName}: Ethereum funding did not become ready on Argon in time.`,
+      },
     );
 
     await flow.poll(this, nextState => nextState.chainState.walletIsFullyFunded, {

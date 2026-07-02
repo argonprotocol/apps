@@ -243,6 +243,25 @@ export class WalletKeys {
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
+  public getWalletAddress(walletType: WalletType): string {
+    switch (walletType) {
+      case WalletType.miningHold:
+        return this.miningHoldAddress;
+      case WalletType.miningBot:
+        return this.miningBotAddress;
+      case WalletType.vaulting:
+        return this.vaultingAddress;
+      case WalletType.operational:
+        return this.operationalAddress;
+      case WalletType.investment:
+        return this.investmentAddress;
+      case WalletType.ethereum:
+        return this.ethereumAddress;
+    }
+
+    throw new Error('Unsupported wallet type.');
+  }
+
   public async getWalletKeypair(walletType: WalletType): Promise<KeyringPair> {
     switch (walletType) {
       case WalletType.miningHold:

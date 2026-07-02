@@ -45,6 +45,7 @@ export class EthereumGatewayProverService {
   constructor(
     private readonly submitLane: DelegateSubmitLane,
     private readonly options: {
+      shouldApplySharedRelayStagger?: boolean;
       backgroundSweepMs?: number;
       vaultOperatorAddress?: string;
     } = {},
@@ -267,11 +268,15 @@ export class EthereumGatewayProverService {
         return;
       }
 
-      if (sharedRelayIsPastFreeHeaderInterval) {
+      if (sharedRelayIsPastFreeHeaderInterval || this.options.shouldApplySharedRelayStagger === false) {
+        let bypassReason = 'has shared relay staggering disabled';
+        if (sharedRelayIsPastFreeHeaderInterval) {
+          bypassReason = `is ${sharedRelayExecutionBlockLag} blocks behind the latest anchor`;
+        }
+
         console.log(
           `[EthereumGatewayProverService] Shared gateway relay through activity ` +
-            `${proofPayload.gatewayActivityNonceRange.end} is ${sharedRelayExecutionBlockLag} blocks behind the latest ` +
-            'anchor; bypassing the stagger window',
+            `${proofPayload.gatewayActivityNonceRange.end} ${bypassReason}; bypassing the stagger window`,
         );
         const response = await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
         if (response.outcome !== 'Rejected') {
@@ -625,7 +630,7 @@ export class EthereumGatewayProverService {
     for (const activity of activities) {
       let activitySigners: string[] = [];
       if (activity.kind === 'TransferOutOfArgonFinalized') {
-        for (const collateral of activity.mintingCollateral) {
+        for (const collateral of activity.mintingCollateral ?? []) {
           activitySigners.push(collateral.signingKey);
         }
       } else if (activity.kind === 'MintingAuthorityActivated' || activity.kind === 'MintingAuthorityDeactivated') {

@@ -10,6 +10,7 @@ const ETHEREUM_MOVE_TIMEOUT_MS = 6 * 60_000;
 const EMPTY_FUNDING_STATE = {
   ethereumAddress: '',
   archiveUrl: '',
+  ethereumChainConfigReady: false,
   ethereumFetchErrorMsg: '',
   ethereumMicrogons: 0n,
   ethereumMicronots: 0n,
@@ -48,6 +49,9 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
   async inspect(context: IAppFundWalletFromEthereumContext) {
     const targetWalletType = parseTargetWalletType(context.input.targetWalletType);
     const walletOverlay = await context.flow.isVisible('WalletOverlay');
+    const chainState = targetWalletType
+      ? await readEthereumFundingState(context.flow, targetWalletType)
+      : EMPTY_FUNDING_STATE;
 
     const blockers: string[] = [];
     if (!targetWalletType) {
@@ -56,13 +60,12 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     if (!walletOverlay.visible) {
       blockers.push('Wallet overlay is not visible.');
     }
-
-    const chainState = targetWalletType
-      ? await readEthereumFundingState(context.flow, targetWalletType)
-      : EMPTY_FUNDING_STATE;
+    if (targetWalletType && walletOverlay.visible && !chainState.ethereumChainConfigReady) {
+      blockers.push('Ethereum chain config is still loading on the local Argon network.');
+    }
     const fundingRunStarted = context.flow.getData<boolean>('App.op.fundWalletFromEthereum.started') ?? false;
     const isComplete = fundingRunStarted && !walletOverlay.visible;
-    const canRun = !!targetWalletType && walletOverlay.visible;
+    const canRun = !!targetWalletType && walletOverlay.visible && chainState.ethereumChainConfigReady;
 
     return {
       chainState,
@@ -81,6 +84,9 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     const targetWalletType = parseTargetWalletType(context.input.targetWalletType);
     if (!targetWalletType) {
       throw new Error('Ethereum funding target wallet type is required.');
+    }
+    if (!state.chainState.ethereumChainConfigReady) {
+      throw new Error('Ethereum chain config is still loading on the local Argon network.');
     }
 
     context.flow.setData('App.op.fundWalletFromEthereum.started', true);
@@ -215,12 +221,19 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
       const archiveUrl =
         (mainchainClient as { _options?: { provider?: { endpoint?: string } } } | undefined)?._options?.provider
           ?.endpoint ?? '';
+      const ethereumChainConfigReady = mainchainClient
+        ? await mainchainClient.query.crosschainTransfer
+            .chainConfigBySourceChain('Ethereum')
+            .then(config => config.isSome && config.unwrap().isEvm)
+            .catch(() => false)
+        : false;
       const argnTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnMoveToken);
       const argnotTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnotMoveToken);
 
       return {
         ethereumAddress: refs.wallets.ethereumWallet.address,
         archiveUrl,
+        ethereumChainConfigReady,
         ethereumFetchErrorMsg: refs.wallets.ethereumWallet.fetchErrorMsg,
         ethereumMicrogons: refs.wallets.ethereumWallet.availableMicrogons.toString(),
         ethereumMicronots: refs.wallets.ethereumWallet.availableMicronots.toString(),
@@ -255,6 +268,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
   return {
     ethereumAddress: state.ethereumAddress,
     archiveUrl: state.archiveUrl,
+    ethereumChainConfigReady: state.ethereumChainConfigReady,
     ethereumFetchErrorMsg: state.ethereumFetchErrorMsg,
     ethereumMicrogons: BigInt(state.ethereumMicrogons),
     ethereumMicronots: BigInt(state.ethereumMicronots),

@@ -4,7 +4,6 @@ import {
   fetch,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
-  type IEthereumGatewayRelayReasonCode,
   type IEthereumGatewayRelayStatus,
 } from '@argonprotocol/apps-core';
 import type {
@@ -26,17 +25,8 @@ import {
   type ServerAuthClient,
   type ServerAuthOptions,
 } from './ServerAuthClient.ts';
-import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 
 export type ServerGatewayDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gatewayPort' | 'type'>;
-export type IEthereumGatewayRelaySource = 'localServer' | 'upstreamOperator';
-export type IEthereumGatewayCatchUpDispatchResult = {
-  relayError?: string;
-  relayReasonCode?: IEthereumGatewayRelayReasonCode;
-  relaySource?: IEthereumGatewayRelaySource;
-  localRelayError?: string;
-  localRelayReasonCode?: IEthereumGatewayRelayReasonCode;
-};
 
 export interface IBitcoinBlockChainInfo {
   chain: string;
@@ -371,88 +361,4 @@ function getGatewayHost(serverDetails: ServerGatewayDetails): string {
 
 function isLoopbackIp(ipAddress: string): boolean {
   return ipAddress === '127.0.0.1' || ipAddress === '::1';
-}
-
-export async function requestEthereumGatewayCatchUpThroughOperator(args: {
-  throughGatewayActivityNonce: bigint;
-  serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
-  upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
-}): Promise<string | undefined> {
-  const result = await requestEthereumGatewayCatchUpDispatch(args);
-  return result.relayError;
-}
-
-export async function requestEthereumGatewayCatchUpDispatch(args: {
-  throughGatewayActivityNonce: bigint;
-  serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
-  upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
-}): Promise<IEthereumGatewayCatchUpDispatchResult> {
-  const { throughGatewayActivityNonce, serverApiClient, upstreamOperatorClient } = args;
-  let localRelayError = '';
-  let localRelayReasonCode: IEthereumGatewayRelayReasonCode | undefined;
-
-  if (serverApiClient) {
-    try {
-      const relayStatus = await serverApiClient.getEthereumRelayStatus();
-      if (relayStatus.isReady) {
-        const response = await serverApiClient.requestEthereumGatewayCatchUp({
-          sourceChain: 'Ethereum',
-          throughGatewayActivityNonce,
-        });
-        if (response.outcome !== 'Rejected') {
-          return {
-            relaySource: 'localServer',
-          };
-        }
-
-        localRelayError = response.reason;
-        localRelayReasonCode = response.reasonCode;
-      } else {
-        localRelayError = relayStatus.reason ?? '';
-        localRelayReasonCode = relayStatus.reasonCode;
-      }
-    } catch (error) {
-      localRelayError = error instanceof Error ? error.message : String(error);
-    }
-
-    if (!upstreamOperatorClient?.operatorHost) {
-      return {
-        relayError: localRelayError,
-        relayReasonCode: localRelayReasonCode,
-        localRelayError,
-        localRelayReasonCode,
-      };
-    }
-  }
-
-  if (!upstreamOperatorClient?.operatorHost) {
-    return {};
-  }
-
-  try {
-    const response = await upstreamOperatorClient.requestEthereumGatewayCatchUp({
-      sourceChain: 'Ethereum',
-      throughGatewayActivityNonce,
-    });
-    if (response.outcome === 'Rejected') {
-      return {
-        relayError: response.reason,
-        relayReasonCode: response.reasonCode,
-        localRelayError: localRelayError || undefined,
-        localRelayReasonCode,
-      };
-    }
-
-    return {
-      relaySource: 'upstreamOperator',
-      localRelayError: localRelayError || undefined,
-      localRelayReasonCode,
-    };
-  } catch (error) {
-    return {
-      relayError: error instanceof Error ? error.message : String(error),
-      localRelayError: localRelayError || undefined,
-      localRelayReasonCode,
-    };
-  }
 }
