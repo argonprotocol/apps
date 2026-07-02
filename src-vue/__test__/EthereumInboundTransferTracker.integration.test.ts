@@ -114,6 +114,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         txSubmittedAtTime: new Date('2026-05-19T12:00:00.000Z'),
       };
     });
+    const upstreamCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const, throughGatewayActivityNonce: 7n }));
     const mainchainClient = createMainchainClient({
       getProvenNonce: () => provenNonce,
     });
@@ -137,8 +138,8 @@ describe('EthereumInboundTransferTracker integration', () => {
         requestEthereumGatewayCatchUp,
       },
       {
-        operatorHost: undefined,
-        requestEthereumGatewayCatchUp: vi.fn(),
+        operatorHost: 'https://upstream.example',
+        requestEthereumGatewayCatchUp: upstreamCatchUp,
       },
     );
 
@@ -150,6 +151,10 @@ describe('EthereumInboundTransferTracker integration', () => {
 
     await vi.waitFor(() => {
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledWith({
+        sourceChain: 'Ethereum',
+        throughGatewayActivityNonce: 7n,
+      });
+      expect(upstreamCatchUp).toHaveBeenCalledWith({
         sourceChain: 'Ethereum',
         throughGatewayActivityNonce: 7n,
       });
@@ -467,6 +472,206 @@ describe('EthereumInboundTransferTracker integration', () => {
       await vi.advanceTimersByTimeAsync(1);
       await requestBackendCatchUp(activeTransfer);
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries local catch-up immediately once the relayer becomes ready', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const db = await createTestDb();
+      const walletKeys = createMockWalletKeys();
+      const getEthereumRelayStatus = vi
+        .fn()
+        .mockResolvedValueOnce({
+          isReady: false,
+          reason: 'Local Ethereum relayer is still starting.',
+        })
+        .mockResolvedValue({
+          isReady: true,
+        });
+      const requestEthereumGatewayCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const }));
+      const mainchainClient = createMainchainClient({
+        getProvenNonce: () => 6n,
+      });
+
+      const tracker = new EthereumInboundTransferTracker(
+        Promise.resolve(db),
+        createTransactionTracker(),
+        createBlockWatch(mainchainClient),
+        walletKeys,
+        createEthereumClient({
+          sourceAddress: walletKeys.ethereumAddress,
+          destinationAddress: walletKeys.investmentAddress,
+          sourceTxHash: `0x${'38'.repeat(32)}`,
+          sourceBlockNumber: 42,
+          sourceBlockHash: `0x${'49'.repeat(32)}`,
+          sourceLogIndex: 8,
+          gatewayActivityNonce: 7n,
+          waitEstimateMs: 1_000,
+        }),
+        {
+          getEthereumRelayStatus,
+          requestEthereumGatewayCatchUp,
+        },
+        {
+          operatorHost: undefined,
+          requestEthereumGatewayCatchUp: vi.fn(),
+        },
+      );
+
+      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+        id: nanoid(),
+        token: MoveToken.ARGN,
+        argonDestinationAddress: walletKeys.investmentAddress,
+        sourceTxHash: `0x${'38'.repeat(32)}`,
+        sourceBlockNumber: 42,
+        sourceBlockHash: `0x${'49'.repeat(32)}`,
+        sourceLogIndex: 8,
+        gatewayActivityNonce: 7n,
+        status: CrosschainInboundTransferStatus.SourceFinalized,
+      });
+      const progress = setInboundRelayStepProgress(createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES), {
+        progressPct: 0,
+        detail: 'Waiting for Argon to receive finalized Ethereum state...',
+      });
+      const activeTransfer = {
+        id: persistedRecord.id,
+        moveToken: MoveToken.ARGN,
+        persistedRecord,
+        transferState: {
+          ...tracker.getTransferStateForToken(MoveToken.ARGN),
+          hasPersistedTransfer: true,
+          isSubmitting: true,
+          targetWalletType: WalletType.investment,
+          progress,
+        },
+      };
+      (
+        tracker as unknown as {
+          data: {
+            transfersById: Record<string, unknown>;
+            latestTransferIdByToken: Partial<Record<MoveToken.ARGN | MoveToken.ARGNOT, string>>;
+          };
+        }
+      ).data.transfersById[persistedRecord.id] = activeTransfer;
+
+      const requestBackendCatchUp = (
+        tracker as unknown as {
+          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+        }
+      ).requestBackendCatchUp.bind(tracker);
+
+      await requestBackendCatchUp(activeTransfer);
+      expect(getEthereumRelayStatus).toHaveBeenCalledTimes(1);
+      expect(requestEthereumGatewayCatchUp).not.toHaveBeenCalled();
+
+      await requestBackendCatchUp(activeTransfer);
+      expect(getEthereumRelayStatus).toHaveBeenCalledTimes(2);
+      expect(requestEthereumGatewayCatchUp).toHaveBeenCalledWith({
+        sourceChain: 'Ethereum',
+        throughGatewayActivityNonce: 7n,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('backs off local catch-up retries after a generic relay request failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const db = await createTestDb();
+      const walletKeys = createMockWalletKeys();
+      const getEthereumRelayStatus = vi.fn(async () => {
+        throw new Error('Server auth session was not accepted.');
+      });
+      const requestEthereumGatewayCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const }));
+      const mainchainClient = createMainchainClient({
+        getProvenNonce: () => 6n,
+      });
+
+      const tracker = new EthereumInboundTransferTracker(
+        Promise.resolve(db),
+        createTransactionTracker(),
+        createBlockWatch(mainchainClient),
+        walletKeys,
+        createEthereumClient({
+          sourceAddress: walletKeys.ethereumAddress,
+          destinationAddress: walletKeys.investmentAddress,
+          sourceTxHash: `0x${'39'.repeat(32)}`,
+          sourceBlockNumber: 42,
+          sourceBlockHash: `0x${'4a'.repeat(32)}`,
+          sourceLogIndex: 8,
+          gatewayActivityNonce: 7n,
+          waitEstimateMs: 1_000,
+        }),
+        {
+          getEthereumRelayStatus,
+          requestEthereumGatewayCatchUp,
+        },
+        {
+          operatorHost: undefined,
+          requestEthereumGatewayCatchUp: vi.fn(),
+        },
+      );
+
+      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+        id: nanoid(),
+        token: MoveToken.ARGN,
+        argonDestinationAddress: walletKeys.investmentAddress,
+        sourceTxHash: `0x${'39'.repeat(32)}`,
+        sourceBlockNumber: 42,
+        sourceBlockHash: `0x${'4a'.repeat(32)}`,
+        sourceLogIndex: 8,
+        gatewayActivityNonce: 7n,
+        status: CrosschainInboundTransferStatus.SourceFinalized,
+      });
+      const progress = setInboundRelayStepProgress(createCrosschainTransferProgress(INBOUND_TRANSFER_STEP_TITLES), {
+        progressPct: 0,
+        detail: 'Waiting for Argon to receive finalized Ethereum state...',
+      });
+      const activeTransfer = {
+        id: persistedRecord.id,
+        moveToken: MoveToken.ARGN,
+        persistedRecord,
+        transferState: {
+          ...tracker.getTransferStateForToken(MoveToken.ARGN),
+          hasPersistedTransfer: true,
+          isSubmitting: true,
+          targetWalletType: WalletType.investment,
+          progress,
+        },
+      };
+      (
+        tracker as unknown as {
+          data: {
+            transfersById: Record<string, unknown>;
+            latestTransferIdByToken: Partial<Record<MoveToken.ARGN | MoveToken.ARGNOT, string>>;
+          };
+        }
+      ).data.transfersById[persistedRecord.id] = activeTransfer;
+
+      const requestBackendCatchUp = (
+        tracker as unknown as {
+          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+        }
+      ).requestBackendCatchUp.bind(tracker);
+
+      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer);
+      expect(getEthereumRelayStatus).toHaveBeenCalledTimes(1);
+      expect(requestEthereumGatewayCatchUp).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(999);
+      await requestBackendCatchUp(activeTransfer);
+      expect(getEthereumRelayStatus).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await requestBackendCatchUp(activeTransfer);
+      expect(getEthereumRelayStatus).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -842,6 +1047,53 @@ describe('EthereumInboundTransferTracker integration', () => {
     expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledTimes(2);
   });
 
+  it('surfaces a clear error when the Ethereum wallet cannot cover the network fee', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const ethereumClient = createEthereumClient({
+      sourceAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.investmentAddress,
+      sourceTxHash: `0x${'77'.repeat(32)}`,
+      sourceBlockNumber: 42,
+      sourceBlockHash: `0x${'88'.repeat(32)}`,
+      sourceLogIndex: 9,
+      gatewayActivityNonce: 7n,
+      nativeBalanceWei: 0n,
+      feeEstimateWei: 5n,
+    });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(
+        createMainchainClient({
+          getProvenNonce: () => 6n,
+        }),
+      ),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      {
+        operatorHost: undefined,
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+    );
+
+    const activeTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.investment,
+    });
+
+    await vi.waitFor(() => {
+      expect(activeTransfer?.transferState.isSubmitting).toBe(false);
+      expect(activeTransfer?.transferState.needsAttention).toBe(true);
+      expect(activeTransfer?.transferState.error).toContain('Your Ethereum wallet has 0 ETH');
+      expect(activeTransfer?.transferState.error).toContain('Add about 0.000000000000000005 ETH and retry.');
+    });
+
+    expect(ethereumClient.startTransferToArgon).not.toHaveBeenCalled();
+  });
+
   it('keeps the inbound Argon catch-up loop alive after a transient finalized-head read error', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
@@ -910,12 +1162,16 @@ function createEthereumClient(args: {
   gatewayActivityNonce: bigint;
   pollMs?: number;
   waitEstimateMs?: number;
+  feeEstimateWei?: bigint;
+  nativeBalanceWei?: bigint;
 }): Pick<
   EthereumClient,
   | 'sourceAddress'
   | 'executionRpcUrl'
   | 'startTransferToArgon'
   | 'confirmTransferToArgon'
+  | 'estimateTransferToArgonFee'
+  | 'getNativeBalanceWei'
   | 'getTransactionProgress'
   | 'getTransactionFinalityPollMs'
   | 'getTransactionFinalityBlocks'
@@ -942,6 +1198,8 @@ function createEthereumClient(args: {
       executionRpcUrl: 'http://ethereum.test',
       sourceTxHash: args.sourceTxHash,
     })),
+    estimateTransferToArgonFee: vi.fn(async () => args.feeEstimateWei ?? 1n),
+    getNativeBalanceWei: vi.fn(async () => args.nativeBalanceWei ?? 10n),
     confirmTransferToArgon: vi.fn(async () => ({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,

@@ -3,7 +3,8 @@ import { ApiDecoration, EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@arg
 import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
 import { getGatewayActivityWaitEstimateMs } from './EthereumClient.ts';
-import { requestEthereumGatewayCatchUpThroughOperator, type ServerApiClient } from './ServerApiClient.ts';
+import { requestEthereumGatewayCatchup } from './EthereumGatewayCatchup.ts';
+import type { ServerApiClient } from './ServerApiClient.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
@@ -478,7 +479,7 @@ export class MintingAuthorities {
     this.#lastPendingActivationRelayRequestAt = now;
 
     const relayPromise = (async () => {
-      const relayError = await requestEthereumGatewayCatchUpThroughOperator({
+      const { relayError } = await requestEthereumGatewayCatchup({
         throughGatewayActivityNonce: nextGatewayActivityNonce,
         serverApiClient,
         upstreamOperatorClient: upstreamOperatorClient?.operatorHost ? upstreamOperatorClient : undefined,
