@@ -12,10 +12,11 @@
     >
       <div
         v-if="showWindowControls && !enableTopBar"
-        @click.stop class="absolute left-0"
-        :class="[getPlatform() === 'macos' ? 'top-[22px]' : 'top-[16px]']"
+        class="pointer-events-none absolute top-0 left-0 flex min-h-14 w-full flex-row items-center"
       >
-        <WindowControls />
+        <div @click.stop class="pointer-events-auto relative top-px flex flex-row items-center">
+          <WindowControls />
+        </div>
       </div>
     </div>
   </div>
@@ -24,7 +25,6 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import WindowControls from '../tauri-controls/WindowControls.vue';
-import { platform as getPlatform } from '@tauri-apps/plugin-os';
 
 const props = withDefaults(
   defineProps<{
