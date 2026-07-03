@@ -119,7 +119,9 @@ async function main(): Promise<void> {
   }
 
   console.log(baseConfig);
-  const tauriArgs = ['tauri', 'dev', '--config', configJson];
+  const configArg =
+    process.platform === 'win32' ? `"${configJson.replace(/"/g, '\\"')}"` : configJson;
+  const tauriArgs = ['tauri', 'dev', '--config', configArg];
   const isE2EAppRun = Boolean(readNonEmpty(tauriEnv.ARGON_DRIVER_WS));
   if (isE2EAppRun) {
     tauriArgs.push('--features', 'e2e-screenshots,e2e-insecure-gateway-certs');
@@ -145,7 +147,12 @@ async function main(): Promise<void> {
   const child = spawn('yarn', tauriArgs, {
     env: tauriEnv,
     stdio: 'inherit',
-    shell: false,
+    shell: process.platform === 'win32',
+  });
+
+  child.on('error', err => {
+    console.error('[tauri-dev] Failed to start child process.', err);
+    process.exit(1);
   });
 
   if (shouldStartDevEthereumMintingAuthority) {
