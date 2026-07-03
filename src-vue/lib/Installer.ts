@@ -683,8 +683,11 @@ export default class Installer {
 
     const totalCount = 5;
 
-    const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
-    await server.uploadMiningBotWallet(miningBidProxyAccount);
+    // Enable this when we're ready to upload the proxy wallet to the bot.
+    // const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
+    // await server.uploadMiningBotWallet(miningBidProxyAccount);
+    const miningBotKeypair = await this.walletKeys.getMiningBotKeypair();
+    await server.uploadMiningBotWallet(miningBotKeypair.toJson(''));
     progressFn?.(totalCount, 1);
 
     await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));

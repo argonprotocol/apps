@@ -16,10 +16,10 @@ const mnemonicFile = './sessionKeyMnemonic.key';
 // generate keys that are used to sign blocks.
 if (!existsSync(mnemonicFile)) {
   const sessionKeyMnemonic = mnemonicGenerate();
-  await fs.writeFile(sessionKeyMnemonic, 'utf8');
+  await fs.writeFile(mnemonicFile, sessionKeyMnemonic, 'utf8');
 }
 const sessionKeyMnemonic = await fs.readFile(mnemonicFile, 'utf8');
-const seedAccount = await keyringFromFile({
+const txSubmitter = await keyringFromFile({
   filePath: '<path to file>',
   passphrase: 'my password',
 });
@@ -27,8 +27,8 @@ const mainchainUrl = 'wss://rpc.argon.network';
 const client = getClient(mainchainUrl);
 this.accountset = new Accountset({
   client,
-  seedAccount,
-  sessionKeyMnemonic,
+  txSubmitter,
+  sessionMiniSecretOrMnemonic: sessionKeyMnemonic,
   subaccountRange: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
 });
 

@@ -114,23 +114,24 @@ it.skipIf(skipE2E)(
     const db = new Db(botDataDir);
     db.migrate();
     const fundingAccount = sudo();
+    const useProxyBidder = true;
     const proxyKeypair = new Keyring({ type: 'sr25519' }).addFromUri('//Ferdie//mining-proxy');
-    const proxySetup = await new TxSubmitter(
-      client,
-      client.tx.utility.batchAll([
-        client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(fundingAccount.address, 500_000)),
+    const bidderKeypair = useProxyBidder ? proxyKeypair : fundingAccount;
+    const setupCalls = [client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(fundingAccount.address, 500_000))];
+    if (useProxyBidder) {
+      setupCalls.push(
         client.tx.proxy.addProxy(proxyKeypair.address, 'MiningBidRealPaysFee', 0),
         client.tx.balances.transferAllowDeath(proxyKeypair.address, MINING_BID_PROXY_FEE_FLOAT),
-      ]),
-      fundingAccount,
-    ).submit();
-    await proxySetup.waitForInFirstBlock;
+      );
+    }
+    const fundingSetup = await new TxSubmitter(client, client.tx.utility.batchAll(setupCalls), fundingAccount).submit();
+    await fundingSetup.waitForInFirstBlock;
 
     const bot = new Bot({
       db,
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
-      proxyKeypair,
+      bidderKeypair,
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
       biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),
@@ -260,7 +261,7 @@ it.skipIf(skipE2E)(
       db: restartDb,
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
-      proxyKeypair,
+      bidderKeypair,
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
       biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),

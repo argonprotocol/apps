@@ -178,23 +178,25 @@ export class AutoBidder {
     if (this.isStopped || !this.biddingRules || !this.biddingCalculator) return;
 
     try {
-      const proxySetup = await this.accountset.planMiningBidProxySetup();
-      if (proxySetup.kind !== 'ready') {
-        console.log('Holding off bidding until mining bid proxy is ready', {
-          cohortActivationFrameId,
-          proxySetup: proxySetup.kind,
-        });
-        if (!this.pendingProxyRetryTimeout) {
-          this.pendingProxyRetryTimeout = setTimeout(() => {
-            this.pendingProxyRetryTimeout = undefined;
-            void this.queueLifecycle(() => this.reloadActiveCohort());
-          }, 1_000);
+      if (this.accountset.isProxy) {
+        const proxySetup = await this.accountset.planMiningBidProxySetup();
+        if (proxySetup.kind !== 'ready') {
+          console.log('Holding off bidding until mining bid proxy is ready', {
+            cohortActivationFrameId,
+            proxySetup: proxySetup.kind,
+          });
+          if (!this.pendingProxyRetryTimeout) {
+            this.pendingProxyRetryTimeout = setTimeout(() => {
+              this.pendingProxyRetryTimeout = undefined;
+              void this.queueLifecycle(() => this.reloadActiveCohort());
+            }, 1_000);
+          }
+          return;
         }
-        return;
-      }
-      if (this.pendingProxyRetryTimeout) {
-        clearTimeout(this.pendingProxyRetryTimeout);
-        this.pendingProxyRetryTimeout = undefined;
+        if (this.pendingProxyRetryTimeout) {
+          clearTimeout(this.pendingProxyRetryTimeout);
+          this.pendingProxyRetryTimeout = undefined;
+        }
       }
 
       const params = await this.createBidderParams(cohortActivationFrameId);
