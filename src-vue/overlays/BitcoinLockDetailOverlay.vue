@@ -9,7 +9,7 @@
     <template #title>
       <div class="mr-6 flex grow flex-row items-center gap-2">
         <span class="text-xl font-bold text-slate-800/80">Bitcoin Lock Details</span>
-        <template v-if="IS_OPERATIONS_APP">
+        <template v-if="config.showOperationsExtension">
           <span
             v-if="isLocalLock"
             class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white"
@@ -40,9 +40,10 @@ import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import LockDetail from './bitcoin-locking/LockDetail.vue';
-import { IS_OPERATIONS_APP } from '../lib/Env.ts';
 import type { IExternalBitcoinLock } from '../lib/MyVault.ts';
+import { getConfig } from '../stores/config.ts';
 
+const config = getConfig();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 

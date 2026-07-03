@@ -30,7 +30,6 @@
               }"
               :class="twMerge(
                 'absolute z-50 pointer-events-auto min-h-40 w-6/12 focus:outline-none',
-                IS_TREASURY_APP && !config.showWelcomeOverlay ? '' : '',
                 props.leaveBlank ? '' : 'bg-white border border-black/40 rounded-lg shadow-2xl',
                 props.overflowScroll ? 'flex max-h-[85vh] flex-col overflow-hidden' : '',
                 props.class,
@@ -80,7 +79,6 @@ import { twMerge } from 'tailwind-merge';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DialogClose } from 'reka-ui';
 import { AnimatePresence, Motion, MotionGlobalConfig } from 'motion-v';
 import { ChevronLeftIcon, XMarkIcon } from '@heroicons/vue/24/outline';
-import { IS_TREASURY_APP } from '../lib/Env.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import Draggable from './helpers/Draggable.ts';
 import { getConfig } from '../stores/config.ts';

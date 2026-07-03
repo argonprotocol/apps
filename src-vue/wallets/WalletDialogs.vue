@@ -32,10 +32,9 @@ export const openWalletOverlayCount = ref(0);
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { IS_OPERATIONS_APP } from '../lib/Env.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { useBasics } from '../stores/basics.ts';
-import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab, useOperationsController } from '../stores/operationsController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import WalletDialog from './WalletDialog.vue';
 
@@ -61,8 +60,8 @@ const snapPreview = Vue.ref<{
 let nextWalletId = 1;
 let nextZIndex = 1100;
 
-const operationsController = IS_OPERATIONS_APP ? useOperationsController() : undefined;
-const isWalletScreenOpen = Vue.computed(() => operationsController?.selectedTab === OperationsTab.Wallets);
+const operationsController = useOperationsController();
+const isWalletScreenOpen = Vue.computed(() => operationsController?.selectedTab === TopTab.Wallets);
 
 function syncOverlayState() {
   basics.overlayIsOpen = openWallets.value.some(wallet => wallet.showBackdrop);

@@ -26,7 +26,6 @@ export async function startDevEthereumMintingAuthority(args: {
   logPrefix?: string;
   executionRpcUrl?: string;
   virtualEnv?: {
-    app?: string;
     appInstance?: string;
     network?: string;
     serverEnvVars?: NodeJS.ProcessEnv;
@@ -429,14 +428,12 @@ async function ensureMinimumMintingAuthorityValue(client: ArgonClient) {
 }
 
 function seedVirtualFrontendGlobals(args?: {
-  app?: string;
   appInstance?: string;
   network?: string;
   serverEnvVars?: NodeJS.ProcessEnv;
 }) {
-  const app = args?.app ?? process.env.ARGON_APP ?? 'operations';
-  const appId = `com.argon.${app}`;
-  const appName = app === 'treasury' ? 'Argon Treasury' : 'Argon Desktop';
+  const appId = `com.argon.desktop`;
+  const appName = 'Argon Desktop';
   const globals = {
     __ARGON_APP_ID__: appId,
     __ARGON_APP_INSTANCE__: args?.appInstance ?? process.env.ARGON_APP_INSTANCE ?? '',

@@ -3,7 +3,7 @@
   <OverlayBase :isOpen="isOpen" :showCloseIcon="false" :showGoBack="!!currentStep" @goBack="backToMain" class="w-7/12">
     <template #title>
       <DialogTitle class="grow pl-3">
-        <template v-if="!currentStep">Welcome to {{APP_NAME}}!</template>
+        <template v-if="!currentStep">Welcome to Argon Desktop!</template>
         <template v-else-if="currentStep.startsWith('Import')">Import Existing Account</template>
       </DialogTitle>
     </template>
@@ -47,20 +47,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import { UserRole } from '@argonprotocol/apps-core';
 import { DialogTitle } from 'reka-ui';
 import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../stores/config.ts';
-import { getWalletKeys } from '../stores/wallets.ts';
-import { APP_NAME, IS_OPERATIONS_APP, IS_TREASURY_APP } from '../lib/Env.ts';
-import AlertIcon from '../assets/alert.svg?component';
-import { BootstrapType } from '../interfaces/IConfig.ts';
-import type { IOperationalReferral } from '../interfaces/IConfig.ts';
+import { APP_NAME } from '../lib/Env.ts';
 import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
-import { InviteEnvelope } from '../lib/InviteEnvelope.ts';
-import type { IOperationalUserInvite, ITreasuryUserInvite } from '@argonprotocol/apps-router';
-import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 
 const config = getConfig();
 

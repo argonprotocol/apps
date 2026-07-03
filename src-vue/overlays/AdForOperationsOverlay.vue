@@ -1,5 +1,5 @@
 <template>
-  <div v-if="IS_OPERATIONS_APP" class="space-y-3 pr-10 pl-5">
+  <div v-if="config.showOperationsExtension" class="space-y-3 pr-10 pl-5">
     <p>This is your home base for mining and vaulting on the Argon network. No prior crypto experience required.</p>
     <p>
       <strong class="font-bold">Mining</strong>
@@ -14,5 +14,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { IS_OPERATIONS_APP } from '../lib/Env.ts';
+import { getConfig } from '../stores/config.ts';
+
+const config = getConfig();
 </script>

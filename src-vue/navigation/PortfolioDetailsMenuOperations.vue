@@ -69,13 +69,8 @@ import EuroSign from '../assets/currencies/euro.svg?component';
 import PoundSign from '../assets/currencies/pound.svg?component';
 import RupeeSign from '../assets/currencies/rupee.svg?component';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { useWallets } from '../stores/wallets.ts';
-import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import { ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { CheckIcon } from '@heroicons/vue/20/solid';
-import { getConfig } from '../stores/config.ts';
+import { createNumeralHelpers } from '../lib/numeral.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
-import { IS_TREASURY_APP, IS_OPERATIONS_APP } from '../lib/Env.ts';
 import { useFinancials } from '../stores/financials.ts';
 import OverviewPie from '../panels/portfolio/OverviewPie.vue';
 
@@ -102,10 +97,6 @@ const totalNetWorth = Vue.computed(() => {
 
 function openPortfolioPanel(): void {
   basicEmitter.emit('openPortfolioPanel', PortfolioTab.Overview);
-}
-
-function openTransactionsOverlay() {
-  basicEmitter.emit('openTransactionsOverlay');
 }
 </script>
 

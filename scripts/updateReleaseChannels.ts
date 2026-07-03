@@ -58,10 +58,8 @@ function createFileContent() {
 }
 
 const files: { [str: string]: VersionContent } = {
-  operations_stable: createFileContent(),
-  treasury_stable: createFileContent(),
-  // operations_experimental: createFileContent(),
-  // treasury_experimental: createFileContent(),
+  desktop_stable: createFileContent(),
+  // desktop_experimental: createFileContent(),
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -89,7 +87,7 @@ for (const data of existingAssets.data) {
     console.warn(`Skipping debug asset in release channels: ${name}`);
     continue;
   }
-  const appType = (name.match(/Argon\.(Operations|Treasury)/)?.[1] || '').toLowerCase();
+  const appType = (name.match(/Argon\.(Desktop)/)?.[1] || '').toLowerCase();
   const fileKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
   const file = files[fileKey];
   const downloadUrl = browser_download_url

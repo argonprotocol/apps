@@ -314,7 +314,7 @@ import { getBondMarket } from '../../stores/myBonds.ts';
 import type { IVaultBondState } from '../../lib/BondMarket.ts';
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { OperationalStepId, OperationsTab, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, TopTab, useOperationsController } from '../../stores/operationsController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);
