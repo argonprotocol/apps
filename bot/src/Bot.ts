@@ -11,6 +11,7 @@ import { setTimeout } from 'node:timers/promises';
 import { EthereumBeaconSyncService } from './EthereumBeaconSyncService.ts';
 import {
   Accountset,
+  type AccountsetOptions,
   createDeferred,
   FatalError,
   getRange,
@@ -35,7 +36,7 @@ interface IBotOptions {
   datadir: string;
   db: Db;
   fundingAccountId: string;
-  proxyKeypair: KeyringPair;
+  bidderKeypair: KeyringPair;
   vaultOperatorAddress: string;
   localRpcUrl: string;
   archiveRpcUrl: string;
@@ -251,14 +252,21 @@ export default class Bot {
 
       this.biddingRules = this.loadBiddingRules();
       this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;
-      this.accountset = new Accountset({
+      const isProxyBidder = this.options.bidderKeypair.address !== this.options.fundingAccountId;
+      const commonAccountsetOptions = {
         client: this.localClient,
-        fundingAccountId: this.options.fundingAccountId,
-        isProxy: true,
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
         subaccountRange: getRange(0, 144),
-        txSubmitter: this.options.proxyKeypair,
-      });
+        txSubmitter: this.options.bidderKeypair,
+      };
+      const accountsetOptions: AccountsetOptions = isProxyBidder
+        ? {
+            ...commonAccountsetOptions,
+            fundingAccountId: this.options.fundingAccountId,
+            isProxy: true,
+          }
+        : commonAccountsetOptions;
+      this.accountset = new Accountset(accountsetOptions);
       const miningFramesPath = this.storage.getPath('miningFrames.json');
       this.miningFrames = new MiningFrames(this.mainchainClients, this.blockWatch, {
         read: () => fs.readFile(miningFramesPath, 'utf8').catch(() => '[]'),

@@ -17,7 +17,7 @@ await waitForLoad();
 
 const datadir = requireEnv('DATADIR');
 const archiveRpcUrl = requireEnv('ARCHIVE_NODE_URL');
-const proxyKeypair = await loadKeypair(requireEnv('BIDDER_KEYPAIR_PATH'));
+const bidderKeypair = await loadKeypair(requireEnv('BIDDER_KEYPAIR_PATH'));
 const bitcoinInitializerDelegateKeypair = await loadKeypair(requireEnv('VAULT_DELEGATE_KEYPAIR_PATH'));
 const db = new Db(datadir);
 db.migrate();
@@ -32,7 +32,7 @@ const bot = new Bot({
   ...requireAll({
     datadir,
     fundingAccountId: requireEnv('MINING_FUNDING_ACCOUNT_ID'),
-    proxyKeypair,
+    bidderKeypair,
     archiveRpcUrl,
     localRpcUrl: process.env.LOCAL_RPC_URL,
     vaultOperatorAddress: process.env.VAULT_OPERATOR_ADDRESS,

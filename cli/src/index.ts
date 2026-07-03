@@ -3,7 +3,7 @@ import accountCli from './accountCli.js';
 import { configDotenv } from 'dotenv';
 import Path from 'node:path';
 import miningCli from './miningCli.js';
-import { Accountset, NetworkConfig } from '@argonprotocol/apps-core';
+import { Accountset, NetworkConfig, type AccountsetOptions } from '@argonprotocol/apps-core';
 import { getClient, keyringFromSuri, type KeyringPair } from '@argonprotocol/mainchain';
 import { keyringFromFile, saveKeyringPair } from './keyringStore.js';
 
@@ -115,23 +115,20 @@ export async function accountsetFromCli(program: Command, proxyForAddress?: stri
     NetworkConfig.setNetwork(opts.network);
   }
 
-  if (proxyForAddress) {
-    return new Accountset({
-      client,
-      isProxy: true,
-      fundingAccountId: proxyForAddress,
-      txSubmitter: keypair,
-      sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
-      subaccountRange: opts.subaccounts,
-    });
-  } else {
-    return new Accountset({
-      seedAccount: keypair,
-      client,
-      sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
-      subaccountRange: opts.subaccounts,
-    });
-  }
+  const commonAccountsetOptions = {
+    client,
+    txSubmitter: keypair,
+    sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
+    subaccountRange: opts.subaccounts,
+  };
+  const accountsetOptions: AccountsetOptions = proxyForAddress
+    ? {
+        ...commonAccountsetOptions,
+        fundingAccountId: proxyForAddress,
+        isProxy: true,
+      }
+    : commonAccountsetOptions;
+  return new Accountset(accountsetOptions);
 }
 
 export type IGlobalOptions = ReturnType<ReturnType<typeof buildCli>['opts']>;
