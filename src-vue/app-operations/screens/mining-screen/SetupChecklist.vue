@@ -172,7 +172,7 @@
         <button
           @click="launchMiningBot"
           :class="[
-          walletIsFullyFunded && hasMiningMachine && !basics.overlayIsOpen
+          canLaunchMiningBot
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30',
           isLaunchingMiningBot ? 'opacity-30 pointer-events-none' : '',
@@ -311,6 +311,10 @@ const walletIsFullyFunded = Vue.computed(() => {
   return fundingState.value.isFullyFunded;
 });
 
+const canLaunchMiningBot = Vue.computed(() => {
+  return walletIsFullyFunded.value && hasMiningMachine.value && config.isServerInstalled && !basics.overlayIsOpen;
+});
+
 const hasMiningMachine = Vue.computed(() => {
   const x = config.serverAdd;
   return !!x?.customServer || !!x?.localComputer || !!x?.digitalOcean;
@@ -357,7 +361,7 @@ function goBack() {
 }
 
 async function launchMiningBot() {
-  if (isLaunchingMiningBot.value) return;
+  if (isLaunchingMiningBot.value || !canLaunchMiningBot.value) return;
 
   isLaunchingMiningBot.value = true;
 

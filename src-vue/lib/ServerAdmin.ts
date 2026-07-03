@@ -145,6 +145,7 @@ export class ServerAdmin {
 
   public async uploadEnvState(envState: {
     oldestFrameIdToSync: number;
+    miningFundingAccountId: string;
     vaultOperatorAddress: string;
     operatorAccountId: string;
     ethereumBeaconApiUrl?: string;
@@ -152,6 +153,7 @@ export class ServerAdmin {
   }): Promise<void> {
     const lines = [
       `OLDEST_FRAME_ID_TO_SYNC=${envState.oldestFrameIdToSync || ''}`,
+      `MINING_FUNDING_ACCOUNT_ID=${envState.miningFundingAccountId}`,
       `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}`,
       `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}`,
     ];

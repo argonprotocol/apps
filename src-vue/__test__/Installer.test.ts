@@ -7,11 +7,18 @@ import { createMockedDbPromise } from './helpers/db';
 import { IInstallStepStatuses, InstallStepStatusType } from '../lib/ServerAdmin';
 import { InstallStepKey, MiningSetupStatus, ServerType } from '../interfaces/IConfig';
 import { InstallerCheck } from '../lib/InstallerCheck.ts';
+import * as MiningAccount from '../lib/MiningAccount.ts';
 import { MiningMachine } from '../lib/MiningMachine.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
+import { getTransactionTracker } from '../stores/transactions.ts';
 import { createMockWalletKeys, createTestWallet } from './helpers/wallet.ts';
 
+vi.mock('../stores/transactions.ts', () => ({
+  getTransactionTracker: vi.fn(),
+}));
+
 beforeEach(() => {
+  vi.restoreAllMocks();
   resetInstaller();
   WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
 });
@@ -82,6 +89,22 @@ it('should install if all conditions are met', async () => {
   expect(didRun).toBe(true);
 });
 
+it('only uploads bot config files when updating server config', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  const uploadBotConfigFiles = vi.spyOn(installer as any, 'uploadBotConfigFiles').mockResolvedValue(undefined);
+
+  await installer.updateServerConfig();
+
+  expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
+});
+
 it('should run through entire install process', async () => {
   const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const walletKeys = createMockWalletKeys();
@@ -130,9 +153,180 @@ it('should run through entire install process', async () => {
   installer.getLocalShasum = vi.fn().mockResolvedValue('dummy-sha256');
   // @ts-ignore
   installer.uploadCoreFiles = vi.fn().mockResolvedValue();
+  vi.spyOn(installer as any, 'uploadBotConfigFiles').mockResolvedValue(undefined);
 
   // should call run
   await installer.load();
 
   expect(config.serverInstaller.ServerConnect.status).toBe('Completed');
+});
+
+it('waits for existing-user mining bid proxy setup before uploading bot config files', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+  config.miningSetupStatus = MiningSetupStatus.Finished;
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  config.serverDetails = {
+    ...config.serverDetails,
+    ipAddress: '127.0.0.1',
+  };
+
+  const server = {
+    downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    createLogsDir: vi.fn().mockResolvedValue(undefined),
+    startInstallerScript: vi.fn().mockResolvedValue(undefined),
+  };
+  const uploadBotConfigFiles = vi.spyOn(installer as any, 'uploadBotConfigFiles').mockResolvedValue(undefined);
+  const transactionTracker = {
+    load: vi.fn().mockResolvedValue(undefined),
+  };
+  let resolveProxySetup: () => void = () => undefined;
+  const proxySetupWait = new Promise<void>(resolve => {
+    resolveProxySetup = resolve;
+  });
+  const proxySetupSpy = vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup').mockResolvedValue({
+    kind: 'trackingExisting',
+    txInfo: {
+      waitForPostProcessing: proxySetupWait,
+    },
+  } as any);
+
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsRunning = vi.fn().mockResolvedValue(false);
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsReadyToRun = vi.fn().mockResolvedValue(true);
+  // @ts-ignore - avoid real server setup in this unit test
+  installer.getServer = vi.fn().mockResolvedValue(server);
+  // @ts-ignore - avoid port polling in this unit test
+  installer.saveLocalGatewayPortWhenReady = vi.fn().mockResolvedValue(undefined);
+  // @ts-ignore - drive the non-fresh path directly
+  installer.isFreshInstall = false;
+  // @ts-ignore - skip core file upload in this unit test
+  installer.remoteFilesNeedUpdating = false;
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.start = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.activateServer = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.noThrowWaitForInstallToComplete = vi.fn().mockResolvedValue(undefined);
+  vi.mocked(getTransactionTracker).mockReturnValue(transactionTracker as any);
+
+  const runPromise = installer.run(false);
+
+  await vi.waitFor(() => expect(proxySetupSpy).toHaveBeenCalledOnce());
+  expect(transactionTracker.load).toHaveBeenCalledOnce();
+  expect(uploadBotConfigFiles).not.toHaveBeenCalled();
+
+  resolveProxySetup();
+  await runPromise;
+
+  expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
+});
+
+it('skips installer proxy setup before mining setup is finished', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  config.serverDetails = {
+    ...config.serverDetails,
+    ipAddress: '127.0.0.1',
+  };
+
+  const server = {
+    downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    createLogsDir: vi.fn().mockResolvedValue(undefined),
+    startInstallerScript: vi.fn().mockResolvedValue(undefined),
+  };
+  const uploadBotConfigFiles = vi.spyOn(installer as any, 'uploadBotConfigFiles').mockResolvedValue(undefined);
+  const proxySetupSpy = vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup');
+
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsRunning = vi.fn().mockResolvedValue(false);
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsReadyToRun = vi.fn().mockResolvedValue(true);
+  // @ts-ignore - avoid real server setup in this unit test
+  installer.getServer = vi.fn().mockResolvedValue(server);
+  // @ts-ignore - avoid port polling in this unit test
+  installer.saveLocalGatewayPortWhenReady = vi.fn().mockResolvedValue(undefined);
+  // @ts-ignore - drive the non-fresh path directly
+  installer.isFreshInstall = false;
+  // @ts-ignore - skip core file upload in this unit test
+  installer.remoteFilesNeedUpdating = false;
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.start = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.activateServer = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.noThrowWaitForInstallToComplete = vi.fn().mockResolvedValue(undefined);
+
+  await installer.run(false);
+
+  expect(proxySetupSpy).not.toHaveBeenCalled();
+  expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
+});
+
+it('does not fail installer proxy migration when the mining funding account is short on funds', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+  config.miningSetupStatus = MiningSetupStatus.Finished;
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  config.serverDetails = {
+    ...config.serverDetails,
+    ipAddress: '127.0.0.1',
+  };
+
+  const server = {
+    downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    createLogsDir: vi.fn().mockResolvedValue(undefined),
+    startInstallerScript: vi.fn().mockResolvedValue(undefined),
+  };
+  const uploadBotConfigFiles = vi.spyOn(installer as any, 'uploadBotConfigFiles').mockResolvedValue(undefined);
+  const transactionTracker = {
+    load: vi.fn().mockResolvedValue(undefined),
+  };
+  const proxySetupSpy = vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup').mockResolvedValue({
+    kind: 'insufficientFunds',
+    error: 'Mining bid account needs 1 ARGN to seed its bid proxy.',
+  });
+
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsRunning = vi.fn().mockResolvedValue(false);
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsReadyToRun = vi.fn().mockResolvedValue(true);
+  // @ts-ignore - avoid real server setup in this unit test
+  installer.getServer = vi.fn().mockResolvedValue(server);
+  // @ts-ignore - avoid port polling in this unit test
+  installer.saveLocalGatewayPortWhenReady = vi.fn().mockResolvedValue(undefined);
+  // @ts-ignore - drive the non-fresh path directly
+  installer.isFreshInstall = false;
+  // @ts-ignore - skip core file upload in this unit test
+  installer.remoteFilesNeedUpdating = false;
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.start = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.activateServer = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.noThrowWaitForInstallToComplete = vi.fn().mockResolvedValue(undefined);
+  vi.mocked(getTransactionTracker).mockReturnValue(transactionTracker as any);
+
+  await installer.run(false);
+
+  expect(proxySetupSpy).toHaveBeenCalledOnce();
+  expect(transactionTracker.load).toHaveBeenCalledOnce();
+  expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
 });

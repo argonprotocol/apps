@@ -7,6 +7,7 @@ export enum ExtrinsicType {
   VaultSetCommittedArgonots = 'VaultSetCommittedArgonots',
   VaultSetBitcoinLockDelegate = 'VaultSetBitcoinLockDelegate',
   VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
+  MiningBidProxySetup = 'MiningBidProxySetup',
   OperationalActivateAndClaim = 'OperationalActivateAndClaim',
   OperationalClaimRewards = 'OperationalClaimRewards',
 

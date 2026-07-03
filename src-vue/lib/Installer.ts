@@ -20,10 +20,11 @@ import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
 import * as semver from 'semver';
-import { TxSubmitter } from '@argonprotocol/mainchain';
-import { getMainchainClient } from '../stores/mainchain.ts';
 import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumClient.ts';
 import { MyVault } from './MyVault.ts';
+import { ensureMiningBidProxySetup } from './MiningAccount.ts';
+import { getTransactionTracker } from '../stores/transactions.ts';
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 dayjs.extend(utc);
 
@@ -258,6 +259,26 @@ export default class Installer {
         await this.uploadCoreFiles((totalCount, uploadedCount) => {
           this.fileUploadProgress = 2 + (uploadedCount / totalCount) * 88;
         });
+      }
+      if (!this.isFreshInstall && this.config.miningSetupStatus === MiningSetupStatus.Finished) {
+        const transactionTracker = getTransactionTracker();
+        await transactionTracker.load();
+
+        const proxySetup = await ensureMiningBidProxySetup({
+          transactionTracker,
+          walletKeys: this.walletKeys,
+        });
+
+        if (proxySetup.kind === 'insufficientFunds') {
+          console.warn(
+            '[Installer] Skipping mining bid proxy migration until the mining funding account is topped up',
+            {
+              error: proxySetup.error,
+            },
+          );
+        } else if (proxySetup.kind === 'submitted' || proxySetup.kind === 'trackingExisting') {
+          await proxySetup.txInfo.waitForPostProcessing;
+        }
       }
 
       console.info('Uploading bot config files');
@@ -662,8 +683,8 @@ export default class Installer {
 
     const totalCount = 5;
 
-    const miningBotAccount = await this.walletKeys.exportMiningBotAccountJson('');
-    await server.uploadMiningBotWallet(miningBotAccount);
+    const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
+    await server.uploadMiningBotWallet(miningBidProxyAccount);
     progressFn?.(totalCount, 1);
 
     await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));
@@ -674,6 +695,7 @@ export default class Installer {
 
     await server.uploadEnvState({
       oldestFrameIdToSync: this.config.oldestFrameIdToSync,
+      miningFundingAccountId: this.walletKeys.miningBotAddress,
       vaultOperatorAddress: this.walletKeys.vaultingAddress,
       operatorAccountId: this.walletKeys.operationalAddress,
       ethereumBeaconApiUrl,

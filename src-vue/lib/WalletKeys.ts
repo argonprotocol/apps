@@ -77,11 +77,8 @@ export class WalletKeys {
     return await invokeWithTimeout<Hex>('export_default_ethereum_private_key', {}, 60e3);
   }
 
-  // TODO: move to a refunding proxy account.
-  public async exportMiningBotAccountJson(passphrase: string): Promise<KeyringPair$Json> {
-    const miningBotAccount = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
-    const keyring = new Keyring({ type: 'sr25519' }).addFromSeed(miningBotAccount);
-    return keyring.toJson(passphrase);
+  public async exportMiningBidProxyAccountJson(passphrase: string): Promise<KeyringPair$Json> {
+    return (await this.getMiningBidProxyKeypair()).toJson(passphrase);
   }
 
   public async getMiningBotSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
@@ -238,6 +235,11 @@ export class WalletKeys {
   // TODO: move signing to backend instead of passing around key
   public async getMiningBotKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining` }, 60e3);
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public async getMiningBidProxyKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//mining//proxy` }, 60e3);
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 

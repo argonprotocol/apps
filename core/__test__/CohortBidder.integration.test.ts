@@ -625,10 +625,10 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const cohortSeats = await finalizedApi.query.miningSlot.minersByCohort(cohortStartingFrameId);
 
     const bobSeatsWonOnChain = cohortSeats.filter(x => {
-      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === bob.seedAddress;
+      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === bob.fundingAccountId;
     }).length;
     const aliceSeatsWonOnChain = cohortSeats.filter(x => {
-      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === alice.seedAddress;
+      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === alice.fundingAccountId;
     }).length;
     const bidLevels = new Set(
       [...bobBidEvents, ...aliceBidEvents].map(({ microgonsPerSeat }) => microgonsPerSeat.toString()),

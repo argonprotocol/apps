@@ -143,11 +143,6 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
     }
 
     if (!state.launchBotClickable) {
-      if (!state.installingVisible) {
-        throw new Error(
-          `${flowName}: launch mining bot is not ready (visible=${state.launchBotVisible}, enabled=${state.launchBotEnabled}, clickable=${state.launchBotClickable}).`,
-        );
-      }
       console.info(`[E2E] ${flowName}: finalizeSetup waiting for launch button to become ready`);
       await waitForServerInstallToReachLaunchableState(flow, flowName);
     }

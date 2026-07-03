@@ -104,7 +104,7 @@ export default function miningCli() {
     .requiredOption('--outfile <path>', 'The file to use to store the proxy account json (eg: proxy.json)')
     .requiredOption(
       '--fee-argons <argons>',
-      'How many argons should be sent to the proxy account for fees (proxies must pay fees)',
+      'How many argons should be sent to the proxy account during setup',
       parseFloat,
     )
     .option('--proxy-passphrase <passphrase>', 'The passphrase for your proxy account')
@@ -119,7 +119,7 @@ export default function miningCli() {
       const address = keyringPair.address;
       console.log(`✅ Created proxy account at "${outfile}" with address ${address}`);
       const tx = client.tx.utility.batchAll([
-        client.tx.proxy.addProxy(address, 'MiningBid', 0),
+        client.tx.proxy.addProxy(address, 'MiningBidRealPaysFee', 0),
         client.tx.balances.transferAllowDeath(address, BigInt(feeArgons * MICROGONS_PER_ARGON)),
       ]);
       let keypair: KeyringPair;

@@ -76,3 +76,22 @@ it('should update progress throughout the entire finalization process', async ()
   expect(lastProgressUpdate.progressPct).toBe(100);
   expect(lastProgressUpdate.confirmations).toBe(5);
 }, 60_000);
+
+it('treats a watched finalized tx result as finalized before the record is persisted', () => {
+  const txInfo = new TransactionInfo({
+    tx: {
+      blockHeight: 100,
+      isFinalized: false,
+    } as ITransactionRecord,
+    txResult: {
+      isFinalized: true,
+    } as TxResult,
+  });
+
+  txInfo.finalizedHeadHeight = 100;
+
+  expect(txInfo.getStatus()).toMatchObject({
+    progressPct: 100,
+    isFinalized: true,
+  });
+});
