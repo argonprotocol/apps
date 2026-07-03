@@ -176,7 +176,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import EditBoxOverlay, { type IEditBoxOverlayTypeForVaulting } from '../app-operations/overlays/EditBoxOverlay.vue';
+import EditBoxOverlay, { type IEditBoxOverlayTypeForVaulting } from '../overlays/EditBoxOverlay.vue';
 import EditIcon from '../assets/edit.svg?component';
 import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { getVaultCalculator } from '../stores/mainchain';

@@ -78,6 +78,11 @@ export class Config implements IConfig {
     this._loadedData = {
       version: packageJson.version,
       requiresPassword: false,
+      showWelcomeOverlay: Config.getDefault(dbFields.showWelcomeOverlay) as IConfig['showWelcomeOverlay'],
+      showTreasuryExtension: Config.getDefault(dbFields.showTreasuryExtension) as IConfig['showTreasuryExtension'],
+      showOperationsExtension: Config.getDefault(
+        dbFields.showOperationsExtension,
+      ) as IConfig['showOperationsExtension'],
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       ethereumExecutionRpcUrl: Config.getDefault(
         dbFields.ethereumExecutionRpcUrl,
@@ -344,9 +349,25 @@ export class Config implements IConfig {
     this.setField('ethereumExecutionRpcUrl', value);
   }
 
-  public get showWelcomeOverlay(): boolean {
-    const bootstrapDetails = this.getField('bootstrapDetails');
-    return !bootstrapDetails && !this.isRestarting;
+  public get showWelcomeOverlay(): IConfig['showWelcomeOverlay'] {
+    return this.getField('showWelcomeOverlay');
+  }
+  public set showWelcomeOverlay(value: IConfig['showWelcomeOverlay']) {
+    this.setField('showWelcomeOverlay', value);
+  }
+
+  public get showTreasuryExtension(): IConfig['showTreasuryExtension'] {
+    return this.getField('showTreasuryExtension');
+  }
+  public set showTreasuryExtension(value: IConfig['showTreasuryExtension']) {
+    this.setField('showTreasuryExtension', value);
+  }
+
+  public get showOperationsExtension(): IConfig['showOperationsExtension'] {
+    return this.getField('showOperationsExtension');
+  }
+  public set showOperationsExtension(value: IConfig['showOperationsExtension']) {
+    this.setField('showOperationsExtension', value);
   }
 
   public get bootstrapDetails(): IConfig['bootstrapDetails'] {
@@ -664,6 +685,10 @@ const dbFields = {
   miningSetupStatus: 'miningSetupStatus',
   vaultingSetupStatus: 'vaultingSetupStatus',
 
+  showWelcomeOverlay: 'showWelcomeOverlay',
+  showTreasuryExtension: 'showTreasuryExtension',
+  showOperationsExtension: 'showOperationsExtension',
+
   requiresPassword: 'requiresPassword',
   ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
   ethereumExecutionRpcUrl: 'ethereumExecutionRpcUrl',
@@ -696,6 +721,10 @@ const dbFields = {
 const defaults: IConfigDefaults = {
   miningSetupStatus: () => MiningSetupStatus.None,
   vaultingSetupStatus: () => VaultingSetupStatus.None,
+
+  showWelcomeOverlay: () => true,
+  showTreasuryExtension: () => false,
+  showOperationsExtension: () => false,
 
   requiresPassword: () => false,
   ethereumBeaconApiUrl: () => undefined,

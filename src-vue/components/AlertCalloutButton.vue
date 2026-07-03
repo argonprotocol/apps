@@ -65,7 +65,7 @@ import SparkleOutlineIcon from '../assets/sparkle-outline.svg';
 import SparkleFilledIcon from '../assets/sparkle-filled.svg';
 import { twMerge } from 'tailwind-merge';
 import { HoverCardArrow, HoverCardContent, HoverCardPortal, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
-import { useOperationsController, operationalSteps } from '../app-operations/stores/controller.ts';
+import { useOperationsController, operationalSteps } from '../stores/operationsController.ts';
 
 defineOptions({
   inheritAttrs: false,

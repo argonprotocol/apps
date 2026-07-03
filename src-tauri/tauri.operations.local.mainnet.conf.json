@@ -1,6 +1,6 @@
 {
   "identifier": "com.argon.operations.local",
-  "productName": "Argon Operations",
+  "productName": "Argon",
   "bundle": {
     "icon": [
       "icons-operations/local/mainnet/32x32.png",

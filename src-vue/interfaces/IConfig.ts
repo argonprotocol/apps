@@ -183,6 +183,10 @@ export const ConfigSchema = z.object({
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
 
+  showWelcomeOverlay: z.boolean(),
+  showTreasuryExtension: z.boolean(),
+  showOperationsExtension: z.boolean(),
+
   serverAdd: ConfigServerAddSchema.optional(),
   serverDetails: ConfigServerDetailsSchema,
   serverInstaller: ConfigServerInstallerSchema,
@@ -251,6 +255,10 @@ export interface IConfigDefaults {
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
+
+  showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
+  showTreasuryExtension: () => IConfig['showTreasuryExtension'];
+  showOperationsExtension: () => IConfig['showOperationsExtension'];
 
   serverAdd: () => IConfig['serverAdd'];
   serverDetails: () => IConfig['serverDetails'];
