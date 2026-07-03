@@ -291,6 +291,7 @@ fn summarize_winhttp_proxy(value: Value) -> Value {
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn run_command_text(command: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new(command)
         .args(args)
