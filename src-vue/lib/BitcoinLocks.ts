@@ -190,6 +190,7 @@ export default class BitcoinLocks {
   #relayPollingUuids = new Set<string>();
   #mempool: BitcoinMempool;
   #reportedMissingFundingForReleaseLocks = new Set<string>();
+  #needsLoadReconciliation = false;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -393,18 +394,36 @@ export default class BitcoinLocks {
       }
 
       await this.blockWatch.start();
-      await this.#blockQueue.add(() => this.checkIncomingArgonBlock(this.blockWatch.bestBlockHeader), {
-        timeoutMs: 120e3,
-      }).promise;
-      for (const lock of Object.values(this.locksByUtxoId)) {
-        await this.reconcileMismatchState(lock);
-        await this.reconcileMismatchReturnOnBlock(lock);
-        await this.reconcileAcceptedFundingReleaseOnBlock(lock, false);
-      }
-      await this.syncLockReleaseBitcoinProcessing(this.locksByUtxoId);
-      await this.syncOrphanReturnBitcoinProcessing(this.oracleBitcoinBlockHeight);
+      this.#needsLoadReconciliation = true;
+      const initialBestBlock = this.blockWatch.bestBlockHeader;
+      void this.#blockQueue
+        .add(
+          async () => {
+            await this.checkIncomingArgonBlock(initialBestBlock);
+            await this.runPendingLoadReconciliation();
+          },
+          {
+            timeoutMs: 120e3,
+          },
+        )
+        .promise.catch(error => {
+          console.warn(
+            '[BitcoinLocks] Initial Argon block sync did not finish during load; continuing in the background',
+            {
+              blockNumber: initialBestBlock.blockNumber,
+              blockHash: initialBestBlock.blockHash,
+              error,
+            },
+          );
+        });
       this.#subscription = this.blockWatch.events.on('best-blocks', async headers => {
-        void this.#blockQueue.add(() => this.checkIncomingArgonBlock(headers.at(-1)!), { timeoutMs: 120e3 });
+        void this.#blockQueue.add(
+          async () => {
+            await this.checkIncomingArgonBlock(headers.at(-1)!);
+            await this.runPendingLoadReconciliation();
+          },
+          { timeoutMs: 120e3 },
+        );
       });
       this.#waitForLoad.resolve();
     } catch (error) {
@@ -412,6 +431,25 @@ export default class BitcoinLocks {
       this.#waitForLoad.reject(error);
     }
     return this.#waitForLoad.promise;
+  }
+
+  private async runPendingLoadReconciliation(): Promise<void> {
+    if (!this.#needsLoadReconciliation) {
+      return;
+    }
+
+    try {
+      for (const lock of Object.values(this.locksByUtxoId)) {
+        await this.reconcileMismatchState(lock);
+        await this.reconcileMismatchReturnOnBlock(lock);
+        await this.reconcileAcceptedFundingReleaseOnBlock(lock, false);
+      }
+      await this.syncLockReleaseBitcoinProcessing(this.locksByUtxoId);
+      await this.syncOrphanReturnBitcoinProcessing(this.oracleBitcoinBlockHeight);
+      this.#needsLoadReconciliation = false;
+    } catch (error) {
+      console.warn('[BitcoinLocks] Startup reconciliation did not finish; will retry on the next block', error);
+    }
   }
 
   private async checkForMissingBitcoinLockState(lock: IBitcoinLockRecord): Promise<void> {
@@ -2609,10 +2647,9 @@ export default class BitcoinLocks {
     }
 
     try {
-      // We look at the previous block to give more time for blocks to settle so we don't bounce data around, but don't
-      // wait for finality because of how long it can take. We might need to revisit this for anything where finality is
-      // important.
-      const header = await this.blockWatch.getHeader(newestHeader.blockNumber);
+      // Keep the original one-block settling lag, but resolve the header by block number so we do not
+      // get stuck retrying a transient best-head hash that the pruned node has already discarded.
+      const header = await this.blockWatch.getHeaderByBlockNumber(newestHeader.blockNumber - 1);
 
       if (header.blockNumber <= this.data.latestArgonBlockHeight) {
         return;

@@ -255,10 +255,21 @@ export class BlockWatch {
     if (best) {
       return best;
     }
-    const header = await this.readWithArchiveRetry(blockNumber, `getHeader(${blockNumber})`, async client => {
-      const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
-      return await client.rpc.chain.getHeader(blockHash);
-    });
+    return await this.getHeaderByBlockNumber(blockNumber);
+  }
+
+  public async getHeaderByBlockNumber(blockNumber: number): Promise<IBlockHeaderInfo> {
+    if (blockNumber < 0) {
+      throw new Error(`[BlockWatch] getHeaderByBlockNumber called with negative blockNumber (${blockNumber})`);
+    }
+    const header = await this.readWithArchiveRetry(
+      blockNumber,
+      `getHeaderByBlockNumber(${blockNumber})`,
+      async client => {
+        const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
+        return await client.rpc.chain.getHeader(blockHash);
+      },
+    );
     return BlockWatch.readHeader(header, blockNumber <= this.finalizedBlockHeader.blockNumber);
   }
 
