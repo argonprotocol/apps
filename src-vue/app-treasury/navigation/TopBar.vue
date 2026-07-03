@@ -86,18 +86,18 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { NavigationMenuRoot, NavigationMenuList, NavigationMenuViewport, NavigationMenuIndicator } from 'reka-ui';
-import { useTreasuryController } from '../stores/controller.ts';
+import { useTreasuryController } from '../../stores/treasuryController.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { getConfig, NETWORK_NAME } from '../../stores/config.ts';
 import { APP_NAME, INSTANCE_NAME } from '../../lib/Env.ts';
 import WindowControls from '../../tauri-controls/WindowControls.vue';
-import InstanceMenu from '../../app-shared/navigation/InstanceMenu.vue';
-import { IInstance } from '../../app-shared/navigation/InstanceMenu.vue';
+import InstanceMenu from '../../navigation/InstanceMenu.vue';
+import { IInstance } from '../../navigation/InstanceMenu.vue';
 import { appConfigDir } from '@tauri-apps/api/path';
 import { readDir } from '@tauri-apps/plugin-fs';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import PortfolioMenu from './PortfolioMenu.vue';
-import ProfitsMenu from './ProfitsMenu.vue';
+import ProfitsMenu from '../../navigation/ProfitsMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 
 const config = getConfig();

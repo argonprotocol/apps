@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Argon Operations Experimental",
+  "productName": "Argon Experimental",
   "identifier": "com.argon.operations.experimental",
   "version": "1.4.3",
   "bundle": {

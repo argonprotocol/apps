@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Argon Operations",
+  "productName": "Argon",
   "identifier": "com.argon.operations",
   "bundle": {
     "icon": [

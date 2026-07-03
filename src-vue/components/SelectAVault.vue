@@ -69,7 +69,7 @@ import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import { Vault } from '@argonprotocol/mainchain';
-import { useFinancials } from '../app-treasury/stores/financials.ts';
+import { useFinancials } from '../stores/financials.ts';
 import { getBondMarket } from '../stores/myBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 

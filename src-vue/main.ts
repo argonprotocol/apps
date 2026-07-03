@@ -5,7 +5,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';
 import './lib/LogForwarding.ts';
-import AppRoot from './AppRoot.vue';
+import App from './App.vue';
 import './main.css';
 import { IS_TREASURY_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
@@ -41,7 +41,7 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
 const appName = IS_TREASURY_APP ? 'Treasury' : 'Operations';
 
 console.log(`[Bootstrap] Creating Argon ${appName} Vue app`);
-const app = createApp(AppRoot);
+const app = createApp(App);
 app.config.errorHandler = (error, instance, info) => {
   console.error(`[Vue] ${info}`, {
     component: instance?.$options.name ?? '<anonymous>',

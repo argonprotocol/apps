@@ -1,7 +1,7 @@
 import mitt, { type Emitter } from 'mitt';
 import { WalletType } from '../lib/Wallet.ts';
-import { PortfolioTab } from '../app-operations/panels/interfaces/IPortfolioTab.ts';
-import { OperationalStepId } from '../app-operations/stores/controller.ts';
+import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
+import { OperationalStepId } from '../stores/operationsController.ts';
 import { ICurrencyKey, MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
