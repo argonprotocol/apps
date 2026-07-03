@@ -261,10 +261,9 @@ impl SSH {
         let remote_path = remote_path.to_string();
         let transfer_client = self.transfer_client.clone();
         let config = self.config.clone();
-        let runtime = tokio::runtime::Handle::current();
         let timeout_duration = Duration::from_secs(10);
         tauri::async_runtime::spawn_blocking(move || -> Result<()> {
-            runtime.block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let mut client = transfer_client.lock().await;
                 let client =
                     Self::get_or_connect_client(&mut client, &config, timeout_duration).await?;
@@ -352,10 +351,9 @@ impl SSH {
         let local_download_path = local_download_path.to_string();
         let transfer_client = self.transfer_client.clone();
         let config = self.config.clone();
-        let runtime = tokio::runtime::Handle::current();
         let timeout_duration = Duration::from_secs(10);
         tauri::async_runtime::spawn_blocking(move || -> Result<()> {
-            runtime.block_on(async move {
+            tauri::async_runtime::block_on(async move {
                 let mut client = transfer_client.lock().await;
                 let client =
                     Self::get_or_connect_client(&mut client, &config, timeout_duration).await?;

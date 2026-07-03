@@ -13,7 +13,8 @@ function getGitExecutablePaths(repoRoot: string): Set<string> {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error(`Unable to read git file modes for server bundle: ${result.stderr || result.stdout}`);
+    const details = result.error?.message || result.stderr || result.stdout || 'unknown error';
+    throw new Error(`Unable to read git file modes for server bundle: ${details}`);
   }
 
   const executablePaths = new Set<string>();
