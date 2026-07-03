@@ -67,6 +67,44 @@ describe('BlockWatch archive recovery', () => {
     expect(result).toBe(historicalHeader);
   });
 
+  it('retries historical header lookup on archive when the selected client query times out', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    try {
+      const historicalHeader = createHeaderInfo(108, '0x108', '0x107');
+      const prunedClient = {
+        rpc: {
+          chain: {
+            getBlockHash: vi.fn().mockImplementation(() => new Promise(() => undefined)),
+            getHeader: vi.fn(),
+          },
+        },
+      };
+      const archiveClient = {
+        rpc: {
+          chain: {
+            getBlockHash: vi.fn().mockResolvedValue('0x108'),
+            getHeader: vi.fn().mockResolvedValue({ __info: historicalHeader }),
+          },
+        },
+      };
+      const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+      blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+      getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+      const resultPromise = blockWatch.getHeaderByBlockNumber(108);
+      await vi.advanceTimersByTimeAsync(120e3);
+
+      await expect(resultPromise).resolves.toBe(historicalHeader);
+      expect(prunedClient.rpc.chain.getBlockHash).toHaveBeenCalledWith(108);
+      expect(archiveClient.rpc.chain.getBlockHash).toHaveBeenCalledWith(108);
+      expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith('0x108');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('retries block api lookup on archive when pruned cannot decorate the supplied hash', async () => {
     const blockApi = { query: { system: { events: vi.fn() } } };
     const prunedClient = {
