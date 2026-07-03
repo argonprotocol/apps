@@ -3,15 +3,16 @@
 set -euo pipefail
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  echo "Usage: $0 <archive-prefix> [macos-bundle-name]" >&2
+  echo "Usage: $0 <archive-prefix> [macos-symbol-name]" >&2
   exit 1
 fi
 
 archive_prefix="$1"
-bundle_name="${2:-}"
+macos_symbol_name="${2:-Argon}"
 target_dir="${GITHUB_WORKSPACE:?}/src-tauri/target"
 release_dir="$target_dir/release"
-archive="$RUNNER_TEMP/${archive_prefix}_${VERSION}_${RUNNER_OS}-symbols.tar.gz"
+archive_name="${archive_prefix}_${VERSION}_${RUNNER_OS}-symbols.tar.gz"
+archive="$RUNNER_TEMP/$archive_name"
 symbol_dir="$RUNNER_TEMP/${archive_prefix//[^A-Za-z0-9._-]/_}-${RUNNER_OS}-symbols"
 
 rm -rf "$symbol_dir"
@@ -35,21 +36,20 @@ case "$RUNNER_OS" in
     fi
     ;;
   macOS)
-    if [ -z "$bundle_name" ]; then
-      echo "Missing macOS bundle name for dSYM collection" >&2
-      exit 1
-    fi
-
     while IFS= read -r -d '' source_path; do
       found_symbols=1
       relative_path="${source_path#$target_dir/}"
       mkdir -p "$symbol_dir/$(dirname "$relative_path")"
       cp -R "$source_path" "$symbol_dir/$relative_path"
-    done < <(find "$target_dir" -type d -name "$bundle_name.app.dSYM" -print0)
+    done < <(
+      find "$target_dir" -type d \
+        \( -path "*/release/$macos_symbol_name.dSYM" -o -path "*/release/deps/$macos_symbol_name-*.dSYM" \) \
+        -print0
+    )
 
     if [ "$found_symbols" -eq 0 ]; then
       find "$target_dir" -type d -name '*.dSYM' -print
-      echo "Missing $bundle_name.app.dSYM under $target_dir" >&2
+      echo "Missing $macos_symbol_name macOS dSYM under $target_dir" >&2
       exit 1
     fi
     ;;
@@ -74,5 +74,9 @@ case "$RUNNER_OS" in
     ;;
 esac
 
-tar -czf "$archive" -C "$symbol_dir" .
+(
+  cd "$symbol_dir"
+  tar -czf "../$archive_name" .
+)
+
 gh release upload "$VERSION" "$archive" --clobber
