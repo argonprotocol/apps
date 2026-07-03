@@ -77,7 +77,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
 import { PortfolioTab } from '../interfaces/IPortfolioTab.ts';
-import { PortfolioTab as EmitterPortfolioTab } from '../../app-operations/panels/interfaces/IPortfolioTab.ts';
+import { PortfolioTab as EmitterPortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import Overview from './portfolio/Overview.vue';
 import AssetBreakdown from './portfolio/AssetBreakdown.vue';
 import ProfitAnalysis from './portfolio/ProfitAnalysis.vue';

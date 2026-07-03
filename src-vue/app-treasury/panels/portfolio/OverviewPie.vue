@@ -14,7 +14,7 @@ import * as Vue from 'vue';
 import FourSlicePie, { ISlice } from '../../../components/FourSlicePie.vue';
 import BigNumber from 'bignumber.js';
 import { useWallets } from '../../../stores/wallets.ts';
-import { useFinancials } from '../../stores/financials.ts';
+import { useFinancials } from '../../../stores/financials.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 
 const wallets = useWallets();
