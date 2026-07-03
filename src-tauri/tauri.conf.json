@@ -89,7 +89,11 @@
       "deb"
     ],
     "icon": [
-      "icons/icon.png"
+      "icons-operations/stable/mainnet/32x32.png",
+      "icons-operations/stable/mainnet/128x128.png",
+      "icons-operations/stable/mainnet/128x128@2x.png",
+      "icons-operations/stable/mainnet/icon.icns",
+      "icons-operations/stable/mainnet/icon.ico"
     ]
   },
   "plugins": {
