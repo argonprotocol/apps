@@ -77,7 +77,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   const appProcessOutput = createAppProcessOutputTracker(appLogsMode, sessionIdentity.sessionName);
   const appInstanceName = sessionIdentity.appInstanceName || sessionIdentity.sessionName;
   const appPort = await chooseSessionPort(sessionIdentity.appInstancePort);
-  const appConfigId = resolveLocalAppConfigId(process.env.ARGON_APP);
+  const appConfigId = resolveLocalAppConfigId();
   const { composeProjectName, appEnv: commandEnv } = resolveTestSessionCommandEnv({
     baseEnv: process.env,
     fallbackSessionName: defaultSessionName,
@@ -276,9 +276,8 @@ function getAppConfigBaseDir(): string {
   return process.env.XDG_CONFIG_HOME || Path.join(process.env.HOME ?? '', '.config');
 }
 
-function resolveLocalAppConfigId(appName: string | undefined): string {
-  const normalized = appName?.trim().toLowerCase();
-  return normalized === 'treasury' ? 'com.argon.treasury.local' : 'com.argon.operations.local';
+function resolveLocalAppConfigId(): string {
+  return 'com.argon.desktop.local';
 }
 
 function getServerLogDirectory(appConfigId: string, networkName: string, instanceName: string): string {

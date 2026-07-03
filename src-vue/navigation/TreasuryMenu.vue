@@ -22,11 +22,11 @@
           <div
             class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
           >
-            <DropdownMenuItem @click="goto(OperationsTab.TreasuryBonds)" class="py-2">
+            <DropdownMenuItem @click="goto(TopTab.TreasuryBonds)" class="py-2">
               <header>Operational Bonds</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem @click="goto(OperationsTab.TreasuryLocks)" class="py-2">
+            <DropdownMenuItem @click="goto(TopTab.TreasuryLocks)" class="py-2">
               <header>Bitcoin Locks</header>
             </DropdownMenuItem>
           </div>
@@ -50,13 +50,13 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
-import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab, useOperationsController } from '../stores/operationsController.ts';
 
 const isOpen = Vue.ref(false);
 
 const controller = useOperationsController();
 
-function goto(tab: OperationsTab) {
+function goto(tab: TopTab) {
   controller.setScreenKey(tab);
 }
 
@@ -96,7 +96,7 @@ function clickOutside(e: PointerDownOutsideEvent) {
 </script>
 
 <style scoped>
-@reference "../../main.css";
+@reference "../main.css";
 
 [data-reka-collection-item] {
   @apply focus:bg-argon-menu-hover cursor-pointer px-4 focus:outline-none;

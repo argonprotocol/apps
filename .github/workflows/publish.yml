@@ -134,7 +134,7 @@ jobs:
             echo 'CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed'
           } >> "$GITHUB_ENV"
 
-      - name: Build and Publish Operations Stable
+      - name: Build and Publish Desktop Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
         env:
@@ -160,49 +160,14 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
+          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.desktop.conf.json
 
-      - name: Upload Operations Symbols
+      - name: Upload Desktop Symbols
         if: ${{ env.BUILDS == 'all' }}
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/uploadReleaseSymbols.sh Argon.Operations
-
-      - name: Build and Publish Treasury Stable
-        if: ${{ env.BUILDS == 'all' }}
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-          ARGON_APP_ENABLE_AUTOUPDATE: true
-          NODE_ENV: production
-          NODE_OPTIONS: --max-old-space-size=6144
-          RUST_BACKTRACE: full
-        with:
-          includeDebug: false
-          includeRelease: true
-          includeUpdaterJson: false
-          tagName: ${{ env.VERSION }}
-          releaseName: ${{ env.VERSION }}
-          releaseBody: ${{ env.RELEASE_NOTES }}
-          releaseDraft: true
-          prerelease: true
-          args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.treasury.conf.json
-
-      - name: Upload Treasury Symbols
-        if: ${{ env.BUILDS == 'all' }}
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/uploadReleaseSymbols.sh Argon.Treasury
+        run: ./scripts/uploadReleaseSymbols.sh Argon.Desktop "Argon Desktop"
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}

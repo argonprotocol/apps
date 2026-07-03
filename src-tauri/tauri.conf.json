@@ -89,24 +89,17 @@
       "deb"
     ],
     "icon": [
-      "icons-operations/stable/mainnet/32x32.png",
-      "icons-operations/stable/mainnet/128x128.png",
-      "icons-operations/stable/mainnet/128x128@2x.png",
-      "icons-operations/stable/mainnet/icon.icns",
-      "icons-operations/stable/mainnet/icon.ico"
+      "icons-desktop/stable/mainnet/32x32.png",
+      "icons-desktop/stable/mainnet/128x128.png",
+      "icons-desktop/stable/mainnet/128x128@2x.png",
+      "icons-desktop/stable/mainnet/icon.icns",
+      "icons-desktop/stable/mainnet/icon.ico"
     ]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNjgzNUE1MEU4MTNFNEMKUldSTVBvRU9wVFZvM0tYUUdSWkdnRFo1VnB0NHV6QzVnRnFRdVRXSVRYUWdobS9WbnpnbjYrSVQK",
       "endpoints": []
-    },
-    "deep-link": {
-      "desktop": {
-        "schemes": [
-          "argon-treasury"
-        ]
-      }
     }
   }
 }

@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import basicEmitter from './emitters/basicEmitter.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { OperationsTab, useOperationsController } from './stores/operationsController.ts';
+import { TopTab, useOperationsController } from './stores/operationsController.ts';
 import { checkInstallerIfCloseAllowed, getInstaller } from './stores/installer.ts';
 import { getBot } from './stores/bot.ts';
 import { getConfig } from './stores/config.ts';
@@ -102,7 +102,7 @@ export async function createMenu() {
       {
         id: 'mining-dashboard',
         text: 'Open Mining',
-        action: () => controller.setScreenKey(OperationsTab.MiningOperations),
+        action: () => controller.setScreenKey(TopTab.MiningOperations),
       },
       {
         id: 'token-transfer-to-mining',
@@ -118,7 +118,7 @@ export async function createMenu() {
       {
         id: 'vaulting-dashboard',
         text: 'Open Vaulting',
-        action: () => controller.setScreenKey(OperationsTab.VaultingOperations),
+        action: () => controller.setScreenKey(TopTab.VaultingOperations),
       },
       {
         id: 'token-transfer-to-vaulting',

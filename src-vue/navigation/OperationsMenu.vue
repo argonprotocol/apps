@@ -25,7 +25,7 @@
           >
             <DropdownMenuItem
               data-testid="OperationsMenu.goto(OperationsTab.MiningOperations)"
-              @click="goto(OperationsTab.MiningOperations)"
+              @click="goto(TopTab.MiningOperations)"
               class="py-2"
             >
               <header>Mining Operations</header>
@@ -33,7 +33,7 @@
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem
               data-testid="OperationsMenu.goto(OperationsTab.VaultingOperations)"
-              @click="goto(OperationsTab.VaultingOperations)"
+              @click="goto(TopTab.VaultingOperations)"
               class="py-2"
             >
               <header>Vaulting Operations</header>
@@ -59,7 +59,7 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
-import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab, useOperationsController } from '../stores/operationsController.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
@@ -68,12 +68,12 @@ const isOpen = Vue.ref(false);
 const controller = useOperationsController();
 const config = getConfig();
 
-function goto(tab: OperationsTab) {
+function goto(tab: TopTab) {
   if (controller.backButtonTriggersHome) {
     controller.backButtonTriggersHome = false;
-    if (tab === OperationsTab.MiningOperations) {
+    if (tab === TopTab.MiningOperations) {
       config.miningSetupStatus = MiningSetupStatus.None;
-    } else if (tab === OperationsTab.VaultingOperations) {
+    } else if (tab === TopTab.VaultingOperations) {
       config.vaultingSetupStatus = VaultingSetupStatus.None;
     }
   }

@@ -365,7 +365,7 @@ import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { TooltipProvider } from 'reka-ui';
-import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab, useOperationsController } from '../stores/operationsController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
@@ -508,13 +508,13 @@ function mouseoutCurrencyKey() {
 }
 
 function setupVault() {
-  controller.setScreenKey(OperationsTab.VaultingOperations);
+  controller.setScreenKey(TopTab.VaultingOperations);
   controller.backButtonTriggersHome = true;
   config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 function setupMining() {
-  controller.setScreenKey(OperationsTab.MiningOperations);
+  controller.setScreenKey(TopTab.MiningOperations);
   controller.backButtonTriggersHome = true;
   config.miningSetupStatus = MiningSetupStatus.Checklist;
 }

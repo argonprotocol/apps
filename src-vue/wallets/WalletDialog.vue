@@ -143,7 +143,6 @@ import WalletTransferOverlay from './components/WalletTransferOverlay.vue';
 import type { IArgonWalletType, IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { type IWallet, WalletType } from '../lib/Wallet.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { IS_OPERATIONS_APP } from '../lib/Env.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -188,12 +187,8 @@ const activeTransferOverlay = Vue.ref<{
   feeTokenSymbol: string;
 }>();
 const walletOptions = Vue.ref<IWalletOption[]>([
-  ...(IS_OPERATIONS_APP
-    ? [
-        { type: WalletType.miningHold as const, name: 'Argon Mining Wallet', isArgonNetwork: true },
-        { type: WalletType.vaulting as const, name: 'Argon Wallet', isArgonNetwork: true },
-      ]
-    : [{ type: WalletType.investment as const, name: 'Argon Wallet', isArgonNetwork: true }]),
+  { type: WalletType.miningHold as const, name: 'Argon Mining Wallet', isArgonNetwork: true },
+  { type: WalletType.investment as const, name: 'Argon Wallet', isArgonNetwork: true },
   { type: WalletType.ethereum as const, name: 'Ethereum Wallet', isArgonNetwork: false },
 ]);
 const firstWalletOption = Vue.ref<IWalletOption>(getWalletOption(props.walletType));
@@ -278,8 +273,8 @@ function triggerSyncMode() {
   emit('pair', firstWalletOption.value.isArgonNetwork ? WalletType.ethereum : getDefaultArgonWalletType());
 }
 
-function getDefaultArgonWalletType() {
-  return IS_OPERATIONS_APP ? WalletType.vaulting : WalletType.investment;
+function getDefaultArgonWalletType(): WalletType.vaulting {
+  return WalletType.vaulting;
 }
 
 function getWallet(option: IWalletOption): IWallet {

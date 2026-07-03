@@ -35,13 +35,12 @@ void main().catch(error => {
 async function main(): Promise<void> {
   const network = process.env.ARGON_NETWORK_NAME || 'testnet';
   const argonAppInstance = process.env.ARGON_APP_INSTANCE || '';
-  const app = process.env.ARGON_APP || 'operations';
   console.log(
-    `[tauri-dev] Starting Tauri dev for app="${app}" on network="${network}" with instance="${argonAppInstance}"`,
+    `[tauri-dev] Starting Tauri dev for network="${network}" with instance="${argonAppInstance}"`,
   );
 
-  const tauriPort = getTauriPort(argonAppInstance, app);
-  const configFileName = `tauri.${app}.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
+  const tauriPort = getTauriPort(argonAppInstance);
+  const configFileName = `tauri.desktop.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
   const configFilePath = path.resolve(__dirname, configFileName);
   const baseConfig = loadBaseConfig(configFileName, configFilePath);
   baseConfig.build ??= {};
@@ -62,8 +61,8 @@ async function main(): Promise<void> {
     shouldStartDevEthereumMintingAuthority = ['1', 'true', 'yes', 'on'].includes(
       readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase() ?? '',
     );
-    if (app.startsWith('treasury')) shouldStartDevEthereumMintingAuthority = false;
-    await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
+    shouldStartDevEthereumMintingAuthority = false;
+    await ensureDevGatewayCerts({ appInstance: argonAppInstance, network });
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');
     const composePorts = await resolveDevDockerComposePorts();
@@ -170,7 +169,6 @@ async function main(): Promise<void> {
         executionRpcUrl: devEthereumExecutionRpcUrl,
         logPrefix: 'tauri-dev',
         virtualEnv: {
-          app,
           appInstance: argonAppInstance,
           network,
           serverEnvVars: tauriEnv,
@@ -200,13 +198,13 @@ async function main(): Promise<void> {
   });
 }
 
-function getTauriPort(argonAppInstance: string, app: string): string {
+function getTauriPort(argonAppInstance: string): string {
   if (argonAppInstance.includes(':')) {
     const parts = argonAppInstance.split(':');
     const port = parts[parts.length - 1];
     if (port) return port;
   }
-  return app.startsWith('treasury') ? '1430' : '1420';
+  return '1420';
 }
 
 function loadBaseConfig(configFileName: string, configFilePath: string): any {

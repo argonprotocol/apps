@@ -131,7 +131,7 @@ import { getWalletKeys } from '../../stores/wallets.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
-import { ESPLORA_HOST, IS_TREASURY_APP } from '../../lib/Env.ts';
+import { ESPLORA_HOST } from '../../lib/Env.ts';
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import VaultIcon from '../../assets/wallets/vault.svg?component';
 import Tooltip from '../../components/Tooltip.vue';
@@ -185,7 +185,7 @@ const isReleased = Vue.computed(() => {
 
 const vaultLabel = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
-  if (IS_TREASURY_APP && upstreamOperator) {
+  if (config.showTreasuryExtension && upstreamOperator) {
     const name = upstreamOperator.name;
     if (name) return `${name}'s vault`;
     return 'The vault';

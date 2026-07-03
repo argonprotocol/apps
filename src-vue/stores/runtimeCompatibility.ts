@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { fetch, SingleFileQueue } from '@argonprotocol/apps-core';
 import type { ArgonClient } from '@argonprotocol/mainchain';
-import { ENABLE_AUTO_UPDATE, IS_EXPERIMENTAL_BUILD, IS_TREASURY_APP } from '../lib/Env.ts';
+import { ENABLE_AUTO_UPDATE, IS_EXPERIMENTAL_BUILD } from '../lib/Env.ts';
 import { getMainchainClients } from './mainchain.ts';
 import { useAppUpdater } from './appUpdater.ts';
 
@@ -160,7 +160,7 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
   }
 
   async function loadCompatibilityByVersion(): Promise<Record<string, CompatibilityInfo>> {
-    const channelName = `${IS_TREASURY_APP ? 'treasury' : 'operations'}-${IS_EXPERIMENTAL_BUILD ? 'experimental' : 'stable'}`;
+    const channelName = `desktop-${IS_EXPERIMENTAL_BUILD ? 'experimental' : 'stable'}`;
     const response = await fetch(
       `https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/${channelName}-compatibility.json?t=${Date.now()}`,
     );

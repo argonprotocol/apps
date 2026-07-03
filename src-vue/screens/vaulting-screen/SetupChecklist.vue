@@ -175,7 +175,7 @@ import { getVaultCalculator } from '../../stores/mainchain.ts';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
-import { useOperationsController, OperationsTab, OperationalStepId } from '../../stores/operationsController.ts';
+import { useOperationsController, TopTab, OperationalStepId } from '../../stores/operationsController.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
@@ -312,7 +312,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.vaultingSetupStatus = VaultingSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setScreenKey(OperationsTab.Wallets);
+    controller.setScreenKey(TopTab.Wallets);
   }
 }
 

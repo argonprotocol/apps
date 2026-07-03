@@ -21,7 +21,7 @@ import TourStepThree from './welcome-tour/StepThree.vue';
 import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
 import { getConfig } from '../stores/config.ts';
-import { useOperationsController, OperationsTab } from '../stores/operationsController.ts';
+import { useOperationsController, TopTab } from '../stores/operationsController.ts';
 
 const controller = useOperationsController();
 const config = getConfig();
@@ -64,11 +64,11 @@ async function loadStep(step: number) {
   if (step === 6) {
     step = 0;
   } else if (step === 1) {
-    controller.setScreenKey(OperationsTab.MiningOperations);
+    controller.setScreenKey(TopTab.MiningOperations);
   } else if (step === 2) {
-    controller.setScreenKey(OperationsTab.VaultingOperations);
+    controller.setScreenKey(TopTab.VaultingOperations);
   } else if (step === 5) {
-    controller.setScreenKey(OperationsTab.Wallets);
+    controller.setScreenKey(TopTab.Wallets);
   }
 
   tour.currentStep = step;

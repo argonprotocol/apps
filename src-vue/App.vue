@@ -6,14 +6,14 @@
     <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
       <AlertBars />
       <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
-        <WalletsScreen v-if="controller.selectedTab === OperationsTab.Wallets" />
-        <NetworkScreen v-else-if="controller.selectedTab === OperationsTab.Network" />
-        <TreasuryScreen v-else-if="controller.selectedTab === OperationsTab.Treasury" />
-        <TreasuryBondsScreen v-else-if="controller.selectedTab === OperationsTab.TreasuryBonds" />
-        <TreasuryLocksScreen v-else-if="controller.selectedTab === OperationsTab.TreasuryLocks" />
-        <OperationsScreen v-else-if="controller.selectedTab === OperationsTab.Operations" />
-        <MiningOperationsScreen v-else-if="controller.selectedTab === OperationsTab.MiningOperations" />
-        <VaultingOperationsScreen v-else-if="controller.selectedTab === OperationsTab.VaultingOperations" />
+        <WalletsScreen v-if="controller.selectedTab === TopTab.Wallets" />
+        <NetworkScreen v-else-if="controller.selectedTab === TopTab.Network" />
+        <TreasuryScreen v-else-if="controller.selectedTab === TopTab.Treasury" />
+        <TreasuryBondsScreen v-else-if="controller.selectedTab === TopTab.TreasuryBonds" />
+        <TreasuryLocksScreen v-else-if="controller.selectedTab === TopTab.TreasuryLocks" />
+        <OperationsScreen v-else-if="controller.selectedTab === TopTab.Operations" />
+        <MiningOperationsScreen v-else-if="controller.selectedTab === TopTab.MiningOperations" />
+        <VaultingOperationsScreen v-else-if="controller.selectedTab === TopTab.VaultingOperations" />
       </div>
     </main>
     <div v-else class="grow relative">
@@ -23,7 +23,7 @@
     </div>
     <template v-if="config.isLoaded">
       <Portfolio />
-      <template v-if="controller.selectedTab === OperationsTab.MiningOperations">
+      <template v-if="controller.selectedTab === TopTab.MiningOperations">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
@@ -72,7 +72,7 @@ import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
-import { OperationsTab, useOperationsController } from './stores/operationsController.ts';
+import { TopTab, useOperationsController } from './stores/operationsController.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
@@ -123,7 +123,7 @@ const { shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
 updater.start();
 runtimeCompatibility.start();
 
-const order = [OperationsTab.Wallets, OperationsTab.MiningOperations, OperationsTab.VaultingOperations];
+const order = [TopTab.Wallets, TopTab.MiningOperations, TopTab.VaultingOperations];
 
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)

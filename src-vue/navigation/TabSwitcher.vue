@@ -6,8 +6,8 @@
       class="relative flex flex-row items-center pointer-events-auto w-fit gap-x-2 ml-1.5 text-center text-slate-600"
     >
       <div Item FirstItem
-        @click="goto(OperationsTab.Wallets)"
-        :class="{ selected: controller.selectedTab === OperationsTab.Wallets }"
+        @click="goto(TopTab.Wallets)"
+        :class="{ selected: controller.selectedTab === TopTab.Wallets }"
         class="overflow-hidden"
       >
         <div Wrapper class="relative inline text-center">
@@ -19,8 +19,8 @@
       </div>
 
       <div Item
-        @click="goto(OperationsTab.Network)"
-        :class="{ selected: controller.selectedTab === OperationsTab.Network }"
+        @click="goto(TopTab.Network)"
+        :class="{ selected: controller.selectedTab === TopTab.Network }"
       >
         <div Wrapper class="relative inline px-1 text-center">
           <div class="font-bold">
@@ -31,14 +31,14 @@
 
       <div Item
          v-if="config.showTreasuryExtension"
-         @click="goto(OperationsTab.Treasury)"
-         :class="{ selected: [OperationsTab.Treasury, OperationsTab.TreasuryBonds, OperationsTab.TreasuryLocks].includes(controller.selectedTab) }"
+         @click="goto(TopTab.Treasury)"
+         :class="{ selected: [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks].includes(controller.selectedTab) }"
       >
         <div Wrapper class="relative text-center flex flex-row">
           <div class="font-bold">
             Treasury
-            <template v-if="controller.selectedTab === OperationsTab.TreasuryBonds">Bonds</template>
-            <template v-else-if="controller.selectedTab === OperationsTab.TreasuryLocks">Locks</template>
+            <template v-if="controller.selectedTab === TopTab.TreasuryBonds">Bonds</template>
+            <template v-else-if="controller.selectedTab === TopTab.TreasuryLocks">Locks</template>
           </div>
           <TreasuryMenu MenuArrow />
         </div>
@@ -46,13 +46,13 @@
 
       <div Item
         v-if="config.showOperationsExtension"
-        @click="goto(OperationsTab.Operations)"
-        :class="{ selected: [OperationsTab.Operations, OperationsTab.MiningOperations, OperationsTab.VaultingOperations].includes(controller.selectedTab) }"
+        @click="goto(TopTab.Operations)"
+        :class="{ selected: [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations].includes(controller.selectedTab) }"
       >
         <div Wrapper class="relative text-center flex flex-row">
           <div class="font-bold">
-            <template v-if="controller.selectedTab === OperationsTab.MiningOperations">Mining</template>
-            <template v-else-if="controller.selectedTab === OperationsTab.VaultingOperations">Vaulting</template>
+            <template v-if="controller.selectedTab === TopTab.MiningOperations">Mining</template>
+            <template v-else-if="controller.selectedTab === TopTab.VaultingOperations">Vaulting</template>
             Operations
           </div>
           <OperationsMenu MenuArrow />
@@ -64,7 +64,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController, OperationsTab, OperationalStepId } from '../stores/operationsController.ts';
+import { useOperationsController, TopTab, OperationalStepId } from '../stores/operationsController.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
@@ -78,12 +78,12 @@ const config = getConfig();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 
-function goto(tab: OperationsTab) {
+function goto(tab: TopTab) {
   if (controller.backButtonTriggersHome) {
     controller.backButtonTriggersHome = false;
-    if (tab === OperationsTab.MiningOperations) {
+    if (tab === TopTab.MiningOperations) {
       config.miningSetupStatus = MiningSetupStatus.None;
-    } else if (tab === OperationsTab.VaultingOperations) {
+    } else if (tab === TopTab.VaultingOperations) {
       config.vaultingSetupStatus = VaultingSetupStatus.None;
     }
   }
