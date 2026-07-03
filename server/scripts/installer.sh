@@ -163,6 +163,44 @@ if ! (already_ran "UbuntuCheck"); then
 
     if [ "$NEEDS_FULL_SETUP" = true ]; then
         echo "-----------------------------------------------------------------"
+        echo "CONFIGURING SWAP SPACE"
+
+        command_output=$(run_command "sudo swapon --show=NAME --noheadings")
+        if [ -n "$command_output" ]; then
+            echo "Swap is already active:"
+            echo "$command_output"
+        else
+            # Some 8GB Ubuntu hosts ship without swap, which can OOM Argon during the initial sync.
+            swapfile_state=$(run_command "sudo bash -lc '[ -f /swapfile ] && echo present || echo absent'")
+            if [ "$swapfile_state" = "present" ]; then
+                swapfile_size=$(run_command "sudo stat -c %s /swapfile")
+                if [ "$swapfile_size" -lt $((8 * 1024 * 1024 * 1024)) ]; then
+                    echo "Existing /swapfile is smaller than 8G, recreating it"
+                    run_command "sudo rm -f /swapfile"
+                    swapfile_state="absent"
+                fi
+            fi
+
+            if [ "$swapfile_state" = "absent" ]; then
+                echo "Creating 8G /swapfile"
+                allow_run_command_fail=1
+                command_output=$(run_command "sudo fallocate -l 8G /swapfile")
+                fallocate_status=${command_exit_status:-0}
+                unset allow_run_command_fail
+
+                if [ "$fallocate_status" -ne 0 ]; then
+                    echo "fallocate failed, retrying with dd"
+                    run_command "sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none"
+                fi
+            fi
+
+            run_command "sudo chmod 600 /swapfile"
+            run_command "sudo mkswap /swapfile"
+            run_command "sudo swapon /swapfile"
+            run_command "sudo grep -qE '^[[:space:]]*/swapfile[[:space:]]' /etc/fstab || sudo bash -c 'printf \"%s\\n\" \"/swapfile none swap sw 0 0\" >> /etc/fstab'"
+        fi
+
+        echo "-----------------------------------------------------------------"
         echo "INSTALLING auditd and fail2ban"
         run_command "sudo apt install -y auditd fail2ban"
 
