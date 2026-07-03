@@ -31,6 +31,8 @@ export interface IBlockHeaderInfo {
 type ISubscriptionSource = 'archive' | 'pruned';
 
 export class BlockWatch {
+  private static readonly queryTimeoutMs = 120e3;
+
   public get finalizedBlockHeader(): IBlockHeaderInfo {
     return this.latestHeaders.at(0)!;
   }
@@ -255,10 +257,21 @@ export class BlockWatch {
     if (best) {
       return best;
     }
-    const header = await this.readWithArchiveRetry(blockNumber, `getHeader(${blockNumber})`, async client => {
-      const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
-      return await client.rpc.chain.getHeader(blockHash);
-    });
+    return await this.getHeaderByBlockNumber(blockNumber);
+  }
+
+  public async getHeaderByBlockNumber(blockNumber: number): Promise<IBlockHeaderInfo> {
+    if (blockNumber < 0) {
+      throw new Error(`[BlockWatch] getHeaderByBlockNumber called with negative blockNumber (${blockNumber})`);
+    }
+    const header = await this.readWithArchiveRetry(
+      blockNumber,
+      `getHeaderByBlockNumber(${blockNumber})`,
+      async client => {
+        const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
+        return await client.rpc.chain.getHeader(blockHash);
+      },
+    );
     return BlockWatch.readHeader(header, blockNumber <= this.finalizedBlockHeader.blockNumber);
   }
 
@@ -450,7 +463,7 @@ export class BlockWatch {
     details: Record<string, unknown>,
   ): Promise<T> {
     try {
-      return await query(client);
+      return await this.runQueryWithTimeout(label, query(client));
     } catch (error) {
       if (!this.shouldRetryOnArchive(error)) {
         throw error;
@@ -465,13 +478,14 @@ export class BlockWatch {
         ...details,
         error: String(error),
       });
-      return await query(archiveClient);
+      return await this.runQueryWithTimeout(label, query(archiveClient));
     }
   }
 
   private shouldRetryOnArchive(error: unknown): boolean {
     const message = String(error).toLowerCase();
     return (
+      (message.includes('blockwatch') && message.includes('query timed out')) ||
       (message.includes('4003') &&
         (message.includes('state already discarded') || message.includes('unknown block'))) ||
       message.includes('unable to retrieve header and parent from supplied hash') ||
@@ -481,6 +495,23 @@ export class BlockWatch {
       message.includes('disconnected from ws://') ||
       message.includes('disconnected from wss://')
     );
+  }
+
+  private async runQueryWithTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(`[BlockWatch] Query timed out after ${BlockWatch.queryTimeoutMs}ms (${label})`));
+      }, BlockWatch.queryTimeoutMs);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   private getPreferredSubscriptionSource(): ISubscriptionSource {
