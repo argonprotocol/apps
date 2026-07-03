@@ -91,7 +91,6 @@ import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import VaultIcon from '../../assets/wallets/vault.svg?component';
 import Tooltip from '../../components/Tooltip.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
-import { IS_TREASURY_APP } from '../../lib/Env.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 
 dayjs.extend(utc);
@@ -113,7 +112,7 @@ const isReleased = Vue.computed(() => props.isReleased);
 
 const vaultLabel = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
-  if (IS_TREASURY_APP && upstreamOperator) {
+  if (config.showTreasuryExtension && upstreamOperator) {
     const name = upstreamOperator.name;
     if (name) return `${name}'s vault`;
     return 'The vault';

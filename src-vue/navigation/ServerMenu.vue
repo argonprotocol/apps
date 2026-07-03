@@ -54,7 +54,7 @@
                 </div>
                 <div class="text-center">You need your own Argon node before you can start mining or vaulting.</div>
               </div>
-              <NavigationMenuLink v-if="IS_OPERATIONS_APP" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
+              <NavigationMenuLink v-if="config.showOperationsExtension" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
                 <button @click="openServerConnectPanel" class="text-base py-2 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
                   Connect a Cloud Machine
                 </button>
@@ -138,7 +138,6 @@ import { getStats } from '../stores/stats.ts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { IS_OPERATIONS_APP } from '../lib/Env.ts';
 import { getConfig } from '../stores/config.ts';
 import InstallProgress from '../components/InstallProgress.vue';
 

@@ -2,7 +2,7 @@ import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import ISecurity from './src-vue/interfaces/ISecurity';
 import './src-vue/lib/patchTxResult.ts';
 
-(globalThis as any).__ARGON_APP_ID__ = 'com.argon.operations';
+(globalThis as any).__ARGON_APP_ID__ = 'com.argon.desktop';
 (globalThis as any).__ARGON_APP_NAME__ = 'ARGON';
 (globalThis as any).__ARGON_NETWORK_NAME__ = 'dev-docker';
 (globalThis as any).__ARGON_APP_INSTANCE__ = 'test-instance';

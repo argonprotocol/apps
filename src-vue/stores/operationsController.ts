@@ -31,7 +31,7 @@ import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 
-export enum OperationsTab {
+export enum TopTab {
   Wallets = 'Wallets',
   Network = 'Network',
   Treasury = 'Treasury',
@@ -123,7 +123,7 @@ export const useOperationsController = defineStore('operationsController', () =>
   const bitcoinLocks = getBitcoinLocks();
   const transactionTracker = getTransactionTracker();
   const walletKeys = getWalletKeys();
-  const selectedTab = Vue.ref<OperationsTab>(OperationsTab.Wallets);
+  const selectedTab = Vue.ref<TopTab>(TopTab.Wallets);
 
   const activeGuideId = Vue.ref<OperationalStepId | null>(null);
 
@@ -336,7 +336,7 @@ export const useOperationsController = defineStore('operationsController', () =>
     return !getCertificationBlocker(stepId);
   }
 
-  function setTab(tab: OperationsTab) {
+  function setTab(tab: TopTab) {
     if (selectedTab.value === tab) return;
 
     basicEmitter.emit('closeAllOverlays');

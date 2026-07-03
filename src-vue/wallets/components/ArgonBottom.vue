@@ -179,7 +179,6 @@ import { useWallets } from '../../stores/wallets.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
 import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
 import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
-import { IS_OPERATIONS_APP } from '../../lib/Env.ts';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import { getMiningFundingState } from '../../screens/mining-screen/miningFunding.ts';
 
@@ -193,7 +192,7 @@ const props = defineProps<{
 const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
-const controller = IS_OPERATIONS_APP ? useOperationsController() : null;
+const controller = useOperationsController();
 const calculator = getBiddingCalculator();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);

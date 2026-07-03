@@ -11,7 +11,7 @@ import {
 import type { Hex, Signature } from 'viem';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
-import { IS_TREASURY_APP, NETWORK_NAME } from './Env.ts';
+import { NETWORK_NAME } from './Env.ts';
 import { WalletType } from './Wallet.ts';
 
 export type EthereumHdPathPrefix = `m/44'/60'/${string}`;
@@ -282,19 +282,19 @@ export class WalletKeys {
   }
 
   public get liquidLockingAddress(): string {
-    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
+    return this.vaultingAddress;
   }
 
   public async getLiquidLockingKeypair(): Promise<KeyringPair> {
-    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+    return this.getVaultingKeypair();
   }
 
   public get treasuryAddress(): string {
-    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
+    return this.vaultingAddress;
   }
 
   public async getTreasuryKeypair(): Promise<KeyringPair> {
-    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+    return this.getVaultingKeypair();
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {
