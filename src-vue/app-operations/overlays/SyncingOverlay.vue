@@ -13,7 +13,7 @@
       <BgOverlay :enableTopBar="true" />
     </TransitionChild>
 
-    <div class="absolute inset-0 z-100 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none">
+    <div class="absolute inset-0 z-200 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none">
       <TransitionChild
         as="template"
         enter="ease-out duration-300"
@@ -32,8 +32,8 @@
           }"
           class="absolute flex flex-col w-6/12 bg-white border border-black/40 px-7 pb-8 rounded-lg pointer-events-auto shadow-xl overflow-scroll"
         >
-          <h2 
-            @mousedown="draggable.onMouseDown($event)" 
+          <h2
+            @mousedown="draggable.onMouseDown($event)"
             :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
             class="text-2xl font-bold text-slate-800/70 border-b border-slate-300 pt-6 pb-3 mb-3"
           >
