@@ -153,6 +153,13 @@ jobs:
           prerelease: true
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
 
+      - name: Upload Operations Symbols
+        if: ${{ env.BUILDS == 'all' }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/uploadReleaseSymbols.sh Argon.Operations "Argon Operations"
+
       - name: Build and Publish Treasury Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
@@ -180,6 +187,13 @@ jobs:
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.treasury.conf.json
+
+      - name: Upload Treasury Symbols
+        if: ${{ env.BUILDS == 'all' }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/uploadReleaseSymbols.sh Argon.Treasury "Argon Treasury"
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}
