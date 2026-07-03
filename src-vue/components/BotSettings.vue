@@ -310,7 +310,7 @@ import {
   type IBiddingRules,
   SeatGoalType,
 } from '@argonprotocol/apps-core';
-import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../app-operations/overlays/EditBoxOverlay.vue';
+import EditBoxOverlay, { type IEditBoxOverlayTypeForMining } from '../overlays/EditBoxOverlay.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral';
 import { bigIntAbs } from '@argonprotocol/apps-core/src/utils';
 import { getBiddingCalculator } from '../stores/mainchain';

@@ -436,7 +436,7 @@ function seedVirtualFrontendGlobals(args?: {
 }) {
   const app = args?.app ?? process.env.ARGON_APP ?? 'operations';
   const appId = `com.argon.${app}`;
-  const appName = app === 'treasury' ? 'Argon Treasury' : 'Argon Operations';
+  const appName = app === 'treasury' ? 'Argon Treasury' : 'Argon Desktop';
   const globals = {
     __ARGON_APP_ID__: appId,
     __ARGON_APP_INSTANCE__: args?.appInstance ?? process.env.ARGON_APP_INSTANCE ?? '',

@@ -105,7 +105,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
+import OverlayBase from '../../overlays/OverlayBase.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import BondIcon from '../../assets/bond.svg?component';
 import { getCurrency } from '../../stores/currency.ts';

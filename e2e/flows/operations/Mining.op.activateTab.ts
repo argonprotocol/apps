@@ -71,7 +71,8 @@ export default new Operation<IMiningFlowContext, IActivateTabState>(import.meta,
     if (activeTabContent.visible) {
       return;
     }
-    await flow.click('TabSwitcher.goto(OperationsTab.Mining)', { timeoutMs: 10_000 });
+    await flow.click('OperationsMenu.open()', { timeoutMs: 10_000 });
+    await flow.click('OperationsMenu.goto(OperationsTab.MiningOperations)', { timeoutMs: 10_000 });
     await flow.waitFor('MiningScreen', { timeoutMs: 10_000 });
   },
 });
