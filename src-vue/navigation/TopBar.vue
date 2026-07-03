@@ -25,13 +25,13 @@
       @update:model-value="setNavigationMenuValue"
     >
       <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
-        <div v-if="config.showOperationsExtension" :class="[controller.selectedTab === OperationsTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <div v-if="config.showOperationsExtension" :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
           <ServerMenu ref="serverMenuRef" />
         </div>
 <!--        <div class="pointer-events-auto">-->
 <!--          <OperationalMenu ref="operationalMenuRef" />-->
 <!--        </div>-->
-        <div :class="[controller.selectedTab === OperationsTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto', wallets.isLoaded ? '' : 'opacity-20']">
+        <div :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto', wallets.isLoaded ? '' : 'opacity-20']">
           <div ref="currencyMenuRef" class="flex flex-row items-center">
             <PortfolioDetailsMenu />
             <div class="w-px h-[30px] bg-slate-400/50"></div>
@@ -41,7 +41,7 @@
         <div class="pointer-events-auto">
           <ProfitsMenu ref="returnsMenuRef" />
         </div>
-        <div :class="[controller.selectedTab === OperationsTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <div :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
           <AccountMenu ref="accountMenuRef" />
         </div>
       </NavigationMenuList>
@@ -63,7 +63,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab, useOperationsController } from '../stores/operationsController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';

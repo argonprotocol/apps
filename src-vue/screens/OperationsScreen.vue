@@ -124,7 +124,7 @@ import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
-import { OperationsTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab, useOperationsController } from '../stores/operationsController.ts';
 import { usePortfolio } from '../stores/portfolio.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 
@@ -173,13 +173,13 @@ const myVaultRoi = Vue.computed(() => {
 });
 
 function setupVault() {
-  controller.setScreenKey(OperationsTab.VaultingOperations);
+  controller.setScreenKey(TopTab.VaultingOperations);
   controller.backButtonTriggersHome = true;
   config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 function setupMining() {
-  controller.setScreenKey(OperationsTab.MiningOperations);
+  controller.setScreenKey(TopTab.MiningOperations);
   controller.backButtonTriggersHome = true;
   config.miningSetupStatus = MiningSetupStatus.Checklist;
 }

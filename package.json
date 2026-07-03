@@ -34,7 +34,6 @@
     "tauri": "tauri",
     "tauri:dev": "tsx src-tauri/dev.ts",
     "tauri:dev:local": "NODE_ENV=localnet yarn tauri:dev",
-    "tauri:dev:docker:treasury": "ARGON_DEV_ETHEREUM=0 ARGON_APP=treasury yarn tauri:dev:docker",
     "tauri:dev:docker": "RUST_BACKTRACE=full ARGON_APP_INSTANCE=${ARGON_APP_INSTANCE:-e2e} ARGON_NETWORK_NAME=dev-docker yarn tauri:dev",
     "tauri:dev:docker:ops2": "JOIN_COMPOSE_NETWORK=${JOIN_COMPOSE_NETWORK:-dev-docker-e2e} ARGON_DEV_ETHEREUM=0 ARGON_APP_INSTANCE=${ARGON_APP_INSTANCE:-ops2:1421} yarn tauri:dev:docker",
     "lint": "prettier -w bot core src-vue cli e2e",

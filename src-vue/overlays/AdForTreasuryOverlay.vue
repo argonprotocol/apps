@@ -46,11 +46,8 @@
 import * as Vue from 'vue';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { UserRole } from '@argonprotocol/apps-core';
-import { DialogTitle } from 'reka-ui';
-import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../stores/config.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
-import { APP_NAME, IS_OPERATIONS_APP, IS_TREASURY_APP } from '../lib/Env.ts';
 import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType } from '../interfaces/IConfig.ts';
 import type { IOperationalReferral } from '../interfaces/IConfig.ts';
@@ -139,14 +136,7 @@ async function connectToNetwork() {
   const operatorHost = `https://${operatorAddress}`;
 
   try {
-    if (IS_TREASURY_APP) {
-      if (meta.role !== UserRole.TreasuryUser || !meta.secret) {
-        throw new Error('This access code is for the Operations app.');
-      }
-
-      const body = await UpstreamOperatorClient.claimTreasuryAppInvite(operatorHost, meta.secret, walletKeys);
-      await connectTreasuryInvite(body, operatorHost, meta.secret);
-    } else if (IS_OPERATIONS_APP) {
+    if (config.showOperationsExtension) {
       if (meta.role !== UserRole.OperationalPartner || !meta.secret || !meta.operationalReferral) {
         throw new Error('This access code is for the Treasury app.');
       }
@@ -161,6 +151,13 @@ async function connectToNetwork() {
         inviteSecret: meta.secret,
         operationalReferral: meta.operationalReferral,
       });
+    } else if (config.showOperationsExtension) {
+      if (meta.role !== UserRole.TreasuryUser || !meta.secret) {
+        throw new Error('This access code is for the Operations app.');
+      }
+
+      const body = await UpstreamOperatorClient.claimTreasuryAppInvite(operatorHost, meta.secret, walletKeys);
+      await connectTreasuryInvite(body, operatorHost, meta.secret);
     }
   } catch (error) {
     formError.value =

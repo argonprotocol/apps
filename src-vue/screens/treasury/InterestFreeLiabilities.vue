@@ -14,12 +14,6 @@
             years. The stablecoins you receive are unencumbered, meaning you have the full freedom to deploy your capital
             however you want.
           </p>
-          <div class=" mt-12">
-            <button @click="controller.setScreenKey(TreasuryTab.BitcoinLocks)" class="text-argon-600 font-bold cursor-pointer border border-argon-600 px-12 py-3 text-lg rounded-md hover:bg-argon-600/5">
-              Open Bitcoin Locks Tab
-              <ArrowRightIcon class="w-5 h-5 inline-block ml-1" />
-            </button>
-          </div>
         </div>
       </div>
       <div class="relative pb-1 pl-0.5 pr-1">
@@ -99,9 +93,6 @@ import utc from 'dayjs/plugin/utc';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
-import LoanIcon from '../../assets/loan.svg';
-import { ArrowRightIcon } from '@heroicons/vue/24/outline';
-import { TreasuryTab, useTreasuryController } from '../../stores/treasuryController.ts';
 import DebtRecord from './components/DebtRecord.vue';
 import { useFinancials } from '../../stores/financials.ts';
 
@@ -109,7 +100,6 @@ dayjs.extend(utc);
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
-const controller = useTreasuryController();
 const financials = useFinancials();
 
 const isLoaded = Vue.ref(false);

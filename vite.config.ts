@@ -16,8 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const require = createRequire(__filename);
 const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
-const defaultOperationsPortString = '1420';
-const defaultTreasuryPortString = '1430';
+const DEFAULT_PORT = '1420';
 
 function shouldIgnoreWatchedPath(path: string): boolean {
   const watchedPath = path.replace(/\\/g, '/');
@@ -84,10 +83,7 @@ export default defineConfig(async ({ mode }) => {
   const host = envFile.TAURI_DEV_HOST;
 
   const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
-  const app = process.env.ARGON_APP || 'operations';
-  const defaultPort = app.startsWith('treasury') ? defaultTreasuryPortString : defaultOperationsPortString;
-
-  const instancePort = parseInt(instance[1] || defaultPort, 10);
+  const instancePort = parseInt(instance[1] || DEFAULT_PORT, 10);
 
   if (envFile.ARGON_APP_INSTANCE && envFile.ARGON_APP_INSTANCE !== process.env.ARGON_APP_INSTANCE) {
     throw new Error(`⚠️ ARGON_APP_INSTANCE must be set on the command line not from inside a .env file`);

@@ -10,15 +10,6 @@ import handleFatalError from './helpers/handleFatalError.ts';
 import Importer from '../lib/Importer.ts';
 import { getVaults } from './vaults.ts';
 
-export enum TreasuryTab {
-  MainchainSavings = 'MainchainSavings',
-  MainchainDebts = 'MainchainDebts',
-  ArgonBonds = 'ArgonBonds',
-  ArgonotBonds = 'ArgonotBonds',
-  BitcoinLocks = 'BitcoinLocks',
-  EthereumSwaps = 'EthereumSwaps',
-}
-
 export const useTreasuryController = defineStore('treasuryController', () => {
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
@@ -27,23 +18,12 @@ export const useTreasuryController = defineStore('treasuryController', () => {
   const config = getConfig();
   const walletKeys = getWalletKeys();
   const vaults = getVaults();
-  const selectedTab = Vue.ref<TreasuryTab>(TreasuryTab.MainchainSavings);
 
   const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(false);
   const stopSuggestingVaultTour = Vue.ref(false);
   let selectedVaultSubscriptionKey = 0;
   let unsubSelectedVault: (() => void) | undefined;
-
-  function setTab(value: TreasuryTab) {
-    if (selectedTab.value === value) return;
-
-    basicEmitter.emit('closeAllOverlays');
-    selectedTab.value = value;
-    if (config.isLoaded) {
-      void config.save();
-    }
-  }
 
   async function load() {
     await config.isLoadedPromise;
@@ -120,13 +100,11 @@ export const useTreasuryController = defineStore('treasuryController', () => {
   load().catch(handleFatalError.bind('useOperationsController'));
 
   return {
-    selectedTab,
     isLoaded,
     isLoadedPromise,
     isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
     importFromMnemonic,
-    setScreenKey: setTab,
   };
 });

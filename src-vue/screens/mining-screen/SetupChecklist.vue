@@ -217,7 +217,7 @@ import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
 import BotCreatePanel from '../../panels/BotCreatePanel.vue';
-import { OperationalStepId, OperationsTab, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, TopTab, useOperationsController } from '../../stores/operationsController.ts';
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
@@ -360,7 +360,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.miningSetupStatus = MiningSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setScreenKey(OperationsTab.Wallets);
+    controller.setScreenKey(TopTab.Wallets);
   }
 }
 

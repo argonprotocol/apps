@@ -6,12 +6,10 @@ console.log('__ARGON_APP_INSTANCE__', __ARGON_APP_INSTANCE__);
 console.log('__ARGON_NETWORK_NAME__', __ARGON_NETWORK_NAME__);
 console.log('__ARGON_APP_NAME__', __ARGON_APP_NAME__);
 
-export const APP_ID = __ARGON_APP_ID__ || 'com.argon.operations';
+export const APP_ID = __ARGON_APP_ID__ || 'com.argon.desktop';
 export const IS_LOCAL_BUILD = APP_ID.includes('local');
 export const IS_EXPERIMENTAL_BUILD = APP_ID.includes('experimental');
 export const IS_STABLE_BUILD = !IS_LOCAL_BUILD && !IS_EXPERIMENTAL_BUILD;
-export const IS_TREASURY_APP = APP_ID.includes('treasury');
-export const IS_OPERATIONS_APP = APP_ID.includes('operations');
 export const APP_NAME = __ARGON_APP_NAME__ || 'Argon';
 
 export const NETWORK_NAME = __ARGON_NETWORK_NAME__ || 'mainnet';

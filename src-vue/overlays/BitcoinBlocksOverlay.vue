@@ -71,7 +71,7 @@ import dayjs from 'dayjs';
 import { getStats } from '../stores/stats.ts';
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
-import PopoverPanelArrow from '../../components/PopoverPanelArrow.vue';
+import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 
 const stats = getStats();
 const bot = getBot();

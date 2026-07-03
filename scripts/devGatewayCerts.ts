@@ -9,7 +9,6 @@ import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export interface DevGatewayCertOptions {
-  app?: string;
   appInstance?: string;
   network?: string;
 }
@@ -185,7 +184,7 @@ function getCertificateTargetDirs(options: DevGatewayCertOptions): string[] {
 
   const network = options.network ?? readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
   const instanceName = normalizeInstanceName(options.appInstance ?? readNonEmptyEnv('ARGON_APP_INSTANCE') ?? 'e2e');
-  const appIds = getLocalAppIds(options.app ?? readNonEmptyEnv('ARGON_APP'));
+  const appIds = getLocalAppIds();
   const appConfigBaseDir = getAppConfigBaseDir();
   const targets = new Set<string>([Path.join(repoRoot, 'config', 'nginx-certs')]);
 
@@ -198,10 +197,8 @@ function getCertificateTargetDirs(options: DevGatewayCertOptions): string[] {
   return [...targets];
 }
 
-function getLocalAppIds(app?: string): string[] {
-  if (app === 'operations') return ['com.argon.operations.local'];
-  if (app === 'treasury') return ['com.argon.treasury.local'];
-  return ['com.argon.operations.local', 'com.argon.treasury.local'];
+function getLocalAppIds(): string[] {
+  return ['com.argon.desktop.local'];
 }
 
 function getAppConfigBaseDir(): string {

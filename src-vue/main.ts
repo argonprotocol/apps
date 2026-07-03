@@ -7,7 +7,6 @@ import { MotionGlobalConfig } from 'motion-v';
 import './lib/LogForwarding.ts';
 import App from './App.vue';
 import './main.css';
-import { IS_TREASURY_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
 
 window.addEventListener('unhandledrejection', error => {
@@ -38,9 +37,7 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 
-const appName = IS_TREASURY_APP ? 'Treasury' : 'Operations';
-
-console.log(`[Bootstrap] Creating Argon ${appName} Vue app`);
+console.log(`[Bootstrap] Creating Argon Desktop Vue app`);
 const app = createApp(App);
 app.config.errorHandler = (error, instance, info) => {
   console.error(`[Vue] ${info}`, {
@@ -60,7 +57,7 @@ try {
 }
 
 void getVersion().then(version => {
-  console.log(`Starting Argon ${appName} App v${version}`);
+  console.log(`Starting Argon Desktop App v${version}`);
 });
 
 if (isE2E) {

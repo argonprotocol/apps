@@ -10,7 +10,7 @@ import { stripNetworkPrefix, toComposeProjectName } from '../core/src/utils.ts';
 
 const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = Path.resolve(scriptDir, '..');
-const appIds = ['com.argon.operations.local', 'com.argon.treasury.local'];
+const appIds = ['com.argon.desktop.local'];
 const kurtosisEthereumEnclavePrefix = 'argon-eth-';
 
 const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';

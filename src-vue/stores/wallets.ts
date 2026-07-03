@@ -7,7 +7,7 @@ import { createDeferred, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getStats } from './stats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
-import { IS_TREASURY_APP, IS_OPERATIONS_APP, SECURITY } from '../lib/Env.ts';
+import { SECURITY } from '../lib/Env.ts';
 import { getSpendableMiningHoldMicrogons, IArgonWalletType } from '../lib/WalletForArgon.ts';
 import { IWallet, defaultWalletData } from '../lib/Wallet.ts';
 import { IWalletEvents, WalletsForArgon } from '../lib/WalletsForArgon.ts';
@@ -31,7 +31,7 @@ export function getWalletKeys() {
 let walletsForArgon: WalletsForArgon;
 export function getWalletsForArgon() {
   if (!walletsForArgon) {
-    const myVault = IS_OPERATIONS_APP ? getMyVault() : undefined;
+    const myVault = getMyVault();
     walletsForArgon = new WalletsForArgon(getWalletKeys(), getDbPromise(), getBlockWatch(), myVault);
   }
   return walletsForArgon;
@@ -107,7 +107,7 @@ export const useWallets = defineStore('wallets', () => {
   walletForBase.data = baseWallet;
 
   const liquidLockingWallet = Vue.computed(() => {
-    return IS_TREASURY_APP ? investmentWallet : vaultingWallet;
+    return vaultingWallet;
   });
 
   const miningHoldSpendableMicrogons = Vue.computed(() => {
