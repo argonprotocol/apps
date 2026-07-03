@@ -1,4 +1,10 @@
-import { fetch, getObjectStringProperty, MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  fetch,
+  getErrorDiagnostics,
+  getObjectStringProperty,
+  MoveToken,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import {
   decodeAddress,
   decodeEthereumGatewayActivityLog,
@@ -203,7 +209,6 @@ export class EthereumClient {
   }): Promise<IEthereumTransferToArgon> {
     const { moveToken, amountBaseUnits, destinationAddress } = args;
     const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
-    await this.ensureEthereumSignerPolicyConfigured();
     const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
     const sourceTxHash = await submitEthereumTransaction({
       publicClient,
@@ -691,6 +696,7 @@ export class EthereumClient {
         functionName: 'name',
       }),
     ]);
+    await this.ensureEthereumSignerPolicyConfigured(chainConfig);
     const permitSignature = await this.walletKeys.signEthereumPermit({
       tokenAddress,
       tokenName,
@@ -1418,6 +1424,11 @@ export async function submitEthereumTransaction(args: {
     if (await isSubmittedEthereumTransactionVisible(publicClient, derivedHash)) {
       return derivedHash;
     }
+
+    console.warn('[EthereumClient] sendRawTransaction rejected before transaction became visible', {
+      derivedHash,
+      error: getErrorDiagnostics(error),
+    });
 
     throw new Error(getEthereumUserErrorMessage(error, fallbackErrorMessage));
   }

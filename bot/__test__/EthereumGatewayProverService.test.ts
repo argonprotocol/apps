@@ -184,7 +184,9 @@ describe('EthereumGatewayProverService', () => {
       })),
     };
     const client = createClient({ tx, accountNextNonce: 9 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      shouldApplySharedRelayStagger: true,
+    });
 
     gatewayProofMock.buildGatewayActivityProofPayload
       .mockResolvedValueOnce({
@@ -232,7 +234,9 @@ describe('EthereumGatewayProverService', () => {
 
   it('retries with a refreshed nonce when the node drops the delegate submission', async () => {
     const client = createClient();
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      shouldApplySharedRelayStagger: true,
+    });
     const accountNextIndex = client.rpc.system.accountNextIndex as ReturnType<typeof vi.fn>;
     accountNextIndex.mockResolvedValueOnce({ toNumber: () => 4 }).mockResolvedValueOnce({ toNumber: () => 5 });
 
@@ -315,7 +319,9 @@ describe('EthereumGatewayProverService', () => {
     vi.useFakeTimers();
 
     const client = createClient();
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      shouldApplySharedRelayStagger: true,
+    });
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
       previousGatewayActivityNonce: 6n,
       proof: { batch: 'proof' },
@@ -400,7 +406,9 @@ describe('EthereumGatewayProverService', () => {
         })),
       },
     });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      shouldApplySharedRelayStagger: true,
+    });
 
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
       previousGatewayActivityNonce: 6n,
@@ -601,6 +609,46 @@ describe('EthereumGatewayProverService', () => {
     await service.shutdown();
   });
 
+  it('bypasses staggered relay scheduling when disabled', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
+
+    const signedTx = {
+      method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+      nonce: { toNumber: () => 5 },
+    };
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+      shouldApplySharedRelayStagger: false,
+    });
+
+    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
+      previousGatewayActivityNonce: 6n,
+      proof: { batch: 'proof' },
+      gatewayActivityNonceRange: { start: 7n, end: 7n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    });
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      signedTx,
+      result: {
+        extrinsic: {
+          signedHash: '0xrelaytx',
+          submittedAtBlockNumber: 321,
+          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+        },
+        blockNumber: 321,
+        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+      },
+    });
+
+    await service.start();
+
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+
+    await service.shutdown();
+  });
+
   it('rechecks shared relay work inside the stagger window after startup', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-13T16:00:00.000Z'));
@@ -653,6 +701,7 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       backgroundSweepMs: 1_000,
+      shouldApplySharedRelayStagger: true,
     });
     const runBackgroundSweep = (
       service as unknown as {

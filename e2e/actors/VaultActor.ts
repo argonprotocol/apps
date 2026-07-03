@@ -85,7 +85,9 @@ export class VaultActor {
     const bitcoinLocks = new BitcoinLocks(dbPromise, walletKeys, miningFrames.blockWatch, currency, transactionTracker);
     const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames);
     const relaySubmitLane = new DelegateSubmitLane(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie'));
-    const ethereumGatewayProverService = new EthereumGatewayProverService(relaySubmitLane);
+    const ethereumGatewayProverService = new EthereumGatewayProverService(relaySubmitLane, {
+      shouldApplySharedRelayStagger: false,
+    });
     const mintingAuthorities = new MintingAuthorities(
       dbPromise,
       walletKeys,

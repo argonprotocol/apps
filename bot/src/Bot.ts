@@ -23,6 +23,7 @@ import {
   JsonExt,
   MainchainClients,
   MiningFrames,
+  NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
@@ -97,6 +98,7 @@ export default class Bot {
       this.delegateSubmitLane,
     );
     this.ethereumGatewayProverService = new EthereumGatewayProverService(this.delegateSubmitLane, {
+      shouldApplySharedRelayStagger: NetworkConfig.networkName !== 'dev-docker',
       vaultOperatorAddress: this.options.vaultOperatorAddress,
     });
   }

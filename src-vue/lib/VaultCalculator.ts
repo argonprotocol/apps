@@ -7,7 +7,7 @@ import {
   calculateAPY,
   createDeferred,
 } from '@argonprotocol/apps-core';
-import { Config } from './Config';
+import { Config } from './Config.ts';
 import { Vaults } from './Vaults.ts';
 
 export class VaultCalculator {

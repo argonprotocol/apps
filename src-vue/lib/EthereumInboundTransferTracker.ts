@@ -1,6 +1,7 @@
 import { MoveToken, type IEthereumGatewayRelayReasonCode } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { nanoid } from 'nanoid';
+import { formatEther } from 'viem';
 import type { IArgonWalletType, IEthereumInboundTransferState } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import {
   completeInboundTransferProgress,
@@ -20,11 +21,8 @@ import {
   type ICrosschainInboundTransferRecord,
 } from './db/CrosschainInboundTransfersTable.ts';
 import type { Db } from './Db.ts';
-import {
-  requestEthereumGatewayCatchUpDispatch,
-  type IEthereumGatewayRelaySource,
-  type ServerApiClient,
-} from './ServerApiClient.ts';
+import type { ServerApiClient } from './ServerApiClient.ts';
+import { requestEthereumGatewayCatchup, type IEthereumGatewayRelaySource } from './EthereumGatewayCatchup.ts';
 import { getEthereumGatewayPauseReason } from '../stores/mainchain.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
@@ -51,6 +49,8 @@ type IEthereumInboundTransferClient = Pick<
   | 'sourceAddress'
   | 'executionRpcUrl'
   | 'startTransferToArgon'
+  | 'estimateTransferToArgonFee'
+  | 'getNativeBalanceWei'
   | 'confirmTransferToArgon'
   | 'getTransactionProgress'
   | 'getTransactionFinalityPollMs'
@@ -58,8 +58,7 @@ type IEthereumInboundTransferClient = Pick<
   | 'getTransferToArgonPollMs'
   | 'getTransferToArgonWaitEstimateMs'
   | 'waitForTransactionFinality'
-> &
-  Partial<Pick<EthereumClient, 'estimateTransferToArgonFee'>>;
+>;
 
 class InboundTransferInvariantError extends Error {}
 
@@ -202,15 +201,7 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    let destinationAddress: string;
-    if (targetWalletType === WalletType.investment) {
-      destinationAddress = this.walletKeys.investmentAddress;
-    } else if (targetWalletType === WalletType.miningHold) {
-      destinationAddress = this.walletKeys.miningHoldAddress;
-    } else {
-      destinationAddress = this.walletKeys.vaultingAddress;
-    }
-
+    const destinationAddress = this.walletKeys.getWalletAddress(targetWalletType);
     return await this.ethereumClient.estimateTransferToArgonFee?.({
       moveToken,
       amountBaseUnits,
@@ -327,14 +318,12 @@ export class EthereumInboundTransferTracker {
     const transferState = transfer.transferState;
 
     try {
-      let destinationAddress: string;
-      if (targetWalletType === WalletType.investment) {
-        destinationAddress = this.walletKeys.investmentAddress;
-      } else if (targetWalletType === WalletType.miningHold) {
-        destinationAddress = this.walletKeys.miningHoldAddress;
-      } else {
-        destinationAddress = this.walletKeys.vaultingAddress;
-      }
+      const destinationAddress = this.walletKeys.getWalletAddress(targetWalletType);
+      await this.ensureSufficientEthereumFeeBalance({
+        moveToken,
+        amountBaseUnits,
+        destinationAddress,
+      });
 
       const submittedTransfer = await this.ethereumClient.startTransferToArgon({
         moveToken,
@@ -361,6 +350,29 @@ export class EthereumInboundTransferTracker {
     } catch (error) {
       await this.failTransfer(id, error instanceof Error ? error.message : 'Unable to move funds from Ethereum.');
     }
+  }
+
+  private async ensureSufficientEthereumFeeBalance(args: {
+    moveToken: IEthereumMoveToken;
+    amountBaseUnits: bigint;
+    destinationAddress: string;
+  }) {
+    const feeEstimateWei = await this.ethereumClient.estimateTransferToArgonFee({
+      moveToken: args.moveToken,
+      amountBaseUnits: args.amountBaseUnits,
+      destinationAddress: args.destinationAddress,
+    });
+    const ethereumBalanceWei = await this.ethereumClient.getNativeBalanceWei();
+    if (ethereumBalanceWei >= feeEstimateWei) {
+      return;
+    }
+
+    const missingWei = feeEstimateWei - ethereumBalanceWei;
+    throw new Error(
+      `Your Ethereum wallet has ${formatEther(ethereumBalanceWei)} ETH, but this transfer needs about ${formatEther(
+        feeEstimateWei,
+      )} ETH for network fees. Add about ${formatEther(missingWei)} ETH and retry.`,
+    );
   }
 
   private async continueTrackedMove(
@@ -673,23 +685,39 @@ export class EthereumInboundTransferTracker {
 
     const upstreamOperatorHost = this.upstreamOperatorClient.operatorHost;
     if (this.serverApiClient || upstreamOperatorHost) {
-      this.#lastCatchUpRequestAt.set(record.id, now);
-      const relayDispatch = await requestEthereumGatewayCatchUpDispatch({
+      const relayResult = await requestEthereumGatewayCatchup({
         throughGatewayActivityNonce,
         serverApiClient: this.serverApiClient,
         upstreamOperatorClient: upstreamOperatorHost ? this.upstreamOperatorClient : undefined,
       });
+
+      const shouldRetryImmediately =
+        relayResult.localRelayAttemptOutcome === 'notReady' &&
+        relayResult.relaySource === undefined &&
+        relayResult.relayReasonCode === undefined &&
+        relayResult.localRelayReasonCode === undefined;
+      const shouldBackOffCatchUpRetry =
+        !shouldRetryImmediately &&
+        (relayResult.relaySource !== undefined ||
+          relayResult.relayError !== '' ||
+          relayResult.relayReasonCode !== undefined ||
+          relayResult.localRelayReasonCode !== undefined);
+      if (shouldBackOffCatchUpRetry) {
+        this.#lastCatchUpRequestAt.set(record.id, now);
+      } else {
+        this.#lastCatchUpRequestAt.delete(record.id);
+      }
       let isLocalRelaySetupComplete: boolean | undefined;
-      if (isRelayFundingReason(relayDispatch.localRelayReasonCode)) {
+      if (isRelayFundingReason(relayResult.localRelayReasonCode)) {
         const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
         if (this.myVault?.createdVault) {
           isLocalRelaySetupComplete = this.myVault.createdVault.delegateAccountId === delegateAddress;
         }
       }
       const relayHint = getRelayProgressHint({
-        relaySource: relayDispatch.relaySource,
-        localRelayError: relayDispatch.localRelayError,
-        localRelayReasonCode: relayDispatch.localRelayReasonCode,
+        relaySource: relayResult.relaySource,
+        localRelayError: relayResult.localRelayError,
+        localRelayReasonCode: relayResult.localRelayReasonCode,
         isLocalRelaySetupComplete,
         isFinalizingOnArgon: transfer.transferState.progress.currentStep >= 3,
       });
@@ -709,16 +737,16 @@ export class EthereumInboundTransferTracker {
       }
 
       transfer.transferState.error = shouldSurfaceRelayError({
-        relayError: relayDispatch.relayError ?? '',
-        relayReasonCode: relayDispatch.relayReasonCode,
+        relayError: relayResult.relayError,
+        relayReasonCode: relayResult.relayReasonCode,
         hasExceededWaitEstimate,
       })
         ? getRelayErrorMessage({
-            relayError: relayDispatch.relayError ?? '',
-            relayReasonCode: relayDispatch.relayReasonCode,
-            relaySource: relayDispatch.relaySource,
-            localRelayError: relayDispatch.localRelayError,
-            localRelayReasonCode: relayDispatch.localRelayReasonCode,
+            relayError: relayResult.relayError,
+            relayReasonCode: relayResult.relayReasonCode,
+            relaySource: relayResult.relaySource,
+            localRelayError: relayResult.localRelayError,
+            localRelayReasonCode: relayResult.localRelayReasonCode,
             isLocalRelaySetupComplete,
           })
         : '';
