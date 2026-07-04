@@ -1,8 +1,8 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { getMining } from './mainchain.ts';
-import { Currency, getCurrency } from './currency.ts';
-import { calculateAPY, GlobalMiningStats, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { getCurrency } from './currency.ts';
+import { calculateAPY, GlobalMiningStats } from '@argonprotocol/apps-core';
 
 export const useMiningStats = defineStore('miningStats', () => {
   let hasLoaded = false;

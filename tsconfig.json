@@ -34,6 +34,7 @@
     "src-vue/**/*.tsx",
     "src-vue/**/*.vue",
     "src-tauri/dev.ts",
+    "vitest.setup.ts",
     "scripts",
     "eslint.config.ts",
     "bot/**/*.ts",

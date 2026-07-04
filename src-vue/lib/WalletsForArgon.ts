@@ -197,8 +197,16 @@ export class WalletsForArgon {
       const oldestBlock = Math.min(...this.blockHistory.map(x => x.blockNumber), finalizedBlockNumber);
 
       /// PROCESS UP TO CURRENT BLOCK
-      let historyHeader = header;
-      for (let blockNumber = header.blockNumber; blockNumber >= oldestBlock; blockNumber--) {
+      let currentHeader = header;
+      const isCurrentBestTreeHash = this.blockWatch.latestHeaders.some(x => x.blockHash === currentHeader.blockHash);
+      if (!currentHeader.isFinalized && !isCurrentBestTreeHash) {
+        // Wallet history only needs a stable best-chain header at this height.
+        // If a non-finalized hash has already fallen off the watched best tree,
+        // normalize it up front instead of retrying later while mutating history.
+        currentHeader = await this.blockWatch.getHeaderByBlockNumber(currentHeader.blockNumber);
+      }
+      let historyHeader = currentHeader;
+      for (let blockNumber = currentHeader.blockNumber; blockNumber >= oldestBlock; blockNumber--) {
         if (historyHeader.blockNumber !== blockNumber) {
           throw new Error(
             `Inconsistent block numbers when loading wallet balances history. (Expected=${blockNumber}, actual=${historyHeader.blockNumber})`,
@@ -269,9 +277,9 @@ export class WalletsForArgon {
       for (const wallet of this.wallets) {
         wallet.trimToFinalizedBlock(finalizedBlock);
       }
-      this.bestBlock = header;
+      this.bestBlock = currentHeader;
       this.finalizedBlock = finalizedBlock;
-      this.events.emit('sync:best-block', header);
+      this.events.emit('sync:best-block', currentHeader);
       this.events.emit('sync:finalized', finalizedBlock);
     }).promise;
   }

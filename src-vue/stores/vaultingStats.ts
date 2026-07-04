@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { getVaults } from './vaults.ts';
 import { defineStore } from 'pinia';
 import { GlobalVaultingStats } from '@argonprotocol/apps-core';
-import { getCurrency, Currency } from './currency.ts';
+import { getCurrency } from './currency.ts';
 
 export const useVaultingStats = defineStore('vaultingStats', () => {
   let hasLoaded = false;

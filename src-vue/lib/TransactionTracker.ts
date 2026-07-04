@@ -56,6 +56,7 @@ export class TransactionTracker {
   #bestBlockNumber?: number;
   #watchUnsubscribe?: () => void;
   #nonceLaneByAddress = new Map<string, Promise<void>>();
+  #isClosed = false;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -72,6 +73,7 @@ export class TransactionTracker {
   }
 
   public async load(reload = false): Promise<void> {
+    this.#isClosed = false;
     if (this.#waitForLoad?.isRunning) return this.#waitForLoad.promise;
     if (!reload && this.#waitForLoad?.isResolved) return this.#waitForLoad.promise;
 
@@ -248,15 +250,26 @@ export class TransactionTracker {
 
     await signedTx
       .send(result => {
+        if (this.#isClosed) {
+          return;
+        }
         txResult.onSubscriptionResult(result);
         void this.handleWatchedResult(txInfo.tx, txResult, result);
       })
       .catch(async error => {
+        if (this.#isClosed) {
+          return;
+        }
         txResult.submissionError = error as Error;
         await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
       });
 
     return txInfo;
+  }
+
+  public shutdown(): void {
+    this.#isClosed = true;
+    this.stopWatching();
   }
 
   public createIntentForFollowOnTx<T>(txInfo: TransactionInfo): IDeferred<TransactionInfo<T>> {
@@ -614,6 +627,9 @@ export class TransactionTracker {
   }
 
   private async handleWatchedResult(record: ITransactionRecord, txResult: TxResult, result: ISubmittableResult) {
+    if (this.#isClosed) {
+      return;
+    }
     try {
       const { status } = result;
       const isInBlock = status.isInBlock;

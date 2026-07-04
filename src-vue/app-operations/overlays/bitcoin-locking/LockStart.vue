@@ -244,12 +244,13 @@ const showFeePanel = Vue.computed(() => {
   return !isVaultOperator.value && !isOperatorCouponLock.value && securityFee.value > 0n;
 });
 
-const handleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
-const handleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
+const debouncedHandleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
+const debouncedHandleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
 
 let lastSetLiquidityMicrogons = 0n;
 let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
+let pendingAmountSync: Promise<unknown> | undefined;
 
 function updateFeeEstimate() {
   if (!props.vault || liquidityToReceive.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
@@ -274,7 +275,6 @@ async function internalHandleArgonChange(liquidityMicrogons: bigint) {
   if (liquidityMicrogons === lastSetLiquidityMicrogons) {
     return;
   }
-  hasEditedAmounts.value = true;
   const sats = await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
   lockSatoshis.value = sats;
   const btc = currency.convertSatToBtc(sats);
@@ -289,7 +289,6 @@ async function internalHandleBtcChange(value: number) {
   if (value === lastSetBitcoinAmount) {
     return;
   }
-  hasEditedAmounts.value = true;
   const satoshis = BigInt(Math.round(value * Number(SATS_PER_BTC)));
   lockSatoshis.value = satoshis;
   liquidityToReceive.value = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis);
@@ -298,12 +297,34 @@ async function internalHandleBtcChange(value: number) {
   updateFeeEstimate();
 }
 
+function handleArgonChange(liquidityMicrogons: bigint) {
+  hasEditedAmounts.value = true;
+  const sync = debouncedHandleArgonChange(liquidityMicrogons).finally(() => {
+    if (pendingAmountSync === sync) {
+      pendingAmountSync = undefined;
+    }
+  });
+  pendingAmountSync = sync;
+}
+
+function handleBtcChange(value: number) {
+  hasEditedAmounts.value = true;
+  const sync = debouncedHandleBtcChange(value).finally(() => {
+    if (pendingAmountSync === sync) {
+      pendingAmountSync = undefined;
+    }
+  });
+  pendingAmountSync = sync;
+}
+
 async function submitLiquidLock() {
   if (isSaving.value) return;
 
-  let satoshis = lockSatoshis.value;
   try {
     await config.isLoadedPromise;
+    await pendingAmountSync;
+
+    let satoshis = lockSatoshis.value;
     isSaving.value = true;
     errorMessage.value = null;
     if (satoshis <= 0n && liquidityToReceive.value > 0n) {
