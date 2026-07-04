@@ -985,7 +985,14 @@ function createVault(args?: {
     mintingAuthorities as any,
   );
 
-  return { myVault, blockWatch, submitAndWatch, transactionTracker, trackTxResult, globalCouncil, mintingAuthorities };
+  return {
+    myVault,
+    blockWatch,
+    globalCouncil,
+    mintingAuthorities,
+    submitAndWatch,
+    trackTxResult,
+  };
 }
 
 function createMockTxResultTx() {

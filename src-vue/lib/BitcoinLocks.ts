@@ -323,8 +323,14 @@ export default class BitcoinLocks {
   }
 
   public async load(force = false): Promise<void> {
-    if (this.#waitForLoad && !force) return this.#waitForLoad.promise;
-    this.#waitForLoad = createDeferred<void>();
+    if (this.#waitForLoad?.isRunning) return this.#waitForLoad.promise;
+    if (!force && this.#waitForLoad?.isResolved) return this.#waitForLoad.promise;
+
+    if (force || this.#waitForLoad?.isRejected) {
+      this.#waitForLoad = createDeferred<void>();
+    } else {
+      this.#waitForLoad ??= createDeferred<void>();
+    }
     try {
       const archiveClient = await getMainchainClient(true);
       this.#config ??= await BitcoinLock.getConfig(archiveClient);
@@ -337,7 +343,12 @@ export default class BitcoinLocks {
         if (lock.utxoId) {
           this.locksByUtxoId[lock.utxoId] = lock;
         } else {
-          this.data.pendingLocks.push(lock);
+          const existingIndex = this.data.pendingLocks.findIndex(x => x.uuid === lock.uuid);
+          if (existingIndex >= 0) {
+            this.data.pendingLocks.splice(existingIndex, 1, lock);
+          } else {
+            this.data.pendingLocks.push(lock);
+          }
         }
       }
       await this.utxoTracking.load();
@@ -411,6 +422,7 @@ export default class BitcoinLocks {
             },
           );
         });
+      this.#subscription?.();
       this.#subscription = this.blockWatch.events.on('best-blocks', async headers => {
         void this.#blockQueue.add(async () => {
           await this.checkIncomingArgonBlock(headers.at(-1)!);

@@ -125,8 +125,11 @@ export class WalletsForArgon {
   }
 
   public async load() {
-    if (this.deferredLoading.isRunning || this.deferredLoading.isSettled) {
+    if (this.deferredLoading.isResolved || this.deferredLoading.isRunning) {
       return this.deferredLoading.promise;
+    }
+    if (this.deferredLoading.isRejected) {
+      this.deferredLoading = createDeferred<void>(false);
     }
     this.deferredLoading.setIsRunning(true);
     const loadStartedAt = Date.now();

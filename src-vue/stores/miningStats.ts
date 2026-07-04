@@ -5,7 +5,8 @@ import { Currency, getCurrency } from './currency.ts';
 import { calculateAPY, GlobalMiningStats, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 export const useMiningStats = defineStore('miningStats', () => {
-  let isLoading = false;
+  let hasLoaded = false;
+  let updatePromise: Promise<void> | undefined = undefined;
   let isLoadedPromise: Promise<void> | undefined = undefined;
 
   const mining = getMining();
@@ -22,18 +23,30 @@ export const useMiningStats = defineStore('miningStats', () => {
   const averageAPY = Vue.ref(0);
 
   async function update() {
-    if (!isLoading && !isLoadedPromise) await stats.load();
-    else if (!isLoading) await stats.update();
-    isLoading = true;
+    if (updatePromise) return await updatePromise;
 
-    activeMiningSeatCount.value = stats.activeSeatCount;
-    aggregatedBidCosts.value = stats.aggregatedBidCosts;
-    aggregatedBlockRewards.value = stats.aggregatedBlockRewards;
+    updatePromise = (async () => {
+      if (!hasLoaded) {
+        await stats.load();
+        hasLoaded = true;
+      } else {
+        await stats.update();
+      }
 
-    activeBidCosts.value = stats.activeBidCosts;
-    activeBlockRewards.value = stats.activeBlockRewards;
-    averageAPY.value = calculateAPY(stats.activeBidCosts, stats.activeBlockRewards);
-    isLoading = false;
+      activeMiningSeatCount.value = stats.activeSeatCount;
+      aggregatedBidCosts.value = stats.aggregatedBidCosts;
+      aggregatedBlockRewards.value = stats.aggregatedBlockRewards;
+
+      activeBidCosts.value = stats.activeBidCosts;
+      activeBlockRewards.value = stats.activeBlockRewards;
+      averageAPY.value = calculateAPY(stats.activeBidCosts, stats.activeBlockRewards);
+    })();
+
+    try {
+      await updatePromise;
+    } finally {
+      updatePromise = undefined;
+    }
   }
 
   isLoadedPromise = update();

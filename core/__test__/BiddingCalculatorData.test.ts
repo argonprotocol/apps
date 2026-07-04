@@ -14,18 +14,15 @@ vi.mock('../src/Currency.js', () => ({
 
 import BiddingCalculatorData from '../src/BiddingCalculatorData.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
-import type { IBlockHeaderInfo } from '../src/BlockWatch.ts';
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe('BiddingCalculatorData best-block recovery', () => {
-  it('retries with the finalized block when the latest head cannot be decorated', async () => {
+  it('loads with the latest readable chain api for current-state bidding data', async () => {
     NetworkConfig.setNetwork('dev-docker');
 
-    const latestHeader = createHeaderInfo(155, '0xbest', '0x154', false);
-    const finalizedHeader = createHeaderInfo(154, '0xfinalized', '0x153', true);
     const finalizedApi = {
       consts: {
         miningSlot: {
@@ -40,11 +37,7 @@ describe('BiddingCalculatorData best-block recovery', () => {
         },
       },
     };
-    const clientAt = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Unable to retrieve header and parent from supplied hash'))
-      .mockResolvedValueOnce(finalizedApi);
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const getCurrentApi = vi.fn().mockResolvedValue(finalizedApi);
     const calculatorData = new BiddingCalculatorData(
       {
         clients: {},
@@ -60,10 +53,8 @@ describe('BiddingCalculatorData best-block recovery', () => {
       } as any,
       {
         waitForFrameId: vi.fn().mockResolvedValue(undefined),
-        clientAt,
         blockWatch: {
-          bestBlockHeader: latestHeader,
-          finalizedBlockHeader: finalizedHeader,
+          getCurrentApi,
         },
         framesById: {},
       } as any,
@@ -71,26 +62,9 @@ describe('BiddingCalculatorData best-block recovery', () => {
 
     await expect(calculatorData.load(15)).resolves.toBeUndefined();
 
-    expect(clientAt.mock.calls).toEqual([[latestHeader], [finalizedHeader]]);
+    expect(getCurrentApi).toHaveBeenCalledOnce();
     expect(calculatorData.microgonsInCirculation).toBe(1_000n);
     expect(calculatorData.maximumMicronotsForBid).toBe(36n);
     expect(calculatorData.allowedBidIncrementMicrogons).toBe(10_000n);
   });
 });
-
-function createHeaderInfo(
-  blockNumber: number,
-  blockHash: string,
-  parentHash: string,
-  isFinalized: boolean,
-): IBlockHeaderInfo {
-  return {
-    isFinalized,
-    blockNumber,
-    blockHash,
-    blockTime: blockNumber * 1_000,
-    parentHash,
-    author: 'author',
-    tick: blockNumber,
-  };
-}

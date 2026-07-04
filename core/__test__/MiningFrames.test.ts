@@ -91,6 +91,60 @@ describe('MiningFrames frame refresh recovery', () => {
     );
     expect(miningFrames.framesById[18]).toBeUndefined();
   });
+
+  it('retries load after an initial bootstrap failure and cleans up the temporary subscription', async () => {
+    NetworkConfig.setNetwork('dev-docker');
+
+    const latestHeader = createHeaderInfo(0, '0xgenesis', '0xparent', 0, 0);
+    const unsubscribeFirst = vi.fn();
+    const unsubscribeSecond = vi.fn();
+    const blockWatch = {
+      latestHeaders: [latestHeader],
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn(),
+      isLoaded: { isRejected: false },
+      events: {
+        on: vi.fn().mockReturnValueOnce(unsubscribeFirst).mockReturnValueOnce(unsubscribeSecond),
+      },
+    };
+    const clients = createClientsWithGenesis('0xgenesis');
+    const miningFrames = new MiningFrames(clients as any, blockWatch as any);
+    const onBestBlocks = vi
+      .spyOn(miningFrames as any, 'onBestBlocks')
+      .mockRejectedValueOnce(new Error('bootstrap failed'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(miningFrames.load()).rejects.toThrow('bootstrap failed');
+    await expect(miningFrames.load()).resolves.toBeUndefined();
+
+    expect(blockWatch.events.on).toHaveBeenCalledTimes(2);
+    expect(unsubscribeFirst).toHaveBeenCalledOnce();
+    expect(unsubscribeSecond).not.toHaveBeenCalled();
+    expect(onBestBlocks).toHaveBeenNthCalledWith(1, [latestHeader]);
+    expect(onBestBlocks).toHaveBeenNthCalledWith(2, [latestHeader]);
+  });
+
+  it('retries load after a failed startup', async () => {
+    NetworkConfig.setNetwork('dev-docker');
+
+    const latestHeader = {
+      ...createHeaderInfo(0, '0xgenesis', '0xparent', 0, 0),
+      frameRewardTicksRemaining: 12,
+    };
+    const blockWatch = {
+      latestHeaders: [latestHeader],
+      start: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined),
+      events: { on: vi.fn().mockReturnValue(vi.fn()) },
+    };
+    const clients = createClientsWithGenesis('0xgenesis');
+    const miningFrames = new MiningFrames(clients as any, blockWatch as any);
+
+    await expect(miningFrames.load()).rejects.toThrow('offline');
+    await expect(miningFrames.load()).resolves.toBeUndefined();
+
+    expect(blockWatch.start).toHaveBeenCalledTimes(2);
+    expect(miningFrames.currentFrameRewardTicksRemaining).toBe(12);
+  });
 });
 
 function createHeaderInfo(
@@ -115,6 +169,17 @@ function createHeaderInfo(
 function createNumberLike(value: number) {
   return {
     toNumber: () => value,
+  };
+}
+
+function createClientsWithGenesis(genesisHash: string) {
+  return {
+    prunedClientOrArchivePromise: Promise.resolve({
+      genesisHash: { toHex: () => genesisHash },
+      runtimeVersion: {
+        specVersion: createNumberLike(153),
+      },
+    }),
   };
 }
 

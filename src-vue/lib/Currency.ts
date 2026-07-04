@@ -6,6 +6,7 @@ import {
   UnitOfMeasurement,
   MainchainClients,
   bigNumberToBigInt,
+  createDeferred,
   type ICurrencyRecord,
   type ICurrencyKey,
 } from '@argonprotocol/apps-core';
@@ -27,6 +28,7 @@ export class Currency extends CurrencyBase {
   public symbol!: string;
   public record!: ICurrencyRecord;
   private config: Config;
+  private loadPromise?: Promise<void>;
 
   constructor(clients: MainchainClients, config: Config) {
     super(clients);
@@ -39,10 +41,41 @@ export class Currency extends CurrencyBase {
     return this._key;
   }
 
-  public async load() {
-    await this.config.isLoadedPromise;
-    this.setKey(this.config.defaultCurrencyKey, false);
-    await super.load();
+  public async load(skipCache = false) {
+    const isInitialLoad = !this.isLoaded;
+    if (isInitialLoad) {
+      if (this.loadPromise) return await this.loadPromise;
+      if (this.isLoadedDeferred.isRejected) {
+        this.isLoadedDeferred = createDeferred<void>(false);
+        this.isLoadedPromise = this.isLoadedDeferred.promise;
+        void this.isLoadedPromise.catch(() => undefined);
+      }
+    }
+
+    const loadPromise = (async () => {
+      try {
+        await this.config.isLoadedPromise;
+        this.setKey(this.config.defaultCurrencyKey, false);
+        await super.load(skipCache);
+      } catch (error) {
+        if (isInitialLoad && !this.isLoaded) {
+          this.isLoadedDeferred.reject(error as Error);
+        }
+        throw error;
+      }
+    })();
+
+    if (isInitialLoad) {
+      const trackedLoadPromise = loadPromise.finally(() => {
+        if (this.loadPromise === trackedLoadPromise) {
+          this.loadPromise = undefined;
+        }
+      });
+      this.loadPromise = trackedLoadPromise;
+      return await trackedLoadPromise;
+    }
+
+    await loadPromise;
   }
 
   public setKey(key: ICurrencyKey, saveToConfig: boolean = true) {

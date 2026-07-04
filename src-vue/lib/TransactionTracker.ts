@@ -72,9 +72,14 @@ export class TransactionTracker {
   }
 
   public async load(reload = false): Promise<void> {
-    if (this.#waitForLoad && !reload) return this.#waitForLoad.promise;
+    if (this.#waitForLoad?.isRunning) return this.#waitForLoad.promise;
+    if (!reload && this.#waitForLoad?.isResolved) return this.#waitForLoad.promise;
 
-    this.#waitForLoad ??= createDeferred();
+    if (reload || this.#waitForLoad?.isRejected) {
+      this.#waitForLoad = createDeferred();
+    } else {
+      this.#waitForLoad ??= createDeferred();
+    }
     try {
       const table = await this.getTable();
       const txs = await table.fetchAll();
@@ -85,6 +90,9 @@ export class TransactionTracker {
       await this.blockWatch.start();
 
       this.data.txInfos.length = 0;
+      for (const extrinsicType of Object.keys(this.data.txInfosByType)) {
+        delete this.data.txInfosByType[extrinsicType as ExtrinsicType];
+      }
       for (const tx of txs) {
         const txResult = new TxResult(client, {
           accountAddress: tx.accountAddress,
@@ -141,6 +149,8 @@ export class TransactionTracker {
       }
       if (this.data.txInfos.some(x => this.isTrackedAsPending(x))) {
         await this.watchForUpdates();
+      } else {
+        this.stopWatching();
       }
       this.#waitForLoad.resolve();
     } catch (error) {
