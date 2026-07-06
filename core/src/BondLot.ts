@@ -13,6 +13,9 @@ export interface IBondLotSource {
   lot: PalletTreasuryBondLot;
 }
 
+type LegacyPalletTreasuryBondLot = PalletTreasuryBondLot &
+  Pick<PalletTreasuryBondLot['program']['asVault'], 'vaultId' | 'sharingPercent' | 'bonusPercent'>;
+
 export type IBondLotTotals = {
   totalBonds: number;
   activeBonds: number;
@@ -26,8 +29,9 @@ export type IBondLotTotals = {
 
 type IBondLotModel = {
   id: number;
+  programType: 'Vault' | 'Argonot';
   accountId: string;
-  vaultId: number;
+  vaultId?: number;
   bonds: number;
   createdFrame: number;
   participatedFrames: number;
@@ -45,8 +49,9 @@ type IBondLotModel = {
 
 export class BondLot {
   public readonly id: number;
+  public readonly programType: 'Vault' | 'Argonot';
   public readonly accountId: string;
-  public readonly vaultId: number;
+  public readonly vaultId?: number;
   public readonly bonds: number;
   public readonly createdFrame: number;
   public readonly participatedFrames: number;
@@ -63,6 +68,7 @@ export class BondLot {
 
   constructor(model: IBondLotModel) {
     this.id = model.id;
+    this.programType = model.programType;
     this.accountId = model.accountId;
     this.vaultId = model.vaultId;
     this.bonds = model.bonds;
@@ -84,11 +90,23 @@ export class BondLot {
     const accountId = lot.owner.toString();
     const bonds = lot.bonds.toNumber();
     const participatedFrames = lot.participatedFrames.toNumber();
+    const programType = lot.program?.isArgonot ? 'Argonot' : 'Vault';
+    let vaultId: number | undefined;
+    let sharingPercent: number | undefined;
+    let bonusPercent = 0;
+
+    if (programType === 'Vault') {
+      const vaultTerms = lot.program?.isVault ? lot.program.asVault : (lot as LegacyPalletTreasuryBondLot);
+      vaultId = vaultTerms.vaultId.toNumber();
+      sharingPercent = permillToPercent(vaultTerms.sharingPercent.toBigInt());
+      bonusPercent = permillToPercent(vaultTerms.bonusPercent.toBigInt());
+    }
 
     return new BondLot({
       id,
+      programType,
       accountId,
-      vaultId: lot.vaultId.toNumber(),
+      vaultId,
       bonds,
       createdFrame: lot.createdFrameId.toNumber(),
       participatedFrames,
@@ -96,12 +114,8 @@ export class BondLot {
       lastEarnings: lot.lastFrameEarnings.isSome ? lot.lastFrameEarnings.unwrap().toBigInt() : 0n,
       lifetimeEarnings: lot.cumulativeEarnings.toBigInt(),
       lifetimeBondedFrameMicrogons: BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames),
-      sharingPercent: lot.sharingPercent
-        ? fromFixedNumber(lot.sharingPercent.toBigInt(), PERMILL_DECIMALS).times(100).toNumber()
-        : undefined,
-      bonusPercent: lot.bonusPercent
-        ? fromFixedNumber(lot.bonusPercent.toBigInt(), PERMILL_DECIMALS).times(100).toNumber()
-        : 0,
+      sharingPercent,
+      bonusPercent,
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       isReleasing: lot.releaseReason.isSome,
       isOwn: accountId === ownAddress,
@@ -194,4 +208,8 @@ export class BondLot {
     if (next == null) return current;
     return current == null ? next : Math.min(current, next);
   }
+}
+
+function permillToPercent(value: bigint): number {
+  return fromFixedNumber(value, PERMILL_DECIMALS).times(100).toNumber();
 }

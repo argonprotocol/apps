@@ -37,9 +37,7 @@ export class TransactionInfo<MetadataType = unknown> {
   }
 
   public get waitForPostProcessing(): Promise<void> {
-    return (
-      this.postProcessor?.promise.catch(() => undefined) ?? this.txResult.waitForFinalizedBlock.then(() => undefined)
-    );
+    return this.postProcessor?.promise ?? this.txResult.waitForFinalizedBlock.then(() => undefined);
   }
 
   public get followOnTxInfo(): Promise<TransactionInfo | undefined> {
@@ -74,7 +72,10 @@ export class TransactionInfo<MetadataType = unknown> {
   public createPostProcessor(): IDeferred {
     if (!this.postProcessor) {
       this.postProcessor = createDeferred(false);
-      void this.postProcessor.promise.finally(() => this.updateProgress());
+      void this.postProcessor.promise.then(
+        () => this.updateProgress(),
+        () => this.updateProgress(),
+      );
     }
 
     return this.postProcessor;
@@ -86,8 +87,11 @@ export class TransactionInfo<MetadataType = unknown> {
       void this.followOnTxInfoDeferred.promise
         .then(x => {
           this.resolvedFollowOnTxInfo = x;
+          this.updateProgress();
         })
-        .finally(() => this.updateProgress());
+        .catch(() => {
+          this.updateProgress();
+        });
     }
 
     return this.followOnTxInfoDeferred as IDeferred<TransactionInfo<L>>;
