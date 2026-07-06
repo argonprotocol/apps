@@ -5,7 +5,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import basicEmitter from './emitters/basicEmitter.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { TopTab, useOperationsController } from './stores/operationsController.ts';
+import { TopTab } from './interfaces/IConfig.ts';
+import { useOperationsController } from './stores/operationsController.ts';
 import { checkInstallerIfCloseAllowed, getInstaller } from './stores/installer.ts';
 import { getBot } from './stores/bot.ts';
 import { getConfig } from './stores/config.ts';
@@ -102,12 +103,12 @@ export async function createMenu() {
       {
         id: 'mining-dashboard',
         text: 'Open Mining',
-        action: () => controller.setScreenKey(TopTab.MiningOperations),
+        action: () => controller.setTab(TopTab.MiningOperations),
       },
       {
         id: 'token-transfer-to-mining',
         text: 'Open Mining Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold }),
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon }),
       },
     ],
   });
@@ -118,12 +119,17 @@ export async function createMenu() {
       {
         id: 'vaulting-dashboard',
         text: 'Open Vaulting',
-        action: () => controller.setScreenKey(TopTab.VaultingOperations),
+        action: () => controller.setTab(TopTab.VaultingOperations),
       },
       {
         id: 'token-transfer-to-vaulting',
         text: 'Open Vaulting Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting }),
+        action: () =>
+          basicEmitter.emit('openWalletOverlay', {
+            walletType: WalletType.defaultArgon,
+            showGuidance: true,
+            guidanceContext: 'vaulting',
+          }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       await Submenu.new({

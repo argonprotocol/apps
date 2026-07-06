@@ -24,7 +24,7 @@ export class WalletRecovery {
     await walletsForArgon.load();
     await this.miningFrames.load();
 
-    const hasVaultHistory = walletsForArgon.vaultingWallet.hasValue();
+    const hasVaultHistory = walletsForArgon.defaultArgonWallet.hasValue();
     const hasMiningHistory = walletsForArgon.miningBotWallet.hasValue();
 
     let vaultProgress = hasVaultHistory ? 0 : 100;

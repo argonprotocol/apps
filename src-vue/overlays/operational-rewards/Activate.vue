@@ -143,7 +143,7 @@ import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
 
-type RewardAccount = 'miningHold' | 'vaulting';
+type RewardAccount = 'defaultArgon' | 'vaulting';
 
 const props = defineProps<{
   isActive: boolean;
@@ -179,12 +179,12 @@ let feeEstimateRunId = 0;
 
 const rewardAccountOptions = Vue.computed<IOption[]>(() => [
   { name: 'Vaulting Account', value: 'vaulting' },
-  { name: 'Mining Account', value: 'miningHold' },
+  { name: 'Argon Wallet', value: 'defaultArgon' },
 ]);
 
 const selectedRewardAccount = Vue.computed(() => {
-  if (rewardAccount.value === 'miningHold') return wallets.miningHoldWallet;
-  return wallets.vaultingWallet;
+  if (rewardAccount.value === 'defaultArgon') return wallets.defaultArgonWallet;
+  return wallets.defaultArgonWallet;
 });
 
 const hasRewardAccountFeeShortfall = Vue.computed(() => {
@@ -287,7 +287,7 @@ Vue.onUnmounted(() => {
 });
 
 async function getRewardSigner() {
-  if (rewardAccount.value === 'miningHold') return await walletKeys.getMiningHoldKeypair();
+  if (rewardAccount.value === 'defaultArgon') return await walletKeys.getDefaultArgonKeypair();
   return await walletKeys.getVaultingKeypair();
 }
 

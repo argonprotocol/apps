@@ -24,7 +24,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { isDefaultArgonMoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { getConfig } from '../../stores/config.ts';
 import { stepLabels, type IStepLabel } from '../../lib/InstallerStep.ts';
 import { InstallStepStatus, MiningSetupStatus } from '../../interfaces/IConfig.ts';
@@ -81,8 +81,8 @@ const targetProgressPct = Vue.computed(() =>
 );
 const miningMicronotsOnHand = Vue.computed(() => {
   return (
-    wallets.miningHoldWallet.availableMicronots +
-    wallets.miningHoldWallet.reservedMicronots +
+    wallets.defaultArgonWallet.availableMicronots +
+    wallets.defaultArgonWallet.reservedMicronots +
     wallets.miningBotWallet.availableMicronots +
     wallets.miningBotWallet.reservedMicronots
   );
@@ -155,7 +155,7 @@ function isMiningSetupTx(txInfo: TransactionInfo): boolean {
   if (txInfo.tx.extrinsicType !== ExtrinsicType.Transfer) return false;
 
   const metadata = txInfo.tx.metadataJson as Partial<ITransactionMoveMetadata> | undefined;
-  return metadata?.moveFrom === MoveFrom.MiningHold && metadata?.moveTo === MoveTo.MiningBot;
+  return isDefaultArgonMoveFrom(metadata?.moveFrom) && metadata?.moveTo === MoveTo.MiningBot;
 }
 
 function findLatestSetupTxInfo(): TransactionInfo | null {
@@ -236,8 +236,8 @@ async function ensureTrackedSetupTransfer(force = false) {
   lastEnsureSetupTransferAt = now;
 
   try {
-    const sweepResult = await moveCapital.moveAvailableMiningHoldToBot(
-      wallets.miningHoldWallet,
+    const sweepResult = await moveCapital.moveConfiguredDefaultArgonToBot(
+      wallets.defaultArgonWallet,
       walletKeys,
       config as Config,
     );

@@ -30,32 +30,44 @@
       </div>
 
       <div Item
-         v-if="config.showTreasuryExtension"
-         @click="goto(TopTab.Treasury)"
-         :class="{ selected: [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks].includes(controller.selectedTab) }"
+           v-if="config.hasExtensionOperations"
+           @click="goto(controller.selectedOperationsTab)"
+           :class="{ selected: !!controller.selectedTab && [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations].includes(controller.selectedTab) }"
+           class="pr-0!"
       >
-        <div Wrapper class="relative text-center flex flex-row">
-          <div class="font-bold">
-            Treasury
-            <template v-if="controller.selectedTab === TopTab.TreasuryBonds">Bonds</template>
-            <template v-else-if="controller.selectedTab === TopTab.TreasuryLocks">Locks</template>
+        <div Wrapper class="text-center flex flex-row">
+          <div class="font-bold border-r border-slate-400/50 pr-2.5">
+            <span>Operations</span>
+            <template v-if="controller.selectedOperationsTab === TopTab.MiningOperations"> : Mining</template>
+            <template v-else-if="controller.selectedOperationsTab === TopTab.VaultingOperations"> : Vaulting</template>
+          </div>
+          <OperationsMenu MenuArrow />
+        </div>
+      </div>
+
+      <div Item
+         v-if="config.hasExtensionTreasury"
+         @click="goto(controller.selectedTreasuryTab)"
+         :class="{ selected: !!controller.selectedTab && [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks].includes(controller.selectedTab) }"
+         class="pr-0!"
+      >
+        <div Wrapper class="text-center flex flex-row">
+          <div class="font-bold border-r border-slate-400/50 pr-2.5">
+            <span>Treasury</span>
+            <template v-if="controller.selectedTreasuryTab === TopTab.TreasuryBonds"> : Bonds</template>
+            <template v-else-if="controller.selectedTreasuryTab === TopTab.TreasuryLocks"> : Bitcoins</template>
           </div>
           <TreasuryMenu MenuArrow />
         </div>
       </div>
 
       <div Item
-        v-if="config.showOperationsExtension"
-        @click="goto(TopTab.Operations)"
-        :class="{ selected: [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations].includes(controller.selectedTab) }"
+        v-if="!config.hasExtensionTreasury"
       >
-        <div Wrapper class="relative text-center flex flex-row">
+        <div Wrapper class="text-center flex flex-row">
           <div class="font-bold">
-            <template v-if="controller.selectedTab === TopTab.MiningOperations">Mining</template>
-            <template v-else-if="controller.selectedTab === TopTab.VaultingOperations">Vaulting</template>
-            Operations
+            <span>Upgrade to Treasury</span>
           </div>
-          <OperationsMenu MenuArrow />
         </div>
       </div>
     </section>
@@ -64,7 +76,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController, TopTab, OperationalStepId } from '../stores/operationsController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import { useOperationsController, OperationalStepId } from '../stores/operationsController.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
@@ -87,7 +100,7 @@ function goto(tab: TopTab) {
       config.vaultingSetupStatus = VaultingSetupStatus.None;
     }
   }
-  controller.setScreenKey(tab);
+  controller.setTab(tab);
 }
 
 tour.registerPositionCheck('miningTab', (): ITourPos => {
@@ -122,7 +135,7 @@ section {
     opacity: 0.5 !important;
   }
   [Item] {
-    @apply border-argon-600/20 h-[30px] rounded-md border px-4;
+    @apply border-argon-600/20 h-[30px] rounded-md border px-3;
     z-index: 1;
     cursor: pointer;
     font-size: 16px;
@@ -148,7 +161,7 @@ section {
     }
   }
   [FirstItem] {
-    @apply rounded-l-none! border-l-0!;
+    @apply rounded-l-none! border-l-0! pl-4;
     [Circle] {
       @apply border-argon-600/20 border;
     }

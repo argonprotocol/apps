@@ -1,17 +1,24 @@
 <template>
   <div class="flex grow flex-row items-center gap-x-2">
-    <header class="grow px-2 text-left text-2xl font-bold text-slate-800/70">
+    <header class="grow px-2 text-left text-xl font-bold text-slate-800/70">
       {{ props.selectedOption.name }}
     </header>
     <div
-      data-testid="NavHeader.triggerSyncMode()"
-      @click="emit('triggerSyncMode')"
-      class="z-10 flex h-[34px] w-[34px] cursor-pointer flex-col items-center justify-center gap-y-0.5 rounded-md border border-slate-400/60 text-slate-500/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
+      v-if="!isSyncMode"
+      NotDraggable
+      @click="triggerSyncMode"
+      class="z-10 flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
     >
-      <span class="h-1 w-1 rounded-full bg-current" />
-      <span class="h-1 w-1 rounded-full bg-current" />
-      <span class="h-1 w-1 rounded-full bg-current" />
+      <PortalIcon class="pointer-events-none h-5 w-5 text-slate-500/60" />
     </div>
+    <ExtraMenu
+      :walletType="walletType"
+      :wallet="props.wallet"
+      :walletIsOpen="true"
+      @click.stop
+      @pointerdown.stop
+      @mousedown.stop
+    />
     <DialogClose
       v-if="showClose"
       NotDraggable
@@ -27,17 +34,17 @@
 import { WalletType } from '../../lib/Wallet.ts';
 
 export interface IWalletOption {
-  type: WalletType.investment | WalletType.ethereum | WalletType.vaulting | WalletType.miningHold;
+  type: WalletType.defaultArgon | WalletType.ethereum;
   name: string;
   isArgonNetwork: boolean;
 }
 </script>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
 import { DialogClose } from 'reka-ui';
-import CopyAddressMenu from '../../screens/components/CopyAddressMenu.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
+import ExtraMenu from './ExtraMenu.vue';
+import PortalIcon from '../../assets/wallets/swap.svg';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -46,12 +53,19 @@ const emit = defineEmits<{
 }>();
 
 const props = defineProps<{
+  wallet: { address: string };
+  walletType: WalletType;
   options: IWalletOption[];
   selectedOption: IWalletOption;
+  isSyncMode?: boolean;
   showClose?: boolean;
 }>();
 
 function close() {
   emit('close');
+}
+
+function triggerSyncMode() {
+  emit('triggerSyncMode');
 }
 </script>

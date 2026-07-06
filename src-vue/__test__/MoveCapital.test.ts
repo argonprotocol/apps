@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
-import { existentialDepositMicrogons, miningHoldOperationalReserveMicrogons } from '../lib/WalletForArgon.ts';
+import { existentialDepositMicrogons, defaultArgonOperationalReserveMicrogons } from '../lib/WalletForArgon.ts';
 import { type IWallet } from '../lib/Wallet.ts';
 import { buildOperatorAccountRegistrationTx } from '../lib/OperationalAccount.ts';
 import * as MiningAccount from '../lib/MiningAccount.ts';
@@ -41,6 +41,12 @@ describe('MoveCapital', () => {
     setDbPromise(Promise.resolve(db));
     walletKeys = createMockWalletKeys();
     config = new Config(Promise.resolve(db), walletKeys);
+    await config.load();
+    config.biddingRules = {
+      ...config.biddingRules,
+      initialMicrogonRequirement: 1_000_000n,
+      initialMicronotRequirement: 1_000_000n,
+    };
   });
 
   it('submits vault security moves through the vault allocation path', async () => {
@@ -50,7 +56,7 @@ describe('MoveCapital', () => {
     const wallet = createWallet({ address: 'vaulting-address', availableMicrogons: 250n });
 
     const result = await moveCapital.move(
-      MoveFrom.VaultingHold,
+      MoveFrom.DefaultArgon,
       MoveTo.VaultingSecurity,
       { [MoveToken.ARGN]: 100n },
       wallet,
@@ -60,7 +66,7 @@ describe('MoveCapital', () => {
     expect(myVault.increaseVaultSecuritization).toHaveBeenCalledWith({
       addedSecuritizationMicrogons: 100n,
       metadata: {
-        moveFrom: MoveFrom.VaultingHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.VaultingSecurity,
         externalAddress: undefined,
         assetsToMove: { [MoveToken.ARGN]: 100n },
@@ -78,7 +84,7 @@ describe('MoveCapital', () => {
     const client = { id: 'client' } as any;
 
     const fee = await moveCapital.calculateFee(
-      MoveFrom.VaultingHold,
+      MoveFrom.DefaultArgon,
       MoveTo.VaultingSecurity,
       { [MoveToken.ARGN]: 100n },
       wallet,
@@ -99,7 +105,7 @@ describe('MoveCapital', () => {
 
     await expect(
       moveCapital.move(
-        MoveFrom.VaultingHold,
+        MoveFrom.DefaultArgon,
         MoveTo.VaultingSecurity,
         { [MoveToken.ARGNOT]: 10n },
         wallet,
@@ -118,14 +124,14 @@ describe('MoveCapital', () => {
     });
   });
 
-  it('keeps the mining hold operational reserve when sweeping to the bot', async () => {
+  it('keeps the default Argon operational reserve when sweeping to the bot', async () => {
     const { moveCapital, transactionTracker, postProcessMiningBidProxySetupSpy } = createMoveCapital();
     postProcessMiningBidProxySetupSpy.mockRestore();
     const calculateFeeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: 'transfer-tx' as any,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGNOT: 7n },
       },
@@ -154,14 +160,14 @@ describe('MoveCapital', () => {
       },
     } as any);
     const wallet = createWallet({
-      availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
+      availableMicrogons: defaultArgonOperationalReserveMicrogons + 50n,
       availableMicronots: 7n,
     });
 
-    const result = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+    const result = await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenCalledWith(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGN: 50n, ARGNOT: 7n },
       wallet,
@@ -170,7 +176,7 @@ describe('MoveCapital', () => {
       expect.anything(),
     );
     expect(buildTransactionSpy).toHaveBeenCalledWith(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGNOT: 7n },
       'mining-bot-address',
@@ -183,7 +189,7 @@ describe('MoveCapital', () => {
       useLatestNonce: true,
       extrinsicType: ExtrinsicType.Transfer,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGNOT: 7n },
       },
@@ -206,7 +212,7 @@ describe('MoveCapital', () => {
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: 'transfer-tx' as any,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGNOT: 4n },
       },
@@ -214,15 +220,15 @@ describe('MoveCapital', () => {
     vi.spyOn(moveCapital as any, 'getSigner').mockResolvedValue('signer');
     transactionTracker.submitAndWatch.mockResolvedValue({} as any);
     const wallet = createWallet({
-      availableMicrogons: miningHoldOperationalReserveMicrogons + 3n,
+      availableMicrogons: defaultArgonOperationalReserveMicrogons + 3n,
       availableMicronots: 4n,
     });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+    await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       1,
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGN: 3n, ARGNOT: 4n },
       wallet,
@@ -232,7 +238,7 @@ describe('MoveCapital', () => {
     );
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       2,
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGNOT: 4n },
       wallet,
@@ -241,7 +247,7 @@ describe('MoveCapital', () => {
       expect.anything(),
     );
     expect(buildTransactionSpy).toHaveBeenCalledWith(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGNOT: 4n },
       'mining-bot-address',
@@ -256,7 +262,7 @@ describe('MoveCapital', () => {
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: 'transfer-tx' as any,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGNOT: 4n },
       },
@@ -264,15 +270,15 @@ describe('MoveCapital', () => {
     vi.spyOn(moveCapital as any, 'getSigner').mockResolvedValue('signer');
     transactionTracker.submitAndWatch.mockResolvedValue({} as any);
     const wallet = createWallet({
-      availableMicrogons: miningHoldOperationalReserveMicrogons + existentialDepositMicrogons + 5n,
+      availableMicrogons: defaultArgonOperationalReserveMicrogons + existentialDepositMicrogons + 5n,
       availableMicronots: 4n,
     });
 
-    await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+    await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
 
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       1,
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGN: existentialDepositMicrogons + 5n, ARGNOT: 4n },
       wallet,
@@ -282,7 +288,7 @@ describe('MoveCapital', () => {
     );
     expect(calculateFeeSpy).toHaveBeenNthCalledWith(
       2,
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGNOT: 4n },
       wallet,
@@ -291,7 +297,7 @@ describe('MoveCapital', () => {
       expect.anything(),
     );
     expect(buildTransactionSpy).toHaveBeenCalledWith(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGNOT: 4n },
       'mining-bot-address',
@@ -309,7 +315,7 @@ describe('MoveCapital', () => {
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction');
     const wallet = createWallet({ availableMicrogons: 10n, availableMicronots: 4n });
 
-    const result = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+    const result = await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
 
     expect(buildTransactionSpy).not.toHaveBeenCalled();
     expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
@@ -319,19 +325,19 @@ describe('MoveCapital', () => {
     });
   });
 
-  it('reports a transaction error when the sweep fee exceeds the mining hold balance', async () => {
+  it('reports a transaction error when the sweep fee exceeds the default Argon balance', async () => {
     const { moveCapital } = createMoveCapital();
     vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: createMockFeeTx(12n) as any,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGNOT: 4n },
       },
     });
 
     const fee = await moveCapital.calculateFee(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       { ARGNOT: 4n },
       createWallet({ availableMicrogons: 10n, availableMicronots: 4n }),
@@ -350,7 +356,7 @@ describe('MoveCapital', () => {
     });
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction');
 
-    const result = await moveCapital.moveAvailableMiningHoldToBot(
+    const result = await moveCapital.moveConfiguredDefaultArgonToBot(
       createWallet({ availableMicronots: 4n }),
       walletKeys,
       config,
@@ -369,8 +375,8 @@ describe('MoveCapital', () => {
     const feeSpy = vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(0n);
     const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction');
 
-    const result = await moveCapital.moveAvailableMiningHoldToBot(
-      createWallet({ availableMicrogons: miningHoldOperationalReserveMicrogons }),
+    const result = await moveCapital.moveConfiguredDefaultArgonToBot(
+      createWallet({ availableMicrogons: defaultArgonOperationalReserveMicrogons }),
       walletKeys,
       config,
     );
@@ -382,13 +388,13 @@ describe('MoveCapital', () => {
     expect(moveCapital.transactionError).toBe('');
   });
 
-  it('reuses an in-flight mining hold sweep instead of submitting a duplicate move', async () => {
+  it('reuses an in-flight default Argon mining transfer instead of submitting a duplicate move', async () => {
     const { moveCapital, transactionTracker } = createMoveCapital();
     vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(0n);
     vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: 'transfer-tx' as any,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGN: 50n, ARGNOT: 7n },
       },
@@ -411,12 +417,12 @@ describe('MoveCapital', () => {
         }) as any,
     );
     const wallet = createWallet({
-      availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
+      availableMicrogons: defaultArgonOperationalReserveMicrogons + 50n,
       availableMicronots: 7n,
     });
 
-    const firstSweep = moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
-    const secondSweep = moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config);
+    const firstSweep = moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
+    const secondSweep = moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
 
     await vi.waitFor(() => expect(transactionTracker.submitAndWatch).toHaveBeenCalledOnce());
 
@@ -426,13 +432,13 @@ describe('MoveCapital', () => {
     await expect(secondSweep).resolves.toEqual({ kind: 'submitted', txInfo });
   });
 
-  it('follows an existing tracked mining hold sweep after reload', async () => {
+  it('follows an existing tracked default Argon mining transfer after reload', async () => {
     const existingTxInfo = {
       tx: {
         id: 7,
         extrinsicType: ExtrinsicType.Transfer,
         metadataJson: {
-          moveFrom: MoveFrom.MiningHold,
+          moveFrom: MoveFrom.DefaultArgon,
           moveTo: MoveTo.MiningBot,
         },
       },
@@ -440,9 +446,9 @@ describe('MoveCapital', () => {
     const { moveCapital, transactionTracker } = createMoveCapital(existingTxInfo);
     transactionTracker.getTxAttemptState.mockResolvedValue(TxAttemptState.Follow);
 
-    const result = await moveCapital.moveAvailableMiningHoldToBot(
+    const result = await moveCapital.moveConfiguredDefaultArgonToBot(
       createWallet({
-        availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
+        availableMicrogons: defaultArgonOperationalReserveMicrogons + 50n,
         availableMicronots: 7n,
       }),
       walletKeys,
@@ -456,13 +462,13 @@ describe('MoveCapital', () => {
     });
   });
 
-  it('submits a new sweep after a prior mining hold sweep finalized', async () => {
+  it('submits a new sweep after a prior default Argon mining transfer finalized', async () => {
     const existingTxInfo = {
       tx: {
         id: 7,
         extrinsicType: ExtrinsicType.Transfer,
         metadataJson: {
-          moveFrom: MoveFrom.MiningHold,
+          moveFrom: MoveFrom.DefaultArgon,
           moveTo: MoveTo.MiningBot,
         },
       },
@@ -473,7 +479,7 @@ describe('MoveCapital', () => {
     vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
       tx: 'transfer-tx' as any,
       metadata: {
-        moveFrom: MoveFrom.MiningHold,
+        moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         assetsToMove: { ARGN: 50n, ARGNOT: 7n },
       },
@@ -482,9 +488,9 @@ describe('MoveCapital', () => {
     const newTxInfo = { tx: { id: 8 } } as any;
     transactionTracker.submitAndWatch.mockResolvedValue(newTxInfo);
 
-    const result = await moveCapital.moveAvailableMiningHoldToBot(
+    const result = await moveCapital.moveConfiguredDefaultArgonToBot(
       createWallet({
-        availableMicrogons: miningHoldOperationalReserveMicrogons + 50n,
+        availableMicrogons: defaultArgonOperationalReserveMicrogons + 50n,
         availableMicronots: 7n,
       }),
       walletKeys,

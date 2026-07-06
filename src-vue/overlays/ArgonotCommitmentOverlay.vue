@@ -254,9 +254,9 @@ const progressError = Vue.ref('');
 let unsubProgress: (() => void) | undefined;
 
 const maxCommitmentMicronots = Vue.computed(() => {
-  return currentCommittedMicronots.value > wallets.vaultingWallet.totalMicronots
+  return currentCommittedMicronots.value > wallets.defaultArgonWallet.totalMicronots
     ? currentCommittedMicronots.value
-    : wallets.vaultingWallet.totalMicronots;
+    : wallets.defaultArgonWallet.totalMicronots;
 });
 
 const maxAdditionalCommitmentMicronots = Vue.computed(() => {
@@ -307,7 +307,7 @@ async function loadState() {
 
     if (!myVault.vaultId) {
       vaultId.value = undefined;
-      currentCommittedMicronots.value = wallets.vaultingWallet.reservedMicronots;
+      currentCommittedMicronots.value = wallets.defaultArgonWallet.reservedMicronots;
       currentEncumberedMicronots.value = 0n;
       commitmentMicronots.value = currentCommittedMicronots.value;
       return;
@@ -322,7 +322,7 @@ async function loadState() {
       currentCommittedMicronots.value = commitment.committedMicronots.toBigInt();
       currentEncumberedMicronots.value = commitment.encumberedMicronots.toBigInt();
     } else {
-      currentCommittedMicronots.value = wallets.vaultingWallet.reservedMicronots;
+      currentCommittedMicronots.value = wallets.defaultArgonWallet.reservedMicronots;
       currentEncumberedMicronots.value = 0n;
     }
 

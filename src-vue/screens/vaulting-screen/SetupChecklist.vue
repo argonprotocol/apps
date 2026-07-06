@@ -175,9 +175,9 @@ import { getVaultCalculator } from '../../stores/mainchain.ts';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
-import { useOperationsController, TopTab, OperationalStepId } from '../../stores/operationsController.ts';
+import { useOperationsController, OperationalStepId } from '../../stores/operationsController.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import { VaultingSetupStatus } from '../../interfaces/IConfig.ts';
+import { TopTab, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../stores/basics.ts';
 
@@ -219,7 +219,7 @@ const currentStep = Vue.computed(() => {
 });
 
 const walletIsPartiallyFunded = Vue.computed(() => {
-  return (wallets.vaultingWallet.availableMicrogons || wallets.vaultingWallet.availableMicronots) > 0;
+  return (wallets.defaultArgonWallet.availableMicrogons || wallets.defaultArgonWallet.availableMicronots) > 0;
 });
 
 const vaultTreasuryBondSuggestionMicrogons = Vue.computed(() => {
@@ -249,11 +249,11 @@ const walletIsFullyFunded = Vue.computed(() => {
     return false;
   }
 
-  if (wallets.vaultingWallet.availableMicrogons < minimumMicrogonsNeeded.value) {
+  if (wallets.defaultArgonWallet.availableMicrogons < minimumMicrogonsNeeded.value) {
     return false;
   }
 
-  if (wallets.vaultingWallet.availableMicronots < (config.vaultingRules?.baseMicronotCommitment || 0n)) {
+  if (wallets.defaultArgonWallet.availableMicronots < (config.vaultingRules?.baseMicronotCommitment || 0n)) {
     return false;
   }
 
@@ -293,7 +293,11 @@ function openVaultCreateOverlay() {
 }
 
 function openFundVaultingAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting, showGuidance: true });
+  basicEmitter.emit('openWalletOverlay', {
+    walletType: WalletType.defaultArgon,
+    showGuidance: true,
+    guidanceContext: 'vaulting',
+  });
 }
 
 async function startCreateVault() {
@@ -312,7 +316,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.vaultingSetupStatus = VaultingSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setScreenKey(TopTab.Wallets);
+    controller.setTab(TopTab.Wallets);
   }
 }
 

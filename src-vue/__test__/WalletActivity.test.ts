@@ -11,7 +11,7 @@ function createLedger(overrides: Partial<IWalletLedgerRecord> = {}): IWalletLedg
   return {
     id: 1,
     walletAddress,
-    walletName: 'investment',
+    walletName: 'defaultArgon',
     availableMicrogons: 100n,
     availableMicronots: 0n,
     reservedMicrogons: 0n,
@@ -35,7 +35,7 @@ function createTransfer(overrides: Partial<IWalletTransferRecord> = {}): IWallet
   return {
     id: 1,
     walletAddress,
-    walletName: 'investment',
+    walletName: 'defaultArgon',
     amount: 25n,
     currency: 'argon',
     otherParty: '5Other',

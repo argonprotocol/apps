@@ -44,10 +44,7 @@
 
           <InputMenu
             v-model="moveTo"
-            :options="[
-              { name: 'Vaulting Account', value: MoveTo.VaultingHold },
-              { name: 'Mining Account', value: MoveTo.MiningHold },
-            ]"
+            :options="[{ name: 'Argon Wallet', value: MoveTo.DefaultArgon }]"
             class="mt-5 flex max-w-2/3" />
         </div>
 
@@ -215,7 +212,7 @@ const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(true);
-const moveTo = Vue.ref<MoveTo>(MoveTo.VaultingHold);
+const moveTo = Vue.ref<MoveTo>(MoveTo.DefaultArgon);
 
 const collectRevenue = Vue.ref(0n);
 const councilApprovalCount = Vue.ref(0);

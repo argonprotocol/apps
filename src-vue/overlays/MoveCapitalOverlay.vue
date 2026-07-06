@@ -25,13 +25,12 @@ import { WalletType } from '../lib/Wallet.ts';
 import { MoveTo } from '@argonprotocol/apps-core';
 
 const isOpen = Vue.ref(false);
-const walletType = Vue.ref<WalletType.miningHold | WalletType.vaulting>();
+const walletType = Vue.ref<WalletType.defaultArgon>();
 const moveTo = Vue.ref<MoveTo | undefined>();
 const maxAmount = Vue.ref<bigint | undefined>();
 
 const walletTypeName = {
-  [WalletType.miningHold]: 'Mining',
-  [WalletType.vaulting]: 'Vaulting',
+  [WalletType.defaultArgon]: 'Mining',
 };
 
 function closeOverlay() {

@@ -19,7 +19,7 @@
         :tooltipSide="tooltipSide"
         :height="itemHeight"
         :spacerWidth="spacerWidth"
-        :moveFrom="MoveFrom.MiningHold"
+        :moveFrom="MoveFrom.DefaultArgon"
         :moveToken="MoveToken.ARGN"
       >
         {{ microgonToArgonNm(breakdown.sidelinedMicrogons).format('0,0.[00]') }} ARGN
@@ -34,7 +34,7 @@
         :height="itemHeight"
         :showMoveButton="true"
         :spacerWidth="spacerWidth"
-        :moveFrom="MoveFrom.MiningHold"
+        :moveFrom="MoveFrom.DefaultArgon"
         :moveToken="MoveToken.ARGNOT"
       >
         {{ microgonToArgonNm(breakdown.sidelinedMicronots).format('0,0.[00]') }} ARGNOT

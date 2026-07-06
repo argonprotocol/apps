@@ -60,7 +60,7 @@ import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 
 const props = defineProps<{
-  walletType: WalletType.miningHold | WalletType.vaulting;
+  walletType: WalletType.defaultArgon;
 }>();
 
 const isOpen = Vue.ref(false);

@@ -202,7 +202,7 @@ async function liquidateBondLot() {
 
   try {
     const client = await getMainchainClient(false);
-    const signer = await walletKeys.getInvestmentKeypair();
+    const signer = await walletKeys.getDefaultArgonKeypair();
     const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: props.bondLot.id });
     const info = await transactionTracker.submitAndWatch({
       tx,
@@ -230,7 +230,7 @@ Vue.onMounted(async () => {
     releasedBondMicrogons?: bigint;
   }>(candidate => {
     if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryReleaseBondLot) return false;
-    if (candidate.tx.accountAddress !== walletKeys.investmentAddress) return false;
+    if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
     if (candidate.tx.metadataJson?.bondLotId !== props.bondLot.id) return false;
     if ((candidate.tx.metadataJson?.releasedBondMicrogons ?? 0n) <= 0n) return false;
     if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;

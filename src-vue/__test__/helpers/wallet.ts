@@ -15,18 +15,16 @@ function resolveTestSecrets(mnemonicOrUri?: string) {
 export function createTestWallet(mnemonic?: string) {
   const { substrateSuri, masterMnemonic } = resolveTestSecrets(mnemonic ?? mnemonicGenerate());
   const keypair = new Keyring({ type: 'sr25519' }).addFromUri(substrateSuri);
-  const miningHoldAccount = keypair.derive('//holding');
+  const legacyMiningHoldAccount = keypair.derive('//holding');
   const miningBotAccount = keypair.derive('//mining');
   const vaultingAccount = keypair.derive('//vaulting');
-  const investmentAccount = keypair.derive('//investment');
   const operationalAccount = keypair.derive('//operational');
 
   return {
     mnemonic: masterMnemonic,
-    miningHoldAccount,
+    legacyMiningHoldAccount,
     miningBotAccount,
     vaultingAccount,
-    investmentAccount,
     operationalAccount,
     walletKeys: new MemoryWalletKeys({
       substrateSuri,

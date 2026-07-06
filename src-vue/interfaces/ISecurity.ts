@@ -3,7 +3,6 @@ export default interface ISecurity {
   miningHoldAddress: string;
   miningBotAddress: string;
   vaultingAddress: string;
-  investmentAddress: string;
   operationalAddress: string;
   ethereumAddress: string;
   ethereumHdPrefixes: {

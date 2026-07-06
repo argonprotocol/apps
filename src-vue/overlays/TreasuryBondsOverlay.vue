@@ -24,7 +24,7 @@
       <div class="rounded-lg border border-slate-200 bg-white px-5 py-5">
         <BuyBondsForm
           :vaultId="vaultId"
-          :walletBalance="wallets.vaultingWallet.availableMicrogons"
+          :walletBalance="wallets.defaultArgonWallet.availableMicrogons"
           @close="goBack"
           @submitted="onBuySubmitted"
         />
