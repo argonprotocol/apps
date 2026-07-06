@@ -1,6 +1,5 @@
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import ISecurity from './src-vue/interfaces/ISecurity';
-import './src-vue/lib/patchTxResult.ts';
 
 (globalThis as any).__ARGON_APP_ID__ = 'com.argon.desktop';
 (globalThis as any).__ARGON_APP_NAME__ = 'ARGON';

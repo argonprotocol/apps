@@ -1221,7 +1221,7 @@ export class EthereumOutboundTransferTracker {
 
     this.#pendingArgonProgressByTransferId.set(transferId, { txId: txInfo.tx.id, unsubscribe });
 
-    void txInfo.waitForPostProcessing.finally(() => {
+    const clearPendingProgress = () => {
       const tracked = this.#pendingArgonProgressByTransferId.get(transferId);
       if (tracked?.txId !== txInfo.tx.id) {
         return;
@@ -1229,7 +1229,9 @@ export class EthereumOutboundTransferTracker {
 
       tracked.unsubscribe();
       this.#pendingArgonProgressByTransferId.delete(transferId);
-    });
+    };
+
+    void txInfo.waitForPostProcessing.then(clearPendingProgress, clearPendingProgress);
   }
 
   private async failTransfer(error: unknown, id: string, fallbackMessage?: string) {
