@@ -1,51 +1,51 @@
 {
-  "version": "1.4.1",
-  "notes": "- Compatability with 1.4.8 of mainchain\n- Fix beacon sync stall issue",
-  "pub_date": "2026-06-26T20:49:02.414Z",
+  "version": "1.4.2",
+  "notes": "- Fix windows server installer crashes\n- Ease loading of bitcoins when Mining/Vaulting loads\n- Various small UI tweaks\n- Improve Ethereum Gateway catchup\n- Add OS details to troubleshooting package\n- Add a restricted-spend mining proxy to the server",
+  "pub_date": "2026-07-06T21:17:12.795Z",
   "platforms": {
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NXVXdIMDBaN0xWTVZxUjdpYjNsdVh1aXhQNmRrN1VWMTBxWnlHRXVmK1M4akFPZHNHQkllWkhCSllzaHYzVTM4Mk1sM2VCZ3psaXUrTWVxcWJ4UndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NzAwCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjFfYW1kNjQuQXBwSW1hZ2UKT2pHNStTMkZRcjdwRGptRDNMWmlqdEphMUFZYnZBUCt4OXFoYzhtRU5BcHFPZm8xUTRjWHdYVHBWRVVtM0JoTXpuMjVMMWkxVk1WNW0rMSswU3RuQnc9PQo=",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_1.4.1_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM040SnR1QnBkcUxrVVBDeVFoRGR2eUc4RDZLaDl4UCsrbW5hSXhZK01UUnBRbFRJY3p2dmREenlydVhLVCtONWRYSFByZ2d3RHNnQ1lHSnd3aE1jZ3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyMTIzCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjJfYW1kNjQuQXBwSW1hZ2UKb2dzRTVnZUxRVWxleFlnTDc3U00xVHJxN3graER4L0kvU2xXOVc0Z1lyTVBUS1hmdDJ0eW1uRWlNbTVScFRUTXhGNmRkUWRpS0NjbWp2UTJCbzJtRHc9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_1.4.2_amd64.AppImage"
     },
     "linux-x86_64-appimage": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NXVXdIMDBaN0xWTVZxUjdpYjNsdVh1aXhQNmRrN1VWMTBxWnlHRXVmK1M4akFPZHNHQkllWkhCSllzaHYzVTM4Mk1sM2VCZ3psaXUrTWVxcWJ4UndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NzAwCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjFfYW1kNjQuQXBwSW1hZ2UKT2pHNStTMkZRcjdwRGptRDNMWmlqdEphMUFZYnZBUCt4OXFoYzhtRU5BcHFPZm8xUTRjWHdYVHBWRVVtM0JoTXpuMjVMMWkxVk1WNW0rMSswU3RuQnc9PQo=",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_1.4.1_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM040SnR1QnBkcUxrVVBDeVFoRGR2eUc4RDZLaDl4UCsrbW5hSXhZK01UUnBRbFRJY3p2dmREenlydVhLVCtONWRYSFByZ2d3RHNnQ1lHSnd3aE1jZ3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyMTIzCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjJfYW1kNjQuQXBwSW1hZ2UKb2dzRTVnZUxRVWxleFlnTDc3U00xVHJxN3graER4L0kvU2xXOVc0Z1lyTVBUS1hmdDJ0eW1uRWlNbTVScFRUTXhGNmRkUWRpS0NjbWp2UTJCbzJtRHc9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_1.4.2_amd64.AppImage"
     },
     "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM1ByMVlWQVNhOTB5Y3NtVllPTlZteEtWcXFSTW9TYUdWZXVCQ0I5OGdSN0VuRHZiYzhLY2pmRUV3dDUybERoY1U4bW92WnRYMzZLNUR5dkt0TEJFYWdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NzAwCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjFfYW1kNjQuZGViCm5FdGI4aTRsWkxXYUp2YWpEVGdkaUpjeDM5MWJlZUovaDdnbXRVZUZneHpVdmdKdHQyVHc5UHVtVXlyb0xLZVZ5c2Uwc3FvNUo0TTF4WnVHUXg2Y0RBPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_1.4.1_amd64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM05xK2VldktSSlllTnJEUnNESVVIMHNvRGdWKzNNNWs2eU93eCtlc2lFSW5YZ083MDdhczhBdXJhSnhVeFkxcTY3dHUrMnQzYlUzSzh6T0RlSzZKVXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyMTI0CWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjJfYW1kNjQuZGViCmdOY1dOVkMwdGJPVTZrMkN6MFd1eEdOOXllSk9QU1B2WUdxVUZGa1pFU2FMUEE2MzlzWmZZajJIRVd2d2l0dk1vdTVZMkhHMG5ORHFCdjNHakVSOER3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_1.4.2_amd64.deb"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZqOGt2bmdXRER1V0dsbnJtdHoyT08zL0ZEejdLVW5NTWIya25pNUpnTlg3dzNoQUIrMlFmV0ozVmIxY1VuODhTVGZWRGpJZ2pYTG5EeGtPc2NMRVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NzcyCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjFfeDY0LXNldHVwLmV4ZQpXcEo0bkkzdGY1WFpBOFNqUlpKTng1MG1VSDEzWTBkNG4raU9LVmZrY2d4RXpyNGdmTHBkVE5hTkJHVjkxTCthdUt3eENwL0pwSWlyYjFnSlBKRTJEZz09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_1.4.1_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM09Ma2ZRNkxzb0g1RU9tNE5nY3l2UHJJVDQvZUFGNDdCdWpKa3M0M1l4dXZ5dHJneTQ5eGZHUHpzakVubitoVXd1b082MmNTT3lTUlFVOVEyY1pqTlFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNDI0CWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjJfeDY0LXNldHVwLmV4ZQphaVUvS2R5amwrUk5sOXdNT01GOXhkd3BOOUVyWEFmNVplR1FyZVFrcmpWYTM4U042K2RERHMrcHVaOUFMTDdKVm5nRDNaUFAyaW5ObnQxZ2Ria1NBQT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_1.4.2_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0ZqOGt2bmdXRER1V0dsbnJtdHoyT08zL0ZEejdLVW5NTWIya25pNUpnTlg3dzNoQUIrMlFmV0ozVmIxY1VuODhTVGZWRGpJZ2pYTG5EeGtPc2NMRVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2NzcyCWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjFfeDY0LXNldHVwLmV4ZQpXcEo0bkkzdGY1WFpBOFNqUlpKTng1MG1VSDEzWTBkNG4raU9LVmZrY2d4RXpyNGdmTHBkVE5hTkJHVjkxTCthdUt3eENwL0pwSWlyYjFnSlBKRTJEZz09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_1.4.1_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM09Ma2ZRNkxzb0g1RU9tNE5nY3l2UHJJVDQvZUFGNDdCdWpKa3M0M1l4dXZ5dHJneTQ5eGZHUHpzakVubitoVXd1b082MmNTT3lTUlFVOVEyY1pqTlFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNDI0CWZpbGU6QXJnb24gVHJlYXN1cnlfMS40LjJfeDY0LXNldHVwLmV4ZQphaVUvS2R5amwrUk5sOXdNT01GOXhkd3BOOUVyWEFmNVplR1FyZVFrcmpWYTM4U042K2RERHMrcHVaOUFMTDdKVm5nRDNaUFAyaW5ObnQxZ2Ria1NBQT09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_1.4.2_x64-setup.exe"
     },
     "darwin-universal": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0lwd3ZRMmtHVXJ6M0ZIaXJML1VpY0YyNjhibitFTGM4cExqNUZsVmF0MjJmbklzb3FOT0NndTFpdGZGamIzZVdFandOVTNmRHV6S1IybmxQdndGNGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2ODkwCWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negoyNHpKREZIT09EWjNsaWhWQzN6aG56cy95M1A2T013M2FSSmg2Rys1L0pSajY3VWJ1WUZMUy85NnZ5aUJjK1RhdFdQZi9LU3FScStrUlM5N1NhMlVCUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JLdVZ4ZklHUDRQa0NEWjZKVGQ0K3VzamdheG44cGpuOEdmdnppQ3Jyd1FSaHBrVGRINjlJN2VKTzIrNWRQdU10anpFVkxWWlQyQVNtcVVXakdTb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNTc2CWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negpPOHgxUlN1WkZCR3E3cllMUU5TNnpDUGRYRGM0STdkc3pJTzkvYUN0aWVxVlNQZ1lJRHhDYXphakRQcjRqc21DSUNVUDBVVTdZak5SVENnUStUbTZDdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_universal.app.tar.gz"
     },
     "darwin-universal-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0lwd3ZRMmtHVXJ6M0ZIaXJML1VpY0YyNjhibitFTGM4cExqNUZsVmF0MjJmbklzb3FOT0NndTFpdGZGamIzZVdFandOVTNmRHV6S1IybmxQdndGNGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2ODkwCWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negoyNHpKREZIT09EWjNsaWhWQzN6aG56cy95M1A2T013M2FSSmg2Rys1L0pSajY3VWJ1WUZMUy85NnZ5aUJjK1RhdFdQZi9LU3FScStrUlM5N1NhMlVCUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JLdVZ4ZklHUDRQa0NEWjZKVGQ0K3VzamdheG44cGpuOEdmdnppQ3Jyd1FSaHBrVGRINjlJN2VKTzIrNWRQdU10anpFVkxWWlQyQVNtcVVXakdTb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNTc2CWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negpPOHgxUlN1WkZCR3E3cllMUU5TNnpDUGRYRGM0STdkc3pJTzkvYUN0aWVxVlNQZ1lJRHhDYXphakRQcjRqc21DSUNVUDBVVTdZak5SVENnUStUbTZDdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_universal.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0lwd3ZRMmtHVXJ6M0ZIaXJML1VpY0YyNjhibitFTGM4cExqNUZsVmF0MjJmbklzb3FOT0NndTFpdGZGamIzZVdFandOVTNmRHV6S1IybmxQdndGNGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2ODkwCWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negoyNHpKREZIT09EWjNsaWhWQzN6aG56cy95M1A2T013M2FSSmg2Rys1L0pSajY3VWJ1WUZMUy85NnZ5aUJjK1RhdFdQZi9LU3FScStrUlM5N1NhMlVCUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JLdVZ4ZklHUDRQa0NEWjZKVGQ0K3VzamdheG44cGpuOEdmdnppQ3Jyd1FSaHBrVGRINjlJN2VKTzIrNWRQdU10anpFVkxWWlQyQVNtcVVXakdTb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNTc2CWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negpPOHgxUlN1WkZCR3E3cllMUU5TNnpDUGRYRGM0STdkc3pJTzkvYUN0aWVxVlNQZ1lJRHhDYXphakRQcjRqc21DSUNVUDBVVTdZak5SVENnUStUbTZDdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_universal.app.tar.gz"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0lwd3ZRMmtHVXJ6M0ZIaXJML1VpY0YyNjhibitFTGM4cExqNUZsVmF0MjJmbklzb3FOT0NndTFpdGZGamIzZVdFandOVTNmRHV6S1IybmxQdndGNGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2ODkwCWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negoyNHpKREZIT09EWjNsaWhWQzN6aG56cy95M1A2T013M2FSSmg2Rys1L0pSajY3VWJ1WUZMUy85NnZ5aUJjK1RhdFdQZi9LU3FScStrUlM5N1NhMlVCUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JLdVZ4ZklHUDRQa0NEWjZKVGQ0K3VzamdheG44cGpuOEdmdnppQ3Jyd1FSaHBrVGRINjlJN2VKTzIrNWRQdU10anpFVkxWWlQyQVNtcVVXakdTb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNTc2CWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negpPOHgxUlN1WkZCR3E3cllMUU5TNnpDUGRYRGM0STdkc3pJTzkvYUN0aWVxVlNQZ1lJRHhDYXphakRQcjRqc21DSUNVUDBVVTdZak5SVENnUStUbTZDdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_universal.app.tar.gz"
     },
     "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0lwd3ZRMmtHVXJ6M0ZIaXJML1VpY0YyNjhibitFTGM4cExqNUZsVmF0MjJmbklzb3FOT0NndTFpdGZGamIzZVdFandOVTNmRHV6S1IybmxQdndGNGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2ODkwCWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negoyNHpKREZIT09EWjNsaWhWQzN6aG56cy95M1A2T013M2FSSmg2Rys1L0pSajY3VWJ1WUZMUy85NnZ5aUJjK1RhdFdQZi9LU3FScStrUlM5N1NhMlVCUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JLdVZ4ZklHUDRQa0NEWjZKVGQ0K3VzamdheG44cGpuOEdmdnppQ3Jyd1FSaHBrVGRINjlJN2VKTzIrNWRQdU10anpFVkxWWlQyQVNtcVVXakdTb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNTc2CWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negpPOHgxUlN1WkZCR3E3cllMUU5TNnpDUGRYRGM0STdkc3pJTzkvYUN0aWVxVlNQZ1lJRHhDYXphakRQcjRqc21DSUNVUDBVVTdZak5SVENnUStUbTZDdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_universal.app.tar.gz"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0lwd3ZRMmtHVXJ6M0ZIaXJML1VpY0YyNjhibitFTGM4cExqNUZsVmF0MjJmbklzb3FOT0NndTFpdGZGamIzZVdFandOVTNmRHV6S1IybmxQdndGNGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNTA2ODkwCWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negoyNHpKREZIT09EWjNsaWhWQzN6aG56cy95M1A2T013M2FSSmg2Rys1L0pSajY3VWJ1WUZMUy85NnZ5aUJjK1RhdFdQZi9LU3FScStrUlM5N1NhMlVCUT09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.1/Argon.Treasury_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JLdVZ4ZklHUDRQa0NEWjZKVGQ0K3VzamdheG44cGpuOEdmdnppQ3Jyd1FSaHBrVGRINjlJN2VKTzIrNWRQdU10anpFVkxWWlQyQVNtcVVXakdTb0FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzMzcyNTc2CWZpbGU6QXJnb24gVHJlYXN1cnkuYXBwLnRhci5negpPOHgxUlN1WkZCR3E3cllMUU5TNnpDUGRYRGM0STdkc3pJTzkvYUN0aWVxVlNQZ1lJRHhDYXphakRQcjRqc21DSUNVUDBVVTdZak5SVENnUStUbTZDdz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v1.4.2/Argon.Treasury_universal.app.tar.gz"
     }
   }
 }
