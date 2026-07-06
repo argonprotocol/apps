@@ -48,6 +48,7 @@
             data-testid="LockStart.bitcoinAmount"
             v-model="bitcoinAmount"
             @input="handleBtcChange"
+            :disabled="isSaving || isLoadingLiquidity"
             :maxDecimals="8"
             :min="0"
             :max="availableLiquidityBtc"
@@ -67,6 +68,7 @@
             data-testid="LockStart.argonAmount"
             v-model="liquidityToReceive"
             @input="handleArgonChange"
+            :disabled="isSaving || isLoadingLiquidity"
             :maxDecimals="0"
             :min="0n"
             :max="availableLiquidityMicrogons"
@@ -114,8 +116,10 @@
         Cancel
       </button>
       <button
-        :class="isSaving ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700'"
-        :disabled="isSaving"
+        :class="
+          isSaving || isLoadingLiquidity ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700'
+        "
+        :disabled="isSaving || isLoadingLiquidity"
         @click="submitLiquidLock"
         class="cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white"
       >
@@ -171,6 +175,7 @@ const availableLiquidityMicrogons = Vue.ref(0n);
 const availableLiquidityBtc = Vue.ref(0);
 
 const isSaving = Vue.ref(false);
+const isLoadingLiquidity = Vue.ref(true);
 const errorMessage = Vue.ref<string | null>(null);
 const bitcoinAmount = Vue.ref(0);
 const liquidityToReceive = Vue.ref(0n);
@@ -399,6 +404,10 @@ async function setLiquidityVariables() {
 
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
-  await setLiquidityVariables();
+  try {
+    await setLiquidityVariables();
+  } finally {
+    isLoadingLiquidity.value = false;
+  }
 });
 </script>
