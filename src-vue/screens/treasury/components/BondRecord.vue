@@ -107,9 +107,18 @@ const emit = defineEmits<{
 
 const isActionHovered = Vue.ref(false);
 const vaultLabel = Vue.computed(() => {
-  const vault = vaults.vaultsById[props.bondLot.vaultId];
+  if (props.bondLot.programType === 'Argonot') {
+    return 'Argonot Bond';
+  }
+
+  const vaultId = props.bondLot.vaultId;
+  if (vaultId == null) {
+    return 'Vault Bond';
+  }
+
+  const vault = vaults.vaultsById[vaultId];
   const name = vault?.name?.trim();
-  return name ? `${name} Vault` : `Vault #${props.bondLot.vaultId}`;
+  return name ? `${name} Vault` : `Vault #${vaultId}`;
 });
 
 function returnToDate(investment: bigint, earnings: bigint): number {

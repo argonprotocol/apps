@@ -101,6 +101,12 @@ async function createVault() {
 }
 
 function finalizeVault() {
+  if (errorMessage.value) return;
+  if (!myVault.createdVault) {
+    errorMessage.value = 'Vault setup did not complete successfully.';
+    return;
+  }
+
   progressPct.value = 100;
   config.vaultingSetupStatus = VaultingSetupStatus.Finished;
   void config.save();

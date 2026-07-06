@@ -95,3 +95,23 @@ it('treats a watched finalized tx result as finalized before the record is persi
     isFinalized: true,
   });
 });
+
+it('rejects waitForPostProcessing when post-processing fails', async () => {
+  const txInfo = new TransactionInfo({
+    tx: {
+      blockHeight: 100,
+      isFinalized: true,
+    } as ITransactionRecord,
+    txResult: {
+      isFinalized: true,
+      waitForFinalizedBlock: Promise.resolve(undefined),
+    } as unknown as TxResult,
+  });
+  const postProcessor = txInfo.createPostProcessor();
+  const error = new Error('vault setup failed');
+  const waitForPostProcessing = txInfo.waitForPostProcessing;
+
+  postProcessor.reject(error);
+
+  await expect(waitForPostProcessing).rejects.toThrow('vault setup failed');
+});

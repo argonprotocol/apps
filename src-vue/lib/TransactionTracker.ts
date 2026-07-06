@@ -134,7 +134,7 @@ export class TransactionTracker {
         }
 
         if (tx.isFinalized || txResult.submissionError) {
-          txResult.setFinalized();
+          await txResult.setFinalized();
         }
         // Mark txResult as non-reactive to avoid issues with private fields
         Vue.markRaw(txResult);
@@ -459,7 +459,7 @@ export class TransactionTracker {
                 blockNumber: finalizedHeight,
                 blockTime: new Date(finalizedBlockTime),
               });
-              txResult.setFinalized();
+              await txResult.setFinalized();
               checkedTxIds.add(tx.id);
               continue;
             }
@@ -524,7 +524,7 @@ export class TransactionTracker {
               blockNumber: finalizedHeight,
               blockTime: new Date(finalizedBlockTime),
             });
-            txResult.setFinalized();
+            await txResult.setFinalized();
           }
         } else {
           console.log('[TransactionTracker] No transaction found as of block', { bestBlockNumber, id: tx.id });
@@ -533,7 +533,7 @@ export class TransactionTracker {
             // too old, stop checking
             console.log(`[TransactionTracker] Marking transaction #${tx.id} expired:`, tx.extrinsicHash);
             txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
-            txResult.setFinalized();
+            await txResult.setFinalized();
             await table.markExpiredWaitingForBlock(tx);
           }
         }

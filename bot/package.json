@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.9",
+    "@argonprotocol/mainchain": "1.4.9-dev.8c77b923",
     "bignumber.js": "^9.3.1",
     "cors": "^2.8.5",
     "express": "^5.2.0",
@@ -25,7 +25,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.9",
+    "@argonprotocol/testing": "1.4.9-dev.8c77b923",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/ws": "^8.18.1",
