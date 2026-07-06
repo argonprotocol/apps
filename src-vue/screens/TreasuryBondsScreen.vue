@@ -223,14 +223,14 @@ async function refreshMarketData() {
     {
       vaultId: myBonds.vaultId,
       operatorAddress: vault.operatorAccountId,
-      accountId: walletKeys.investmentAddress,
+      accountId: walletKeys.defaultArgonAddress,
     },
     client,
   );
 }
 
 function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
 let unsubVault: (() => void) | undefined;

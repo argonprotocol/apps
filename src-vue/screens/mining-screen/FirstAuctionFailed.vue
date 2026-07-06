@@ -99,7 +99,7 @@ function openBiddingBudgetOverlay() {
 }
 
 function openWalletFunding() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
 Vue.onMounted(async () => {

@@ -18,14 +18,14 @@ export type IBalanceChange = {
 
 export const existentialDepositMicrogons = 10_000n;
 export const existentialDepositMicronots = 10_000n;
-export const miningHoldOperationalReserveMicrogons = 250_000n;
+export const defaultArgonOperationalReserveMicrogons = 250_000n;
 
 export function getSpendableMicrogons(availableMicrogons: bigint, reserveMicrogons = 0n): bigint {
   return bigIntMax(availableMicrogons - reserveMicrogons, 0n);
 }
 
-export function getSpendableMiningHoldMicrogons(availableMicrogons: bigint): bigint {
-  return getSpendableMicrogons(availableMicrogons, miningHoldOperationalReserveMicrogons);
+export function getSpendableDefaultArgonMicrogons(availableMicrogons: bigint): bigint {
+  return getSpendableMicrogons(availableMicrogons, defaultArgonOperationalReserveMicrogons);
 }
 
 export type IWalletType = keyof typeof WalletType;

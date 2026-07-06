@@ -1,8 +1,15 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
-import { bigIntMax, isValidArgonAccountAddress, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  isDefaultArgonMoveFrom,
+  isValidArgonAccountAddress,
+  MoveFrom,
+  MoveTo,
+  MoveToken,
+} from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
-import { existentialDepositMicrogons, getSpendableMiningHoldMicrogons } from './WalletForArgon.ts';
+import { existentialDepositMicrogons, getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
 import { IWallet, WalletType } from './Wallet.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -17,8 +24,10 @@ export interface IAssetsToMove {
   [MoveToken.ARGNOT]?: bigint;
 }
 
-let pendingMiningHoldSweepPromise: Promise<MiningHoldSweepResult> | undefined;
-const MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
+export type IMoveCapitalWalletType = WalletType.defaultArgon | WalletType.miningBot | 'vaulting';
+
+let pendingDefaultArgonMiningTransferPromise: Promise<DefaultArgonMiningTransferResult> | undefined;
+const DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
 export class MoveCapital {
   public transactionError: string = '';
@@ -33,17 +42,16 @@ export class MoveCapital {
     this.myVault = myVault;
   }
 
-  public getWalletTypeFromMove(moveFrom: MoveFrom): WalletType.miningHold | WalletType.miningBot | WalletType.vaulting {
+  public getWalletTypeFromMove(moveFrom: MoveFrom): IMoveCapitalWalletType {
     switch (moveFrom) {
-      case MoveFrom.MiningHold:
-        return WalletType.miningHold;
+      case MoveFrom.DefaultArgon:
+        return WalletType.defaultArgon;
 
       case MoveFrom.MiningBot:
         return WalletType.miningBot;
 
-      case MoveFrom.VaultingHold:
       case MoveFrom.VaultingSecurity:
-        return WalletType.vaulting;
+        return 'vaulting';
     }
   }
 
@@ -88,69 +96,156 @@ export class MoveCapital {
     }
   }
 
-  public async moveAvailableMiningHoldToBot(
+  public async moveConfiguredDefaultArgonToBot(
     wallet: IWallet,
     walletKeys: WalletKeys,
     config: Config,
-  ): Promise<MiningHoldSweepResult> {
-    if (pendingMiningHoldSweepPromise) {
-      return await pendingMiningHoldSweepPromise;
+  ): Promise<DefaultArgonMiningTransferResult> {
+    if (pendingDefaultArgonMiningTransferPromise) {
+      return await pendingDefaultArgonMiningTransferPromise;
     }
 
-    const sweepPromise = this.moveAvailableMiningHoldToBotInner(wallet, walletKeys, config);
-    pendingMiningHoldSweepPromise = sweepPromise;
+    const sweepPromise = this.moveConfiguredDefaultArgonToBotInner(wallet, walletKeys, config);
+    pendingDefaultArgonMiningTransferPromise = sweepPromise;
 
     try {
       return await sweepPromise;
     } finally {
-      if (pendingMiningHoldSweepPromise === sweepPromise) {
-        pendingMiningHoldSweepPromise = undefined;
+      if (pendingDefaultArgonMiningTransferPromise === sweepPromise) {
+        pendingDefaultArgonMiningTransferPromise = undefined;
       }
     }
   }
 
-  private async moveAvailableMiningHoldToBotInner(
-    wallet: IWallet,
+  public async moveLegacyMiningHoldToDefault(
+    legacyWallet: IWallet,
     walletKeys: WalletKeys,
-    config: Config,
-  ): Promise<MiningHoldSweepResult> {
+  ): Promise<DefaultArgonMiningTransferResult> {
     await this.transactionTracker.load();
     this.transactionError = '';
 
-    const latestMiningHoldSweepTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(txInfo => {
+    const latestSweepTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(txInfo => {
       const metadata = txInfo.tx.metadataJson;
       return (
         txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
-        metadata?.moveFrom === MoveFrom.MiningHold &&
-        metadata?.moveTo === MoveTo.MiningBot
+        isDefaultArgonMoveFrom(metadata?.moveFrom) &&
+        metadata?.moveTo === MoveTo.External &&
+        metadata?.externalAddress === walletKeys.defaultArgonAddress
       );
     });
+    if (latestSweepTxInfo) {
+      const txAttemptState = await this.transactionTracker.getTxAttemptState(
+        latestSweepTxInfo,
+        DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+      );
+      if (txAttemptState === TxAttemptState.Follow) {
+        return { kind: 'trackingExisting', txInfo: latestSweepTxInfo };
+      }
+    }
 
-    const latestMiningHoldSweepAttempt = latestMiningHoldSweepTxInfo
+    const assetsToMove: IAssetsToMove = {};
+    const spendableMicrogons = getSpendableDefaultArgonMicrogons(legacyWallet.availableMicrogons);
+    if (spendableMicrogons > 0n) {
+      assetsToMove[MoveToken.ARGN] = spendableMicrogons;
+    }
+    if (legacyWallet.availableMicronots > 0n) {
+      assetsToMove[MoveToken.ARGNOT] = legacyWallet.availableMicronots;
+    }
+    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) {
+      return { kind: 'noSpendableFundsToSweep' };
+    }
+
+    const client = await getMainchainClient(false);
+    const fee = await this.calculateFee(
+      MoveFrom.DefaultArgon,
+      MoveTo.External,
+      assetsToMove,
+      legacyWallet,
+      walletKeys.defaultArgonAddress,
+      [],
+      client,
+    );
+    if (this.transactionError) {
+      return { kind: 'blocked', error: this.transactionError };
+    }
+
+    const finalAssetsToMove: IAssetsToMove = {
+      [MoveToken.ARGN]: assetsToMove[MoveToken.ARGN] ? bigIntMax(assetsToMove[MoveToken.ARGN] - fee, 0n) : undefined,
+      [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT],
+    };
+    if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) {
+      return { kind: 'noSpendableFundsToSweep' };
+    }
+
+    const { tx, metadata } = await this.buildTransaction(
+      MoveFrom.DefaultArgon,
+      MoveTo.External,
+      finalAssetsToMove,
+      walletKeys.defaultArgonAddress,
+      [],
+      client,
+    );
+    const txSigner = await walletKeys.getLegacyMiningHoldKeypair();
+    const txInfo = await this.transactionTracker.submitAndWatch({
+      tx,
+      txSigner,
+      useLatestNonce: true,
+      extrinsicType: ExtrinsicType.Transfer,
+      metadata,
+    });
+    return { kind: 'submitted', txInfo };
+  }
+
+  private async moveConfiguredDefaultArgonToBotInner(
+    wallet: IWallet,
+    walletKeys: WalletKeys,
+    config: Config,
+  ): Promise<DefaultArgonMiningTransferResult> {
+    await this.transactionTracker.load();
+    this.transactionError = '';
+
+    const latestDefaultArgonMiningTransferTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(
+      txInfo => {
+        const metadata = txInfo.tx.metadataJson;
+        return (
+          txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
+          isDefaultArgonMoveFrom(metadata?.moveFrom) &&
+          metadata?.moveTo === MoveTo.MiningBot
+        );
+      },
+    );
+
+    const latestDefaultArgonMiningTransferAttempt = latestDefaultArgonMiningTransferTxInfo
       ? {
-          txInfo: latestMiningHoldSweepTxInfo,
+          txInfo: latestDefaultArgonMiningTransferTxInfo,
           txAttemptState: await this.transactionTracker.getTxAttemptState(
-            latestMiningHoldSweepTxInfo,
-            MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+            latestDefaultArgonMiningTransferTxInfo,
+            DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS,
           ),
         }
       : undefined;
 
-    if (latestMiningHoldSweepAttempt?.txAttemptState === TxAttemptState.Follow) {
+    if (latestDefaultArgonMiningTransferAttempt?.txAttemptState === TxAttemptState.Follow) {
       return {
         kind: 'trackingExisting',
-        txInfo: latestMiningHoldSweepAttempt.txInfo,
+        txInfo: latestDefaultArgonMiningTransferAttempt.txInfo,
       };
     }
 
     const assetsToMove: IAssetsToMove = {};
-    const spendableMicrogons = getSpendableMiningHoldMicrogons(wallet.availableMicrogons);
+    const spendableMicrogons = getSpendableDefaultArgonMicrogons(wallet.availableMicrogons);
+    const requiredMicrogons = config.biddingRules.initialMicrogonRequirement;
+    const requiredMicronots = config.biddingRules.initialMicronotRequirement;
 
-    if (spendableMicrogons > 0n) {
-      assetsToMove[MoveToken.ARGN] = spendableMicrogons;
+    if (spendableMicrogons > 0n && requiredMicrogons > 0n) {
+      assetsToMove[MoveToken.ARGN] = bigIntMax(
+        requiredMicrogons < spendableMicrogons ? requiredMicrogons : spendableMicrogons,
+        0n,
+      );
     }
-    if (wallet.availableMicronots > 0n) {
-      assetsToMove[MoveToken.ARGNOT] = wallet.availableMicronots;
+    if (wallet.availableMicronots > 0n && requiredMicronots > 0n) {
+      assetsToMove[MoveToken.ARGNOT] =
+        requiredMicronots < wallet.availableMicronots ? requiredMicronots : wallet.availableMicronots;
     }
     if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) {
       return { kind: 'noSpendableFundsToSweep' };
@@ -168,7 +263,7 @@ export class MoveCapital {
     }
 
     let fee = await this.calculateFee(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       assetsToMove,
       wallet,
@@ -177,7 +272,7 @@ export class MoveCapital {
       client,
     );
     if (this.transactionError) {
-      console.info('[MoveCapital] Skipping mining hold auto-transfer due to fee calculation error', {
+      console.info('[MoveCapital] Skipping default Argon auto-transfer due to fee calculation error', {
         error: this.transactionError,
         availableMicrogons: wallet.availableMicrogons,
         assetsToMove,
@@ -199,7 +294,7 @@ export class MoveCapital {
       if (remainingMicrogons < existentialDepositMicrogons && assetsToMove[MoveToken.ARGN]) {
         finalAssetsToMove = { [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] };
         fee = await this.calculateFee(
-          MoveFrom.MiningHold,
+          MoveFrom.DefaultArgon,
           MoveTo.MiningBot,
           finalAssetsToMove,
           wallet,
@@ -208,7 +303,7 @@ export class MoveCapital {
           client,
         );
         if (this.transactionError) {
-          console.info('[MoveCapital] Skipping mining hold auto-transfer due to fee calculation error', {
+          console.info('[MoveCapital] Skipping default Argon auto-transfer due to fee calculation error', {
             error: this.transactionError,
             availableMicrogons: wallet.availableMicrogons,
             assetsToMove: finalAssetsToMove,
@@ -228,19 +323,19 @@ export class MoveCapital {
     }
 
     const { tx, metadata } = await this.buildTransaction(
-      MoveFrom.MiningHold,
+      MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       finalAssetsToMove,
       this.walletKeys.miningBotAddress,
       prependedTxs,
       client,
     );
-    const txSigner = await this.getSigner(MoveFrom.MiningHold);
+    const txSigner = await this.getSigner(MoveFrom.DefaultArgon);
     const followOnTx =
-      latestMiningHoldSweepAttempt?.txAttemptState === TxAttemptState.Replace &&
-      latestMiningHoldSweepAttempt.txInfo &&
-      !latestMiningHoldSweepAttempt.txInfo.tx.followOnTxId
-        ? this.transactionTracker.createIntentForFollowOnTx(latestMiningHoldSweepAttempt.txInfo)
+      latestDefaultArgonMiningTransferAttempt?.txAttemptState === TxAttemptState.Replace &&
+      latestDefaultArgonMiningTransferAttempt.txInfo &&
+      !latestDefaultArgonMiningTransferAttempt.txInfo.tx.followOnTxId
+        ? this.transactionTracker.createIntentForFollowOnTx(latestDefaultArgonMiningTransferAttempt.txInfo)
         : undefined;
 
     try {
@@ -266,7 +361,14 @@ export class MoveCapital {
   }
 
   private async getSigner(moveFrom: MoveFrom) {
-    return await this.walletKeys.getWalletKeypair(this.getWalletTypeFromMove(moveFrom));
+    switch (moveFrom) {
+      case MoveFrom.DefaultArgon:
+        return await this.walletKeys.getDefaultArgonKeypair();
+      case MoveFrom.MiningBot:
+        return await this.walletKeys.getMiningBotKeypair();
+      case MoveFrom.VaultingSecurity:
+        return await this.walletKeys.getVaultingKeypair();
+    }
   }
 
   private async postProcessMiningBidProxySetup(txInfo: TransactionInfo): Promise<void> {
@@ -278,7 +380,7 @@ export class MoveCapital {
       const proxySetup = await ensureMiningBidProxySetup({
         transactionTracker: this.transactionTracker,
         walletKeys: this.walletKeys,
-        followWindowFinalizedBlocks: MINING_HOLD_SWEEP_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+        followWindowFinalizedBlocks: DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS,
       });
       if (proxySetup.kind === 'trackingExisting' || proxySetup.kind === 'submitted') {
         await proxySetup.txInfo.waitForPostProcessing;
@@ -366,7 +468,7 @@ export class MoveCapital {
   }
 
   private validateVaultAllocationMove(moveFrom: MoveFrom, moveTo: MoveTo, assetsToMove: IAssetsToMove): void {
-    if (moveFrom !== MoveFrom.VaultingHold) {
+    if (moveFrom !== MoveFrom.DefaultArgon) {
       throw new Error('Vault allocation moves must come from Inflation-Free Savings.');
     }
     if (assetsToMove[MoveToken.ARGNOT]) {
@@ -439,13 +541,13 @@ export class MoveCapital {
 }
 
 export interface ITransactionMoveMetadata {
-  moveFrom: MoveFrom;
-  moveTo: MoveTo;
+  moveFrom: MoveFrom | 'MiningHold' | 'VaultingHold';
+  moveTo: MoveTo | 'MiningHold' | 'VaultingHold';
   externalAddress?: string;
   assetsToMove: IAssetsToMove;
 }
 
-export type MiningHoldSweepResult =
+export type DefaultArgonMiningTransferResult =
   | {
       kind: 'submitted';
       txInfo: TransactionInfo;

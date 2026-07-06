@@ -4,10 +4,10 @@
       <DropdownMenuTrigger
         Trigger
         data-testid="OperationsMenu.open()"
-        class="flex h-7 w-7 flex-row items-center justify-center rounded-md border hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none"
+        class="flex h-7 w-6.5 flex-row items-center justify-center hover:bg-slate-400/10 focus:outline-none"
         :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-transparent']"
       >
-        <ChevronDownIcon class="ml-1 w-4" />
+        <ChevronDownIcon class="w-4" />
       </DropdownMenuTrigger>
 
       <DropdownMenuPortal>
@@ -18,17 +18,26 @@
           :align="'end'"
           :alignOffset="-5"
           :sideOffset="-3"
+          :style="{ width: `${parentItemWidth}px` }"
           class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[1000] data-[state=open]:transition-all"
         >
           <div
-            class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
+            class="bg-argon-menu-bg flex w-full shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
           >
+            <DropdownMenuItem
+              data-testid="OperationsMenu.goto(OperationsTab.MiningOperations)"
+              @click="goto(TopTab.Operations)"
+              class="py-2"
+            >
+              <header>Overview</header>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem
               data-testid="OperationsMenu.goto(OperationsTab.MiningOperations)"
               @click="goto(TopTab.MiningOperations)"
               class="py-2"
             >
-              <header>Mining Operations</header>
+              <header>Mining</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem
@@ -36,7 +45,7 @@
               @click="goto(TopTab.VaultingOperations)"
               class="py-2"
             >
-              <header>Vaulting Operations</header>
+              <header>Vaulting</header>
             </DropdownMenuItem>
           </div>
           <DropdownMenuArrow :width="22" :height="12" class="mt-[0px] fill-white stroke-gray-300" />
@@ -59,11 +68,13 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
-import { TopTab, useOperationsController } from '../stores/operationsController.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import { getConfig } from '../stores/config.ts';
-import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
 const isOpen = Vue.ref(false);
+const rootRef = Vue.ref<HTMLElement | null>(null);
+const parentItemWidth = Vue.ref(0);
 
 const controller = useOperationsController();
 const config = getConfig();
@@ -77,7 +88,7 @@ function goto(tab: TopTab) {
       config.vaultingSetupStatus = VaultingSetupStatus.None;
     }
   }
-  controller.setScreenKey(tab);
+  controller.setTab(tab);
 }
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
@@ -86,6 +97,7 @@ function onMouseEnter() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
   }
+  parentItemWidth.value = rootRef.value?.closest('[Item]')?.getBoundingClientRect().width ?? 0;
   mouseLeaveTimeoutId = undefined;
   isOpen.value = true;
 }

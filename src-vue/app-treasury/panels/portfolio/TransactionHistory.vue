@@ -60,8 +60,8 @@ export function getTransferInfo(tx: IWalletTransferRecord): string {
 
 function formatAddress(address: string): string {
   const keys = getWalletKeys();
-  if (keys.miningHoldAddress === address) {
-    return 'MiningHold';
+  if (keys.defaultArgonAddress === address) {
+    return 'DefaultArgon';
   } else if (keys.miningBotAddress === address) {
     return 'MiningBot';
   } else if (keys.vaultingAddress === address) {

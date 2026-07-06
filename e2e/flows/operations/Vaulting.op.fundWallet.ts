@@ -48,8 +48,8 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
               ? 0n
               : futureTransactionFeeBudgetMicrogons + treasuryBondSuggestionMicrogons);
           const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
-          const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
-          const availableMicronots = refs.wallets.vaultingWallet.availableMicronots ?? 0n;
+          const availableMicrogons = refs.wallets.defaultArgonWallet.availableMicrogons ?? 0n;
+          const availableMicronots = refs.wallets.defaultArgonWallet.availableMicronots ?? 0n;
 
           return {
             walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
@@ -113,7 +113,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     const micronotsNeededRaw = await flow
       .getAttribute('WalletOverlay.micronotsNeeded', 'data-value', { timeoutMs: 1_000 })
       .catch(() => null);
-    const walletAddress = await flow.queryApp(refs => refs.wallets.vaultingWallet.address, {
+    const walletAddress = await flow.queryApp(refs => refs.wallets.defaultArgonWallet.address, {
       timeoutMs: 10_000,
     });
 

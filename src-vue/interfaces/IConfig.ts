@@ -17,6 +17,23 @@ const HostOrIpSchema = z
   .string()
   .refine(value => value === '' || !/^[a-z]+:\/\//i.test(value), 'Must not include a protocol prefix');
 
+export enum TopTab {
+  Wallets = 'Wallets',
+  Network = 'Network',
+  Treasury = 'Treasury',
+  TreasuryBonds = 'TreasuryBonds',
+  TreasuryLocks = 'TreasuryLocks',
+  Operations = 'Operations',
+  MiningOperations = 'MiningOperations',
+  VaultingOperations = 'VaultingOperations',
+}
+
+export const TreasuryTabs = [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks] as const;
+export type ITreasuryTabs = (typeof TreasuryTabs)[number];
+
+export const OperationsTabs = [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations] as const;
+export type IOperationsTabs = (typeof OperationsTabs)[number];
+
 export enum InstallStepKey {
   ServerConnect = 'ServerConnect',
   FileUpload = 'FileUpload',
@@ -184,8 +201,11 @@ export const ConfigSchema = z.object({
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
 
   showWelcomeOverlay: z.boolean(),
-  showTreasuryExtension: z.boolean(),
-  showOperationsExtension: z.boolean(),
+  hasExtensionTreasury: z.boolean(),
+  hasExtensionOperations: z.boolean(),
+  selectedTab: z.nativeEnum(TopTab),
+  selectedTreasuryTab: z.enum(TreasuryTabs),
+  selectedOperationsTab: z.enum(OperationsTabs),
 
   serverAdd: ConfigServerAddSchema.optional(),
   serverDetails: ConfigServerDetailsSchema,
@@ -257,8 +277,11 @@ export interface IConfigDefaults {
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
 
   showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
-  showTreasuryExtension: () => IConfig['showTreasuryExtension'];
-  showOperationsExtension: () => IConfig['showOperationsExtension'];
+  hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
+  hasExtensionOperations: () => IConfig['hasExtensionOperations'];
+  selectedTab: () => IConfig['selectedTab'];
+  selectedTreasuryTab: () => IConfig['selectedTreasuryTab'];
+  selectedOperationsTab: () => IConfig['selectedOperationsTab'];
 
   serverAdd: () => IConfig['serverAdd'];
   serverDetails: () => IConfig['serverDetails'];

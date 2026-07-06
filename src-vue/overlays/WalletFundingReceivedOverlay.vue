@@ -8,7 +8,7 @@
     </template>
 
     <div class="flex min-h-60 w-full flex-col items-center justify-center gap-x-5 px-5 pt-3 pb-5" :class="{ 'flash-overlay': flash }">
-      <div v-if="walletType === WalletType.miningHold">
+      <div v-if="walletType === WalletType.defaultArgon">
         <strong>{{ fundsReceivedMessage }}</strong> been added to your <strong>mining</strong> wallet.
         You can choose how to distribute these funds from your Mining tab.
       </div>
@@ -79,7 +79,7 @@ const changes = Vue.ref<
 
 const microgonsReceived = Vue.computed(() => changes.value[0]?.microgonsAdded ?? 0n);
 const micronotsReceived = Vue.computed(() => changes.value[0]?.micronotsAdded ?? 0n);
-const walletType = Vue.computed(() => changes.value[0]?.walletType ?? WalletType.miningHold);
+const walletType = Vue.computed(() => changes.value[0]?.walletType ?? WalletType.defaultArgon);
 
 const isProcessing = Vue.ref(false);
 
@@ -87,7 +87,7 @@ const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 const transactionError = Vue.ref('');
 const flash = Vue.ref(false);
-let isAutoTransferringMiningHold = false;
+let isAutoTransferringDefaultArgon = false;
 let shouldRetryAutoTransfer = false;
 const RECENT_TRANSFER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -112,29 +112,32 @@ Vue.watch(
   },
 );
 
-async function queueMiningHoldAutoTransfer(wallet: IWallet) {
-  if (isAutoTransferringMiningHold) {
+async function queueDefaultArgonAutoTransfer(wallet: IWallet) {
+  if (isAutoTransferringDefaultArgon) {
     shouldRetryAutoTransfer = true;
     return;
   }
 
-  isAutoTransferringMiningHold = true;
+  isAutoTransferringDefaultArgon = true;
   try {
     // If new funds arrive while the sweep tx is still pending, rerun once against the latest balance
     // after the in-flight transfer settles instead of submitting a second transfer in parallel.
     do {
       shouldRetryAutoTransfer = false;
-      const sweepResult = await moveCapital.moveAvailableMiningHoldToBot(wallet, walletKeys, config as Config);
+      const sweepResult = await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config as Config);
       if (sweepResult.kind === 'submitted' || sweepResult.kind === 'trackingExisting') {
         await sweepResult.txInfo.waitForPostProcessing.catch(error => {
-          console.error('[WalletFundingReceivedOverlay] Mining hold sweep failed while waiting to retry', error);
+          console.error(
+            '[WalletFundingReceivedOverlay] Default Argon mining transfer failed while waiting to retry',
+            error,
+          );
         });
       } else if (sweepResult.kind === 'blocked') {
-        console.error('[WalletFundingReceivedOverlay] Mining hold auto-transfer was blocked', sweepResult.error);
+        console.error('[WalletFundingReceivedOverlay] Default Argon auto-transfer was blocked', sweepResult.error);
       }
     } while (shouldRetryAutoTransfer);
   } finally {
-    isAutoTransferringMiningHold = false;
+    isAutoTransferringDefaultArgon = false;
   }
 }
 
@@ -151,14 +154,14 @@ Vue.onMounted(() => {
     }
 
     if (
-      wallet.type === WalletType.miningHold &&
+      wallet.type === WalletType.defaultArgon &&
       config.isServerInstalled &&
       !config.hasMiningSeats &&
       config.miningSetupStatus === MiningSetupStatus.Finished &&
       (balanceChange.microgonsAdded > 0n || balanceChange.micronotsAdded > 0n)
     ) {
-      void queueMiningHoldAutoTransfer(wallet).catch(error => {
-        console.error('[WalletFundingReceivedOverlay] Failed to auto-transfer mining hold funds', error);
+      void queueDefaultArgonAutoTransfer(wallet).catch(error => {
+        console.error('[WalletFundingReceivedOverlay] Failed to auto-transfer default Argon funds', error);
       });
       return;
     }
@@ -168,16 +171,12 @@ Vue.onMounted(() => {
       return;
     }
 
-    if (wallet.type === 'vaulting' && config.vaultingSetupStatus !== VaultingSetupStatus.Finished) {
-      console.log('Skipping vaulting wallet change - no created vault');
-      return;
-    }
-    if (wallet.type === WalletType.miningHold && config.miningSetupStatus !== MiningSetupStatus.Finished) {
+    if (wallet.type === WalletType.defaultArgon && config.miningSetupStatus !== MiningSetupStatus.Finished) {
       console.log('Skipping mining wallet change - no created miner');
       return;
     }
-    if (wallet.type !== WalletType.miningHold && wallet.type !== WalletType.vaulting) {
-      console.log('Skipping wallet change - not mining or vaulting wallet');
+    if (wallet.type !== WalletType.defaultArgon) {
+      console.log('Skipping wallet change - not default Argon wallet');
       return;
     }
     if (balanceChange.microgonsAdded === 0n && balanceChange.micronotsAdded === 0n) {

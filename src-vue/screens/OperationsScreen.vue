@@ -3,8 +3,8 @@
     <section box class="flex min-h-60 w-1/3 flex-col px-2">
       <header class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
         <span class="grow pl-3">Your Mining Operations</span>
-        <CopyAddressMenu :walletType="WalletType.miningHold" class="mr-1" />
-        <AssetMenu :walletType="WalletType.miningHold" class="pr-3" />
+        <CopyAddressMenu :walletType="WalletType.defaultArgon" class="mr-1" />
+        <AssetMenu :walletType="WalletType.defaultArgon" class="pr-3" />
       </header>
       <div class="flex grow flex-row pt-2 text-center" v-if="config.miningSetupStatus === MiningSetupStatus.Finished">
         <div class="flex w-1/2 flex-col items-center gap-x-2">
@@ -56,8 +56,8 @@
     <section box class="flex min-h-60 w-1/3 flex-col px-2">
       <header class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
         <span class="grow pl-3">Your Vaulting Operations</span>
-        <CopyAddressMenu :walletType="WalletType.vaulting" class="mr-1" />
-        <AssetMenu :walletType="WalletType.vaulting" class="mr-3" />
+        <CopyAddressMenu :walletType="WalletType.defaultArgon" class="mr-1" />
+        <AssetMenu :walletType="WalletType.defaultArgon" class="mr-3" />
       </header>
       <div
         class="flex grow flex-row pt-2 text-center"
@@ -117,14 +117,15 @@ import { calculateAPY, calculateProfitPct } from '@argonprotocol/apps-core';
 import { WalletType } from '../lib/Wallet.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import CopyAddressMenu from './components/CopyAddressMenu.vue';
+import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import AssetMenu from './components/AssetMenu.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
-import { TopTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import { usePortfolio } from '../stores/portfolio.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 
@@ -173,13 +174,13 @@ const myVaultRoi = Vue.computed(() => {
 });
 
 function setupVault() {
-  controller.setScreenKey(TopTab.VaultingOperations);
+  controller.setTab(TopTab.VaultingOperations);
   controller.backButtonTriggersHome = true;
   config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 function setupMining() {
-  controller.setScreenKey(TopTab.MiningOperations);
+  controller.setTab(TopTab.MiningOperations);
   controller.backButtonTriggersHome = true;
   config.miningSetupStatus = MiningSetupStatus.Checklist;
 }

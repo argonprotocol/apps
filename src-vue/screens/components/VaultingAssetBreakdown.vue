@@ -31,7 +31,7 @@
         :height="itemHeight"
         :spacerWidth="spacerWidth"
         :align="props.align"
-        :moveFrom="MoveFrom.VaultingHold"
+        :moveFrom="MoveFrom.DefaultArgon"
         :moveToken="MoveToken.ARGN"
       >
         {{ microgonToArgonNm(breakdown.sidelinedMicrogons).format('0,0.[00]') }} ARGN
@@ -52,7 +52,7 @@
         :height="itemHeight"
         :spacerWidth="spacerWidth"
         :align="props.align"
-        :moveFrom="MoveFrom.VaultingHold"
+        :moveFrom="MoveFrom.DefaultArgon"
         :moveToken="MoveToken.ARGNOT"
       >
         {{ micronotToArgonotNm(breakdown.sidelinedMicronots).format('0,0.[00]') }} ARGNOT

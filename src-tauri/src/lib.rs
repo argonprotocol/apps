@@ -191,6 +191,97 @@ async fn export_default_ethereum_private_key(app: AppHandle) -> Result<String, S
 }
 
 #[tauri::command]
+async fn encrypt_wallet_secret(app: AppHandle, secret: String) -> Result<String, String> {
+    Security::encrypt_wallet_secret(&app, &secret).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn derive_external_ethereum_addresses(
+    mnemonic: String,
+    hd_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    ethereum_signer::derive_standard_addresses(&mnemonic, &hd_paths).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn derive_external_ethereum_address_from_private_key(
+    private_key: String,
+) -> Result<String, String> {
+    ethereum_signer::derive_address_from_private_key(&private_key).map_err(|e| e.to_string())
+}
+
+fn decrypt_external_ethereum_private_key(
+    app: &AppHandle,
+    encrypted_secret: &str,
+    secret_kind: &str,
+    hd_path: Option<String>,
+) -> Result<String, String> {
+    let secret =
+        Security::decrypt_wallet_secret(app, encrypted_secret).map_err(|e| e.to_string())?;
+    match secret_kind {
+        "privateKey" => Ok(secret),
+        "mnemonic" => {
+            let hd_path = hd_path.ok_or("Ethereum mnemonic wallet is missing a derivation path")?;
+            ethereum_signer::export_private_key_at_standard_path(&secret, &hd_path)
+                .map_err(|e| e.to_string())
+        }
+        _ => Err("Unsupported external Ethereum secret kind".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn sign_external_ethereum_personal_message(
+    app: AppHandle,
+    encrypted_secret: String,
+    secret_kind: String,
+    hd_path: Option<String>,
+    message: String,
+) -> Result<String, String> {
+    let private_key =
+        decrypt_external_ethereum_private_key(&app, &encrypted_secret, &secret_kind, hd_path)?;
+    ethereum_signer::sign_personal_message_with_private_key(&private_key, &message)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sign_external_ethereum_permit(
+    app: AppHandle,
+    signer_policy: State<'_, EthereumSignerPolicyState>,
+    encrypted_secret: String,
+    secret_kind: String,
+    hd_path: Option<String>,
+    request: ethereum_signer::EthereumPermitRequest,
+) -> Result<ethereum_signer::EthereumPermitSignature, String> {
+    let current_policy = signer_policy.policy.lock().await;
+    let policy = current_policy
+        .as_ref()
+        .ok_or("Ethereum signer policy has not been configured yet")?;
+    let private_key =
+        decrypt_external_ethereum_private_key(&app, &encrypted_secret, &secret_kind, hd_path)?;
+    ethereum_signer::sign_permit_with_private_key(&private_key, policy, &request)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sign_external_ethereum_transaction(
+    app: AppHandle,
+    signer_policy: State<'_, EthereumSignerPolicyState>,
+    encrypted_secret: String,
+    secret_kind: String,
+    hd_path: Option<String>,
+    request: ethereum_signer::EthereumTransactionRequest,
+) -> Result<ethereum_signer::EthereumTransactionSignature, String> {
+    let current_policy = signer_policy.policy.lock().await;
+    let policy = current_policy
+        .as_ref()
+        .ok_or("Ethereum signer policy has not been configured yet")?;
+    let private_key =
+        decrypt_external_ethereum_private_key(&app, &encrypted_secret, &secret_kind, hd_path)?;
+    ethereum_signer::sign_transaction_with_private_key(&private_key, policy, &request)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn derive_sr25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], String> {
     let (_pair, seed) = Security::sr_derive(&app, suri).map_err(|e| e.to_string())?;
     Ok(seed)
@@ -268,7 +359,6 @@ async fn set_ethereum_signer_policy(
         security.mining_hold_address,
         security.mining_bot_address,
         security.vaulting_address,
-        security.investment_address,
         security.operational_address,
         delegate_pair.public().to_ss58check(),
     ]
@@ -855,15 +945,21 @@ pub fn run() {
             derive_ed25519_seed,
             sign_ethereum_personal_message,
             derive_ethereum_addresses,
+            derive_external_ethereum_addresses,
+            derive_external_ethereum_address_from_private_key,
             sign_ethereum_permit,
+            sign_external_ethereum_permit,
             set_ethereum_signer_policy,
             sign_ethereum_transaction,
+            sign_external_ethereum_transaction,
+            sign_external_ethereum_personal_message,
             derive_x25519_public_key,
             encrypt_x25519_message,
             decrypt_x25519_message,
             derive_bitcoin_extended_key,
             expose_mnemonic,
             export_default_ethereum_private_key,
+            encrypt_wallet_secret,
             overwrite_mnemonic,
             measure_latency,
             load_instance,

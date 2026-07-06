@@ -136,7 +136,7 @@ async function connectToNetwork() {
   const operatorHost = `https://${operatorAddress}`;
 
   try {
-    if (config.showOperationsExtension) {
+    if (config.hasExtensionOperations) {
       if (meta.role !== UserRole.OperationalPartner || !meta.secret || !meta.operationalReferral) {
         throw new Error('This access code is for the Treasury app.');
       }
@@ -151,7 +151,7 @@ async function connectToNetwork() {
         inviteSecret: meta.secret,
         operationalReferral: meta.operationalReferral,
       });
-    } else if (config.showOperationsExtension) {
+    } else if (config.hasExtensionOperations) {
       if (meta.role !== UserRole.TreasuryUser || !meta.secret) {
         throw new Error('This access code is for the Operations app.');
       }

@@ -21,6 +21,7 @@ import { StableSwapPurchasesTable } from './db/StableSwapPurchasesTable.ts';
 import { CrosschainInboundTransfersTable } from './db/CrosschainInboundTransfersTable.ts';
 import { CrosschainOutboundTransfersTable } from './db/CrosschainOutboundTransfersTable.ts';
 import { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
+import { WalletsTable } from './db/WalletsTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -41,6 +42,7 @@ export class Db {
   public crosschainInboundTransfersTable: CrosschainInboundTransfersTable;
   public crosschainOutboundTransfersTable: CrosschainOutboundTransfersTable;
   public walletHdKeysTable: WalletHdKeysTable;
+  public walletsTable: WalletsTable;
   public bitcoinUtxosTable: BitcoinUtxosTable;
   public stableSwapSyncStateTable: StableSwapSyncStateTable;
   public stableSwapPurchasesTable: StableSwapPurchasesTable;
@@ -66,6 +68,7 @@ export class Db {
     this.crosschainInboundTransfersTable = new CrosschainInboundTransfersTable(this);
     this.crosschainOutboundTransfersTable = new CrosschainOutboundTransfersTable(this);
     this.walletHdKeysTable = new WalletHdKeysTable(this);
+    this.walletsTable = new WalletsTable(this);
     this.bitcoinUtxosTable = new BitcoinUtxosTable(this);
     this.stableSwapSyncStateTable = new StableSwapSyncStateTable(this);
     this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);

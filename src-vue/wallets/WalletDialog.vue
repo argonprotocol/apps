@@ -20,32 +20,33 @@
             cursor: draggable.isDragging ? 'grabbing' : 'default',
           }"
           :class="[
-            isSyncMode ? 'w-8/12' : 'w-5/12',
+            isSyncMode ? 'w-220' : 'w-110',
             'absolute z-50 flex min-h-140 flex-col overflow-visible rounded-lg bg-linear-to-b from-[#cccccc] to-[#9f9f9f] shadow-2xl focus:outline-none pointer-events-auto',
           ]"
           @mousedown="emit('focus')"
         >
           <DialogTitle asChild>
             <h2
-              class="z-20 mx-2 flex shrink-0 select-none flex-row items-center justify-between gap-x-3 px-2 pb-3 pt-5 text-2xl font-bold text-slate-800/70"
+              class="z-20 mx-2 flex shrink-0 select-none flex-row items-center justify-between gap-x-3 px-2 pb-2 pt-3 text-2xl font-bold text-slate-800/70"
               @dblclick="handleHeaderDoubleClick"
               @mousedown="startDrag"
             >
               <div class="flex grow flex-row items-center">
-                <div v-if="isSyncMode" class="w-1/2 flex flex-row pr-4">
-                  <NavHeader :key="secondWalletKey" :options="secondWalletOptions" :selectedOption="secondWalletOption" :showClose="true" @selectOption="handleSelectSecondWallet" @triggerSyncMode="triggerSyncMode" @close="closeOverlay" />
+                <div v-if="isSyncMode" class="w-1/2 flex flex-row pr-6">
+                  <NavHeader :key="secondWalletKey" :walletType="secondWalletOption.type" :wallet="getWallet(secondWalletOption)" :isSyncMode="isSyncMode" :options="secondWalletOptions" :selectedOption="secondWalletOption" :showClose="true" @selectOption="handleSelectSecondWallet" @triggerSyncMode="triggerSyncMode" @close="closeOverlay" />
                 </div>
-                <button
-                  v-if="isSyncMode"
-                  data-testid="WalletOverlay.toggleSyncDirection()"
-                  type="button"
-                  class="z-10 flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-slate-500/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
-                  @click="toggleSyncDirection"
-                >
-                  <PortalIcon class="h-5 w-5" />
-                </button>
+                <div v-if="isSyncMode" class="relative h-[34px] w-[44px]">
+                  <button
+                    data-testid="WalletOverlay.toggleSyncDirection()"
+                    type="button"
+                    class="absolute top-1/2 left-1/2 -translate-1/2 z-10 flex h-[64px] w-[64px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-white border border-slate-500/60 shadow-sm text-slate-500/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
+                    @click="toggleSyncDirection"
+                  >
+                    <PortalIcon class="h-8 w-8" />
+                  </button>
+                </div>
                 <div :class="[isSyncMode ? 'w-1/2 pl-4' : 'w-full']" class="flex flex-row">
-                  <NavHeader :key="firstWalletKey" :options="firstWalletOptions" :selectedOption="firstWalletOption" :showClose="true" @selectOption="handleSelectFirstWallet" @triggerSyncMode="triggerSyncMode" @close="closeOverlay" />
+                  <NavHeader :key="firstWalletKey" :walletType="firstWalletOption.type" :wallet="getWallet(firstWalletOption)" :isSyncMode="isSyncMode" :options="firstWalletOptions" :selectedOption="firstWalletOption" :showClose="true" @selectOption="handleSelectFirstWallet" @triggerSyncMode="triggerSyncMode" @close="closeOverlay" />
                 </div>
               </div>
             </h2>
@@ -60,18 +61,16 @@
             class="absolute right-0 top-0 z-[-1] h-full w-1/2 rounded-lg border border-black/40 bg-white"
           />
 
-          <div class="flex w-full flex-row font-light text-black/90">
-            <div v-if="isSyncMode" class="w-1/2 border-t border-slate-300 px-4 pt-4">
-              <ArgonIntro v-if="isArgonWalletType(secondWalletOption.type)" :walletType="secondWalletOption.type" />
-              <EthereumIntro v-if="secondWalletOption.type === 'ethereum'" />
+          <div class="flex w-full flex-row text-black/90 px-1 text-7xl font-bold text-center">
+            <div v-if="isSyncMode" class="w-1/2 border-t border-slate-300 px-4 py-6">
+              <FormattedMoney :value="getWallet(secondWalletOption).availableMicrogons" />
             </div>
-            <div class="border-t border-slate-300 px-4 pt-4" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
-              <ArgonIntro v-if="isArgonWalletType(firstWalletOption.type)" :walletType="firstWalletOption.type" />
-              <EthereumIntro v-if="firstWalletOption.type === 'ethereum'" />
+            <div class="border-t border-slate-300 px-4 py-6" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
+              <FormattedMoney :value="getWallet(firstWalletOption).availableMicrogons" />
             </div>
           </div>
 
-          <div class="relative mt-4 flex w-full flex-row" :class="isSyncMode ? 'py-2' : ''">
+          <div class="relative flex w-full flex-row" :class="isSyncMode ? 'py-2' : ''">
             <div v-if="isSyncMode" class="absolute -left-2 top-0 z-[-1] h-full w-[calc(100%+16px)] rounded-t-lg border border-black/30 bg-white shadow-md">
               <WrapBehindEdge class="absolute bottom-0 right-0 h-2 w-2 translate-y-full" />
               <WrapBehindEdge class="absolute bottom-0 left-0 h-2 w-2 translate-y-full scale-x-[-1]" />
@@ -102,6 +101,7 @@
                 v-if="isArgonWalletType(secondWalletOption.type)"
                 :isSyncMode="isSyncMode"
                 :showGuidance="props.showGuidance"
+                :guidanceContext="props.guidanceContext"
                 :walletType="secondWalletOption.type"
                 direction="to"
               />
@@ -112,6 +112,7 @@
                 v-if="isArgonWalletType(firstWalletOption.type)"
                 :isSyncMode="isSyncMode"
                 :showGuidance="props.showGuidance"
+                :guidanceContext="props.guidanceContext"
                 :walletType="firstWalletOption.type"
                 direction="from"
               />
@@ -136,19 +137,22 @@ import EthereumBottom from './components/EthereumBottom.vue';
 import NavHeader, { type IWalletOption } from './components/NavHeader.vue';
 import ArgonTokens from './components/ArgonTokens.vue';
 import ArgonIntro from './components/ArgonIntro.vue';
-import PortalIcon from '../assets/portal.svg';
+import PortalIcon from '../assets/wallets/swap.svg';
 import WrapBehindEdge from '../assets/wrap-behind-edge.svg';
 import EthereumIntro from './components/EthereumIntro.vue';
 import WalletTransferOverlay from './components/WalletTransferOverlay.vue';
 import type { IArgonWalletType, IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { type IWallet, WalletType } from '../lib/Wallet.ts';
 import { useWallets } from '../stores/wallets.ts';
+import type { IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
+import FormattedMoney from '../components/FormattedMoney.vue';
 
 const props = withDefaults(
   defineProps<{
-    walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
-    pairedWalletType?: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
+    walletType: WalletType.defaultArgon | WalletType.ethereum;
+    pairedWalletType?: WalletType.defaultArgon | WalletType.ethereum;
     showGuidance?: boolean;
+    guidanceContext?: IWalletGuidanceContext;
     showBackdrop?: boolean;
     zIndex: number;
     position?: { x: number; y: number };
@@ -164,10 +168,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'focus'): void;
   (e: 'unpair'): void;
-  (
-    e: 'pair',
-    pairedWalletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum,
-  ): void;
+  (e: 'pair', pairedWalletType: WalletType.defaultArgon | WalletType.ethereum): void;
   (e: 'dragMove', payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }): void;
   (e: 'positionChange', payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }): void;
   (e: 'dragEnd', payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }): void;
@@ -187,9 +188,8 @@ const activeTransferOverlay = Vue.ref<{
   feeTokenSymbol: string;
 }>();
 const walletOptions = Vue.ref<IWalletOption[]>([
-  { type: WalletType.miningHold as const, name: 'Argon Mining Wallet', isArgonNetwork: true },
-  { type: WalletType.investment as const, name: 'Argon Wallet', isArgonNetwork: true },
-  { type: WalletType.ethereum as const, name: 'Ethereum Wallet', isArgonNetwork: false },
+  { type: WalletType.defaultArgon as const, name: 'Native Argon Wallet', isArgonNetwork: true },
+  { type: WalletType.ethereum as const, name: 'Native Ethereum Wallet', isArgonNetwork: false },
 ]);
 const firstWalletOption = Vue.ref<IWalletOption>(getWalletOption(props.walletType));
 const secondWalletOption = Vue.ref<IWalletOption>(
@@ -202,10 +202,8 @@ const secondWalletOptions = Vue.computed(() => getWalletOptionsForSide(firstWall
 const firstWalletKey = Vue.computed(() => getWalletHeaderKey(firstWalletOption.value, firstWalletOptions.value));
 const secondWalletKey = Vue.computed(() => getWalletHeaderKey(secondWalletOption.value, secondWalletOptions.value));
 
-function isArgonWalletType(
-  walletType: WalletType,
-): walletType is WalletType.investment | WalletType.miningHold | WalletType.vaulting {
-  return [WalletType.vaulting, WalletType.miningHold, WalletType.investment].includes(walletType);
+function isArgonWalletType(walletType: WalletType): walletType is WalletType.defaultArgon {
+  return walletType === WalletType.defaultArgon;
 }
 
 function getWalletOptionsForSide(oppositeOption: IWalletOption) {
@@ -273,19 +271,15 @@ function triggerSyncMode() {
   emit('pair', firstWalletOption.value.isArgonNetwork ? WalletType.ethereum : getDefaultArgonWalletType());
 }
 
-function getDefaultArgonWalletType(): WalletType.vaulting {
-  return WalletType.vaulting;
+function getDefaultArgonWalletType(): WalletType.defaultArgon {
+  return WalletType.defaultArgon;
 }
 
 function getWallet(option: IWalletOption): IWallet {
   if (option.type === WalletType.ethereum) {
     return walletStore.ethereumWallet;
-  } else if (option.type === WalletType.vaulting) {
-    return walletStore.vaultingWallet;
-  } else if (option.type === WalletType.miningHold) {
-    return walletStore.miningHoldWallet;
-  } else if (option.type === WalletType.investment) {
-    return walletStore.investmentWallet;
+  } else if (option.type === WalletType.defaultArgon) {
+    return walletStore.defaultArgonWallet;
   } else {
     throw new Error(`Wallet not support: ${option.type}`);
   }

@@ -17,7 +17,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-auto"
               side="left"
@@ -32,7 +32,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGNOT"
               class="pointer-events-auto"
               side="left"
@@ -60,7 +60,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.VaultingHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-auto"
               side="left"
@@ -75,7 +75,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.VaultingHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGNOT"
               class="pointer-events-auto"
               side="left"
@@ -135,7 +135,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -150,7 +150,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -178,7 +178,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -193,7 +193,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -208,7 +208,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -270,7 +270,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -287,7 +287,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -302,7 +302,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -317,7 +317,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -345,7 +345,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"
@@ -375,7 +375,7 @@
           </td>
           <td class="text-right">
             <MoveCapitalButton
-              :moveFrom="MoveFrom.MiningHold"
+              :moveFrom="MoveFrom.DefaultArgon"
               :moveToken="MoveToken.ARGN"
               class="pointer-events-none opacity-30"
               side="left"

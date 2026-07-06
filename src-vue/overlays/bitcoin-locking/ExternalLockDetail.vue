@@ -112,7 +112,7 @@ const isReleased = Vue.computed(() => props.isReleased);
 
 const vaultLabel = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
-  if (config.showTreasuryExtension && upstreamOperator) {
+  if (config.hasExtensionTreasury && upstreamOperator) {
     const name = upstreamOperator.name;
     if (name) return `${name}'s vault`;
     return 'The vault';

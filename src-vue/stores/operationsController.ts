@@ -28,19 +28,16 @@ import LiquidLock from '../overlays/operational/LiquidLock.vue';
 import AcquireBonds from '../overlays/operational/AcquireBonds.vue';
 import WinMiningSeats from '../overlays/operational/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
-import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import {
+  IOperationsTabs,
+  ITreasuryTabs,
+  MiningSetupStatus,
+  OperationsTabs,
+  TopTab,
+  TreasuryTabs,
+  VaultingSetupStatus,
+} from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
-
-export enum TopTab {
-  Wallets = 'Wallets',
-  Network = 'Network',
-  Treasury = 'Treasury',
-  TreasuryBonds = 'TreasuryBonds',
-  TreasuryLocks = 'TreasuryLocks',
-  Operations = 'Operations',
-  MiningOperations = 'MiningOperations',
-  VaultingOperations = 'VaultingOperations',
-}
 
 export enum OperationalStepId {
   BootstrapFromNode = 'BootstrapFromNode',
@@ -123,7 +120,10 @@ export const useOperationsController = defineStore('operationsController', () =>
   const bitcoinLocks = getBitcoinLocks();
   const transactionTracker = getTransactionTracker();
   const walletKeys = getWalletKeys();
-  const selectedTab = Vue.ref<TopTab>(TopTab.Wallets);
+
+  const selectedTab = Vue.ref<TopTab | null>(null);
+  const selectedTreasuryTab = Vue.ref<ITreasuryTabs>(TopTab.Treasury);
+  const selectedOperationsTab = Vue.ref<IOperationsTabs>(TopTab.Operations);
 
   const activeGuideId = Vue.ref<OperationalStepId | null>(null);
 
@@ -341,10 +341,25 @@ export const useOperationsController = defineStore('operationsController', () =>
 
     basicEmitter.emit('closeAllOverlays');
     selectedTab.value = tab;
+    config.selectedTab = tab;
+
+    if (TreasuryTabs.includes(tab as ITreasuryTabs)) {
+      selectedTreasuryTab.value = tab as ITreasuryTabs;
+      config.selectedTreasuryTab = tab as ITreasuryTabs;
+    } else if (OperationsTabs.includes(tab as IOperationsTabs)) {
+      console.log('IS OPERATIONS TAB');
+      selectedOperationsTab.value = tab as IOperationsTabs;
+      config.selectedOperationsTab = tab as IOperationsTabs;
+    }
+    void config.save();
   }
 
   async function load() {
     await config.isLoadedPromise;
+    selectedTab.value = config.selectedTab;
+    selectedTreasuryTab.value = config.selectedTreasuryTab;
+    selectedOperationsTab.value = config.selectedOperationsTab;
+
     if (operationalAccountUnsubscribe) return;
     rewardConfig.value = await getOperationalRewardConfig();
 
@@ -403,11 +418,11 @@ export const useOperationsController = defineStore('operationsController', () =>
     const feePayers: WalletType[] = [];
 
     if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) {
-      feePayers.push(WalletType.vaulting);
+      feePayers.push(WalletType.defaultArgon);
     }
     if (config.miningSetupStatus === MiningSetupStatus.Finished) {
       feePayers.push(WalletType.miningBot);
-      feePayers.push(WalletType.miningHold);
+      feePayers.push(WalletType.defaultArgon);
     }
     if (!feePayers.length) return;
 
@@ -586,6 +601,8 @@ export const useOperationsController = defineStore('operationsController', () =>
 
   return {
     selectedTab,
+    selectedTreasuryTab,
+    selectedOperationsTab,
     isLoaded,
     isLoadedPromise,
     isImporting,
@@ -614,7 +631,7 @@ export const useOperationsController = defineStore('operationsController', () =>
     loadOperationalInvites,
     setOperationalInvites,
     refreshOperationalInviteStatuses,
-    setScreenKey: setTab,
+    setTab,
     isCertificationStepComplete: isCertificationStepComplete,
     isCertificationStepUnderway,
     getCertificationStepStatus,

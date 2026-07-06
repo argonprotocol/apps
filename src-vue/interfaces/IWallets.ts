@@ -4,9 +4,7 @@ export interface IWalletsQueryRef {
   isLoaded: boolean;
   load(): Promise<void>;
   totalMiningMicrogons: bigint;
-  miningHoldWallet: IWallet;
+  defaultArgonWallet: IWallet;
   miningBotWallet: IWallet;
-  vaultingWallet: IWallet;
-  investmentWallet: IWallet;
   ethereumWallet: IWallet;
 }
