@@ -1,5 +1,6 @@
 import './polyfills.ts';
 import './configureFetch.ts';
+import './lib/patchTxResult.ts';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';

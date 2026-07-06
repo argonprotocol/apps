@@ -19,6 +19,55 @@ describe('TransactionTracker', () => {
     vi.clearAllMocks();
   });
 
+  it('retries a failed load and clears stale tx type entries on reload', async () => {
+    let resolveReload!: (value: ITransactionRecord[]) => void;
+    const reloadRows = new Promise<ITransactionRecord[]>(resolve => {
+      resolveReload = resolve;
+    });
+    const initialTx = createTransaction({
+      id: 20,
+      extrinsicType: ExtrinsicType.VaultCollect,
+      status: TransactionStatus.Finalized,
+      isFinalized: true,
+    });
+    const reloadedTx = createTransaction({
+      id: 21,
+      extrinsicType: ExtrinsicType.Transfer,
+      status: TransactionStatus.Finalized,
+      isFinalized: true,
+    });
+    const { tracker, table, blockWatch } = createLoadTracker({
+      txsByLoad: [[], [initialTx], reloadRows],
+      blockWatch: {
+        start: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined),
+      },
+    });
+
+    await expect(tracker.load()).rejects.toThrow('offline');
+    await tracker.load();
+
+    expect(blockWatch.start).toHaveBeenCalledTimes(2);
+    expect(tracker.data.txInfosByType[ExtrinsicType.VaultCollect]?.tx.id).toBe(initialTx.id);
+
+    const reloadPromise = tracker.load(true);
+    let didReloadResolve = false;
+    void reloadPromise.then(() => {
+      didReloadResolve = true;
+    });
+    await Promise.resolve();
+
+    expect(table.fetchAll).toHaveBeenCalledTimes(3);
+    expect(didReloadResolve).toBe(false);
+
+    resolveReload([reloadedTx]);
+    await reloadPromise;
+
+    expect(tracker.data.txInfos).toHaveLength(1);
+    expect(tracker.data.txInfos[0].tx.id).toBe(reloadedTx.id);
+    expect(tracker.data.txInfosByType[ExtrinsicType.Transfer]?.tx.id).toBe(reloadedTx.id);
+    expect(tracker.data.txInfosByType[ExtrinsicType.VaultCollect]).toBeUndefined();
+  });
+
   it('does not resume dropped attempts at load, but keeps tracking them on-chain', async () => {
     const tx = createTransaction({
       id: 1,
@@ -535,6 +584,42 @@ async function createTracker(args: {
   );
   vi.spyOn(tracker as any, 'watchForUpdates').mockResolvedValue(undefined);
   await tracker.load();
+
+  return { tracker, table, blockWatch };
+}
+
+function createLoadTracker(args: {
+  txsByLoad: Array<ITransactionRecord[] | Promise<ITransactionRecord[]>>;
+  blockWatch?: Record<string, any>;
+}) {
+  const txLoads = [...args.txsByLoad];
+  const table = {
+    fetchAll: vi.fn().mockImplementation(async () => await txLoads.shift()),
+  };
+  const historyTable = {
+    fetchLatestByTransactionIds: vi.fn().mockResolvedValue(new Map()),
+  };
+  const blockWatch = {
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn(),
+    isLoaded: { isRejected: false },
+    bestBlockHeader: { blockNumber: 100 },
+    finalizedBlockHeader: {
+      blockNumber: 100,
+      blockTime: new Date('2026-03-20T20:05:00Z').getTime(),
+      blockHash: '0x64',
+    },
+    getFinalizedHash: vi.fn(async () => '0xfinalized-block'),
+    events: { on: vi.fn() },
+    ...args.blockWatch,
+  };
+  const tracker = new TransactionTracker(
+    Promise.resolve({
+      transactionsTable: table,
+      transactionStatusHistoryTable: historyTable,
+    } as any),
+    blockWatch as any,
+  );
 
   return { tracker, table, blockWatch };
 }

@@ -38,7 +38,7 @@ describe('CohortBidder unit tests', () => {
   beforeAll(() => {
     accountset = new Accountset({
       client: null as any,
-      seedAccount: sudo(),
+      txSubmitter: sudo(),
       subaccountRange,
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'alice',
@@ -442,7 +442,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const alice = new Accountset({
       client: aliceClient,
-      seedAccount: sudo(),
+      txSubmitter: sudo(),
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'alice',
@@ -463,7 +463,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const bob = new Accountset({
       client: aliceClient,
-      seedAccount: bobRing,
+      txSubmitter: bobRing,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'bob',

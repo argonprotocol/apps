@@ -26,10 +26,10 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   });
 
   it('can derive multiple accounts', async () => {
-    const seedAccount = createKeyringPair({});
+    const bidderKeypair = createKeyringPair({});
     const accountset = new Accountset({
       client,
-      seedAccount,
+      txSubmitter: bidderKeypair,
       subaccountRange: getRange(0, 50),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
@@ -40,7 +40,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     // generating a second time should yield the same accounts
     const accountset2 = new Accountset({
       client,
-      seedAccount,
+      txSubmitter: bidderKeypair,
       subaccountRange: getRange(0, 50),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
@@ -49,10 +49,10 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   });
 
   it('can register keys from a mnemonic', async () => {
-    const seedAccount = sudo();
+    const bidderKeypair = sudo();
     const accountset = new Accountset({
       client,
-      seedAccount,
+      txSubmitter: bidderKeypair,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
@@ -61,19 +61,19 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   });
 
   it('can submit bids', async () => {
-    const seedAccount = sudo();
+    const bidderKeypair = sudo();
     const accountset = new Accountset({
       client,
-      seedAccount,
+      txSubmitter: bidderKeypair,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
-    const txSubmitter = new TxSubmitter(
+    const fundingTxSubmitter = new TxSubmitter(
       client,
-      client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(seedAccount.address, 500_000)),
-      seedAccount,
+      client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(bidderKeypair.address, 500_000)),
+      bidderKeypair,
     );
-    const res = await txSubmitter.submit();
+    const res = await fundingTxSubmitter.submit();
     await res.waitForInFirstBlock;
 
     const nextSeats = await accountset.getAvailableMinerAccounts(5);

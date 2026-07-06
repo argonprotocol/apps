@@ -35,9 +35,11 @@ export class Vaults {
   protected isSavingStats: boolean = false;
 
   public async load(reload = false): Promise<void> {
-    if (this.waitForLoad && !reload) return this.waitForLoad.promise;
+    if (this.waitForLoad?.isRunning) return this.waitForLoad.promise;
+    if (!reload && this.waitForLoad?.isResolved) return this.waitForLoad.promise;
 
-    this.waitForLoad ??= createDeferred();
+    this.waitForLoad =
+      reload || this.waitForLoad?.isRejected ? createDeferred() : (this.waitForLoad ??= createDeferred());
     try {
       const client = await this.mainchainClients.get(false);
       await this.miningFrames.load();

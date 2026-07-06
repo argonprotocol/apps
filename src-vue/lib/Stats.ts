@@ -60,8 +60,8 @@ export class Stats {
   public isLoaded: boolean;
   public isLoadedPromise: Promise<void>;
 
-  private isLoading: boolean = false;
   private isLoadedDeferred!: IDeferred<void>;
+  private loadPromise?: Promise<void>;
 
   private db!: Db;
 
@@ -140,8 +140,9 @@ export class Stats {
     this.config = config;
     this.currency = currency;
 
-    this.isLoadedDeferred = createDeferred<void>();
+    this.isLoadedDeferred = createDeferred<void>(false);
     this.isLoadedPromise = this.isLoadedDeferred.promise;
+    void this.isLoadedPromise.catch(() => undefined);
   }
 
   public get prevFrameId(): number | null {
@@ -164,82 +165,93 @@ export class Stats {
   }
 
   public async load() {
-    if (this.isLoading || this.isLoaded) return;
-    this.isLoading = true;
-    const loadStartedAt = Date.now();
-    let stage: string | undefined;
+    if (this.isLoaded) return this.isLoadedPromise;
+    if (this.loadPromise) return await this.loadPromise;
+    if (this.isLoadedDeferred.isRejected) {
+      this.isLoadedDeferred = createDeferred<void>(false);
+      this.isLoadedPromise = this.isLoadedDeferred.promise;
+      void this.isLoadedPromise.catch(() => undefined);
+    }
 
-    try {
-      stage = 'config.isLoadedPromise';
-      await this.config.isLoadedPromise;
+    this.loadPromise = (async () => {
+      const loadStartedAt = Date.now();
+      let stage: string | undefined;
 
-      stage = 'dbPromise';
-      this.db = await this.dbPromise;
+      try {
+        stage = 'config.isLoadedPromise';
+        await this.config.isLoadedPromise;
 
-      stage = 'currency.load';
-      await this.currency.load();
+        stage = 'dbPromise';
+        this.db = await this.dbPromise;
 
-      const initialFrameId = this.latestFrameId;
-      stage = 'miningFrames.load';
-      await this.miningFrames.load();
-      this.latestFrameId = this.miningFrames.currentFrameId;
-      if (this.selectedFrameId === initialFrameId) {
-        this.selectedFrameId = this.latestFrameId;
-      }
+        stage = 'currency.load';
+        await this.currency.load();
 
-      stage = 'updateDashboard';
-      await this.updateDashboard();
+        const initialFrameId = this.latestFrameId;
+        stage = 'miningFrames.load';
+        await this.miningFrames.load();
+        this.latestFrameId = this.miningFrames.currentFrameId;
+        if (this.selectedFrameId === initialFrameId) {
+          this.selectedFrameId = this.latestFrameId;
+        }
 
-      botEmitter.on('updated-cohort-data', async frameId => {
+        stage = 'updateDashboard';
+        await this.updateDashboard();
+
+        stage = 'post-load-updates';
         await this.updateMiningSeats();
-
-        const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
-        this.latestFrameId = frameId;
-        if (isOnLatestFrame) this.selectFrameId(frameId, true);
         await this.updateMiningBids();
         await this.updateAccruedProfits();
 
-        if (this.isSubscribedToDashboard) {
-          await this.updateDashboard();
-          this.dashboardHasUpdates = false;
-        } else {
-          this.dashboardHasUpdates = true;
-        }
+        botEmitter.on('updated-cohort-data', async frameId => {
+          await this.updateMiningSeats();
 
-        // if (this.isSubscribedToActivity) {
-        await this.updateServerState();
-        this.activityHasUpdates = false;
-        // } else {
-        //   this.activityHasUpdates = true;
-        // }
-      });
+          const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
+          this.latestFrameId = frameId;
+          if (isOnLatestFrame) this.selectFrameId(frameId, true);
+          await this.updateMiningBids();
+          await this.updateAccruedProfits();
 
-      botEmitter.on('updated-bids-data', async () => {
-        void this.updateMiningBids();
-      });
+          if (this.isSubscribedToDashboard) {
+            await this.updateDashboard();
+            this.dashboardHasUpdates = false;
+          } else {
+            this.dashboardHasUpdates = true;
+          }
 
-      botEmitter.on('updated-server-state', async () => {
-        // if (this.isSubscribedToActivity) {
-        await this.updateServerState();
-        this.activityHasUpdates = false;
-        // } else {
-        //   this.activityHasUpdates = true;
-        // }
-      });
+          // if (this.isSubscribedToActivity) {
+          await this.updateServerState();
+          this.activityHasUpdates = false;
+          // } else {
+          //   this.activityHasUpdates = true;
+          // }
+        });
 
-      stage = 'post-load-updates';
-      await this.updateMiningSeats();
-      await this.updateMiningBids();
-      await this.updateAccruedProfits();
+        botEmitter.on('updated-bids-data', async () => {
+          void this.updateMiningBids();
+        });
 
-      this.isLoaded = true;
-      this.isLoading = false;
-      this.isLoadedDeferred.resolve();
-    } catch (error) {
-      this.isLoading = false;
-      console.error(`[Stats] Load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`, error);
-      throw error;
-    }
+        botEmitter.on('updated-server-state', async () => {
+          // if (this.isSubscribedToActivity) {
+          await this.updateServerState();
+          this.activityHasUpdates = false;
+          // } else {
+          //   this.activityHasUpdates = true;
+          // }
+        });
+
+        this.isLoaded = true;
+        this.isLoadedDeferred.resolve();
+      } catch (error) {
+        this.isLoadedDeferred.reject(error as Error);
+        console.error(`[Stats] Load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`, error);
+        throw error;
+      } finally {
+        this.loadPromise = undefined;
+      }
+    })();
+
+    return await this.loadPromise;
   }
 
   public async subscribeToDashboard(): Promise<void> {

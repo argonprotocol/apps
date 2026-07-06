@@ -4714,5 +4714,68 @@
     "firstBlockSpecVersion": 153,
     "frameStartTick": 29707908,
     "dateStart": "2026-06-26T11:48:00.000Z"
+  },
+  {
+    "frameId": 512,
+    "firstBlockNumber": 844932,
+    "firstBlockHash": "0xf9dd8989ac1fd87cfadb07875002ae242264b8f10922d164329f9824ee23bc73",
+    "firstBlockTick": 29709348,
+    "firstBlockSpecVersion": 154,
+    "frameStartTick": 29709348,
+    "dateStart": "2026-06-27T11:48:00.000Z"
+  },
+  {
+    "frameId": 513,
+    "firstBlockNumber": 846372,
+    "firstBlockHash": "0x77f8803ccacc654d1ebb462b620a29e1dc86f33c38bfe2f75a3e61bc0f71a3f7",
+    "firstBlockTick": 29710788,
+    "firstBlockSpecVersion": 154,
+    "frameStartTick": 29710788,
+    "dateStart": "2026-06-28T11:48:00.000Z"
+  },
+  {
+    "frameId": 514,
+    "firstBlockNumber": 847812,
+    "firstBlockHash": "0xa2afa3104029134095dd3e49fea54dbb9abdbaa70ab9e0390bf3f0acfa19626c",
+    "firstBlockTick": 29712228,
+    "firstBlockSpecVersion": 154,
+    "frameStartTick": 29712228,
+    "dateStart": "2026-06-29T11:48:00.000Z"
+  },
+  {
+    "frameId": 515,
+    "firstBlockNumber": 849252,
+    "firstBlockHash": "0x14cdb4abb22db7dab94ad423a2986c60e14bd74b38cfc3c5742fe8e1779a5aba",
+    "firstBlockTick": 29713668,
+    "firstBlockSpecVersion": 155,
+    "frameStartTick": 29713668,
+    "dateStart": "2026-06-30T11:48:00.000Z"
+  },
+  {
+    "frameId": 516,
+    "firstBlockNumber": 850692,
+    "firstBlockHash": "0xd61384a335b693e1789845b62419984723a9d9368abc6c3fbd68d9e4785028b9",
+    "firstBlockTick": 29715108,
+    "firstBlockSpecVersion": 155,
+    "frameStartTick": 29715108,
+    "dateStart": "2026-07-01T11:48:00.000Z"
+  },
+  {
+    "frameId": 517,
+    "firstBlockNumber": 852132,
+    "firstBlockHash": "0xc36a80eeaa63ecf55abec89f7281bffa3c9b3dfde43c3134496241324f9d1c60",
+    "firstBlockTick": 29716548,
+    "firstBlockSpecVersion": 155,
+    "frameStartTick": 29716548,
+    "dateStart": "2026-07-02T11:48:00.000Z"
+  },
+  {
+    "frameId": 518,
+    "firstBlockNumber": 853572,
+    "firstBlockHash": "0x385b70ef9e9e5e3377959bca9d9d80af66427c06f2cbb579cf321d0280cc91da",
+    "firstBlockTick": 29717988,
+    "firstBlockSpecVersion": 155,
+    "frameStartTick": 29717988,
+    "dateStart": "2026-07-03T11:48:00.000Z"
   }
 ]

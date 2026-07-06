@@ -125,6 +125,15 @@ jobs:
           printf '%s' "$APPLE_API_KEY_PRIVATE" > "$APPLE_API_KEY_PATH"
           chmod 600 "$APPLE_API_KEY_PATH"
 
+      - name: Enable macOS release symbols
+        if: ${{ matrix.platform == 'macos-latest' }}
+        shell: bash
+        run: |
+          {
+            echo 'CARGO_PROFILE_RELEASE_DEBUG=line-tables-only'
+            echo 'CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed'
+          } >> "$GITHUB_ENV"
+
       - name: Build and Publish Operations Stable
         if: ${{ env.BUILDS == 'all' }}
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
@@ -158,7 +167,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/uploadReleaseSymbols.sh Argon.Operations "Argon Operations"
+        run: ./scripts/uploadReleaseSymbols.sh Argon.Operations
 
       - name: Build and Publish Treasury Stable
         if: ${{ env.BUILDS == 'all' }}
@@ -193,7 +202,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/uploadReleaseSymbols.sh Argon.Treasury "Argon Treasury"
+        run: ./scripts/uploadReleaseSymbols.sh Argon.Treasury
 
       - name: Upload server artifacts
         if: ${{ matrix.platform == 'macos-latest' }}

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockWatch, type IBlockHeaderInfo } from '../src/BlockWatch.ts';
 
+type IBlockApi = Awaited<ReturnType<BlockWatch['getApi']>>;
+
 describe('BlockWatch archive recovery', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -122,6 +124,121 @@ describe('BlockWatch archive recovery', () => {
     expect(prunedClient.at).toHaveBeenCalledWith('0xblock');
     expect(archiveClient.at).toHaveBeenCalledWith('0xblock');
     expect(result).toBe(blockApi);
+  });
+
+  it('retries start after an initial startup failure without an explicit stop', async () => {
+    const blockWatch = new BlockWatch(createClients({}, {}) as any);
+    const startSubscription = vi
+      .spyOn(blockWatch as any, 'startSubscription')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(blockWatch.start('archive')).rejects.toThrow('offline');
+    await expect(blockWatch.start('archive')).resolves.toBeUndefined();
+
+    expect(startSubscription).toHaveBeenCalledTimes(2);
+    expect(blockWatch.isLoaded.isResolved).toBe(true);
+  });
+
+  it('retries with a newer best block when the previous best head becomes unreadable', async () => {
+    const finalizedHeader = createHeaderInfo(100, '0xfinalized', '0x099');
+    finalizedHeader.isFinalized = true;
+    const initialBestHeader = createHeaderInfo(110, '0xbest-1', '0x109');
+    const newerBestHeader = createHeaderInfo(111, '0xbest-2', '0x110');
+    const newerBestApi = { query: { system: { events: vi.fn() } } } as unknown as IBlockApi;
+    const blockWatch = new BlockWatch(createClients({}, {}) as any);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    blockWatch.latestHeaders = [finalizedHeader, initialBestHeader];
+    const getApiMock = vi.spyOn(blockWatch, 'getApi').mockImplementation(async block => {
+      if (block.blockHash === initialBestHeader.blockHash) {
+        blockWatch.latestHeaders = [finalizedHeader, newerBestHeader];
+        throw new Error('Unable to retrieve header and parent from supplied hash');
+      }
+      if (block.blockHash === newerBestHeader.blockHash) {
+        return newerBestApi;
+      }
+      throw new Error(`Unexpected block hash ${block.blockHash}`);
+    });
+
+    await expect(blockWatch.getCurrentApi()).resolves.toBe(newerBestApi);
+
+    expect(getApiMock.mock.calls).toEqual([[initialBestHeader], [newerBestHeader]]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[BlockWatch]: Failed to decorate best block, retrying with newer best block',
+      expect.objectContaining({
+        bestBlockNumber: 110,
+        latestBestBlockNumber: 111,
+      }),
+    );
+  });
+
+  it('retries with the archive best block when no newer readable watched best is available', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const finalizedHeader = createHeaderInfo(100, '0xfinalized', '0x099');
+    finalizedHeader.isFinalized = true;
+    const bestHeader = createHeaderInfo(110, '0xbest', '0x109');
+    const archiveBestHeader = createHeaderInfo(112, '0xarchive-best', '0x111');
+    const archiveBestApi = { query: { system: { events: vi.fn() } } } as unknown as IBlockApi;
+    const archiveClient = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn().mockResolvedValue({ __info: archiveBestHeader }),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients({}, archiveClient) as any);
+    const error = new Error('Unable to retrieve header and parent from supplied hash');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    blockWatch.latestHeaders = [finalizedHeader, bestHeader];
+    const getApiMock = vi.spyOn(blockWatch, 'getApi').mockImplementation(async block => {
+      if (block.blockHash === bestHeader.blockHash) {
+        throw error;
+      }
+      if (block.blockHash === archiveBestHeader.blockHash) {
+        return archiveBestApi;
+      }
+      throw new Error(`Unexpected block hash ${block.blockHash}`);
+    });
+
+    await expect(blockWatch.getCurrentApi()).resolves.toBe(archiveBestApi);
+
+    expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith();
+    expect(getApiMock.mock.calls).toEqual([[bestHeader], [archiveBestHeader]]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[BlockWatch]: Failed to decorate watched best block, retrying with archive best block',
+      expect.objectContaining({
+        bestBlockNumber: 110,
+        archiveBestBlockNumber: 112,
+      }),
+    );
+  });
+
+  it('throws when archive best matches the unreadable watched best', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const finalizedHeader = createHeaderInfo(100, '0xfinalized', '0x099');
+    finalizedHeader.isFinalized = true;
+    const bestHeader = createHeaderInfo(110, '0xbest', '0x109');
+    const archiveClient = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn().mockResolvedValue({ __info: bestHeader }),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients({}, archiveClient) as any);
+    const error = new Error('Unable to retrieve header and parent from supplied hash');
+
+    blockWatch.latestHeaders = [finalizedHeader, bestHeader];
+    const getApiMock = vi.spyOn(blockWatch, 'getApi').mockRejectedValue(error);
+
+    await expect(blockWatch.getCurrentApi()).rejects.toBe(error);
+
+    expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith();
+    expect(getApiMock.mock.calls).toEqual([[bestHeader]]);
   });
 
   it('retries signed block lookup on archive when the selected client disconnects', async () => {

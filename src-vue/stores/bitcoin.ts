@@ -4,7 +4,7 @@ import { getDbPromise } from './helpers/dbPromise';
 import { reactive } from 'vue';
 import handleFatalError from './helpers/handleFatalError.ts';
 import { getBlockWatch } from './mainchain.ts';
-import { getCurrency, Currency } from './currency.ts';
+import { getCurrency } from './currency.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 import { getWalletKeys } from './wallets.ts';
@@ -39,8 +39,8 @@ export function getBitcoinLocks(): BitcoinLocks {
     );
     locks.data = reactive(locks.data) as any;
     locks.utxoTracking.data = reactive(locks.utxoTracking.data) as any;
-    locks.load().catch(handleFatalError.bind('useBitcoinLocks'));
   }
+  void locks.load().catch(handleFatalError.bind('useBitcoinLocks'));
 
   return locks;
 }

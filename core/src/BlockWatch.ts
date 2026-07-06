@@ -103,8 +103,11 @@ export class BlockWatch {
   }
 
   public async start(source = this.getPreferredSubscriptionSource()): Promise<void> {
-    if (this.isLoaded.isRunning || this.isLoaded.isSettled) {
+    if (this.isLoaded.isResolved || this.isLoaded.isRunning) {
       return this.isLoaded.promise;
+    }
+    if (this.isLoaded.isRejected) {
+      this.isLoaded = createDeferred(false);
     }
     this.isLoaded.setIsRunning(true);
 
@@ -292,6 +295,47 @@ export class BlockWatch {
 
   public async getFinalizedApi(): Promise<ApiDecoration<'promise'>> {
     return this.getApi(this.finalizedBlockHeader);
+  }
+
+  public async getCurrentApi(): Promise<ApiDecoration<'promise'>> {
+    const initialBestHeader = this.bestBlockHeader;
+    try {
+      return await this.getApi(initialBestHeader);
+    } catch (error) {
+      if (initialBestHeader.isFinalized) {
+        throw error;
+      }
+
+      const latestBestHeader = this.bestBlockHeader;
+      if (latestBestHeader.blockHash !== initialBestHeader.blockHash) {
+        console.warn('[BlockWatch]: Failed to decorate best block, retrying with newer best block', {
+          bestBlockNumber: initialBestHeader.blockNumber,
+          latestBestBlockNumber: latestBestHeader.blockNumber,
+          error: String(error),
+        });
+        try {
+          return await this.getApi(latestBestHeader);
+        } catch (nextError) {
+          error = nextError;
+        }
+      }
+
+      const archiveClient = await this.clients.archiveClientPromise;
+      const archiveBestHeader = BlockWatch.readHeader(
+        await this.runQueryWithTimeout('getCurrentApi.archiveBestHeader', archiveClient.rpc.chain.getHeader()),
+      );
+      if (archiveBestHeader.blockHash === latestBestHeader.blockHash) {
+        throw error;
+      }
+
+      console.warn('[BlockWatch]: Failed to decorate watched best block, retrying with archive best block', {
+        bestBlockNumber: latestBestHeader.blockNumber,
+        archiveBestBlockNumber: archiveBestHeader.blockNumber,
+        error: String(error),
+      });
+
+      return await this.getApi(archiveBestHeader);
+    }
   }
 
   public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ApiDecoration<'promise'>> {

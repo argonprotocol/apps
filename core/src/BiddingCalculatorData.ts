@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { Mining } from './Mining.js';
 import { Currency } from './Currency.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, percentOf } from './utils.js';
-import { type ApiDecoration, type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MiningFrames } from './MiningFrames.ts';
@@ -78,23 +78,7 @@ export default class BiddingCalculatorData {
           const mining = this.mining;
           await this.miningFrames.waitForFrameId(biddingFrameId);
 
-          const latestHeader = this.miningFrames.blockWatch.bestBlockHeader;
-          let api: ApiDecoration<'promise'>;
-          try {
-            api = await this.miningFrames.clientAt(latestHeader);
-          } catch (error) {
-            if (latestHeader.isFinalized) {
-              throw error;
-            }
-
-            const finalizedHeader = this.miningFrames.blockWatch.finalizedBlockHeader;
-            console.warn('[BiddingCalculatorData] Failed to decorate best block, retrying with finalized block', {
-              bestBlockNumber: latestHeader.blockNumber,
-              finalizedBlockNumber: finalizedHeader.blockNumber,
-              error: String(error),
-            });
-            api = await this.miningFrames.clientAt(finalizedHeader);
-          }
+          let api = await this.miningFrames.blockWatch.getCurrentApi();
 
           const nextFrameId = await this.mining.fetchNextFrameId(api);
           if (biddingFrameId !== nextFrameId - 1) {

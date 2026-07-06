@@ -47,6 +47,24 @@ export type MiningBidProxySetupPlan =
       metadata: MiningBidProxySetupMetadata;
     };
 
+export type AccountsetOptions = {
+  client: ArgonClient;
+  subaccountRange?: SubaccountRange;
+  sessionMiniSecretOrMnemonic?: string;
+  name?: string;
+} & (
+  | {
+      txSubmitter: KeyringPair;
+      fundingAccountId?: string;
+      isProxy?: false;
+    }
+  | {
+      txSubmitter: KeyringPair;
+      fundingAccountId: string;
+      isProxy: true;
+    }
+);
+
 export class Accountset {
   public txSubmitterPair: KeyringPair;
   public isProxy = false;
@@ -58,30 +76,10 @@ export class Accountset {
 
   public sessionMiniSecretOrMnemonic: string | undefined;
 
-  constructor(
-    options: {
-      client: ArgonClient;
-      subaccountRange?: SubaccountRange;
-      sessionMiniSecretOrMnemonic?: string;
-      name?: string;
-    } & (
-      | { seedAccount: KeyringPair }
-      | {
-          fundingAccountId: string;
-          isProxy: true;
-          txSubmitter: KeyringPair;
-        }
-    ),
-  ) {
-    if ('seedAccount' in options) {
-      this.txSubmitterPair = options.seedAccount;
-      this.fundingAccountId = options.seedAccount.address;
-      this.isProxy = false;
-    } else {
-      this.isProxy = options.isProxy;
-      this.txSubmitterPair = options.txSubmitter;
-      this.fundingAccountId = options.fundingAccountId;
-    }
+  constructor(options: AccountsetOptions) {
+    this.txSubmitterPair = options.txSubmitter;
+    this.isProxy = options.isProxy ?? false;
+    this.fundingAccountId = options.fundingAccountId ?? options.txSubmitter.address;
     this.sessionMiniSecretOrMnemonic = options.sessionMiniSecretOrMnemonic;
     this.client = options.client;
     const defaultRange = options.subaccountRange ?? getRange();

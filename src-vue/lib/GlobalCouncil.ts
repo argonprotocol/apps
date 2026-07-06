@@ -49,15 +49,21 @@ export class GlobalCouncil {
   }
 
   public async load(reload = false): Promise<void> {
-    if (this.#waitForLoad && !reload) return this.#waitForLoad.promise;
+    if (this.#waitForLoad?.isRunning) return this.#waitForLoad.promise;
+    if (!reload && this.#waitForLoad?.isResolved) return this.#waitForLoad.promise;
 
-    this.#waitForLoad = createDeferred();
+    if (reload || this.#waitForLoad?.isRejected) {
+      this.#waitForLoad = createDeferred();
+    } else {
+      this.#waitForLoad ??= createDeferred();
+    }
     try {
       await this.miningFrames.blockWatch.start();
       await this.refresh(await this.miningFrames.blockWatch.getFinalizedApi());
       this.data.isReady = true;
       this.#waitForLoad.resolve();
     } catch (error) {
+      console.error('[GlobalCouncil] Error loading council approvals', error);
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;

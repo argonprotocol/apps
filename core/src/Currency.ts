@@ -114,16 +114,18 @@ export class Currency {
 
   public isLoaded: boolean;
   public isLoadedPromise: Promise<void>;
-  private isLoadedDeferred: IDeferred<void>;
+  protected isLoadedDeferred: IDeferred<void>;
   private offchainRatesTimeout?: number;
   private priceIndexSubscription?: () => void;
   private priceIndexSubscriptionPromise?: Promise<void>;
   private lastPriceIndexStorageValue?: string;
+  private initialLoadPromise?: Promise<void>;
 
   constructor(public clients: MainchainClients) {
     this.isLoaded = false;
-    this.isLoadedDeferred = createDeferred<void>();
+    this.isLoadedDeferred = createDeferred<void>(false);
     this.isLoadedPromise = this.isLoadedDeferred.promise;
+    void this.isLoadedPromise.catch(() => undefined);
     this.clients.events.on('on-pruned-client', client => {
       if (!this.priceIndexSubscription && !this.priceIndexSubscriptionPromise) return;
       void this.replacePriceIndexSubscription(client).catch(e =>
@@ -133,23 +135,50 @@ export class Currency {
   }
 
   public async load(skipCache = false): Promise<void> {
-    const loadStartedAt = Date.now();
-    let stage = 'fetchMainchainRates';
-    try {
-      await this.fetchMainchainRates(undefined, skipCache);
-
-      if (!this.isLoaded) {
-        this.isLoaded = true;
-        this.isLoadedDeferred.resolve();
+    const isInitialLoad = !this.isLoaded;
+    if (isInitialLoad) {
+      if (this.initialLoadPromise) return await this.initialLoadPromise;
+      if (this.isLoadedDeferred.isRejected) {
+        this.isLoadedDeferred = createDeferred<void>(false);
+        this.isLoadedPromise = this.isLoadedDeferred.promise;
+        void this.isLoadedPromise.catch(() => undefined);
       }
-      stage = 'subscribeToPriceIndex';
-      await this.subscribeToPriceIndex();
-    } catch (error) {
-      console.error(`[Currency] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
-      throw error;
-    } finally {
-      this.scheduleOffchainRatesRefresh();
     }
+
+    const loadPromise = (async () => {
+      const loadStartedAt = Date.now();
+      let stage = 'fetchMainchainRates';
+      try {
+        await this.fetchMainchainRates(undefined, skipCache);
+
+        if (!this.isLoaded) {
+          this.isLoaded = true;
+          this.isLoadedDeferred.resolve();
+        }
+        stage = 'subscribeToPriceIndex';
+        await this.subscribeToPriceIndex();
+      } catch (error) {
+        console.error(`[Currency] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
+        if (isInitialLoad && !this.isLoaded) {
+          this.isLoadedDeferred.reject(error as Error);
+        }
+        throw error;
+      } finally {
+        this.scheduleOffchainRatesRefresh();
+      }
+    })();
+
+    if (isInitialLoad) {
+      const trackedLoadPromise = loadPromise.finally(() => {
+        if (this.initialLoadPromise === trackedLoadPromise) {
+          this.initialLoadPromise = undefined;
+        }
+      });
+      this.initialLoadPromise = trackedLoadPromise;
+      return await trackedLoadPromise;
+    }
+
+    await loadPromise;
   }
 
   public adjustByTargetOffset(value: bigint): bigint;

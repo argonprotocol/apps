@@ -18,7 +18,7 @@ import { ServerAdmin } from './ServerAdmin';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
+import { IS_LOCAL_BUILD, NETWORK_NAME, TICK_MILLIS } from './Env.ts';
 import * as semver from 'semver';
 import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumClient.ts';
 import { MyVault } from './MyVault.ts';
@@ -277,13 +277,44 @@ export default class Installer {
             },
           );
         } else if (proxySetup.kind === 'submitted' || proxySetup.kind === 'trackingExisting') {
-          await proxySetup.txInfo.waitForPostProcessing;
+          let uploadProgressInterval: ReturnType<typeof setInterval> | undefined;
+          if (this.remoteFilesNeedUpdating) {
+            const waitForBlockStartedAt = Date.now();
+            const updateWaitProgress = () => {
+              const elapsed = Date.now() - waitForBlockStartedAt;
+              const progressRatio = Math.min(1, Math.max(0, elapsed / (TICK_MILLIS * 2)));
+              this.fileUploadProgress = Math.max(this.fileUploadProgress, 90 + progressRatio * 5);
+            };
+
+            updateWaitProgress();
+            uploadProgressInterval = setInterval(
+              updateWaitProgress,
+              Math.min(1000, Math.max(100, Math.ceil(TICK_MILLIS / 60))),
+            );
+          }
+
+          // The bot already holds off bidding until the mining bid proxy is ready, so first inclusion is
+          // enough to let the installer continue without waiting for full finality here.
+          try {
+            await proxySetup.txInfo.txResult.waitForInFirstBlock;
+          } finally {
+            if (uploadProgressInterval) clearInterval(uploadProgressInterval);
+            if (this.remoteFilesNeedUpdating) {
+              this.fileUploadProgress = Math.max(this.fileUploadProgress, 96);
+            }
+          }
+
+          void proxySetup.txInfo.waitForPostProcessing.catch(error => {
+            console.warn('[Installer] Mining bid proxy setup is still pending finalization', {
+              error: getErrorDiagnostics(error),
+            });
+          });
         }
       }
 
       console.info('Uploading bot config files');
       await this.uploadBotConfigFiles((totalCount, uploadedCount) => {
-        const startProgress = this.remoteFilesNeedUpdating ? 90 : 0;
+        const startProgress = this.remoteFilesNeedUpdating ? Math.max(90, this.fileUploadProgress) : 0;
         this.fileUploadProgress = startProgress + (uploadedCount / totalCount) * (99 - startProgress);
       });
 
@@ -683,8 +714,11 @@ export default class Installer {
 
     const totalCount = 5;
 
-    const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
-    await server.uploadMiningBotWallet(miningBidProxyAccount);
+    // Enable this when we're ready to upload the proxy wallet to the bot.
+    // const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
+    // await server.uploadMiningBotWallet(miningBidProxyAccount);
+    const miningBotKeypair = await this.walletKeys.getMiningBotKeypair();
+    await server.uploadMiningBotWallet(miningBotKeypair.toJson(''));
     progressFn?.(totalCount, 1);
 
     await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));

@@ -14,7 +14,9 @@ export function getCurrency(): Currency {
     const config = getConfig();
     const mainchainClients = getMainchainClients();
     currency = Vue.reactive(new Currency(mainchainClients, config as Config)) as Currency;
-    currency.load().catch(handleFatalError.bind('getCurrency'));
+  }
+  if (!currency.isLoaded) {
+    void currency.load().catch(handleFatalError.bind('getCurrency'));
   }
 
   return currency;

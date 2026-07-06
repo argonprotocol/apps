@@ -224,8 +224,21 @@ impl SSH {
     }
 
     pub async fn upload_file(&self, contents: &[u8], remote_path: &str) -> Result<()> {
-        let mut client = self.client.lock().await;
-        Self::upload_file_on_client(&mut client, &self.config, contents, remote_path).await
+        let contents = contents.to_vec();
+        let remote_path = remote_path.to_string();
+        let transfer_client = self.transfer_client.clone();
+        let config = self.config.clone();
+        let timeout_duration = Duration::from_secs(10);
+        tauri::async_runtime::spawn_blocking(move || -> Result<()> {
+            tauri::async_runtime::block_on(async move {
+                let mut client = transfer_client.lock().await;
+                let client =
+                    Self::get_or_connect_client(&mut client, &config, timeout_duration).await?;
+                Self::upload_file_on_client(client, &config, &contents, &remote_path).await
+            })
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("SSH worker thread failed: {e}"))?
     }
 
     async fn upload_file_on_client(

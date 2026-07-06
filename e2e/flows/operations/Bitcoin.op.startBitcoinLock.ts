@@ -101,10 +101,6 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         clear: true,
         timeoutMs: 3_000,
       });
-      await flow.click(
-        { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },
-        { timeoutMs: 3_000 },
-      );
       await sleep(500);
     } else if (input.minimumLockSatoshis != null) {
       await flow.type(
@@ -114,10 +110,6 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
           clear: true,
           timeoutMs: 3_000,
         },
-      );
-      await flow.click(
-        { selector: '[data-testid="LockStart.argonAmount"] [data-testid="input-number"]' },
-        { timeoutMs: 3_000 },
       );
       await sleep(500);
     }

@@ -48,6 +48,7 @@
             data-testid="LockStart.bitcoinAmount"
             v-model="bitcoinAmount"
             @input="handleBtcChange"
+            :disabled="isSaving || isLoadingLiquidity"
             :maxDecimals="8"
             :min="0"
             :max="availableLiquidityBtc"
@@ -67,6 +68,7 @@
             data-testid="LockStart.argonAmount"
             v-model="liquidityToReceive"
             @input="handleArgonChange"
+            :disabled="isSaving || isLoadingLiquidity"
             :maxDecimals="0"
             :min="0n"
             :max="availableLiquidityMicrogons"
@@ -114,8 +116,10 @@
         Cancel
       </button>
       <button
-        :class="isSaving ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700'"
-        :disabled="isSaving"
+        :class="
+          isSaving || isLoadingLiquidity ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700'
+        "
+        :disabled="isSaving || isLoadingLiquidity"
         @click="submitLiquidLock"
         class="cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white"
       >
@@ -171,6 +175,7 @@ const availableLiquidityMicrogons = Vue.ref(0n);
 const availableLiquidityBtc = Vue.ref(0);
 
 const isSaving = Vue.ref(false);
+const isLoadingLiquidity = Vue.ref(true);
 const errorMessage = Vue.ref<string | null>(null);
 const bitcoinAmount = Vue.ref(0);
 const liquidityToReceive = Vue.ref(0n);
@@ -244,12 +249,13 @@ const showFeePanel = Vue.computed(() => {
   return !isVaultOperator.value && !isOperatorCouponLock.value && securityFee.value > 0n;
 });
 
-const handleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
-const handleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
+const debouncedHandleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
+const debouncedHandleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
 
 let lastSetLiquidityMicrogons = 0n;
 let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
+let pendingAmountSync: Promise<unknown> | undefined;
 
 function updateFeeEstimate() {
   if (!props.vault || liquidityToReceive.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
@@ -274,7 +280,6 @@ async function internalHandleArgonChange(liquidityMicrogons: bigint) {
   if (liquidityMicrogons === lastSetLiquidityMicrogons) {
     return;
   }
-  hasEditedAmounts.value = true;
   const sats = await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
   lockSatoshis.value = sats;
   const btc = currency.convertSatToBtc(sats);
@@ -289,7 +294,6 @@ async function internalHandleBtcChange(value: number) {
   if (value === lastSetBitcoinAmount) {
     return;
   }
-  hasEditedAmounts.value = true;
   const satoshis = BigInt(Math.round(value * Number(SATS_PER_BTC)));
   lockSatoshis.value = satoshis;
   liquidityToReceive.value = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis);
@@ -298,12 +302,34 @@ async function internalHandleBtcChange(value: number) {
   updateFeeEstimate();
 }
 
+function handleArgonChange(liquidityMicrogons: bigint) {
+  hasEditedAmounts.value = true;
+  const sync = debouncedHandleArgonChange(liquidityMicrogons).finally(() => {
+    if (pendingAmountSync === sync) {
+      pendingAmountSync = undefined;
+    }
+  });
+  pendingAmountSync = sync;
+}
+
+function handleBtcChange(value: number) {
+  hasEditedAmounts.value = true;
+  const sync = debouncedHandleBtcChange(value).finally(() => {
+    if (pendingAmountSync === sync) {
+      pendingAmountSync = undefined;
+    }
+  });
+  pendingAmountSync = sync;
+}
+
 async function submitLiquidLock() {
   if (isSaving.value) return;
 
-  let satoshis = lockSatoshis.value;
   try {
     await config.isLoadedPromise;
+    await pendingAmountSync;
+
+    let satoshis = lockSatoshis.value;
     isSaving.value = true;
     errorMessage.value = null;
     if (satoshis <= 0n && liquidityToReceive.value > 0n) {
@@ -378,6 +404,10 @@ async function setLiquidityVariables() {
 
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
-  await setLiquidityVariables();
+  try {
+    await setLiquidityVariables();
+  } finally {
+    isLoadingLiquidity.value = false;
+  }
 });
 </script>

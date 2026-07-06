@@ -33,7 +33,7 @@ it.skipIf(skipE2E)('can backfill sync data', async () => {
   const storage = new Storage(botDataDir);
   const accountset = new Accountset({
     client,
-    seedAccount: sudo(),
+    txSubmitter: sudo(),
     sessionMiniSecretOrMnemonic: mnemonicGenerate(),
     subaccountRange: new Array(99).fill(0).map((_, i) => i),
   });

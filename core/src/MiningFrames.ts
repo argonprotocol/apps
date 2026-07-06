@@ -45,7 +45,7 @@ export class MiningFrames {
       .sort((a, b) => a - b);
   }
 
-  private readonly loadDeferred = createDeferred(false);
+  private loadDeferred = createDeferred<void>(false);
   private readonly ownsBlockWatch: boolean;
   private readonly unsubscribes: (() => void)[] = [];
   private readonly updateQueue = new SingleFileQueue();
@@ -80,10 +80,17 @@ export class MiningFrames {
   }
 
   public async load(): Promise<void> {
+    if (this.loadDeferred.isRejected) {
+      this.loadDeferred = createDeferred<void>(false);
+    }
     if (this.loadDeferred.isResolved || this.loadDeferred.isRunning) return this.loadDeferred.promise;
     this.loadDeferred.setIsRunning(true);
+
+    let startedLoadTimer = false;
+    let realtimeWatch: (() => void) | undefined;
     try {
       console.time('[Mining Frames] loaded');
+      startedLoadTimer = true;
 
       if (this.updatesWriter) {
         const savedFrameHistory = await this.updatesWriter
@@ -125,13 +132,19 @@ export class MiningFrames {
           firstBlockSpecVersion: spec.specVersion.toNumber(),
         });
       }
-      const realtimeWatch = this.blockWatch.events.on('best-blocks', headers => void this.onBestBlocks(headers));
       await this.blockWatch.start();
+      realtimeWatch = this.blockWatch.events.on('best-blocks', headers => void this.onBestBlocks(headers));
       await this.onBestBlocks(this.blockWatch.latestHeaders);
       this.unsubscribes.push(realtimeWatch);
+      realtimeWatch = undefined;
       this.loadDeferred.resolve();
       console.timeEnd('[Mining Frames] loaded');
+      startedLoadTimer = false;
     } catch (error) {
+      if (startedLoadTimer) {
+        console.timeEnd('[Mining Frames] loaded');
+      }
+      realtimeWatch?.();
       this.loadDeferred.reject(error);
     }
     return this.loadDeferred.promise;
