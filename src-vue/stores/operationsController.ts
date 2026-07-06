@@ -155,8 +155,11 @@ export const useOperationsController = defineStore('operationsController', () =>
     operationalReferralReward: defaultRewardAmount,
     referralBonusReward: defaultBonusRewardAmount,
     referralBonusEveryXOperationalSponsees: 5,
+    operationalMinimumUniswapTransfer: 0n,
     operationalMinimumVaultLockTicks: 365n * 24n * 60n,
     operationalMinimumVaultSecuritization: 1_000n * BigInt(MICROGONS_PER_ARGON),
+    treasuryMinimumBitcoin: 0n,
+    treasuryMinimumBonds: 0n,
     bitcoinLockSizeForReferral: 5_000n * BigInt(MICROGONS_PER_ARGON),
     miningSeatsPerReferral: 5,
     maxAvailableReferrals: 3,
@@ -363,9 +366,13 @@ export const useOperationsController = defineStore('operationsController', () =>
     if (operationalAccountUnsubscribe) return;
     rewardConfig.value = await getOperationalRewardConfig();
 
-    void subscribeOperationalAccount(walletKeys, x => {
-      chainProgress.value = x;
-    })
+    void subscribeOperationalAccount(
+      walletKeys,
+      x => {
+        chainProgress.value = x;
+      },
+      rewardConfig.value,
+    )
       .then(unsub => {
         operationalAccountUnsubscribe = unsub;
       })
@@ -478,7 +485,7 @@ export const useOperationsController = defineStore('operationsController', () =>
       operationalInviteProgressByCode = new Map(
         accountInvites.map((invite, index) => [
           invite.inviteCode,
-          getOperationalChainProgressFromAccount(operationalAccounts[index]),
+          getOperationalChainProgressFromAccount(operationalAccounts[index], rewardConfig.value),
         ]),
       );
     } catch (error) {

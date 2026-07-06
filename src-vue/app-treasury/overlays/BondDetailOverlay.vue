@@ -21,8 +21,8 @@
 
         <div class="mt-4 grid grid-cols-3 gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
           <div>
-            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Vault</div>
-            <div class="mt-1 text-slate-700">{{ vaultLabel }}</div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Program</div>
+            <div class="mt-1 text-slate-700">{{ bondProgramLabel }}</div>
           </div>
 
           <div>
@@ -155,10 +155,19 @@ const releaseAtLabel = Vue.computed(() => {
   return dayjs.utc(miningFrames.getFrameDate(props.bondLot.releaseFrame)).local().format('M/D/YYYY [at] h:mm a');
 });
 
-const vaultLabel = Vue.computed(() => {
-  const vault = vaults.vaultsById[props.bondLot.vaultId];
+const bondProgramLabel = Vue.computed(() => {
+  if (props.bondLot.programType === 'Argonot') {
+    return 'Argonot Bond';
+  }
+
+  const vaultId = props.bondLot.vaultId;
+  if (vaultId == null) {
+    return 'Vault Bond';
+  }
+
+  const vault = vaults.vaultsById[vaultId];
   const name = vault?.name?.trim();
-  return name ? `${name} Vault` : `Vault #${props.bondLot.vaultId}`;
+  return name ? `${name} Vault` : `Vault #${vaultId}`;
 });
 
 const lifetimeReturnPct = Vue.computed(() => {
