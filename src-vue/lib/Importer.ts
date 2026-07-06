@@ -28,7 +28,7 @@ export default class Importer {
   }
 
   public async importFromMnemonic(mnemonic: string) {
-    if (NETWORK_NAME !== 'dev-docker') {
+    if (NETWORK_NAME === 'mainnet') {
       const importWalletKeys = new MemoryWalletKeys({
         substrateSuri: mnemonic,
         masterMnemonic: mnemonic,

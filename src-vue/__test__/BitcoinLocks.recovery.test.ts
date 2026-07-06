@@ -9,6 +9,8 @@ import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
+import { BitcoinLock } from '@argonprotocol/mainchain';
+import * as mainchainStore from '../stores/mainchain.ts';
 
 function createStore(options: { txInfos?: TransactionInfo[] } = {}) {
   const blockWatch = Object.assign(Object.create(null), {
@@ -116,6 +118,77 @@ function createTxInfo(status: TransactionStatus, metadataJson: Record<string, un
 }
 
 describe('BitcoinLocks getActiveLocks', () => {
+  it('retries load without duplicating pending locks or block subscriptions', async () => {
+    const firstSubscription = vi.fn();
+    const secondSubscription = vi.fn();
+    const start = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+    const onBestBlocks = vi.fn().mockReturnValueOnce(firstSubscription).mockReturnValueOnce(secondSubscription);
+    const blockWatch = {
+      start,
+      bestBlockHeader: { blockNumber: 1, blockHash: '0x1' },
+      events: {
+        on: onBestBlocks,
+      },
+    } as unknown as BlockWatch;
+    const store = new BitcoinLocks(
+      Promise.resolve(Object.create(null) as Db),
+      Object.create(null) as WalletKeys,
+      blockWatch,
+      {
+        load: async () => undefined,
+        priceIndex: {},
+      } as CurrencyBase,
+      {
+        load: vi.fn(async () => undefined),
+        pendingBlockTxInfosAtLoad: [],
+        data: { txInfos: [], txInfosByType: {} },
+      } as unknown as TransactionTracker,
+    );
+    const pendingLock = createLock({
+      uuid: 'pending-load',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      createdAt: '2026-01-05T00:00:00Z',
+    });
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
+      consts: {
+        bitcoinLocks: {
+          argonTicksPerDay: {
+            toNumber: () => 1440,
+          },
+        },
+      },
+    } as any);
+    vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue({
+      bitcoinNetwork: {
+        isBitcoin: false,
+        isTestnet: true,
+      },
+      tickDurationMillis: 60_000,
+      pendingConfirmationExpirationBlocks: 6,
+    } as any);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      fetchAll: vi.fn(async () => [pendingLock]),
+    } as any);
+    vi.spyOn(store.utxoTracking, 'load').mockResolvedValue(undefined);
+    vi.spyOn(store as any, 'syncFailedBitcoinRequestLocksFromTransactions').mockResolvedValue(undefined);
+    vi.spyOn(store as any, 'migrateLegacyBitcoinLockHdKeys').mockResolvedValue(undefined);
+    vi.spyOn(store as any, 'checkIncomingArgonBlock').mockResolvedValue(undefined);
+    vi.spyOn(store as any, 'runPendingLoadReconciliation').mockResolvedValue(undefined);
+
+    await expect(store.load()).rejects.toThrow('offline');
+    await expect(store.load()).resolves.toBeUndefined();
+    await expect(store.load(true)).resolves.toBeUndefined();
+
+    expect(store.data.pendingLocks).toHaveLength(1);
+    expect(store.data.pendingLocks[0].uuid).toBe('pending-load');
+    expect(start).toHaveBeenCalledTimes(3);
+    expect(onBestBlocks).toHaveBeenCalledTimes(2);
+    expect(firstSubscription).toHaveBeenCalledOnce();
+    expect(secondSubscription).not.toHaveBeenCalled();
+
+    getMainchainClient.mockRestore();
+  });
+
   it('keeps resumable and unacknowledged expired locks active while excluding released locks', () => {
     const store = createStore();
 

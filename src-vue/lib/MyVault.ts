@@ -190,21 +190,29 @@ export class MyVault {
   }
 
   public async load(reload = false): Promise<void> {
-    if (this.#waitForLoad && !reload) return this.#waitForLoad.promise;
+    if (this.#waitForLoad?.isRunning) return this.#waitForLoad.promise;
+    if (!reload && this.#waitForLoad?.isResolved) return this.#waitForLoad.promise;
 
-    this.#waitForLoad = createDeferred();
+    if (reload || this.#waitForLoad?.isRejected) {
+      this.#waitForLoad = createDeferred();
+    } else {
+      this.#waitForLoad ??= createDeferred();
+    }
     this.#collectFrames = [];
     try {
       console.log('Loading MyVault...');
       await this.miningFrames.load();
       await this.vaults.load(reload);
 
-      void this.vaults.updateRevenue().then(() => {
-        const vaultId = this.metadata?.id;
-        if (vaultId) {
-          this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
-        }
-      });
+      const latestSyncedRevenueFrame = this.vaults.stats?.synchedToFrame ?? 0;
+      if (latestSyncedRevenueFrame < this.miningFrames.currentFrameId - 1) {
+        void this.vaults.updateRevenue().then(() => {
+          const vaultId = this.metadata?.id;
+          if (vaultId) {
+            this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
+          }
+        });
+      }
       const table = await this.getTable();
       const client = await getMainchainClient(false);
       this.data.metadata = (await table.get()) ?? null;
@@ -215,8 +223,6 @@ export class MyVault {
       };
 
       await this.#transactionTracker.load();
-      await this.bitcoinLocks.load(reload);
-      await Promise.all([this.globalCouncil.load(reload), this.mintingAuthorities.load(reload)]);
 
       for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
         const { tx } = txInfo;
@@ -267,12 +273,28 @@ export class MyVault {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
 
-        await this.refreshExternalLocks();
+        void this.refreshExternalLocks().catch(error => {
+          console.warn('[MyVault] Error refreshing external locks during load', error);
+        });
       }
 
+      // Let the vault screen render once the core vault record is ready while bitcoin lock recovery finishes.
       this.data.isReady = true;
+
+      const bitcoinLocksLoad = this.bitcoinLocks.load(reload);
+      const globalCouncilLoad = this.globalCouncil.load(reload).catch(error => {
+        console.error('[MyVault] Error loading global council data', error);
+      });
+      const mintingAuthoritiesLoad = this.mintingAuthorities.load(reload).catch(error => {
+        console.error('[MyVault] Error loading minting authorities', error);
+      });
+
+      await bitcoinLocksLoad;
+      await Promise.all([globalCouncilLoad, mintingAuthoritiesLoad]);
+
       this.#waitForLoad.resolve();
     } catch (error) {
+      console.error('[MyVault] Error loading vault data', error);
       this.#waitForLoad.reject(error as Error);
     }
     return this.#waitForLoad.promise;
