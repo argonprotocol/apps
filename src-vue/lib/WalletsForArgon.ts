@@ -57,11 +57,9 @@ export class WalletsForArgon {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
 
-  public miningHoldWallet: WalletForArgon;
   public miningBotWallet: WalletForArgon;
-  public vaultingWallet: WalletForArgon;
   public operationalWallet: WalletForArgon;
-  public investmentWallet: WalletForArgon;
+  public defaultArgonWallet: WalletForArgon;
 
   public bestBlock?: IBlockHeaderInfo;
   public finalizedBlock?: IBlockHeaderInfo;
@@ -86,13 +84,7 @@ export class WalletsForArgon {
   private unsubscribe?: () => void;
 
   public get wallets(): WalletForArgon[] {
-    return [
-      this.miningHoldWallet,
-      this.miningBotWallet,
-      this.vaultingWallet,
-      this.operationalWallet,
-      this.investmentWallet,
-    ];
+    return [this.defaultArgonWallet, this.miningBotWallet, this.operationalWallet];
   }
 
   public get addresses(): string[] {
@@ -113,11 +105,13 @@ export class WalletsForArgon {
     this.dbPromise = dbPromise;
     this.blockWatch = blockWatch;
     this.myVault = myVault;
-    this.miningHoldWallet = new WalletForArgon(walletKeys.miningHoldAddress, 'miningHold', dbPromise);
+    this.defaultArgonWallet = new WalletForArgon(walletKeys.defaultArgonAddress, 'defaultArgon', dbPromise);
     this.miningBotWallet = new WalletForArgon(walletKeys.miningBotAddress, 'miningBot', dbPromise);
-    this.vaultingWallet = new WalletForArgon(walletKeys.vaultingAddress, 'vaulting', dbPromise);
     this.operationalWallet = new WalletForArgon(walletKeys.operationalAddress, 'operational', dbPromise);
-    this.investmentWallet = new WalletForArgon(walletKeys.investmentAddress, 'investment', dbPromise);
+  }
+
+  public configureDefaultArgonWallet(address: string): void {
+    this.defaultArgonWallet.address = address;
   }
 
   public getLoadEvents<KEY extends IWalletEventKeys>(key: KEY): IWalletFlatList<KEY>[] {
@@ -298,7 +292,7 @@ export class WalletsForArgon {
       }
     }
     asOfBlock = Math.max(asOfBlock, transfers.asOfBlock);
-    if (address === this.vaultingWallet.address) {
+    if (address === this.defaultArgonWallet.address) {
       const vaultCollects = await findAddressVaultCollects(address);
       for (const { blockNumber } of vaultCollects.vaultCollects) {
         if (blockNumber > minBlock && blockNumber <= maxBlock) {
@@ -320,7 +314,7 @@ export class WalletsForArgon {
       const entry: IBalanceChange = balances[i];
       const filter = new AccountEventsFilter(
         wallet.address,
-        wallet.type,
+        this.getAccountEventsWalletType(wallet),
         this.addresses,
         this.myVault?.createdVault?.vaultId,
       );
@@ -501,7 +495,7 @@ export class WalletsForArgon {
         events ??= await this.blockWatch.getEvents(block);
         const filter = new AccountEventsFilter(
           wallet.address,
-          wallet.type,
+          this.getAccountEventsWalletType(wallet),
           this.addresses,
           this.myVault?.createdVault?.vaultId,
         );
@@ -551,5 +545,9 @@ export class WalletsForArgon {
       lowered.includes('abnormal closure') ||
       lowered.includes('queue is stopped')
     );
+  }
+
+  private getAccountEventsWalletType(wallet: WalletForArgon) {
+    return wallet.type === 'defaultArgon' ? 'vaulting' : wallet.type;
   }
 }

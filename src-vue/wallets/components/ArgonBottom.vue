@@ -31,7 +31,7 @@
     </div>
 
     <div
-      v-if="showGuidance && [WalletType.vaulting, WalletType.miningHold].includes(walletType)"
+      v-if="showGuidance && walletType === WalletType.defaultArgon"
       class="text-argon-700/80 mt-5 rounded-md border border-[#CFA3EC] bg-[#FEF2FF] px-1 text-center"
     >
       <div class="border-argon-600/20 border-b py-5 text-lg font-bold">
@@ -40,7 +40,7 @@
         </div>
         <div v-else-if="guidanceIsFullyFunded" class="flex flex-row items-center justify-center">
           <CheckBadgeIcon class="mr-1 inline-block w-8" />
-          Your {{ walletType === WalletType.vaulting ? 'Vaulting' : 'Mining' }} Operations Are Fully Funded
+          Your {{ guidanceContext === 'vaulting' ? 'Vaulting' : 'Mining' }} Operations Are Fully Funded
         </div>
         <template v-else>
           <span data-testid="WalletOverlay.microgonsNeeded" :data-value="displayedMicrogonsNeeded.toString()">
@@ -50,9 +50,9 @@
           <span data-testid="WalletOverlay.micronotsNeeded" :data-value="displayedMicronotsNeeded.toString()">
             {{ micronotToArgonotNm(displayedMicronotsNeeded).format('0,0.[00000000]') }} ARGNOT
           </span>
-          Are Still Needed to
+          Are
           <br />
-          Launch Your {{ walletType === WalletType.vaulting ? 'Vaulting' : 'Mining' }} Operations
+          Needed to Launch {{ guidanceContext === 'vaulting' ? 'Vaulting' : 'Mining' }} Operations
         </template>
       </div>
       <ul class="flex flex-row items-stretch py-1 text-center">
@@ -72,10 +72,10 @@
                   class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none z-[2000] w-88 rounded-md border border-gray-800/20 bg-white px-4 pt-3 pb-1 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
                 >
                   <p>
-                    Your {{ walletType === WalletType.vaulting ? 'vault' : 'mining' }} operations have the following
-                    funding requirements.
+                    Your {{ guidanceContext === 'vaulting' ? 'vault' : 'mining' }} operations have the following funding
+                    requirements.
                   </p>
-                  <table v-if="walletType === WalletType.vaulting" class="mt-4 w-full">
+                  <table v-if="guidanceContext === 'vaulting'" class="mt-4 w-full">
                     <tbody>
                       <tr>
                         <td>
@@ -112,7 +112,7 @@
                       </tr>
                     </tbody>
                   </table>
-                  <table v-if="walletType === WalletType.miningHold" class="mt-4 w-full">
+                  <table v-if="guidanceContext === 'mining'" class="mt-4 w-full">
                     <tbody>
                       <tr>
                         <td>Mining Seats</td>
@@ -165,7 +165,7 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 import { CheckBadgeIcon } from '@heroicons/vue/24/outline';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
-import PortalIcon from '../../assets/portal.svg';
+import PortalIcon from '../../assets/wallets/swap.svg';
 import ReceiptIcon from '../../assets/receipt.svg';
 import ExternalIcon from '../../assets/external.svg';
 import { IWallet, WalletType } from '../../lib/Wallet.ts';
@@ -181,12 +181,14 @@ import { OperationalStepId, useOperationsController } from '../../stores/operati
 import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import { getMiningFundingState } from '../../screens/mining-screen/miningFunding.ts';
+import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 
 const props = defineProps<{
   direction: 'from' | 'to';
   walletType: WalletType;
   isSyncMode?: boolean;
   showGuidance?: boolean;
+  guidanceContext?: IWalletGuidanceContext;
 }>();
 
 const config = getConfig();
@@ -196,17 +198,18 @@ const controller = useOperationsController();
 const calculator = getBiddingCalculator();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const guidanceContext = Vue.computed<IWalletGuidanceContext>(() => props.guidanceContext ?? 'mining');
 
 const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
 const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(MICROGONS_PER_ARGON);
 const includeVaultTreasuryBondSuggestion = Vue.ref(true);
 const requiredMicrogonsForGoal = Vue.ref(0n);
 const requiredMicronotsForGoal = Vue.ref(0n);
-const isCalculatorReady = Vue.ref(props.walletType !== WalletType.miningHold);
+const isCalculatorReady = Vue.ref(guidanceContext.value !== 'mining');
 
 const useSetupMiningFundingGuidance = Vue.computed(() => {
   return (
-    props.walletType === WalletType.miningHold &&
+    guidanceContext.value === 'mining' &&
     config.hasSavedBiddingRules &&
     config.miningSetupStatus !== MiningSetupStatus.Finished
   );
@@ -224,7 +227,7 @@ const setupMiningFundingState = Vue.computed(() => {
 });
 
 const useProjectedMiningFundingGuidance = Vue.computed(() => {
-  return props.walletType === WalletType.miningHold && !useSetupMiningFundingGuidance.value;
+  return guidanceContext.value === 'mining' && !useSetupMiningFundingGuidance.value;
 });
 
 const guidanceIsFullyFunded = Vue.computed<boolean>(() => {
@@ -238,8 +241,8 @@ const guidanceIsFullyFunded = Vue.computed<boolean>(() => {
 
 const showSuggestedFundingAdditions = Vue.computed(() => {
   return (
-    (props.walletType === WalletType.vaulting && config.vaultingSetupStatus !== VaultingSetupStatus.Finished) ||
-    (props.walletType === WalletType.miningHold && config.miningSetupStatus !== MiningSetupStatus.Finished)
+    (guidanceContext.value === 'vaulting' && config.vaultingSetupStatus !== VaultingSetupStatus.Finished) ||
+    (guidanceContext.value === 'mining' && config.miningSetupStatus !== MiningSetupStatus.Finished)
   );
 });
 
@@ -258,7 +261,7 @@ const onboardingAdditionalMicrogons = Vue.computed(() => {
 
 const showVaultTreasuryBondSuggestion = Vue.computed(() => {
   return (
-    props.walletType === WalletType.vaulting &&
+    guidanceContext.value === 'vaulting' &&
     config.vaultingSetupStatus !== VaultingSetupStatus.Finished &&
     vaultTreasuryBondSuggestionMicrogons.value > 0n
   );
@@ -273,10 +276,10 @@ const minimumMicrogonsNeeded = Vue.computed(() => {
 });
 
 const minimumMicronotsNeeded = Vue.computed(() => {
-  if (props.walletType === 'miningHold') {
+  if (guidanceContext.value === 'mining') {
     const baseAmountNeeded = requiredMicronotsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicronots ?? 0n);
-  } else if (props.walletType === 'vaulting') {
+  } else if (guidanceContext.value === 'vaulting') {
     return config.vaultingRules?.baseMicronotCommitment || 0n;
   }
   return 0n;
@@ -315,10 +318,10 @@ const remainingMicronotsNeeded = Vue.computed(() => {
 });
 
 const walletAllocatedMicrogons = Vue.computed(() => {
-  if (props.walletType === 'miningHold') {
+  if (guidanceContext.value === 'mining') {
     return wallets.totalMiningMicrogons || 0n;
-  } else if (props.walletType === 'vaulting') {
-    return wallets.vaultingWallet.availableMicrogons || 0n;
+  } else if (guidanceContext.value === 'vaulting') {
+    return wallets.defaultArgonWallet.availableMicrogons || 0n;
   } else {
     throw new Error(`Unsupported wallet: ${props.walletType}`);
   }
@@ -326,10 +329,10 @@ const walletAllocatedMicrogons = Vue.computed(() => {
 });
 
 const walletAllocatedMicronots = Vue.computed(() => {
-  if (props.walletType === 'miningHold') {
+  if (guidanceContext.value === 'mining') {
     return wallets.totalMiningMicronots || 0n;
-  } else if (props.walletType === 'vaulting') {
-    return wallets.vaultingWallet.reservedMicronots || 0n;
+  } else if (guidanceContext.value === 'vaulting') {
+    return wallets.defaultArgonWallet.reservedMicronots || 0n;
   }
   return 0n;
 });
@@ -345,14 +348,14 @@ const vaultTreasuryBondSuggestionMicrogons = Vue.computed(() => {
 });
 
 const baseMinimumMicrogonsNeeded = Vue.computed(() => {
-  if (props.walletType === WalletType.miningHold) {
+  if (guidanceContext.value === 'mining') {
     if (useSetupMiningFundingGuidance.value) {
       return config.biddingRules?.initialMicrogonRequirement ?? 0n;
     }
 
     const baseAmountNeeded = requiredMicrogonsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicrogons ?? 0n);
-  } else if (props.walletType === WalletType.vaulting) {
+  } else if (guidanceContext.value === 'vaulting') {
     return config.vaultingRules?.baseMicrogonCommitment || 0n;
   }
   return 0n;
@@ -374,7 +377,7 @@ let calculatorIsSubscribed = false;
 let calculatorLoadSubscription: { unsubscribe: () => void } | null = null;
 
 async function load() {
-  if (props.walletType === 'miningHold' && !calculatorIsSubscribed) {
+  if (guidanceContext.value === 'mining' && !calculatorIsSubscribed) {
     calculatorIsSubscribed = true;
     await config.isLoadedPromise;
 

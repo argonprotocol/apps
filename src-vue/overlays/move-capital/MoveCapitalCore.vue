@@ -136,20 +136,18 @@
 </template>
 
 <script lang="ts">
-import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
+import { isDefaultArgonMoveFrom, isDefaultArgonMoveTo, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 
 const moveFromName = {
-  [MoveFrom.MiningHold]: 'Inflation-Free Savings',
+  [MoveFrom.DefaultArgon]: 'Inflation-Free Savings',
   [MoveFrom.MiningBot]: 'Mining Bids',
-  [MoveFrom.VaultingHold]: 'Inflation-Free Savings',
   [MoveFrom.VaultingSecurity]: 'Bitcoin Security',
 };
 
 const moveToName = {
   [MoveTo.VaultingSecurity]: 'Bitcoin Security',
   [MoveTo.MiningBot]: 'Mining Bids',
-  [MoveTo.MiningHold]: 'Inflation-Free Savings',
-  [MoveTo.VaultingHold]: 'Inflation-Free Savings',
+  [MoveTo.DefaultArgon]: 'Inflation-Free Savings',
   [MoveTo.External]: 'External Address',
 };
 
@@ -184,7 +182,7 @@ import { existentialDepositMicrogons } from '../../lib/WalletForArgon.ts';
 const props = withDefaults(
   defineProps<{
     class?: string;
-    walletType?: WalletType.miningHold | WalletType.vaulting;
+    walletType?: WalletType.defaultArgon;
     moveFrom?: MoveFrom;
     showInputMenus?: boolean;
     moveTo?: MoveTo;
@@ -215,9 +213,7 @@ const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 const miningBreakdown = useMiningAssetBreakdown();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
-const moveFrom = Vue.ref(
-  props.moveFrom || (props.walletType === WalletType.vaulting ? MoveFrom.VaultingHold : MoveFrom.MiningHold),
-);
+const moveFrom = Vue.ref(props.moveFrom || MoveFrom.DefaultArgon);
 const moveToken = Vue.ref(props.moveToken);
 const amountToMove = Vue.ref<bigint>(0n);
 const isMoveToPinned = Vue.ref(false);
@@ -245,23 +241,17 @@ const hasTokensToMove = Vue.computed(() => {
 const maxAmountToMove = Vue.computed(() => {
   let max = 0n;
 
-  if (moveFrom.value === MoveFrom.MiningHold) {
+  if (moveFrom.value === MoveFrom.DefaultArgon) {
     if (moveToken.value === MoveToken.ARGN) {
-      max = wallets.miningHoldSpendableMicrogons;
+      max = wallets.defaultArgonSpendableMicrogons;
     } else if (moveToken.value === MoveToken.ARGNOT) {
-      max = wallets.miningHoldWallet.availableMicronots;
+      max = wallets.defaultArgonWallet.availableMicronots;
     }
   } else if (moveFrom.value === MoveFrom.MiningBot) {
     if (moveToken.value === MoveToken.ARGN) {
       max = miningBreakdown.auctionMicrogonsUnused;
     } else if (moveToken.value === MoveToken.ARGNOT) {
       max = miningBreakdown.auctionMicronotsUnused;
-    }
-  } else if (moveFrom.value === MoveFrom.VaultingHold) {
-    if (moveToken.value === MoveToken.ARGN) {
-      max = vaultingBreakdown.sidelinedMicrogons;
-    } else if (moveToken.value === MoveToken.ARGNOT) {
-      max = vaultingBreakdown.sidelinedMicronots;
     }
   } else if (moveFrom.value === MoveFrom.VaultingSecurity) {
     if (moveToken.value === MoveToken.ARGN) {
@@ -283,16 +273,13 @@ const moveFromWalletType = Vue.computed(() => {
 });
 
 const moveFromOptions = Vue.computed(() => {
-  if ([WalletType.miningHold, WalletType.miningBot].includes(moveFromWalletType.value)) {
+  if (moveFromWalletType.value === WalletType.defaultArgon || moveFromWalletType.value === WalletType.miningBot) {
     return [
-      { name: 'Inflation-Free Savings', value: MoveFrom.MiningHold },
+      { name: 'Inflation-Free Savings', value: MoveFrom.DefaultArgon },
       { name: 'Mining Bids', value: MoveFrom.MiningBot },
     ];
-  } else if (moveFromWalletType.value === WalletType.vaulting) {
-    return [
-      { name: 'Inflation-Free Savings', value: MoveFrom.VaultingHold },
-      { name: 'Bitcoin Security', value: MoveFrom.VaultingSecurity },
-    ];
+  } else if (moveFromWalletType.value === 'vaulting') {
+    return [{ name: 'Bitcoin Security', value: MoveFrom.VaultingSecurity }];
   }
   return [];
 });
@@ -310,12 +297,7 @@ const moveTokenOptions = Vue.computed(() => {
     return [{ name: MoveToken.ARGN, value: MoveToken.ARGN }];
   }
 
-  const hasArgonots = [
-    MoveFrom.MiningHold,
-    MoveFrom.MiningBot,
-    MoveFrom.VaultingHold,
-    MoveFrom.VaultingSecurity,
-  ].includes(moveFrom.value);
+  const hasArgonots = [MoveFrom.DefaultArgon, MoveFrom.MiningBot, MoveFrom.VaultingSecurity].includes(moveFrom.value);
   const options = [{ name: MoveToken.ARGN, value: MoveToken.ARGN }];
   if (hasArgonots) {
     options.push({ name: MoveToken.ARGNOT, value: MoveToken.ARGNOT });
@@ -326,20 +308,17 @@ const moveTokenOptions = Vue.computed(() => {
 function getMoveToOptions(moveFromValue: MoveFrom) {
   const options = [];
   const walletFrom = moveCapital.getWalletTypeFromMove(moveFromValue);
-  if (walletFrom === WalletType.miningHold) {
+  if (walletFrom === WalletType.defaultArgon) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
-  } else if (walletFrom === WalletType.miningBot) {
-    options.push({ name: 'Inflation-Free Savings', value: MoveTo.MiningHold });
-  } else if (moveFromValue === MoveFrom.VaultingHold) {
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
+  } else if (walletFrom === WalletType.miningBot) {
+    options.push({ name: 'Inflation-Free Savings', value: MoveTo.DefaultArgon });
   } else if (moveFromValue === MoveFrom.VaultingSecurity) {
-    options.push({ name: 'Inflation-Free Savings', value: MoveTo.VaultingHold });
+    options.push({ name: 'Inflation-Free Savings', value: MoveTo.DefaultArgon });
   }
 
-  if (walletFrom !== WalletType.miningHold && walletFrom !== WalletType.miningBot) {
-    options.push({ name: 'Mining Account', value: MoveTo.MiningHold, divider: true });
-  } else if ([WalletType.miningHold, WalletType.miningBot].includes(walletFrom)) {
-    options.push({ name: 'Vaulting Account', value: MoveTo.VaultingHold });
+  if (walletFrom !== WalletType.defaultArgon && walletFrom !== WalletType.miningBot) {
+    options.push({ name: 'Argon Wallet', value: MoveTo.DefaultArgon, divider: true });
   }
 
   options.push({ name: 'External Account', value: MoveTo.External });
@@ -375,12 +354,12 @@ const moveTo = Vue.ref<MoveTo>(props.moveTo ?? moveToOptions.value[0].value);
 function getWalletFrom(): IWallet {
   const walletType = moveCapital.getWalletTypeFromMove(moveFrom.value);
   switch (walletType) {
-    case WalletType.miningHold:
-      return wallets.miningHoldWallet;
+    case WalletType.defaultArgon:
+      return wallets.defaultArgonWallet;
     case WalletType.miningBot:
       return wallets.miningBotWallet;
-    case WalletType.vaulting:
-      return wallets.vaultingWallet;
+    case 'vaulting':
+      return wallets.defaultArgonWallet;
     default:
       throw new Error(`WalletType not known: ${walletType}`);
   }
@@ -388,12 +367,25 @@ function getWalletFrom(): IWallet {
 
 function getToAddress() {
   return {
-    [MoveTo.MiningHold]: wallets.miningHoldWallet.address,
+    [MoveTo.DefaultArgon]: wallets.defaultArgonWallet.address,
     [MoveTo.MiningBot]: wallets.miningBotWallet.address,
-    [MoveTo.VaultingHold]: wallets.vaultingWallet.address,
-    [MoveTo.VaultingSecurity]: wallets.vaultingWallet.address,
-    [MoveTo.External]: externalAddress.value || wallets.vaultingWallet.address,
+    [MoveTo.VaultingSecurity]: wallets.defaultArgonWallet.address,
+    [MoveTo.External]: externalAddress.value || wallets.defaultArgonWallet.address,
   }[moveTo.value];
+}
+
+function normalizeMoveTo(moveTo: ITransactionMoveMetadata['moveTo']): MoveTo {
+  if (isDefaultArgonMoveTo(moveTo)) {
+    return MoveTo.DefaultArgon;
+  }
+  return moveTo;
+}
+
+function normalizeMoveFrom(moveFrom: ITransactionMoveMetadata['moveFrom']): MoveFrom {
+  if (isDefaultArgonMoveFrom(moveFrom)) {
+    return MoveFrom.DefaultArgon;
+  }
+  return moveFrom;
 }
 
 async function updatedAmountToMove(microgons: bigint, tries = 3) {
@@ -557,8 +549,7 @@ Vue.watch(
     if (props.isOpen) {
       isLoaded.value = false;
       isMoveToPinned.value = false;
-      moveFrom.value =
-        props.moveFrom || (props.walletType === WalletType.vaulting ? MoveFrom.VaultingHold : MoveFrom.MiningHold);
+      moveFrom.value = props.moveFrom || MoveFrom.DefaultArgon;
       moveTo.value = props.moveTo ?? moveToOptions.value[0].value;
       if (!moveToOptions.value.some(option => option.value === moveTo.value)) {
         moveTo.value = moveToOptions.value[0].value;
@@ -597,14 +588,14 @@ Vue.onMounted(async () => {
       txInfo.tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation;
     if (
       isMoveTx &&
-      txInfo.tx.metadataJson.moveFrom === moveFrom.value &&
+      normalizeMoveFrom(txInfo.tx.metadataJson.moveFrom) === moveFrom.value &&
       txInfo.tx.metadataJson.assetsToMove?.[props.moveToken] > 0n
     ) {
       const metdata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
       pendingTxInfo.value = txInfo;
       isProcessing.value = true;
       amountToMove.value = metdata.assetsToMove[MoveToken.ARGN] ?? metdata.assetsToMove[MoveToken.ARGNOT] ?? 0n;
-      moveTo.value = metdata.moveTo;
+      moveTo.value = normalizeMoveTo(metdata.moveTo);
       externalAddress.value = metdata.externalAddress || '';
       checkExternalAddress();
       console.log('Resuming pending transfer: %o', txInfo);

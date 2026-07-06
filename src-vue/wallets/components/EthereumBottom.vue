@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-5 flex flex-col gap-4">
+  <div class="flex flex-col gap-4">
     <div
       v-if="hasBaseAlert || baseWallet.fetchErrorMsg"
       class="text-md flex flex-row items-start gap-x-3 rounded-lg border border-amber-300 bg-amber-50 p-2 leading-6"
@@ -15,12 +15,11 @@
 
     <!--    <p class="font-light">The following is a list of your non-argon tokens.</p>-->
 
-    <div class="py-1">
+    <div class="pb-1">
+      <OtherTokens :tokens="ethereumWallet.otherTokens" />
       <p v-if="ethereumWallet.fetchErrorMsg" class="mt-3 text-sm leading-6 text-red-600">
         {{ ethereumWallet.fetchErrorMsg }}
       </p>
-
-      <OtherTokens :tokens="ethereumWallet.otherTokens" />
     </div>
   </div>
 </template>

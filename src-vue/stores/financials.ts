@@ -105,7 +105,7 @@ export const useFinancials = defineStore('financials', () => {
   const savingsIsLoaded = Vue.ref(false);
 
   function loadSavings() {
-    savingsTotalReadyToUse.value = wallets.investmentWallet.availableMicrogons;
+    savingsTotalReadyToUse.value = wallets.defaultArgonWallet.availableMicrogons;
 
     const savingsReturnBn = BigNumber(currency.usdTarget - 1)
       .dividedBy(1)
@@ -121,7 +121,7 @@ export const useFinancials = defineStore('financials', () => {
     savingsIsLoaded.value = true;
   }
 
-  Vue.watch([wallets.investmentWallet], () => {
+  Vue.watch([wallets.defaultArgonWallet], () => {
     loadSavings();
   });
 

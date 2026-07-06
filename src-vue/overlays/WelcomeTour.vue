@@ -21,13 +21,14 @@ import TourStepThree from './welcome-tour/StepThree.vue';
 import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
 import { getConfig } from '../stores/config.ts';
-import { useOperationsController, TopTab } from '../stores/operationsController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 
 const controller = useOperationsController();
 const config = getConfig();
 const tour = useTour();
 
-const startingTab = controller.selectedTab;
+const startingTab = controller.selectedTab ?? TopTab.Wallets;
 
 const stepVars = Vue.ref({});
 const tourPos = Vue.ref<ITourPos>({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
@@ -64,11 +65,11 @@ async function loadStep(step: number) {
   if (step === 6) {
     step = 0;
   } else if (step === 1) {
-    controller.setScreenKey(TopTab.MiningOperations);
+    controller.setTab(TopTab.MiningOperations);
   } else if (step === 2) {
-    controller.setScreenKey(TopTab.VaultingOperations);
+    controller.setTab(TopTab.VaultingOperations);
   } else if (step === 5) {
-    controller.setScreenKey(TopTab.Wallets);
+    controller.setTab(TopTab.Wallets);
   }
 
   tour.currentStep = step;
@@ -79,7 +80,7 @@ async function loadStep(step: number) {
 
 function cancelTour() {
   tour.currentStep = 0;
-  controller.setScreenKey(startingTab);
+  controller.setTab(startingTab);
 }
 
 let interval: any = null;

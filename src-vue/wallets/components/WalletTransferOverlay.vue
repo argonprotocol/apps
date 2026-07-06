@@ -634,12 +634,8 @@ function formatTokenAmount(value: bigint) {
 
 function getArgonWalletLabel(walletType?: IArgonWalletType) {
   switch (walletType) {
-    case 'investment':
+    case 'defaultArgon':
       return 'Argon wallet';
-    case 'miningHold':
-      return 'Mining wallet';
-    case 'vaulting':
-      return 'Vaulting wallet';
     default:
       return 'selected wallet';
   }

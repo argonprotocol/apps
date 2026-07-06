@@ -77,7 +77,7 @@ export default new OperationalFlow<IVaultingFlowContext, IFundingState>(import.m
         flow,
         flowName,
         input: {
-          targetWalletType: WalletType.vaulting,
+          targetWalletType: WalletType.defaultArgon,
           extraMicrogons: input.extraFundingArgons ?? undefined,
         },
       },

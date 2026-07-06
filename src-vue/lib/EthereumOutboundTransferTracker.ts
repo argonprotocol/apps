@@ -1409,14 +1409,17 @@ function getSourceWalletTypeForAddress(
   walletKeys: WalletKeys,
   argonSourceAddress: string,
 ): IArgonWalletType | undefined {
-  if (argonSourceAddress === walletKeys.investmentAddress) {
-    return WalletType.investment;
+  if (argonSourceAddress === walletKeys.defaultArgonAddress) {
+    return WalletType.defaultArgon;
   }
-  if (argonSourceAddress === walletKeys.miningHoldAddress) {
-    return WalletType.miningHold;
+  if (argonSourceAddress === walletKeys.defaultArgonAddress) {
+    return WalletType.defaultArgon;
+  }
+  if (argonSourceAddress === walletKeys.defaultArgonAddress) {
+    return WalletType.defaultArgon;
   }
   if (argonSourceAddress === walletKeys.vaultingAddress) {
-    return WalletType.vaulting;
+    return WalletType.defaultArgon;
   }
 }
 

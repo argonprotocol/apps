@@ -2,7 +2,10 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex h-full flex-col">
     <div class="flex h-full grow flex-col justify-stretch gap-y-2 px-2.5 py-2.5">
-      <section StatsBox box class="flex grow flex-col justify-center px-2 !pb-0">
+      <section StatsBox box class="flex grow flex-col justify-center px-2 !pb-0 h-1/2">
+
+      </section>
+      <section StatsBox box class="flex grow flex-col justify-center px-2 !pb-0 h-1/2">
         <header
           class="relative mx-1 mt-5 flex flex-row items-start justify-stretch px-12 text-[20px] font-bold text-slate-900/80 uppercase">
           <div class="relative top-5 mr-2 h-5 w-3 bg-slate-600/16">
@@ -365,7 +368,8 @@ import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { TooltipProvider } from 'reka-ui';
-import { TopTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
@@ -394,7 +398,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import AssetMenu from './components/AssetMenu.vue';
 import { WalletType } from '../lib/Wallet.ts';
-import CopyAddressMenu from './components/CopyAddressMenu.vue';
+import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { usePortfolio } from '../stores/portfolio.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
@@ -508,13 +512,13 @@ function mouseoutCurrencyKey() {
 }
 
 function setupVault() {
-  controller.setScreenKey(TopTab.VaultingOperations);
+  controller.setTab(TopTab.VaultingOperations);
   controller.backButtonTriggersHome = true;
   config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 function setupMining() {
-  controller.setScreenKey(TopTab.MiningOperations);
+  controller.setTab(TopTab.MiningOperations);
   controller.backButtonTriggersHome = true;
   config.miningSetupStatus = MiningSetupStatus.Checklist;
 }

@@ -223,7 +223,7 @@ async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
       const transferState = tracker.getTransferStateForToken(args.moveToken);
 
       return {
-        availableMicrogons: refs.wallets.vaultingWallet.availableMicrogons.toString(),
+        availableMicrogons: refs.wallets.defaultArgonWallet.availableMicrogons.toString(),
         amount: transferState.amount?.toString() ?? '0',
         progressPct: transferState.progress.overallProgressPct,
         currentStepLabel: transferState.progress.currentStepLabel,
@@ -275,13 +275,13 @@ async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
 
 async function openVaultingWalletOverlay(flow: IVaultingFlowContext['flow']) {
   await flow.queryApp(
-    (refs, args: { walletType: WalletType.vaulting }) => {
+    (refs, args: { walletType: WalletType.defaultArgon }) => {
       refs.openWalletOverlay(args.walletType);
       return true;
     },
     {
       args: {
-        walletType: WalletType.vaulting,
+        walletType: WalletType.defaultArgon,
       },
       timeoutMs: 15_000,
     },

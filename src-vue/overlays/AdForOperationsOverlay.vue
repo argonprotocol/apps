@@ -1,5 +1,5 @@
 <template>
-  <div v-if="config.showOperationsExtension" class="space-y-3 pr-10 pl-5">
+  <div v-if="config.hasExtensionOperations" class="space-y-3 pr-10 pl-5">
     <p>This is your home base for mining and vaulting on the Argon network. No prior crypto experience required.</p>
     <p>
       <strong class="font-bold">Mining</strong>

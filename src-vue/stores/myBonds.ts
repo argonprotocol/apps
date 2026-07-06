@@ -125,7 +125,7 @@ export const useMyBonds = defineStore('myBonds', () => {
   }
 
   async function getOwnBondLots(client: ArgonQueryClient): Promise<BondLot[]> {
-    const accountId = walletKeys.investmentAddress;
+    const accountId = walletKeys.defaultArgonAddress;
     const accountLots = await TreasuryBonds.getBondLotsByAccount(client, accountId);
     if (accountLots.length || !config.upstreamOperator?.vaultId) {
       return accountLots.filter(lot => lot.isOwn);

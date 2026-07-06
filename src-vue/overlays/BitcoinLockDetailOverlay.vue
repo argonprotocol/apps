@@ -9,7 +9,7 @@
     <template #title>
       <div class="mr-6 flex grow flex-row items-center gap-2">
         <span class="text-xl font-bold text-slate-800/80">Bitcoin Lock Details</span>
-        <template v-if="config.showOperationsExtension">
+        <template v-if="config.hasExtensionOperations">
           <span
             v-if="isLocalLock"
             class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white"

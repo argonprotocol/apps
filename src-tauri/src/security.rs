@@ -43,7 +43,6 @@ pub struct Security {
     pub mining_hold_address: String,
     pub mining_bot_address: String,
     pub vaulting_address: String,
-    pub investment_address: String,
     pub operational_address: String,
     pub ethereum_address: String,
     pub ethereum_hd_prefixes: EthereumHdPrefixes,
@@ -162,6 +161,16 @@ impl Security {
             .decrypt(nonce, &data[12..])
             .map_err(|e| anyhow::anyhow!("Decryption failed: {e}"))?;
         Ok(String::from_utf8(plaintext)?)
+    }
+
+    pub fn encrypt_wallet_secret(app: &AppHandle, plaintext: &str) -> Result<String> {
+        let key = Self::encryption_key(app)?;
+        Self::encrypt_mnemonic(&key, plaintext)
+    }
+
+    pub fn decrypt_wallet_secret(app: &AppHandle, encrypted_secret: &str) -> Result<String> {
+        let key = Self::encryption_key(app)?;
+        Self::decrypt_mnemonic(&key, encrypted_secret)
     }
 
     pub fn expose_mnemonic(app: &AppHandle) -> Result<String> {
@@ -442,7 +451,6 @@ impl Security {
         let mining_hold_account = Self::sr_derive_from_mnemonic(mnemonic, "//holding")?; // If we had a do-over, it would be called mining
         let mining_bot_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?; // If we had a do-over, it would be called miningBot
         let vaulting_account = Self::sr_derive_from_mnemonic(mnemonic, "//vaulting")?;
-        let investment_account = Self::sr_derive_from_mnemonic(mnemonic, "//investment")?;
         let operational_account = Self::sr_derive_from_mnemonic(mnemonic, "//operational")?;
         let ethereum_hd_prefixes = default_ethereum_hd_prefixes();
         let ethereum_address = Self::derive_ethereum_address(
@@ -454,7 +462,6 @@ impl Security {
             mining_hold_address: mining_hold_account.0.public().to_ss58check(),
             mining_bot_address: mining_bot_account.0.public().to_ss58check(),
             vaulting_address: vaulting_account.0.public().to_ss58check(),
-            investment_address: investment_account.0.public().to_ss58check(),
             operational_address: operational_account.0.public().to_ss58check(),
             ethereum_address,
             ethereum_hd_prefixes,

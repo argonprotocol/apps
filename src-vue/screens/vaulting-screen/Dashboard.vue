@@ -79,8 +79,6 @@
 <!--        <div box class="flex flex-col w-[22.5%] px-2">-->
 <!--          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">-->
 <!--            <div class="grow">Vaulting Assets</div>-->
-<!--            <CopyAddressMenu :walletType="WalletType.vaulting" class="mr-1" />-->
-<!--            <AssetMenu :walletType="WalletType.vaulting" />-->
 <!--          </header>-->
 <!--          <VaultingAssetBreakdown />-->
 <!--          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">-->
@@ -306,7 +304,7 @@ import RoiIcon from '../../assets/roi.svg';
 import ProjectionsIcon from '../../assets/rocket.svg';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import CopyAddressMenu from '../components/CopyAddressMenu.vue';
+import CopyAddressMenu from '../../components/CopyAddressMenu.vue';
 import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
@@ -314,7 +312,8 @@ import { getBondMarket } from '../../stores/myBonds.ts';
 import type { IVaultBondState } from '../../lib/BondMarket.ts';
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { OperationalStepId, TopTab, useOperationsController } from '../../stores/operationsController.ts';
+import { TopTab } from '../../interfaces/IConfig.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);

@@ -276,12 +276,14 @@ export class EthereumInboundTransferTracker {
   private async runResumeTrackedMove(record: ICrosschainInboundTransferRecord, moveToken: IEthereumMoveToken) {
     const transfer = this.trackTransfer(record.id, moveToken);
     let targetWalletType: IArgonWalletType | undefined;
-    if (record.argonDestinationAddress === this.walletKeys.investmentAddress) {
-      targetWalletType = WalletType.investment;
-    } else if (record.argonDestinationAddress === this.walletKeys.miningHoldAddress) {
-      targetWalletType = WalletType.miningHold;
+    if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
+      targetWalletType = WalletType.defaultArgon;
+    } else if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
+      targetWalletType = WalletType.defaultArgon;
+    } else if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
+      targetWalletType = WalletType.defaultArgon;
     } else if (record.argonDestinationAddress === this.walletKeys.vaultingAddress) {
-      targetWalletType = WalletType.vaulting;
+      targetWalletType = WalletType.defaultArgon;
     }
     transfer.persistedRecord = record;
     if (!targetWalletType) {

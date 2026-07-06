@@ -6,7 +6,15 @@ export class InvokeTimeout extends Error {
   }
 }
 
-const SENSITIVE_COMMANDS = new Set(['overwrite_mnemonic']);
+const SENSITIVE_COMMANDS = new Set([
+  'overwrite_mnemonic',
+  'encrypt_wallet_secret',
+  'derive_external_ethereum_addresses',
+  'derive_external_ethereum_address_from_private_key',
+  'sign_external_ethereum_personal_message',
+  'sign_external_ethereum_permit',
+  'sign_external_ethereum_transaction',
+]);
 
 export async function invokeWithTimeout<T>(cmd: string, args: Record<string, any>, timeoutMs: number): Promise<T> {
   const timeout = new Promise<never>((_, reject) =>

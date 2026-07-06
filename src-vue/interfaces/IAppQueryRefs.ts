@@ -16,9 +16,7 @@ export interface IAppQueryRefs {
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;
   getMainchainClient(needsHistoricalAccess: boolean): Promise<ArgonClient>;
-  openWalletOverlay(
-    walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum,
-  ): void;
+  openWalletOverlay(walletType: WalletType.defaultArgon | WalletType.ethereum): void;
 }
 
 export type IAppQueryFn<TResult = unknown, TArgs extends Record<string, unknown> = Record<string, never>> = (

@@ -29,7 +29,7 @@
         @update:model-value="setNavigationMenuValue"
       >
         <NavigationMenuList
-          class="relative flex flex-row items-center space-x-2"
+          class="relative top-px flex flex-row items-center space-x-2"
           @mouseenter="clearNavigationMenuClose"
         >
           <!--<div-->

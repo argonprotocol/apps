@@ -28,6 +28,7 @@ import {
   IBlockHeaderInfo,
   IDeferred,
   IVaultStats,
+  isDefaultArgonMoveTo,
   minimumVaultDelegateBalance,
   MiningFrames,
   MoveFrom,
@@ -1180,7 +1181,7 @@ export class MyVault {
       await this.trackTxResultFee(txResult);
 
       const revenue = await this.getCollectedAmount(txInfo);
-      if (txInfo.tx.metadataJson.moveTo === MoveTo.MiningHold && revenue && revenue > 0n) {
+      if (isDefaultArgonMoveTo(txInfo.tx.metadataJson.moveTo) && revenue && revenue > 0n) {
         const txSigner = await this.walletKeys.getVaultingKeypair();
         const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
         try {
@@ -1201,11 +1202,11 @@ export class MyVault {
           }
 
           const transferTxInfo = await this.#transactionTracker.submitAndWatch({
-            tx: client.tx.balances.transferKeepAlive(this.walletKeys.miningHoldAddress, amountToMove),
+            tx: client.tx.balances.transferKeepAlive(this.walletKeys.defaultArgonAddress, amountToMove),
             txSigner,
             extrinsicType: ExtrinsicType.Transfer,
             metadata: {
-              moveFrom: MoveFrom.VaultingHold,
+              moveFrom: MoveFrom.DefaultArgon,
               moveTo: txInfo.tx.metadataJson.moveTo,
               amount: amountToMove,
             },
